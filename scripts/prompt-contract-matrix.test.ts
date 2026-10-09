@@ -34,7 +34,9 @@ import {
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
-import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { PACK_HEADINGS, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
+import { LISTING_MAX_DO_NOT_REWRITE } from "@contexts/generation/domain/suite-listing.ts";
+import { leftOutLine } from "@contexts/generation/domain/suite-listing-render.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 
@@ -251,6 +253,81 @@ test("the redirect shape is really assembled: the pack lists the page a redirect
   assert.ok(sectionOf(redirected, PACK_HEADINGS.redirected).includes("textbox: Password"), "the page the redirect reached is in its own section");
   assert.equal(sectionOf(redirected, PACK_HEADINGS.liveDom).includes("textbox: Password"), false, "and not under the live DOM");
   assert.equal((await packOf(base)).includes(PACK_HEADINGS.redirected), false, "a pack with no redirect has no such section");
+});
+
+/* ── the suite is listed, or the run has nothing to list ── */
+
+const noSuiteSpecs = (): CellSpec[] => allValidSpecs().filter((s) => s.suite === "none");
+
+test("a run lists its suite or lists none, and a run with nothing to list is a narrow shape: no optional block, any phase, target, grounding and tree", () => {
+  assert.deepEqual([...DIMENSIONS.suite].sort(), ["listed", "none"]);
+  const specs = noSuiteSpecs();
+  assert.ok(specs.length > 0 && specs.length < allValidSpecs().filter((s) => s.suite === "listed").length / 10, "a few hundred shapes, not a second copy of the cross product");
+  assert.ok(specs.every((s) => !s.contextMap && !s.authSeedUnauthored && !s.serviceLinks && !s.harnessFacts && !s.service && !s.packRedirect));
+  assert.ok(specs.every((s) => s.mode === "diff" || s.mode === "manual" || s.phase !== "first"), "a complete, exhaustive or context first pass lists no suite either way, so it has the listed shape alone");
+  assert.deepEqual([...new Set(specs.map((s) => s.phase))].sort(), [...DIMENSIONS.phase].sort(), "a first pass and every regeneration phase");
+  assert.deepEqual([...new Set(specs.map((s) => s.target))].sort(), [...DIMENSIONS.target].sort());
+});
+
+test("a combination with nothing to list is named and budgeted apart from the one that lists, so neither shape hides in the other's budget", () => {
+  const none = noSuiteSpecs()[0]!;
+  const twin = { ...none, suite: "listed" as const };
+  assert.ok(isValidSpec(twin), "setup: the shape has a listed twin");
+  assert.notEqual(cellName(none), cellName(twin));
+  assert.notEqual(bucketOf(none), bucketOf(twin));
+  assert.notEqual(bucketOf(none, true), bucketOf(twin, true));
+});
+
+test("a diff first pass with no listing and a regeneration with no carried specs are in the matrix, and are really built without them", async () => {
+  const diffFirst = noSuiteSpecs().find((s) => s.mode === "diff" && s.phase === "first")!;
+  const regen = noSuiteSpecs().find((s) => s.phase !== "first")!;
+  assert.ok(diffFirst && regen);
+  for (const spec of [diffFirst, regen]) {
+    const input = await buildInput(spec);
+    assert.equal(input.existingSpecFiles, undefined, `${cellName(spec)}: no suite lines`);
+    assert.equal(input.deliveredSpecs, undefined, `${cellName(spec)}: no delivered specs`);
+  }
+  const listed = { ...regen, suite: "listed" as const };
+  assert.ok(isValidSpec(listed));
+  const carried = await buildInput(listed);
+  assert.ok((carried.deliveredSpecs ?? []).length > 0, "its listed twin carries the specs the run delivered");
+  assert.notEqual(cellName(listed), cellName(regen), "the two are different cells");
+});
+
+test("the suite shapes are really assembled: a listing is a provider of the suite and a missing one sends the first pass to read it", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  const base = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "first" && s.suite === "listed" && s.grounding === "none" && s.structuralSignal === "none" && !s.contextMap)!;
+  const claimsOf = async (s: CellSpec) => buildPromptAssembled(await buildInput(s), { budgetBytes: 0 }).claims;
+  const providers = (claims: Awaited<ReturnType<typeof claimsOf>>) => Object.entries(claims).filter(([, list]) => list.some((c) => c.kind === "provides" && c.fact === "existing-suite")).map(([id]) => id);
+  const readsSuite = (claims: Awaited<ReturnType<typeof claimsOf>>) => Object.values(claims).flat().some((c) => c.kind === "directs" && c.action === "read" && c.target === "existing-suite");
+
+  const listed = await claimsOf(base);
+  assert.deepEqual(providers(listed), ["existing-suite-manifest"]);
+  assert.equal(readsSuite(listed), false);
+  const none = await claimsOf({ ...base, suite: "none" });
+  assert.deepEqual(providers(none), []);
+  assert.equal(readsSuite(none), true, "with no listing the first pass reads the suite itself");
+});
+
+test("a regeneration that carries the run's specs lists them under the labels of the turn's work, with the delivered specs refreshing the suite's own line", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) {
+    const spec = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === phase && s.suite === "listed" && s.grounding === "none" && s.tree === "none" && s.structuralSignal === "none" && !s.contextMap && !s.service)!;
+    const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
+    assert.ok(section, `${phase}: the listing is in the prompt`);
+    assert.ok(section.text.includes(SUITE_LISTING_LABELS.editable), `${phase}: there is a spec to change`);
+    assert.equal(section.text.split("\n").filter((line) => line.includes("flows/cart.spec.ts")).length, 1, `${phase}: the suite's line and the run's delivery of the same file are one entry`);
+  }
+});
+
+test("an exhaustive regeneration carries more of the run's specs than the listing shows of those it leaves alone, and says how many it left out", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  const spec = allValidSpecs().find((s) => s.mode === "exhaustive" && s.target === "e2e" && s.phase === "regen-fix" && s.suite === "listed" && s.grounding === "none" && s.tree === "none")!;
+  const section = splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
+  const delivered = (await buildInput(spec)).deliveredSpecs ?? [];
+  assert.ok(delivered.length - 1 > LISTING_MAX_DO_NOT_REWRITE, "more specs are left alone than the listing can show");
+  assert.ok(section.text.split("\n").includes(leftOutLine(delivered.length - 1 - LISTING_MAX_DO_NOT_REWRITE)), "the count left out is stated");
+  assert.equal(section.text.split(SUITE_LISTING_LABELS.doNotRewrite).length, 2);
 });
 
 test("cells with harness facts carry the facts-only section, linted as data with no directive or framing", async () => {

@@ -184,7 +184,7 @@ test("the login-evidence preset mutates the classifier, the scrubber and the not
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
-test("the prompt-contract preset mutates the lint, the regeneration predicate, the diff size, the harness-facts scan and its reader, and the step milestone, against their own tests and a sample of the matrix", () => {
+test("the prompt-contract preset mutates the lint, the regeneration predicate, the diff size, the harness-facts scan and its reader, the step milestone and the way a listing is written, against their own tests and a sample of the matrix", () => {
   const preset = PRESETS["prompt-contract"];
   assert.ok(preset, "the prompt-contract preset exists");
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
@@ -193,6 +193,7 @@ test("the prompt-contract preset mutates the lint, the regeneration predicate, t
     "qa-engine/src/contexts/generation/domain/diff-stat.ts",
     "qa-engine/src/contexts/generation/domain/harness-facts.ts",
     "qa-engine/src/contexts/generation/domain/step-limit.ts",
+    "qa-engine/src/contexts/generation/domain/suite-listing-render.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
   ]);
   for (const module of ["prompt-contract-lint", "regen-turn", "diff-stat", "harness-facts"]) {
@@ -202,6 +203,8 @@ test("the prompt-contract preset mutates the lint, the regeneration predicate, t
   for (const tests of [
     "qa-engine/test/contexts/generation/domain/step-limit.test.ts",
     "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.step-limit.test.ts",
+    "qa-engine/test/contexts/generation/domain/suite-listing-render.test.ts",
+    "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.listing.test.ts",
   ]) {
     assert.ok(preset.tests.includes(tests), `${tests} runs against every mutant`);
   }
@@ -250,7 +253,7 @@ test("the route-capturability preset mutates the route classification, the pack'
   assert.equal(preset.thresholds.break, null, "the preset stays in signal mode");
 });
 
-test("the carry-forward preset mutates the spec path and the one fold, the declarations, the merge, the attribution, the suite's entry and its listing whole, and only the lines that wire them in the use case, the adapters, the checks, the FixLoop and the run, against their own tests", () => {
+test("the carry-forward preset mutates the spec path and the one fold, the declarations, the merge, the attribution, the suite's entry, its listing and the way it is written whole, and only the lines that wire them in the use case, the adapters, the checks, the FixLoop and the run, against their own tests", () => {
   const preset = PRESETS["carry-forward"];
   assert.ok(preset, "the carry-forward preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
@@ -261,6 +264,7 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
     "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/contradiction-attribution.ts",
     "qa-engine/src/contexts/generation/domain/suite-entry.ts",
     "qa-engine/src/contexts/generation/domain/suite-listing.ts",
+    "qa-engine/src/contexts/generation/domain/suite-listing-render.ts",
     "qa-engine/src/contexts/generation/application/generate-tests.use-case.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
@@ -269,7 +273,7 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
     "qa-engine/src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",
     "qa-engine/src/contexts/qa-run-orchestration/application/run-qa.use-case.ts",
   ]);
-  for (const whole of ["spec-path", "delivered-spec", "declared-specs", "delivered-specs", "contradiction-attribution", "suite-entry", "suite-listing"]) {
+  for (const whole of ["spec-path", "delivered-spec", "declared-specs", "delivered-specs", "contradiction-attribution", "suite-entry", "suite-listing", "suite-listing-render"]) {
     assert.ok(preset.mutate.some((entry) => sourcePathOf(entry) === entry && entry.endsWith(`/${whole}.ts`)), `${whole} is mutated whole, never narrowed to a range`);
   }
   for (const wired of ["generate-tests.use-case", "generation-port.adapter", "pre-generation-grounding-port.adapter", "selector-check", "pre-exec-grounding.service", "fix-loop.aggregate", "run-qa.use-case"]) {
@@ -290,6 +294,7 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
     "domain/fix-loop.aggregate.test.ts",
     "domain/suite-entry.test.ts",
     "domain/suite-listing.test.ts",
+    "domain/suite-listing-render.test.ts",
     "application/run-qa.carry-forward.test.ts",
     "bridges/generation-port.adapter.test.ts",
     "bridges/pre-generation-grounding-port.adapter.test.ts",

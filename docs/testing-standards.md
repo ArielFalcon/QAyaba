@@ -721,6 +721,49 @@ the sentence, is pinned by no test, and a non-null assertion for an optional cal
 equivalent (a stated limit never reaches the right of the `??`, and a prompt that states none has already met
 the condition that a reader exists).
 
+The prompts then learned to list the suite for a regeneration (2026-10-09, 3 workers, 835 mutants, 272 of them
+compile errors, 32 minutes 33 seconds): a regeneration's `existing-suite-manifest` section lists the specs the
+suite had and those the run delivered, in two groups under their labels, `Editable this turn (read a file before
+you change it):` with every spec the turn must change, never capped, and `Do NOT rewrite (flows already
+covered):` with the others, capped at the listing's 30 and ending in the count it left out; a turn with nothing
+editable keeps the plain list a first pass has always had, and every entry is the sanitized, one-line, capped text
+the listing hands out, the first pass's lines now included. The preset gained `suite-listing-render.ts`, which
+writes it, whole, with its own tests and the builder's listing tests; the matrix gained a `suite` dimension (a run
+lists its suite or has nothing to list, a narrow shape of 454 combinations, 19,900 in all, with a regeneration's
+fixtures now carrying the specs the run delivered and a failing case that names its file, and an exhaustive run's
+carrying more than the cap) and its sample a stride of 53, the next prime: 47 assembled 876 prompts against the 860
+a mutant run is sized for, which the bound test reported before the change. The question of the outcome and the
+rule against weakening a test, one sentence before, are two now: the rule is on every turn that writes tests,
+decided by the domain predicate, and the question only where the listing finds no supplied, undisputed objective
+(a first pass always asks, a code run's diff pass never has). The step of a fix that reads the test file went, the
+listing's label being the one place a regeneration is told to read what it changes, and the last step says to
+change only what is broken, the rule owning the rest. The preset: 556 killed, 2 timeouts, 5 survivors, the five
+fixtures-reader ones documented below, and none in the lint, in `step-limit.ts` or in the new module (29 killed,
+4 compile errors); the timeouts are two regular expressions of the harness-facts scan, which did not change. The
+builder's side is outside every preset (`prompts.ts` is in none), so it was broken by hand against its own
+tests, 69 mutants first and 68 after the fixes, run through `scripts/run-in-group.mjs` on a snapshot commit, each
+verdict logged as it landed:
+what the listing is handed (each signal dropped, the suite's lines in every mode, a context run building a
+listing), the sanitizer (identity, the issue mode for the model one), the editable test of the fix and its read
+step (never, always, inverted, dropped from each of the four branches), the second assembly (dropped, made with the
+listing's wording, made when the listing is kept), the wording of the task for a listing it may not have, the
+listing's role, priority, shed band and claim, the objective part (the asked rule decided always or never, a first
+pass asking in every run or in none, the heading, the question or the rule dropped, the claim dropped or declared
+for a turn that does not ask, the part missing from each of the five tasks) and the numbering of the steps; and, in
+the render module and the matrix script, the plain list capped or stripped of its note, the editable entries
+capped, the left-out count never or always written, the title counting the wrong set, the groups swapped, a run
+with nothing to list still carrying the suite's lines or the delivered specs, the shapes named or budgeted like
+the listed ones. Eight lived in the first pass: the attributed specs of a corrective regeneration (a test now
+builds that turn), the listing sent after the failure and shed ahead of it (a property over budgets now holds that
+the listing goes only after every volatile section, and a test its place before them), the check for a secret that
+survives the redaction (restructured away, since the sanitizer leaves none a detector finds), the three matrix
+mutants the harness's name filter did not select (its filter was widened, and a test now holds that the shapes are
+named and budgeted apart), and the predicate inside the objective part, which is the one that lives (below). The
+record was refused without a reason and taken with the owner's one; what it names is 2,051 budgets of the 2,322
+buckets that existed (1,708 raised in bytes or directives, 532 shrank, 82 unchanged) and the ceiling, which went
+from 9,542 to 9,763 bytes, and 908 buckets are new (the combinations with nothing to list, with and without a
+limit); no static layer moved, and the global ceiling is the same.
+
 route-capturability (2026-10-04, default workers) is a new preset over the pure classification of a route
 string (a template, free text, an interpolation or another host names no page a browser can open) and the
 lines of the context pack that filter the candidates before the capture slice, log and list what was left
@@ -899,6 +942,14 @@ without what the manifest holds, with the flow only or with the old template. Th
 two other presets down by the import it gained: the prompt-contract preset's grounding range is now `:122-171` and
 spec-path-confinement's `:86-117`.
 
+The preset then took in the way a listing is written into a prompt (2026-10-09, 2 workers, 447 mutants, 140 of them
+compile errors): `suite-listing-render.ts` whole, against its own tests. The first run killed 306 and left one
+survivor, the note that titles the plain list (`" — do NOT rewrite flows already covered here"` emptied). The tests
+built their expectations from the imported constant, as the standards ask, and the recorded budgets only notice
+growth, so nothing held the words a first pass has always sent. That is the one place where the wording is the
+contract, since a first pass must write its list as every run has, so a test now holds the plain list byte for byte.
+The re-run: 307 killed, no timeout, none survived, 100%.
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
@@ -919,9 +970,9 @@ spec-path-confinement's `:86-117`.
 | route-capturability | route-capturability, route-ranking (link fields, path matching, staged roots), the context pack's ranking call, candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 149 / 0 / 0 — 100% (100%) | — |
 | redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | 129 / 0 / 6 — 95.56% (95.56%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
-| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, step-limit, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 526 / 3 / 5 — 99.06% (98.5%) | — |
+| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, step-limit, suite-listing-render, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 556 / 2 / 5 — 99.11% (98.76%) | — |
 | step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits, the factory's per-run memo | 43 / 0 / 4 — 91.49% (91.49%) | 48 / 0 / 1 — 97.96% (97.96%) | — |
-| carry-forward | spec-path, delivered-spec (the fold), declared-specs, delivered-specs (the merge), contradiction-attribution, suite-entry, suite-listing, and the lines that wire them in the use case, the generation adapter, the checks that give each contradiction its origin, the FixLoop, the run and the grounding's fold of the suite | 109 / 2 / 8 — 93.28% (91.6%) | 278 / 0 / 0 — 100% (100%) | — |
+| carry-forward | spec-path, delivered-spec (the fold), declared-specs, delivered-specs (the merge), contradiction-attribution, suite-entry, suite-listing, suite-listing-render, and the lines that wire them in the use case, the generation adapter, the checks that give each contradiction its origin, the FixLoop, the run and the grounding's fold of the suite | 109 / 2 / 8 — 93.28% (91.6%) | 307 / 0 / 0 — 100% (100%) | — |
 
 ### Login discovery script (manual triangulation)
 
@@ -965,6 +1016,12 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   one is enough. With both removed the pipe test fails within a fraction of a second under the watch, where
   it used to hang. The preset was re-run after the flag (509 killed, 2 timeouts, 5 survivors): the look is
   the one mutant the flag changed, and it survives as listed here.
+
+**prompt-contract** (the objective part of a task in `prompts.ts`, broken by hand)
+- `objectivePart` — the guard `!isTestWritingTurn(input)` removed: no branch that uses the result is a turn that
+  writes no tests (a complete or exhaustive first pass returns before it reads the result), so the guard is the one
+  place the domain predicate decides and no input can trip it. A test holds the rule's count on every mode, target
+  and signal against the predicate itself.
 
 **redirect-advisory** (`route-catalog.ts`, `dom-snapshot.ts`, the split in `context-pack.ts`)
 - `splitRedirectSection` — the default of the first part of the split, `""` → another string

@@ -121,9 +121,9 @@ export interface OpencodeRunInput {
   reviewCorrections?: string[];
   coverageGap?: string;
   selectorContradictions?: string[];
-  /* Every spec the run has delivered so far whose file still exists, on a regeneration turn only: the lead's declared flow and objective where it declared them, a sidekick's spec by path alone. Absent on a first pass, and when none is left. Data for the suite listing; no prompt reads it yet. */
+  /* Every spec the run has delivered so far whose file still exists, on a regeneration turn only: the lead's declared flow and objective where it declared them, a sidekick's spec by path alone. Absent on a first pass, and when none is left. What an agent wrote, so the suite listing of the prompt sanitizes and caps it. */
   deliveredSpecs?: readonly DeliveredSpec[];
-  /* The existing suite files whose source holds a selector that one of `selectorContradictions` names, since a contradiction names no file itself. Absent when none could be attributed. */
+  /* The specs whose source raised one of `selectorContradictions`, since a contradiction names no file itself: the listing marks them editable. Absent when none could be attributed. */
   attributedSpecFiles?: readonly string[];
   /* Generator render of the retrieved rules: proven rules plus unproven candidates framed as hints. */
   learnedRules?: string;

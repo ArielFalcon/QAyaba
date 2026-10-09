@@ -27,6 +27,7 @@ import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/gener
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { ANTI_WEAKENING_RULE, OBJECTIVE_QUESTION } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 
 /* context.json is read from the WATCHED repo and committed by this system's own PRs, so it
    is attacker-influenceable. It must be sanitized before reaching the test-writing agent.
@@ -163,11 +164,12 @@ test("A' buildPrompt does NOT render the body on a re-generation pass (objective
   assert.doesNotMatch(buildPrompt(reGen), /first-pass-only body marker/);
 });
 
-test("B' buildPrompt (diff) states a concrete acceptance criterion tied to the change before writing", () => {
+test("B' buildPrompt (diff) states a concrete acceptance criterion tied to the change before writing, and the rule that a test is not weakened", () => {
   const p = buildPrompt(input);
   assert.match(p, /commit to this BEFORE writing/);
   assert.match(p, /observable OUTCOME/);
-  assert.match(p, /must fail if this specific behavior regresses/i);
+  assert.ok(p.includes(OBJECTIVE_QUESTION), "the question of the outcome");
+  assert.ok(p.includes(ANTI_WEAKENING_RULE), "the rule that a spec still fails if the behavior it covers regresses");
 });
 
 test("B' buildPrompt (manual) carries the SAME acceptance criterion — manual is a first-class focused path", () => {

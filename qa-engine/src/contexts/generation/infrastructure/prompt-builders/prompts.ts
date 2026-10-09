@@ -20,7 +20,9 @@ import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { claim, APP_LOGIN_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import { STEP_MILESTONE_SECTION_ID, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
+import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
+import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
+import { renderSuiteListing } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
@@ -94,11 +96,33 @@ function renderStepMilestone({ midpoint, outcomes }: StepMilestone): string {
   return `By step ${midpoint}: ${outcomes.map((outcome) => MILESTONE_OUTCOME_PHRASES[outcome]).join(", or ")}.`;
 }
 
-const ACCEPTANCE_CRITERION_RULE =
+/* What a turn that writes tests says about the outcome its tests assert. The question is asked where the turn has no supplied, undisputed objective to go by; the rule against weakening a test is stated on every turn that writes tests, whether or not the question is asked, and by no other section. */
+export const OBJECTIVE_HEADING = `## Objective — commit to this BEFORE writing`;
+
+export const OBJECTIVE_QUESTION =
   `Before writing, state in ONE line the concrete, user-observable OUTCOME this change introduces — ` +
   `the specific thing a user can see that proves it works (e.g. "the discounted total shows after the ` +
-  `cart re-queries"). Write the test to ASSERT that outcome, not merely that the flow runs: the spec ` +
-  `MUST fail if this specific behavior regresses.`;
+  `cart re-queries"). Write the test to ASSERT that outcome, not merely that the flow runs.`;
+
+export const ANTI_WEAKENING_RULE = `Preserve each test's objective and assertions: a spec MUST still fail if the behavior it covers regresses.`;
+
+/* The steps of a fix the builder words itself. The step that reads the test file is there only where the listing does not tell the agent to read the specs it changes. */
+export const FIX_STEPS = {
+  readTestFile: `Read the test file to understand what it asserts`,
+  readCodeUnderTest: `Read the code under test that the failure points at`,
+  changeOnlyWhatIsBroken: `Change only what is broken.`,
+} as const;
+
+/* The steps of a fix, numbered from one; a step may carry the lines under it. */
+const numbered = (steps: readonly string[]): string[] => steps.map((step, index) => `${index + 1}. ${step}`);
+
+/* The id of the section that lists the suite; it titles the section as well. */
+const SUITE_LISTING_SECTION_ID = PROMPT_HEADINGS.existingSuiteManifest;
+
+/* What the agent is told of the specs of the suite crosses the model boundary as free text an agent wrote, so each entry goes through the same redaction as any other model-bound text. */
+function sanitizeListingText(text: string): string {
+  return sanitizeText(text, "model").text;
+}
 
 /* THE single way to embed a commit diff into any prompt: capped FIRST (capDiff needs raw `diff --git` boundaries to split/rank files), then secret-scrubbed. Each section is redacted AND guarded (assertNoSecretLeak) independently, with that section's own mode. A diff with no file header at all (several unit-test fixtures pass raw, header-less snippets as `diff`) has no file to key a mode off, so the whole text keeps the prior "model" mode — unchanged for those callers. */
 const CODE_FILE_EXTENSIONS = new Set([
@@ -481,9 +505,25 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const archMapClaims: PromptClaim[] = archMap?.claims ?? [];
   const mapInjected = archMap !== null;
   const blastRadiusSupplied = Boolean(input.contextBrief?.blastRadius.length);
-  /* The specs that already exist are listed for a diff or a manual run; an empty list is no listing. */
-  const existingSuiteFiles = input.mode === "diff" || input.mode === "manual" ? (input.existingSpecFiles ?? []) : [];
-  const suiteListed = existingSuiteFiles.length > 0;
+  /* The suite as this turn knows it: the specs that already exist, listed for a diff or a manual run, and the specs this run has delivered, which only a regeneration carries; with, on a regeneration, the marks of the specs it must change. A prompt that lists no spec has no listing section. */
+  const listing = buildSuiteListing(
+    isGenerationMode
+      ? {
+          ...(input.mode === "diff" || input.mode === "manual" ? { existing: input.existingSpecFiles } : {}),
+          delivered: input.deliveredSpecs,
+          fixCases: input.fixCases,
+          reviewCorrections: input.reviewCorrections,
+          coverageGap: input.coverageGap,
+          selectorContradictions: input.selectorContradictions,
+          attributedSpecFiles: input.attributedSpecFiles,
+        }
+      : {},
+    { sanitize: sanitizeListingText },
+  );
+  const listingContent = renderSuiteListing(listing);
+  const suiteIsListed = listingContent !== "";
+  /* The listing tells the agent to read the specs it changes when it has some editable. */
+  const editableListed = listing.editable.length > 0;
 
   const briefShowsLandmarks = Boolean(input.contextBrief?.routes?.some((r) => r.domLandmarks?.length)) && !treeInPrompt;
   const contextBriefContent = input.contextBrief
@@ -571,6 +611,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     : [];
 
   const hasStaticGateCase = Boolean(input.fixCases?.some((c) => c.name === "static-gate"));
+  /* The listing tells the agent to read the specs it changes; where it does not, the fix reads the test file itself. */
+  const readTestStep = editableListed ? [] : [FIX_STEPS.readTestFile];
 
   const fixContent = input.fixCases?.length && isGenerationMode
     ? [
@@ -595,51 +637,67 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ...(hasFailureTree
           ? [
               `The captured a11y tree at the failure point is injected ABOVE as "${PROMPT_HEADINGS.groundTruthAtFailure}".`,
-              `1. Read the test file to understand what it asserts`,
-              `2. Consult ONLY that tree — do NOT navigate or snapshot the live page.`,
-              `   The tree above is the page AT THE FAILURE POINT, not the current live state.`,
-              `   ${GROUNDING_UNCOVERED_ESCAPE}`,
-              `3. Fix the ROOT CAUSE, guided by the error type:`,
-              `   - "strict mode violation" → scope the selector to a section first`,
-              `   - "locator.click: … not found" → the element doesn't exist; check role/label in that tree`,
-              `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
-              `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
-              `4. PRESERVE each test's objective and assertions — fix only what's broken`,
+              ...numbered([
+                ...readTestStep,
+                [
+                  `Consult ONLY that tree — do NOT navigate or snapshot the live page.`,
+                  `   The tree above is the page AT THE FAILURE POINT, not the current live state.`,
+                  `   ${GROUNDING_UNCOVERED_ESCAPE}`,
+                ].join("\n"),
+                [
+                  `Fix the ROOT CAUSE, guided by the error type:`,
+                  `   - "strict mode violation" → scope the selector to a section first`,
+                  `   - "locator.click: … not found" → the element doesn't exist; check role/label in that tree`,
+                  `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
+                  `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
+                ].join("\n"),
+                FIX_STEPS.changeOnlyWhatIsBroken,
+              ]),
             ]
           : treeInPrompt
           ? [
               `Fix from the injected grounding above (the DOM tree) — do NOT navigate to re-derive`,
               `a route it already covers; navigate ONLY a route absent from the injected grounding.`,
               GROUNDING_UNCOVERED_ESCAPE,
-              `1. Read the test file to understand what it asserts`,
-              `2. Resolve the failing selector/assertion against the injected grounding above`,
-              `3. Fix the ROOT CAUSE, guided by the error type:`,
-              `   - "strict mode violation" → scope the selector to a section first`,
-              `   - "locator.click: … not found" → the element doesn't exist; check role/label in the injected grounding`,
-              `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
-              `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
-              `4. PRESERVE each test's objective and assertions — fix only what's broken`,
+              ...numbered([
+                ...readTestStep,
+                `Resolve the failing selector/assertion against the injected grounding above`,
+                [
+                  `Fix the ROOT CAUSE, guided by the error type:`,
+                  `   - "strict mode violation" → scope the selector to a section first`,
+                  `   - "locator.click: … not found" → the element doesn't exist; check role/label in the injected grounding`,
+                  `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
+                  `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
+                ].join("\n"),
+                FIX_STEPS.changeOnlyWhatIsBroken,
+              ]),
             ]
           : isCode
           ? [
               `For each failure:`,
-              `1. Read the test file to understand what it asserts`,
-              `2. Read the code under test that the failure points at`,
-              `3. Fix the ROOT CAUSE: a wrong expectation, a wrong test double or setup, or a compile error`,
-              `4. PRESERVE each test's objective and assertions — fix only what's broken`,
+              ...numbered([
+                ...readTestStep,
+                FIX_STEPS.readCodeUnderTest,
+                `Fix the ROOT CAUSE: a wrong expectation, a wrong test double or setup, or a compile error`,
+                FIX_STEPS.changeOnlyWhatIsBroken,
+              ]),
             ]
           : [
               `For each failure, use the Playwright MCP to explore the page and verify`,
               `your fix BEFORE writing it:`,
-              `1. Read the test file to understand what it asserts`,
-              `2. Use browser_navigate + browser_snapshot to see the ACTUAL page structure`,
-              `3. Fix the ROOT CAUSE, guided by the error type:`,
-              `   - "strict mode violation" → scope the selector to a section first`,
-              `   - "locator.click: … not found" → the element doesn't exist; check role/label`,
-              `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
-              `   - "NS_ERROR_…" / network error → the URL or route is wrong; verify with browser_navigate`,
-              `   - "locator resolved to N elements" → use .first() ONLY as last resort; prefer scoping`,
-              `4. PRESERVE each test's objective and assertions — fix only what's broken`,
+              ...numbered([
+                ...readTestStep,
+                `Use browser_navigate + browser_snapshot to see the ACTUAL page structure`,
+                [
+                  `Fix the ROOT CAUSE, guided by the error type:`,
+                  `   - "strict mode violation" → scope the selector to a section first`,
+                  `   - "locator.click: … not found" → the element doesn't exist; check role/label`,
+                  `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
+                  `   - "NS_ERROR_…" / network error → the URL or route is wrong; verify with browser_navigate`,
+                  `   - "locator resolved to N elements" → use .first() ONLY as last resort; prefer scoping`,
+                ].join("\n"),
+                FIX_STEPS.changeOnlyWhatIsBroken,
+              ]),
             ]),
         ``,
       ].join("\n")
@@ -731,8 +789,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
-  const task = buildTask(input, { mapInjected, blastRadiusGrounded, suiteListed });
-
   /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
   const MAX_LINKS = 40;
@@ -811,43 +867,43 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const milestone = input.stepLimit !== undefined ? stepMilestone(input, input.stepLimit) : undefined;
   const stepMilestoneContent = milestone ? renderStepMilestone(milestone) : "";
 
-  const assembled = assemble([
-    section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
-    ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
-    ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
-    ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
-    ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
-    ...(() => {
-      if (!suiteListed) return [];
-      const manifestContent = [
-        `## ${PROMPT_HEADINGS.existingSuiteManifest} (${existingSuiteFiles.length} spec file(s) — do NOT rewrite flows already covered here)`,
-        ...existingSuiteFiles.map((f) => `- ${f}`),
-      ].join("\n");
-      return [section("existing-suite-manifest", "semi-stable", manifestContent, { priority: 2, claims: [claim.provides("existing-suite")] })];
-    })(),
-    ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
-    ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
-    ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
-    ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536, claims: [claim.provides("exemplars")] })] : []),
-    ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
-    ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims })] : []),
-    /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
-    ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1, claims: domClaims })] : []),
-    ...(selectorContradictionsContent ? [section("selector-contradictions", "volatile", selectorContradictionsContent, { priority: 2, claims: selectorContradictionsClaims })] : []),
-    ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3, claims: fixContentClaims })] : []),
-    /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
-    ...(reviewContent ? [section("reviewer-corrections", "volatile", reviewContent, { priority: 4, maxBytes: 20_000, overflow: "drop" })] : []),
-    ...(coverageContent ? [section("coverage-gap", "volatile", coverageContent, { priority: 5, shedAs: "critical-recap" })] : []),
-    ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2, claims: [claim.provides("learned-rules")] })] : []),
-    section("task", "task", task.text, { priority: 1, claims: task.claims }),
-    ...(() => {
-      const diffContent = isGenerationMode ? buildDiffSection(input) : "";
-      return diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable", claims: [claim.provides("diff")] })] : [];
-    })(),
-    /* The cap the runtime enforces for this turn, when the host resolved one: a fact of its own, then, on a turn that writes tests, the step by which it should have written something. Both close the prompt. */
-    ...(stepLimitContent ? [section(STEP_LIMIT_SECTION_ID, "critical-recap", stepLimitContent, { priority: 1, claims: [claim.provides("step-limit")] })] : []),
-    ...(stepMilestoneContent ? [section(STEP_MILESTONE_SECTION_ID, "critical-recap", stepMilestoneContent, { priority: 2 })] : []),
-  ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
+  const diffContent = isGenerationMode ? buildDiffSection(input) : "";
+
+  /* The sections of the prompt, with the task worded for a suite that a listing in the prompt does, or does not, supply. */
+  const assembleWith = (suiteListed: boolean): AssembledPrompt => {
+    const task = buildTask(input, { mapInjected, blastRadiusGrounded, suiteListed, reaskObjective: listing.reaskObjective });
+    return assemble([
+      section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
+      ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
+      ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
+      ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
+      ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
+      ...(suiteIsListed ? [section(SUITE_LISTING_SECTION_ID, "semi-stable", listingContent, { priority: 2, claims: [claim.provides("existing-suite")] })] : []),
+      ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
+      ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
+      ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
+      ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536, claims: [claim.provides("exemplars")] })] : []),
+      ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
+      ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims })] : []),
+      /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
+      ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1, claims: domClaims })] : []),
+      ...(selectorContradictionsContent ? [section("selector-contradictions", "volatile", selectorContradictionsContent, { priority: 2, claims: selectorContradictionsClaims })] : []),
+      ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3, claims: fixContentClaims })] : []),
+      /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
+      ...(reviewContent ? [section("reviewer-corrections", "volatile", reviewContent, { priority: 4, maxBytes: 20_000, overflow: "drop" })] : []),
+      ...(coverageContent ? [section("coverage-gap", "volatile", coverageContent, { priority: 5, shedAs: "critical-recap" })] : []),
+      ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2, claims: [claim.provides("learned-rules")] })] : []),
+      section("task", "task", task.text, { priority: 1, claims: task.claims }),
+      ...(diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable", claims: [claim.provides("diff")] })] : []),
+      /* The cap the runtime enforces for this turn, when the host resolved one: a fact of its own, then, on a turn that writes tests, the step by which it should have written something. Both close the prompt. */
+      ...(stepLimitContent ? [section(STEP_LIMIT_SECTION_ID, "critical-recap", stepLimitContent, { priority: 1, claims: [claim.provides("step-limit")] })] : []),
+      ...(stepMilestoneContent ? [section(STEP_MILESTONE_SECTION_ID, "critical-recap", stepMilestoneContent, { priority: 2 })] : []),
+    ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
+  };
+
+  /* The listing is a section the byte budget may shed, and what the task says about reading the suite depends on whether the listing is there. When the budget sheds it, the prompt is assembled again with the task worded for a prompt that has no listing, so the agent is sent to read the suite and no claim reads a fact the prompt provides. */
+  let assembled = assembleWith(suiteIsListed);
+  if (suiteIsListed && assembled.sectionSizes[SUITE_LISTING_SECTION_ID] === undefined) assembled = assembleWith(false);
   return { ...assembled, providedPaths: providedPathsOf(input, assembled.sectionSizes) };
 }
 
@@ -1096,8 +1152,17 @@ function changedFilesLine(input: OpencodeRunInput, label: string): string {
   return `- ${label}: ${sanitizeText(input.intent?.changedFiles?.join(", ") ?? "").text || "(unknown)"}`;
 }
 
-/* A regeneration is a correction turn: the whole-repository analysis, the diff and the scope budget of a first pass are already in the session, and the regen-discipline section owns scope. Every mode keeps what a correction still needs — the objective rule, and the intent, guidance or changed files that say what the corrections are about. */
-function buildCodeRegenTask(input: OpencodeRunInput): TaskParts {
+/* The objective part of a task: the rule against weakening a test on every turn that writes tests, and the question of the outcome ahead of it, with its heading and its claim, only where the turn asks it. A regeneration asks unless the listing found every spec under correction to have an objective its lead declared and nobody disputes; a first pass asks, except a code run on a diff, whose first pass has never asked for it. A turn that writes no tests says nothing of either. */
+function objectivePart(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
+  if (!isTestWritingTurn(input)) return { text: "", claims: [] };
+  const asked = isReGenTurn(input) ? guards.reaskObjective : !(input.target === "code" && input.mode === "diff");
+  return asked
+    ? { text: [OBJECTIVE_HEADING, OBJECTIVE_QUESTION, ANTI_WEAKENING_RULE].join("\n"), claims: [claim.directs("state-outcome")] }
+    : { text: ANTI_WEAKENING_RULE, claims: [] };
+}
+
+/* A regeneration is a correction turn: the whole-repository analysis, the diff and the scope budget of a first pass are already in the session, and the regen-discipline section owns scope. Every mode keeps what a correction still needs — the objective part, and the intent, guidance or changed files that say what the corrections are about. */
+function buildCodeRegenTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   const intent = input.intent;
   const lines: string[] = [];
   if (input.mode === "manual") {
@@ -1120,25 +1185,26 @@ function buildCodeRegenTask(input: OpencodeRunInput): TaskParts {
     );
   }
   if (intent?.changedFiles?.length) lines.push(``, changedFilesLine(input, "Changed files (derive the scope from these)"));
-  if (input.mode === "manual") lines.push(``, `## Objective — commit to this BEFORE writing`, ACCEPTANCE_CRITERION_RULE);
-  return { text: lines.join("\n"), claims: input.mode === "manual" ? [claim.directs("state-outcome")] : [] };
+  const objective = objectivePart(input, guards);
+  if (objective.text) lines.push(``, objective.text);
+  return { text: lines.join("\n"), claims: objective.claims };
 }
 
-function buildCodeTask(input: OpencodeRunInput): TaskParts {
-  if (isReGenTurn(input)) return buildCodeRegenTask(input);
+function buildCodeTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
+  if (isReGenTurn(input)) return buildCodeRegenTask(input, guards);
+  const objective = objectivePart(input, guards);
   if (input.mode === "manual") {
     const text = [
       `Generate or update UNIT/INTEGRATION tests for the source code of ${input.repo}, FOCUSED on:`,
       ``,
       sanitizeText(input.guidance ?? "(no guidance provided)").text,
       ``,
-      `## Objective — commit to this BEFORE writing`,
-      ACCEPTANCE_CRITERION_RULE,
+      objective.text,
       ``,
       `Read the relevant source and the repo's existing tests (serena); match their framework and conventions.`,
       `Stay focused on the guidance; do not generate unrelated tests.`,
     ].join("\n");
-    return { text, claims: [claim.directs("analyze-repo"), claim.directs("state-outcome")] };
+    return { text, claims: [claim.directs("analyze-repo"), ...objective.claims] };
   }
   if (input.mode === "complete" || input.mode === "exhaustive") {
     const text = [
@@ -1176,8 +1242,10 @@ function buildCodeTask(input: OpencodeRunInput): TaskParts {
     ``,
     `Test the changed logic DIRECTLY (no web, no browser, no Playwright): call the changed functions/`,
     `modules and assert behavior + edge cases. Match the repo's existing test framework and conventions.`,
+    ``,
+    objective.text,
   ].join("\n");
-  return { text, claims: [claim.provides("diff")] };
+  return { text, claims: [claim.provides("diff"), ...objective.claims] };
 }
 
 function buildServiceBlock(input: OpencodeRunInput): string[] {
@@ -1212,7 +1280,7 @@ function classifierNoteLines(input: OpencodeRunInput): string[] {
   ];
 }
 
-function buildRegenTask(input: OpencodeRunInput): TaskParts {
+function buildRegenTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   const intent = input.intent;
   const opening =
     input.mode === "manual"
@@ -1235,14 +1303,14 @@ function buildRegenTask(input: OpencodeRunInput): TaskParts {
           ``,
           ...classifierNoteLines(input),
         ];
+  const objective = objectivePart(input, guards);
   const text = [
     ...opening,
     ``,
-    `## Objective — commit to this BEFORE writing`,
-    ACCEPTANCE_CRITERION_RULE,
+    objective.text,
     ...buildServiceBlock(input),
   ].join("\n");
-  return { text, claims: [claim.directs("state-outcome")] };
+  return { text, claims: objective.claims };
 }
 
 /* What the prompt already supplies, so the task does not send the agent to fetch it again. */
@@ -1251,8 +1319,10 @@ interface TaskGuards {
   mapInjected: boolean;
   /* The prompt carries an explored blast radius: a brief that carries one, or a structural signal that names symbols. */
   blastRadiusGrounded: boolean;
-  /* The listing of the specs that already exist is rendered in this prompt. */
+  /* The listing of the specs that already exist is in this prompt, which the byte budget may have shed from it. */
   suiteListed: boolean;
+  /* The turn asks for the outcome again: a spec under correction has no objective its lead declared, or a reviewer disputes one. Read on a regeneration only. */
+  reaskObjective: boolean;
 }
 
 /* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and deciding that nothing here is worth a test is within every bound. `upperBound` counts focused specs for the whole change, or for each affected flow. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
@@ -1279,8 +1349,8 @@ function sizeSentence({ files, added, removed }: DiffStat): string {
 
 function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   if (input.mode === "context") return { text: buildContextTask(input), claims: [claim.directs("analyze-repo")] };
-  if (input.target === "code") return buildCodeTask(input);
-  if (isReGenTurn(input)) return buildRegenTask(input);
+  if (input.target === "code") return buildCodeTask(input, guards);
+  if (isReGenTurn(input)) return buildRegenTask(input, guards);
   if (input.mode === "complete" || input.mode === "exhaustive") {
     const text = [
       input.mode === "exhaustive"
@@ -1301,14 +1371,14 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     ].join("\n");
     return { text, claims: [claim.directs("analyze-repo")] };
   }
+  const objective = objectivePart(input, guards);
   if (input.mode === "manual") {
     const text = [
       `Generate/update E2E tests for ${input.repo}, FOCUSED on the following guidance:`,
       ``,
       sanitizeText(input.guidance ?? "(no guidance provided)").text,
       ``,
-      `## Objective — commit to this BEFORE writing`,
-      ACCEPTANCE_CRITERION_RULE,
+      objective.text,
       ``,
       /* The listing supplies the suite; the read of it is declared only where nothing lists it. */
       `Use serena to read the relevant code${guards.suiteListed ? "" : ` and the existing ${input.e2eRelDir}/ suite`}.`,
@@ -1316,7 +1386,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     ].join("\n");
     return {
       text,
-      claims: [claim.directs("analyze-repo"), claim.directs("state-outcome"), ...(guards.suiteListed ? [] : [claim.directs("read", "existing-suite")])],
+      claims: [claim.directs("analyze-repo"), ...objective.claims, ...(guards.suiteListed ? [] : [claim.directs("read", "existing-suite")])],
     };
   }
 
@@ -1336,8 +1406,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     `the code actually changes, not just what the message promises.`,
     ``,
     ...classifierNoteLines(input),
-    `## Objective — commit to this BEFORE writing`,
-    ACCEPTANCE_CRITERION_RULE,
+    objective.text,
     ``,
     ...(guards.mapInjected
       ? []
@@ -1361,7 +1430,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     EFFORT_BY_TIER[diffTier(stat)].text,
     ...buildServiceBlock(input),
   ].join("\n");
-  const claims: PromptClaim[] = [claim.directs("state-outcome")];
+  const claims: PromptClaim[] = [...objective.claims];
   if (!guards.mapInjected) claims.push(claim.directs("read", "arch-map"), claim.frames("arch-map", "unverified"));
   if (!guards.blastRadiusGrounded) claims.push(claim.directs("orient", "blast-radius"));
   if (!guards.suiteListed) claims.push(claim.directs("read", "existing-suite"));

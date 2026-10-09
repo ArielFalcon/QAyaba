@@ -224,7 +224,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "carry-forward": {
-    description: "carry-forward of the specs a run delivers: the canonical spec path, the one fold that keeps each spec once with its newest declared text, what a verdict declares, the merge after each pass (the lead refreshes, a sidekick adds paths only), the attribution of a selector contradiction to the specs that raised it, the line of the suite's entry and the listing of the suite for a regeneration (which specs there are, which the turn must change, how many of the others are shown, whether the objective is asked again), and the lines that wire them: the declarations a generation returns, the origin each check gives its contradictions (the pre-exec gate's and Lever-2's, through the FixLoop), the specs each regeneration is handed, the adapter's check that each is still there and the grounding's fold of the manifest into the suite's entries",
+    description: "carry-forward of the specs a run delivers: the canonical spec path, the one fold that keeps each spec once with its newest declared text, what a verdict declares, the merge after each pass (the lead refreshes, a sidekick adds paths only), the attribution of a selector contradiction to the specs that raised it, the line of the suite's entry and the listing of the suite for a regeneration (which specs there are, which the turn must change, how many of the others are shown, whether the objective is asked again) with the way it is written into a prompt, and the lines that wire them: the declarations a generation returns, the origin each check gives its contradictions (the pre-exec gate's and Lever-2's, through the FixLoop), the specs each regeneration is handed, the adapter's check that each is still there and the grounding's fold of the manifest into the suite's entries",
     mutate: [
       "qa-engine/src/shared-kernel/spec-path.ts",
       "qa-engine/src/shared-kernel/delivered-spec.ts",
@@ -233,6 +233,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/domain/helpers/contradiction-attribution.ts`,
       `${GEN}/domain/suite-entry.ts`,
       `${GEN}/domain/suite-listing.ts`,
+      `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
       `${GEN}/application/generate-tests.use-case.ts:128-129`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:104-109`,
@@ -286,6 +287,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH_TEST}/domain/fix-loop.aggregate.test.ts`,
       `${GEN_TEST}/domain/suite-entry.test.ts`,
       `${GEN_TEST}/domain/suite-listing.test.ts`,
+      `${GEN_TEST}/domain/suite-listing-render.test.ts`,
       `${ORCH_TEST}/infrastructure/bridges/pre-generation-grounding-port.adapter.test.ts`,
       /* Apart from run-qa.use-case.test.ts, whose many tests would all run once per mutant. */
       `${ORCH_TEST}/application/run-qa.carry-forward.test.ts`,
@@ -318,13 +320,14 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "prompt-contract": {
-    description: "prompt contract: the claims lint, the regeneration predicate, the diff size, the harness-facts export scan and the reader that feeds it, the step milestone, with a sample of the matrix that lints the reachable generator prompts",
+    description: "prompt contract: the claims lint, the regeneration predicate, the diff size, the harness-facts export scan and the reader that feeds it, the step milestone, the way a listing of the suite is written into a prompt, with a sample of the matrix that lints the reachable generator prompts",
     mutate: [
       `${GEN}/domain/prompt-contract-lint.ts`,
       `${GEN}/domain/regen-turn.ts`,
       `${GEN}/domain/diff-stat.ts`,
       `${GEN}/domain/harness-facts.ts`,
       `${GEN}/domain/step-limit.ts`,
+      `${GEN}/domain/suite-listing-render.ts`,
       `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:122-171`,
     ],
     tests: [
@@ -333,11 +336,13 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN_TEST}/domain/diff-stat.test.ts`,
       `${GEN_TEST}/domain/harness-facts.test.ts`,
       `${GEN_TEST}/domain/step-limit.test.ts`,
+      `${GEN_TEST}/domain/suite-listing-render.test.ts`,
       `${ORCH_TEST}/infrastructure/bridges/pre-generation-grounding-port.harness-facts.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.regen.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.scaffold.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.harness-facts.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.step-limit.test.ts`,
+      `${GEN_TEST}/infrastructure/prompt-builders/prompts.listing.test.ts`,
       "scripts/prompt-contract-matrix.sample.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,

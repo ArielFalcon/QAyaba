@@ -45,6 +45,8 @@ import type {
   ExplorationBrief,
   OpencodeRunInput,
 } from "@contexts/generation/application/ports/generation-ports.ts";
+import { LISTING_MAX_DO_NOT_REWRITE } from "@contexts/generation/domain/suite-listing.ts";
+import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
@@ -76,6 +78,8 @@ export const DIMENSIONS = {
   packRedirect: [false, true],
   /* The change belongs to a microservice rather than to the frontend repo. */
   service: [false, true],
+  /* Whether the run lists any spec: the suite as the grounding folded it, on a diff or a manual run, and on a regeneration the specs the run has delivered. */
+  suite: ["listed", "none"],
 } as const;
 
 export type CellSpec = { -readonly [K in keyof typeof DIMENSIONS]: (typeof DIMENSIONS)[K][number] };
@@ -113,6 +117,11 @@ export function isValidSpec(spec: CellSpec): boolean {
   /* A pack without a DOM is the contracts alone, which the architecture map supplies. */
   if (spec.packDom === false && !(hasPack && spec.contextMap)) return false;
   if (spec.packRedirect && !(hasPack && spec.packDom)) return false;
+  /* A run lists the suite on a diff or a manual first pass and carries the specs it has delivered on every regeneration; a complete, exhaustive or context first pass lists none, so its only combinations are the listed ones. Having nothing to list bears on the task and the fix, not on the optional blocks, and meets every phase, tree and grounding of a run without them. */
+  if (spec.suite === "none") {
+    const lists = spec.mode === "diff" || spec.mode === "manual" || spec.phase !== "first";
+    if (!lists || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
+  }
   /* The service block belongs to the diff-shaped first pass and to every regeneration of an e2e run. */
   if (spec.service && (isContext || (spec.mode !== "diff" && spec.phase === "first"))) return false;
   return true;
@@ -148,6 +157,7 @@ export function cellName(spec: CellSpec): string {
     spec.packDom ? "" : "nodom",
     spec.packRedirect ? "redirect" : "",
     spec.service ? "service" : "",
+    spec.suite === "none" ? "nosuite" : "",
   ].filter(Boolean);
   return [
     spec.mode,
@@ -289,6 +299,16 @@ const SIGNAL_SHAPES = {
   },
 } as const;
 
+/* The specs a run has delivered by the time a regeneration is built: the lead's, with the flow and the objective it declared (it refreshes the suite's own line for the same file), and a sidekick's, by path alone. An exhaustive run has delivered more than the listing shows of the specs it leaves alone, so its cells carry the cap's worth of them and some more. */
+const DELIVERED_LEAD: DeliveredSpec = { file: "flows/cart.spec.ts", flow: "cart coupon", objective: "the discounted total shows after the cart re-queries" };
+const DELIVERED_SIDEKICK: DeliveredSpec = { file: "flows/checkout.spec.ts" };
+export const EXHAUSTIVE_EXTRA_DELIVERED = LISTING_MAX_DO_NOT_REWRITE + 5;
+
+function deliveredFor(spec: CellSpec): DeliveredSpec[] {
+  const extra = spec.mode === "exhaustive" ? Array.from({ length: EXHAUSTIVE_EXTRA_DELIVERED }, (_, index): DeliveredSpec => ({ file: `flows/suite-${String(index).padStart(2, "0")}.spec.ts` })) : [];
+  return [DELIVERED_LEAD, DELIVERED_SIDEKICK, ...extra];
+}
+
 /* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap; the Codex runtime has no step cap to report (the `stepLimits` asymmetry documented in src/agent-runtime/contract-parity.test.ts), so a Codex prompt is built with none. */
 export const MATRIX_STEP_LIMIT = 40;
 
@@ -316,7 +336,8 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
       changedFiles: CHANGED_FILES,
     },
     ...(spec.mode === "manual" ? { guidance: "cover the coupon form on the cart page" } : {}),
-    ...(spec.mode === "diff" || spec.mode === "manual" ? { existingSpecFiles: ["flows/cart.spec.ts"] } : {}),
+    ...(spec.suite === "listed" && (spec.mode === "diff" || spec.mode === "manual") ? { existingSpecFiles: ["flows/cart.spec.ts"] } : {}),
+    ...(spec.suite === "listed" && spec.phase !== "first" ? { deliveredSpecs: deliveredFor(spec) } : {}),
     ...(stepLimit !== undefined ? { stepLimit } : {}),
   };
 
@@ -342,7 +363,7 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
 
   switch (spec.phase) {
     case "regen-fix":
-      input.fixCases = [{ name: "cart applies a coupon", status: "fail", detail: "locator.click: element not found" }];
+      input.fixCases = [{ name: "cart applies a coupon", status: "fail", detail: "locator.click: element not found", file: "flows/cart.spec.ts" }];
       break;
     case "regen-review":
       input.reviewCorrections = ["[fragile-selector] cart.spec.ts: scope the coupon button to the cart form"];
@@ -443,6 +464,7 @@ function combinationBucket(spec: CellSpec): string {
     ...(spec.packDom ? [] : ["contracts-only"]),
     ...(spec.structuralSignal === "none" ? [] : [SIGNAL_FLAG[spec.structuralSignal]]),
     ...(spec.service ? ["service"] : []),
+    ...(spec.suite === "none" ? ["no-suite"] : []),
   ].join("/");
 }
 

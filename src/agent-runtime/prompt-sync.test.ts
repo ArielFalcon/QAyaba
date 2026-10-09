@@ -21,7 +21,7 @@ import { classifyGenerationEnd } from "@contexts/generation/domain/generation-en
 import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking";
 import type { MilestoneOutcome } from "@contexts/generation/domain/step-limit";
-import { ASSEMBLED_ARTIFACT_NAMES, MILESTONE_OUTCOME_PHRASES, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { ANTI_WEAKENING_RULE, ASSEMBLED_ARTIFACT_NAMES, MILESTONE_OUTCOME_PHRASES, OBJECTIVE_QUESTION, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { checkGeneratorVerdict } from "../integrations/verdict-validate";
@@ -571,7 +571,21 @@ describe("prompt-sync drift guard", () => {
     ...REGENERATION_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.regeneration } })),
     ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.writesNone } })),
   ];
+  /* A test is never weakened to make it pass: the assembled task states the rule on every turn that writes tests, and no layer else does. The question of the outcome the task asks beside it is the turn's, not the rule's: a first pass asks it (a code run on a diff has never), and so does a regeneration whose specs under correction have no objective their lead declared. The words are the builder's own constants, so the pins read production and re-type none. */
+  const ANTI_WEAKENING_STATEMENT = phrasePattern(ANTI_WEAKENING_RULE);
+  const OBJECTIVE_QUESTION_STATEMENT = phrasePattern(OBJECTIVE_QUESTION);
+  const WRITES_TESTS_SHAPES = [...FIRST_PASS_SHAPES, ...REGENERATION_SHAPES] as const;
   const OWNED_RULES: readonly OwnedRule[] = [
+    ...WRITES_TESTS_SHAPES.map((shape): OwnedRule => ({ rule: "the rule against weakening a test (a turn that writes tests)", pattern: ANTI_WEAKENING_STATEMENT, shape, inStatic: 0, inAssembled: { exactly: 1 } })),
+    ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule: "the rule against weakening a test (a turn that writes none)", pattern: ANTI_WEAKENING_STATEMENT, shape, inStatic: 0, inAssembled: { exactly: 0 } })),
+    ...[...FIRST_PASS_SHAPES, ...REGENERATION_SHAPES].map((shape): OwnedRule => ({
+      rule: "asking for the outcome the tests assert",
+      pattern: OBJECTIVE_QUESTION_STATEMENT,
+      shape,
+      inStatic: 0,
+      inAssembled: { exactly: shape === "code" ? 0 : 1 },
+    })),
+    ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule: "asking for the outcome the tests assert (a turn that writes none)", pattern: OBJECTIVE_QUESTION_STATEMENT, shape, inStatic: 0, inAssembled: { exactly: 0 } })),
     { rule: "the compile check of a code run", pattern: COMPILE_CHECK, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "the compile check of a code regeneration", pattern: COMPILE_CHECK, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
     /* The conventions of the repo's tests are read once, on the first pass; the framework is detected on every pass. */

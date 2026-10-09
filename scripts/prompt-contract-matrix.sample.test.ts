@@ -21,7 +21,7 @@ import { hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-c
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /* Prime to the size of the dimensions' cycles, so the sample walks through every value of every dimension. The smallest prime whose sample, assembled once per layer for each combination, stays within the prompts a mutant run is sized for. */
-const SAMPLE_STRIDE = 47;
+const SAMPLE_STRIDE = 53;
 
 /* A brief and a pack in one prompt with no tree: the shape whose brief frames only established facts. */
 const isBriefWithPack = (s: CellSpec): boolean => s.grounding === "brief+pack" && s.mode === "diff" && s.target === "e2e" && s.tree === "none";
@@ -37,10 +37,39 @@ const firstCoChangeOfEachPhaseAndTarget = (all: readonly CellSpec[]): CellSpec[]
   });
 };
 
+/* A run with nothing to list is a few hundred combinations the stride mostly skips: the first one of each phase keeps a first pass with no listing and a regeneration with no carried specs in the sample, with and without the stride's luck. */
+const firstWithNoSuiteOfEachPhase = (all: readonly CellSpec[]): CellSpec[] => {
+  const seen = new Set<string>();
+  return all.filter((s) => {
+    if (s.suite !== "none" || seen.has(s.phase)) return false;
+    seen.add(s.phase);
+    return true;
+  });
+};
+
+/* The regeneration whose run has delivered more specs than the listing shows of those it leaves alone: an exhaustive one, in both targets, for a fix and for a reviewer's correction. */
+const firstExhaustiveRegenerationOverTheCap = (all: readonly CellSpec[]): CellSpec[] => {
+  const seen = new Set<string>();
+  return all.filter((s) => {
+    const key = `${s.target}/${s.phase}`;
+    if (s.mode !== "exhaustive" || s.suite !== "listed" || (s.phase !== "regen-fix" && s.phase !== "regen-review") || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const sampleSpecs = (): CellSpec[] => {
   const all = allValidSpecs();
   const chosen = new Map<string, CellSpec>();
-  for (const spec of [...all.filter((_, i) => i % SAMPLE_STRIDE === 0), ...all.filter(isBriefWithPack).slice(0, 4), ...firstCoChangeOfEachPhaseAndTarget(all)]) chosen.set(cellName(spec), spec);
+  for (const spec of [
+    ...all.filter((_, i) => i % SAMPLE_STRIDE === 0),
+    ...all.filter(isBriefWithPack).slice(0, 4),
+    ...firstCoChangeOfEachPhaseAndTarget(all),
+    ...firstWithNoSuiteOfEachPhase(all),
+    ...firstExhaustiveRegenerationOverTheCap(all),
+  ]) {
+    chosen.set(cellName(spec), spec);
+  }
   /* A value the stride skipped (a rare one, like the context mode) is brought in by the first combination that has it. */
   for (const dimension of Object.keys(DIMENSIONS) as Array<keyof typeof DIMENSIONS>) {
     for (const value of DIMENSIONS[dimension] as readonly unknown[]) {
@@ -78,6 +107,13 @@ test("the sample carries a signal of co-change files alone on a first pass and o
   assert.ok(coChange.some((s) => s.phase === "first"), "a first pass");
   for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) assert.ok(coChange.some((s) => s.phase === phase), `${phase} regeneration`);
   for (const target of DIMENSIONS.target) assert.ok(coChange.some((s) => s.target === target), target);
+});
+
+test("the sample carries a diff first pass with no listing, a regeneration of every kind with no carried specs, and an exhaustive regeneration whose run delivered more than the listing shows", () => {
+  const specs = sampleSpecs();
+  assert.ok(specs.some((s) => s.suite === "none" && s.mode === "diff" && s.phase === "first"), "a diff first pass with no listing");
+  for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) assert.ok(specs.some((s) => s.suite === "none" && s.phase === phase), `${phase} regeneration with no carried specs`);
+  for (const target of DIMENSIONS.target) assert.ok(specs.some((s) => s.suite === "listed" && s.mode === "exhaustive" && s.phase === "regen-fix" && s.target === target), `${target}: an exhaustive fix over the cap`);
 });
 
 test("a sample of the reachable combinations is clean against the recorded baseline", async () => {
