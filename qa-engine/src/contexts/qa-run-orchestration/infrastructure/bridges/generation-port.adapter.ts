@@ -1,10 +1,11 @@
-/* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit (and reviewerStepLimit, when the generation runs its reviewer) come from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs) and the ones a selector contradiction points at (attributedSpecFiles), minus every file the confined reader no longer finds; a first pass carries neither. AbortSignal is forwarded into openSession. */
+/* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit (and reviewerStepLimit, when the generation runs its reviewer) come from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs), the ones a selector contradiction points at (attributedSpecFiles) and the suite's own entries (existingSpecFiles), minus every file the confined reader no longer finds; a first pass carries no delivered or attributed spec, and the suite's entries exactly as the grounding folded them. AbortSignal is forwarded into openSession. */
 
 import type { Objective } from "@kernel/objective.ts";
 import type { GenerationPort, GenerationEnrichment, GenerationOutput, RetrievedRule } from "../../application/ports/index.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, StepLimitFor, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/ports/generation-ports.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
+import { suiteEntryFile } from "@contexts/generation/domain/suite-entry.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { resolveConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 
@@ -102,11 +103,12 @@ export class GenerationPortAdapter implements GenerationPort {
     /* The in-generate reviewer's limit travels only with a generation that runs that reviewer's session. */
     const reviewerStepLimit = this.ctx.needsReview ? await this.collaborators.stepLimitFor?.("reviewer") : undefined;
     const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
-    /* On a regeneration turn only, what the run delivered and what a contradiction points at, minus the files that are no longer a regular file inside the spec directory (deleted, renamed away, a link out, a path that climbs): the agent can change the suite between passes, and a path it reported is never trusted. */
+    /* On a regeneration turn only, what the run delivered, what a contradiction points at and the suite's own entries, minus the files that are no longer a regular file inside the spec directory (deleted, renamed away, a link out, a path that climbs): the agent can change the suite between passes, and a path it reported is never trusted. A first pass hands the suite's entries on as the grounding folded them. */
     const regenerating = enrichment !== undefined && isReGenTurn(enrichment) ? enrichment : undefined;
     const stillThere = (file: string): boolean => resolveConfinedSpecFile(root, file) !== undefined;
     const deliveredSpecs = regenerating?.deliveredSpecs?.filter((entry) => stillThere(entry.file)) ?? [];
     const attributedSpecFiles = regenerating?.attributedSpecFiles?.filter(stillThere) ?? [];
+    const existingSpecFiles = (regenerating ? regenerating.existingSpecFiles?.filter((line) => stillThere(suiteEntryFile(line))) : enrichment?.existingSpecFiles) ?? [];
     const input: OpencodeRunInput = {
       repo: this.ctx.repo,
       /* Manifest changeRef.sha. From enrichment.sha when supplied; "" otherwise. */
@@ -141,7 +143,7 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(reviewerLearnedRules ? { reviewerLearnedRules } : {}),
       ...(enrichment?.contextPack ? { contextPack: enrichment.contextPack } : {}),
       ...(enrichment?.authSeedUnauthored ? { authSeedUnauthored: true } : {}),
-      ...(enrichment?.existingSpecFiles?.length ? { existingSpecFiles: [...enrichment.existingSpecFiles] } : {}),
+      ...(existingSpecFiles.length ? { existingSpecFiles: [...existingSpecFiles] } : {}),
       ...(enrichment?.contextMap ? { contextMap: enrichment.contextMap } : {}),
       ...(enrichment?.contextBrief ? { contextBrief: enrichment.contextBrief } : {}),
       ...(enrichment?.harnessFacts ? { harnessFacts: enrichment.harnessFacts } : {}),

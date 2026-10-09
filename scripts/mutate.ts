@@ -228,7 +228,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "carry-forward": {
-    description: "carry-forward of the specs a run delivers: the canonical spec path, the one fold that keeps each spec once with its newest declared text, what a verdict declares, the merge after each pass (the lead refreshes, a sidekick adds paths only), the attribution of a selector contradiction to the specs that raised it, the line of the suite's entry and the listing of the suite for a regeneration (which specs there are, which the turn must change, how many of the others are shown, whether the objective is asked again) with the way it is written into a prompt, and the lines that wire them: the declarations a generation returns, the origin each check gives its contradictions (the pre-exec gate's and Lever-2's, through the FixLoop), the specs each regeneration is handed, the adapter's check that each is still there and the grounding's fold of the manifest into the suite's entries",
+    description: "carry-forward of the specs a run delivers: the canonical spec path, the one fold that keeps each spec once with its newest declared text, what a verdict declares, the merge after each pass (the lead refreshes, a sidekick adds paths only), the attribution of a selector contradiction to the specs that raised it, the line of the suite's entry and the listing of the suite for a regeneration (which specs there are, which the turn must change, how many of the others are shown, whether the objective is asked again) with the way it is written into a prompt, and the lines that wire them: the declarations a generation returns, the origin each check gives its contradictions (the pre-exec gate's and Lever-2's, through the FixLoop), the specs each regeneration is handed (the run's own and the suite's), the adapter's check that each is still there and the grounding's fold of the manifest into the suite's entries",
     mutate: [
       "qa-engine/src/shared-kernel/spec-path.ts",
       "qa-engine/src/shared-kernel/delivered-spec.ts",
@@ -240,9 +240,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
       `${GEN}/application/generate-tests.use-case.ts:128-129`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:104-109`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:135-136`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:177-177`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:105-111`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:137-138`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:146-146`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:179-179`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
       `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:209-209`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
@@ -364,7 +365,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/integrations/opencode-client.ts:314-316",
       "src/integrations/opencode-client.ts:324-334",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
-      "src/server/rewritten-engine-factory.ts:514-546",
+      "src/server/rewritten-engine-factory.ts:515-547",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",

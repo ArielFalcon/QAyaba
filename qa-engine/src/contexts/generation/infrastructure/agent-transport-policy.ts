@@ -206,7 +206,7 @@ export interface AgentDepsCollaborators {
    * if need be. A failure is logged and leaves the attempt unobserved. Shell-injected like takeTurnCalls.
    */
   prepareAttempt?(sessionId: string, attempt: number): Promise<void> | void;
-  /** The agent's configured step limit (agents/opencode.json `agent.<id>.maxSteps`), or undefined when it has none. Shell-injected like getFallbackModel. */
+  /** The step limit the orchestrator's own copy of agents/opencode.json declares for the agent (`steps ?? maxSteps`), or undefined when it declares none. It only classifies the exhaustion of a prompt that stated no number (a stated one wins) and is never a source for a prompt. Shell-injected like getFallbackModel. */
   maxStepsFor?(agent: string): number | undefined;
 }
 

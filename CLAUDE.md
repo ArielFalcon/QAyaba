@@ -162,12 +162,14 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   warrants (`generation/domain/diff-stat.ts`: tiny ≤2 files and 40 lines, focused ≤8 and 400,
   broad above): always an upper bound, and every tier admits the reasoned no-op.
 - **Regeneration listing** — a regeneration lists the suite as that turn knows it (the specs
-  the suite had before a diff/manual run, plus those this run delivered): the specs it must
-  change under "Editable", the rest under "Do NOT rewrite" (capped, the remainder counted); one
-  sanitized, capped line per spec, never inlined source (`generation/domain/suite-listing.ts`).
-  The "state the outcome" question is asked unless every spec to change has an objective its
-  lead declared and no correction disputes it; the rule against weakening a test is stated on
-  every test-writing turn, whether or not the question is asked.
+  the suite had before a diff/manual run, plus those this run delivered, each only while its
+  file is still there): the specs it must change under "Editable" (all those a signal names;
+  the ones taken because nothing names a spec are capped), the rest under "Do NOT rewrite"
+  (capped); what a cap leaves out is counted. One sanitized, capped line per spec, never
+  inlined source (`generation/domain/suite-listing.ts`). The "state the outcome" question is
+  asked unless every spec to change has an objective its lead declared and no correction
+  disputes it; the rule against weakening a test is stated on every test-writing turn, whether
+  or not the question is asked.
 - **Diff-ranked map routes** — before the live-DOM capture cut, the routes the orchestrator
   derived are ordered by the links the context map declares to the changed files, and only
   those: a route's `implementationFiles`, then its `source`, then the `spec` of an API

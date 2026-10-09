@@ -19,6 +19,7 @@ import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastr
 import { Objective } from "@kernel/objective.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
+import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import { withoutWaitingOnNamedPipe } from "../../../../support/named-pipe-watch.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
@@ -1091,7 +1092,7 @@ test("first review pass: candidate-only rules leave the reviewer prompt identica
    the agent runtime (the LLM boundary) is faked. */
 
 async function generatorPromptFor(
-  run: { e2eRelDir: string; target: TestTarget },
+  run: { e2eRelDir: string; target: TestTarget; mirrorDir?: string; specDir?: string },
   enrichment?: GenerationEnrichment,
 ): Promise<string> {
   let generatorPrompt = "";
@@ -1116,11 +1117,11 @@ async function generatorPromptFor(
     budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 0 },
   });
   const adapter = new GenerationPortAdapter(useCase, {
-    repo: "org/app", appName: "app", mirrorDir: "/nonexistent/mirror", e2eRelDir: run.e2eRelDir,
+    repo: "org/app", appName: "app", mirrorDir: run.mirrorDir ?? "/nonexistent/mirror", e2eRelDir: run.e2eRelDir,
     namespace: "qa-bot-abc1234", needsReview: false, target: run.target, mode: "diff", baseUrl: "https://dev",
     diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
   });
-  await adapter.generate([], `/nonexistent/mirror/${run.e2eRelDir}`, undefined, undefined, enrichment);
+  await adapter.generate([], run.specDir ?? `/nonexistent/mirror/${run.e2eRelDir}`, undefined, undefined, enrichment);
   return generatorPrompt;
 }
 
@@ -1354,4 +1355,86 @@ test("generate() carries no attributed-files key when there are none, or none of
     const gone = await inputFor({ selectorContradictions: ["x"], attributedSpecFiles: ["gone.spec.ts"] }, mirror, specDir);
     assert.equal("attributedSpecFiles" in absent, false);
     assert.equal("attributedSpecFiles" in gone, false);
+  }));
+
+/* The suite's own entries, the lines the grounding folded before the run, meet the same probe on a regeneration turn: the agent can delete or rename a spec of the suite between passes, and a line for a file that is gone would go on being listed. A first pass hands them on exactly as they came. */
+
+const SUITE_A = formatSuiteEntry({ file: "flows/a.spec.ts", flow: "login", objective: "the user signs in" });
+const SUITE_B = formatSuiteEntry({ file: "b.spec.ts" });
+
+for (const [signal, regeneration] of REGENERATION_SIGNALS) {
+  test(`generate() hands the existing-suite entries whose file is there to a regeneration turn driven by ${signal}, as they were folded and in order`, () =>
+    withMirror(async ({ mirror, specDir }) => {
+      writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
+      writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
+      const input = await inputFor({ ...regeneration, existingSpecFiles: [SUITE_B, SUITE_A] }, mirror, specDir);
+      assert.deepEqual(input.existingSpecFiles, [SUITE_B, SUITE_A]);
+    }));
+}
+
+test("generate() hands a first pass every existing-suite entry exactly as it came, whatever is on disk", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    const entries = [SUITE_A, SUITE_B, "flows/gone.spec.ts", "../../secret.txt"];
+    const input = await inputFor({ existingSpecFiles: entries }, mirror, specDir);
+    assert.deepEqual(input.existingSpecFiles, entries);
+  }));
+
+for (const [why, refused, arrange] of REFUSED) {
+  test(`generate() drops an existing-suite entry whose file is ${why}, and keeps the one that is there`, () =>
+    withMirror(async ({ tmp, mirror, specDir }) => {
+      writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
+      arrange({ tmp, specDir });
+      const input = await inputFor({ fixCases: FAILING_CASES, existingSpecFiles: [formatSuiteEntry({ file: refused, flow: "gone" }), SUITE_A] }, mirror, specDir);
+      assert.deepEqual(input.existingSpecFiles, [SUITE_A]);
+    }));
+}
+
+test("generate() drops an existing-suite entry that is a named pipe without opening it", { skip: NO_NAMED_PIPES }, () =>
+  withMirror(async ({ mirror, specDir }) => {
+    const pipe = join(specDir, "flows", "pipe.spec.ts");
+    execFileSync("mkfifo", [pipe]);
+    writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
+
+    const input = await withoutWaitingOnNamedPipe(pipe, () => inputFor({ fixCases: FAILING_CASES, existingSpecFiles: ["flows/pipe.spec.ts", SUITE_A] }, mirror, specDir));
+
+    assert.deepEqual(input.existingSpecFiles, [SUITE_A]);
+  }));
+
+test("generate() carries no existing-suite key at all when none of the entries is there any more", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    const input = await inputFor({ fixCases: FAILING_CASES, existingSpecFiles: [SUITE_A, SUITE_B] }, mirror, specDir);
+    assert.equal("existingSpecFiles" in input, false);
+  }));
+
+test("generate() judges an existing-suite entry by the spec directory of the call: a file beside it is not a spec of the suite", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    writeFileSync(join(mirror, "top.spec.ts"), "// beside the suite\n");
+    const entries = [formatSuiteEntry({ file: "top.spec.ts" })];
+    const e2e = await inputFor({ fixCases: FAILING_CASES, existingSpecFiles: entries }, mirror, specDir);
+    const code = await inputFor({ fixCases: FAILING_CASES, existingSpecFiles: entries }, mirror, mirror);
+    assert.equal("existingSpecFiles" in e2e, false);
+    assert.deepEqual(code.existingSpecFiles, entries);
+  }));
+
+test("a suite spec deleted during the run is no longer listed in the prompt of a regeneration, and the one that is there still is", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
+    const prompt = await generatorPromptFor(
+      { e2eRelDir: "e2e", target: "e2e", mirrorDir: mirror, specDir },
+      { reviewCorrections: ["assert the order total"], existingSpecFiles: [SUITE_A, SUITE_B] },
+    );
+    assert.ok(prompt.includes("b.spec.ts"), "the spec that is still there stays listed");
+    assert.ok(!prompt.includes("flows/a.spec.ts"), "the one that is gone is not");
+  }));
+
+test("the prompt of a first pass lists the suite exactly as the grounding folded it, whatever is on disk", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    const run = { e2eRelDir: "e2e", target: "e2e" as TestTarget, mirrorDir: mirror, specDir };
+    const enrichment = { existingSpecFiles: [SUITE_A, SUITE_B] };
+    const bare = await generatorPromptFor(run, enrichment);
+    writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
+    writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
+    const present = await generatorPromptFor(run, enrichment);
+    assert.ok(bare.includes(SUITE_A) && bare.includes(SUITE_B), "both folded lines are in the prompt, with nothing on disk");
+    assert.equal(present, bare);
   }));

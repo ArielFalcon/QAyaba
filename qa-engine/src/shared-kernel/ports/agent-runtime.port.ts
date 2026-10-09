@@ -34,7 +34,7 @@ export interface AgentTurnEvent {
  * A runtime with no step concept (Codex) never supplies stats.
  */
 export interface AgentTurnStats {
-  /** The agent's configured step limit. */
+  /** The limit the turn was judged against: the number its prompt stated, else the agent's configured limit; null when neither exists. */
   maxSteps: number | null;
   /** Steps the turn used; null unless every one of them was observed. */
   stepsUsed: number | null;

@@ -68,7 +68,7 @@ export function finalStepText(parts: readonly TurnPart[]): string {
 }
 
 export interface StepExhaustionInput {
-  /** The agent's configured step limit; null when it has none. */
+  /** The limit the turn is judged against: the number its prompt stated, else the agent's configured limit; null when neither exists. */
   maxSteps: number | null;
   /** Steps the turn used; null unless the count was observed completely. */
   stepsUsed: number | null;
