@@ -21,9 +21,10 @@ export const PROMPT_HEADINGS = {
   stepLimit: "Step limit",
 } as const;
 
-/* The labels of the suite listing's two groups on a turn that has specs to change. The editable label is the one place a prompt tells the agent to read the specs it is about to change; the other says which specs are left as they are. */
+/* The lines of the suite listing's groups on a turn that has specs to change. The editable label is the one place a prompt tells the agent to read the specs it is about to change; the new-spec line says a turn that covers changed lines may add a spec of its own; the last label says which specs are left as they are. */
 export const SUITE_LISTING_LABELS = {
   editable: "Editable this turn (read a file before you change it):",
+  newSpec: "A new spec is allowed for a flow none of the specs listed here covers.",
   doNotRewrite: "Do NOT rewrite (flows already covered):",
 } as const;
 

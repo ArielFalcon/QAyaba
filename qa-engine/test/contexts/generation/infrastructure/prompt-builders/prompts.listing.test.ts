@@ -9,18 +9,20 @@ import {
   FIX_STEPS,
   OBJECTIVE_HEADING,
   OBJECTIVE_QUESTION,
+  buildFollowupPrompt,
   buildPromptAssembled,
   setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
-import { leftOutLine, PLAIN_LISTING_NOTE } from "@contexts/generation/domain/suite-listing-render.ts";
-import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_ENTRY_CHARS } from "@contexts/generation/domain/suite-listing.ts";
-import { lintCell, type LintSection, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { everyDeliveredLine, leftOutLine, PLAIN_LISTING_NOTE } from "@contexts/generation/domain/suite-listing-render.ts";
+import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_ENTRY_CHARS, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
+import { countDirectives, lintCell, type LintSection, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
+import type { QaCase } from "@kernel/qa-case.ts";
 import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 
 setExplorationBriefCollaborators({
@@ -129,6 +131,35 @@ test("a contradiction that names no spec never widens a FixLoop turn that has a 
   const section = sectionText(a, SUITE_ID);
   assert.equal(editableIn(section).length, 1);
   assert.ok(mentions(editableIn(section), "flows/a.spec.ts"));
+});
+
+/* A fix turn tells the agent to fix only the tests that failed and to leave alone the ones that passed, so its listing must invite the edit of no spec that passed. */
+const staticGate = (detail: string): QaCase => ({ name: "static-gate", status: "fail", detail });
+
+test("a fix turn lists as editable only the specs its failing cases name: none that passed, whatever the cases carry and whatever else the run delivered", () => {
+  const fixes: Array<[string, QaCase[], string[]]> = [
+    ["a failing file", [failing("flows/a.spec.ts")], ["flows/a.spec.ts"]],
+    ["two failing files", [failing("flows/a.spec.ts"), failing("flows/c.spec.ts")], ["flows/a.spec.ts", "flows/c.spec.ts"]],
+    ["an error text that names a spec", [failing(undefined, "flows/a.spec.ts › checkout works")], ["flows/a.spec.ts"]],
+    ["an error text that names none", [failing(undefined, "the page timed out")], []],
+    ["no file and no error text", [{ name: "a failing test", status: "fail" }], []],
+    ["a static gate whose output names a spec", [staticGate("e2e/flows/a.spec.ts(12,5): error TS2322: Type 'string' is not assignable to type 'number'.")], ["flows/a.spec.ts"]],
+    ["a static gate whose output names none", [staticGate("error TS2322: Type 'string' is not assignable to type 'number'.")], []],
+  ];
+  const everySpec = ["flows/a.spec.ts", "flows/b.spec.ts", "flows/c.spec.ts", "flows/d.spec.ts"];
+  for (const target of ["e2e", "code"] as const) {
+    for (const mode of ["diff", "manual", "exhaustive"] as const) {
+      for (const [what, fixCases, editable] of fixes) {
+        const label = `${target}, ${mode}, ${what}`;
+        const a = buildPromptAssembled(mkInput({ target, mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B, SIDEKICK], fixCases }));
+        assert.ok(a.sectionSizes["fix-cases"] !== undefined, `${label}: setup, the turn tells the agent to fix only the failing tests`);
+        const listed = editableIn(sectionText(a, SUITE_ID));
+        for (const file of everySpec) assert.equal(mentions(listed, file), editable.includes(file), `${label}: ${file}`);
+        assert.equal(listed.length, editable.length, label);
+        assert.equal(countOf(a.text, SUITE_LISTING_LABELS.editable), editable.length > 0 ? 1 : 0, label);
+      }
+    }
+  }
 });
 
 test("a corrective regeneration makes editable the specs the checks attributed the contradictions to, and no other", () => {
@@ -240,6 +271,73 @@ test("an entry is one line of at most the cap: what the agent wrote with a line 
   assert.ok(lines.every((line) => line.startsWith("- ") && [...line].length <= LISTING_MAX_ENTRY_CHARS + 2));
 });
 
+/* The cases of a fix come out of the test run, not out of the harness: what a case reports crosses the model boundary like any other text from a run. */
+const FAILED_CASE: QaCase = {
+  name: "a failing test",
+  status: "fail",
+  detail: "boom",
+  file: "flows/a.spec.ts",
+  httpStatus: 500,
+  finalUrl: "https://dev.example.com/pay",
+  runtimeErrors: [{ type: "pageerror", text: "TypeError: cannot read properties of undefined" }],
+};
+const builders: Array<[string, (fixCases: QaCase[]) => string]> = [
+  ["the fix section of the prompt", (fixCases) => buildPromptAssembled(mkInput({ deliveredSpecs: [A], fixCases })).text],
+  ["the continuation prompt", (fixCases) => buildFollowupPrompt(mkInput({ fixCases }))],
+];
+
+test("what a failing case reports is redacted before it reaches the prompt: its name, its error, the page it ended on and the errors the page raised", () => {
+  const leaking: Array<[string, Partial<QaCase>]> = [
+    ["name", { name: `pays with ${SECRET}` }],
+    ["error", { detail: `Error: expected ${SECRET} to be hidden` }],
+    ["final URL", { finalUrl: `https://dev.example.com/pay?token=${SECRET}` }],
+    ["runtime error", { runtimeErrors: [{ type: "pageerror", text: `TypeError at ${SECRET}` }] }],
+  ];
+  for (const [where, build] of builders) {
+    assert.equal(build([FAILED_CASE]).includes(REDACTED), false, `setup: ${where} carries no secret to redact`);
+    for (const [field, overrides] of leaking) {
+      const text = build([{ ...FAILED_CASE, ...overrides }]);
+      assert.equal(text.includes(SECRET), false, `${where}, ${field}`);
+      assert.ok(text.includes(REDACTED), `${where}, ${field}: redacted, not dropped`);
+    }
+  }
+});
+
+test("a failing case's error and runtime errors are redacted before they are cut, so a secret at the cut is never left in part", () => {
+  /* A key the redaction knows only whole (a prefix of it is not one), which starts ten characters before the limit of the error and of each runtime error. The filler is words, so that the key is not part of one long token. */
+  const AWS_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE";
+  const cut: Array<[string, Partial<QaCase>]> = [
+    ["error", { detail: `${"y ".repeat(245)}${AWS_ACCESS_KEY}` }],
+    ["runtime error", { runtimeErrors: [{ type: "pageerror", text: `${"z ".repeat(95)}${AWS_ACCESS_KEY}` }] }],
+  ];
+  for (const [where, build] of builders) {
+    assert.ok(build([{ ...FAILED_CASE, detail: AWS_ACCESS_KEY }]).includes(REDACTED), `${where}: setup, the key is redacted whole`);
+    for (const [field, overrides] of cut) {
+      const text = build([{ ...FAILED_CASE, ...overrides }]);
+      assert.equal(text.includes("AKIA"), false, `${where}, ${field}`);
+      assert.ok(text.includes(REDACTED), `${where}, ${field}: redacted, not dropped`);
+    }
+  }
+});
+
+test("a failing case that reports no error text is listed, and not as one whose error is empty", () => {
+  for (const [where, build] of builders) {
+    const missing = build([{ ...FAILED_CASE, detail: undefined }]);
+    assert.ok(missing.includes(FAILED_CASE.name), where);
+    assert.notEqual(missing, build([{ ...FAILED_CASE, detail: "" }]), `${where}: a missing error text is not an empty one`);
+  }
+});
+
+test("a failing case is still shown as it was reported once there is nothing to redact: the error cut at its limit, the page, the status and the errors the page raised", () => {
+  const detail = "Error: expected 'Total: 10' but received 'Total: 12'";
+  for (const [where, build] of builders) {
+    const text = build([{ ...FAILED_CASE, name: "cart applies a coupon", detail: `${detail}${"!".repeat(600)}` }]);
+    assert.ok(text.includes("cart applies a coupon"), where);
+    assert.ok(text.includes(`${detail}${"!".repeat(500 - detail.length)}`) && !text.includes(`${detail}${"!".repeat(501 - detail.length)}`), `${where}: the error is cut at 500 characters`);
+    for (const carried of ["500", "https://dev.example.com/pay", "pageerror", "TypeError: cannot read properties of undefined"]) assert.ok(text.includes(carried), `${where}: ${carried}`);
+  }
+});
+
 /* ── the question of the outcome and the rule against weakening a test ── */
 
 const TURN_SIGNALS: Array<[string, Partial<OpencodeRunInput>]> = [
@@ -339,6 +437,53 @@ test("the rule against weakening a test is stated by the task alone: the fix sec
   const a = buildPromptAssembled(mkInput({ deliveredSpecs: [A], fixCases: [failing("flows/a.spec.ts")] }));
   assert.equal(countOf(sectionText(a, "fix-cases"), ANTI_WEAKENING_RULE), 0);
   assert.equal(countOf(sectionText(a, "fix-cases"), FIX_STEPS.changeOnlyWhatIsBroken), 1);
+});
+
+/* ── the specs only the fallback made editable, and the allowance of a new spec ── */
+
+test("a coverage regeneration states once, in its listing, that a new spec is allowed for a flow nothing listed covers, and no other turn does", () => {
+  for (const target of ["e2e", "code"] as const) {
+    for (const mode of ["diff", "manual", "complete", "exhaustive"] as const) {
+      const a = buildPromptAssembled(mkInput({ target, mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B], coverageGap: "src/cart.ts: lines 10-14" }));
+      assert.equal(countOf(a.text, SUITE_LISTING_LABELS.newSpec), 1, `${target}, ${mode}`);
+      assert.equal(countOf(sectionText(a, SUITE_ID), SUITE_LISTING_LABELS.newSpec), 1, `${target}, ${mode}: the listing owns it, so it goes with the listing`);
+      for (const [what, signal] of TURN_SIGNALS) {
+        if (signal.coverageGap !== undefined) continue;
+        const other = buildPromptAssembled(mkInput({ target, mode, guidance: GUIDANCE, existingSpecFiles: [C_LINE], deliveredSpecs: [A, B], ...signal }));
+        assert.equal(countOf(other.text, SUITE_LISTING_LABELS.newSpec), 0, `${target}, ${mode}, ${what}`);
+      }
+    }
+  }
+});
+
+test("a first pass and a coverage turn that has nothing editable say nothing of a new spec", () => {
+  assert.equal(countOf(buildPromptAssembled(mkInput({ existingSpecFiles: [C_LINE] })).text, SUITE_LISTING_LABELS.newSpec), 0, "a first pass");
+  const bare = buildPromptAssembled(mkInput({ existingSpecFiles: [C_LINE], coverageGap: "src/cart.ts: lines 10-14" }));
+  assert.equal(countOf(bare.text, SUITE_LISTING_LABELS.newSpec), 0, "a coverage turn of a run that delivered nothing keeps the plain list");
+});
+
+test("the lines the listing adds for the specs only the fallback made editable and for a new spec carry no directive, so they add nothing to the directive budget", () => {
+  assert.equal(countDirectives(SUITE_LISTING_LABELS.newSpec), 0);
+  assert.equal(countDirectives(everyDeliveredLine(LISTING_MAX_UNNAMED_EDITABLE)), 0);
+});
+
+test("a turn that could not say which spec to change lists every spec the run delivered under one summary, the first ones up to the cap, and counts the rest", () => {
+  const delivered = Array.from({ length: LISTING_MAX_UNNAMED_EDITABLE + 9 }, (_, index): DeliveredSpec => ({ file: `flows/m${String(index).padStart(3, "0")}.spec.ts`, flow: `flow ${index}`, objective: `objective ${index}` }));
+  const unsure: Array<[string, Partial<OpencodeRunInput>]> = [
+    ["a coverage gap", { coverageGap: "src/cart.ts: lines 10-14" }],
+    ["a correction that names no spec", { reviewCorrections: ["the checkout flow asserts nothing"] }],
+    ["a contradiction attributed to none", { selectorContradictions: ["a selector the page does not have"] }],
+  ];
+  for (const [what, signal] of unsure) {
+    const a = buildPromptAssembled(mkInput({ existingSpecFiles: [C_LINE], deliveredSpecs: delivered, ...signal }));
+    const section = sectionText(a, SUITE_ID);
+    const lines = section.split("\n");
+    assert.equal(countOf(section, everyDeliveredLine(delivered.length)), 1, `${what}: one summary`);
+    assert.equal(editableIn(section).length, LISTING_MAX_UNNAMED_EDITABLE, `${what}: the cap's worth`);
+    assert.equal(countOf(section, leftOutLine(9)), 1, `${what}: the rest counted`);
+    assert.ok(lines.indexOf(everyDeliveredLine(delivered.length)) < lines.indexOf(SUITE_LISTING_LABELS.doNotRewrite), `${what}: the summary is in the editable group`);
+    assert.deepEqual(findingsOf(a, true), [], what);
+  }
 });
 
 /* ── the steps of a fix ── */
@@ -449,6 +594,130 @@ test("a regeneration keeps its listing until every volatile section is gone, and
   assert.ok(withVolatile > 20, "setup: the budgets tried leave volatile sections standing many times");
 });
 
+/* ── a listing that does not fit is cut, not lost ── */
+
+const padded = (index: number): string => String(index).padStart(3, "0");
+const bytesOf = (text: string): number => Buffer.byteLength(text, "utf8");
+
+/* A run that delivered many specs over a suite of many: the coverage turn that follows takes every delivered spec, so it lists the largest groups the section can have. Every spec has the objective its lead declared. */
+const MANY_DELIVERED = Array.from({ length: LISTING_MAX_UNNAMED_EDITABLE + 10 }, (_, index): DeliveredSpec => ({
+  file: `flows/m${padded(index)}.spec.ts`,
+  flow: `flow number ${index}`,
+  objective: `the outcome of flow number ${index} is shown`,
+}));
+const MANY_EXISTING = Array.from({ length: LISTING_MAX_DO_NOT_REWRITE + 10 }, (_, index) => `suite/s${padded(index)}.spec.ts — flow: suite flow ${index}, objective: the suite outcome ${index} is shown`);
+/* A sidekick's spec has no objective its lead declared: a turn that has it to change asks for the outcome whatever the budget does. */
+const SIDEKICK_AT_THE_END: DeliveredSpec = { file: "flows/zz-sidekick.spec.ts" };
+const bigCoverage = (extra: readonly DeliveredSpec[] = []): OpencodeRunInput =>
+  mkInput({ existingSpecFiles: MANY_EXISTING, deliveredSpecs: [...MANY_DELIVERED, ...extra], coverageGap: "src/cart.ts: lines 10-14" });
+
+/* What a prompt holds besides its listing, in bytes: a budget of this plus a room is a budget that leaves the listing that room. */
+const aroundTheListing = (whole: AssembledPrompt): number => bytesOf(whole.text) - (whole.sectionSizes[SUITE_ID] ?? 0);
+
+/* A section the assembler cut ends with a marker line of its own; what precedes it is the head of the whole section. */
+const headOf = (cut: string): string => cut.split("\n").slice(0, -1).join("\n");
+
+/* The room the marker the assembler ends a cut section with takes, and a few entries' worth over it. */
+const MARKER_AND_A_FEW_ENTRIES = 200;
+
+test("a listing that does not fit is cut from its end: the do-not-rewrite group first, then the specs only the fallback added, and the label and the summary stay", () => {
+  const asking = (): OpencodeRunInput => bigCoverage([SIDEKICK_AT_THE_END]);
+  const whole = buildPromptAssembled(asking(), withoutBudget);
+  assert.equal(countOf(whole.text, OBJECTIVE_QUESTION), 1, "setup: the turn asks for the outcome with or without a cut, so a cut changes nothing else of the task");
+  const wholeSection = sectionText(whole, SUITE_ID);
+  const wholeLines = wholeSection.split("\n");
+  const summary = everyDeliveredLine(MANY_DELIVERED.length + 1);
+  const through = (line: string): number => bytesOf(wholeLines.slice(0, wholeLines.indexOf(line) + 1).join("\n"));
+  const cutTo = (room: number): string => sectionText(quietly(() => buildPromptAssembled(asking(), { budgetBytes: aroundTheListing(whole) + room })), SUITE_ID);
+
+  const inDoNotRewrite = cutTo(through(SUITE_LISTING_LABELS.doNotRewrite) + MARKER_AND_A_FEW_ENTRIES);
+  assert.ok(wholeSection.startsWith(headOf(inDoNotRewrite)), "what is left is the head of the section");
+  assert.equal(editableIn(inDoNotRewrite).length, LISTING_MAX_UNNAMED_EDITABLE, "every spec the fallback added is still there");
+  assert.ok(inDoNotRewrite.includes(summary));
+  assert.ok(doNotRewriteIn(inDoNotRewrite).length < LISTING_MAX_DO_NOT_REWRITE, "the do-not-rewrite group is shorter");
+
+  const inFallback = cutTo(through(summary) + MARKER_AND_A_FEW_ENTRIES);
+  assert.ok(wholeSection.startsWith(headOf(inFallback)));
+  assert.ok(inFallback.includes(SUITE_LISTING_LABELS.editable) && inFallback.includes(summary), "the label and the summary stay");
+  assert.ok(editableIn(inFallback).length > 0 && editableIn(inFallback).length < LISTING_MAX_UNNAMED_EDITABLE, "the specs only the fallback added are shorter");
+  assert.equal(inFallback.includes(SUITE_LISTING_LABELS.doNotRewrite), false, "the do-not-rewrite group is gone");
+});
+
+test("a listing is cut and never lost at any budget that leaves it room for its title, its label and its summary", () => {
+  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+  const wholeSection = sectionText(whole, SUITE_ID);
+  const head = wholeSection.split("\n").slice(0, wholeSection.split("\n").indexOf(everyDeliveredLine(MANY_DELIVERED.length)) + 1);
+  const room = bytesOf(head.join("\n")) + MARKER_AND_A_FEW_ENTRIES;
+  const wholeSize = whole.sectionSizes[SUITE_ID] ?? 0;
+  assert.ok(wholeSize > 2 * room, "setup: there is a lot to cut");
+  quietly(() => {
+    for (let kept = room; kept < wholeSize; kept += 97) {
+      const a = buildPromptAssembled(bigCoverage(), { budgetBytes: aroundTheListing(whole) + kept });
+      const section = sectionText(a, SUITE_ID);
+      assert.ok(section !== "", `room ${kept}: the listing stands`);
+      assert.deepEqual(section.split("\n").slice(0, head.length), head, `room ${kept}: its title, its label and its summary stand`);
+    }
+  });
+});
+
+test("a plain list the byte budget cannot hold is dropped whole, as a first pass drops it, and not cut", () => {
+  const input = mkInput({ existingSpecFiles: MANY_EXISTING, deliveredSpecs: MANY_DELIVERED, fixCases: [failing(undefined, "the page timed out")] });
+  const whole = buildPromptAssembled(input, withoutBudget);
+  assert.equal(countOf(whole.text, SUITE_LISTING_LABELS.editable), 0, "setup: nothing is editable, so the list is plain");
+  const shed = quietly(() => buildPromptAssembled(input, { budgetBytes: aroundTheListing(whole) + MARKER_AND_A_FEW_ENTRIES }));
+  assert.equal(shed.sectionSizes[SUITE_ID], undefined);
+});
+
+test("a listing the byte budget cuts can no longer justify skipping the outcome: the prompt asks for it, and a listing that fits does not", () => {
+  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+  assert.equal(countOf(whole.text, OBJECTIVE_QUESTION), 0, "setup: every spec under correction has an objective its lead declared");
+  const total = bytesOf(whole.text);
+  const fits = quietly(() => buildPromptAssembled(bigCoverage(), { budgetBytes: total }));
+  assert.equal(countOf(fits.text, OBJECTIVE_QUESTION), 0);
+  const cut = quietly(() => buildPromptAssembled(bigCoverage(), { budgetBytes: total - 600 }));
+  assert.ok((cut.sectionSizes[SUITE_ID] ?? Number.POSITIVE_INFINITY) < (whole.sectionSizes[SUITE_ID] ?? 0), "setup: the listing is cut, not shed");
+  assert.equal(countOf(cut.text, OBJECTIVE_QUESTION), 1);
+  assert.equal(directs(cut, "task", "state-outcome"), true);
+});
+
+test("the question costs the listing nothing of its head: wherever the prompt asks for the outcome again, the title, the label and the summary stand", () => {
+  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+  const around = aroundTheListing(whole);
+  const wholeLines = sectionText(whole, SUITE_ID).split("\n");
+  const head = wholeLines.slice(0, wholeLines.indexOf(everyDeliveredLine(MANY_DELIVERED.length)) + 1).join("\n");
+  let asked = 0;
+  let held = 0;
+  quietly(() => {
+    for (let room = 0; room < (whole.sectionSizes[SUITE_ID] ?? 0); room += 29) {
+      const a = buildPromptAssembled(bigCoverage(), { budgetBytes: around + room });
+      const standing = a.text.includes(head);
+      if (countOf(a.text, OBJECTIVE_QUESTION) === 1) {
+        asked += 1;
+        assert.ok(standing, `room ${room}: the prompt asks, so the head of the listing stands`);
+      } else if (standing) {
+        held += 1;
+      }
+    }
+  });
+  assert.ok(asked > 10, "setup: the prompt asks at many of the budgets tried");
+  assert.ok(held > 5, "setup: the head is kept, without the question, at budgets where the question would take it");
+});
+
+/* Under this, the marker the assembler ends a cut section with leaves the section no room for anything of its own. */
+const NO_ROOM_FOR_A_HEAD = 100;
+
+test("asking for the outcome again never costs the prompt a section: at any budget that holds all but the listing the task stands, and so does a listing that has room", () => {
+  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+  const around = aroundTheListing(whole);
+  quietly(() => {
+    for (let budgetBytes = around; budgetBytes <= bytesOf(whole.text); budgetBytes += 17) {
+      const a = buildPromptAssembled(bigCoverage(), { budgetBytes });
+      assert.ok(a.sectionSizes["task"] !== undefined, `budget ${budgetBytes}: the task stands`);
+      if (budgetBytes - around >= NO_ROOM_FOR_A_HEAD) assert.ok(a.sectionSizes[SUITE_ID] !== undefined, `budget ${budgetBytes}: the listing stands`);
+    }
+  });
+});
+
 /* ── the contract ── */
 
 test("a regeneration with a listing is clean under the lint, in both targets and every signal", () => {
@@ -458,6 +727,14 @@ test("a regeneration with a listing is clean under the lint, in both targets and
       assert.deepEqual(findingsOf(a, true), [], `${target}, ${what}`);
     }
   }
+});
+
+test("the largest listing a regeneration carries is clean under the lint, whole and cut", () => {
+  const whole = buildPromptAssembled(bigCoverage(), withoutBudget);
+  assert.deepEqual(findingsOf(whole, true), []);
+  const cut = quietly(() => buildPromptAssembled(bigCoverage(), { budgetBytes: bytesOf(whole.text) - 600 }));
+  assert.ok((cut.sectionSizes[SUITE_ID] ?? Number.POSITIVE_INFINITY) < (whole.sectionSizes[SUITE_ID] ?? 0), "setup: the listing is cut");
+  assert.deepEqual(findingsOf(cut, true), []);
 });
 
 test("a limited prompt still ends with the step limit and then the milestone when the listing is in it", () => {

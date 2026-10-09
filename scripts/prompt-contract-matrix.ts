@@ -45,7 +45,8 @@ import type {
   ExplorationBrief,
   OpencodeRunInput,
 } from "@contexts/generation/application/ports/generation-ports.ts";
-import { LISTING_MAX_DO_NOT_REWRITE } from "@contexts/generation/domain/suite-listing.ts";
+import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
+import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
@@ -78,8 +79,8 @@ export const DIMENSIONS = {
   packRedirect: [false, true],
   /* The change belongs to a microservice rather than to the frontend repo. */
   service: [false, true],
-  /* Whether the run lists any spec: the suite as the grounding folded it, on a diff or a manual run, and on a regeneration the specs the run has delivered. */
-  suite: ["listed", "none"],
+  /* Whether the run lists any spec: the suite as the grounding folded it, on a diff or a manual run, and on a regeneration the specs the run has delivered. `large` is the worst case of a listing: a diff or manual run that delivered more specs than the listing shows of the ones it can say nothing of, over a suite that has more than it shows of the ones to leave alone, and then could not say which spec to change. */
+  suite: ["listed", "none", "large"],
 } as const;
 
 export type CellSpec = { -readonly [K in keyof typeof DIMENSIONS]: (typeof DIMENSIONS)[K][number] };
@@ -122,6 +123,13 @@ export function isValidSpec(spec: CellSpec): boolean {
     const lists = spec.mode === "diff" || spec.mode === "manual" || spec.phase !== "first";
     if (!lists || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
   }
+  /* The worst case of a listing is one shape of its own, not a copy of the cross product: the regenerations that cannot say which spec to change (a coverage gap, a contradiction no spec is attributed to) of a run that lists its suite, with none of the optional blocks and the signals of a plain run. */
+  if (spec.suite === "large") {
+    const cannotSayWhich = spec.phase === "regen-coverage" || spec.phase === "selector-fix";
+    const listsItsSuite = spec.mode === "diff" || spec.mode === "manual";
+    if (!cannotSayWhich || !listsItsSuite || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
+    if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom) return false;
+  }
   /* The service block belongs to the diff-shaped first pass and to every regeneration of an e2e run. */
   if (spec.service && (isContext || (spec.mode !== "diff" && spec.phase === "first"))) return false;
   return true;
@@ -158,6 +166,7 @@ export function cellName(spec: CellSpec): string {
     spec.packRedirect ? "redirect" : "",
     spec.service ? "service" : "",
     spec.suite === "none" ? "nosuite" : "",
+    spec.suite === "large" ? "largesuite" : "",
   ].filter(Boolean);
   return [
     spec.mode,
@@ -309,12 +318,43 @@ function deliveredFor(spec: CellSpec): DeliveredSpec[] {
   return [DELIVERED_LEAD, DELIVERED_SIDEKICK, ...extra];
 }
 
+/* The worst case of a listing: the specs a run delivered, and the lines its suite had, when each is more than the listing shows of the group it falls in. Every spec carries the flow and the objective its lead declared, at the length of a long, real one, so that the groups are the longest the section can really have. */
+const LARGE_DELIVERED_COUNT = LISTING_MAX_UNNAMED_EDITABLE + 10;
+const LARGE_EXISTING_COUNT = LISTING_MAX_DO_NOT_REWRITE + 7;
+const LARGE_AREAS = ["cart", "checkout", "account", "catalog", "search", "orders", "profile", "wishlist"] as const;
+
+function largeSpec(folder: string, index: number): DeliveredSpec {
+  const area = LARGE_AREAS[index % LARGE_AREAS.length]!;
+  const id = String(index).padStart(2, "0");
+  return {
+    file: `${folder}/${area}-${id}.spec.ts`,
+    flow: `${area} ${id}: a signed-in user changes the ${area} and sees it saved`,
+    objective: `the ${area} page shows the saved change after it is reloaded`,
+  };
+}
+
+const LARGE_DELIVERED: readonly DeliveredSpec[] = Array.from({ length: LARGE_DELIVERED_COUNT }, (_, index) => largeSpec("flows", index));
+const LARGE_EXISTING: readonly string[] = Array.from({ length: LARGE_EXISTING_COUNT }, (_, index) => formatSuiteEntry(largeSpec("suite", index)));
+
+/* The suite lines the grounding folded before the run, and the specs the run has delivered by the time a regeneration is built. */
+function suiteLinesFor(spec: CellSpec): string[] | undefined {
+  if (spec.suite === "large") return [...LARGE_EXISTING];
+  return spec.suite === "listed" && (spec.mode === "diff" || spec.mode === "manual") ? ["flows/cart.spec.ts"] : undefined;
+}
+
+function deliveredSpecsFor(spec: CellSpec): DeliveredSpec[] | undefined {
+  if (spec.suite === "large") return [...LARGE_DELIVERED];
+  return spec.suite === "listed" && spec.phase !== "first" ? deliveredFor(spec) : undefined;
+}
+
 /* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap; the Codex runtime has no step cap to report (the `stepLimits` asymmetry documented in src/agent-runtime/contract-parity.test.ts), so a Codex prompt is built with none. */
 export const MATRIX_STEP_LIMIT = 40;
 
 /* The run input of a combination; `stepLimit` is the cap the runtime resolved for the generator, absent when it states none. */
 export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<OpencodeRunInput> {
   const isCode = spec.target === "code";
+  const suiteLines = suiteLinesFor(spec);
+  const deliveredSpecs = deliveredSpecsFor(spec);
   const input: OpencodeRunInput = {
     repo: "org/app",
     sha: "abc1234def",
@@ -336,8 +376,8 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
       changedFiles: CHANGED_FILES,
     },
     ...(spec.mode === "manual" ? { guidance: "cover the coupon form on the cart page" } : {}),
-    ...(spec.suite === "listed" && (spec.mode === "diff" || spec.mode === "manual") ? { existingSpecFiles: ["flows/cart.spec.ts"] } : {}),
-    ...(spec.suite === "listed" && spec.phase !== "first" ? { deliveredSpecs: deliveredFor(spec) } : {}),
+    ...(suiteLines ? { existingSpecFiles: suiteLines } : {}),
+    ...(deliveredSpecs ? { deliveredSpecs } : {}),
     ...(stepLimit !== undefined ? { stepLimit } : {}),
   };
 
@@ -465,6 +505,7 @@ function combinationBucket(spec: CellSpec): string {
     ...(spec.structuralSignal === "none" ? [] : [SIGNAL_FLAG[spec.structuralSignal]]),
     ...(spec.service ? ["service"] : []),
     ...(spec.suite === "none" ? ["no-suite"] : []),
+    ...(spec.suite === "large" ? ["large-suite"] : []),
   ].join("/");
 }
 

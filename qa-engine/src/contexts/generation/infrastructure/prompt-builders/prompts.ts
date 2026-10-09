@@ -22,7 +22,7 @@ import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { claim, APP_LOGIN_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
-import { renderSuiteListing } from "@contexts/generation/domain/suite-listing-render.ts";
+import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
@@ -119,8 +119,8 @@ const numbered = (steps: readonly string[]): string[] => steps.map((step, index)
 /* The id of the section that lists the suite; it titles the section as well. */
 const SUITE_LISTING_SECTION_ID = PROMPT_HEADINGS.existingSuiteManifest;
 
-/* What the agent is told of the specs of the suite crosses the model boundary as free text an agent wrote, so each entry goes through the same redaction as any other model-bound text. */
-function sanitizeListingText(text: string): string {
+/* Free text an agent or a test run wrote (what the listing says of a spec, what a failing case reports) crosses the model boundary through the same redaction as any other model-bound text. */
+function redactForModel(text: string): string {
   return sanitizeText(text, "model").text;
 }
 
@@ -379,15 +379,21 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
   const lines: string[] = [];
   if (c.httpStatus !== undefined || c.finalUrl !== undefined) {
     const statusPart = c.httpStatus !== undefined ? `HTTP ${c.httpStatus}` : "HTTP (unknown)";
-    const urlPart = c.finalUrl !== undefined ? ` at ${c.finalUrl}` : "";
+    const urlPart = c.finalUrl !== undefined ? ` at ${redactForModel(c.finalUrl)}` : "";
     lines.push(`  ${statusPart}${urlPart}`);
   }
   if (c.runtimeErrors?.length) {
     for (const e of c.runtimeErrors.slice(0, 3)) {
-      lines.push(`  [${e.type}] ${e.text.slice(0, 200)}`);
+      lines.push(`  [${e.type}] ${redactForModel(e.text).slice(0, 200)}`);
     }
   }
   return lines;
+}
+
+/* A failing case as a prompt lists it: its name, the start of its error and what the run saw of the page. The case comes out of the test run, so each text is redacted before it is cut, and no secret is left in part by the cut. */
+function renderFixCase(c: QaCase): string[] {
+  const error = c.detail === undefined ? "(no detail)" : redactForModel(c.detail).slice(0, 500);
+  return [`- ${redactForModel(c.name)}\n  Error: ${error}`, ...renderFixCaseEvidenceLines(c)];
 }
 
 /* Read only where the agent has no DOM tree and explores the live page itself: with a tree in the prompt it transcribes and does not navigate, so there is nothing to observe. */
@@ -518,7 +524,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           attributedSpecFiles: input.attributedSpecFiles,
         }
       : {},
-    { sanitize: sanitizeListingText },
+    { sanitize: redactForModel },
   );
   const listingContent = renderSuiteListing(listing);
   const suiteIsListed = listingContent !== "";
@@ -629,10 +635,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
             ]),
         ``,
         `Failed cases:`,
-        ...input.fixCases.flatMap((c) => [
-          `- ${c.name}\n  Error: ${c.detail?.slice(0, 500) ?? "(no detail)"}`,
-          ...renderFixCaseEvidenceLines(c),
-        ]),
+        ...input.fixCases.flatMap(renderFixCase),
         ``,
         ...(hasFailureTree
           ? [
@@ -869,16 +872,16 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const diffContent = isGenerationMode ? buildDiffSection(input) : "";
 
-  /* The sections of the prompt, with the task worded for a suite that a listing in the prompt does, or does not, supply. */
-  const assembleWith = (suiteListed: boolean): AssembledPrompt => {
-    const task = buildTask(input, { mapInjected, blastRadiusGrounded, suiteListed, reaskObjective: listing.reaskObjective });
+  /* The sections of the prompt, with the task worded for a suite that a listing in the prompt does, or does not, supply, and asking for the outcome again or not. The listing of a turn with specs to change is summarized when the budget cannot hold it, so that its end is cut and its label stays; the plain list of the suite is dropped whole. */
+  const assembleWith = (suiteListed: boolean, reaskObjective: boolean): AssembledPrompt => {
+    const task = buildTask(input, { mapInjected, blastRadiusGrounded, suiteListed, reaskObjective });
     return assemble([
       section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
       ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
       ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
       ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
       ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
-      ...(suiteIsListed ? [section(SUITE_LISTING_SECTION_ID, "semi-stable", listingContent, { priority: 2, claims: [claim.provides("existing-suite")] })] : []),
+      ...(suiteIsListed ? [section(SUITE_LISTING_SECTION_ID, "semi-stable", listingContent, { priority: 2, claims: [claim.provides("existing-suite")], ...(editableListed ? { overflow: "summarize" as const } : {}) })] : []),
       ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
       ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
       ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
@@ -901,9 +904,14 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
   };
 
-  /* The listing is a section the byte budget may shed, and what the task says about reading the suite depends on whether the listing is there. When the budget sheds it, the prompt is assembled again with the task worded for a prompt that has no listing, so the agent is sent to read the suite and no claim reads a fact the prompt provides. */
-  let assembled = assembleWith(suiteIsListed);
-  if (suiteIsListed && assembled.sectionSizes[SUITE_LISTING_SECTION_ID] === undefined) assembled = assembleWith(false);
+  /* The listing is a section the byte budget may cut or shed. What the task says about reading the suite depends on whether the listing is there, and the decision not to ask for the outcome again rests on the objectives the listing shows. So when the budget sheds the listing the prompt is assembled again with the task worded for a prompt that has none, so that the agent is sent to read the suite and no claim reads a fact the prompt provides; when it cuts the listing, the prompt is assembled again with what is left of it. Either way the task asks for the outcome. The second assembly is kept only if the question costs the prompt no section and no part of the head of the listing: a wording must not take what the listing is for. */
+  let assembled = assembleWith(suiteIsListed, listing.reaskObjective);
+  const kept = assembled.sectionSizes[SUITE_LISTING_SECTION_ID];
+  if (suiteIsListed && kept !== Buffer.byteLength(listingContent, "utf8")) {
+    const reassembled = assembleWith(kept !== undefined, true);
+    const keepsEverySection = Object.keys(assembled.sectionSizes).every((id) => reassembled.sectionSizes[id] !== undefined);
+    if (keepsEverySection && (kept === undefined || reassembled.text.includes(suiteListingHead(listing)))) assembled = reassembled;
+  }
   return { ...assembled, providedPaths: providedPathsOf(input, assembled.sectionSizes) };
 }
 
@@ -945,10 +953,7 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
     parts.push(
       `## Fix failing tests`,
       `These tests FAILED against DEV. Fix ONLY these; do NOT touch tests that passed.`,
-      ...input.fixCases.flatMap((c) => [
-        `- ${c.name}\n  Error: ${c.detail?.slice(0, 500) ?? "(no detail)"}`,
-        ...renderFixCaseEvidenceLines(c),
-      ]),
+      ...input.fixCases.flatMap(renderFixCase),
       ``,
     );
   }

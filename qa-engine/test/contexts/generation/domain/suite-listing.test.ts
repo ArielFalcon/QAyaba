@@ -4,6 +4,7 @@ import {
   buildSuiteListing,
   LISTING_MAX_DO_NOT_REWRITE,
   LISTING_MAX_ENTRY_CHARS,
+  LISTING_MAX_UNNAMED_EDITABLE,
   type SuiteListing,
   type SuiteListingInput,
 } from "@contexts/generation/domain/suite-listing.ts";
@@ -97,7 +98,17 @@ test("a spec delivered twice, spelled two ways, is one entry that reads as the n
 
 test("a run with no suite and nothing delivered lists nothing", () => {
   const result = listing({});
-  assert.deepEqual(result, { entries: [], editable: [], doNotRewrite: [], leftOut: 0, reaskObjective: true });
+  assert.deepEqual(result, {
+    entries: [],
+    editable: [],
+    named: [],
+    unnamed: [],
+    unnamedLeftOut: 0,
+    doNotRewrite: [],
+    leftOut: 0,
+    mayAddSpec: false,
+    reaskObjective: true,
+  });
 });
 
 /* ── which specs the turn must change ── */
@@ -211,15 +222,10 @@ test("static fix: a spec of the suite the gate names is editable, and the specs 
   assert.deepEqual(filesOf(result.editable), ["d.spec.ts"]);
 });
 
-test("static fix: output that names no spec makes every spec this run delivered editable, and none of the suite", () => {
+test("static fix: output that names no spec makes nothing editable: a fix changes what its failing cases name, and no spec beside them", () => {
   const result = listing({ ...SUITE, fixCases: [staticGate("error TS2322: Type 'string' is not assignable to type 'number'.")] });
-  assert.deepEqual(filesOf(result.editable), ["flows/a.spec.ts", "flows/b.spec.ts"]);
-  assert.deepEqual(filesOf(result.doNotRewrite), ["flows/c.spec.ts", "d.spec.ts"]);
-});
-
-test("static fix: output that names no spec, in a run that delivered nothing, leaves nothing editable", () => {
-  const result = listing({ existing: [C_LINE], fixCases: [staticGate("error TS2322")] });
   assert.deepEqual(result.editable, []);
+  assert.deepEqual(filesOf(result.doNotRewrite), ["flows/a.spec.ts", "flows/b.spec.ts", "flows/c.spec.ts", "d.spec.ts"]);
 });
 
 test("a path in an error is a run of name characters, wherever it stands, with a position or a full stop after it", () => {
@@ -307,16 +313,38 @@ test("a failing file known to the FixLoop leaves no fallback to the others: a ca
   assert.deepEqual(filesOf(result.editable), ["flows/a.spec.ts"]);
 });
 
-test("a case without a file names its spec in its error text, and the FixLoop with no file at all falls back to this run's specs", () => {
+test("a case without a file names its spec in its error text; one whose text names none makes nothing editable", () => {
   const named = listing({ ...SUITE, fixCases: [failing(undefined, "flows/b.spec.ts › checkout works")] });
   assert.deepEqual(filesOf(named.editable), ["flows/b.spec.ts"]);
   const unnamed = listing({ ...SUITE, fixCases: [failing(undefined, "the page timed out")] });
-  assert.deepEqual(filesOf(unnamed.editable), ["flows/a.spec.ts", "flows/b.spec.ts"]);
+  assert.deepEqual(unnamed.editable, []);
 });
 
-test("a failing case with neither a file nor an error text names no spec: the turn falls back to this run's specs", () => {
+test("a failing case with neither a file nor an error text names no spec, and makes nothing editable", () => {
   const result = listing({ ...SUITE, fixCases: [failing()] });
+  assert.deepEqual(result.editable, []);
+});
+
+test("a fix turn takes no fallback: neither a failing case that names nothing nor a signal beside it makes every spec this run delivered editable", () => {
+  const beside: Record<string, SuiteListingInput> = {
+    "nothing else": {},
+    "a coverage gap": { coverageGap: "src/cart.ts: lines 10-14" },
+    "a correction that names no spec": { reviewCorrections: ["the checkout flow asserts nothing at all"] },
+    "a contradiction attributed to no spec": { selectorContradictions: ["a selector the page does not have"] },
+  };
+  const unnamedCases = [[failing()], [failing(undefined, "the page timed out")], [staticGate("error TS2322")], [failing(undefined, "boom"), staticGate("error TS2322")]];
+  for (const [what, signal] of Object.entries(beside)) {
+    for (const fixCases of unnamedCases) {
+      assert.deepEqual(listing({ ...SUITE, fixCases, ...signal }).editable, [], `${what}, ${fixCases.map((fixCase) => fixCase.name).join("+")}`);
+    }
+  }
+});
+
+test("cases that all passed make no fix turn: the specs this run delivered are still the fallback of a coverage turn", () => {
+  const passed = { name: "passed", status: "pass" as const, file: "flows/a.spec.ts" };
+  const result = listing({ ...SUITE, fixCases: [passed], coverageGap: "src/cart.ts: lines 10-14" });
   assert.deepEqual(filesOf(result.editable), ["flows/a.spec.ts", "flows/b.spec.ts"]);
+  assert.equal(result.mayAddSpec, true);
 });
 
 /* ── how many are shown ── */
@@ -340,12 +368,94 @@ test("at the cap, nothing is left out; one more, and one is", () => {
   assert.equal(over.leftOut, 1);
 });
 
-test("every editable entry is listed, however many there are", () => {
-  const delivered = Array.from({ length: LISTING_MAX_DO_NOT_REWRITE + 12 }, (_, index) => ({ file: `mine/m${String(index).padStart(3, "0")}.spec.ts` }));
-  const result = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 3), delivered, coverageGap: "src/cart.ts: lines 10-14" });
+const deliveredOf = (count: number): DeliveredSpec[] => Array.from({ length: count }, (_, index) => ({ file: `mine/m${String(index).padStart(3, "0")}.spec.ts` }));
+
+test("every editable entry a signal names is shown, however many there are", () => {
+  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 12);
+  const result = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 3), delivered, fixCases: delivered.map((spec) => failing(spec.file)) });
   assert.equal(result.editable.length, delivered.length);
+  assert.equal(result.named.length, delivered.length);
+  assert.deepEqual(result.unnamed, []);
+  assert.equal(result.unnamedLeftOut, 0);
   assert.equal(result.doNotRewrite.length, LISTING_MAX_DO_NOT_REWRITE);
   assert.equal(result.leftOut, 3);
+});
+
+test("the editable entries only the fallback adds are shown up to the cap, the first ones in the listing's order, and the rest are counted", () => {
+  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 12);
+  const result = listing({ existing: suiteOf(LISTING_MAX_DO_NOT_REWRITE + 3), delivered, coverageGap: "src/cart.ts: lines 10-14" });
+  assert.equal(result.editable.length, delivered.length, "the turn's work is every spec this run delivered");
+  assert.deepEqual(result.named, []);
+  assert.equal(result.unnamed.length, LISTING_MAX_UNNAMED_EDITABLE);
+  assert.equal(result.unnamedLeftOut, 12);
+  assert.deepEqual(filesOf(result.unnamed), filesOf(result.editable).slice(0, LISTING_MAX_UNNAMED_EDITABLE));
+  assert.equal(result.doNotRewrite.length, LISTING_MAX_DO_NOT_REWRITE, "the do-not-rewrite group is capped on its own");
+  assert.equal(result.leftOut, 3);
+});
+
+test("at the cap no unnamed editable entry is left out; one more, and one is", () => {
+  const atCap = listing({ delivered: deliveredOf(LISTING_MAX_UNNAMED_EDITABLE), coverageGap: "src/cart.ts: lines 10-14" });
+  assert.equal(atCap.unnamed.length, LISTING_MAX_UNNAMED_EDITABLE);
+  assert.equal(atCap.unnamedLeftOut, 0);
+  const over = listing({ delivered: deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 1), coverageGap: "src/cart.ts: lines 10-14" });
+  assert.equal(over.unnamed.length, LISTING_MAX_UNNAMED_EDITABLE);
+  assert.equal(over.unnamedLeftOut, 1);
+});
+
+test("a delivered spec a correction names is shown among the named however far down the delivered ones it is, and is not counted again among the others", () => {
+  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 10);
+  const last = delivered.at(-1)!.file;
+  const result = listing({ delivered, reviewCorrections: [`${last}: weak assertion`, "the checkout flow asserts nothing at all"] });
+  assert.equal(result.editable.length, delivered.length);
+  assert.deepEqual(filesOf(result.named), [last]);
+  assert.equal(result.unnamed.length, LISTING_MAX_UNNAMED_EDITABLE);
+  assert.ok(!filesOf(result.unnamed).includes(last));
+  assert.equal(result.unnamedLeftOut, delivered.length - 1 - LISTING_MAX_UNNAMED_EDITABLE);
+});
+
+test("what a signal names is named whether or not this run delivered it, and the fallback adds only delivered specs", () => {
+  const result = listing({ ...SUITE, reviewCorrections: ["flows/c.spec.ts: weak assertion", "the checkout flow asserts nothing at all"] });
+  assert.deepEqual(filesOf(result.named), ["flows/c.spec.ts"]);
+  assert.deepEqual(filesOf(result.unnamed), ["flows/a.spec.ts", "flows/b.spec.ts"]);
+  assert.deepEqual(filesOf(result.doNotRewrite), ["d.spec.ts"]);
+});
+
+test("a spec the fallback and a signal both reach is named", () => {
+  const result = listing({ ...SUITE, reviewCorrections: ["flows/a.spec.ts: weak assertion", "the checkout flow asserts nothing at all"] });
+  assert.deepEqual(filesOf(result.named), ["flows/a.spec.ts"]);
+  assert.deepEqual(filesOf(result.unnamed), ["flows/b.spec.ts"]);
+  assert.equal(result.unnamedLeftOut, 0);
+});
+
+test("a turn that names its specs has no unnamed entry, and a turn that names none has no named one", () => {
+  const named = listing({ ...SUITE, fixCases: [failing("flows/a.spec.ts")] });
+  assert.deepEqual([filesOf(named.named), named.unnamed, named.unnamedLeftOut], [["flows/a.spec.ts"], [], 0]);
+  for (const signal of [{ coverageGap: "src/cart.ts: lines 10-14" }, { selectorContradictions: ["a selector the page does not have"] }, { reviewCorrections: ["the checkout flow asserts nothing"] }]) {
+    const unnamed = listing({ ...SUITE, ...signal });
+    assert.deepEqual([unnamed.named, filesOf(unnamed.unnamed)], [[], ["flows/a.spec.ts", "flows/b.spec.ts"]], Object.keys(signal)[0]);
+  }
+  const nothing = listing(SUITE);
+  assert.deepEqual([nothing.named, nothing.unnamed, nothing.unnamedLeftOut], [[], [], 0]);
+});
+
+test("the fallback takes the specs this run delivered and no other: with none delivered, nothing is unnamed and nothing is editable", () => {
+  const result = listing({ existing: [C_LINE, D_LINE], coverageGap: "src/cart.ts: lines 10-14" });
+  assert.deepEqual([result.editable, result.named, result.unnamed, result.unnamedLeftOut], [[], [], [], 0]);
+});
+
+test("a coverage turn may add a spec of its own, and no other turn may", () => {
+  assert.equal(listing({ ...SUITE, coverageGap: "src/cart.ts: lines 10-14" }).mayAddSpec, true);
+  assert.equal(listing({ existing: [C_LINE], coverageGap: "src/cart.ts: lines 10-14" }).mayAddSpec, true, "a coverage turn that has delivered nothing as well");
+  const others: Record<string, SuiteListingInput> = {
+    "a turn that asks for nothing": {},
+    "an empty coverage gap": { coverageGap: "" },
+    "a FixLoop turn": { fixCases: [failing("flows/a.spec.ts")] },
+    "a static fix": { fixCases: [staticGate("a.spec.ts(1,1): error TS1005")] },
+    "a reviewer correction": { reviewCorrections: ["flows/a.spec.ts: weak assertion"] },
+    "a selector contradiction": { selectorContradictions: ["a selector the page does not have"], attributedSpecFiles: ["flows/a.spec.ts"] },
+    "a fix beside a coverage gap": { fixCases: [failing("flows/a.spec.ts")], coverageGap: "src/cart.ts: lines 10-14" },
+  };
+  for (const [what, signal] of Object.entries(others)) assert.equal(listing({ ...SUITE, ...signal }).mayAddSpec, false, what);
 });
 
 test("the cap keeps this run's own specs before the suite's", () => {
@@ -364,6 +474,24 @@ test("every entry is exactly one of editable and do-not-rewrite (or left out of 
   assert.equal([...editable].filter((entry) => shown.has(entry)).length, 0);
   assert.equal(editable.size + shown.size + result.leftOut, result.entries.length);
   assert.ok([...editable, ...shown].every((entry) => result.entries.includes(entry)), "the lists hold the very entries of the listing");
+});
+
+test("the editable entries are the named ones, the unnamed ones shown and the unnamed ones left out, and none is in two of the groups", () => {
+  const delivered = deliveredOf(LISTING_MAX_UNNAMED_EDITABLE + 6);
+  const result = listing({
+    existing: [...suiteOf(LISTING_MAX_DO_NOT_REWRITE + 4), C_LINE],
+    delivered,
+    reviewCorrections: ["flows/c.spec.ts: weak assertion", `${delivered[3]!.file}: weak assertion`, "the checkout flow asserts nothing at all"],
+  });
+  const named = new Set(result.named);
+  const unnamed = new Set(result.unnamed);
+  const shown = new Set(result.doNotRewrite);
+  assert.equal(named.size, 2);
+  for (const [one, other] of [[named, unnamed], [named, shown], [unnamed, shown]] as const) assert.equal([...one].filter((entry) => other.has(entry)).length, 0);
+  assert.equal(named.size + unnamed.size + result.unnamedLeftOut, result.editable.length);
+  assert.equal(named.size + unnamed.size + result.unnamedLeftOut + shown.size + result.leftOut, result.entries.length);
+  assert.ok([...named, ...unnamed].every((entry) => result.editable.includes(entry)), "the editable groups hold the very entries of the editable list");
+  assert.deepEqual(result.editable.filter((entry) => named.has(entry)), result.named, "the named ones keep the order of the listing");
 });
 
 /* ── the text of an entry ── */
@@ -471,7 +599,7 @@ test("an entry hands out its text and two facts, and the text is the only string
     redact,
   );
   assert.equal(result.entries.length, 3);
-  assert.deepEqual(Object.keys(result).sort(), ["doNotRewrite", "editable", "entries", "leftOut", "reaskObjective"]);
+  assert.deepEqual(Object.keys(result).sort(), ["doNotRewrite", "editable", "entries", "leftOut", "mayAddSpec", "named", "reaskObjective", "unnamed", "unnamedLeftOut"]);
   for (const entry of result.entries) assert.deepEqual(Object.keys(entry).sort(), ["delivered", "leadObjective", "text"]);
   assert.deepEqual(stringsOutsideText(result), [], "nothing but the texts is a string");
   assert.deepEqual(result.entries.map((entry) => entry.text), [
@@ -504,6 +632,7 @@ const reask = (input: SuiteListingInput): boolean => listing(input).reaskObjecti
 test("the objective is asked again when nothing is under correction", () => {
   assert.equal(reask({ ...SUITE }), true);
   assert.equal(reask({}), true);
+  assert.equal(reask({ ...SUITE, fixCases: [failing(undefined, "the page timed out")] }), true, "a fix whose cases name no spec has none under correction");
 });
 
 test("the objective is not asked again when every spec under correction has an objective its lead declared", () => {

@@ -976,6 +976,35 @@ buckets that existed (1,708 raised in bytes or directives, 532 shrank, 82 unchan
 from 9,542 to 9,763 bytes, and 908 buckets are new (the combinations with nothing to list, with and without a
 limit); no static layer moved, and the global ceiling is the same.
 
+A review of the listing then found that its editable group was not bounded, and that it could contradict the fix
+section. The listing now tells the specs a signal of the turn names (a failing file, a spec an error text or a
+correction names, a spec a contradiction is attributed to), all shown, from the ones only the fallback adds, when a
+coverage gap, a correction or a contradiction names no spec and the turn takes every spec the run delivered: those
+are one summary line, the first 30 and the count left out (`LISTING_MAX_UNNAMED_EDITABLE`). A fix turn takes no
+fallback, since its section tells the agent to fix only the failing tests: the listing marks the specs its failing
+cases name and no other, and a fix whose cases name none lists none as editable and keeps the read step of its own.
+The assembler summarizes the editable form of the section when the budget cannot hold it (the end is cut, the
+do-not-rewrite group first, the label and the summary last) instead of dropping it, and the plain list is still
+dropped whole; a listing it cuts or sheds makes the prompt ask for the outcome again, and that second assembly is kept
+only if it costs the prompt no section and the listing none of its head. A coverage turn says once that a new spec is
+allowed for a flow none of the listed specs covers, in a line with no directive word. What a failing case reports (its
+name, its error, the page it ended on and the errors the page raised) is redacted before it is cut, in the fix section
+and in the continuation prompt. The matrix gained the worst case of a listing as a third value of `suite` (36
+combinations: diff and manual coverage and selector-fix turns that deliver 40 specs over a suite of 37 more, entries of
+about 177 bytes, both groups full): its largest prompt is 16,258 bytes inside the 20,083 of the reference prompt, a test
+holds that a budget of that size cuts none of it, and the ceiling went from 9,763 to 16,258 bytes. The record was taken
+with a reason over the pushed baseline: 786 of the 3,230 buckets raised in bytes (a coverage turn by up to 126, a
+selector fix by up to 55) and the ceiling, 250 shrank (an exhaustive coverage turn by up to 38, a selector fix by up to
+109), 2,194 unchanged and 72 new; no directive moved and no static layer. Mutation for this follow-up was not run to
+completion: the two pure modules were run alone against their own tests (264 mutants, 203 killed, 61 compile errors,
+none survived; the one survivor of the first run, the default of the error text of a case, was unobservable once a fix
+turn takes no fallback and was restructured away), and the builder's glue in `prompts.ts` was broken by hand, 107
+mutants, 105 killed and 2 equivalent (below). Three lived at first and are killed: the error and a runtime error of a
+case cut before they are redacted lived because the secret the test cut was redacted even in part (the key it cuts now
+is redacted only whole), and a case with no error text given an empty one lived because no test told a missing text
+from an empty one. The carry-forward and prompt-contract presets were not re-run for it, so their rows below keep the
+numbers of the version before the review.
+
 route-capturability (2026-10-04, default workers) is a new preset over the pure classification of a route
 string (a template, free text, an interpolation or another host names no page a browser can open) and the
 lines of the context pack that filter the candidates before the capture slice, log and list what was left
@@ -1246,6 +1275,11 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   writes no tests (a complete or exhaustive first pass returns before it reads the result), so the guard is the one
   place the domain predicate decides and no input can trip it. A test holds the rule's count on every mode, target
   and signal against the predicate itself.
+- the second assembly of `buildPromptAssembled` — `assembleWith(kept !== undefined, true)` → `assembleWith(false, true)`:
+  a listing the budget cuts (and does not shed) is the listing of a turn with specs to change, which is a
+  regeneration, and a regeneration's task never reads whether the suite is listed, so the cut case cannot tell the
+  wording of the task for a prompt without a listing from the wording for one with it. The shed case can (a first
+  pass's plain list), and a test holds it.
 
 **redirect-advisory** (`route-catalog.ts`, `dom-snapshot.ts`, the split in `context-pack.ts`)
 - `splitRedirectSection` — the default of the first part of the split, `""` → another string
@@ -1267,10 +1301,11 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   FixLoop sidekick's merge (`"sidekick"` → `"lead"`): a sidekick's result is built in the run from its
   files on disk and carries no declarations, so merged as the lead's it adds the same paths. The origin
   guards a result that did carry them, which the merge's own tests pin: a sidekick pass keeps none.
-- the value of `LISTING_MAX_DO_NOT_REWRITE` (30 to 31) and of `LISTING_MAX_ENTRY_CHARS` (400 to 401): Stryker
-  makes no mutant for a number and the tests import both constants, as the standards ask, so a different value
-  moves the expectations with it. What the numbers mean is pinned (at the cap nothing is left out, one over it one
-  is; a text of exactly the limit is untouched, one over it is cut with its mark); the numbers are the design's.
+- the value of `LISTING_MAX_DO_NOT_REWRITE` (30 to 31), of `LISTING_MAX_UNNAMED_EDITABLE` (30 to 31) and of
+  `LISTING_MAX_ENTRY_CHARS` (400 to 401): Stryker makes no mutant for a number and the tests import the constants, as
+  the standards ask, so a different value moves the expectations with it. What the numbers mean is pinned (at either
+  cap nothing is left out, one over it one is; a text of exactly the limit is untouched, one over it is cut with its
+  mark); the numbers are the design's.
 
 **merge-guard** (`src/server/merge-guard.ts`)
 - `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files

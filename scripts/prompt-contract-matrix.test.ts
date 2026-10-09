@@ -35,8 +35,9 @@ import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/pr
 import { HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import { PACK_HEADINGS, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
-import { LISTING_MAX_DO_NOT_REWRITE } from "@contexts/generation/domain/suite-listing.ts";
-import { leftOutLine } from "@contexts/generation/domain/suite-listing-render.ts";
+import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
+import { everyDeliveredLine, leftOutLine } from "@contexts/generation/domain/suite-listing-render.ts";
+import { suiteEntryFile } from "@contexts/generation/domain/suite-entry.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 
@@ -260,7 +261,7 @@ test("the redirect shape is really assembled: the pack lists the page a redirect
 const noSuiteSpecs = (): CellSpec[] => allValidSpecs().filter((s) => s.suite === "none");
 
 test("a run lists its suite or lists none, and a run with nothing to list is a narrow shape: no optional block, any phase, target, grounding and tree", () => {
-  assert.deepEqual([...DIMENSIONS.suite].sort(), ["listed", "none"]);
+  assert.deepEqual([...DIMENSIONS.suite].sort(), ["large", "listed", "none"]);
   const specs = noSuiteSpecs();
   assert.ok(specs.length > 0 && specs.length < allValidSpecs().filter((s) => s.suite === "listed").length / 10, "a few hundred shapes, not a second copy of the cross product");
   assert.ok(specs.every((s) => !s.contextMap && !s.authSeedUnauthored && !s.serviceLinks && !s.harnessFacts && !s.service && !s.packRedirect));
@@ -328,6 +329,78 @@ test("an exhaustive regeneration carries more of the run's specs than the listin
   assert.ok(delivered.length - 1 > LISTING_MAX_DO_NOT_REWRITE, "more specs are left alone than the listing can show");
   assert.ok(section.text.split("\n").includes(leftOutLine(delivered.length - 1 - LISTING_MAX_DO_NOT_REWRITE)), "the count left out is stated");
   assert.equal(section.text.split(SUITE_LISTING_LABELS.doNotRewrite).length, 2);
+});
+
+/* ── the worst case of a listing ── */
+
+const largeSpecs = (): CellSpec[] => allValidSpecs().filter((s) => s.suite === "large");
+
+/* The least a line of the worst-case listing takes: the bullet, the path, the flow and the objective of a long, real entry. */
+const LONG_ENTRY_BYTES = 150;
+
+test("the worst case of a listing is a narrow shape: a diff or manual run that cannot say which spec to change, with none of the optional blocks", () => {
+  const specs = largeSpecs();
+  assert.ok(specs.length > 0 && specs.length < allValidSpecs().filter((s) => s.suite === "listed").length / 100, "a few dozen shapes, not a copy of the cross product");
+  assert.ok(specs.every((s) => s.mode === "diff" || s.mode === "manual"));
+  assert.ok(specs.every((s) => !s.contextMap && !s.authSeedUnauthored && !s.serviceLinks && !s.harnessFacts && !s.service && !s.packRedirect && s.structuralSignal === "none"));
+  assert.deepEqual([...new Set(specs.map((s) => s.phase))].sort(), ["regen-coverage", "selector-fix"], "the regenerations whose signal names no spec");
+  assert.deepEqual([...new Set(specs.map((s) => s.mode))].sort(), ["diff", "manual"]);
+  assert.deepEqual([...new Set(specs.map((s) => s.target))].sort(), [...DIMENSIONS.target].sort());
+});
+
+test("a combination with the worst-case listing is named and budgeted apart from the one with an ordinary listing, so neither hides in the other's budget", () => {
+  const large = largeSpecs()[0]!;
+  const twin = { ...large, suite: "listed" as const };
+  assert.ok(isValidSpec(twin), "setup: the shape has an ordinary twin");
+  assert.notEqual(cellName(large), cellName(twin));
+  assert.notEqual(bucketOf(large), bucketOf(twin));
+  assert.notEqual(bucketOf(large, true), bucketOf(twin, true));
+});
+
+test("the worst-case listing is really built: more specs delivered and more suite lines than the listing shows, and the section says how many it left out of each", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  for (const phase of ["regen-coverage", "selector-fix"] as const) {
+    const spec = largeSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === phase && s.tree === "none" && s.grounding === "none")!;
+    const input = await buildInput(spec);
+    const delivered = input.deliveredSpecs ?? [];
+    const existing = input.existingSpecFiles ?? [];
+    assert.ok(delivered.length > LISTING_MAX_UNNAMED_EDITABLE && existing.length > LISTING_MAX_DO_NOT_REWRITE, `${phase}: setup, there is more of each than the listing shows`);
+    assert.equal(new Set([...delivered.map((d) => d.file), ...existing.map(suiteEntryFile)]).size, delivered.length + existing.length, `${phase}: no spec is listed twice`);
+    const section = splitAssembledSections(buildPromptAssembled(input, { budgetBytes: 0 })).find((part) => part.id === "existing-suite-manifest")!;
+    const written = section.text.split("\n");
+    const labelAt = written.indexOf(SUITE_LISTING_LABELS.doNotRewrite);
+    assert.ok(written.includes(SUITE_LISTING_LABELS.editable) && labelAt > 0, `${phase}: both groups are there`);
+    assert.ok(written.includes(everyDeliveredLine(delivered.length)), `${phase}: every spec the run delivered is editable`);
+    assert.ok(written.filter((line) => line.startsWith("- ")).every((line) => Buffer.byteLength(line, "utf8") >= LONG_ENTRY_BYTES), `${phase}: every entry is as long as a long, real one`);
+    assert.equal(written.slice(0, labelAt).filter((line) => line.startsWith("- ")).length, LISTING_MAX_UNNAMED_EDITABLE, `${phase}: the editable group is full`);
+    assert.equal(written.slice(labelAt).filter((line) => line.startsWith("- ")).length, LISTING_MAX_DO_NOT_REWRITE, `${phase}: the do-not-rewrite group is full`);
+    const editableLeftOutAt = written.indexOf(leftOutLine(delivered.length - LISTING_MAX_UNNAMED_EDITABLE));
+    assert.ok(editableLeftOutAt > 0 && editableLeftOutAt < labelAt, `${phase}: the count left out of the editable group`);
+    assert.equal(written.at(-1), leftOutLine(existing.length - LISTING_MAX_DO_NOT_REWRITE), `${phase}: the count left out of the do-not-rewrite group`);
+  }
+});
+
+test("the budgets of the worst-case listing are above those of every ordinary listing of their phase and target, and the ceiling is at least the worst case", () => {
+  const baseline = loadBaseline(ROOT);
+  const valid = allValidSpecs();
+  const budgetOf = (suite: CellSpec["suite"], phase: CellSpec["phase"], target: CellSpec["target"]): number =>
+    Math.max(...valid.filter((s) => s.suite === suite && s.phase === phase && s.target === target).map((s) => baseline.buckets[bucketOf(s)]!.bytes));
+  for (const [phase, target] of [["regen-coverage", "e2e"], ["regen-coverage", "code"], ["selector-fix", "e2e"]] as const) {
+    assert.ok(budgetOf("large", phase, target) > budgetOf("listed", phase, target), `${phase}, ${target}`);
+  }
+  assert.ok(baseline.ceiling.bytes >= Math.max(...valid.filter((s) => s.suite === "large").map((s) => baseline.buckets[bucketOf(s, true)]!.bytes)));
+});
+
+test("the worst-case listing stands whole in a prompt of the reference production size: a budget that holds the reference prompt sheds and cuts none of it", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  const cells = (await buildMatrix(ROOT, largeSpecs())).filter((c) => c.layer === "opencode");
+  const worst = cells.reduce((a, b) => (b.assembledBytes > a.assembledBytes ? b : a));
+  assert.ok(worst.assembledBytes <= GLOBAL_USER_PROMPT_BASELINE_BYTES, "setup: the worst case is no larger than the reference prompt");
+  const input = await buildInput(worst.spec, MATRIX_STEP_LIMIT);
+  const whole = buildPromptAssembled(input, { budgetBytes: 0 });
+  const budgeted = buildPromptAssembled(input, { budgetBytes: GLOBAL_USER_PROMPT_BASELINE_BYTES });
+  assert.deepEqual(budgeted.sectionSizes, whole.sectionSizes);
+  assert.equal(budgeted.text, whole.text);
 });
 
 test("cells with harness facts carry the facts-only section, linted as data with no directive or framing", async () => {

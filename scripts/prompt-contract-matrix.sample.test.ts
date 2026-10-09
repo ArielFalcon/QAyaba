@@ -58,6 +58,17 @@ const firstExhaustiveRegenerationOverTheCap = (all: readonly CellSpec[]): CellSp
   });
 };
 
+/* The worst case of a listing is a few dozen combinations the stride mostly skips: the first one of each phase and target keeps it in the sample, so that the size of its prompt and its lint are checked wherever the stride lands. */
+const firstWorstCaseListingOfEachPhaseAndTarget = (all: readonly CellSpec[]): CellSpec[] => {
+  const seen = new Set<string>();
+  return all.filter((s) => {
+    const key = `${s.phase}/${s.target}`;
+    if (s.suite !== "large" || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const sampleSpecs = (): CellSpec[] => {
   const all = allValidSpecs();
   const chosen = new Map<string, CellSpec>();
@@ -67,6 +78,7 @@ const sampleSpecs = (): CellSpec[] => {
     ...firstCoChangeOfEachPhaseAndTarget(all),
     ...firstWithNoSuiteOfEachPhase(all),
     ...firstExhaustiveRegenerationOverTheCap(all),
+    ...firstWorstCaseListingOfEachPhaseAndTarget(all),
   ]) {
     chosen.set(cellName(spec), spec);
   }
@@ -114,6 +126,13 @@ test("the sample carries a diff first pass with no listing, a regeneration of ev
   assert.ok(specs.some((s) => s.suite === "none" && s.mode === "diff" && s.phase === "first"), "a diff first pass with no listing");
   for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) assert.ok(specs.some((s) => s.suite === "none" && s.phase === phase), `${phase} regeneration with no carried specs`);
   for (const target of DIMENSIONS.target) assert.ok(specs.some((s) => s.suite === "listed" && s.mode === "exhaustive" && s.phase === "regen-fix" && s.target === target), `${target}: an exhaustive fix over the cap`);
+});
+
+test("the sample carries the worst case of a listing for each regeneration that cannot say which spec to change, in the targets that have it", () => {
+  const worst = sampleSpecs().filter((s) => s.suite === "large");
+  for (const [phase, target] of [["regen-coverage", "e2e"], ["regen-coverage", "code"], ["selector-fix", "e2e"]] as const) {
+    assert.ok(worst.some((s) => s.phase === phase && s.target === target), `${phase}, ${target}`);
+  }
 });
 
 test("a sample of the reachable combinations is clean against the recorded baseline", async () => {

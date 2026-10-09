@@ -516,11 +516,12 @@ test("buildPrompt fix-cases section caps runtimeErrors at 3 lines", () => {
 });
 
 test("buildPrompt fix-cases section slices a long runtimeErrors text to ~200 chars", () => {
-  const longText = "X".repeat(500);
+  /* Words, as an error message is: one unbroken run of letters that long is what the redaction takes for a secret. */
+  const longText = "word ".repeat(100);
   const longErrorCase: QaCase = { ...evidenceCase, runtimeErrors: [{ type: "pageerror", text: longText }] };
   const text = buildPrompt(mkInput({ fixCases: [longErrorCase] }));
-  assert.ok(!text.includes("X".repeat(500)), "a long runtimeErrors text must be sliced, not rendered in full");
-  assert.ok(text.includes("X".repeat(200)), "the slice must keep roughly the first 200 chars");
+  assert.ok(!text.includes(longText), "a long runtimeErrors text must be sliced, not rendered in full");
+  assert.ok(text.includes("word ".repeat(40)), "the slice must keep roughly the first 200 chars");
 });
 
 test("buildPrompt fix-cases section omits evidence lines when absent (no httpStatus/finalUrl/runtimeErrors)", () => {
