@@ -1,3 +1,5 @@
+import { classifyShellCommand } from "./shell-command-class.ts";
+
 /*
  * Pure tool-call taxonomy shared by the fine (in-session SSE) and coarse
  * (post-hoc run_events) classifiers, so counts derived from either path
@@ -19,6 +21,7 @@ export type CallBucket =
   | "browser"
   | "write"
   | "validate_run"
+  | "script_run"
   | "memory"
   | "subagent"
   | "other";
@@ -28,6 +31,7 @@ export const CALL_BUCKETS = {
   BROWSER: "browser",
   WRITE: "write",
   VALIDATE_RUN: "validate_run",
+  SCRIPT_RUN: "script_run",
   MEMORY: "memory",
   SUBAGENT: "subagent",
   OTHER: "other",
@@ -91,16 +95,42 @@ const MEMORY_TOOLS = /(^|_)mem_|_memor(y|ies)$/i;
 const CODE_READ_TOOLS =
   /(^|_)(read|grep|glob|activate_project|find_referencing_symbols|find_symbol|get_symbols_overview|read_file|search_for_pattern|find_file|list_dir)$/i;
 
+/* The input keys a shell tool carries its command line under: the native bash tool's `command`, Serena's `command`, and `cmd`. */
+const SHELL_COMMAND_KEYS = ["command", "cmd"] as const;
+
+function shellCommandOf(input: unknown): string | undefined {
+  /* A non-object input carries no command; a lookup on it answers undefined. */
+  const record = input as Record<string, unknown> | null | undefined;
+  for (const key of SHELL_COMMAND_KEYS) {
+    const value = record?.[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
+/* What a shell call was doing, by its command: orienting in the tree is a code read, checking the work is a validation, running a program is a script run. A command the classifier cannot vouch for, and a call with no command to read, is `other`. */
+function bucketForShellCall(input: unknown): CallBucket {
+  const command = shellCommandOf(input);
+  if (command === undefined) return CALL_BUCKETS.OTHER;
+  switch (classifyShellCommand(command)) {
+    case "read": return CALL_BUCKETS.CODE_READ;
+    case "validate": return CALL_BUCKETS.VALIDATE_RUN;
+    case "script": return CALL_BUCKETS.SCRIPT_RUN;
+    case "unknown": return CALL_BUCKETS.OTHER;
+  }
+}
+
 /**
- * Refines the coarse `analyzing` kind into `code_read` / `browser` / `memory` / `other`;
- * `writing`, `command` and `subagent` map one-to-one onto `write`,
- * `validate_run` and `subagent` so those three counts always reconcile with
- * `kindForTool`'s coarse classification.
+ * Refines the coarse `analyzing` kind into `code_read` / `browser` / `memory` / `other`, and the
+ * `command` kind by the command line the call carries (`bucketForShellCall`); `writing` and
+ * `subagent` map one-to-one onto `write` and `subagent`. The coarse classifier cannot see a
+ * command line, so it counts every `command` event as one: only the shell calls the fine side
+ * buckets as `validate_run` reconcile with its command count.
  */
-export function bucketForTool(tool: string): CallBucket {
+export function bucketForTool(tool: string, input?: unknown): CallBucket {
   const kind = kindForTool(tool);
   if (kind === "writing") return CALL_BUCKETS.WRITE;
-  if (kind === "command") return CALL_BUCKETS.VALIDATE_RUN;
+  if (kind === "command") return bucketForShellCall(input);
   if (kind === "subagent") return CALL_BUCKETS.SUBAGENT;
 
   if (BROWSER_TOOLS.test(tool)) return CALL_BUCKETS.BROWSER;

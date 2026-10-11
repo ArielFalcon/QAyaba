@@ -1,5 +1,6 @@
 
 import { z } from "zod";
+import { TURN_ENDS } from "../turn-end";
 import { LoginPathSchema } from "../login-path";
 import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "./events";
 
@@ -743,7 +744,7 @@ export type RunReportView = z.infer<typeof RunReportViewSchema>;
 
 const nullableCount = z.number().int().nonnegative().nullable();
 
-/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, memory, subagent, other); counts only, never paths or targets. */
+/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, script_run, memory, subagent, other); counts only, never paths or targets. ended says how the turn ended (completed, exhausted, timeout, aborted); null for a turn recorded before it was kept or by a runtime that does not say. A turn that ended by timeout or abort has empty outputText and only the calls measured up to its end. */
 export const AgentTurnViewSchema = z.object({
   runId: z.string().nullable(),
   sessionId: z.string(),
@@ -772,6 +773,7 @@ export const AgentTurnViewSchema = z.object({
   pathProvidedReadCount: nullableCount,
   exhausted: z.boolean().nullable(),
   callBuckets: z.record(z.string(), z.number()).nullable(),
+  ended: z.enum(TURN_ENDS).nullable(),
 });
 
 export type AgentTurnView = z.infer<typeof AgentTurnViewSchema>;

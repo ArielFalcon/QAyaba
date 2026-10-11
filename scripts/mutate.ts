@@ -139,6 +139,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "agent efficiency metrics: tool taxonomy, call sequence/redundancy, prompt-provided reads, step exhaustion, coarse windows, turn summary, and the in-session call tracker with its call identity",
     mutate: [
       `${GEN}/domain/tool-call-taxonomy.ts`,
+      `${GEN}/domain/shell-command-class.ts`,
       `${GEN}/domain/call-sequence.ts`,
       `${GEN}/domain/provided-context.ts`,
       `${GEN}/domain/step-exhaustion.ts`,
@@ -149,6 +150,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     tests: [
       `${GEN_TEST}/domain/tool-call-taxonomy.test.ts`,
+      `${GEN_TEST}/domain/shell-command-class.test.ts`,
       `${GEN_TEST}/domain/call-sequence.test.ts`,
       `${GEN_TEST}/domain/provided-context.test.ts`,
       `${GEN_TEST}/domain/step-exhaustion.test.ts`,

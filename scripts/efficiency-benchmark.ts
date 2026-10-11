@@ -283,6 +283,8 @@ export interface TurnMeasurement {
   pathProvidedReadCount: number | null;
   codeRead: number | null;
   memory: number | null;
+  /** Calls that ran a program or script (not a validation); a snapshot taken before this bucket existed has none (undefined, read as unknown). */
+  scriptRun?: number | null;
   stepsUsed: number | null;
   maxSteps: number | null;
 }
@@ -362,6 +364,7 @@ function turnMeasurement(t: AgentTurnRecord): TurnMeasurement {
     pathProvidedReadCount: t.pathProvidedReadCount ?? null,
     codeRead: t.callBuckets?.[CALL_BUCKETS.CODE_READ] ?? null,
     memory: t.callBuckets?.[CALL_BUCKETS.MEMORY] ?? null,
+    scriptRun: t.callBuckets?.[CALL_BUCKETS.SCRIPT_RUN] ?? null,
     stepsUsed: t.stepsUsed ?? null,
     maxSteps: t.maxSteps ?? null,
   };
@@ -579,7 +582,7 @@ function windowLine(w: CoarseRunEfficiency["firstPass"]): string {
 }
 
 function turnLine(t: TurnMeasurement): string {
-  return `turn round ${t.round}: prompt ${val(t.promptBytes)} B · calls ${val(t.totalCalls)} · before 1st write ${val(t.callsBeforeFirstWrite)} · redundant reads ${val(t.redundantReadCount)} · reads provided by content ${val(t.promptProvidedReadCount)} · by path ${val(t.pathProvidedReadCount)} · code reads ${val(t.codeRead)} · memory ${val(t.memory)} · steps used ${val(t.stepsUsed)} · max steps ${val(t.maxSteps)} · step use ${ratioText(stepUseRatio(t.stepsUsed, t.maxSteps))}`;
+  return `turn round ${t.round}: prompt ${val(t.promptBytes)} B · calls ${val(t.totalCalls)} · before 1st write ${val(t.callsBeforeFirstWrite)} · redundant reads ${val(t.redundantReadCount)} · reads provided by content ${val(t.promptProvidedReadCount)} · by path ${val(t.pathProvidedReadCount)} · code reads ${val(t.codeRead)} · memory ${val(t.memory)} · script runs ${val(t.scriptRun)} · steps used ${val(t.stepsUsed)} · max steps ${val(t.maxSteps)} · step use ${ratioText(stepUseRatio(t.stepsUsed, t.maxSteps))}`;
 }
 
 const UNDECLARED_TIER = "undeclared";

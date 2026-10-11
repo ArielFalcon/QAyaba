@@ -4236,6 +4236,16 @@
             "additionalProperties": {
               "type": "number"
             }
+          },
+          "ended": {
+            "nullable": true,
+            "type": "string",
+            "enum": [
+              "completed",
+              "exhausted",
+              "timeout",
+              "aborted"
+            ]
           }
         },
         "required": [
@@ -4265,7 +4275,8 @@
           "promptProvidedReadCount",
           "pathProvidedReadCount",
           "exhausted",
-          "callBuckets"
+          "callBuckets",
+          "ended"
         ],
         "additionalProperties": false
       },

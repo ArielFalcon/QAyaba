@@ -9,12 +9,13 @@ import { CALL_BUCKETS } from "@contexts/generation/domain/tool-call-taxonomy.ts"
 import { summarizeCallSequence, type CallRecord } from "@contexts/generation/domain/call-sequence.ts";
 
 test("tallyBuckets zero-fills every CallBucket key, not just the ones seen", () => {
-  const tally = tallyBuckets([CALL_BUCKETS.WRITE, CALL_BUCKETS.WRITE, CALL_BUCKETS.CODE_READ]);
+  const tally = tallyBuckets([CALL_BUCKETS.WRITE, CALL_BUCKETS.WRITE, CALL_BUCKETS.CODE_READ, CALL_BUCKETS.SCRIPT_RUN]);
   assert.deepEqual(tally, {
     code_read: 1,
     browser: 0,
     write: 2,
     validate_run: 0,
+    script_run: 1,
     memory: 0,
     subagent: 0,
     other: 0,

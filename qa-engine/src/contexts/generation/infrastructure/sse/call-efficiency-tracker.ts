@@ -265,11 +265,16 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
 
     /* A call is identified by its latest sighting's input. */
     const input = part.state?.input;
-    const seen = { repeatKey: callFingerprint(part.tool, input), path: pathOf(input, session.cwd), window: readWindowOf(input) };
+    const seen = {
+      repeatKey: callFingerprint(part.tool, input),
+      bucket: bucketForTool(part.tool, input),
+      path: pathOf(input, session.cwd),
+      window: readWindowOf(input),
+    };
     if (call) {
       Object.assign(call, seen);
     } else {
-      call = { callId: part.callID, tool: part.tool, bucket: bucketForTool(part.tool), ...seen };
+      call = { callId: part.callID, tool: part.tool, ...seen };
       session.calls.set(part.callID, call);
       session.order.push(part.callID);
     }

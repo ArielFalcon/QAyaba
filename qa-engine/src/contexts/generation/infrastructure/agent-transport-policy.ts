@@ -6,6 +6,7 @@ import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtim
 import { sanitizeText } from "./sanitize-text.ts";
 import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";
 import { finalStepText } from "../domain/step-exhaustion.ts";
+import type { TurnEnd } from "@kernel/turn-end.ts";
 
 /* Types declared locally — qa-engine never imports src/. */
 
@@ -41,6 +42,8 @@ export interface AgentTurnEvent {
   stepBudget: TurnStepBudget | null;
   /** What the agent did this turn, measured from its tool calls. Null when unsupported, unobserved, or the measurement failed. */
   callMetrics: TurnCallMetrics | null;
+  /** How the turn ended; absent when the transport does not say (Codex). A turn that did not answer carries empty output, no usage and the calls measured up to its end. */
+  ended?: TurnEnd;
 }
 
 export interface AgentSession {
@@ -299,117 +302,146 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
 
       return {
         id,
-        prompt: (text, promptOpts) =>
-          withTimeout(
-            (() => {
-              checkCircuit(TRANSPORT_BREAKER_KEY);
-              checkCircuit(breakerRole);
-              const thisRound = _round++;
-              const runPrompt = (attempt: number, modelOverride?: string) => {
-                const overrideModel = modelOverride ? parseModelRef(modelOverride) : undefined;
-                return prepareAttempt(id, attempt)
-                  .then((observed) =>
-                    countingTransportFailure(() =>
-                      raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}) }),
-                    ).then((res) => ({ res, observed })),
-                  )
-                  .then(({ res, observed }) => {
-                    recordCircuitSuccess(TRANSPORT_BREAKER_KEY);
-                    if (res.agentError) {
-                      throw agentErrorToInfra(res.agentError);
-                    }
-                    recordCircuitSuccess(breakerRole);
-                    if (res.tokens) {
-                      const snapshot: UsageSnapshot = {
-                        input: res.tokens.input ?? 0,
-                        output: res.tokens.output ?? 0,
-                        reasoning: res.tokens.reasoning ?? 0,
-                        cacheRead: res.tokens.cacheRead ?? 0,
-                        cacheWrite: res.tokens.cacheWrite ?? 0,
-                        cost: res.cost ?? 0,
-                      };
-                      opts?.onUsage?.(snapshot);
-                    }
-                    const outputRaw = extractText(res.parts, promptOpts);
-                    const finalText = finalStepText(res.parts);
-                    /* The tracker is flushed once per resolved prompt, whether or not a turn sink is listening, and the exhaustion state is decided once from that flush and the final step's text: every consumer (the persisted turn and the caller's stats) reads these same values. An attempt that could not be prepared was not observed completely, whatever the tracker says. */
-                    const flushed = collab.takeTurnCalls
-                      ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text, promptOpts?.providedPaths))
-                      : null;
-                    const callMetrics = flushed && !observed ? { ...flushed, stepsUsed: null, observationComplete: false } : flushed;
-                    /* A prompt that states its limit is judged by the number it stated; one that states none, by the agent's configured limit when there is a way to read one. */
-                    const stepBudget = promptOpts?.stepLimit !== undefined || collab.maxStepsFor
-                      ? measureOrNull("step budget", () =>
-                          buildTurnStepBudget({
-                            maxSteps: promptOpts?.stepLimit ?? collab.maxStepsFor?.(agent) ?? null,
-                            stepsUsed: callMetrics?.stepsUsed ?? null,
-                            finalStepText: finalText,
-                          }),
-                        )
-                      : null;
-                    /* Emit a per-turn event alongside onUsage. Sanitize output_text before emitting so any DEV-environment data in the agent reply is redacted at the earliest point (before storage or logging by callers). */
-                    if (effectiveOnTurn) {
-                      const sanitizedOutput = sanitizeText(outputRaw).text;
-                      const turnEvent: AgentTurnEvent = {
-                        runId: opts?.descriptor?.runId ?? null,
-                        sessionId: id,
-                        role: opts?.descriptor?.role ?? agent,
-                        objective: opts?.descriptor?.objective,
-                        round: promptOpts?.round ?? thisRound,
-                        isRepair: promptOpts?.isRepair ?? false,
-                        promptText: text,
-                        promptBytes: Buffer.byteLength(text, "utf8"),
-                        outputText: sanitizedOutput,
-                        tokensInput: res.tokens?.input ?? null,
-                        tokensOutput: res.tokens?.output ?? null,
-                        tokensReasoning: res.tokens?.reasoning ?? null,
-                        tokensCacheRead: res.tokens?.cacheRead ?? null,
-                        tokensCacheWrite: res.tokens?.cacheWrite ?? null,
-                        cost: res.cost ?? null,
-                        ts: new Date().toISOString(),
-                        sectionSizes: promptOpts?.sectionSizes ?? null,
-                        stepBudget,
-                        callMetrics,
-                      };
-                      effectiveOnTurn(turnEvent);
-                    }
-                    if (stepBudget && promptOpts?.onTurnStats) {
-                      const stats: AgentTurnStats = {
-                        maxSteps: stepBudget.maxSteps,
-                        stepsUsed: callMetrics?.stepsUsed ?? null,
-                        exhausted: stepBudget.exhausted,
-                        writeCount: callMetrics?.writeCount ?? null,
-                        observationComplete: callMetrics?.observationComplete ?? false,
-                      };
-                      try {
-                        promptOpts.onTurnStats(stats);
-                      } catch (err) {
-                        console.error(`[qa] turn stats callback failed: ${err instanceof Error ? err.message : String(err)}`);
-                      }
-                    }
-                    return promptOpts?.finalStepOnly ? finalText : outputRaw;
-                  })
-                  .catch((err) => {
-                    recordCircuitFailure(breakerRole);
-                    throw err;
-                  });
-              };
-              return runPrompt(PRIMARY_ATTEMPT, opts?.model).catch((err) => {
-                if (opts?.signal?.aborted || isInfraError(err)) throw err;
-                const fallback = collab.getFallbackModel(agent);
-                if (fallback) {
-                  console.warn(`[qa] primary model failed for ${agent}, retrying with fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`);
-                  return runPrompt(FALLBACK_ATTEMPT, fallback);
+        prompt: (text, promptOpts) => {
+          checkCircuit(TRANSPORT_BREAKER_KEY);
+          checkCircuit(breakerRole);
+          const thisRound = _round++;
+          /* Set once the prompt has ended without an answer (timeout, abort): the turn is recorded then, so an answer that arrives later must record nothing more and must not start a fallback. */
+          let closed = false;
+          /* Whether the attempt in flight could be observed completely; unobserved until its preparation says otherwise. */
+          let observed = false;
+
+          /* The tracker is flushed once per prompt, whether or not a turn sink is listening, and every consumer of the turn (the persisted row, the caller's stats) reads that flush. An attempt that could not be prepared was not observed completely, whatever the tracker says. */
+          const flushCalls = (): TurnCallMetrics | null => {
+            const flushed = collab.takeTurnCalls
+              ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text, promptOpts?.providedPaths))
+              : null;
+            return flushed && !observed ? { ...flushed, stepsUsed: null, observationComplete: false } : flushed;
+          };
+          /* A prompt that states its limit is judged by the number it stated; one that states none, by the agent's configured limit when there is a way to read one. */
+          const budgetOf = (callMetrics: TurnCallMetrics | null, finalText: string): TurnStepBudget | null =>
+            promptOpts?.stepLimit !== undefined || collab.maxStepsFor
+              ? measureOrNull("step budget", () =>
+                  buildTurnStepBudget({
+                    maxSteps: promptOpts?.stepLimit ?? collab.maxStepsFor?.(agent) ?? null,
+                    stepsUsed: callMetrics?.stepsUsed ?? null,
+                    finalStepText: finalText,
+                  }),
+                )
+              : null;
+          /* Emit a per-turn event alongside onUsage. Sanitize output_text before emitting so any DEV-environment data in the agent reply is redacted at the earliest point (before storage or logging by callers). */
+          const emitTurn = (turn: {
+            outputRaw: string;
+            tokens?: RawPromptResult["tokens"];
+            cost?: number;
+            stepBudget: TurnStepBudget | null;
+            callMetrics: TurnCallMetrics | null;
+            ended: TurnEnd;
+          }): void => {
+            if (!effectiveOnTurn) return;
+            const turnEvent: AgentTurnEvent = {
+              runId: opts?.descriptor?.runId ?? null,
+              sessionId: id,
+              role: opts?.descriptor?.role ?? agent,
+              objective: opts?.descriptor?.objective,
+              round: promptOpts?.round ?? thisRound,
+              isRepair: promptOpts?.isRepair ?? false,
+              promptText: text,
+              promptBytes: Buffer.byteLength(text, "utf8"),
+              outputText: sanitizeText(turn.outputRaw).text,
+              tokensInput: turn.tokens?.input ?? null,
+              tokensOutput: turn.tokens?.output ?? null,
+              tokensReasoning: turn.tokens?.reasoning ?? null,
+              tokensCacheRead: turn.tokens?.cacheRead ?? null,
+              tokensCacheWrite: turn.tokens?.cacheWrite ?? null,
+              cost: turn.cost ?? null,
+              ts: new Date().toISOString(),
+              sectionSizes: promptOpts?.sectionSizes ?? null,
+              stepBudget: turn.stepBudget,
+              callMetrics: turn.callMetrics,
+              ended: turn.ended,
+            };
+            effectiveOnTurn(turnEvent);
+          };
+          /* A prompt that ended without an answer still leaves its turn: the calls it made before it ended are the evidence of how it spent its time. */
+          const recordUnansweredTurn = (ended: "timeout" | "aborted"): void => {
+            closed = true;
+            const callMetrics = flushCalls();
+            emitTurn({ outputRaw: "", stepBudget: budgetOf(callMetrics, ""), callMetrics, ended });
+          };
+
+          const runPrompt = (attempt: number, modelOverride?: string) => {
+            const overrideModel = modelOverride ? parseModelRef(modelOverride) : undefined;
+            return prepareAttempt(id, attempt)
+              .then((prepared) => {
+                observed = prepared;
+                return countingTransportFailure(() =>
+                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}) }),
+                );
+              })
+              .then((res) => {
+                recordCircuitSuccess(TRANSPORT_BREAKER_KEY);
+                if (res.agentError) {
+                  throw agentErrorToInfra(res.agentError);
                 }
+                recordCircuitSuccess(breakerRole);
+                if (res.tokens) {
+                  const snapshot: UsageSnapshot = {
+                    input: res.tokens.input ?? 0,
+                    output: res.tokens.output ?? 0,
+                    reasoning: res.tokens.reasoning ?? 0,
+                    cacheRead: res.tokens.cacheRead ?? 0,
+                    cacheWrite: res.tokens.cacheWrite ?? 0,
+                    cost: res.cost ?? 0,
+                  };
+                  opts?.onUsage?.(snapshot);
+                }
+                const outputRaw = extractText(res.parts, promptOpts);
+                /* The turn was recorded when the prompt ended without this answer; the usage above is all an answer that comes late adds. */
+                if (closed) return outputRaw;
+                const finalText = finalStepText(res.parts);
+                /* The exhaustion state is decided once from the flush and the final step's text: every consumer (the persisted turn and the caller's stats) reads these same values. */
+                const callMetrics = flushCalls();
+                const stepBudget = budgetOf(callMetrics, finalText);
+                emitTurn({ outputRaw, tokens: res.tokens, cost: res.cost, stepBudget, callMetrics, ended: stepBudget?.exhausted === true ? "exhausted" : "completed" });
+                if (stepBudget && promptOpts?.onTurnStats) {
+                  const stats: AgentTurnStats = {
+                    maxSteps: stepBudget.maxSteps,
+                    stepsUsed: callMetrics?.stepsUsed ?? null,
+                    exhausted: stepBudget.exhausted,
+                    writeCount: callMetrics?.writeCount ?? null,
+                    observationComplete: callMetrics?.observationComplete ?? false,
+                  };
+                  try {
+                    promptOpts.onTurnStats(stats);
+                  } catch (err) {
+                    console.error(`[qa] turn stats callback failed: ${err instanceof Error ? err.message : String(err)}`);
+                  }
+                }
+                return promptOpts?.finalStepOnly ? finalText : outputRaw;
+              })
+              .catch((err) => {
+                recordCircuitFailure(breakerRole);
                 throw err;
               });
-            })(),
-            promptTimeoutMs,
-            "OpenCode prompt",
-          ).catch((err: unknown) => {
-            abortRun();
+          };
+          const attempts = runPrompt(PRIMARY_ATTEMPT, opts?.model).catch((err) => {
+            if (closed || opts?.signal?.aborted || isInfraError(err)) throw err;
+            const fallback = collab.getFallbackModel(agent);
+            if (fallback) {
+              console.warn(`[qa] primary model failed for ${agent}, retrying with fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`);
+              return runPrompt(FALLBACK_ATTEMPT, fallback);
+            }
             throw err;
-          }),
+          });
+          return withTimeout(attempts, promptTimeoutMs, "OpenCode prompt").catch((err: unknown) => {
+            abortRun();
+            /* An error the prompt itself raised was thrown before any turn was emitted; only a prompt that was cut short from outside (the deadline, the caller's abort) has a turn still to record. */
+            if (!closed && err instanceof AgentTimeoutError) recordUnansweredTurn("timeout");
+            else if (!closed && opts?.signal?.aborted) recordUnansweredTurn("aborted");
+            throw err;
+          });
+        },
         dispose: async () => {
           try {
             await raw.deleteSession(id);

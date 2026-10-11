@@ -1192,6 +1192,8 @@ export interface components {
             callBuckets: {
                 [key: string]: number;
             } | null;
+            /** @enum {string|null} */
+            ended: "completed" | "exhausted" | "timeout" | "aborted" | null;
         };
         AppTelemetryView: {
             app: string;

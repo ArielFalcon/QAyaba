@@ -593,7 +593,7 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
         duplicateCallCount: 4,
         promptProvidedReadCount: 3,
         pathProvidedReadCount: 2,
-        buckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 },
+        buckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, script_run: 0, memory: 0, subagent: 0, other: 2 },
       },
     }),
   );
@@ -608,7 +608,36 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
   assert.equal(saved!.duplicateCallCount, 4);
   assert.equal(saved!.promptProvidedReadCount, 3);
   assert.equal(saved!.pathProvidedReadCount, 2, "the path-provided count is stored apart from the content-provided one");
-  assert.deepEqual(saved!.callBuckets, { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 });
+  assert.deepEqual(saved!.callBuckets, { code_read: 20, browser: 6, write: 2, validate_run: 1, script_run: 0, memory: 0, subagent: 0, other: 2 });
+});
+
+test("saveAgentTurnEvent keeps how a turn ended, and a turn that never answered reads back with its partial calls and empty output", () => {
+  const runId = "run-event-ended-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId, round: 0, ended: "completed" }));
+  saveAgentTurnEvent(makeTurnEvent({
+    runId,
+    round: 1,
+    outputText: "",
+    ended: "timeout",
+    stepBudget: { maxSteps: 50, exhausted: false },
+    callMetrics: {
+      totalCalls: 31, stepsUsed: 12, observationComplete: true, callsBeforeFirstWrite: 31, writeCount: 0, redundantReadCount: 0,
+      duplicateCallCount: 0, promptProvidedReadCount: 0, pathProvidedReadCount: 0,
+      buckets: { code_read: 20, browser: 6, write: 0, validate_run: 1, script_run: 4, memory: 0, subagent: 0, other: 0 },
+    },
+  }));
+  const [answered, timedOut] = getAgentTurns(runId);
+  assert.equal(answered!.ended, "completed");
+  assert.equal(timedOut!.ended, "timeout");
+  assert.equal(timedOut!.outputText, "");
+  assert.equal(timedOut!.totalCalls, 31);
+  assert.equal(timedOut!.callBuckets?.script_run, 4);
+});
+
+test("saveAgentTurnEvent leaves the end null, never a guess, when the transport does not say how the turn ended", () => {
+  const runId = "run-event-ended-null-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId }));
+  assert.equal(getAgentTurns(runId)[0]!.ended, null);
 });
 
 test("saveAgentTurnEvent stores nulls, never zero or false, when a runtime reports no step budget or call metrics", () => {

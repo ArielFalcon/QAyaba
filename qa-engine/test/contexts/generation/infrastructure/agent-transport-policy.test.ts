@@ -829,7 +829,7 @@ const SAMPLE_CALL_METRICS = {
   duplicateCallCount: 1,
   promptProvidedReadCount: 0,
   pathProvidedReadCount: 0,
-  buckets: { code_read: 4, browser: 2, write: 1, validate_run: 0, memory: 0, subagent: 0, other: 0 },
+  buckets: { code_read: 4, browser: 2, write: 1, validate_run: 0, script_run: 0, memory: 0, subagent: 0, other: 0 },
 };
 
 async function promptWithCollaborators(
@@ -1312,4 +1312,205 @@ test("createAgentDeps: a verdict repair sent with the limit of the prompt it rep
     persisted.map((turn) => [turn.isRepair, turn.stepBudget?.maxSteps, turn.stepBudget?.exhausted]),
     [[false, 40, true], [true, 40, true], [true, 50, false]],
   );
+});
+
+/* ── a turn that does not finish ── */
+
+const SHORT_TIMEOUT_MS = 15;
+
+/** A transport whose prompt never answers until the test lets it; `release` answers the hung prompt late. */
+function hangingTransport(onAbort: () => void = () => {}) {
+  let release!: (value: Awaited<ReturnType<RawAgentTransport["promptSession"]>>) => void;
+  let fail!: (err: Error) => void;
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-hung" }),
+    promptSession: () => new Promise((resolve, reject) => { release = resolve; fail = reject; }),
+    abortSession: async () => onAbort(),
+  });
+  return { raw, release: (parts = [{ type: "text", text: "late answer" }]) => release({ parts }), fail: (err: Error) => fail(err) };
+}
+
+test("createAgentDeps: a turn that hits the prompt timeout is persisted once, with the calls measured so far, empty output and the end recorded", async () => {
+  resetCircuit();
+  const { raw } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  const flushes: Array<{ sessionId: string; promptText: string }> = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: SHORT_TIMEOUT_MS,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    maxStepsFor: () => 50,
+    takeTurnCalls: (sessionId, promptText) => {
+      flushes.push({ sessionId, promptText });
+      return { ...SAMPLE_CALL_METRICS, totalCalls: 31, stepsUsed: 12 };
+    },
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-timeout", role: "qa-generator", objective: "cover checkout" } });
+
+  await assert.rejects(() => session.prompt("write the specs", { round: 2, sectionSizes: { diff: 900 } }), /timed out/);
+
+  assert.equal(persisted.length, 1);
+  const turn = persisted[0]!;
+  assert.equal(turn.ended, "timeout");
+  assert.equal(turn.runId, "run-timeout");
+  assert.equal(turn.sessionId, "sess-hung");
+  assert.equal(turn.role, "qa-generator");
+  assert.equal(turn.objective, "cover checkout");
+  assert.equal(turn.round, 2);
+  assert.equal(turn.promptText, "write the specs");
+  assert.equal(turn.promptBytes, Buffer.byteLength("write the specs", "utf8"));
+  assert.deepEqual(turn.sectionSizes, { diff: 900 });
+  assert.equal(turn.outputText, "");
+  assert.equal(turn.callMetrics?.totalCalls, 31);
+  assert.equal(turn.callMetrics?.stepsUsed, 12);
+  assert.equal(turn.stepBudget?.maxSteps, 50);
+  assert.equal(turn.tokensInput, null);
+  assert.equal(turn.cost, null);
+  assert.deepEqual(flushes, [{ sessionId: "sess-hung", promptText: "write the specs" }]);
+});
+
+test("createAgentDeps: an answer that arrives after the timeout neither persists the turn again nor flushes the tracker again", async () => {
+  resetCircuit();
+  const { raw, release } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  let flushes = 0;
+  const usages: number[] = [];
+  const stats: unknown[] = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: SHORT_TIMEOUT_MS,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => { flushes++; return SAMPLE_CALL_METRICS; },
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-late" }, onUsage: () => usages.push(1) });
+  await assert.rejects(() => session.prompt("write the specs", { onTurnStats: (s) => stats.push(s) }), /timed out/);
+
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(persisted.length, 1, "one row for the turn");
+  assert.equal(persisted[0]!.ended, "timeout");
+  assert.equal(flushes, 1, "the tracker's counters advanced once");
+  assert.deepEqual(stats, [], "the caller already got its rejection");
+});
+
+test("createAgentDeps: the turn after a timeout is measured from the timed out turn's flush, not from before it", async () => {
+  resetCircuit();
+  let calls = 0;
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-two-turns" }),
+    promptSession: () => (calls++ === 0 ? new Promise(() => {}) : Promise.resolve({ parts: [{ type: "text", text: "done" }] })),
+  });
+  const persisted: AgentTurnEvent[] = [];
+  /* The flush is destructive: each call hands out only what happened since the previous one. */
+  let flushed = 0;
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: SHORT_TIMEOUT_MS,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, totalCalls: flushed++ === 0 ? 30 : 4 }),
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-next" }, timeoutMs: 200 });
+  await assert.rejects(() => session.prompt("first", { }), /timed out/);
+
+  await session.prompt("second");
+  assert.deepEqual(persisted.map((t) => [t.ended, t.callMetrics?.totalCalls]), [["timeout", 30], ["completed", 4]]);
+});
+
+test("createAgentDeps: a timed out turn whose steps were not observed completely reports no step count", async () => {
+  resetCircuit();
+  const { raw } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: SHORT_TIMEOUT_MS,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    prepareAttempt: () => { throw new Error("stream down"); },
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 9 }),
+  });
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-unobserved" } });
+    await assert.rejects(() => session.prompt("p"), /timed out/);
+  } finally {
+    console.error = quiet;
+  }
+  assert.equal(persisted[0]!.callMetrics?.stepsUsed, null);
+  assert.equal(persisted[0]!.callMetrics?.observationComplete, false);
+});
+
+test("createAgentDeps: a timed out turn reaches the caller's turn sink as well as the default one, and a session with neither flushes the tracker and records nothing", async () => {
+  resetCircuit();
+  const sink: AgentTurnEvent[] = [];
+  let flushes = 0;
+  const collaborators = { defaultPromptTimeoutMs: SHORT_TIMEOUT_MS, getFallbackModel: () => undefined, takeTurnCalls: () => { flushes++; return SAMPLE_CALL_METRICS; } };
+
+  const withSink = await createAgentDeps(hangingTransport().raw, collaborators).open("qa-generator", "/tmp", { onTurn: (t) => sink.push(t) });
+  await assert.rejects(() => withSink.prompt("p"), /timed out/);
+  assert.deepEqual(sink.map((t) => t.ended), ["timeout"]);
+
+  const persisted: AgentTurnEvent[] = [];
+  const bare = await createAgentDeps(hangingTransport().raw, { ...collaborators, persistTurn: (t) => persisted.push(t) }).open("qa-generator", "/tmp");
+  await assert.rejects(() => bare.prompt("p"), /timed out/);
+  assert.deepEqual(persisted, [], "no run context, no sink: nothing to record");
+  assert.equal(flushes, 2, "the tracker is flushed either way, so the next turn does not inherit these calls");
+});
+
+test("createAgentDeps: a turn cut short by the caller's abort is persisted with that end", async () => {
+  resetCircuit();
+  const { raw, fail } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  const controller = new AbortController();
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    takeTurnCalls: () => SAMPLE_CALL_METRICS,
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-abort" }, signal: controller.signal });
+  const pending = session.prompt("p");
+  const outcome = assert.rejects(() => pending, /aborted/);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  controller.abort();
+  fail(new Error("the agent turn was aborted"));
+  await outcome;
+
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0]!.ended, "aborted");
+  assert.equal(persisted[0]!.outputText, "");
+});
+
+test("createAgentDeps: a prompt that fails without timing out or being aborted still records no turn", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({ promptSession: async () => { throw new Error("boom"); } });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t) });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-boom" } });
+  await assert.rejects(() => session.prompt("p"), /boom/);
+  assert.deepEqual(persisted, []);
+});
+
+test("createAgentDeps: the primary model failing after the timeout does not start the fallback model's prompt", async () => {
+  resetCircuit();
+  const { raw, fail } = hangingTransport();
+  const prompted: Array<string | undefined> = [];
+  const original = raw.promptSession;
+  raw.promptSession = (args) => { prompted.push(args.model?.modelID); return original(args); };
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: SHORT_TIMEOUT_MS, getFallbackModel: () => "p/fallback-model" });
+  const session = await deps.open("qa-generator", "/tmp");
+  await assert.rejects(() => session.prompt("p"), /timed out/);
+  fail(new Error("late transient fault"));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(prompted.length, 1);
+});
+
+test("createAgentDeps: a turn ends completed, or exhausted when it hit its step limit", async () => {
+  const completed = await promptWithCollaborators("done", { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 3 }) });
+  assert.equal(completed.ended, "completed");
+  const exhausted = await promptWithCollaborators("done", { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 50 }) });
+  assert.equal(exhausted.ended, "exhausted");
+  const unknown = await promptWithCollaborators("done", {});
+  assert.equal(unknown.ended, "completed", "no step budget to say otherwise");
 });

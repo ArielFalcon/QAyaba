@@ -2,7 +2,9 @@
    metrics they share. The explorer's session is not observed in production (it is never registered
    for live observation), so its calls reach neither classifier and the grounding window stays empty.
    Repeated-call counts are deliberately NOT compared: the coarse side only has a (kind, target) proxy
-   for them. */
+   for them. The coarse side cannot see a command line and counts every shell call as a command, while the
+   fine side buckets a shell call by its command: only the calls it buckets as validation reconcile with
+   the coarse command count, so the shell call here is a validation. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
@@ -42,7 +44,7 @@ const generatorEvents: RawOpencodeEvent[] = [
   stepStart(GENERATOR, "step-g1"),
   ...toolLifecycle(GENERATOR, "g1", "read", { filePath: `${CWD}/src/b.ts` }),
   ...toolLifecycle(GENERATOR, "g2", "playwright_browser_snapshot", {}),
-  ...toolLifecycle(GENERATOR, "g3", "bash", { command: "ls" }),
+  ...toolLifecycle(GENERATOR, "g3", "bash", { command: "npx tsc --noEmit" }),
   stepStart(GENERATOR, "step-g2"),
   ...toolLifecycle(GENERATOR, "g4", "task", { description: "review" }),
   ...toolLifecycle(GENERATOR, "g5", "write", { filePath: `${CWD}/e2e/a.spec.ts`, content: "x" }),

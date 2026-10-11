@@ -287,6 +287,31 @@ test("calls before the first write, write count and buckets describe the turn", 
   assert.equal(metrics?.buckets.validate_run, 1);
 });
 
+test("shell calls are counted by the command they run, so exploration through the shell is not validation", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "bash", { command: "grep -rn login src" });
+  runCall(tracker, "s1", "c2", "bash", { command: "find . -name '*.spec.ts'" });
+  runCall(tracker, "s1", "c3", "bash", { command: "node /tmp/probe.mjs" });
+  runCall(tracker, "s1", "c4", "bash", { command: "npx playwright test --list" });
+  runCall(tracker, "s1", "c5", "bash", { command: "mkdir -p e2e/flows" });
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.totalCalls, 5);
+  assert.equal(metrics?.buckets.code_read, 2);
+  assert.equal(metrics?.buckets.script_run, 1);
+  assert.equal(metrics?.buckets.validate_run, 1);
+  assert.equal(metrics?.buckets.other, 1);
+});
+
+test("a shell call is bucketed by the command of its latest sighting", () => {
+  const tracker = tracked();
+  tracker.record(toolEvent("s1", "c1", "bash", "running", {}));
+  tracker.record(toolEvent("s1", "c1", "bash", "completed", { command: "node /tmp/probe.mjs" }, "ok"));
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.totalCalls, 1);
+  assert.equal(metrics?.buckets.script_run, 1);
+  assert.equal(metrics?.buckets.other, 0);
+});
+
 test("each take reports only the delta since the session's previous flush", () => {
   const tracker = tracked();
   runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts" });

@@ -213,6 +213,30 @@ func (e AgentRestartRequestProvider) Valid() bool {
 	}
 }
 
+// Defines values for AgentTurnViewEnded.
+const (
+	AgentTurnViewEndedAborted   AgentTurnViewEnded = "aborted"
+	AgentTurnViewEndedCompleted AgentTurnViewEnded = "completed"
+	AgentTurnViewEndedExhausted AgentTurnViewEnded = "exhausted"
+	AgentTurnViewEndedTimeout   AgentTurnViewEnded = "timeout"
+)
+
+// Valid indicates whether the value is a known member of the AgentTurnViewEnded enum.
+func (e AgentTurnViewEnded) Valid() bool {
+	switch e {
+	case AgentTurnViewEndedAborted:
+		return true
+	case AgentTurnViewEndedCompleted:
+		return true
+	case AgentTurnViewEndedExhausted:
+		return true
+	case AgentTurnViewEndedTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AppAuthInputKind.
 const (
 	AppAuthInputKindForm AppAuthInputKind = "form"
@@ -1136,6 +1160,7 @@ type AgentTurnView struct {
 	CallsBeforeFirstWrite   *int                `json:"callsBeforeFirstWrite"`
 	Cost                    *float32            `json:"cost"`
 	DuplicateCallCount      *int                `json:"duplicateCallCount"`
+	Ended                   *AgentTurnViewEnded `json:"ended"`
 	Exhausted               *bool               `json:"exhausted"`
 	IsRepair                bool                `json:"isRepair"`
 	MaxSteps                *int                `json:"maxSteps"`
@@ -1159,6 +1184,9 @@ type AgentTurnView struct {
 	Ts                      string              `json:"ts"`
 	WriteCount              *int                `json:"writeCount"`
 }
+
+// AgentTurnViewEnded defines model for AgentTurnView.Ended.
+type AgentTurnViewEnded string
 
 // AppAuthInput defines model for AppAuthInput.
 type AppAuthInput struct {

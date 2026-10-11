@@ -421,7 +421,7 @@ const measuredTurn = (round: number, overrides: Partial<AgentTurnRecord> = {}): 
     redundantReadCount: 2,
     promptProvidedReadCount: 1,
     pathProvidedReadCount: 3,
-    callBuckets: { code_read: 4, memory: 2, browser: 1, write: 1, validate_run: 0, subagent: 0, other: 0 },
+    callBuckets: { code_read: 4, memory: 2, browser: 1, write: 1, validate_run: 0, script_run: 3, subagent: 0, other: 0 },
     exhausted: false,
     ...overrides,
   });
@@ -429,8 +429,8 @@ const measuredTurn = (round: number, overrides: Partial<AgentTurnRecord> = {}): 
 test("each generator turn is measured on its own, with the content-provided and the path-provided reads apart", () => {
   const measured = measureRun("run-1", source({ turns: [measuredTurn(0), measuredTurn(1)] }))!;
   assert.deepEqual(measured.turns, [
-    { round: 0, promptBytes: 5000, totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2, stepsUsed: null, maxSteps: null },
-    { round: 1, promptBytes: 5001, totalCalls: 11, callsBeforeFirstWrite: 7, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2, stepsUsed: null, maxSteps: null },
+    { round: 0, promptBytes: 5000, totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2, scriptRun: 3, stepsUsed: null, maxSteps: null },
+    { round: 1, promptBytes: 5001, totalCalls: 11, callsBeforeFirstWrite: 7, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2, scriptRun: 3, stepsUsed: null, maxSteps: null },
   ]);
 });
 
@@ -438,7 +438,7 @@ test("a figure a turn did not record stays null, never a fabricated zero", () =>
   const bare = generatorTurn("done", { round: 0, promptBytes: 900 });
   const measured = measureRun("run-1", source({ turns: [bare] }))!;
   assert.deepEqual(measured.turns, [
-    { round: 0, promptBytes: 900, totalCalls: null, callsBeforeFirstWrite: null, redundantReadCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, codeRead: null, memory: null, stepsUsed: null, maxSteps: null },
+    { round: 0, promptBytes: 900, totalCalls: null, callsBeforeFirstWrite: null, redundantReadCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, codeRead: null, memory: null, scriptRun: null, stepsUsed: null, maxSteps: null },
   ]);
 });
 
