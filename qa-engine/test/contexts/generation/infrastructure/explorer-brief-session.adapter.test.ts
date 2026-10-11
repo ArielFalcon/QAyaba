@@ -348,3 +348,45 @@ test("explore(): a resolver that fails keeps the pass fail-open (no brief, no th
   assert.equal(brief, undefined);
   assert.deepEqual(opens, [], "the limit is resolved before a session is opened, so a slow or failed read never holds one");
 });
+
+/* The explorer maps the blast radius of something: a commit's diff, or the guidance of a manual run. A run with neither has nothing to map, and an explorer sent after a change that is not there spends its whole step budget looking for it. */
+for (const mode of ["context", "complete", "exhaustive"] as const) {
+  test(`explore(): a ${mode} run has no change to explore, so no session is opened and no brief is made`, async () => {
+    const opens: unknown[] = [];
+    const resolved: string[] = [];
+    const session: AgentSession = {
+      prompt: async () => { throw new Error("the explorer must not be prompted"); },
+      dispose: async () => {},
+    };
+    const adapter = new ExplorerBriefSessionAdapter({ ...staticCtx, mode }, {
+      runtime: fakeRuntime(session, opens),
+      parseBrief: () => { throw new Error("nothing to parse"); },
+      stepLimitFor: async (role) => { resolved.push(role); return 25; },
+    });
+
+    const brief = await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+    assert.equal(brief, undefined);
+    assert.deepEqual(opens, []);
+    assert.deepEqual(resolved, [], "no limit is read for a session that is never opened");
+  });
+}
+
+for (const mode of ["diff", "manual"] as const) {
+  test(`explore(): a ${mode} run has something to explore, so the explorer session is opened`, async () => {
+    const opens: unknown[] = [];
+    const session: AgentSession = {
+      prompt: async () => ({ output: "{}" }),
+      dispose: async () => {},
+    };
+    const adapter = new ExplorerBriefSessionAdapter({ ...staticCtx, mode, guidance: "test the contact form" }, {
+      runtime: fakeRuntime(session, opens),
+      parseBrief: () => ({ builtForSha: "deadbeef", objective: "contact", blastRadius: [] }),
+    });
+
+    const brief = await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef", diff: "diff --git a/x b/x" });
+
+    assert.equal(brief?.objective, "contact");
+    assert.equal(opens.length, 1);
+  });
+}

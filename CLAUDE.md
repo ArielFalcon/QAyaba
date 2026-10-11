@@ -140,7 +140,7 @@ The harness pre-computes context so the agent does not have to rediscover it. An
 to the agent's behaviour must make it **consume** this context, not re-derive it:
 - **Pre-generation grounding** —
   `qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts`
-  (fail-open): explorer brief (blast radius; `qa.explorer`, default on when `services[]`),
+  (fail-open): explorer brief (blast radius; `qa.explorer`, default on when `services[]`) on diff and manual runs,
   context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
   capturable — `generation/infrastructure/context-pack.ts`), harness facts
   (`generation/domain/harness-facts.ts`), existing-suite manifest.

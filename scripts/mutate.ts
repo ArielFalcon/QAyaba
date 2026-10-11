@@ -279,8 +279,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/application/run-qa.use-case.ts:1603-1603`,
       `${ORCH}/application/run-qa.use-case.ts:1609-1611`,
       `${ORCH}/application/run-qa.use-case.ts:1623-1623`,
-      `${ORCH}/application/run-qa.use-case.ts:1739-1739`,
-      `${ORCH}/application/run-qa.use-case.ts:1871-1871`,
+      `${ORCH}/application/run-qa.use-case.ts:1740-1740`,
+      `${ORCH}/application/run-qa.use-case.ts:1874-1874`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/spec-path.test.ts",

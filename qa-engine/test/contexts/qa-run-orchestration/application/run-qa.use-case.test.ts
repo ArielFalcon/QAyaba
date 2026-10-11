@@ -2463,6 +2463,48 @@ test("contextMapCapture is absent by default — no-op, no behavior change on a 
   assert.equal(out.decision.verdict, "pass");
 });
 
+/* A context run's product is the architecture map: it generates no test, so there is nothing for a test reviewer to judge, and a verdict it cannot give must never turn a clean pass into an Issue. */
+const REJECTING_REVIEWERS: Array<{ name: string; review: ReviewPort["review"] }> = [
+  { name: "a rejecting reviewer", review: async () => ({ approved: false, corrections: ["[blocking] no test to review"], blockingCount: 1, parsed: true }) },
+  { name: "a reviewer parse-miss", review: async () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false }) },
+  { name: "an unavailable reviewer", review: async () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false, rationale: "reviewer unavailable: timed out after 360000ms" }) },
+];
+
+for (const { name, review } of REJECTING_REVIEWERS) {
+  for (const shadow of [false, true]) {
+    test(`a clean context-mode pass never goes through test review, so ${name} cannot turn it into an Issue (shadow=${shadow})`, async () => {
+      let reviewCalls = 0;
+      const published: Array<{ reviewerApproved?: boolean }> = [];
+      const { ports } = stubPorts({
+        generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" })),
+        review: async (...args) => { reviewCalls += 1; return review(...args); },
+        publish: async (decision) => { published.push({ reviewerApproved: decision.reviewerApproved }); return { outcome: "pr" }; },
+      });
+      const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, shadow } });
+
+      const out = await useCase.run({ ...baseInput, runId: `context-no-review-${shadow ? "shadow" : "live"}`, mode: "context" });
+
+      assert.equal(out.decision.verdict, "pass");
+      assert.equal(reviewCalls, 0, "a context run has no test to review");
+      assert.notEqual(out.decision.sideEffect, "issue");
+      assert.deepEqual(published.map((p) => p.reviewerApproved), [true], "publication is handed a run nobody rejected");
+    });
+  }
+}
+
+test("a context-mode run executes nothing, so it measures no coverage or value", async () => {
+  let measureCalls = 0;
+  const { ports } = stubPorts({
+    generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" })),
+    measure: async () => { measureCalls += 1; return { status: "unknown", ratio: null }; },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  await useCase.run({ ...baseInput, runId: "context-no-measure", mode: "context" });
+
+  assert.equal(measureCalls, 0);
+});
+
 test("contextMapCapture is NOT invoked on a non-context mode's clean pass — capture is mode-gated to context only", async () => {
   let captureCallCount = 0;
   const { ports } = stubPorts({

@@ -1687,7 +1687,8 @@ export class RunQaUseCase {
      */
     let mutantCount: number | undefined;
     let killedCount: number | undefined;
-    if (run.verdict === "pass") {
+    /* A context run executes nothing (its pass is synthetic), so it has no coverage or value to measure. */
+    if (run.verdict === "pass" && input.mode !== "context") {
       /*
        * onStep("coverage") only when this pass actually measures (diff mode, not
        * cross-repo). Do not emit the step for a pass that never measured.
@@ -1769,6 +1770,8 @@ export class RunQaUseCase {
     }
 
     let reviewerApproved = true;
+    /* A context run's product is the architecture map, not tests: there is nothing for a test reviewer to judge, and a verdict it cannot give would turn a clean pass into an Issue. */
+    const reviewsTests = cfg.needsReview && input.mode !== "context";
     /*
      * Default reviewerApproved to generation's own flag (needsReview only) so
      * fail/flaky/invalid paths still have a value. A genuine review call overwrites it.
@@ -1785,7 +1788,7 @@ export class RunQaUseCase {
      * Also gated on generating: a regression run never invokes the reviewer
      * (nothing new to judge; decide()'s !generating branch already wins).
      */
-    if (run.verdict === "pass" && cfg.needsReview && generating) {
+    if (run.verdict === "pass" && reviewsTests && generating) {
       /*
        * MAX_REVIEW_ROUNDS = 2. parsed:false is a parse miss — fail closed immediately
        * without burning a regen round. Gate is approved && blockingCount === 0;
@@ -1887,7 +1890,7 @@ export class RunQaUseCase {
     const evidence: RunEvidence = {
       verdict: run.verdict,
       generating,
-      needsReview: cfg.needsReview,
+      needsReview: reviewsTests,
       reviewerApproved,
       blocksPublish,
       shadow: cfg.shadow,
@@ -1898,7 +1901,7 @@ export class RunQaUseCase {
     if (this.deps.coordination && this.deps.coordinationTelemetry) {
       /* Read from the same honest source as the persisted outcome: absent when no reviewer looked at this run. */
       const reviewOutcome =
-        !cfg.needsReview ? "skipped" as const
+        !reviewsTests ? "skipped" as const
         : reviewerApprovedForOutcome === true ? "approved" as const
         : reviewerApprovedForOutcome === false ? "rejected" as const
         : "n/a" as const;

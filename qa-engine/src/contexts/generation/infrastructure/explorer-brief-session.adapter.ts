@@ -77,6 +77,8 @@ export class ExplorerBriefSessionAdapter {
   ) {}
 
   async explore(args: ExploreBriefArgs): Promise<ExplorationBrief | undefined> {
+    /* No scope, no session: the explorer is only worth its steps when there is a change or a guidance to map. */
+    if (!this.hasScopeToExplore()) return undefined;
     const cwd = dirname(args.specDir);
     let session: AgentSession | undefined;
     try {
@@ -136,6 +138,20 @@ export class ExplorerBriefSessionAdapter {
       } catch (disposeErr) {
         console.warn(`[qa] WARNING: explorer session dispose failed (non-blocking): ${disposeErr instanceof Error ? disposeErr.message : String(disposeErr)}`);
       }
+    }
+  }
+
+  /* A diff run explores its commit's change and a manual run its guidance. The other modes (context, complete, exhaustive) analyze the repository or the suite with no change in hand, so an explorer sent to "the blast radius of the commit" would hunt for a change that is not there until its step budget ran out. */
+  private hasScopeToExplore(): boolean {
+    switch (this.ctx.mode) {
+      case "diff":
+        return true;
+      case "manual":
+        return (this.ctx.guidance ?? "").trim().length > 0;
+      case "context":
+      case "complete":
+      case "exhaustive":
+        return false;
     }
   }
 }
