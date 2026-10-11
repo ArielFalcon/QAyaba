@@ -1,4 +1,4 @@
-/* How a route template of the map becomes a page that can be opened. The map names `/shops/:province/:city`; the site shows `/shops/madrid/madrid` in a link. Nothing is guessed: an instance is a link the site really showed, matched to the template segment by segment, so the page it names exists. Pure and deterministic: the first match in the order the links were harvested wins. */
+/* How a route template of the map becomes a page that can be opened. The map names `/shops/:province/:city`; the site shows `/shops/madrid/madrid` in a link. Nothing is guessed: an instance is made of a link the site really showed, matched to the template segment by segment. A link of the template's own length is the page itself; a longer link only gives its leading segments, a page the site never showed as such, so a caller accepts either one only once opening it confirms the page. Pure and deterministic: the first match in the order the links were harvested wins. */
 
 import { classifyRoute } from "../../../shared-kernel/route-capturability.ts";
 
@@ -22,10 +22,13 @@ function templateSegments(template: string): Segment[] | undefined {
     else if (PARTIAL_TEMPLATE.test(text)) return undefined;
     else segments.push({ parameter: false, text });
   }
-  return segments.some((segment) => segment.parameter) ? segments : undefined;
+  /* A parameter to fill and a literal to anchor on: with no literal every link of the same length fits (`/:id` takes `/login`), so nothing tells a page of the template from any other page. */
+  const hasParameter = segments.some((segment) => segment.parameter);
+  const hasLiteral = segments.some((segment) => !segment.parameter);
+  return hasParameter && hasLiteral ? segments : undefined;
 }
 
-/** Whether a template is made of literal segments and whole-segment parameters, with at least one parameter: the only templates a real link can fill. */
+/** Whether a template is made of literal segments and whole-segment parameters, with at least one of each: the only templates a real link can fill. */
 export function instantiableTemplate(template: string): boolean {
   return templateSegments(template) !== undefined;
 }
@@ -43,7 +46,7 @@ function linkSegments(link: string): string[] | undefined {
 const fills = (template: readonly Segment[], link: readonly string[]): boolean =>
   template.every((segment, index) => segment.parameter || segment.text === link[index]);
 
-/* The route a link gives for a template of `length` segments: the link's own leading segments, when a browser can open them as written. */
+/* The route a link gives for a template of `length` segments: the link's own leading segments, when a browser can open them as written. When the link is longer, those segments are a page the site only implies. */
 function instanceOf(link: readonly string[], length: number): string | undefined {
   const route = `/${link.slice(0, length).join("/")}`;
   return classifyRoute(route).capturable ? route : undefined;

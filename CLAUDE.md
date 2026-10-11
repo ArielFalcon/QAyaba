@@ -187,12 +187,14 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   operation it joins (`generation/domain/route-ranking.ts`). Brief routes keep their place in
   front, nothing is inferred from names, and a cross-repo run ranks only by the spec of an
   operation under the service's staged root.
-- **Templated routes** — a route template of the map (`/shops/:province/:city`) keeps its slot in the
-  capture cut and is opened through a real link: the first capture also renders the app root for the
-  links it shows, `generation/domain/route-instantiation.ts` matches those same-origin pathnames to the
-  template segment by segment, and the page found is captured in a second pass labelled with both its
-  address and the template; a template no link fits is listed as not capturable. The explorer is shown the
-  map's route paths so its brief names pages by them.
+- **Templated routes** — a route template of the map (`/shops/:province/:city`) is opened through a real
+  link: the first capture renders the routes that are pages, and also the app root for the links it shows;
+  `generation/domain/route-instantiation.ts` matches those same-origin pathnames to the template segment by
+  segment (a template needs at least one literal segment), the cut is made on pages in rank order, not on
+  templates, and the pages found are captured in a second pass labelled with both address and template. A
+  template counts as opened only when the capture grounded its page at its own address; otherwise it is
+  listed as not capturable, with why. The explorer is shown the map's route paths so its brief names pages
+  by them.
 - **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: deterministic
   rule fold, rule governance, curriculum, and the `qa-reflector` pass (distils
   `candidate`/`low`-confidence rules only; flaky/infra verdicts excluded). engram holds

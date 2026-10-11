@@ -1,6 +1,7 @@
 /* Route catalog: the single grounding artifact the agent transcribes from and the pre-execution gate verifies against. Pure construction — no browser. */
 
 import type { RouteSnapshot } from "./dom-snapshot.ts";
+import { loggableRoute, loggableRoutes } from "./loggable-route.ts";
 
 /** Single source of truth for the route capture status values. A const object keeps runtime values alongside the type and avoids string-literal / type divergence. */
 export const ROUTE_STATUS = {
@@ -107,7 +108,7 @@ export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
 export function degradedRouteWarning(catalogs: readonly RouteCatalog[]): string | undefined {
   const degraded = catalogs.filter((c) => c.status === ROUTE_STATUS.DEGRADED);
   if (degraded.length === 0) return undefined;
-  const named = degraded.map((c) => `${c.route} (${[c.degradeReason, c.redirectedTo].filter(Boolean).join(" ")})`);
+  const named = degraded.map((c) => `${loggableRoute(c.route)} (${[c.degradeReason, c.redirectedTo === undefined ? undefined : loggableRoute(c.redirectedTo)].filter(Boolean).join(" ")})`);
   return `[qa] WARNING: DOM capture DEGRADED for ${degraded.length} route(s) [${named.join(", ")}] — these routes are NOT grounded; the selector gate treats them as advisory (no fail-closed).`;
 }
 
@@ -123,6 +124,6 @@ export function gatedAppAdvisory(catalogs: readonly RouteCatalog[]): string | un
   }
   const gated = [...reached].filter(([, page]) => page.routes.length > 1 || page.hasPasswordField);
   if (gated.length === 0) return undefined;
-  const named = gated.map(([path, page]) => `${path} (reached from ${page.routes.join(", ")})`);
+  const named = gated.map(([path, page]) => `${loggableRoute(path)} (reached from ${loggableRoutes(page.routes)})`);
   return `[qa] NOTE: the app may be gated: ${named.join("; ")}. If it needs a login, declare auth: in its config.`;
 }

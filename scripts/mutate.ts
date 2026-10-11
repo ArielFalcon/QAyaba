@@ -223,15 +223,18 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/src/shared-kernel/route-capturability.ts",
       `${GEN}/domain/route-ranking.ts`,
       `${GEN}/domain/route-instantiation.ts`,
-      /* Only the lines that rank the derived routes, filter the candidates, cut them, open the templates through links, log and list what was left out. */
-      `${GEN}/infrastructure/context-pack.ts:130-148`,
-      `${GEN}/infrastructure/context-pack.ts:225-297`,
-      `${GEN}/infrastructure/context-pack.ts:309-318`,
+      `${GEN}/infrastructure/loggable-route.ts`,
+      /* Only the lines that rank the derived routes, filter the candidates, cut them, open the templates through links, log and list what was left out, and the capture that reports which pages it grounded and the links they showed. */
+      `${GEN}/infrastructure/dom-snapshot.ts:336-361`,
+      `${GEN}/infrastructure/context-pack.ts:131-156`,
+      `${GEN}/infrastructure/context-pack.ts:233-329`,
+      `${GEN}/infrastructure/context-pack.ts:341-350`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/route-capturability.test.ts",
       `${GEN_TEST}/domain/route-ranking.test.ts`,
       `${GEN_TEST}/domain/route-instantiation.test.ts`,
+      `${GEN_TEST}/infrastructure/loggable-route.test.ts`,
       `${GEN_TEST}/infrastructure/context-pack.test.ts`,
       `${GEN_TEST}/infrastructure/dom-snapshot.test.ts`,
     ],
@@ -313,14 +316,14 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "redirect-advisory": {
     description: "redirect advisory: why a route degraded and where a redirect led, the state line and the advisory block that render it, and the split that keeps the block out of the live DOM section",
     mutate: [
-      `${GEN}/infrastructure/route-catalog.ts:14-24`,
-      `${GEN}/infrastructure/route-catalog.ts:65-128`,
+      `${GEN}/infrastructure/route-catalog.ts:15-25`,
+      `${GEN}/infrastructure/route-catalog.ts:66-129`,
       /* Only the lines that state a degraded route, build the advisory block and the capture, and warn about a gated app: the tree rendering they call is older code. */
-      `${GEN}/infrastructure/dom-snapshot.ts:236-240`,
-      `${GEN}/infrastructure/dom-snapshot.ts:261-288`,
-      `${GEN}/infrastructure/context-pack.ts:184-196`,
-      `${GEN}/infrastructure/context-pack.ts:243-244`,
-      `${GEN}/infrastructure/context-pack.ts:277-277`,
+      `${GEN}/infrastructure/dom-snapshot.ts:237-241`,
+      `${GEN}/infrastructure/dom-snapshot.ts:262-289`,
+      `${GEN}/infrastructure/context-pack.ts:192-204`,
+      `${GEN}/infrastructure/context-pack.ts:258-259`,
+      `${GEN}/infrastructure/context-pack.ts:298-298`,
     ],
     tests: [
       `${GEN_TEST}/infrastructure/route-catalog.test.ts`,

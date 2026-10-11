@@ -2,7 +2,8 @@
 
 import { sanitizeText } from "./sanitize-text.ts";
 import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
-import type { CaptureDomDeps, CaptureRoutesInput } from "./dom-snapshot.ts";
+import type { CapturedPage, CaptureDomDeps, CaptureRoutesInput } from "./dom-snapshot.ts";
+import { loggableRoute, loggableRoutes } from "./loggable-route.ts";
 import type { ExplorationBrief, ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { classifyRoutes, ROUTE_REASON } from "../../../shared-kernel/route-capturability.ts";
@@ -136,8 +137,15 @@ interface NotCaptured {
   reason: string;
 }
 
-/* Why a template of the map that was meant to be captured is not: no page the capture showed links to a page of it. */
-const NO_LINK_TO_TEMPLATE = `${ROUTE_REASON.TEMPLATE}: no link to a page of it was seen`;
+/* Why a template of the map that was meant to be captured is not. */
+export const TEMPLATE_LEFT_OUT = {
+  /* The pages that could show a link to it were captured, and none did. */
+  NO_LINK: `${ROUTE_REASON.TEMPLATE}: no link to a page of it was seen`,
+  /* No page that could show a link to it was captured, so whether the site links to it is not known. */
+  NO_PAGE_TO_LOOK_AT: `${ROUTE_REASON.TEMPLATE}: no page that could show a link to it was captured`,
+  /* A link to a page of it was seen, but that page was not captured at its own address. */
+  PAGE_NOT_CONFIRMED: `${ROUTE_REASON.TEMPLATE}: the page found for it could not be captured at its own address`,
+} as const;
 
 /* The routes left out of the capture because they name no single page, or no page of them was found, each with why. They are not degraded pages: nothing was captured for them. */
 function renderNotCapturable(routes: readonly NotCaptured[]): string {
@@ -227,47 +235,60 @@ export async function buildContextPack(
   const deterministicRoutes = input.prChangedFiles
     ? rankRoutesByChange(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}) })
     : derivedRoutes;
-  /* A route named twice is counted once, and a route that names no page and no template of one is dropped, BEFORE the cut: neither may take the slot of a route behind it. A template stays in its place: it opens to a page through a link the site shows. */
+  /* A route named twice is counted once, and a route that names no page and no template of one is dropped, BEFORE the cut: neither may take the slot of a route behind it. A template stays in its place: it opens to a page through a link the site shows, and the cut is made on the pages, not on the templates. */
   const classified = classifyRoutes([...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes]);
-  const isTemplate = (entry: { route: string; reason?: string }): boolean => entry.reason === ROUTE_REASON.TEMPLATE && instantiableTemplate(entry.route);
-  const targets = classified.filter((entry) => entry.reason === undefined || isTemplate(entry)).slice(0, MAX_ROUTES);
-  const templates = targets.filter(isTemplate).map((entry) => entry.route);
-  const concrete = targets.filter((entry) => !isTemplate(entry)).map((entry) => entry.route);
-  const opened = new Set<string>();
+  /* Only a route made of literals and whole-segment parameters can be filled from a link; any other route that names no page is simply left out. */
+  const isTemplate = (entry: { route: string }): boolean => instantiableTemplate(entry.route);
+  /* The pages the first capture renders: the routes that are pages, as many as the cut keeps. */
+  const firstPass = classified.filter((entry) => entry.reason === undefined).map((entry) => entry.route).slice(0, MAX_ROUTES);
+  /* A template can take a slot only if fewer than a cut's worth of pages rank ahead of it. */
+  const reachableTemplates: string[] = [];
+  let pagesAhead = 0;
+  for (const entry of classified) {
+    if (entry.reason === undefined) pagesAhead++;
+    else if (isTemplate(entry) && pagesAhead < MAX_ROUTES) reachableTemplates.push(entry.route);
+  }
+  const reachable = reachableTemplates.length > 0;
+  const pages = new Map<string, CapturedPage>();
   const captures: PackCapture[] = [];
   let renderedRoutes = 0;
   const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
-    const rawCaptured = await deps.captureDomForRoutes(routes, captureInput, deps.domDeps, input.changedElements);
+    const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) pages.set(page.route, page); } }, deps.domDeps, input.changedElements);
     const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
     if (!raw) return;
     const { grounded, advisory } = splitRedirectSection(raw);
     captures.push({ grounded, advisory });
     renderedRoutes += routes.length;
   };
-  if (targets.length > 0 && input.e2eDir && input.baseUrl) {
+  /* What became of each template the run looked at: the page the links gave it, if any. A template behind the cut is never looked at. */
+  const instanceOfTemplate = new Map<string, string | undefined>();
+  if ((firstPass.length > 0 || reachable) && input.e2eDir && input.baseUrl) {
     const base = { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute };
-    const harvested: string[] = [];
     try {
-      /* The first capture is of the routes that are pages. With a template among the targets it also reports the links its pages show, and renders the app root for them when the root is no target: the template cannot be opened, but a link to a page of it can. */
-      const needsLinks = templates.length > 0;
-      await capture(concrete, {
-        ...base,
-        ...(needsLinks ? { onLinks: (links: string[]) => harvested.push(...links) } : {}),
-        ...(needsLinks && !concrete.includes("/") ? { linkSeeds: ["/"] } : {}),
-      });
+      /* The first capture is of the routes that are pages. When a template can still take a slot it also reports the links its pages show, and renders the app root for them when the root is no route asked for: the template cannot be opened, but a link to a page of it can. */
+      await capture(firstPass, reachable && !firstPass.includes("/") ? { ...base, linkSeeds: ["/"] } : base);
+      const links = [...new Set([...pages.values()].flatMap((page) => page.links))];
+      /* The cut, made on pages in rank order: a route that is a page, or the page the links give a template. The first capture's pages are rendered already and stay in the pack even when the cut leaves them out. */
+      const cut = new Set<string>();
       const instances = new Map<string, string>();
-      for (const template of templates) {
-        const instance = instantiateRoute(template, harvested);
-        if (instance === undefined) continue;
-        opened.add(template);
-        if (!concrete.includes(instance) && !instances.has(instance)) instances.set(instance, template);
+      for (const entry of classified) {
+        if (cut.size >= MAX_ROUTES) break;
+        /* A route that is a page and comes up before the cut is full is one of the first capture's: fewer than a cut's worth of pages came before it. */
+        if (entry.reason === undefined) {
+          cut.add(entry.route);
+        } else if (isTemplate(entry)) {
+          const instance = instantiateRoute(entry.route, links);
+          instanceOfTemplate.set(entry.route, instance);
+          if (instance === undefined) continue;
+          cut.add(instance);
+          if (!firstPass.includes(instance) && !instances.has(instance)) instances.set(instance, entry.route);
+        }
       }
       if (instances.size > 0) {
         try {
           await capture([...instances.keys()], { ...base, instanceOf: instances });
         } catch (err) {
           log(`[qa] context-pack: DOM capture of the pages found for route templates FAILED (${err instanceof Error ? err.message : String(err)}) — those templates are not grounded`);
-          for (const template of instances.values()) opened.delete(template);
         }
       }
       if (captures.length > 0) {
@@ -284,17 +305,28 @@ export async function buildContextPack(
         ].join("\n");
         log(`[qa] context-pack: DOM captured ${kept.length} lines for ${renderedRoutes} route(s)${dropped > 0 ? ` (${dropped} omitted)` : ""}`);
       } else {
-        log(`[qa] context-pack: DOM capture returned nothing for routes [${targets.map((entry) => entry.route).join(", ")}] — grounding skipped`);
+        log(`[qa] context-pack: DOM capture returned nothing for routes [${loggableRoutes(firstPass)}] — grounding skipped`);
       }
     } catch (err) {
       log(`[qa] context-pack: DOM capture FAILED (${err instanceof Error ? err.message : String(err)}) — grounding skipped`);
+      /* The links were never read: a template that was to be opened through them is unopened for that reason. */
+      for (const template of reachableTemplates) instanceOfTemplate.set(template, undefined);
     }
   }
-  /* What is left out: every route that names no single page, and the templates of the targets no page was found for. */
-  const notCaptured: NotCaptured[] = classified
-    .filter((entry) => entry.reason !== undefined && !(isTemplate(entry) && opened.has(entry.route)))
-    .map((entry) => ({ route: entry.route, reason: targets.some((target) => target.route === entry.route) ? NO_LINK_TO_TEMPLATE : entry.reason! }));
-  for (const entry of notCaptured) log(`[qa] context-pack: route not capturable, left out of the capture: ${entry.route} (${entry.reason})`);
+  /* What is left out: every route that names no single page, and the templates no grounded page was found for. A template is opened only when the page the links gave it was captured with content at its own address; a page that was not reported at all (a capture that failed, timed out or was unreadable) is not grounded. */
+  const grounded = (route: string): boolean => pages.get(route)?.grounded === true;
+  const anyPageGrounded = [...pages.values()].some((page) => page.grounded);
+  const reasonFor = (entry: { route: string; reason?: string }): string | undefined => {
+    if (!isTemplate(entry) || !instanceOfTemplate.has(entry.route)) return entry.reason;
+    const instance = instanceOfTemplate.get(entry.route);
+    if (instance === undefined) return anyPageGrounded ? TEMPLATE_LEFT_OUT.NO_LINK : TEMPLATE_LEFT_OUT.NO_PAGE_TO_LOOK_AT;
+    return grounded(instance) ? undefined : TEMPLATE_LEFT_OUT.PAGE_NOT_CONFIRMED;
+  };
+  const notCaptured: NotCaptured[] = classified.flatMap((entry) => {
+    const reason = reasonFor(entry);
+    return reason === undefined ? [] : [{ route: entry.route, reason }];
+  });
+  for (const entry of notCaptured) log(`[qa] context-pack: route not capturable, left out of the capture: ${loggableRoute(entry.route)} (${entry.reason})`);
 
   let contractSection = "";
   const relevantOps = filterRelevantContracts(input.contextMap, input.brief, input.prChangedFiles);

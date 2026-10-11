@@ -34,6 +34,8 @@ const INSTANTIATION: readonly Case[] = [
   ["a wildcard names no single page", "/files/*", ["/files/a"], undefined],
   ["a segment that mixes a parameter and text is not filled", "/p/id-{id}", ["/p/id-1"], undefined],
   ["a template with no parameter is not instantiated", "/cart", ["/cart"], undefined],
+  ["a template of parameters only has no literal to tell its pages from any other link", "/:id", ["/login", "/42"], undefined],
+  ["several parameters and no literal are not filled either", "/:a/:b", ["/login/now", "/x/y"], undefined],
   ["a template with a query is not instantiated", "/p/:id?x=1", ["/p/1"], undefined],
   ["a hash route is not instantiated", "#/p/:id", ["/p/1"], undefined],
   ["a template with no leading slash is not instantiated", "p/:id", ["/p/1"], undefined],
@@ -56,8 +58,8 @@ test("instantiateRoute: an instance is always a route a browser can open as writ
 });
 
 test("instantiableTemplate: only a template made of literals and whole-segment parameters qualifies", () => {
-  for (const template of ["/a/:id", "/a/{id}/b", "/a/[id]", "/a/:p/:c"]) assert.equal(instantiableTemplate(template), true, template);
-  for (const template of ["/a", "/a/*", "/a/:id?", "/a/[...rest]", "/a/x-{id}", "#/a/:id", "a/:id", "/a/:id#x", ""]) assert.equal(instantiableTemplate(template), false, template);
+  for (const template of ["/a/:id", "/a/{id}/b", "/a/[id]", "/a/:p/:c", "/:lang/about"]) assert.equal(instantiableTemplate(template), true, template);
+  for (const template of ["/a", "/a/*", "/a/:id?", "/a/[...rest]", "/a/x-{id}", "#/a/:id", "a/:id", "/a/:id#x", "", "/:id", "/{a}/[b]"]) assert.equal(instantiableTemplate(template), false, template);
 });
 
 const BASE = "https://dev.example.com";
@@ -85,6 +87,8 @@ test("sameOriginPathnames: an unusable base gives no links", () => {
 test("sameOriginPathnames: is bounded in how many links it keeps and how long one may be", () => {
   const many = Array.from({ length: MAX_LINKS_PER_PAGE + 25 }, (_, i) => `${BASE}/p/${i}`);
   assert.equal(sameOriginPathnames(many, BASE).length, MAX_LINKS_PER_PAGE);
+  const longest = `/${"x".repeat(MAX_LINK_LENGTH - 1)}`;
+  assert.deepEqual(sameOriginPathnames([`${BASE}${longest}`], BASE), [longest], "a path of exactly the bound is kept");
   const long = `${BASE}/${"x".repeat(MAX_LINK_LENGTH + 1)}`;
   assert.deepEqual(sameOriginPathnames([long, `${BASE}/short`], BASE), ["/short"]);
 });

@@ -12,7 +12,8 @@ import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, DEGRADE_REAS
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
-import { sameOriginPathnames } from "../domain/route-instantiation.ts";
+import { MAX_LINK_LENGTH, MAX_LINKS_PER_PAGE, sameOriginPathnames } from "../domain/route-instantiation.ts";
+import { loggableRoutes } from "./loggable-route.ts";
 
 const processKill = new ProcessKillAdapter();
 
@@ -305,10 +306,10 @@ export async function captureDom(input: CaptureDomInput, deps: CaptureDomDeps): 
     const text = formatDomSnapshot(snaps);
     if (text.trim()) return text;
     /* Routes WERE extractable and a baseUrl WAS present, yet the render produced nothing. That is a real grounding GAP, not a benign no-op — surface it loudly (CLAUDE.md: never swallow into an empty result), so a run that authors/judges selectors WITHOUT the live DOM is visible. */
-    console.warn(`[qa] WARNING: DOM grounding produced no snapshot for ${routes.length} route(s) [${routes.join(", ")}] — authoring/judging UI selectors WITHOUT the live DEV tree.`);
+    console.warn(`[qa] WARNING: DOM grounding produced no snapshot for ${routes.length} route(s) [${loggableRoutes(routes)}] — authoring/judging UI selectors WITHOUT the live DEV tree.`);
     return undefined;
   } catch (err) {
-    console.warn(`[qa] WARNING: DOM grounding FAILED to capture ${routes.length} route(s) [${routes.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — authoring/judging UI selectors WITHOUT the live DEV tree.`);
+    console.warn(`[qa] WARNING: DOM grounding FAILED to capture ${routes.length} route(s) [${loggableRoutes(routes)}] (${err instanceof Error ? err.message : String(err)}) — authoring/judging UI selectors WITHOUT the live DEV tree.`);
     return undefined;
   }
 }
@@ -321,8 +322,15 @@ export interface CaptureRoutesInput {
   linkSeeds?: readonly string[];
   /* For a route asked for that is an instance of a template of the map, that template: the report names both. */
   instanceOf?: ReadonlyMap<string, string>;
-  /* Told the links of every page rendered (routes and seeds), in page order and once each. */
-  onLinks?: (links: string[]) => void;
+  /* Told, once the render has answered, every page it returned (routes and seeds): whether the page is grounded and the links it showed. Never told when the render failed. */
+  onPages?: (pages: CapturedPage[]) => void;
+}
+
+/* A page of a capture, as the caller that opens template pages must know it: grounded means the page rendered with content and ended on the address asked for, so what the report says of it is what that address shows. */
+export interface CapturedPage {
+  route: string;
+  grounded: boolean;
+  links: string[];
 }
 
 export async function captureDomForRoutes(
@@ -338,7 +346,7 @@ export async function captureDomForRoutes(
   try {
     const snaps = await deps.render(input.e2eDir, input.baseUrl, asked, input.testIdAttribute);
     warnOnDegradedRoutes(snaps);
-    input.onLinks?.([...new Set(snaps.flatMap((snap) => snap.links ?? []))]);
+    input.onPages?.(snaps.map((snap) => ({ route: snap.route, grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED, links: snap.links ?? [] })));
     const reported = snaps
       .filter((snap) => !seeds.includes(snap.route))
       .map((snap) => {
@@ -347,7 +355,7 @@ export async function captureDomForRoutes(
       });
     return formatDomCapture(reported, changed);
   } catch (err) {
-    console.warn(`[qa] WARNING: DOM capture FAILED for ${asked.length} route(s) [${asked.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — the worker grounds via its own exploration this run.`);
+    console.warn(`[qa] WARNING: DOM capture FAILED for ${asked.length} route(s) [${loggableRoutes(asked)}] (${err instanceof Error ? err.message : String(err)}) — the worker grounds via its own exploration this run.`);
     return undefined;
   }
 }
@@ -363,13 +371,13 @@ export async function captureDomByRoute(
   const clean = normalized.slice(0, MAX_ROUTES_UNION);
   if (clean.length === 0 || !input.baseUrl) return out;
   if (normalized.length > clean.length) {
-    console.warn(`[qa] WARNING: ${normalized.length} planned routes exceed the render cap (${MAX_ROUTES_UNION}); ${normalized.length - clean.length} route(s) are NOT grounded this run: ${normalized.slice(clean.length).join(", ")}`);
+    console.warn(`[qa] WARNING: ${normalized.length} planned routes exceed the render cap (${MAX_ROUTES_UNION}); ${normalized.length - clean.length} route(s) are NOT grounded this run: ${loggableRoutes(normalized.slice(clean.length))}`);
   }
   let snaps: RouteSnapshot[];
   try {
     snaps = await deps.render(input.e2eDir, input.baseUrl, clean, input.testIdAttribute);
   } catch (err) {
-    console.warn(`[qa] WARNING: DOM capture FAILED for ${clean.length} route(s) [${clean.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — each objective falls back to its own exploration this run.`);
+    console.warn(`[qa] WARNING: DOM capture FAILED for ${clean.length} route(s) [${loggableRoutes(clean)}] (${err instanceof Error ? err.message : String(err)}) — each objective falls back to its own exploration this run.`);
     return out;
   }
   /* Per-route degrade: surface errored routes loudly (same pattern as captureRouteTrees — CLAUDE.md: never swallow a capture failure) before filtering them out for grounding. */
@@ -399,7 +407,7 @@ export async function captureRouteTrees(input: CaptureDomInput, deps: CaptureDom
     snaps = await deps.render(input.e2eDir, input.baseUrl, routes, input.testIdAttribute);
   } catch (err) {
     /* Loud, attributed degrade (CLAUDE.md: never swallow a capture failure into []). The whole render threw → no pre-execution selector grounding this run; the gate has nothing and stays advisory. */
-    console.warn(`[qa] WARNING: DOM capture FAILED for ${routes.length} route(s) [${routes.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — no pre-execution selector grounding this run.`);
+    console.warn(`[qa] WARNING: DOM capture FAILED for ${routes.length} route(s) [${loggableRoutes(routes)}] (${err instanceof Error ? err.message : String(err)}) — no pre-execution selector grounding this run.`);
     return [];
   }
   warnOnDegradedRoutes(snaps);
@@ -541,6 +549,9 @@ const RENDER_MAX_TIMEOUT_MS = 200_000;
 const renderTimeoutFor = (routeCount: number): number =>
   Math.min(RENDER_BASE_TIMEOUT_MS + Math.max(1, routeCount) * RENDER_PER_ROUTE_TIMEOUT_MS, RENDER_MAX_TIMEOUT_MS);
 
+/* The longest a link's whole address may be for the script to report it: the pathname the orchestrator keeps is held to MAX_LINK_LENGTH, so this leaves room for the origin and a query. */
+const MAX_HREF_CHARS = MAX_LINK_LENGTH * 4;
+
 export function buildCaptureScript(playwrightRequirePath = "playwright"): string {
   return `const { chromium } = require(${JSON.stringify(playwrightRequirePath)});
 const { baseUrl, routes } = JSON.parse(process.env.PW_CAPTURE_INPUT || "{}");
@@ -629,18 +640,20 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
             return Array.from(document.querySelectorAll('[' + a + ']')).map(function(el) { return el.getAttribute(a); }).filter(function(v) { return v; });
           }, testIdAttr);
         } catch(_e) { testIdRawList = []; }
-        /* Every link the page shows, resolved by the browser; the orchestrator keeps the ones on the site's own origin. */
+        /* Every link the page shows, resolved by the browser. The page decides what it shows, so the script reports only the links of the site's own origin, each within the bound, and no more than the bound: one hostile page cannot make the output too big to read for every route. */
         let hrefs = [];
         try {
-          hrefs = await page.evaluate(function() {
+          hrefs = await page.evaluate(function(args) {
             var seen = Object.create(null);
             var found = [];
             Array.from(document.querySelectorAll('a[href]')).forEach(function(a) {
               var href = a.href;
-              if (typeof href === 'string' && !seen[href] && found.length < 500) { seen[href] = true; found.push(href); }
+              if (found.length >= args.maxLinks || typeof href !== 'string' || href.length > args.maxHrefChars || seen[href]) return;
+              seen[href] = true;
+              try { if (new URL(href).origin === args.origin) found.push(href); } catch (_u) {}
             });
             return found;
-          });
+          }, { origin: new URL(baseUrl).origin, maxLinks: ${MAX_LINKS_PER_PAGE}, maxHrefChars: ${MAX_HREF_CHARS} });
         } catch(_e) { hrefs = []; }
         out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs });
       } catch (e) { out.push({ route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors }); }

@@ -8,7 +8,7 @@ import {
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
   buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE,
   formatDomCapture, formatRedirectAdvisory,
-  type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
+  type CapturedPage, type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
 } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { countDirectives, hasTrustLanguage } from "@contexts/generation/domain/prompt-contract-lint.ts";
@@ -1565,13 +1565,44 @@ test("a DOM capture within the output bound still yields its snapshots", { timeo
 
 const pageWithLinks = (route: string, links: string[]): RouteSnapshot => ({ route, nodes: [`heading: ${route}`], links });
 
-test("captureDomForRoutes reports the links of the pages it rendered, in the order rendered and once each", async () => {
+test("captureDomForRoutes reports each page it rendered with the links it showed, in the order rendered", async () => {
   const deps: CaptureDomDeps = {
     render: async () => [pageWithLinks("/a", ["/x", "/y"]), pageWithLinks("/b", ["/y", "/z"])],
   };
-  const seen: string[][] = [];
-  await captureDomForRoutes(["/a", "/b"], { e2eDir: "/m", baseUrl: "http://dev", onLinks: (links) => seen.push(links) }, deps);
-  assert.deepEqual(seen, [["/x", "/y", "/z"]]);
+  const seen: CapturedPage[][] = [];
+  await captureDomForRoutes(["/a", "/b"], { e2eDir: "/m", baseUrl: "http://dev", onPages: (pages) => seen.push(pages) }, deps);
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0]!.map((page) => page.route), ["/a", "/b"]);
+  assert.deepEqual(seen[0]!.map((page) => page.links), [["/x", "/y"], ["/y", "/z"]]);
+});
+
+test("captureDomForRoutes tells which pages it grounded: one that errored, rendered empty or ended on another address is not", async () => {
+  const deps: CaptureDomDeps = {
+    render: async () => [
+      { route: "/ok", nodes: ["heading: ok"], finalUrl: "http://dev/ok/" },
+      { route: "/boom", error: "timeout" },
+      { route: "/blank", nodes: [] },
+      { route: "/moved", nodes: ["heading: login"], finalUrl: "http://dev/login" },
+    ],
+  };
+  const seen: CapturedPage[] = [];
+  await captureDomForRoutes(["/ok", "/boom", "/blank", "/moved"], { e2eDir: "/m", baseUrl: "http://dev", onPages: (pages) => seen.push(...pages) }, deps);
+  assert.deepEqual(seen.map((page) => [page.route, page.grounded]), [["/ok", true], ["/boom", false], ["/blank", false], ["/moved", false]]);
+});
+
+test("captureDomForRoutes reports a seed page too, grounded or not", async () => {
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => routes.map((route) => (route === "/" ? { route, error: "timeout" } : pageWithLinks(route, []))) };
+  const seen: CapturedPage[] = [];
+  await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onPages: (pages) => seen.push(...pages) }, deps);
+  assert.deepEqual(seen.map((page) => [page.route, page.grounded]), [["/a", true], ["/", false]]);
+});
+
+test("captureDomForRoutes tells nobody about pages when the render itself fails", async () => {
+  const deps: CaptureDomDeps = { render: async () => { throw new Error("browser gone"); } };
+  const seen: CapturedPage[][] = [];
+  const text = await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev", onPages: (pages) => seen.push(pages) }, deps);
+  assert.equal(text, undefined);
+  assert.deepEqual(seen, []);
 });
 
 test("captureDomForRoutes renders a link seed for its links and leaves it out of the text", async () => {
@@ -1583,7 +1614,7 @@ test("captureDomForRoutes renders a link seed for its links and leaves it out of
     },
   };
   const links: string[] = [];
-  const text = (await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onLinks: (found) => links.push(...found) }, deps)) ?? "";
+  const text = (await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onPages: (pages) => links.push(...pages.flatMap((page) => page.links)) }, deps)) ?? "";
   assert.deepEqual(rendered[0], ["/a", "/"], "the seed is rendered after the routes asked for");
   assert.ok(text.includes("route /a:"));
   assert.equal(text.includes("route /:"), false, "and is not part of the report");
@@ -1593,7 +1624,7 @@ test("captureDomForRoutes renders a link seed for its links and leaves it out of
 test("captureDomForRoutes with only a link seed reports its links and no text", async () => {
   const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => routes.map((route) => pageWithLinks(route, ["/shops/madrid/madrid"])) };
   const links: string[] = [];
-  const text = await captureDomForRoutes([], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onLinks: (found) => links.push(...found) }, deps);
+  const text = await captureDomForRoutes([], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onPages: (pages) => links.push(...pages.flatMap((page) => page.links)) }, deps);
   assert.equal(text, undefined);
   assert.deepEqual(links, ["/shops/madrid/madrid"]);
 });
@@ -1627,6 +1658,36 @@ test("a page opened from a template that did not render says so under both names
 
 test("a page with no template is labelled as before", () => {
   assert.ok(formatDomSnapshot([{ route: "/a", nodes: ["button: Go"] }]).startsWith("route /a:"));
+});
+
+/* A route in a log line may come from a link a page showed, so the log carries it cleaned and bounded. */
+async function warningsOf(run: () => Promise<unknown>): Promise<string> {
+  const warned: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warned.push(args.map(String).join(" ")); };
+  try {
+    await run();
+  } finally {
+    console.warn = origWarn;
+  }
+  return warned.join("\n");
+}
+
+test("captureDomForRoutes does not put a secret or an unbounded route of a page into the log of a failed capture", async () => {
+  const hostile = [`/reset/ghp_${"A".repeat(36)}`, `/${"x".repeat(5000)}`];
+  const deps: CaptureDomDeps = { render: async () => { throw new Error("browser gone"); } };
+  const log = await warningsOf(() => captureDomForRoutes(hostile, { e2eDir: "/m", baseUrl: "http://dev" }, deps));
+  assert.ok(log.includes("browser gone"), "the failure is still logged");
+  assert.equal(log.includes("ghp_AAAA"), false, "the token is redacted");
+  assert.ok(log.length < 1000, `the line is bounded (${log.length})`);
+});
+
+test("captureDomForRoutes does not put a secret of a page into the log of a degraded route", async () => {
+  const route = `/reset/ghp_${"A".repeat(36)}`;
+  const deps: CaptureDomDeps = { render: async () => [{ route, nodes: ["heading: x"], finalUrl: `http://dev/login/ghp_${"B".repeat(36)}` }] };
+  const log = await warningsOf(() => captureDomForRoutes([route], { e2eDir: "/m", baseUrl: "http://dev" }, deps));
+  assert.ok(log.includes("DEGRADED"));
+  assert.equal(/ghp_[AB]{4}/.test(log), false, "neither the route nor the page it reached leaks a token");
 });
 
 /* The capture script is the process boundary: a stand-in `playwright` module plays the browser, so what the script reports and what the orchestrator reads of it are the real ones. */
@@ -1674,5 +1735,16 @@ test("a capture output whose links are not a list of strings yields the page wit
     const snaps = await createCaptureDomDeps(join(root, "auth")).render(root, "http://localhost", ["/home", "/b"]);
     assert.equal(snaps[0]?.links, undefined);
     assert.deepEqual(snaps[1]?.links, ["/ok"]);
+  });
+});
+
+test("one page with huge or foreign links does not stop the capture of the others: the script bounds what it reports of links", { timeout: 30_000 }, async () => {
+  const huge = `http://dev.example/${"x".repeat(2_000_000)}`;
+  const foreign = Array.from({ length: 2000 }, (_, i) => `https://elsewhere.example/${i}`);
+  const anchors = [huge, ...foreign, "http://dev.example/shops/madrid/madrid"];
+  await withFakeBrowser(anchors, async (e2eDir, authDir) => {
+    const snaps = await createCaptureDomDeps(authDir, 200_000).render(e2eDir, "http://dev.example", ["/", "/b"]);
+    assert.equal(snaps.length, 2, "the output stayed within its bound, so both pages were read");
+    assert.deepEqual(snaps[0]?.links, ["/shops/madrid/madrid"]);
   });
 });
