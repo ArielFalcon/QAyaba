@@ -325,12 +325,15 @@ const measuredTurn: AgentTurnRecord = {
   duplicateCallCount: 4, promptProvidedReadCount: 3, pathProvidedReadCount: 2, exhausted: true,
   callBuckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, script_run: 3, memory: 0, subagent: 0, other: 2 },
   ended: "timeout",
+  durationMs: 360_000, timeToFirstCallMs: 70_000, timeToFirstWriteMs: 150_000, deniedCallCount: 2,
+  toolSequence: [{ tool: "read", target: "src/a.ts" }, { tool: "bash", target: "rm -rf /", denied: true }],
 };
 
 test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, null where unmeasured", async () => {
   const unmeasured: AgentTurnRecord = {
     ...measuredTurn, sessionId: "sess-2", totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null,
     writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
+    durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null,
   };
   const r = mkRes();
   await handleApi(
@@ -346,6 +349,13 @@ test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, n
   assert.equal(first.callBuckets.script_run, 3);
   assert.equal(first.ended, "timeout", "how the turn ended is served with it");
   assert.equal(second.ended, null);
+  assert.equal(first.durationMs, 360_000);
+  assert.equal(first.timeToFirstWriteMs, 150_000);
+  assert.equal(first.deniedCallCount, 2);
+  assert.deepEqual(first.toolSequence[1], { tool: "bash", target: "rm -rf /", denied: true });
+  assert.equal(second.durationMs, null);
+  assert.equal(second.deniedCallCount, null, "an unmeasured turn has no denial count, not zero");
+  assert.equal(second.toolSequence, null);
   assert.equal(first.promptText, "the prompt", "existing fields are unchanged");
   assert.equal(second.totalCalls, null);
   assert.equal(second.exhausted, null);
@@ -1284,6 +1294,7 @@ test("phase-0b: GET /api/runs/:id/turns returns 404 when the run is not found", 
 const UNMEASURED_TURN_FIELDS = {
   totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null,
   redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
+  durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null,
 };
 
 test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a JSON array", async () => {

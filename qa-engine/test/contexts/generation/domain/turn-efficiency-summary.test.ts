@@ -37,6 +37,10 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
     pathProvidedReadCount: 2,
     stepsUsed: 4,
     observationComplete: true,
+    timeToFirstCallMs: 1500,
+    timeToFirstWriteMs: 9000,
+    deniedCallCount: 3,
+    toolSequence: [{ tool: "read", target: "a.ts" }, { tool: "write", target: "a.ts" }],
   });
 
   assert.equal(metrics.totalCalls, 2);
@@ -49,6 +53,10 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
   assert.equal(metrics.pathProvidedReadCount, 2, "the path-provided count is carried apart from the content-provided one");
   assert.equal(metrics.buckets.code_read, 1);
   assert.equal(metrics.buckets.write, 1);
+  assert.equal(metrics.timeToFirstCallMs, 1500);
+  assert.equal(metrics.timeToFirstWriteMs, 9000);
+  assert.equal(metrics.deniedCallCount, 3);
+  assert.deepEqual(metrics.toolSequence, [{ tool: "read", target: "a.ts" }, { tool: "write", target: "a.ts" }]);
 });
 
 test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence's repeatedCallCount", () => {
@@ -65,6 +73,10 @@ test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence
     pathProvidedReadCount: 0,
     stepsUsed: null,
     observationComplete: false,
+    timeToFirstCallMs: null,
+    timeToFirstWriteMs: null,
+    deniedCallCount: 0,
+    toolSequence: [],
   });
   assert.equal(metrics.duplicateCallCount, 1);
   assert.equal(metrics.stepsUsed, null);

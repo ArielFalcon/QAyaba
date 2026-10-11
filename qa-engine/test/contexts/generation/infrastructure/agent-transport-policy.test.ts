@@ -843,6 +843,10 @@ const SAMPLE_CALL_METRICS = {
   promptProvidedReadCount: 0,
   pathProvidedReadCount: 0,
   buckets: { code_read: 4, browser: 2, write: 1, validate_run: 0, script_run: 0, memory: 0, subagent: 0, other: 0 },
+  timeToFirstCallMs: 900,
+  timeToFirstWriteMs: 4_200,
+  deniedCallCount: 1,
+  toolSequence: [{ tool: "read", target: "src/a.ts" }],
 };
 
 async function promptWithCollaborators(
@@ -1328,6 +1332,42 @@ test("createAgentDeps: a verdict repair sent with the limit of the prompt it rep
 });
 
 /* ── a turn that does not finish ── */
+
+/** A clock the test moves by hand: each `tick` is how long the prompt in flight has been running. */
+function manualClock(start = 10_000): { now: () => number; tick: (ms: number) => void } {
+  let clock = start;
+  return { now: () => clock, tick: (ms) => { clock += ms; } };
+}
+
+test("createAgentDeps: the turn event carries the wall time the prompt took, from when it was sent to when it answered", async () => {
+  resetCircuit();
+  const clock = manualClock();
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-timed" }),
+    promptSession: async () => { clock.tick(37_250); return { parts: [{ type: "text", text: "done" }] }; },
+  });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t), now: clock.now });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-timed" } });
+  await session.prompt("first");
+  clock.tick(900_000);
+  await session.prompt("second");
+  assert.deepEqual(persisted.map((t) => t.durationMs), [37_250, 37_250], "idle time between prompts is not part of a turn");
+});
+
+test("createAgentDeps: a turn that hit the prompt timeout still reports how long it ran", async () => {
+  resetCircuit();
+  const clock = manualClock();
+  const { raw } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: SHORT_TIMEOUT_MS, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t), now: clock.now });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-timeout-timed" } });
+  const prompted = session.prompt("write the specs");
+  clock.tick(360_000);
+  await assert.rejects(() => prompted, /timed out/);
+  assert.equal(persisted[0]!.ended, "timeout");
+  assert.equal(persisted[0]!.durationMs, 360_000);
+});
 
 const SHORT_TIMEOUT_MS = 15;
 

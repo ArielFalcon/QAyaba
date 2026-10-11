@@ -1744,6 +1744,10 @@ const CALL_METRICS = {
   promptProvidedReadCount: 0,
   pathProvidedReadCount: 0,
   buckets: { code_read: 9, browser: 0, write: 0, validate_run: 0, script_run: 0, memory: 0, subagent: 0, other: 0 },
+  timeToFirstCallMs: null,
+  timeToFirstWriteMs: null,
+  deniedCallCount: 0,
+  toolSequence: [],
 };
 
 test("a generation's stats and the turn persisted for it carry the same values, through the whole wrapper chain and a tracker that can be flushed once", async () => {

@@ -742,6 +742,30 @@ describe("onUsage honesty", () => {
     assert.deepEqual(capturedTurns, [{ stepBudget: null, callMetrics: null }]);
   });
 
+  it("a Codex turn reports the wall time its prompt took, the one measurement its runtime can give", async () => {
+    const durations: Array<number | null> = [];
+    const fakeTransport: CodexHeadlessTransport = {
+      start: async () => ({
+        id: "t-duration-session",
+        prompt: async () => { await new Promise((r) => setTimeout(r, 20)); return "codex output"; },
+        dispose: async () => {},
+      }),
+      health: async () => ({ provider: "codex" as const, status: "healthy" as const, configured: true }),
+      listModels: async () => [],
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "test-key" }, transport: fakeTransport });
+    const session = await strategy.openSession("primary", "/tmp", {
+      descriptor: { runId: "run-codex-duration", role: "primary" as const },
+      onTurn: (t) => { durations.push(t.durationMs); },
+    });
+
+    await session.prompt("a prompt");
+
+    assert.equal(durations.length, 1);
+    const [duration] = durations;
+    assert.ok(duration !== null && duration !== undefined && duration >= 15, `expected a measured duration, got ${String(duration)}`);
+  });
+
   it("the default turn sink persists a Codex turn with its efficiency columns NULL", async () => {
     const runId = `run-codex-persist-${Date.now()}`;
     const fakeTransport: CodexHeadlessTransport = {

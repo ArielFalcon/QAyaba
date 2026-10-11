@@ -7,6 +7,7 @@
 import { CALL_BUCKETS, type CallBucket } from "./tool-call-taxonomy.ts";
 import type { CallSequenceSummary } from "./call-sequence.ts";
 import { stepExhaustionState, type StepExhaustionInput } from "./step-exhaustion.ts";
+import type { ToolSequenceEntry } from "./tool-sequence.ts";
 
 export { CALL_BUCKETS };
 export type { CallBucket };
@@ -33,6 +34,14 @@ export interface TurnCallMetrics {
   /** Content reads of a file the prompt listed by path as already rendered (even compactly). Counted by path, apart from the content-based `promptProvidedReadCount`. */
   pathProvidedReadCount: number;
   buckets: Record<CallBucket, number>;
+  /** Milliseconds from the turn's start to its first call; null when the turn made none or its start was not observed. */
+  timeToFirstCallMs: number | null;
+  /** Milliseconds from the turn's start to its first write; null when the turn wrote nothing or its start was not observed. */
+  timeToFirstWriteMs: number | null;
+  /** Calls the runtime refused under a permission rule, whether or not they ever ran. */
+  deniedCallCount: number;
+  /** The turn's calls in order, each with the sanitized, capped target it pointed at (see `tool-sequence.ts`). */
+  toolSequence: ToolSequenceEntry[];
 }
 
 const ZERO_BUCKETS: Record<CallBucket, number> = {
@@ -62,6 +71,10 @@ export interface BuildTurnCallMetricsInput {
   pathProvidedReadCount: number;
   stepsUsed: number | null;
   observationComplete: boolean;
+  timeToFirstCallMs: number | null;
+  timeToFirstWriteMs: number | null;
+  deniedCallCount: number;
+  toolSequence: ToolSequenceEntry[];
 }
 
 /** Assembles the pinned `TurnCallMetrics` shape from a `CallSequenceSummary`
@@ -80,6 +93,10 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     promptProvidedReadCount: input.promptProvidedReadCount,
     pathProvidedReadCount: input.pathProvidedReadCount,
     buckets: tallyBuckets(input.buckets),
+    timeToFirstCallMs: input.timeToFirstCallMs,
+    timeToFirstWriteMs: input.timeToFirstWriteMs,
+    deniedCallCount: input.deniedCallCount,
+    toolSequence: input.toolSequence,
   };
 }
 

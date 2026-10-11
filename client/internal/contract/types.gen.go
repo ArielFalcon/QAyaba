@@ -237,6 +237,21 @@ func (e AgentTurnViewEnded) Valid() bool {
 	}
 }
 
+// Defines values for AgentTurnViewToolSequenceDenied.
+const (
+	AgentTurnViewToolSequenceDeniedTrue AgentTurnViewToolSequenceDenied = true
+)
+
+// Valid indicates whether the value is a known member of the AgentTurnViewToolSequenceDenied enum.
+func (e AgentTurnViewToolSequenceDenied) Valid() bool {
+	switch e {
+	case AgentTurnViewToolSequenceDeniedTrue:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AppAuthInputKind.
 const (
 	AppAuthInputKindForm AppAuthInputKind = "form"
@@ -275,13 +290,13 @@ func (e AppViewAuthKind) Valid() bool {
 
 // Defines values for ConfirmBoundariesInputConfirm.
 const (
-	True ConfirmBoundariesInputConfirm = true
+	ConfirmBoundariesInputConfirmTrue ConfirmBoundariesInputConfirm = true
 )
 
 // Valid indicates whether the value is a known member of the ConfirmBoundariesInputConfirm enum.
 func (e ConfirmBoundariesInputConfirm) Valid() bool {
 	switch e {
-	case True:
+	case ConfirmBoundariesInputConfirmTrue:
 		return true
 	default:
 		return false
@@ -449,25 +464,25 @@ func (e LearningRuleViewConfidence) Valid() bool {
 
 // Defines values for LearningRuleViewStatus.
 const (
-	LearningRuleViewStatusActive     LearningRuleViewStatus = "active"
-	LearningRuleViewStatusCandidate  LearningRuleViewStatus = "candidate"
-	LearningRuleViewStatusDeprecated LearningRuleViewStatus = "deprecated"
-	LearningRuleViewStatusPending    LearningRuleViewStatus = "pending"
-	LearningRuleViewStatusSuperseded LearningRuleViewStatus = "superseded"
+	Active     LearningRuleViewStatus = "active"
+	Candidate  LearningRuleViewStatus = "candidate"
+	Deprecated LearningRuleViewStatus = "deprecated"
+	Pending    LearningRuleViewStatus = "pending"
+	Superseded LearningRuleViewStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the LearningRuleViewStatus enum.
 func (e LearningRuleViewStatus) Valid() bool {
 	switch e {
-	case LearningRuleViewStatusActive:
+	case Active:
 		return true
-	case LearningRuleViewStatusCandidate:
+	case Candidate:
 		return true
-	case LearningRuleViewStatusDeprecated:
+	case Deprecated:
 		return true
-	case LearningRuleViewStatusPending:
+	case Pending:
 		return true
-	case LearningRuleViewStatusSuperseded:
+	case Superseded:
 		return true
 	default:
 		return false
@@ -1159,13 +1174,16 @@ type AgentTurnView struct {
 	CallBuckets             *map[string]float32 `json:"callBuckets"`
 	CallsBeforeFirstWrite   *int                `json:"callsBeforeFirstWrite"`
 	Cost                    *float32            `json:"cost"`
+	DeniedCallCount         *int                `json:"deniedCallCount"`
 	DuplicateCallCount      *int                `json:"duplicateCallCount"`
+	DurationMs              *int                `json:"durationMs"`
 	Ended                   *AgentTurnViewEnded `json:"ended"`
 	Exhausted               *bool               `json:"exhausted"`
 	IsRepair                bool                `json:"isRepair"`
 	MaxSteps                *int                `json:"maxSteps"`
 	Objective               *string             `json:"objective"`
 	OutputText              string              `json:"outputText"`
+	PathProvidedReadCount   *int                `json:"pathProvidedReadCount"`
 	PromptBytes             int                 `json:"promptBytes"`
 	PromptProvidedReadCount *int                `json:"promptProvidedReadCount"`
 	PromptText              string              `json:"promptText"`
@@ -1175,18 +1193,29 @@ type AgentTurnView struct {
 	RunId                   *string             `json:"runId"`
 	SessionId               string              `json:"sessionId"`
 	StepsUsed               *int                `json:"stepsUsed"`
+	TimeToFirstCallMs       *int                `json:"timeToFirstCallMs"`
+	TimeToFirstWriteMs      *int                `json:"timeToFirstWriteMs"`
 	TokensCacheRead         *float32            `json:"tokensCacheRead"`
 	TokensCacheWrite        *float32            `json:"tokensCacheWrite"`
 	TokensInput             *float32            `json:"tokensInput"`
 	TokensOutput            *float32            `json:"tokensOutput"`
 	TokensReasoning         *float32            `json:"tokensReasoning"`
-	TotalCalls              *int                `json:"totalCalls"`
-	Ts                      string              `json:"ts"`
-	WriteCount              *int                `json:"writeCount"`
+	ToolSequence            *[]struct {
+		Denied *AgentTurnViewToolSequenceDenied `json:"denied,omitempty"`
+		Scope  *string                          `json:"scope,omitempty"`
+		Target *string                          `json:"target"`
+		Tool   string                           `json:"tool"`
+	} `json:"toolSequence"`
+	TotalCalls *int   `json:"totalCalls"`
+	Ts         string `json:"ts"`
+	WriteCount *int   `json:"writeCount"`
 }
 
 // AgentTurnViewEnded defines model for AgentTurnView.Ended.
 type AgentTurnViewEnded string
+
+// AgentTurnViewToolSequenceDenied defines model for AgentTurnView.ToolSequence.Denied.
+type AgentTurnViewToolSequenceDenied bool
 
 // AppAuthInput defines model for AppAuthInput.
 type AppAuthInput struct {

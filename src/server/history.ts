@@ -26,6 +26,7 @@ import type { ArchitectureContext } from "@contexts/generation/application/ports
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { TurnEnd } from "@kernel/turn-end";
+import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence";
 
 const redactionPort = new RedactionPortAdapter();
 
@@ -65,6 +66,15 @@ export interface AgentTurnRecord {
   callBuckets?: Record<string, number> | null;
   /* How the turn ended; null when the row predates the column or the runtime does not say. A turn that ended by timeout or abort has empty output_text and only the calls measured up to its end. */
   ended?: TurnEnd | null;
+  /* Wall time of the turn, from the prompt being sent to its end; null when the row predates the column or the runtime did not measure it. */
+  durationMs?: number | null;
+  /* Milliseconds from the turn's start to its first call / first write; null when none was made, the start was not observed, or the row predates the column. */
+  timeToFirstCallMs?: number | null;
+  timeToFirstWriteMs?: number | null;
+  /* Calls the runtime refused under a permission rule; null (never 0) when the turn was not measured. */
+  deniedCallCount?: number | null;
+  /* The turn's calls in order, each with a redacted, capped target; null when the turn was not measured. */
+  toolSequence?: ToolSequenceEntry[] | null;
 }
 
 /*
@@ -86,6 +96,12 @@ export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: 
   { name: "call_buckets", type: "TEXT" },
   { name: "path_provided_read_count", type: "INTEGER" },
   { name: "ended", type: "TEXT" },
+  { name: "duration_ms", type: "INTEGER" },
+  { name: "time_to_first_call_ms", type: "INTEGER" },
+  { name: "time_to_first_write_ms", type: "INTEGER" },
+  { name: "denied_call_count", type: "INTEGER" },
+  /* A JSON-encoded ToolSequenceEntry[], like call_buckets. */
+  { name: "tool_sequence", type: "TEXT" },
 ];
 
 const DELETE_MAX_AGE_DAYS = 30;
@@ -419,14 +435,16 @@ function ensureDb(): void {
        tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, cost,
        total_calls, steps_used, max_steps, calls_before_first_write, write_count,
        redundant_read_count, duplicate_call_count, prompt_provided_read_count, exhausted, call_buckets,
-       path_provided_read_count, ended)
+       path_provided_read_count, ended,
+       duration_ms, time_to_first_call_ms, time_to_first_write_ms, denied_call_count, tool_sequence)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
        @tokensInput, @tokensOutput, @tokensReasoning, @tokensCacheRead, @tokensCacheWrite, @cost,
        @totalCalls, @stepsUsed, @maxSteps, @callsBeforeFirstWrite, @writeCount,
        @redundantReadCount, @duplicateCallCount, @promptProvidedReadCount, @exhausted, @callBuckets,
-       @pathProvidedReadCount, @ended)
+       @pathProvidedReadCount, @ended,
+       @durationMs, @timeToFirstCallMs, @timeToFirstWriteMs, @deniedCallCount, @toolSequence)
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
@@ -1025,6 +1043,11 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
     exhausted: turn.exhausted == null ? null : turn.exhausted ? 1 : 0,
     callBuckets: turn.callBuckets ? JSON.stringify(turn.callBuckets) : null,
     ended: turn.ended ?? null,
+    durationMs: turn.durationMs ?? null,
+    timeToFirstCallMs: turn.timeToFirstCallMs ?? null,
+    timeToFirstWriteMs: turn.timeToFirstWriteMs ?? null,
+    deniedCallCount: turn.deniedCallCount ?? null,
+    toolSequence: turn.toolSequence ? JSON.stringify(turn.toolSequence) : null,
   });
 }
 
@@ -1063,6 +1086,11 @@ export function saveAgentTurnEvent(t: AgentTurnEvent): void {
     pathProvidedReadCount: t.callMetrics?.pathProvidedReadCount ?? null,
     callBuckets: t.callMetrics?.buckets ?? null,
     ended: t.ended ?? null,
+    durationMs: t.durationMs ?? null,
+    timeToFirstCallMs: t.callMetrics?.timeToFirstCallMs ?? null,
+    timeToFirstWriteMs: t.callMetrics?.timeToFirstWriteMs ?? null,
+    deniedCallCount: t.callMetrics?.deniedCallCount ?? null,
+    toolSequence: t.callMetrics?.toolSequence ?? null,
   });
 }
 
@@ -1099,7 +1127,17 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
     exhausted: r.exhausted == null ? null : Boolean(r.exhausted),
     callBuckets: typeof r.call_buckets === "string" ? safeJsonParse<Record<string, number> | null>(r.call_buckets, null) : null,
     ended: (r.ended as TurnEnd | null) ?? null,
+    durationMs: (r.duration_ms as number | null) ?? null,
+    timeToFirstCallMs: (r.time_to_first_call_ms as number | null) ?? null,
+    timeToFirstWriteMs: (r.time_to_first_write_ms as number | null) ?? null,
+    deniedCallCount: (r.denied_call_count as number | null) ?? null,
+    toolSequence: typeof r.tool_sequence === "string" ? toolSequenceOrNull(safeJsonParse<unknown>(r.tool_sequence, null)) : null,
   }));
+}
+
+/* A stored sequence is only trusted as a list of entries; anything else reads as unknown. */
+function toolSequenceOrNull(value: unknown): ToolSequenceEntry[] | null {
+  return Array.isArray(value) ? (value as ToolSequenceEntry[]) : null;
 }
 
 /*

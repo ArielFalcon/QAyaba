@@ -290,6 +290,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
          * without spending a codex exec — the error surfaces as infra-error via codexErrorToInfra.
          */
         checkCodexCircuit(breakerRole);
+        const startedAt = Date.now();
         let rawOutput: string;
         try {
           rawOutput = await session.prompt(
@@ -335,6 +336,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
             /* Codex has no step-budget concept and, in production, no tool stream (the supervisor returns only the final message): unknown, never fabricated. */
             stepBudget: null,
             callMetrics: null,
+            durationMs: Math.max(0, Date.now() - startedAt),
           });
         }
         return returned;

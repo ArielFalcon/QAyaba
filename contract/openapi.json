@@ -4252,6 +4252,60 @@
               "timeout",
               "aborted"
             ]
+          },
+          "durationMs": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "timeToFirstCallMs": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "timeToFirstWriteMs": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "deniedCallCount": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "toolSequence": {
+            "nullable": true,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "target": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "scope": {
+                  "type": "string"
+                },
+                "denied": {
+                  "type": "boolean",
+                  "enum": [
+                    true
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "target"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -4282,7 +4336,12 @@
           "pathProvidedReadCount",
           "exhausted",
           "callBuckets",
-          "ended"
+          "ended",
+          "durationMs",
+          "timeToFirstCallMs",
+          "timeToFirstWriteMs",
+          "deniedCallCount",
+          "toolSequence"
         ],
         "additionalProperties": false
       },

@@ -1195,6 +1195,17 @@ export interface components {
             } | null;
             /** @enum {string|null} */
             ended: "completed" | "exhausted" | "timeout" | "aborted" | null;
+            durationMs: number | null;
+            timeToFirstCallMs: number | null;
+            timeToFirstWriteMs: number | null;
+            deniedCallCount: number | null;
+            toolSequence: {
+                tool: string;
+                target: string | null;
+                scope?: string;
+                /** @enum {boolean} */
+                denied?: true;
+            }[] | null;
         };
         AppTelemetryView: {
             app: string;

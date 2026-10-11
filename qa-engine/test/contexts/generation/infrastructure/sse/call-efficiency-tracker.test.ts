@@ -9,6 +9,7 @@ import {
   type TrackerTimer,
 } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper.ts";
+import { TOOL_SEQUENCE_MAX_ENTRIES, TOOL_TARGET_MAX_CHARS } from "@contexts/generation/domain/tool-sequence.ts";
 
 const CWD = "/mirrors/org__app";
 
@@ -819,4 +820,178 @@ test("preparing an attempt keeps the calls of an abandoned attempt in the next t
   await tracker.prepareAttempt("s1", 0);
   runCall(tracker, "s1", "c2", "read", { filePath: "/mirrors/org__app/b.ts" });
   assert.equal(tracker.take("s1", "")?.totalCalls, 2);
+});
+
+/** A tracker with a live stream, a manual clock and one attached session. */
+function timed(): { tracker: CallEfficiencyTracker; advance: (ms: number) => void } {
+  let clock = 1_000;
+  const tracker = new CallEfficiencyTracker({ now: () => clock });
+  liveStream(tracker);
+  tracker.attach("s1", CWD);
+  return { tracker, advance: (ms) => { clock += ms; } };
+}
+
+test("a turn reports the time to its first call and to its first write, counted from when its first attempt was prepared", async () => {
+  const { tracker, advance } = timed();
+  await tracker.prepareAttempt("s1", 0);
+  advance(4_000);
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  advance(3_000);
+  runCall(tracker, "s1", "c2", "grep", { pattern: "foo" });
+  advance(5_000);
+  runCall(tracker, "s1", "c3", "write", { filePath: `${CWD}/e2e/a.spec.ts`, content: "x" });
+  advance(1_000);
+  runCall(tracker, "s1", "c4", "write", { filePath: `${CWD}/e2e/b.spec.ts`, content: "x" });
+
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.timeToFirstCallMs, 4_000);
+  assert.equal(metrics?.timeToFirstWriteMs, 12_000);
+});
+
+test("a turn that wrote nothing has an unknown time to first write, and one that called nothing an unknown time to first call", async () => {
+  const { tracker, advance } = timed();
+  await tracker.prepareAttempt("s1", 0);
+  advance(1_000);
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  const readOnly = tracker.take("s1", "");
+  assert.equal(readOnly?.timeToFirstCallMs, 1_000);
+  assert.equal(readOnly?.timeToFirstWriteMs, null);
+
+  await tracker.prepareAttempt("s1", 0);
+  recordSteps(tracker, "s1", stepIds("a"));
+  const noCalls = tracker.take("s1", "");
+  assert.equal(noCalls?.timeToFirstCallMs, null);
+  assert.equal(noCalls?.timeToFirstWriteMs, null);
+});
+
+test("times are unknown when no attempt was prepared, never measured from an invented start", () => {
+  const { tracker, advance } = timed();
+  advance(2_000);
+  runCall(tracker, "s1", "c1", "write", { filePath: `${CWD}/a.spec.ts`, content: "x" });
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.timeToFirstCallMs, null);
+  assert.equal(metrics?.timeToFirstWriteMs, null);
+});
+
+test("each turn is timed from its own start, and a call of an abandoned attempt belongs to the turn that follows", async () => {
+  const { tracker, advance } = timed();
+  await tracker.prepareAttempt("s1", 0);
+  advance(2_000);
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  assert.equal(tracker.take("s1", "")?.timeToFirstCallMs, 2_000);
+
+  advance(10_000);
+  await tracker.prepareAttempt("s1", 0);
+  advance(500);
+  runCall(tracker, "s1", "c2", "read", { filePath: `${CWD}/b.ts` });
+  /* the prompt was abandoned: its calls stay in the next turn, timed from the first start */
+  advance(500);
+  await tracker.prepareAttempt("s1", 0);
+  advance(500);
+  runCall(tracker, "s1", "c3", "write", { filePath: `${CWD}/a.spec.ts`, content: "x" });
+  const next = tracker.take("s1", "");
+  assert.equal(next?.timeToFirstCallMs, 500);
+  assert.equal(next?.timeToFirstWriteMs, 1_500);
+});
+
+test("the tool sequence lists the turn's calls in order with the file, pattern, url or command each one targeted", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/src/app/a.ts`, offset: 10, limit: 50 });
+  runCall(tracker, "s1", "c2", "grep", { pattern: "createUser", path: `${CWD}/src` });
+  runCall(tracker, "s1", "c3", "glob", { pattern: "**/*.spec.ts" });
+  runCall(tracker, "s1", "c4", "playwright_browser_navigate", { url: "https://dev.example.test/login" });
+  runCall(tracker, "s1", "c5", "bash", { command: "npx playwright test --list", description: "list" });
+  runCall(tracker, "s1", "c6", "write", { filePath: `${CWD}/e2e/a.spec.ts`, content: "SECRET BODY" });
+  runCall(tracker, "s1", "c7", "read", { filePath: "/etc/hosts" });
+
+  assert.deepEqual(tracker.take("s1", "")?.toolSequence, [
+    { tool: "read", target: "src/app/a.ts" },
+    { tool: "grep", target: "createUser", scope: "src" },
+    { tool: "glob", target: "**/*.spec.ts" },
+    { tool: "playwright_browser_navigate", target: "https://dev.example.test/login" },
+    { tool: "bash", target: "npx playwright test --list" },
+    { tool: "write", target: "e2e/a.spec.ts" },
+    { tool: "read", target: "/etc/hosts" },
+  ]);
+});
+
+test("the tool sequence never carries what an agent typed or wrote, only what it pointed at", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "playwright_browser_type", { element: "Password field", ref: "e12", text: "hunter2-very-secret" });
+  runCall(tracker, "s1", "c2", "edit", { filePath: `${CWD}/a.ts`, oldString: "TOP-SECRET-OLD", newString: "TOP-SECRET-NEW" });
+  runCall(tracker, "s1", "c3", "mem_save", { title: "t", content: "TOP-SECRET-MEMORY" });
+
+  const sequence = tracker.take("s1", "")?.toolSequence ?? [];
+  assert.equal(JSON.stringify(sequence).includes("hunter2"), false);
+  assert.equal(JSON.stringify(sequence).includes("TOP-SECRET"), false);
+  assert.deepEqual(sequence, [
+    { tool: "playwright_browser_type", target: "Password field" },
+    { tool: "edit", target: "a.ts" },
+    { tool: "mem_save", target: null },
+  ]);
+});
+
+test("a target is redacted like every other text that leaves the system, then capped", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "bash", { command: "DEV_TEST_PASS=Sup3rSecret! npx playwright test" });
+  runCall(tracker, "s1", "c2", "playwright_browser_navigate", { url: `https://dev.example.test/${Array.from({ length: 100 }, (_, i) => `seg-${i}`).join("/")}` });
+  runCall(tracker, "s1", "c3", "bash", { command: "curl -H 'Authorization: Bearer abc.def.ghi-123456' https://dev.example.test/api" });
+
+  const [secretCommand, longUrl, bearer] = tracker.take("s1", "")?.toolSequence ?? [];
+  assert.equal(secretCommand?.target?.includes("Sup3rSecret"), false);
+  assert.equal(longUrl?.target?.length, TOOL_TARGET_MAX_CHARS);
+  assert.equal(bearer?.target?.includes("abc.def.ghi"), false);
+});
+
+test("the tool sequence is capped at its entry limit and each turn lists only its own calls", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "first", "read", { filePath: `${CWD}/first.ts` });
+  assert.deepEqual(tracker.take("s1", "")?.toolSequence, [{ tool: "read", target: "first.ts" }]);
+
+  for (let i = 0; i < TOOL_SEQUENCE_MAX_ENTRIES + 25; i++) runCall(tracker, "s1", `c${i}`, "read", { filePath: `${CWD}/f${i}.ts` });
+  const second = tracker.take("s1", "");
+  assert.equal(second?.totalCalls, TOOL_SEQUENCE_MAX_ENTRIES + 25, "the count stays exact");
+  assert.equal(second?.toolSequence.length, TOOL_SEQUENCE_MAX_ENTRIES);
+  assert.equal(second?.toolSequence[0]?.target, "f0.ts", "the sequence keeps the start of the turn");
+});
+
+const DENIAL =
+  'The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules [{"permission":"bash","pattern":"*","action":"deny"}]';
+
+/** The event the runtime emits when a tool call fails with `error` (the denial's own message, or any other). */
+function errorEvent(sessionID: string, callID: string, tool: string, input: Record<string, unknown>, error: string): RawOpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: { part: { id: `prt_${sessionID}_${callID}_err`, sessionID, messageID: "msg_1", type: "tool", callID, tool, state: { status: "error", input, error } } },
+  };
+}
+
+test("a call the runtime denied is counted once, whether or not it ever ran, and is marked in the sequence when it did", () => {
+  const tracker = tracked();
+  /* ran, then denied */
+  tracker.record(toolEvent("s1", "d1", "bash", "running", { command: "rm -rf /" }));
+  tracker.record(errorEvent("s1", "d1", "bash", { command: "rm -rf /" }, DENIAL));
+  tracker.record(errorEvent("s1", "d1", "bash", { command: "rm -rf /" }, DENIAL));
+  /* denied before it ever ran */
+  tracker.record(errorEvent("s1", "d2", "webfetch", { url: "https://x.test" }, DENIAL));
+  /* ordinary failure */
+  tracker.record(toolEvent("s1", "e1", "read", "running", { filePath: `${CWD}/nope.ts` }));
+  tracker.record(errorEvent("s1", "e1", "read", { filePath: `${CWD}/nope.ts` }, "File not found"));
+
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.deniedCallCount, 2);
+  assert.equal(metrics?.totalCalls, 2, "a denial that never ran is not a call, as before");
+  assert.deepEqual(metrics?.toolSequence, [
+    { tool: "bash", target: "rm -rf /", denied: true },
+    { tool: "read", target: "nope.ts" },
+  ]);
+});
+
+test("denied calls are counted per turn and a turn with no event has no metrics at all", () => {
+  const tracker = tracked();
+  tracker.record(errorEvent("s1", "d1", "bash", {}, DENIAL));
+  assert.equal(tracker.take("s1", "")?.deniedCallCount, 1);
+  assert.equal(tracker.take("s1", ""), null);
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  assert.equal(tracker.take("s1", "")?.deniedCallCount, 0);
 });

@@ -746,7 +746,15 @@ export type RunReportView = z.infer<typeof RunReportViewSchema>;
 
 const nullableCount = z.number().int().nonnegative().nullable();
 
-/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, script_run, memory, subagent, other); counts only, never paths or targets. ended says how the turn ended (completed, exhausted, timeout, aborted); null for a turn recorded before it was kept or by a runtime that does not say. A turn that ended by timeout or abort has empty outputText and only the calls measured up to its end. */
+/** One call of a turn's tool sequence: the tool, what it pointed at (null when it pointed at nothing), the path a search ran in, and whether the runtime refused it. */
+export const ToolSequenceEntryViewSchema = z.object({
+  tool: z.string(),
+  target: z.string().nullable(),
+  scope: z.string().optional(),
+  denied: z.literal(true).optional(),
+});
+
+/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, script_run, memory, subagent, other); counts only, never paths or targets. ended says how the turn ended (completed, exhausted, timeout, aborted); null for a turn recorded before it was kept or by a runtime that does not say. A turn that ended by timeout or abort has empty outputText and only the calls measured up to its end. durationMs is the turn's wall time; timeToFirstCallMs and timeToFirstWriteMs count from when the turn started (null when it made no call / wrote nothing); deniedCallCount counts the calls the runtime refused under a permission rule (null, never 0, when the turn was not measured); toolSequence lists the turn's calls in order, each with the redacted, capped file, pattern, url or command it pointed at (never what it typed or wrote). */
 export const AgentTurnViewSchema = z.object({
   runId: z.string().nullable(),
   sessionId: z.string(),
@@ -776,6 +784,11 @@ export const AgentTurnViewSchema = z.object({
   exhausted: z.boolean().nullable(),
   callBuckets: z.record(z.string(), z.number()).nullable(),
   ended: z.enum(TURN_ENDS).nullable(),
+  durationMs: nullableCount,
+  timeToFirstCallMs: nullableCount,
+  timeToFirstWriteMs: nullableCount,
+  deniedCallCount: nullableCount,
+  toolSequence: z.array(ToolSequenceEntryViewSchema).nullable(),
 });
 
 export type AgentTurnView = z.infer<typeof AgentTurnViewSchema>;

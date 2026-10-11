@@ -44,6 +44,8 @@ export interface AgentTurnEvent {
   callMetrics: TurnCallMetrics | null;
   /** How the turn ended; absent when the transport does not say (Codex). A turn that did not answer carries empty output, no usage and the calls measured up to its end. */
   ended?: TurnEnd;
+  /** Wall time from when the prompt was sent to when the turn ended (answered, timed out or aborted); null when the runtime did not measure it. */
+  durationMs: number | null;
 }
 
 export interface AgentSession {
@@ -211,6 +213,8 @@ export interface AgentDepsCollaborators {
   prepareAttempt?(sessionId: string, attempt: number): Promise<void> | void;
   /** The step limit the orchestrator's own copy of agents/opencode.json declares for the agent (`steps ?? maxSteps`), or undefined when it declares none. It only classifies the exhaustion of a prompt that stated no number (a stated one wins) and is never a source for a prompt. Shell-injected like getFallbackModel. */
   maxStepsFor?(agent: string): number | undefined;
+  /** The wall clock a turn's duration is measured by, in epoch milliseconds. Defaults to `Date.now`; injected by tests. */
+  now?(): number;
 }
 
 /* Measurement is best-effort and must never disturb the prompt path: a fault is logged loudly and yields null. */
@@ -307,6 +311,8 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
           checkCircuit(TRANSPORT_BREAKER_KEY);
           checkCircuit(breakerRole);
           const thisRound = _round++;
+          const clock = collab.now ?? Date.now;
+          const startedAt = clock();
           /* Set once the prompt has ended without an answer (timeout, abort): the turn is recorded then, so an answer that arrives later must record nothing more and must not start a fallback. */
           let closed = false;
           /* Whether the attempt in flight could be observed completely; unobserved until its preparation says otherwise. */
@@ -361,6 +367,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               stepBudget: turn.stepBudget,
               callMetrics: turn.callMetrics,
               ended: turn.ended,
+              durationMs: Math.max(0, clock() - startedAt),
             };
             effectiveOnTurn(turnEvent);
           };
