@@ -285,6 +285,7 @@ function harness(over: Partial<BaselineDeps> = {}, opts: { rules?: PermissionRul
       return { sessionId: "ses_1", startedAt: T0, endedAt: T0 + 21_000, ended: "completed", messages: sampleMessages() };
     },
     changedFiles: async () => ({ specs: ["flows/cart.spec.ts"], outsideSuite: [] }),
+    keepSuiteFiles: async () => ({ files: 0, specs: 0 }),
     specLines: () => new Map([["flows/cart.spec.ts", 41]]),
     specSources: () => new Map([["flows/cart.spec.ts", "await page.goto('/cart');"]]),
     runSuite: async () => { calls.push("suite"); return run("pass"); },
@@ -616,4 +617,44 @@ test("a ground truth that cannot be read stops the case before anything is prepa
   assert.equal(await main(argv("--ground-truth", "/gone.json"), h.deps), 1);
   assert.ok(h.lines.some((l) => l.includes("/gone.json")));
   assert.equal(h.calls.includes("prepare"), false);
+});
+
+/* ── keeping what the agent delivered ── */
+
+test("--keep-specs needs a warm snapshot to tell what the agent wrote from what it started with, and a directory", () => {
+  assert.equal(parseArguments(argv("--keep-specs", "/out")).ok, false, "without --warm there is nothing to diff against");
+  assert.equal(parseArguments(argv("--warm", "warm-1", "--keep-specs")).ok, false);
+  const ok = parseArguments(argv("--warm", "warm-1", "--keep-specs", "/out"));
+  assert.ok(ok.ok);
+  assert.equal(ok.args.keepSpecsDir, "/out");
+  assert.equal(parseArguments(argv()).ok && (parseArguments(argv()) as { ok: true; args: { keepSpecsDir: string | null } }).args.keepSpecsDir, null);
+});
+
+test("the agent's files are kept before the suite is run and the copy is removed, so a crash later cannot lose them", async () => {
+  const kept: Array<{ copyDir: string; dest: string; warm: string | undefined }> = [];
+  const h = harness({
+    keepSuiteFiles: async (copyDir, dest, warm) => {
+      h.calls.push("keep");
+      kept.push({ copyDir, dest, warm: warm?.label });
+      return { files: 3, specs: 2 };
+    },
+  });
+  assert.equal(await main(argv("--warm", "warm-1", "--keep-specs", "/out/arm-a-1"), h.deps), 0);
+  assert.deepEqual(kept, [{ copyDir: "/mirrors/.baseline/arm-a-1", dest: "/out/arm-a-1", warm: "warm-1" }]);
+  assert.ok(h.calls.indexOf("keep") < h.calls.indexOf("suite"), "kept before the specs are run");
+  assert.ok(h.calls.indexOf("keep") < h.calls.indexOf("remove"), "kept before the copy is removed");
+  assert.equal(h.reports[0]!.detail?.keptSpecsDir, "/out/arm-a-1");
+});
+
+test("a run without --keep-specs keeps nothing", async () => {
+  const h = harness({ keepSuiteFiles: async () => { h.calls.push("keep"); return { files: 0, specs: 0 }; } });
+  assert.equal(await main(argv(), h.deps), 0);
+  assert.equal(h.calls.includes("keep"), false);
+});
+
+test("files that cannot be kept fail the run loudly and leave the copy where it is", async () => {
+  const h = harness({ keepSuiteFiles: async () => { throw new Error("disk full"); } });
+  assert.equal(await main(argv("--warm", "warm-1", "--keep-specs", "/out/x"), h.deps), 1);
+  assert.ok(h.lines.some((l) => l.includes("disk full")));
+  assert.equal(h.calls.includes("remove"), false, "the copy still holds the only copy of the agent's work");
 });

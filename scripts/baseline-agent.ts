@@ -4,7 +4,7 @@
  *
  *   npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run]
  *                             [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>]
- *                             [--ground-truth <file>]
+ *                             [--ground-truth <file>] [--keep-specs <dir>]
  *   npm run baseline-agent -- --app <app> --service <owner/repo> --service-sha <sha> --timeout-min <n> --label <l> [...]
  *
  * It gives one agent (`qa-baseline`) what a developer with a coding agent would have: the whole repository at
@@ -50,6 +50,7 @@ import {
   DEFAULT_SUITE_DIR, contentReadsOf, promptSections, renderMarkdown, scoreGroundTruth, totalsOf, turnFromCallMetrics, type GroundTruth, type PhaseDurations, type ProbeReport, type ProbeSpec, type ReadingContext,
 } from "./probe-metrics.ts";
 import { assertFileName, defaultProbeResultsDir, readGroundTruthFile, writeJsonAtomically } from "./probe-report.ts";
+import { saveSuiteFiles, specsOf, suiteDelta } from "./campaign-suite.ts";
 import { MAX_FILE_BYTES, loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -484,6 +485,8 @@ export interface BaselineArguments {
   keepSession: boolean;
   /** The label of the warm-start snapshot (scripts/warm-suite.ts) the copy's suite starts from, or null for the stock seed. */
   warm: string | null;
+  /** A directory to put every file the agent added or changed in the suite directory into, before the copy is removed; null keeps nothing. */
+  keepSpecsDir: string | null;
 }
 
 const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
@@ -492,7 +495,7 @@ const REPO_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export function parseArguments(argv: readonly string[]): { ok: true; args: BaselineArguments } | { ok: false; problem: string } {
   const values: Record<string, string> = {};
   const flags = new Set<string>();
-  const valued = new Set(["--app", "--sha", "--timeout-min", "--label", "--warm", "--service", "--service-sha", "--ground-truth"]);
+  const valued = new Set(["--app", "--sha", "--timeout-min", "--label", "--warm", "--service", "--service-sha", "--ground-truth", "--keep-specs"]);
   const boolean = new Set(["--dry-run", "--check-auth", "--keep-copy", "--keep-session"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -519,6 +522,7 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
     if (!Number.isFinite(timeoutMin) || timeoutMin <= 0) return { ok: false, problem: "error: --timeout-min needs a positive number of minutes" };
   }
   if (timeoutMin === null && !flags.has("--dry-run")) return { ok: false, problem: "error: --timeout-min is required (the wall-clock limit of the agent session)" };
+  if (values["--keep-specs"] !== undefined && values["--warm"] === undefined) return { ok: false, problem: "error: --keep-specs needs --warm: what the agent delivered is what differs from the snapshot its suite started from" };
   try {
     assertFileName(values["--label"]!, "label");
     assertFileName(values["--app"]!, "app");
@@ -531,7 +535,7 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
     args: {
       app: values["--app"]!, sha: values["--sha"]!, service: serviceRepo !== undefined ? { repo: serviceRepo } : null, groundTruthPath: values["--ground-truth"] ?? null, timeoutMin, label: values["--label"]!,
       dryRun: flags.has("--dry-run"), checkAuth: flags.has("--check-auth"), keepCopy: flags.has("--keep-copy"), keepSession: flags.has("--keep-session"),
-      warm: values["--warm"] ?? null,
+      warm: values["--warm"] ?? null, keepSpecsDir: values["--keep-specs"] ?? null,
     },
   };
 }
@@ -627,6 +631,11 @@ export interface BaselineDeps {
   runAgent(input: { copyDir: string; prompt: string; timeoutMs: number; keepSession: boolean }): Promise<AgentRun>;
   /** The specs the agent added or changed, relative to the suite directory (those the warm snapshot held, unchanged, are not its), and the paths it changed outside the suite directory. */
   changedFiles(copyDir: string, warm?: LoadedSnapshot, serviceDir?: string): Promise<{ specs: string[]; outsideSuite: string[] }>;
+  /**
+   * Copies every file the agent added or changed in the suite directory (specs and the helpers they import, not this harness's own files) to `dest`,
+   * keeping relative paths. Throws when it cannot: a copy that is about to be removed holds the only copy of the agent's work.
+   */
+  keepSuiteFiles(copyDir: string, dest: string, warm: LoadedSnapshot | undefined): Promise<{ files: number; specs: number }>;
   specLines(copyDir: string, specs: readonly string[]): Map<string, number | null>;
   /** The source of each spec, for the routes it navigates to; a spec that cannot be read is null. */
   specSources(copyDir: string, specs: readonly string[]): Map<string, string | null>;
@@ -747,6 +756,10 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
 
     const changed = await deps.changedFiles(copyDir, warm, service?.dir);
     const specs = changed.specs;
+    if (args.keepSpecsDir !== null) {
+      const kept = await deps.keepSuiteFiles(copyDir, args.keepSpecsDir, warm);
+      out(`[baseline] kept ${kept.files} file(s), ${kept.specs} spec(s), in ${args.keepSpecsDir}`);
+    }
     await assertIdle(deps);
     const executeStarted = deps.now();
     const runs: SuiteRun[] = [];
@@ -810,7 +823,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
         groundTruthFile: args.groundTruthPath,
         model: generator.model, stepCap: generator.steps, timeoutMin: args.timeoutMin, warmSnapshot: warm?.label ?? null, sessionId: run.sessionId, sessionError: run.error ?? null,
         suiteRuns: runs, declaredNoop: declaresNoop(finalText), changedOutsideSuite: changed.outsideSuite,
-        finalText: redact(finalText).slice(0, 4_000), namespace, copyDir: args.keepCopy ? copyDir : null,
+        finalText: redact(finalText).slice(0, 4_000), namespace, copyDir: args.keepCopy ? copyDir : null, keptSpecsDir: args.keepSpecsDir,
       },
     };
     const path = deps.writeReport(args.label, report);
@@ -846,7 +859,7 @@ function lastAssistantParts(messages: readonly SessionMessage[]): Array<{ type: 
 }
 
 const USAGE = [
-  "usage: npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run] [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>] [--ground-truth <file>]",
+  "usage: npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run] [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>] [--ground-truth <file>] [--keep-specs <dir>]",
   "       npm run baseline-agent -- --app <app> --service <owner/repo> --service-sha <sha> --timeout-min <n> --label <l> [...the same options]",
   "  EXPERIMENT ONLY. Runs one plain agent (no pipeline stages) on a throwaway copy of the app at the commit, then runs its specs twice,",
   "  and writes config/benchmarks/probe-results/<label>.json in the shape probe-report emits.",
@@ -858,6 +871,7 @@ const USAGE = [
   "  --service <owner/repo> --service-sha <sha>  cross-repo case: the commit under test is a declared backend service's. The copy is the app at its base branch's head",
   "                  (as its mirror holds it: nothing is fetched, so run the pipeline arm first), the prompt carries the service commit and says it is deployed on DEV, and the",
   "                  service's source at that commit is read-only under services/<repo>/. Replaces --sha.",
+  "  --keep-specs <dir>  copy every file the agent added or changed in e2e/ (needs --warm) to <dir> before the copy is removed",
   "  --ground-truth <file>  score what the agent read and the routes its specs navigate to against a ground truth (config/benchmarks/ground-truth/)",
   "run inside the orchestrator container, with the queue idle.",
 ].join("\n");
@@ -1101,6 +1115,12 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       /* The service's source was placed by the harness, whatever the agent did to it (it may not edit it). */
       const placed = (p: string): boolean => serviceDir !== undefined && p.startsWith(`${serviceDir}/`);
       return { specs, outsideSuite: touched.filter((p) => !p.startsWith(`${SUITE_DIR}/`) && !ours.has(p) && !placed(p)) };
+    },
+    keepSuiteFiles: async (copyDir, dest, warm) => {
+      if (!warm) throw new Error("keepSuiteFiles needs the warm snapshot the suite started from");
+      const delta = suiteDelta({ mirrorDir: copyDir, e2eDir: join(copyDir, SUITE_DIR) }, warm.manifest, new Set([WRAPPER_CONFIG, WRAPPER_REPO_CONFIG, WRAPPER_ENV_MODULE]));
+      saveSuiteFiles(dest, delta.files);
+      return { files: delta.files.length, specs: specsOf(delta.files).length };
     },
     specLines: (copyDir, specs) => new Map([...readSpecs(copyDir, specs)].map(([path, text]) => [path, text === null ? null : countLines(text)])),
     specSources: readSpecs,
