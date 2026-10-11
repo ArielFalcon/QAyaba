@@ -451,14 +451,17 @@ export function ensureCodexConfig(codexHome, env = process.env) {
   // type); only a generated spec writes to it. opencode.json denies the same tools to the generator and the
   // sidekick, and a test pins that the two lists agree. No Codex role needs any of them.
   //
-  // RESIDUAL GAP, not closed here: the built-in shell. OpenCode gives the generator an allow-list (deny
-  // every command but the suite listing). Codex cannot: a write role runs with
-  // `--dangerously-bypass-approvals-and-sandbox` (buildCodexExecArgs), there is no per-command allow-list
-  // in `codex exec`, and an execpolicy `.rules` file can forbid chosen prefixes but has no catch-all deny
-  // (nor was it shown to bind under the bypass flag). So a Codex generator can still write a script and
-  // run it with its shell against DEV. The prompt asks it not to; nothing enforces it. The container
-  // boundary and the orchestrator's revert of anything outside `e2e/` bound what such a script can reach,
-  // not what it does to DEV.
+  // RESIDUAL GAP, not closed here: the built-in shell. OpenCode gives the generator no shell at all
+  // (`permission.bash` is denied outright; the orchestrator validates and runs what it writes). Codex
+  // cannot: a write role runs with `--dangerously-bypass-approvals-and-sandbox` (buildCodexExecArgs), there
+  // is no per-command allow-list in `codex exec`, and an execpolicy `.rules` file can forbid chosen prefixes
+  // but has no catch-all deny (nor was it shown to bind under the bypass flag). The feature switches that
+  // remove the shell tools (`shell_tool`, `unified_exec`) are not applied either: Codex has no file-read
+  // tool, so a role without its shell would also lose its eyes on the repo (not tried: no Codex credentials in
+  // the container to run a role). So a Codex generator can still write a script and run it with its shell
+  // against DEV. The prompt asks it not to; nothing enforces it. The container boundary and the
+  // orchestrator's revert of anything outside `e2e/` bound what such a script can reach, not what it does
+  // to DEV.
   const BROWSER_CODE_AND_FILE_TOOLS = [
     "browser_run_code_unsafe",
     "browser_evaluate",

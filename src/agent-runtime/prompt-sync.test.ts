@@ -548,11 +548,13 @@ describe("prompt-sync drift guard", () => {
   const EFFORT_CEILING = /Expected effort \((?:tiny|focused|broad) change\): at most\b/g;
   /* The listing of the existing suite carries paths, a flow and an objective, never a spec's content, so the one spec a run updates is read first. The shared layer's reuse protocol owns that read; no assembled prompt repeats it. */
   const READ_BEFORE_UPDATE = phrasePattern("read it, and update it");
-  /* A code run reads existing test files for the repo's conventions once, on its first pass; a regeneration works from the failing tests and the code under test, and keeps the compile check. */
+  /* A code run reads existing test files for the repo's conventions once, on its first pass; a regeneration works from the failing tests and the code under test, and keeps the statement that the orchestrator compiles and runs what it writes. */
   const CONVENTIONS_READ = phrasePattern("existing test files for conventions");
   const CONVENTIONS_MATCH = phrasePattern("Match them exactly");
   const FRAMEWORK_DETECTION = phrasePattern("Detect the test framework from the repo's dependencies");
-  const COMPILE_CHECK = /cargo check --tests/gi;
+  /* The generator has no shell, so a code run says who compiles and runs its tests, and names no compile command for it to run. */
+  const ORCHESTRATOR_COMPILES = phrasePattern("the orchestrator compiles and runs the tests");
+  const COMPILE_COMMAND = /cargo check --tests|mvn -B test-compile/gi;
   /* Engram's tool for ending a session. The runtime denies it to the generator and the explorer, so no prompt either reads names it. */
   const SESSION_SUMMARY_TOOL = /\bmem_session_summary\b/g;
   /* Memory is scoped to the run's mode by a topic-key prefix, and to its app by the project parameter. */
@@ -587,8 +589,10 @@ describe("prompt-sync drift guard", () => {
       inAssembled: { exactly: shape === "code" ? 0 : 1 },
     })),
     ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule: "asking for the outcome the tests assert (a turn that writes none)", pattern: OBJECTIVE_QUESTION_STATEMENT, shape, inStatic: 0, inAssembled: { exactly: 0 } })),
-    { rule: "the compile check of a code run", pattern: COMPILE_CHECK, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "the compile check of a code regeneration", pattern: COMPILE_CHECK, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "who compiles and runs a code run's tests", pattern: ORCHESTRATOR_COMPILES, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "who compiles and runs a code regeneration's tests", pattern: ORCHESTRATOR_COMPILES, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "a compile command for a code run to run", pattern: COMPILE_COMMAND, shape: "code", inStatic: 0, inAssembled: { exactly: 0 } },
+    { rule: "a compile command for a code regeneration to run", pattern: COMPILE_COMMAND, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 0 } },
     /* The conventions of the repo's tests are read once, on the first pass; the framework is detected on every pass. */
     { rule: "reading existing test files for conventions (code first pass)", pattern: CONVENTIONS_READ, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "reading existing test files for conventions (code regeneration)", pattern: CONVENTIONS_READ, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 0 } },
@@ -804,7 +808,8 @@ describe("prompt-sync drift guard", () => {
       for (const [signal, extra] of REGEN_SIGNALS) {
         const regeneration = generatorPromptFor({ mode, target: "code" }, extra);
         assert.equal(countOf(regeneration, CONVENTIONS_READ), 0, `${mode} regeneration (${signal}): reads no conventions`);
-        assert.equal(countOf(regeneration, COMPILE_CHECK), 1, `${mode} regeneration (${signal}): keeps the compile check`);
+        assert.equal(countOf(regeneration, ORCHESTRATOR_COMPILES), 1, `${mode} regeneration (${signal}): keeps the statement of who compiles`);
+        assert.equal(countOf(regeneration, COMPILE_COMMAND), 0, `${mode} regeneration (${signal}): names no compile command`);
       }
     }
   });

@@ -42,6 +42,17 @@ test("shared instructions: both copies say live DEV is observed while authoring 
   }
 });
 
+/* The generator has no shell (opencode.json denies bash outright), so neither copy may tell it to run a
+   command; the orchestrator's Validate and Execute phases do the checking and say so once. */
+test("qa-generator: neither copy tells the author to run a command, and both say the orchestrator validates and runs the specs", () => {
+  for (const [copy, text] of Object.entries(readBoth("qa-generator"))) {
+    assert.ok(!/npx playwright/.test(text), `${copy} copy still names a Playwright command to run`);
+    assert.ok(!/--list/.test(text), `${copy} copy still asks for the suite listing`);
+    assert.ok(!/\(bash\)/.test(text), `${copy} copy still has a bash step`);
+    assert.match(text, /orchestrator validates and runs/i, `${copy} copy must say who validates what the author writes`);
+  }
+});
+
 test("qa-generator: neither copy invites submitting forms on live DEV while authoring", () => {
   for (const [copy, text] of Object.entries(readBoth("qa-generator"))) {
     assert.ok(!/interact with forms/i.test(text), `${copy} copy still tells the author to interact with forms`);

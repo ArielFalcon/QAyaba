@@ -477,7 +477,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `- This is a CODE mode run: you are testing source-code logic, not a deployed web app.`,
           /* The conventions of the repo's tests are read once, on the first pass: a regeneration works from the failing tests and the code under test. */
           `- Detect the test framework from the repo's dependencies.${isReGen ? "" : " Read 2-3 existing test files for conventions. Match them exactly."}`,
-          `- Place generated tests alongside existing ones. Use the repo's existing test command. Do not install new dependencies.`,
+          `- Place generated tests alongside existing ones. Do not install new dependencies. Run no command: the orchestrator compiles and runs the tests after you finish and returns any compile or test failure to you.`,
           `- In your closing verdict JSON, include specMetas with {file, flow, objective, targets} for each spec so the orchestrator can write the manifest deterministically.`,
           `- Classify each affected symbol:`,
           `  * Pure function → unit test: call with inputs, assert outputs`,
@@ -487,7 +487,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `- Assert on BEHAVIOR, not implementation. Include edge cases.`,
           `- One objective per test. Use realistic test data.`,
           `- Never write a test whose only assertion is "does not throw".`,
-          `- COMPILE-CHECK before finishing: after writing/fixing the tests, compile them with the project's build tool (mvn -B test-compile · gradle testClasses · go vet ./... · cargo check --tests · npx tsc --noEmit) and FIX any errors BEFORE emitting your verdict. The orchestrator runs the suite only AFTER you finish — a compile failure costs a full regeneration round, so a clean compile is cheaper than a fix loop.`,
         ]
       : [
           `- Work in the repo's tests folder: ${input.e2eRelDir}/ (source of truth in git). Reuse and improve existing fixtures/specs; do not duplicate.`,

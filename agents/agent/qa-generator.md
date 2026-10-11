@@ -98,24 +98,13 @@ cookies/cache, file upload. Each test must:
 - Have **at least one real assert** on the observable outcome.
 - Be **deterministic** and **clean up** what it creates via `cleanup()`.
 
-### 4. Verify the tests COMPILE — do NOT run them (bash)
+### 4. The orchestrator validates and runs what you write
 
-After writing, verify they are DISCOVERABLE (parse + typecheck) and nothing more:
-```bash
-cd e2e && npx playwright test --list 2>&1
-```
-Fix any errors immediately. Then STOP touching the suite. Do **NOT**:
-- run the suite itself (`npx playwright test` WITHOUT `--list`),
-- `npx playwright install` browsers,
-- run mobile/desktop/project variants or any second execution,
-- run any other shell command: this listing is the only one.
-
-The ORCHESTRATOR executes the specs against live DEV (its deterministic Filter C) and then
-an independent reviewer judges them — running them yourself is wasted, duplicated work that
-can BLOCK your turn: a `playwright test` that waits on DEV (or a browser install) hangs your
-session, so you never emit the closing verdict and the whole run TIMES OUT and fails even
-though a correct spec is already on disk. Your deliverable is the written spec + a clean
-`--list`, nothing more.
+Run no command, none is needed: the ORCHESTRATOR validates and runs the specs (typecheck, lint,
+Playwright's spec listing and the manifest check, then the suite against live DEV) and then an independent
+reviewer judges them. A validation failure or a failing test comes back to you in a follow-up turn
+with the concrete errors. So read your specs once for imports, types and the shared harness, then
+STOP touching the suite. Do not run a script, install anything or execute a variant of the suite.
 
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
@@ -151,7 +140,7 @@ of the exact same lesson.
 
 ## Stop when the spec is written — then emit the verdict
 
-Once your specs are written and `--list` is clean, or once you have decided nothing here is
+Once your specs are written, or once you have decided nothing here is
 worth a test, you are DONE generating. Spend the rest of the turn on ONE thing: the closing
 JSON verdict below. Do NOT re-explore, re-run the suite, or keep polishing — over-working past
 this point is the #1 cause of a turn that never reaches the verdict (the run then times out and

@@ -66,8 +66,9 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
 
 const failingCase: QaCase = { name: "owners list", status: "fail", detail: "locator not found" };
 
-/* ── Code mode: the task must be source-code-framed (no E2E/page/browser wording) and instruct a
-   compile-before-finish step (the code analogue of e2e's `playwright test --list`). ──
+/* ── Code mode: the task must be source-code-framed (no E2E/page/browser wording), and the generator has no
+   shell, so it is never told to compile or to run the repo's tests: the orchestrator's static gate and
+   execution do both. ──
  */
 test("code mode task: frames source-code testing, not the e2e flow/page wording", () => {
   const text = buildPrompt(mkInput({ target: "code" }));
@@ -75,10 +76,14 @@ test("code mode task: frames source-code testing, not the e2e flow/page wording"
   assert.doesNotMatch(text, /Generate\/update E2E tests for the flows affected/, "the e2e diff task must not leak into code mode");
 });
 
-test("code mode working-rules: instruct compile-before-finish", () => {
-  const text = buildPrompt(mkInput({ target: "code" }));
-  assert.match(text, /compile-check before finishing/i, "the agent must be told to compile before emitting its verdict");
-  assert.match(text, /test-compile|testClasses|go vet|cargo check|tsc --noEmit/, "with the per-ecosystem compile command");
+test("code mode working-rules: the generator is not told to compile or run anything, and is told the orchestrator does", () => {
+  for (const isReGen of [false, true]) {
+    const text = buildPrompt(mkInput({ target: "code", ...(isReGen ? { fixCases: [failingCase] } : {}) }));
+    assert.doesNotMatch(text, /compile-check/i, "no compile step is asked of an agent without a shell");
+    assert.doesNotMatch(text, /test-compile|testClasses|go vet|cargo check|tsc --noEmit/, "no per-ecosystem compile command");
+    assert.doesNotMatch(text, /existing test command/i, "no test command is asked of an agent without a shell");
+    assert.match(text, /orchestrator compiles and runs/i, "the prompt says who validates what the agent writes");
+  }
 });
 
 /* ── App login: a declared login whose stock auth.setup.ts did not sign in is a fact about the run,

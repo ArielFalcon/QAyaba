@@ -5,288 +5,288 @@
     "directives": 20
   },
   "staticLayers": {
-    "opencode": 19538,
-    "codex": 34448
+    "opencode": 19099,
+    "codex": 34009
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
-      "bytes": 3172,
+      "bytes": 2843,
       "directives": 6
     },
     "complete/code/first/tree-none/brief/limit": {
-      "bytes": 3218,
+      "bytes": 2889,
       "directives": 6
     },
     "complete/code/first/tree-none/brief/no-blast": {
-      "bytes": 2976,
+      "bytes": 2647,
       "directives": 6
     },
     "complete/code/first/tree-none/brief/no-blast/limit": {
-      "bytes": 3022,
+      "bytes": 2693,
       "directives": 6
     },
     "complete/code/first/tree-none/brief/no-blast/signal": {
-      "bytes": 3389,
+      "bytes": 3060,
       "directives": 7
     },
     "complete/code/first/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 3435,
+      "bytes": 3106,
       "directives": 7
     },
     "complete/code/first/tree-none/none": {
-      "bytes": 2209,
+      "bytes": 1880,
       "directives": 4
     },
     "complete/code/first/tree-none/none/limit": {
-      "bytes": 2255,
+      "bytes": 1926,
       "directives": 4
     },
     "complete/code/first/tree-none/none/signal": {
-      "bytes": 2622,
+      "bytes": 2293,
       "directives": 5
     },
     "complete/code/first/tree-none/none/signal/limit": {
-      "bytes": 2668,
+      "bytes": 2339,
       "directives": 5
     },
     "complete/code/regen-coverage/tree-none/brief": {
-      "bytes": 4488,
+      "bytes": 4159,
       "directives": 11
     },
     "complete/code/regen-coverage/tree-none/brief/limit": {
-      "bytes": 4615,
+      "bytes": 4286,
       "directives": 11
     },
     "complete/code/regen-coverage/tree-none/brief/no-blast": {
-      "bytes": 4182,
+      "bytes": 3853,
       "directives": 11
     },
     "complete/code/regen-coverage/tree-none/brief/no-blast/limit": {
-      "bytes": 4309,
+      "bytes": 3980,
       "directives": 11
     },
     "complete/code/regen-coverage/tree-none/brief/no-blast/no-suite": {
-      "bytes": 3825,
+      "bytes": 3496,
       "directives": 11
     },
     "complete/code/regen-coverage/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 3952,
+      "bytes": 3623,
       "directives": 11
     },
     "complete/code/regen-coverage/tree-none/brief/no-blast/signal": {
-      "bytes": 4705,
+      "bytes": 4376,
       "directives": 12
     },
     "complete/code/regen-coverage/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 4832,
+      "bytes": 4503,
       "directives": 12
     },
     "complete/code/regen-coverage/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4348,
+      "bytes": 4019,
       "directives": 12
     },
     "complete/code/regen-coverage/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4475,
+      "bytes": 4146,
       "directives": 12
     },
     "complete/code/regen-coverage/tree-none/brief/no-suite": {
-      "bytes": 4131,
+      "bytes": 3802,
       "directives": 11
     },
     "complete/code/regen-coverage/tree-none/brief/no-suite/limit": {
-      "bytes": 4258,
+      "bytes": 3929,
       "directives": 11
     },
     "complete/code/regen-coverage/tree-none/none": {
-      "bytes": 3415,
+      "bytes": 3086,
       "directives": 9
     },
     "complete/code/regen-coverage/tree-none/none/limit": {
-      "bytes": 3542,
+      "bytes": 3213,
       "directives": 9
     },
     "complete/code/regen-coverage/tree-none/none/no-suite": {
-      "bytes": 3058,
+      "bytes": 2729,
       "directives": 9
     },
     "complete/code/regen-coverage/tree-none/none/no-suite/limit": {
-      "bytes": 3185,
+      "bytes": 2856,
       "directives": 9
     },
     "complete/code/regen-coverage/tree-none/none/signal": {
-      "bytes": 3938,
+      "bytes": 3609,
       "directives": 10
     },
     "complete/code/regen-coverage/tree-none/none/signal/limit": {
-      "bytes": 4065,
+      "bytes": 3736,
       "directives": 10
     },
     "complete/code/regen-coverage/tree-none/none/signal/no-suite": {
-      "bytes": 3581,
+      "bytes": 3252,
       "directives": 10
     },
     "complete/code/regen-coverage/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3708,
+      "bytes": 3379,
       "directives": 10
     },
     "complete/code/regen-fix/tree-none/brief": {
-      "bytes": 4137,
+      "bytes": 3808,
       "directives": 12
     },
     "complete/code/regen-fix/tree-none/brief/limit": {
-      "bytes": 4264,
+      "bytes": 3935,
       "directives": 12
     },
     "complete/code/regen-fix/tree-none/brief/no-blast": {
-      "bytes": 3831,
+      "bytes": 3502,
       "directives": 12
     },
     "complete/code/regen-fix/tree-none/brief/no-blast/limit": {
-      "bytes": 3958,
+      "bytes": 3629,
       "directives": 12
     },
     "complete/code/regen-fix/tree-none/brief/no-blast/no-suite": {
-      "bytes": 4013,
+      "bytes": 3684,
       "directives": 11
     },
     "complete/code/regen-fix/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 4140,
+      "bytes": 3811,
       "directives": 11
     },
     "complete/code/regen-fix/tree-none/brief/no-blast/signal": {
-      "bytes": 4354,
+      "bytes": 4025,
       "directives": 13
     },
     "complete/code/regen-fix/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 4481,
+      "bytes": 4152,
       "directives": 13
     },
     "complete/code/regen-fix/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4536,
+      "bytes": 4207,
       "directives": 12
     },
     "complete/code/regen-fix/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4663,
+      "bytes": 4334,
       "directives": 12
     },
     "complete/code/regen-fix/tree-none/brief/no-suite": {
-      "bytes": 4319,
+      "bytes": 3990,
       "directives": 11
     },
     "complete/code/regen-fix/tree-none/brief/no-suite/limit": {
-      "bytes": 4446,
+      "bytes": 4117,
       "directives": 11
     },
     "complete/code/regen-fix/tree-none/none": {
-      "bytes": 3064,
+      "bytes": 2735,
       "directives": 10
     },
     "complete/code/regen-fix/tree-none/none/limit": {
-      "bytes": 3191,
+      "bytes": 2862,
       "directives": 10
     },
     "complete/code/regen-fix/tree-none/none/no-suite": {
-      "bytes": 3246,
+      "bytes": 2917,
       "directives": 9
     },
     "complete/code/regen-fix/tree-none/none/no-suite/limit": {
-      "bytes": 3373,
+      "bytes": 3044,
       "directives": 9
     },
     "complete/code/regen-fix/tree-none/none/signal": {
-      "bytes": 3587,
+      "bytes": 3258,
       "directives": 11
     },
     "complete/code/regen-fix/tree-none/none/signal/limit": {
-      "bytes": 3714,
+      "bytes": 3385,
       "directives": 11
     },
     "complete/code/regen-fix/tree-none/none/signal/no-suite": {
-      "bytes": 3769,
+      "bytes": 3440,
       "directives": 10
     },
     "complete/code/regen-fix/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3896,
+      "bytes": 3567,
       "directives": 10
     },
     "complete/code/regen-review/tree-none/brief": {
-      "bytes": 4073,
+      "bytes": 3744,
       "directives": 13
     },
     "complete/code/regen-review/tree-none/brief/limit": {
-      "bytes": 4200,
+      "bytes": 3871,
       "directives": 13
     },
     "complete/code/regen-review/tree-none/brief/no-blast": {
-      "bytes": 3767,
+      "bytes": 3438,
       "directives": 13
     },
     "complete/code/regen-review/tree-none/brief/no-blast/limit": {
-      "bytes": 3894,
+      "bytes": 3565,
       "directives": 13
     },
     "complete/code/regen-review/tree-none/brief/no-blast/no-suite": {
-      "bytes": 3830,
+      "bytes": 3501,
       "directives": 12
     },
     "complete/code/regen-review/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 3957,
+      "bytes": 3628,
       "directives": 12
     },
     "complete/code/regen-review/tree-none/brief/no-blast/signal": {
-      "bytes": 4290,
+      "bytes": 3961,
       "directives": 14
     },
     "complete/code/regen-review/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 4417,
+      "bytes": 4088,
       "directives": 14
     },
     "complete/code/regen-review/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4353,
+      "bytes": 4024,
       "directives": 13
     },
     "complete/code/regen-review/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4480,
+      "bytes": 4151,
       "directives": 13
     },
     "complete/code/regen-review/tree-none/brief/no-suite": {
-      "bytes": 4136,
+      "bytes": 3807,
       "directives": 12
     },
     "complete/code/regen-review/tree-none/brief/no-suite/limit": {
-      "bytes": 4263,
+      "bytes": 3934,
       "directives": 12
     },
     "complete/code/regen-review/tree-none/none": {
-      "bytes": 3000,
+      "bytes": 2671,
       "directives": 11
     },
     "complete/code/regen-review/tree-none/none/limit": {
-      "bytes": 3127,
+      "bytes": 2798,
       "directives": 11
     },
     "complete/code/regen-review/tree-none/none/no-suite": {
-      "bytes": 3063,
+      "bytes": 2734,
       "directives": 10
     },
     "complete/code/regen-review/tree-none/none/no-suite/limit": {
-      "bytes": 3190,
+      "bytes": 2861,
       "directives": 10
     },
     "complete/code/regen-review/tree-none/none/signal": {
-      "bytes": 3523,
+      "bytes": 3194,
       "directives": 12
     },
     "complete/code/regen-review/tree-none/none/signal/limit": {
-      "bytes": 3650,
+      "bytes": 3321,
       "directives": 12
     },
     "complete/code/regen-review/tree-none/none/signal/no-suite": {
-      "bytes": 3586,
+      "bytes": 3257,
       "directives": 11
     },
     "complete/code/regen-review/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3713,
+      "bytes": 3384,
       "directives": 11
     },
     "complete/e2e/first/tree-none/brief": {
@@ -2978,467 +2978,467 @@
       "directives": 6
     },
     "diff/code/first/tree-none/brief": {
-      "bytes": 4380,
+      "bytes": 4051,
       "directives": 7
     },
     "diff/code/first/tree-none/brief/limit": {
-      "bytes": 4499,
+      "bytes": 4170,
       "directives": 7
     },
     "diff/code/first/tree-none/brief/no-blast": {
-      "bytes": 4184,
+      "bytes": 3855,
       "directives": 7
     },
     "diff/code/first/tree-none/brief/no-blast/co-change": {
-      "bytes": 4547,
+      "bytes": 4218,
       "directives": 7
     },
     "diff/code/first/tree-none/brief/no-blast/co-change/limit": {
-      "bytes": 4666,
+      "bytes": 4337,
       "directives": 7
     },
     "diff/code/first/tree-none/brief/no-blast/co-change/no-suite": {
-      "bytes": 4437,
+      "bytes": 4108,
       "directives": 6
     },
     "diff/code/first/tree-none/brief/no-blast/co-change/no-suite/limit": {
-      "bytes": 4556,
+      "bytes": 4227,
       "directives": 6
     },
     "diff/code/first/tree-none/brief/no-blast/limit": {
-      "bytes": 4303,
+      "bytes": 3974,
       "directives": 7
     },
     "diff/code/first/tree-none/brief/no-blast/no-suite": {
-      "bytes": 4074,
+      "bytes": 3745,
       "directives": 6
     },
     "diff/code/first/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 4193,
+      "bytes": 3864,
       "directives": 6
     },
     "diff/code/first/tree-none/brief/no-blast/signal": {
-      "bytes": 4597,
+      "bytes": 4268,
       "directives": 8
     },
     "diff/code/first/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 4716,
+      "bytes": 4387,
       "directives": 8
     },
     "diff/code/first/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4487,
+      "bytes": 4158,
       "directives": 7
     },
     "diff/code/first/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4606,
+      "bytes": 4277,
       "directives": 7
     },
     "diff/code/first/tree-none/brief/no-suite": {
-      "bytes": 4270,
+      "bytes": 3941,
       "directives": 6
     },
     "diff/code/first/tree-none/brief/no-suite/limit": {
-      "bytes": 4389,
+      "bytes": 4060,
       "directives": 6
     },
     "diff/code/first/tree-none/none": {
-      "bytes": 3417,
+      "bytes": 3088,
       "directives": 5
     },
     "diff/code/first/tree-none/none/co-change": {
-      "bytes": 3780,
+      "bytes": 3451,
       "directives": 5
     },
     "diff/code/first/tree-none/none/co-change/limit": {
-      "bytes": 3899,
+      "bytes": 3570,
       "directives": 5
     },
     "diff/code/first/tree-none/none/co-change/no-suite": {
-      "bytes": 3670,
+      "bytes": 3341,
       "directives": 4
     },
     "diff/code/first/tree-none/none/co-change/no-suite/limit": {
-      "bytes": 3789,
+      "bytes": 3460,
       "directives": 4
     },
     "diff/code/first/tree-none/none/limit": {
-      "bytes": 3536,
+      "bytes": 3207,
       "directives": 5
     },
     "diff/code/first/tree-none/none/no-suite": {
-      "bytes": 3307,
+      "bytes": 2978,
       "directives": 4
     },
     "diff/code/first/tree-none/none/no-suite/limit": {
-      "bytes": 3426,
+      "bytes": 3097,
       "directives": 4
     },
     "diff/code/first/tree-none/none/signal": {
-      "bytes": 3830,
+      "bytes": 3501,
       "directives": 6
     },
     "diff/code/first/tree-none/none/signal/limit": {
-      "bytes": 3949,
+      "bytes": 3620,
       "directives": 6
     },
     "diff/code/first/tree-none/none/signal/no-suite": {
-      "bytes": 3720,
+      "bytes": 3391,
       "directives": 5
     },
     "diff/code/first/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3839,
+      "bytes": 3510,
       "directives": 5
     },
     "diff/code/regen-coverage/tree-none/brief": {
-      "bytes": 4672,
+      "bytes": 4343,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/large-suite": {
-      "bytes": 14784,
+      "bytes": 14455,
       "directives": 12
     },
     "diff/code/regen-coverage/tree-none/brief/large-suite/limit": {
-      "bytes": 14911,
+      "bytes": 14582,
       "directives": 12
     },
     "diff/code/regen-coverage/tree-none/brief/limit": {
-      "bytes": 4799,
+      "bytes": 4470,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast": {
-      "bytes": 4366,
+      "bytes": 4037,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/co-change": {
-      "bytes": 4729,
+      "bytes": 4400,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/co-change/limit": {
-      "bytes": 4856,
+      "bytes": 4527,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/co-change/no-suite": {
-      "bytes": 4372,
+      "bytes": 4043,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/co-change/no-suite/limit": {
-      "bytes": 4499,
+      "bytes": 4170,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/limit": {
-      "bytes": 4493,
+      "bytes": 4164,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/no-suite": {
-      "bytes": 4009,
+      "bytes": 3680,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 4136,
+      "bytes": 3807,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/signal": {
-      "bytes": 4889,
+      "bytes": 4560,
       "directives": 12
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 5016,
+      "bytes": 4687,
       "directives": 12
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4532,
+      "bytes": 4203,
       "directives": 12
     },
     "diff/code/regen-coverage/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4659,
+      "bytes": 4330,
       "directives": 12
     },
     "diff/code/regen-coverage/tree-none/brief/no-suite": {
-      "bytes": 4315,
+      "bytes": 3986,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/brief/no-suite/limit": {
-      "bytes": 4442,
+      "bytes": 4113,
       "directives": 11
     },
     "diff/code/regen-coverage/tree-none/none": {
-      "bytes": 3599,
+      "bytes": 3270,
       "directives": 9
     },
     "diff/code/regen-coverage/tree-none/none/co-change": {
-      "bytes": 3962,
+      "bytes": 3633,
       "directives": 9
     },
     "diff/code/regen-coverage/tree-none/none/co-change/limit": {
-      "bytes": 4089,
+      "bytes": 3760,
       "directives": 9
     },
     "diff/code/regen-coverage/tree-none/none/co-change/no-suite": {
-      "bytes": 3605,
+      "bytes": 3276,
       "directives": 9
     },
     "diff/code/regen-coverage/tree-none/none/co-change/no-suite/limit": {
-      "bytes": 3732,
+      "bytes": 3403,
       "directives": 9
     },
     "diff/code/regen-coverage/tree-none/none/large-suite": {
-      "bytes": 13711,
+      "bytes": 13382,
       "directives": 10
     },
     "diff/code/regen-coverage/tree-none/none/large-suite/limit": {
-      "bytes": 13838,
+      "bytes": 13509,
       "directives": 10
     },
     "diff/code/regen-coverage/tree-none/none/limit": {
-      "bytes": 3726,
+      "bytes": 3397,
       "directives": 9
     },
     "diff/code/regen-coverage/tree-none/none/no-suite": {
-      "bytes": 3242,
+      "bytes": 2913,
       "directives": 9
     },
     "diff/code/regen-coverage/tree-none/none/no-suite/limit": {
-      "bytes": 3369,
+      "bytes": 3040,
       "directives": 9
     },
     "diff/code/regen-coverage/tree-none/none/signal": {
-      "bytes": 4122,
+      "bytes": 3793,
       "directives": 10
     },
     "diff/code/regen-coverage/tree-none/none/signal/limit": {
-      "bytes": 4249,
+      "bytes": 3920,
       "directives": 10
     },
     "diff/code/regen-coverage/tree-none/none/signal/no-suite": {
-      "bytes": 3765,
+      "bytes": 3436,
       "directives": 10
     },
     "diff/code/regen-coverage/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3892,
+      "bytes": 3563,
       "directives": 10
     },
     "diff/code/regen-fix/tree-none/brief": {
-      "bytes": 4321,
+      "bytes": 3992,
       "directives": 12
     },
     "diff/code/regen-fix/tree-none/brief/limit": {
-      "bytes": 4448,
+      "bytes": 4119,
       "directives": 12
     },
     "diff/code/regen-fix/tree-none/brief/no-blast": {
-      "bytes": 4015,
+      "bytes": 3686,
       "directives": 12
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/co-change": {
-      "bytes": 4378,
+      "bytes": 4049,
       "directives": 12
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/co-change/limit": {
-      "bytes": 4505,
+      "bytes": 4176,
       "directives": 12
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/co-change/no-suite": {
-      "bytes": 4560,
+      "bytes": 4231,
       "directives": 11
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/co-change/no-suite/limit": {
-      "bytes": 4687,
+      "bytes": 4358,
       "directives": 11
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/limit": {
-      "bytes": 4142,
+      "bytes": 3813,
       "directives": 12
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/no-suite": {
-      "bytes": 4197,
+      "bytes": 3868,
       "directives": 11
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 4324,
+      "bytes": 3995,
       "directives": 11
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/signal": {
-      "bytes": 4538,
+      "bytes": 4209,
       "directives": 13
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 4665,
+      "bytes": 4336,
       "directives": 13
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4720,
+      "bytes": 4391,
       "directives": 12
     },
     "diff/code/regen-fix/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4847,
+      "bytes": 4518,
       "directives": 12
     },
     "diff/code/regen-fix/tree-none/brief/no-suite": {
-      "bytes": 4503,
+      "bytes": 4174,
       "directives": 11
     },
     "diff/code/regen-fix/tree-none/brief/no-suite/limit": {
-      "bytes": 4630,
+      "bytes": 4301,
       "directives": 11
     },
     "diff/code/regen-fix/tree-none/none": {
-      "bytes": 3248,
+      "bytes": 2919,
       "directives": 10
     },
     "diff/code/regen-fix/tree-none/none/co-change": {
-      "bytes": 3611,
+      "bytes": 3282,
       "directives": 10
     },
     "diff/code/regen-fix/tree-none/none/co-change/limit": {
-      "bytes": 3738,
+      "bytes": 3409,
       "directives": 10
     },
     "diff/code/regen-fix/tree-none/none/co-change/no-suite": {
-      "bytes": 3793,
+      "bytes": 3464,
       "directives": 9
     },
     "diff/code/regen-fix/tree-none/none/co-change/no-suite/limit": {
-      "bytes": 3920,
+      "bytes": 3591,
       "directives": 9
     },
     "diff/code/regen-fix/tree-none/none/limit": {
-      "bytes": 3375,
+      "bytes": 3046,
       "directives": 10
     },
     "diff/code/regen-fix/tree-none/none/no-suite": {
-      "bytes": 3430,
+      "bytes": 3101,
       "directives": 9
     },
     "diff/code/regen-fix/tree-none/none/no-suite/limit": {
-      "bytes": 3557,
+      "bytes": 3228,
       "directives": 9
     },
     "diff/code/regen-fix/tree-none/none/signal": {
-      "bytes": 3771,
+      "bytes": 3442,
       "directives": 11
     },
     "diff/code/regen-fix/tree-none/none/signal/limit": {
-      "bytes": 3898,
+      "bytes": 3569,
       "directives": 11
     },
     "diff/code/regen-fix/tree-none/none/signal/no-suite": {
-      "bytes": 3953,
+      "bytes": 3624,
       "directives": 10
     },
     "diff/code/regen-fix/tree-none/none/signal/no-suite/limit": {
-      "bytes": 4080,
+      "bytes": 3751,
       "directives": 10
     },
     "diff/code/regen-review/tree-none/brief": {
-      "bytes": 4257,
+      "bytes": 3928,
       "directives": 13
     },
     "diff/code/regen-review/tree-none/brief/limit": {
-      "bytes": 4384,
+      "bytes": 4055,
       "directives": 13
     },
     "diff/code/regen-review/tree-none/brief/no-blast": {
-      "bytes": 3951,
+      "bytes": 3622,
       "directives": 13
     },
     "diff/code/regen-review/tree-none/brief/no-blast/co-change": {
-      "bytes": 4314,
+      "bytes": 3985,
       "directives": 13
     },
     "diff/code/regen-review/tree-none/brief/no-blast/co-change/limit": {
-      "bytes": 4441,
+      "bytes": 4112,
       "directives": 13
     },
     "diff/code/regen-review/tree-none/brief/no-blast/co-change/no-suite": {
-      "bytes": 4377,
+      "bytes": 4048,
       "directives": 12
     },
     "diff/code/regen-review/tree-none/brief/no-blast/co-change/no-suite/limit": {
-      "bytes": 4504,
+      "bytes": 4175,
       "directives": 12
     },
     "diff/code/regen-review/tree-none/brief/no-blast/limit": {
-      "bytes": 4078,
+      "bytes": 3749,
       "directives": 13
     },
     "diff/code/regen-review/tree-none/brief/no-blast/no-suite": {
-      "bytes": 4014,
+      "bytes": 3685,
       "directives": 12
     },
     "diff/code/regen-review/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 4141,
+      "bytes": 3812,
       "directives": 12
     },
     "diff/code/regen-review/tree-none/brief/no-blast/signal": {
-      "bytes": 4474,
+      "bytes": 4145,
       "directives": 14
     },
     "diff/code/regen-review/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 4601,
+      "bytes": 4272,
       "directives": 14
     },
     "diff/code/regen-review/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4537,
+      "bytes": 4208,
       "directives": 13
     },
     "diff/code/regen-review/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4664,
+      "bytes": 4335,
       "directives": 13
     },
     "diff/code/regen-review/tree-none/brief/no-suite": {
-      "bytes": 4320,
+      "bytes": 3991,
       "directives": 12
     },
     "diff/code/regen-review/tree-none/brief/no-suite/limit": {
-      "bytes": 4447,
+      "bytes": 4118,
       "directives": 12
     },
     "diff/code/regen-review/tree-none/none": {
-      "bytes": 3184,
+      "bytes": 2855,
       "directives": 11
     },
     "diff/code/regen-review/tree-none/none/co-change": {
-      "bytes": 3547,
+      "bytes": 3218,
       "directives": 11
     },
     "diff/code/regen-review/tree-none/none/co-change/limit": {
-      "bytes": 3674,
+      "bytes": 3345,
       "directives": 11
     },
     "diff/code/regen-review/tree-none/none/co-change/no-suite": {
-      "bytes": 3610,
+      "bytes": 3281,
       "directives": 10
     },
     "diff/code/regen-review/tree-none/none/co-change/no-suite/limit": {
-      "bytes": 3737,
+      "bytes": 3408,
       "directives": 10
     },
     "diff/code/regen-review/tree-none/none/limit": {
-      "bytes": 3311,
+      "bytes": 2982,
       "directives": 11
     },
     "diff/code/regen-review/tree-none/none/no-suite": {
-      "bytes": 3247,
+      "bytes": 2918,
       "directives": 10
     },
     "diff/code/regen-review/tree-none/none/no-suite/limit": {
-      "bytes": 3374,
+      "bytes": 3045,
       "directives": 10
     },
     "diff/code/regen-review/tree-none/none/signal": {
-      "bytes": 3707,
+      "bytes": 3378,
       "directives": 12
     },
     "diff/code/regen-review/tree-none/none/signal/limit": {
-      "bytes": 3834,
+      "bytes": 3505,
       "directives": 12
     },
     "diff/code/regen-review/tree-none/none/signal/no-suite": {
-      "bytes": 3770,
+      "bytes": 3441,
       "directives": 11
     },
     "diff/code/regen-review/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3897,
+      "bytes": 3568,
       "directives": 11
     },
     "diff/e2e/first/tree-none/brief": {
@@ -7026,283 +7026,283 @@
       "directives": 12
     },
     "exhaustive/code/first/tree-none/brief": {
-      "bytes": 3195,
+      "bytes": 2866,
       "directives": 5
     },
     "exhaustive/code/first/tree-none/brief/limit": {
-      "bytes": 3241,
+      "bytes": 2912,
       "directives": 5
     },
     "exhaustive/code/first/tree-none/brief/no-blast": {
-      "bytes": 2999,
+      "bytes": 2670,
       "directives": 5
     },
     "exhaustive/code/first/tree-none/brief/no-blast/limit": {
-      "bytes": 3045,
+      "bytes": 2716,
       "directives": 5
     },
     "exhaustive/code/first/tree-none/brief/no-blast/signal": {
-      "bytes": 3412,
+      "bytes": 3083,
       "directives": 6
     },
     "exhaustive/code/first/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 3458,
+      "bytes": 3129,
       "directives": 6
     },
     "exhaustive/code/first/tree-none/none": {
-      "bytes": 2232,
+      "bytes": 1903,
       "directives": 3
     },
     "exhaustive/code/first/tree-none/none/limit": {
-      "bytes": 2278,
+      "bytes": 1949,
       "directives": 3
     },
     "exhaustive/code/first/tree-none/none/signal": {
-      "bytes": 2645,
+      "bytes": 2316,
       "directives": 4
     },
     "exhaustive/code/first/tree-none/none/signal/limit": {
-      "bytes": 2691,
+      "bytes": 2362,
       "directives": 4
     },
     "exhaustive/code/regen-coverage/tree-none/brief": {
-      "bytes": 5202,
+      "bytes": 4873,
       "directives": 11
     },
     "exhaustive/code/regen-coverage/tree-none/brief/limit": {
-      "bytes": 5329,
+      "bytes": 5000,
       "directives": 11
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-blast": {
-      "bytes": 4896,
+      "bytes": 4567,
       "directives": 11
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-blast/limit": {
-      "bytes": 5023,
+      "bytes": 4694,
       "directives": 11
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-blast/no-suite": {
-      "bytes": 3827,
+      "bytes": 3498,
       "directives": 11
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 3954,
+      "bytes": 3625,
       "directives": 11
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-blast/signal": {
-      "bytes": 5419,
+      "bytes": 5090,
       "directives": 12
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 5546,
+      "bytes": 5217,
       "directives": 12
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4350,
+      "bytes": 4021,
       "directives": 12
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4477,
+      "bytes": 4148,
       "directives": 12
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-suite": {
-      "bytes": 4133,
+      "bytes": 3804,
       "directives": 11
     },
     "exhaustive/code/regen-coverage/tree-none/brief/no-suite/limit": {
-      "bytes": 4260,
+      "bytes": 3931,
       "directives": 11
     },
     "exhaustive/code/regen-coverage/tree-none/none": {
-      "bytes": 4129,
+      "bytes": 3800,
       "directives": 9
     },
     "exhaustive/code/regen-coverage/tree-none/none/limit": {
-      "bytes": 4256,
+      "bytes": 3927,
       "directives": 9
     },
     "exhaustive/code/regen-coverage/tree-none/none/no-suite": {
-      "bytes": 3060,
+      "bytes": 2731,
       "directives": 9
     },
     "exhaustive/code/regen-coverage/tree-none/none/no-suite/limit": {
-      "bytes": 3187,
+      "bytes": 2858,
       "directives": 9
     },
     "exhaustive/code/regen-coverage/tree-none/none/signal": {
-      "bytes": 4652,
+      "bytes": 4323,
       "directives": 10
     },
     "exhaustive/code/regen-coverage/tree-none/none/signal/limit": {
-      "bytes": 4779,
+      "bytes": 4450,
       "directives": 10
     },
     "exhaustive/code/regen-coverage/tree-none/none/signal/no-suite": {
-      "bytes": 3583,
+      "bytes": 3254,
       "directives": 10
     },
     "exhaustive/code/regen-coverage/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3710,
+      "bytes": 3381,
       "directives": 10
     },
     "exhaustive/code/regen-fix/tree-none/brief": {
-      "bytes": 4875,
+      "bytes": 4546,
       "directives": 12
     },
     "exhaustive/code/regen-fix/tree-none/brief/limit": {
-      "bytes": 5002,
+      "bytes": 4673,
       "directives": 12
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-blast": {
-      "bytes": 4569,
+      "bytes": 4240,
       "directives": 12
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-blast/limit": {
-      "bytes": 4696,
+      "bytes": 4367,
       "directives": 12
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-blast/no-suite": {
-      "bytes": 4015,
+      "bytes": 3686,
       "directives": 11
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 4142,
+      "bytes": 3813,
       "directives": 11
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-blast/signal": {
-      "bytes": 5092,
+      "bytes": 4763,
       "directives": 13
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 5219,
+      "bytes": 4890,
       "directives": 13
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4538,
+      "bytes": 4209,
       "directives": 12
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4665,
+      "bytes": 4336,
       "directives": 12
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-suite": {
-      "bytes": 4321,
+      "bytes": 3992,
       "directives": 11
     },
     "exhaustive/code/regen-fix/tree-none/brief/no-suite/limit": {
-      "bytes": 4448,
+      "bytes": 4119,
       "directives": 11
     },
     "exhaustive/code/regen-fix/tree-none/none": {
-      "bytes": 3802,
+      "bytes": 3473,
       "directives": 10
     },
     "exhaustive/code/regen-fix/tree-none/none/limit": {
-      "bytes": 3929,
+      "bytes": 3600,
       "directives": 10
     },
     "exhaustive/code/regen-fix/tree-none/none/no-suite": {
-      "bytes": 3248,
+      "bytes": 2919,
       "directives": 9
     },
     "exhaustive/code/regen-fix/tree-none/none/no-suite/limit": {
-      "bytes": 3375,
+      "bytes": 3046,
       "directives": 9
     },
     "exhaustive/code/regen-fix/tree-none/none/signal": {
-      "bytes": 4325,
+      "bytes": 3996,
       "directives": 11
     },
     "exhaustive/code/regen-fix/tree-none/none/signal/limit": {
-      "bytes": 4452,
+      "bytes": 4123,
       "directives": 11
     },
     "exhaustive/code/regen-fix/tree-none/none/signal/no-suite": {
-      "bytes": 3771,
+      "bytes": 3442,
       "directives": 10
     },
     "exhaustive/code/regen-fix/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3898,
+      "bytes": 3569,
       "directives": 10
     },
     "exhaustive/code/regen-review/tree-none/brief": {
-      "bytes": 4811,
-      "directives": 13
-    },
-    "exhaustive/code/regen-review/tree-none/brief/limit": {
-      "bytes": 4938,
-      "directives": 13
-    },
-    "exhaustive/code/regen-review/tree-none/brief/no-blast": {
-      "bytes": 4505,
-      "directives": 13
-    },
-    "exhaustive/code/regen-review/tree-none/brief/no-blast/limit": {
-      "bytes": 4632,
-      "directives": 13
-    },
-    "exhaustive/code/regen-review/tree-none/brief/no-blast/no-suite": {
-      "bytes": 3832,
-      "directives": 12
-    },
-    "exhaustive/code/regen-review/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 3959,
-      "directives": 12
-    },
-    "exhaustive/code/regen-review/tree-none/brief/no-blast/signal": {
-      "bytes": 5028,
-      "directives": 14
-    },
-    "exhaustive/code/regen-review/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 5155,
-      "directives": 14
-    },
-    "exhaustive/code/regen-review/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4355,
-      "directives": 13
-    },
-    "exhaustive/code/regen-review/tree-none/brief/no-blast/signal/no-suite/limit": {
       "bytes": 4482,
       "directives": 13
     },
+    "exhaustive/code/regen-review/tree-none/brief/limit": {
+      "bytes": 4609,
+      "directives": 13
+    },
+    "exhaustive/code/regen-review/tree-none/brief/no-blast": {
+      "bytes": 4176,
+      "directives": 13
+    },
+    "exhaustive/code/regen-review/tree-none/brief/no-blast/limit": {
+      "bytes": 4303,
+      "directives": 13
+    },
+    "exhaustive/code/regen-review/tree-none/brief/no-blast/no-suite": {
+      "bytes": 3503,
+      "directives": 12
+    },
+    "exhaustive/code/regen-review/tree-none/brief/no-blast/no-suite/limit": {
+      "bytes": 3630,
+      "directives": 12
+    },
+    "exhaustive/code/regen-review/tree-none/brief/no-blast/signal": {
+      "bytes": 4699,
+      "directives": 14
+    },
+    "exhaustive/code/regen-review/tree-none/brief/no-blast/signal/limit": {
+      "bytes": 4826,
+      "directives": 14
+    },
+    "exhaustive/code/regen-review/tree-none/brief/no-blast/signal/no-suite": {
+      "bytes": 4026,
+      "directives": 13
+    },
+    "exhaustive/code/regen-review/tree-none/brief/no-blast/signal/no-suite/limit": {
+      "bytes": 4153,
+      "directives": 13
+    },
     "exhaustive/code/regen-review/tree-none/brief/no-suite": {
-      "bytes": 4138,
+      "bytes": 3809,
       "directives": 12
     },
     "exhaustive/code/regen-review/tree-none/brief/no-suite/limit": {
-      "bytes": 4265,
+      "bytes": 3936,
       "directives": 12
     },
     "exhaustive/code/regen-review/tree-none/none": {
-      "bytes": 3738,
+      "bytes": 3409,
       "directives": 11
     },
     "exhaustive/code/regen-review/tree-none/none/limit": {
-      "bytes": 3865,
+      "bytes": 3536,
       "directives": 11
     },
     "exhaustive/code/regen-review/tree-none/none/no-suite": {
-      "bytes": 3065,
+      "bytes": 2736,
       "directives": 10
     },
     "exhaustive/code/regen-review/tree-none/none/no-suite/limit": {
-      "bytes": 3192,
+      "bytes": 2863,
       "directives": 10
     },
     "exhaustive/code/regen-review/tree-none/none/signal": {
-      "bytes": 4261,
+      "bytes": 3932,
       "directives": 12
     },
     "exhaustive/code/regen-review/tree-none/none/signal/limit": {
-      "bytes": 4388,
+      "bytes": 4059,
       "directives": 12
     },
     "exhaustive/code/regen-review/tree-none/none/signal/no-suite": {
-      "bytes": 3588,
+      "bytes": 3259,
       "directives": 11
     },
     "exhaustive/code/regen-review/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3715,
+      "bytes": 3386,
       "directives": 11
     },
     "exhaustive/e2e/first/tree-none/brief": {
@@ -9986,339 +9986,339 @@
       "directives": 12
     },
     "manual/code/first/tree-none/brief": {
-      "bytes": 3636,
+      "bytes": 3307,
       "directives": 8
     },
     "manual/code/first/tree-none/brief/limit": {
-      "bytes": 3755,
+      "bytes": 3426,
       "directives": 8
     },
     "manual/code/first/tree-none/brief/no-blast": {
-      "bytes": 3440,
+      "bytes": 3111,
       "directives": 8
     },
     "manual/code/first/tree-none/brief/no-blast/limit": {
-      "bytes": 3559,
+      "bytes": 3230,
       "directives": 8
     },
     "manual/code/first/tree-none/brief/no-blast/no-suite": {
-      "bytes": 3330,
+      "bytes": 3001,
       "directives": 7
     },
     "manual/code/first/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 3449,
+      "bytes": 3120,
       "directives": 7
     },
     "manual/code/first/tree-none/brief/no-blast/signal": {
-      "bytes": 3853,
+      "bytes": 3524,
       "directives": 9
     },
     "manual/code/first/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 3972,
+      "bytes": 3643,
       "directives": 9
     },
     "manual/code/first/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 3743,
+      "bytes": 3414,
       "directives": 8
     },
     "manual/code/first/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 3862,
+      "bytes": 3533,
       "directives": 8
     },
     "manual/code/first/tree-none/brief/no-suite": {
-      "bytes": 3526,
+      "bytes": 3197,
       "directives": 7
     },
     "manual/code/first/tree-none/brief/no-suite/limit": {
-      "bytes": 3645,
+      "bytes": 3316,
       "directives": 7
     },
     "manual/code/first/tree-none/none": {
-      "bytes": 2673,
+      "bytes": 2344,
       "directives": 6
     },
     "manual/code/first/tree-none/none/limit": {
-      "bytes": 2792,
+      "bytes": 2463,
       "directives": 6
     },
     "manual/code/first/tree-none/none/no-suite": {
-      "bytes": 2563,
+      "bytes": 2234,
       "directives": 5
     },
     "manual/code/first/tree-none/none/no-suite/limit": {
-      "bytes": 2682,
+      "bytes": 2353,
       "directives": 5
     },
     "manual/code/first/tree-none/none/signal": {
-      "bytes": 3086,
+      "bytes": 2757,
       "directives": 7
     },
     "manual/code/first/tree-none/none/signal/limit": {
-      "bytes": 3205,
+      "bytes": 2876,
       "directives": 7
     },
     "manual/code/first/tree-none/none/signal/no-suite": {
-      "bytes": 2976,
+      "bytes": 2647,
       "directives": 6
     },
     "manual/code/first/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3095,
+      "bytes": 2766,
       "directives": 6
     },
     "manual/code/regen-coverage/tree-none/brief": {
-      "bytes": 4527,
+      "bytes": 4198,
       "directives": 11
     },
     "manual/code/regen-coverage/tree-none/brief/large-suite": {
-      "bytes": 14639,
+      "bytes": 14310,
       "directives": 12
     },
     "manual/code/regen-coverage/tree-none/brief/large-suite/limit": {
-      "bytes": 14766,
+      "bytes": 14437,
       "directives": 12
     },
     "manual/code/regen-coverage/tree-none/brief/limit": {
-      "bytes": 4654,
+      "bytes": 4325,
       "directives": 11
     },
     "manual/code/regen-coverage/tree-none/brief/no-blast": {
-      "bytes": 4221,
+      "bytes": 3892,
       "directives": 11
     },
     "manual/code/regen-coverage/tree-none/brief/no-blast/limit": {
-      "bytes": 4348,
+      "bytes": 4019,
       "directives": 11
     },
     "manual/code/regen-coverage/tree-none/brief/no-blast/no-suite": {
-      "bytes": 3864,
+      "bytes": 3535,
       "directives": 11
     },
     "manual/code/regen-coverage/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 3991,
+      "bytes": 3662,
       "directives": 11
     },
     "manual/code/regen-coverage/tree-none/brief/no-blast/signal": {
-      "bytes": 4744,
+      "bytes": 4415,
       "directives": 12
     },
     "manual/code/regen-coverage/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 4871,
+      "bytes": 4542,
       "directives": 12
     },
     "manual/code/regen-coverage/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4387,
+      "bytes": 4058,
       "directives": 12
     },
     "manual/code/regen-coverage/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4514,
+      "bytes": 4185,
       "directives": 12
     },
     "manual/code/regen-coverage/tree-none/brief/no-suite": {
-      "bytes": 4170,
+      "bytes": 3841,
       "directives": 11
     },
     "manual/code/regen-coverage/tree-none/brief/no-suite/limit": {
-      "bytes": 4297,
+      "bytes": 3968,
       "directives": 11
     },
     "manual/code/regen-coverage/tree-none/none": {
-      "bytes": 3454,
+      "bytes": 3125,
       "directives": 9
     },
     "manual/code/regen-coverage/tree-none/none/large-suite": {
-      "bytes": 13566,
+      "bytes": 13237,
       "directives": 10
     },
     "manual/code/regen-coverage/tree-none/none/large-suite/limit": {
-      "bytes": 13693,
+      "bytes": 13364,
       "directives": 10
     },
     "manual/code/regen-coverage/tree-none/none/limit": {
-      "bytes": 3581,
+      "bytes": 3252,
       "directives": 9
     },
     "manual/code/regen-coverage/tree-none/none/no-suite": {
-      "bytes": 3097,
+      "bytes": 2768,
       "directives": 9
     },
     "manual/code/regen-coverage/tree-none/none/no-suite/limit": {
-      "bytes": 3224,
+      "bytes": 2895,
       "directives": 9
     },
     "manual/code/regen-coverage/tree-none/none/signal": {
-      "bytes": 3977,
+      "bytes": 3648,
       "directives": 10
     },
     "manual/code/regen-coverage/tree-none/none/signal/limit": {
-      "bytes": 4104,
+      "bytes": 3775,
       "directives": 10
     },
     "manual/code/regen-coverage/tree-none/none/signal/no-suite": {
-      "bytes": 3620,
+      "bytes": 3291,
       "directives": 10
     },
     "manual/code/regen-coverage/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3747,
+      "bytes": 3418,
       "directives": 10
     },
     "manual/code/regen-fix/tree-none/brief": {
-      "bytes": 4176,
+      "bytes": 3847,
       "directives": 12
     },
     "manual/code/regen-fix/tree-none/brief/limit": {
-      "bytes": 4303,
+      "bytes": 3974,
       "directives": 12
     },
     "manual/code/regen-fix/tree-none/brief/no-blast": {
-      "bytes": 3870,
+      "bytes": 3541,
       "directives": 12
     },
     "manual/code/regen-fix/tree-none/brief/no-blast/limit": {
-      "bytes": 3997,
+      "bytes": 3668,
       "directives": 12
     },
     "manual/code/regen-fix/tree-none/brief/no-blast/no-suite": {
-      "bytes": 4052,
+      "bytes": 3723,
       "directives": 11
     },
     "manual/code/regen-fix/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 4179,
+      "bytes": 3850,
       "directives": 11
     },
     "manual/code/regen-fix/tree-none/brief/no-blast/signal": {
-      "bytes": 4393,
+      "bytes": 4064,
       "directives": 13
     },
     "manual/code/regen-fix/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 4520,
+      "bytes": 4191,
       "directives": 13
     },
     "manual/code/regen-fix/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4575,
+      "bytes": 4246,
       "directives": 12
     },
     "manual/code/regen-fix/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4702,
+      "bytes": 4373,
       "directives": 12
     },
     "manual/code/regen-fix/tree-none/brief/no-suite": {
-      "bytes": 4358,
+      "bytes": 4029,
       "directives": 11
     },
     "manual/code/regen-fix/tree-none/brief/no-suite/limit": {
-      "bytes": 4485,
+      "bytes": 4156,
       "directives": 11
     },
     "manual/code/regen-fix/tree-none/none": {
-      "bytes": 3103,
+      "bytes": 2774,
       "directives": 10
     },
     "manual/code/regen-fix/tree-none/none/limit": {
-      "bytes": 3230,
+      "bytes": 2901,
       "directives": 10
     },
     "manual/code/regen-fix/tree-none/none/no-suite": {
-      "bytes": 3285,
+      "bytes": 2956,
       "directives": 9
     },
     "manual/code/regen-fix/tree-none/none/no-suite/limit": {
-      "bytes": 3412,
+      "bytes": 3083,
       "directives": 9
     },
     "manual/code/regen-fix/tree-none/none/signal": {
-      "bytes": 3626,
+      "bytes": 3297,
       "directives": 11
     },
     "manual/code/regen-fix/tree-none/none/signal/limit": {
-      "bytes": 3753,
+      "bytes": 3424,
       "directives": 11
     },
     "manual/code/regen-fix/tree-none/none/signal/no-suite": {
-      "bytes": 3808,
+      "bytes": 3479,
       "directives": 10
     },
     "manual/code/regen-fix/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3935,
+      "bytes": 3606,
       "directives": 10
     },
     "manual/code/regen-review/tree-none/brief": {
-      "bytes": 4112,
+      "bytes": 3783,
       "directives": 13
     },
     "manual/code/regen-review/tree-none/brief/limit": {
-      "bytes": 4239,
+      "bytes": 3910,
       "directives": 13
     },
     "manual/code/regen-review/tree-none/brief/no-blast": {
-      "bytes": 3806,
+      "bytes": 3477,
       "directives": 13
     },
     "manual/code/regen-review/tree-none/brief/no-blast/limit": {
-      "bytes": 3933,
+      "bytes": 3604,
       "directives": 13
     },
     "manual/code/regen-review/tree-none/brief/no-blast/no-suite": {
-      "bytes": 3869,
+      "bytes": 3540,
       "directives": 12
     },
     "manual/code/regen-review/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 3996,
+      "bytes": 3667,
       "directives": 12
     },
     "manual/code/regen-review/tree-none/brief/no-blast/signal": {
-      "bytes": 4329,
+      "bytes": 4000,
       "directives": 14
     },
     "manual/code/regen-review/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 4456,
+      "bytes": 4127,
       "directives": 14
     },
     "manual/code/regen-review/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 4392,
+      "bytes": 4063,
       "directives": 13
     },
     "manual/code/regen-review/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 4519,
+      "bytes": 4190,
       "directives": 13
     },
     "manual/code/regen-review/tree-none/brief/no-suite": {
-      "bytes": 4175,
+      "bytes": 3846,
       "directives": 12
     },
     "manual/code/regen-review/tree-none/brief/no-suite/limit": {
-      "bytes": 4302,
+      "bytes": 3973,
       "directives": 12
     },
     "manual/code/regen-review/tree-none/none": {
-      "bytes": 3039,
+      "bytes": 2710,
       "directives": 11
     },
     "manual/code/regen-review/tree-none/none/limit": {
-      "bytes": 3166,
+      "bytes": 2837,
       "directives": 11
     },
     "manual/code/regen-review/tree-none/none/no-suite": {
-      "bytes": 3102,
+      "bytes": 2773,
       "directives": 10
     },
     "manual/code/regen-review/tree-none/none/no-suite/limit": {
-      "bytes": 3229,
+      "bytes": 2900,
       "directives": 10
     },
     "manual/code/regen-review/tree-none/none/signal": {
-      "bytes": 3562,
+      "bytes": 3233,
       "directives": 12
     },
     "manual/code/regen-review/tree-none/none/signal/limit": {
-      "bytes": 3689,
+      "bytes": 3360,
       "directives": 12
     },
     "manual/code/regen-review/tree-none/none/signal/no-suite": {
-      "bytes": 3625,
+      "bytes": 3296,
       "directives": 11
     },
     "manual/code/regen-review/tree-none/none/signal/no-suite/limit": {
-      "bytes": 3752,
+      "bytes": 3423,
       "directives": 11
     },
     "manual/e2e/first/tree-none/brief": {

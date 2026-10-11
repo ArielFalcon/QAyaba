@@ -169,7 +169,7 @@ const FILE_PUSH_REASON =
   "which only a generated spec may do, under the app's test-data prefix.";
 
 const SHELL_REASON =
-  "A shell tool of the code-navigation server would make the allow-list on the built-in shell (or its absence) moot.";
+  "A shell tool of the code-navigation server would be a second route around the denial of the built-in shell.";
 
 /* What a role that authors against live DEV is denied of the servers it holds. The Playwright ids are the
    ones the MCP lists (`tools/list` of `@playwright/mcp`, PLAYWRIGHT_TOOL_NAMES); the runtime reports them
@@ -559,11 +559,6 @@ test("qa-generator keeps serena+engram+playwright as the test author, minus the 
   const tools = agentTools(generator);
   assert.equal(tools.write, true, "qa-generator must have write");
   assert.equal(tools.edit, true, "qa-generator must have edit");
-  assert.notEqual(
-    tools.bash,
-    true,
-    "qa-generator's shell is governed by permission.bash; a tools.bash:true could be merged over the allow-list by a runtime",
-  );
   for (const server of MCP_ALLOWLIST) assertMcpServerAllowed("qa-generator", tools, server);
   /* Recalling and saving memory stays open under both ids; only judging and comparing memories is denied. */
   for (const tool of ["mem_search", "mem_save", "mem_get_observation", "mem_context"]) {
@@ -575,75 +570,107 @@ test("qa-generator keeps serena+engram+playwright as the test author, minus the 
   }
 });
 
-/* How the pinned OpenCode decides a shell command, read from the shipped build's own source (1.18.31 is
-   the closest available to the pinned 1.17.7; its `opencode debug agent <name>` resolves a `permission.bash`
-   map into one `{permission:"bash", pattern, action}` rule per key, in the map's order):
-   - the shell tool parses the command and takes every simple command in it (a list `a && b`, a pipeline,
-     a `$(...)` substitution each yield their own), the text of a command with a redirection including the
-     redirection; `cd` and its kin are not evaluated against the patterns (their directory argument goes to
-     the external-directory check);
-   - each of those is evaluated on its own and ONE denied command denies the whole call;
-   - a command is decided by the LAST rule whose pattern matches it, and by "ask" when none does: nobody
-     answers in a run, so an "ask" would hang it and the map must never leave a command unmatched;
-   - a pattern is anchored; `*` matches anything (spaces, slashes, redirections included), `?` one character,
-     and a trailing " *" also matches the command alone. */
-function bashActionFor(rules: Record<string, unknown>, command: string): string {
-  let decided = "ask";
-  for (const [pattern, action] of Object.entries(rules)) {
-    let source = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
-    if (source.endsWith(" .*")) source = `${source.slice(0, -3)}( .*)?`;
-    if (new RegExp(`^${source}$`, "s").test(command)) decided = String(action);
-  }
-  return decided;
-}
-
-function bashRulesOf(agent: unknown): Record<string, unknown> {
-  const permission = (agent as { permission?: { bash?: unknown } }).permission;
-  const bash = permission?.bash;
-  assert.ok(bash && typeof bash === "object", "expected a permission.bash pattern map");
-  return bash as Record<string, unknown>;
-}
-
-test("the generator's shell is an allow-list: the suite listing and nothing else", () => {
+/* The generator has no shell at all. A command allow-list is not an execution boundary: even the suite listing
+   (`npx playwright test --list`) loads the Playwright config and every spec module, which the generator itself
+   writes, and `npx` resolves whatever a planted `node_modules/.bin` offers. The orchestrator's Validate and
+   Execute phases run tsc, ESLint, the listing and the suite, so the author has nothing left to run. */
+test("the generator has no shell: bash is denied outright, for every target", () => {
   const { agents } = loadAgentConfig();
-  const rules = bashRulesOf(agents["qa-generator"]);
-  assert.equal(Object.keys(rules)[0], "*", "the catch-all comes first so that the exceptions after it are the last match");
-  assert.equal(rules["*"], "deny");
+  const generator = agents["qa-generator"] as { permission?: Record<string, unknown> };
+  assert.equal(generator.permission?.bash, "deny", "permission.bash must be a plain deny, not a pattern map");
+  assert.notEqual(
+    agentTools(generator).bash,
+    true,
+    "a tools.bash:true could be merged over the denial by a runtime; the tool stays absent from tools{}",
+  );
+  assert.equal(agentTools(generator).serena_execute_shell_command, false, "serena's shell would be a second route");
+});
 
-  for (const command of ["cd e2e", "npx playwright test --list", "npx playwright test --list 2>&1"]) {
-    assert.equal(bashActionFor(rules, command), "allow", `the listing form "${command}" must stay allowed`);
-  }
-  for (const command of [
-    "node /tmp/opencode/explore-login.mjs",
-    "npx tsx /tmp/opencode/probe.ts",
-    "npx playwright test",
-    "npx playwright test e2e/flows/login.spec.ts",
-    "npx playwright test --list --config=/tmp/opencode/pw.config.ts",
-    "npx playwright test --list > /tmp/opencode/out.txt",
-    "npx playwright install chromium",
-    "bash -c 'node x.mjs'",
-    "curl -s https://dev.example.test/api/records",
-    "cat .env",
-    "rm -rf e2e",
-    "git push origin HEAD",
-  ]) {
-    assert.equal(bashActionFor(rules, command), "deny", `"${command}" must be denied`);
+/* Rules that apply to every role (the file's top-level `permission`, merged under each agent's own). */
+function globalPermission(): Record<string, unknown> {
+  const permission = loadRawConfig().permission;
+  assert.ok(permission && typeof permission === "object", "expected a top-level permission block");
+  return permission as Record<string, unknown>;
+}
+
+test("every role answers doom_loop and external_directory with a denial, since nobody answers an 'ask' in a run", () => {
+  const permission = globalPermission();
+  assert.equal(permission.doom_loop, "deny");
+  const external = permission.external_directory as Record<string, unknown>;
+  assert.equal(external["*"], "deny", "the catch-all denies a directory outside the project");
+  assert.equal(Object.keys(external)[0], "*", "the catch-all comes first so that the exceptions after it are the last match");
+  for (const [pattern, action] of Object.entries(external)) {
+    if (pattern !== "*") assert.equal(action, "allow", `"${pattern}" is an exception to the catch-all and must allow`);
   }
 });
 
-test("no pattern map of any agent answers 'ask' (a run has nobody to answer, so it would hang)", () => {
+function actionsIn(rule: unknown): unknown[] {
+  return typeof rule === "string" ? [rule] : Object.values(rule as Record<string, unknown>);
+}
+
+test("no declared permission block answers 'ask' (a run has nobody to answer, so it would hang)", () => {
   const { agents } = loadAgentConfig();
-  let checked = 0;
+  const blocks: Array<[string, Record<string, unknown>]> = [["the top level", globalPermission()]];
   for (const [name, agent] of Object.entries(agents)) {
     const permission = (agent as { permission?: Record<string, unknown> }).permission;
-    if (!permission) continue;
-    checked++;
+    if (permission) blocks.push([`agent "${name}"`, permission]);
+  }
+  assert.ok(blocks.length >= 2, "expected the top level and at least one agent to declare a permission block");
+  for (const [owner, permission] of blocks) {
     for (const [tool, rule] of Object.entries(permission)) {
-      const actions = typeof rule === "string" ? [rule] : Object.values(rule as Record<string, unknown>);
-      assert.ok(!actions.includes("ask"), `agent "${name}" answers "ask" for ${tool}`);
+      assert.ok(!actionsIn(rule).includes("ask"), `${owner} answers "ask" for ${tool}`);
     }
   }
-  assert.ok(checked >= 1, "expected at least one agent to declare a permission block");
+});
+
+interface ResolvedRule {
+  permission: string;
+  pattern: string;
+  action: string;
+}
+
+/* An agent as `GET /agent` returns it. The recording is made on the pinned OpenCode build with the same
+   `permission` blocks the real config declares (src/integrations/fixtures/README.md). */
+function recordedAgents(): Array<{ name: string; native?: boolean; permission: ResolvedRule[] }> {
+  return JSON.parse(readFileSync(join(process.cwd(), "src", "integrations", "fixtures", "opencode-agent-list.json"), "utf8"));
+}
+
+/* The runtime's own defaults carry 'ask' rules (doom_loop, external_directory, an env file read); the
+   configuration is merged after them and the last rule that matches decides. A default 'ask' is therefore
+   still in force unless a later rule of the same permission answers the same pattern, or every path (`*`),
+   with something else: that later rule is the last match for whatever the 'ask' would have covered. */
+function unansweredAsks(rules: ResolvedRule[]): ResolvedRule[] {
+  return rules.filter(
+    (rule, index) =>
+      rule.action === "ask" &&
+      !rules
+        .slice(index + 1)
+        .some((later) => later.permission === rule.permission && (later.pattern === rule.pattern || later.pattern === "*") && later.action !== "ask"),
+  );
+}
+
+test("the resolved permissions of every configured role leave no 'ask' standing", () => {
+  /* The `qa-` agents of the recording carry the real roles' `tools` and `permission`; the `probe-` ones exist
+     for their step caps and carry neither. */
+  const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
+  assert.ok(configured.length >= 3, "expected the recorded generator, reviewer and explorer");
+  for (const agent of configured) {
+    assert.deepEqual(unansweredAsks(agent.permission), [], `the server resolves an 'ask' for "${agent.name}"`);
+  }
+});
+
+test("the resolved generator has no allowed shell command and keeps the runtime's tool-output directory", () => {
+  const generator = recordedAgents().find((agent) => agent.name === "qa-generator");
+  assert.ok(generator, "expected the recorded qa-generator");
+  const bash = generator.permission.filter((rule) => rule.permission === "bash");
+  assert.ok(bash.length > 0, "the generator carries a bash rule");
+  assert.deepEqual(
+    bash.filter((rule) => rule.action !== "deny"),
+    [],
+    "every bash rule the server resolves for the generator denies",
+  );
+  const external = generator.permission.filter((rule) => rule.permission === "external_directory");
+  assert.equal(external[external.length - 1]?.action, "allow", "the runtime's tool-output directory stays allowed last");
 });
 
 test("the Playwright tools that run code or push a file are denied to every role that drives the browser and writes", () => {

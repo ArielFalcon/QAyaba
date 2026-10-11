@@ -166,7 +166,7 @@ test("ensureCodexConfig: the engram table disables the session summary", () => {
 // servers themselves. What opencode.json denies the generator is the reference, so the two runtimes cannot
 // drift (a tool denied there and offered here is a role that reaches DEV through the other runtime).
 // The built-in shell is NOT covered here: Codex cannot restrict the commands of a write role (see
-// ensureCodexConfig), so the allow-list that opencode.json gives the generator has no Codex counterpart.
+// ensureCodexConfig), so the denial of the built-in shell that opencode.json gives the generator has no Codex counterpart.
 test("ensureCodexConfig: the playwright and serena tables disable the tools opencode.json denies the generator", () => {
   const generator = JSON.parse(readFileSync(join(import.meta.dirname, "opencode.json"), "utf8")).agent["qa-generator"];
   const deniedBare = (server, tool) => generator.tools[tool] === false && generator.tools[`${server}_${tool}`] === false;
