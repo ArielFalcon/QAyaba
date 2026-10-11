@@ -37,7 +37,7 @@ export interface CommitIntent {
 /** Port-local ArchitectureContext. Same no-cross-context-import rule as CommitIntent. */
 export interface ArchitectureContext {
   builtAtSha: string;
-  routes: Array<{ path: string; name?: string; component?: string; source?: string }>;
+  routes: Array<{ path: string; name?: string; component?: string; source?: string; implementationFiles?: string[] }>;
   api: Array<{ operationId: string; method: string; path: string; service?: string; spec?: string }>;
   feBe: Array<{ route: string; operationId: string; via?: string }>;
   flows?: Array<{ id: string; routes: string[]; operations?: string[] }>;

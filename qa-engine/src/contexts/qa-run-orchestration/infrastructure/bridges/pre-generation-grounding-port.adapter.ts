@@ -83,6 +83,30 @@ function isValidArchitectureContext(raw: unknown): raw is ArchitectureContext {
   return true;
 }
 
+/* A path that can name a file of the repository the map describes: text, not empty, and relative (not rooted, no drive or share, no step out of the repository). */
+function isRepoRelativePath(value: unknown): value is string {
+  if (typeof value !== "string" || value.trim().length === 0) return false;
+  if (/^([\\/]|[A-Za-z]:)/.test(value)) return false;
+  return !value.split(/[\\/]/).includes("..");
+}
+
+/* The map with each route's implementationFiles reduced to its well-formed entries: an entry that is not a repo-relative path is dropped, a list left empty (or a value that is not a list) is removed from its route, and the route and the map always stay. Returns how many routes are left without any file, and how many entries were dropped, for the one warning the caller gives. */
+function keepWellFormedImplementationFiles(map: ArchitectureContext): { map: ArchitectureContext; routesWithoutFiles: number; droppedEntries: number } {
+  let routesWithoutFiles = 0;
+  let droppedEntries = 0;
+  const routes = map.routes.map((route) => {
+    const { implementationFiles: declared, ...rest } = route as typeof route & { implementationFiles?: unknown };
+    const files = Array.isArray(declared) ? declared.filter(isRepoRelativePath) : [];
+    droppedEntries += (Array.isArray(declared) ? declared.length : 0) - files.length;
+    if (files.length === 0) {
+      routesWithoutFiles += 1;
+      return rest;
+    }
+    return { ...rest, implementationFiles: files };
+  });
+  return { map: { ...map, routes }, routesWithoutFiles, droppedEntries };
+}
+
 /* Where the context map is, relative to the spec directory, and the most of it the orchestrator reads: a map is a few lines per route and per operation, so the cap is far above any real one, and a larger file is no map. */
 const CONTEXT_MAP_FILE = ".qa/context.json";
 export const MAX_CONTEXT_MAP_BYTES = 8 * 1024 * 1024;
@@ -113,7 +137,12 @@ export function loadContextMapFromDisk(specDir: string): ArchitectureContext | u
     console.warn(`[qa] WARNING: ${ctxJsonPath} exists but failed form-validation; contextMap stays absent this run (contracts component degrades gracefully).`);
     return undefined;
   }
-  return parsed;
+  const { map, routesWithoutFiles, droppedEntries } = keepWellFormedImplementationFiles(parsed);
+  /* Route ranking ties a changed page file to its route through these files; a route without them is only ranked by the file that declares it. A count only: nothing the file holds is quoted. */
+  if (routesWithoutFiles > 0 || droppedEntries > 0) {
+    console.warn(`[qa] WARNING: ${ctxJsonPath}: ${routesWithoutFiles} of ${map.routes.length} routes name no implementationFiles${droppedEntries > 0 ? ` (${droppedEntries} malformed entries dropped)` : ""}; a changed page file cannot be tied to them (non-blocking).`);
+  }
+  return map;
 }
 
 /* Every *.spec.ts under `dir`, relative to it, without following a link: the listing of the module that confines what the agent writes. */

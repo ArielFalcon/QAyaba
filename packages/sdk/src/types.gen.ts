@@ -1137,6 +1137,7 @@ export interface components {
                 name?: string;
                 component?: string;
                 source?: string;
+                implementationFiles?: string[];
             }[];
             api: {
                 operationId: string;

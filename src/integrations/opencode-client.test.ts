@@ -572,6 +572,14 @@ test("buildContextTask without services is unchanged (no microservice section)",
   assert.doesNotMatch(text, /Microservice repos/);
 });
 
+test("buildContextTask asks the mapper for the files that implement each route, so a changed page file can be tied to its route", () => {
+  const text = buildContextTask({
+    repo: "org/shop-front", sha: "a1b2c3d", diff: "", mirrorDir: "/m/front", e2eRelDir: "e2e",
+    namespace: "qa-1", needsReview: false, target: "e2e", mode: "context", appName: "shop",
+  });
+  assert.match(text, /implementationFiles/);
+});
+
 /* This test pins the CURRENT observable behavior of buildWorkerPrompt for complete/exhaustive
    the sibling pins for shouldFanOut/runOpencodeParallel/generateParallel/buildPlanPrompt — those
    surfaces were dead (no production caller); this builder is still live.

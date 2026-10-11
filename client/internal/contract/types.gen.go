@@ -1278,10 +1278,11 @@ type ArchitectureContext struct {
 		Routes     []string  `json:"routes"`
 	} `json:"flows,omitempty"`
 	Routes []struct {
-		Component *string `json:"component,omitempty"`
-		Name      *string `json:"name,omitempty"`
-		Path      string  `json:"path"`
-		Source    *string `json:"source,omitempty"`
+		Component           *string   `json:"component,omitempty"`
+		ImplementationFiles *[]string `json:"implementationFiles,omitempty"`
+		Name                *string   `json:"name,omitempty"`
+		Path                string    `json:"path"`
+		Source              *string   `json:"source,omitempty"`
 	} `json:"routes"`
 }
 

@@ -299,6 +299,24 @@ test("GET /api/apps/:name/context-map returns 200 with the stored map and passes
   assert.equal(body.map.routes[0].path, "/owners");
 });
 
+test("GET /api/apps/:name/context-map keeps the files that implement each route", async () => {
+  const view = {
+    app: "demo",
+    map: {
+      builtAtSha: "abc1234",
+      routes: [{ path: "/owners", implementationFiles: ["src/pages/owners/OwnersPage.tsx"] }],
+      api: [{ operationId: "getOwners", method: "GET", path: "/api/owners" }],
+      feBe: [{ route: "/owners", operationId: "getOwners" }],
+    },
+    builtAtSha: "abc1234",
+    updatedAt: "2026-09-20T10:15:00Z",
+  };
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => view }));
+  assert.equal(r.status, 200);
+  assert.deepEqual(JSON.parse(r.body).map.routes[0].implementationFiles, ["src/pages/owners/OwnersPage.tsx"]);
+});
+
 const measuredTurn: AgentTurnRecord = {
   runId: "p1", sessionId: "sess-1", role: "qa-generator", round: 0, isRepair: false,
   ts: "2026-09-28T10:00:00.000Z", objective: null, promptText: "the prompt", outputText: "the output", promptBytes: 10,

@@ -3989,6 +3989,12 @@
                 },
                 "source": {
                   "type": "string"
+                },
+                "implementationFiles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [

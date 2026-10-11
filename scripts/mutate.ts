@@ -247,7 +247,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:146-146`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:179-179`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:209-209`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:238-238`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
       `${ORCH}/domain/helpers/selector-check.ts:401-405`,
       `${ORCH}/domain/pre-exec-grounding.service.ts:57-62`,
@@ -335,7 +335,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/harness-facts.ts`,
       `${GEN}/domain/step-limit.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:122-171`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:151-200`,
     ],
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
@@ -421,7 +421,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:71-111",
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:147-159",
       /* The context map: a strict read, and warnings that say nothing of what the file holds. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:86-117`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:86-146`,
       /* Setup: the caps, the strict copy of the seed (the mark of a project last) and the wiring of the real strict calls, the entries of .qa that are removed when they are not ordinary, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
       `${PUB_INFRA}/setup.adapter.ts:25-27`,
       `${PUB_INFRA}/setup.adapter.ts:223-275`,

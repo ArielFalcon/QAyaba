@@ -24,7 +24,7 @@ export interface RouteEntry {
   name?: string;
   component?: string;
   source?: string;
-  /* The files that implement the page. Optional and unchecked by the map's form validation: route ranking reads it only after checking its shape. */
+  /* Repo-relative paths of the files a change to the route's page would touch. Optional: the map loader keeps only well-formed entries (see loadContextMapFromDisk), and route ranking still checks the shape where it reads it. */
   implementationFiles?: string[];
 }
 export interface ApiOperation {

@@ -701,6 +701,8 @@ export const ArchitectureRouteSchema = z.object({
   name: z.string().optional(),
   component: z.string().optional(),
   source: z.string().optional(),
+  /** Repo-relative paths of the files a change to the route's page would touch. */
+  implementationFiles: z.array(z.string()).optional(),
 });
 
 export const ArchitectureApiOperationSchema = z.object({
