@@ -18,3 +18,10 @@ export function qayabaDataDir(): string {
  * baseline of scripts/baseline-agent.ts). It is not a repo's mirror, so the mirror pruning must leave it alone.
  */
 export const EXPERIMENT_COPIES_DIR = ".baseline";
+
+/*
+ * The directory under the mirrors root that holds an experiment's warm-start snapshots of a suite's `e2e/`
+ * (scripts/warm-suite.ts), one folder per app and label. It is not a repo's mirror, so the mirror pruning
+ * must leave it alone.
+ */
+export const WARM_SNAPSHOTS_DIR = ".warm";

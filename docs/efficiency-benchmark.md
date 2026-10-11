@@ -208,6 +208,39 @@ arm-specific facts under `detail` (what the agent changed outside `e2e/`, its cl
 run), and prints the same markdown rows. `--dry-run` prepares the copy, prints the prompt and the
 permissions the server resolved, and starts no session; `--check-auth` also makes the one login.
 
+### Warm start
+
+A watched app's suite starts every run from the stock seed, so every run first has to author the app's login.
+To compare the arms on the change itself, both start each case from the same snapshot of `e2e/` that holds a
+working `auth.setup.ts`, and no case sees the specs a previous one left. `warm-suite` (run in the orchestrator
+container; `snapshot` and `restore` refuse unless the queue is idle) manages the snapshots under
+`<mirrors>/.warm/<app>/<label>/` (`e2e/` plus `manifest.json`, which lists every file with its sha256 and what
+was left out):
+
+```bash
+docker compose exec orchestrator npm run warm-suite -- snapshot --app <app> --label <l>
+docker compose exec orchestrator npm run warm-suite -- verify   --app <app> --label <l>   # exit 0 = warm
+docker compose exec orchestrator npm run warm-suite -- restore  --app <app> --label <l> [--dry-run]
+```
+
+A snapshot leaves out `node_modules`, `test-results`, `playwright-report`, `blob-report`, `.serena`, `.git`,
+`.qa/coverage`, `.qa/fault-injection`, `.qa/measured.json`, logs, the login session (`.auth/`, any
+storage-state file by content) and credentials (`.env*`, keys and client certificates, `.har` files); links are
+never followed. The mirrors volume is mounted into the agents container, so nothing in a snapshot may be a
+secret. `restore` makes the mirror's `e2e/` equal to the snapshot (extra specs, directories, `.qa` state and
+run output are removed; `node_modules` is kept so nothing is reinstalled) and prints what it added, replaced
+and removed. `verify` is warm when the snapshot's `auth.setup.ts` exists and no longer carries the
+`qa-auth-setup-seed` marker. Take the snapshot after the app's login has been authored and before any case
+spec exists, restore it before every pipeline case, and pass the same label to the baseline arm:
+
+```bash
+docker compose exec orchestrator npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> --warm <snapshot-label>
+```
+
+With `--warm` the copy's `e2e/` is made equal to the snapshot before setup and the dependency install, the
+prompt says nothing about the login (the session is injected as usual), and the specs the snapshot held are
+not counted as the agent's. A cold or missing snapshot, or a warm login that cannot log in, stops the case.
+
 Differences between the arms that the numbers do not hide:
 
 - The agents container's global `instructions` (`agents/AGENTS.md`, the pipeline's shared rules) apply

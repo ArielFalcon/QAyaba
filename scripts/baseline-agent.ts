@@ -3,7 +3,7 @@
  * calls this, and it is not part of the pipeline.
  *
  *   npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run]
- *                             [--check-auth] [--keep-copy] [--keep-session]
+ *                             [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>]
  *
  * It gives one agent (`qa-baseline`) what a developer with a coding agent would have: the whole repository at
  * the commit, a short prompt (the commit message, `git show --stat` and the full diff, plus a few lines of
@@ -20,8 +20,13 @@
  * same call tracker, the specs it wrote are run twice with the repo's Playwright runner, and the report is
  * written to config/benchmarks/probe-results/<label>.json.
  *
+ * `--warm <label>` starts the copy from a snapshot of the suite (scripts/warm-suite.ts) instead of the stock
+ * seed: the same `e2e/` the pipeline arm is restored to, with a login already written for the app. The agent
+ * is then not told about the login at all, and the specs the snapshot held are not counted as its own.
+ *
  * Run it inside the orchestrator container, with the queue idle: DEV is used by one thing at a time.
  */
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -31,11 +36,12 @@ import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/c
 import { buildTurnStepBudget, type TurnCallMetrics } from "@contexts/generation/domain/turn-efficiency-summary.ts";
 import { finalStepText } from "@contexts/generation/domain/step-exhaustion.ts";
 import { AUTH_MATERIAL_FILES } from "../qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts";
-import { EXPERIMENT_COPIES_DIR } from "../src/paths.ts";
+import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
 import {
   DEFAULT_SUITE_DIR, renderMarkdown, totalsOf, turnFromCallMetrics, type PhaseDurations, type ProbeReport, type ProbeSpec, type ReadingContext,
 } from "./probe-metrics.ts";
 import { assertFileName, defaultProbeResultsDir, writeJsonAtomically } from "./probe-report.ts";
+import { MAX_FILE_BYTES, loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -426,6 +432,8 @@ export interface BaselineArguments {
   checkAuth: boolean;
   keepCopy: boolean;
   keepSession: boolean;
+  /** The label of the warm-start snapshot (scripts/warm-suite.ts) the copy's suite starts from, or null for the stock seed. */
+  warm: string | null;
 }
 
 const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
@@ -433,7 +441,7 @@ const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 export function parseArguments(argv: readonly string[]): { ok: true; args: BaselineArguments } | { ok: false; problem: string } {
   const values: Record<string, string> = {};
   const flags = new Set<string>();
-  const valued = new Set(["--app", "--sha", "--timeout-min", "--label"]);
+  const valued = new Set(["--app", "--sha", "--timeout-min", "--label", "--warm"]);
   const boolean = new Set(["--dry-run", "--check-auth", "--keep-copy", "--keep-session"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -455,6 +463,7 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
   try {
     assertFileName(values["--label"]!, "label");
     assertFileName(values["--app"]!, "app");
+    if (values["--warm"] !== undefined) assertFileName(values["--warm"], "warm snapshot label");
   } catch (err) {
     return { ok: false, problem: `error: ${err instanceof Error ? err.message : String(err)}` };
   }
@@ -463,6 +472,7 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
     args: {
       app: values["--app"]!, sha: values["--sha"]!, timeoutMin, label: values["--label"]!,
       dryRun: flags.has("--dry-run"), checkAuth: flags.has("--check-auth"), keepCopy: flags.has("--keep-copy"), keepSession: flags.has("--keep-session"),
+      warm: values["--warm"] ?? null,
     },
   };
 }
@@ -487,6 +497,8 @@ export interface CopyPlan {
   authDir: string;
   env: HarnessEnv;
   agentConfig: { $schema: string; agent: Record<string, unknown> };
+  /** The snapshot the copy's suite directory is made equal to before setup, in place of the stock seed. */
+  warm?: LoadedSnapshot;
 }
 
 export interface CommitMaterial {
@@ -511,10 +523,12 @@ export interface BaselineDeps {
   /** What the queue holds right now, as text, for a dry run that does not refuse. */
   queueState(): Promise<string>;
   loadApp(name: string): AppInfo;
+  /** The warm-start snapshot `label` of the app, whole and checked against its manifest; throws when there is none. */
+  loadWarmSnapshot(app: string, label: string): LoadedSnapshot;
   agentsConfig(): unknown;
   copyDirFor(label: string, app: AppInfo): { copyDir: string; authDir: string };
   copyExists(copyDir: string): boolean;
-  /** Clones the working copy at the commit, installs the suite's dependencies, writes the agent's config and the harness files. */
+  /** Clones the working copy at the commit, puts the warm snapshot's suite in place when the plan has one, installs the suite's dependencies, writes the agent's config and the harness files. */
   prepareCopy(plan: CopyPlan): Promise<void>;
   removeCopy(plan: CopyPlan): void;
   commitMaterial(copyDir: string, sha: string): Promise<CommitMaterial>;
@@ -529,8 +543,8 @@ export interface BaselineDeps {
    */
   prepareAuth(app: AppInfo, plan: CopyPlan, phase: "pre-generate" | "pre-execute"): Promise<{ unauthored: boolean }>;
   runAgent(input: { copyDir: string; prompt: string; timeoutMs: number; keepSession: boolean }): Promise<AgentRun>;
-  /** The specs the agent added or changed, relative to the suite directory, and the paths it changed outside the suite directory. */
-  changedFiles(copyDir: string): Promise<{ specs: string[]; outsideSuite: string[] }>;
+  /** The specs the agent added or changed, relative to the suite directory (those the warm snapshot held, unchanged, are not its), and the paths it changed outside the suite directory. */
+  changedFiles(copyDir: string, warm?: LoadedSnapshot): Promise<{ specs: string[]; outsideSuite: string[] }>;
   specLines(copyDir: string, specs: readonly string[]): Map<string, number | null>;
   runSuite(input: { copyDir: string; authDir: string; app: AppInfo; namespace: string; specs: readonly string[] }): Promise<SuiteRun>;
   writeReport(label: string, report: ProbeReport): string;
@@ -539,6 +553,7 @@ export interface BaselineDeps {
 }
 
 const MS_PER_MIN = 60_000;
+const WARM_LOGIN_FAILED = "the warm snapshot's auth.setup.ts could not log in to this app (the snapshot may be stale): the case would not be a warm start";
 const PROMPT_PREVIEW_LINES = 40;
 
 function emptyPhases(): PhaseDurations {
@@ -561,6 +576,12 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
     else await deps.assertQueueIdle();
 
     const app = deps.loadApp(args.app);
+    const warm = args.warm !== null ? deps.loadWarmSnapshot(app.name, args.warm) : undefined;
+    if (warm) {
+      const status = warmStatus(warm);
+      if (!status.warm) throw new Error(`warm snapshot '${warm.label}' is not warm: ${status.note}`);
+      out(`[baseline] warm start: the suite starts from snapshot '${warm.label}' (${warm.manifest.files.length} files, taken ${warm.manifest.createdAt}), not from the stock seed`);
+    }
     const generator = generatorSettings(deps.agentsConfig());
     const { copyDir, authDir } = deps.copyDirFor(args.label, app);
     if (deps.copyExists(copyDir)) throw new Error(`${copyDir} already exists: a label names one run, pick another or remove the directory`);
@@ -569,6 +590,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
       repo: app.repo, sha: args.sha, copyDir, authDir,
       env: { baseUrl: app.baseUrl, namespace, ...(app.testIdAttribute ? { testIdAttribute: app.testIdAttribute } : {}), storageStatePath: join(authDir, AUTH_MATERIAL_FILES.storageState) },
       agentConfig: baselineAgentConfig(generator),
+      ...(warm ? { warm } : {}),
     };
 
     const setupStarted = deps.now();
@@ -595,7 +617,8 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
       let loginUnavailable = false;
       if (args.checkAuth) {
         const login = await deps.prepareAuth(app, plan, "pre-generate");
-        loginUnavailable = login.unauthored;
+        loginUnavailable = login.unauthored && !warm;
+        if (login.unauthored && warm) throw new Error(WARM_LOGIN_FAILED);
         out(login.unauthored
           ? "[baseline] the automatic login did not work for this app (as for the pipeline's own pre-generation login); the agent is told to fix e2e/auth.setup.ts and may run it with --project=setup"
           : "[baseline] login succeeded: the session is where the harness env expects it");
@@ -613,6 +636,8 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
     }
 
     const login = await deps.prepareAuth(app, plan, "pre-generate");
+    /* A warm suite brings its own login: the agent is never told to write one, and one that does not work stops the case (it would not be warm). */
+    if (login.unauthored && warm) throw new Error(WARM_LOGIN_FAILED);
     if (login.unauthored) out("[baseline] the automatic login did not work for this app: the agent is told so, as the pipeline's generator is");
     const prompt = promptFor(login.unauthored);
     const setupMs = deps.now() - setupStarted;
@@ -626,7 +651,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
     const ended: "completed" | "timeout" | "exhausted" | "error" = run.ended === "completed" ? (budget.exhausted === true ? "exhausted" : "completed") : run.ended;
     const wallMs = Math.max(0, run.endedAt - run.startedAt);
 
-    const changed = await deps.changedFiles(copyDir);
+    const changed = await deps.changedFiles(copyDir, warm);
     const specs = changed.specs;
     await assertIdle(deps);
     const executeStarted = deps.now();
@@ -680,7 +705,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
       coverage: null,
       reviewer: null,
       detail: {
-        model: generator.model, stepCap: generator.steps, timeoutMin: args.timeoutMin, sessionId: run.sessionId, sessionError: run.error ?? null,
+        model: generator.model, stepCap: generator.steps, timeoutMin: args.timeoutMin, warmSnapshot: warm?.label ?? null, sessionId: run.sessionId, sessionError: run.error ?? null,
         suiteRuns: runs, declaredNoop: declaresNoop(finalText), changedOutsideSuite: changed.outsideSuite,
         finalText: redact(finalText).slice(0, 4_000), namespace, copyDir: args.keepCopy ? copyDir : null,
       },
@@ -718,13 +743,14 @@ function lastAssistantParts(messages: readonly SessionMessage[]): Array<{ type: 
 }
 
 const USAGE = [
-  "usage: npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run] [--check-auth] [--keep-copy] [--keep-session]",
+  "usage: npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run] [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>]",
   "  EXPERIMENT ONLY. Runs one plain agent (no pipeline stages) on a throwaway copy of the app at the commit, then runs its specs twice,",
   "  and writes config/benchmarks/probe-results/<label>.json in the shape probe-report emits.",
   "  --dry-run       prepare the copy, print the prompt and the permissions the server resolved for the agent, start no session",
   "  --check-auth    with --dry-run: also log in once to DEV, to prove the session the agent's tests use",
   "  --keep-copy     keep the throwaway copy (default: removed at the end of a dry run, kept never otherwise unless set)",
   "  --keep-session  keep the OpenCode session (default: deleted once its metrics are collected)",
+  "  --warm <label>  start the copy's e2e/ from a warm-suite snapshot (login already authored) instead of the stock seed; the prompt then says nothing about the login",
   "run inside the orchestrator container, with the queue idle.",
 ].join("\n");
 
@@ -739,7 +765,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
   const { workdirRoot, realGit, getCommitMessage, getCommitDiff, listChangedSpecs, defaultMirrorDeps } = await import("../src/integrations/repo-mirror.ts");
   const { buildSetupAdapter } = await import("../src/server/rewritten-engine-factory.ts");
-  const { readConfinedSpecFile } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
+  const { readConfinedSpecFile, readConfinedSpecBytes } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
   const { SandboxedBinaryRunnerAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.ts");
@@ -771,6 +797,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       if (app.auth?.kind === "mtls") throw new Error(`app '${name}' logs in with a client certificate, whose passphrase would have to reach the agent's shell: the baseline does not support it`);
       return { name: app.name, repo: app.repo, baseUrl: app.dev.baseUrl, testDataPrefix: app.qa.testDataPrefix, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}) };
     },
+    loadWarmSnapshot: (appName, label) => loadSnapshot(warmSnapshotDir(join(mirrorsRoot, WARM_SNAPSHOTS_DIR), appName, label), label),
     agentsConfig: () => JSON.parse(readFileSync(env.OPENCODE_CONFIG ?? join(ROOT, "agents", "opencode.json"), "utf8")) as unknown,
     copyDirFor: (label) => {
       const base = join(mirrorsRoot, EXPERIMENT_COPIES_DIR);
@@ -794,6 +821,8 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
         await realGit(["clean", "-fd", "-e", "node_modules"], plan.copyDir);
 
         const e2eDir = join(plan.copyDir, SUITE_DIR);
+        /* A warm start: the suite directory is the snapshot's, exactly (whatever the commit tracked there goes), so setup finds a login written for the app and leaves it. */
+        if (plan.warm) restoreSuite(plan.warm, { mirrorDir: plan.copyDir, e2eDir });
         /* The suite's seed and dependency install are the pipeline's own setup step. */
         await buildSetupAdapter().setup(e2eDir);
 
@@ -900,8 +929,17 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       return { sessionId, startedAt, endedAt, ended, ...(error ? { error } : {}), messages: (messages.data ?? []) as unknown as SessionMessage[] };
     },
 
-    changedFiles: async (copyDir) => {
-      const specs = await listChangedSpecs(copyDir, SUITE_DIR, git);
+    changedFiles: async (copyDir, warm) => {
+      const listed = await listChangedSpecs(copyDir, SUITE_DIR, git);
+      const root = { mirrorDir: copyDir, specDir: join(copyDir, SUITE_DIR) };
+      const hashOf = (spec: string): string | null => {
+        try {
+          return createHash("sha256").update(readConfinedSpecBytes(root, spec, MAX_FILE_BYTES)).digest("hex");
+        } catch {
+          return null;
+        }
+      };
+      const specs = warm ? specsTouchedSinceSnapshot(listed, warm.manifest, hashOf) : listed;
       const status = await realGit(["status", "--porcelain", "--untracked-files=all", "--ignore-submodules=dirty"], copyDir);
       const touched = status.split("\n").filter((l) => l.length > 3).map((l) => l.slice(3).replace(/^.* -> /, ""));
       /* The harness's own files, and opencode.json, are ours and not the agent's. */

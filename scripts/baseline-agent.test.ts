@@ -9,6 +9,7 @@ import {
   type AgentRun, type BaselineDeps, type CopyPlan, type PermissionRule, type SessionMessage, type SuiteRun,
 } from "./baseline-agent.ts";
 import type { ProbeReport } from "./probe-metrics.ts";
+import type { LoadedSnapshot } from "./warm-suite.ts";
 
 /* ── the generator's settings ── */
 
@@ -233,6 +234,16 @@ test("a session with no assistant message has no metrics, and the closing words 
 
 /* ── the run, over fakes ── */
 
+/* A warm-start snapshot as the runner receives it: the suite as a case starts from, with a login written for the app unless told otherwise. */
+function warmSnapshot(login = "setup('authenticate', async () => {});\n"): LoadedSnapshot {
+  return {
+    label: "warm-1",
+    dir: "/mirrors/.warm/demo/warm-1",
+    manifest: { schema: 1, app: "demo", repo: "org/demo", label: "warm-1", createdAt: "2026-10-11T10:00:00.000Z", files: [{ path: "auth.setup.ts", sha256: "0".repeat(64), bytes: login.length }], excluded: [] },
+    files: new Map([["auth.setup.ts", Buffer.from(login)]]),
+  };
+}
+
 const GENERATOR_CONFIG = { agent: { [GENERATOR_AGENT]: { model: "p/m", maxSteps: 50, temperature: 0.2 } } };
 
 interface Harness {
@@ -252,6 +263,7 @@ function harness(over: Partial<BaselineDeps> = {}, opts: { rules?: PermissionRul
     assertQueueIdle: async () => { calls.push("queue"); },
     queueState: async () => "idle",
     loadApp: (name) => ({ name, repo: "org/demo", baseUrl: "https://dev.example.test", testDataPrefix: "qa-bot" }),
+    loadWarmSnapshot: () => warmSnapshot(),
     agentsConfig: () => GENERATOR_CONFIG,
     copyDirFor: (label) => ({ copyDir: `/mirrors/.baseline/${label}`, authDir: `/mirrors/.baseline/${label}.auth` }),
     copyExists: () => false,
@@ -388,4 +400,59 @@ test("the plan the run hands to the copy carries the app's site, a namespace wit
   assert.ok(plan.env.namespace.endsWith("arm-a-1"));
   assert.ok(plan.copyDir.endsWith("/arm-a-1"));
   assert.ok(plan.env.storageStatePath.startsWith(plan.authDir), "the login session lives beside the copy, not inside it");
+});
+
+/* ── a warm start ── */
+
+test("--warm names the snapshot the suite starts from, and a label that cannot name a path is refused", () => {
+  const parsed = parseArguments(argv("--warm", "warm-1"));
+  assert.ok(parsed.ok);
+  assert.equal(parsed.ok && parsed.args.warm, "warm-1");
+  const stock = parseArguments(argv());
+  assert.equal(stock.ok && stock.args.warm, null);
+  assert.equal(parseArguments(argv("--warm")).ok, false);
+  assert.equal(parseArguments(argv("--warm", "../x")).ok, false);
+});
+
+test("a warm run hands the snapshot to the copy, tells the agent nothing about the login, and counts only the specs the agent changed", async () => {
+  const plans: CopyPlan[] = [];
+  const seen: Array<LoadedSnapshot | undefined> = [];
+  const h = harness({
+    prepareCopy: async (plan) => { plans.push(plan); },
+    changedFiles: async (_copyDir, warm) => { seen.push(warm); return { specs: ["flows/cart.spec.ts"], outsideSuite: [] }; },
+  });
+  assert.equal(await main(argv("--warm", "warm-1"), h.deps), 0);
+  assert.equal(plans[0]?.warm?.label, "warm-1");
+  assert.equal(seen[0]?.label, "warm-1");
+  const prompt = h.prompts[0]!;
+  assert.equal(prompt.includes("auth.setup"), false, "the agent is not told to rewrite the login");
+  assert.equal(prompt.includes("--project=setup"), false);
+  assert.ok(prompt.includes("do not write your own login"), "it is told the session is handled");
+  assert.equal((h.reports[0]!.detail as Record<string, unknown>)["warmSnapshot"], "warm-1");
+});
+
+test("a run without --warm starts from the stock seed: no snapshot is loaded and the plan carries none", async () => {
+  const plans: CopyPlan[] = [];
+  let loaded = false;
+  const h = harness({ prepareCopy: async (plan) => { plans.push(plan); }, loadWarmSnapshot: () => { loaded = true; return warmSnapshot(); } });
+  await main(argv(), h.deps);
+  assert.equal(loaded, false);
+  assert.equal(plans[0]?.warm, undefined);
+});
+
+test("a snapshot whose login is still the stock seed, or one that does not exist, stops the run before a copy is made", async () => {
+  const cold = harness({ loadWarmSnapshot: () => warmSnapshot("// qa-auth-setup-seed\n") });
+  assert.equal(await main(argv("--warm", "warm-1"), cold.deps), 1);
+  assert.equal(cold.calls.includes("prepare"), false);
+  assert.ok(cold.lines.some((l) => l.includes("not warm")));
+
+  const missing = harness({ loadWarmSnapshot: () => { throw new Error("there is no snapshot 'warm-1'"); } });
+  assert.equal(await main(argv("--warm", "warm-1"), missing.deps), 1);
+  assert.equal(missing.calls.includes("prepare"), false);
+});
+
+test("a warm login that cannot be made stops the case instead of sending the agent to rewrite it", async () => {
+  const h = harness({ prepareAuth: async (_a, _p, phase) => { h.calls.push(`auth:${phase}`); return { unauthored: true }; } });
+  assert.equal(await main(argv("--warm", "warm-1"), h.deps), 1);
+  assert.equal(h.calls.includes("agent"), false);
 });

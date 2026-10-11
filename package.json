@@ -26,6 +26,7 @@
     "efficiency-benchmark": "tsx scripts/efficiency-benchmark.ts",
     "probe-report": "tsx scripts/probe-report.ts",
     "baseline-agent": "tsx scripts/baseline-agent.ts",
+    "warm-suite": "tsx scripts/warm-suite.ts",
     "arch:check": "depcruise --config qa-engine/.dependency-cruiser.cjs qa-engine/src"
   },
   "dependencies": {
