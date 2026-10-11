@@ -50,6 +50,7 @@ const measuredMetrics = {
   timeToFirstWriteMs: 80_000,
   deniedCallCount: 1,
   toolSequence: [{ tool: "read", target: "src/a.ts" }, { tool: "bash", target: "ls", denied: true as const }],
+  usage: { input: 900, output: 80, reasoning: 0, cacheRead: 40_000, cacheWrite: 0, cost: 0.02, steps: 9 },
 };
 
 function outcome(runId: string, app: string): RunOutcome {

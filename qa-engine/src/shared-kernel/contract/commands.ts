@@ -746,6 +746,17 @@ export type RunReportView = z.infer<typeof RunReportViewSchema>;
 
 const nullableCount = z.number().int().nonnegative().nullable();
 
+/** What a turn spent over every step it finished; the turn's own tokens and cost fields are those of its last assistant message alone. */
+export const TurnUsageViewSchema = z.object({
+  input: z.number().nonnegative(),
+  output: z.number().nonnegative(),
+  reasoning: z.number().nonnegative(),
+  cacheRead: z.number().nonnegative(),
+  cacheWrite: z.number().nonnegative(),
+  cost: z.number().nonnegative(),
+  steps: z.number().int().nonnegative(),
+});
+
 /** One call of a turn's tool sequence: the tool, what it pointed at (null when it pointed at nothing), the path a search ran in, and whether the runtime refused it. */
 export const ToolSequenceEntryViewSchema = z.object({
   tool: z.string(),
@@ -754,7 +765,7 @@ export const ToolSequenceEntryViewSchema = z.object({
   denied: z.literal(true).optional(),
 });
 
-/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, script_run, memory, subagent, other); counts only, never paths or targets. ended says how the turn ended (completed, exhausted, timeout, aborted); null for a turn recorded before it was kept or by a runtime that does not say. A turn that ended by timeout or abort has empty outputText and only the calls measured up to its end. durationMs is the turn's wall time; timeToFirstCallMs and timeToFirstWriteMs count from when the turn started (null when it made no call / wrote nothing); deniedCallCount counts the calls the runtime refused under a permission rule (null, never 0, when the turn was not measured); toolSequence lists the turn's calls in order, each with the redacted, capped file, pattern, url or command it pointed at (never what it typed or wrote). */
+/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, script_run, memory, subagent, other); counts only, never paths or targets. ended says how the turn ended (completed, exhausted, timeout, aborted); null for a turn recorded before it was kept or by a runtime that does not say. A turn that ended by timeout or abort has empty outputText and only the calls measured up to its end. durationMs is the turn's wall time; timeToFirstCallMs and timeToFirstWriteMs count from when the turn started (null when it made no call / wrote nothing); deniedCallCount counts the calls the runtime refused under a permission rule (null, never 0, when the turn was not measured); toolSequence lists the turn's calls in order, each with the redacted, capped file, pattern, url or command it pointed at (never what it typed or wrote). usageTotal sums the tokens and cost of every step the turn finished, which the tokens and cost fields above (the last assistant message's alone) do not; null when the steps were not all observed or none finished. */
 export const AgentTurnViewSchema = z.object({
   runId: z.string().nullable(),
   sessionId: z.string(),
@@ -789,6 +800,7 @@ export const AgentTurnViewSchema = z.object({
   timeToFirstWriteMs: nullableCount,
   deniedCallCount: nullableCount,
   toolSequence: z.array(ToolSequenceEntryViewSchema).nullable(),
+  usageTotal: TurnUsageViewSchema.nullable(),
 });
 
 export type AgentTurnView = z.infer<typeof AgentTurnViewSchema>;

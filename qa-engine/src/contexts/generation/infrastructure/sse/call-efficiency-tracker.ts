@@ -35,7 +35,7 @@ import {
 } from "../../domain/call-sequence.ts";
 import { indexPromptLines, isProvidedByPrompt, sampleReadOutput } from "../../domain/provided-context.ts";
 import { callFingerprint } from "./call-fingerprint.ts";
-import { buildTurnCallMetrics, type TurnCallMetrics } from "../../domain/turn-efficiency-summary.ts";
+import { buildTurnCallMetrics, type TurnCallMetrics, type TurnUsage } from "../../domain/turn-efficiency-summary.ts";
 import {
   TOOL_SEQUENCE_MAX_ENTRIES,
   TOOL_TARGET_MAX_CHARS,
@@ -52,6 +52,19 @@ interface PartLike {
   callID?: string;
   tool?: string;
   state?: { status?: string; input?: unknown; output?: unknown; error?: unknown };
+  /** step-finish parts only. */
+  tokens?: { input?: unknown; output?: unknown; reasoning?: unknown; cache?: { read?: unknown; write?: unknown } };
+  cost?: unknown;
+}
+
+/** What one finished step spent. */
+interface StepUsage {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
 }
 
 interface TrackedCall {
@@ -122,6 +135,10 @@ interface SessionState {
   /** Every call the runtime refused, whether or not it ever ran; only grows. */
   deniedIds: Set<string>;
   flushedDenied: number;
+  /** Every finished step seen, by part id, the latest sighting of a part winning. */
+  stepUsage: Map<string, StepUsage>;
+  /** The steps already counted by an earlier flush. */
+  flushedUsageIds: Set<string>;
 }
 
 function pathOf(input: unknown, cwd: string): string | undefined {
@@ -143,7 +160,43 @@ function newSession(cwd: string, stepsComplete: boolean): SessionState {
     turnStartedAt: null,
     deniedIds: new Set(),
     flushedDenied: 0,
+    stepUsage: new Map(),
+    flushedUsageIds: new Set(),
   };
+}
+
+/* A finite, non-negative number or nothing: a malformed figure is dropped rather than summed. */
+function count(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/* The usage of one step-finish part, or undefined when its figures are not numbers. */
+function stepUsageOf(part: PartLike): StepUsage | undefined {
+  const input = count(part.tokens?.input);
+  const output = count(part.tokens?.output);
+  const cost = count(part.cost);
+  if (input === undefined || output === undefined || cost === undefined) return undefined;
+  return {
+    input,
+    output,
+    reasoning: count(part.tokens?.reasoning) ?? 0,
+    cacheRead: count(part.tokens?.cache?.read) ?? 0,
+    cacheWrite: count(part.tokens?.cache?.write) ?? 0,
+    cost,
+  };
+}
+
+function sumUsage(steps: readonly StepUsage[]): TurnUsage {
+  const total: TurnUsage = { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0, steps: steps.length };
+  for (const step of steps) {
+    total.input += step.input;
+    total.output += step.output;
+    total.reasoning += step.reasoning;
+    total.cacheRead += step.cacheRead;
+    total.cacheWrite += step.cacheWrite;
+    total.cost += step.cost;
+  }
+  return total;
 }
 
 /* Redaction runs on a bounded prefix, so a pathological input costs a bounded amount. */
@@ -318,6 +371,12 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       session.sawEventSinceFlush = true;
       return;
     }
+    if (part.type === "step-finish") {
+      const usage = stepUsageOf(part);
+      if (part.id && usage) session.stepUsage.set(part.id, usage);
+      session.sawEventSinceFlush = true;
+      return;
+    }
     if (part.type !== "tool" || !part.callID || !part.tool) return;
     session.sawEventSinceFlush = true;
 
@@ -377,6 +436,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     const promptIndex = indexPromptLines(promptText);
     const provided = new Set(providedPaths?.map((p) => resolve(session.cwd, p)));
     const newSteps = session.stepStarts.size - session.flushedSteps;
+    const finishedSteps = [...session.stepUsage].filter(([id]) => !session.flushedUsageIds.has(id));
     const sinceStart = (call: TrackedCall | undefined): number | null =>
       call && session.turnStartedAt !== null ? Math.max(0, call.firstSeenAt - session.turnStartedAt) : null;
 
@@ -392,7 +452,9 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       timeToFirstWriteMs: sinceStart(turnCalls.find((call) => call.bucket === CALL_BUCKETS.WRITE)),
       deniedCallCount: session.deniedIds.size - session.flushedDenied,
       toolSequence: turnCalls.slice(0, TOOL_SEQUENCE_MAX_ENTRIES).map(toSequenceEntry),
+      usage: session.stepsComplete && finishedSteps.length > 0 ? sumUsage(finishedSteps.map(([, usage]) => usage)) : null,
     });
+    for (const [id] of finishedSteps) session.flushedUsageIds.add(id);
 
     session.flushedDenied = session.deniedIds.size;
     session.turnStartedAt = null;

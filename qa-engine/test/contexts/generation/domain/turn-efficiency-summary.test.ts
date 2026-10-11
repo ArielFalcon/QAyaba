@@ -41,6 +41,7 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
     timeToFirstWriteMs: 9000,
     deniedCallCount: 3,
     toolSequence: [{ tool: "read", target: "a.ts" }, { tool: "write", target: "a.ts" }],
+    usage: { input: 1, output: 2, reasoning: 3, cacheRead: 4, cacheWrite: 5, cost: 0.6, steps: 7 },
   });
 
   assert.equal(metrics.totalCalls, 2);
@@ -57,6 +58,7 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
   assert.equal(metrics.timeToFirstWriteMs, 9000);
   assert.equal(metrics.deniedCallCount, 3);
   assert.deepEqual(metrics.toolSequence, [{ tool: "read", target: "a.ts" }, { tool: "write", target: "a.ts" }]);
+  assert.deepEqual(metrics.usage, { input: 1, output: 2, reasoning: 3, cacheRead: 4, cacheWrite: 5, cost: 0.6, steps: 7 });
 });
 
 test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence's repeatedCallCount", () => {
@@ -77,6 +79,7 @@ test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence
     timeToFirstWriteMs: null,
     deniedCallCount: 0,
     toolSequence: [],
+    usage: null,
   });
   assert.equal(metrics.duplicateCallCount, 1);
   assert.equal(metrics.stepsUsed, null);

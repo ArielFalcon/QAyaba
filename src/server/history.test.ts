@@ -604,6 +604,7 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
           { tool: "grep", target: "createUser", scope: "src" },
           { tool: "bash", target: "rm -rf /", denied: true },
         ],
+        usage: { input: 52_000, output: 1_900, reasoning: 400, cacheRead: 1_200_000, cacheWrite: 0, cost: 0.0421, steps: 50 },
       },
       durationMs: 361_500,
     }),
@@ -624,6 +625,7 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
   assert.equal(saved!.timeToFirstCallMs, 1_800);
   assert.equal(saved!.timeToFirstWriteMs, 95_000);
   assert.equal(saved!.deniedCallCount, 2);
+  assert.deepEqual(saved!.usageTotal, { input: 52_000, output: 1_900, reasoning: 400, cacheRead: 1_200_000, cacheWrite: 0, cost: 0.0421, steps: 50 }, "the usage of every step is kept apart from the last message's tokens");
   assert.deepEqual(saved!.toolSequence, [
     { tool: "read", target: "src/app/a.ts" },
     { tool: "grep", target: "createUser", scope: "src" },
@@ -640,7 +642,7 @@ test("a turn that wrote nothing keeps its unknown time to first write and an emp
       totalCalls: 0, stepsUsed: 1, observationComplete: true, callsBeforeFirstWrite: 0, writeCount: 0, commandCount: 0, redundantReadCount: 0,
       duplicateCallCount: 0, promptProvidedReadCount: 0, pathProvidedReadCount: 0,
       buckets: { code_read: 0, browser: 0, write: 0, validate_run: 0, script_run: 0, memory: 0, subagent: 0, other: 0 },
-      timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: 0, toolSequence: [],
+      timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: 0, toolSequence: [], usage: null,
     },
   }));
   saveAgentTurnEvent(makeTurnEvent({ runId, sessionId: "s-unmeasured", callMetrics: null }));
@@ -648,10 +650,12 @@ test("a turn that wrote nothing keeps its unknown time to first write and an emp
   const measured = turns.find((t) => t.sessionId === "s-measured")!;
   assert.equal(measured.deniedCallCount, 0);
   assert.deepEqual(measured.toolSequence, []);
+  assert.equal(measured.usageTotal, null, "a measured turn with no finished step has no usage, not a zero one");
   assert.equal(measured.timeToFirstWriteMs, null);
   const unmeasured = turns.find((t) => t.sessionId === "s-unmeasured")!;
   assert.equal(unmeasured.deniedCallCount, null, "no measurement is not zero denials");
   assert.equal(unmeasured.toolSequence, null);
+  assert.equal(unmeasured.usageTotal, null);
   assert.equal(unmeasured.durationMs, null);
 });
 
@@ -668,7 +672,7 @@ test("saveAgentTurnEvent keeps how a turn ended, and a turn that never answered 
       totalCalls: 31, stepsUsed: 12, observationComplete: true, callsBeforeFirstWrite: 31, writeCount: 0, commandCount: 0, redundantReadCount: 0,
       duplicateCallCount: 0, promptProvidedReadCount: 0, pathProvidedReadCount: 0,
       buckets: { code_read: 20, browser: 6, write: 0, validate_run: 1, script_run: 4, memory: 0, subagent: 0, other: 0 },
-      timeToFirstCallMs: 70_000, timeToFirstWriteMs: null, deniedCallCount: 0, toolSequence: [],
+      timeToFirstCallMs: 70_000, timeToFirstWriteMs: null, deniedCallCount: 0, toolSequence: [], usage: null,
     },
   }));
   const [answered, timedOut] = getAgentTurns(runId);

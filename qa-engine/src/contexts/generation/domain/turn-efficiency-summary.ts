@@ -18,6 +18,18 @@ export interface TurnStepBudget {
   exhausted: boolean | null;
 }
 
+/** What a turn spent over every step it finished (the sum of its step-finish parts), as opposed to the usage of the last assistant message alone. */
+export interface TurnUsage {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+  /** How many finished steps the sums cover. */
+  steps: number;
+}
+
 export interface TurnCallMetrics {
   totalCalls: number;
   /** Steps the turn opened; null unless every one of them was observed. */
@@ -42,6 +54,8 @@ export interface TurnCallMetrics {
   deniedCallCount: number;
   /** The turn's calls in order, each with the sanitized, capped target it pointed at (see `tool-sequence.ts`). */
   toolSequence: ToolSequenceEntry[];
+  /** Usage summed over the turn's finished steps; null unless every step was observed and at least one finished. A step still running when a turn timed out is not in the sum. */
+  usage: TurnUsage | null;
 }
 
 const ZERO_BUCKETS: Record<CallBucket, number> = {
@@ -75,6 +89,7 @@ export interface BuildTurnCallMetricsInput {
   timeToFirstWriteMs: number | null;
   deniedCallCount: number;
   toolSequence: ToolSequenceEntry[];
+  usage: TurnUsage | null;
 }
 
 /** Assembles the pinned `TurnCallMetrics` shape from a `CallSequenceSummary`
@@ -97,6 +112,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     timeToFirstWriteMs: input.timeToFirstWriteMs,
     deniedCallCount: input.deniedCallCount,
     toolSequence: input.toolSequence,
+    usage: input.usage,
   };
 }
 

@@ -995,3 +995,64 @@ test("denied calls are counted per turn and a turn with no event has no metrics 
   runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
   assert.equal(tracker.take("s1", "")?.deniedCallCount, 0);
 });
+
+function stepFinish(sessionID: string, id: string, tokens: { input: number; output: number; reasoning?: number; read?: number; write?: number }, cost: number): RawOpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id, sessionID, messageID: "msg_1", type: "step-finish", reason: "tool-calls",
+        tokens: { total: 0, input: tokens.input, output: tokens.output, reasoning: tokens.reasoning ?? 0, cache: { read: tokens.read ?? 0, write: tokens.write ?? 0 } },
+        cost,
+      },
+    },
+  };
+}
+
+test("a turn's usage is the sum over every step it finished, not the last step alone", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(stepFinish("s1", "fa", { input: 1_000, output: 50, read: 9_000 }, 0.01));
+  tracker.record(stepStart("s1", "b"));
+  tracker.record(stepFinish("s1", "fb", { input: 200, output: 70, reasoning: 30, read: 11_000, write: 5 }, 0.02));
+
+  assert.deepEqual(tracker.take("s1", "")?.usage, { input: 1_200, output: 120, reasoning: 30, cacheRead: 20_000, cacheWrite: 5, cost: 0.03, steps: 2 });
+});
+
+test("a step-finish seen twice is counted once, the later sighting winning, and the next turn starts from zero", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(stepFinish("s1", "fa", { input: 10, output: 1 }, 0.5));
+  tracker.record(stepFinish("s1", "fa", { input: 10, output: 2 }, 0.5));
+  assert.deepEqual(tracker.take("s1", "")?.usage, { input: 10, output: 2, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.5, steps: 1 });
+
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "b"));
+  tracker.record(stepFinish("s1", "fb", { input: 7, output: 3 }, 0.25));
+  assert.deepEqual(tracker.take("s1", "")?.usage, { input: 7, output: 3, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.25, steps: 1 });
+});
+
+test("a turn with no finished step, or whose steps were not all observed, has unknown usage, never zero", async () => {
+  const none = tracked();
+  await none.prepareAttempt("s1", 0);
+  runCall(none, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  assert.equal(none.take("s1", "")?.usage, null);
+
+  const gap = new CallEfficiencyTracker();
+  gap.attach("s1", CWD);
+  await gap.prepareAttempt("s1", 0);
+  gap.record(stepStart("s1", "a"));
+  gap.record(stepFinish("s1", "fa", { input: 10, output: 1 }, 0.5));
+  assert.equal(gap.take("s1", "")?.usage, null, "no stream was live, so the sum may be short");
+});
+
+test("a step-finish with malformed numbers poisons nothing and adds nothing", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record({ type: "message.part.updated", properties: { part: { id: "fa", sessionID: "s1", type: "step-finish", tokens: { input: "lots" }, cost: "free" } } });
+  tracker.record(stepFinish("s1", "fb", { input: 5, output: 1 }, 0.1));
+  assert.deepEqual(tracker.take("s1", "")?.usage, { input: 5, output: 1, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.1, steps: 1 });
+});

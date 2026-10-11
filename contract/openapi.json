@@ -4306,6 +4306,51 @@
               ],
               "additionalProperties": false
             }
+          },
+          "usageTotal": {
+            "nullable": true,
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "number",
+                "minimum": 0
+              },
+              "output": {
+                "type": "number",
+                "minimum": 0
+              },
+              "reasoning": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cacheRead": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cacheWrite": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cost": {
+                "type": "number",
+                "minimum": 0
+              },
+              "steps": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "input",
+              "output",
+              "reasoning",
+              "cacheRead",
+              "cacheWrite",
+              "cost",
+              "steps"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -4341,7 +4386,8 @@
           "timeToFirstCallMs",
           "timeToFirstWriteMs",
           "deniedCallCount",
-          "toolSequence"
+          "toolSequence",
+          "usageTotal"
         ],
         "additionalProperties": false
       },

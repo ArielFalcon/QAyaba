@@ -1768,6 +1768,7 @@ const CALL_METRICS = {
   timeToFirstWriteMs: null,
   deniedCallCount: 0,
   toolSequence: [],
+  usage: null,
 };
 
 test("a generation's stats and the turn persisted for it carry the same values, through the whole wrapper chain and a tracker that can be flushed once", async () => {

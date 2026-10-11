@@ -1208,7 +1208,16 @@ type AgentTurnView struct {
 	} `json:"toolSequence"`
 	TotalCalls *int   `json:"totalCalls"`
 	Ts         string `json:"ts"`
-	WriteCount *int   `json:"writeCount"`
+	UsageTotal *struct {
+		CacheRead  float32 `json:"cacheRead"`
+		CacheWrite float32 `json:"cacheWrite"`
+		Cost       float32 `json:"cost"`
+		Input      float32 `json:"input"`
+		Output     float32 `json:"output"`
+		Reasoning  float32 `json:"reasoning"`
+		Steps      int     `json:"steps"`
+	} `json:"usageTotal"`
+	WriteCount *int `json:"writeCount"`
 }
 
 // AgentTurnViewEnded defines model for AgentTurnView.Ended.

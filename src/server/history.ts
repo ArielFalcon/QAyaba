@@ -27,6 +27,7 @@ import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent"
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { TurnEnd } from "@kernel/turn-end";
 import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence";
+import type { TurnUsage } from "@contexts/generation/domain/turn-efficiency-summary";
 
 const redactionPort = new RedactionPortAdapter();
 
@@ -75,6 +76,8 @@ export interface AgentTurnRecord {
   deniedCallCount?: number | null;
   /* The turn's calls in order, each with a redacted, capped target; null when the turn was not measured. */
   toolSequence?: ToolSequenceEntry[] | null;
+  /* What the turn spent over every step it finished. The tokens_* columns hold the usage of the last assistant message alone (what the blocking prompt answers with), so a many-step turn reads there as one step. Null when the steps were not all observed, none finished, or the row predates the column. */
+  usageTotal?: TurnUsage | null;
 }
 
 /*
@@ -102,6 +105,8 @@ export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: 
   { name: "denied_call_count", type: "INTEGER" },
   /* A JSON-encoded ToolSequenceEntry[], like call_buckets. */
   { name: "tool_sequence", type: "TEXT" },
+  /* A JSON-encoded TurnUsage. */
+  { name: "usage_total", type: "TEXT" },
 ];
 
 const DELETE_MAX_AGE_DAYS = 30;
@@ -436,7 +441,7 @@ function ensureDb(): void {
        total_calls, steps_used, max_steps, calls_before_first_write, write_count,
        redundant_read_count, duplicate_call_count, prompt_provided_read_count, exhausted, call_buckets,
        path_provided_read_count, ended,
-       duration_ms, time_to_first_call_ms, time_to_first_write_ms, denied_call_count, tool_sequence)
+       duration_ms, time_to_first_call_ms, time_to_first_write_ms, denied_call_count, tool_sequence, usage_total)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
@@ -444,7 +449,7 @@ function ensureDb(): void {
        @totalCalls, @stepsUsed, @maxSteps, @callsBeforeFirstWrite, @writeCount,
        @redundantReadCount, @duplicateCallCount, @promptProvidedReadCount, @exhausted, @callBuckets,
        @pathProvidedReadCount, @ended,
-       @durationMs, @timeToFirstCallMs, @timeToFirstWriteMs, @deniedCallCount, @toolSequence)
+       @durationMs, @timeToFirstCallMs, @timeToFirstWriteMs, @deniedCallCount, @toolSequence, @usageTotal)
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
@@ -1048,6 +1053,7 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
     timeToFirstWriteMs: turn.timeToFirstWriteMs ?? null,
     deniedCallCount: turn.deniedCallCount ?? null,
     toolSequence: turn.toolSequence ? JSON.stringify(turn.toolSequence) : null,
+    usageTotal: turn.usageTotal ? JSON.stringify(turn.usageTotal) : null,
   });
 }
 
@@ -1091,6 +1097,7 @@ export function saveAgentTurnEvent(t: AgentTurnEvent): void {
     timeToFirstWriteMs: t.callMetrics?.timeToFirstWriteMs ?? null,
     deniedCallCount: t.callMetrics?.deniedCallCount ?? null,
     toolSequence: t.callMetrics?.toolSequence ?? null,
+    usageTotal: t.callMetrics?.usage ?? null,
   });
 }
 
@@ -1132,6 +1139,7 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
     timeToFirstWriteMs: (r.time_to_first_write_ms as number | null) ?? null,
     deniedCallCount: (r.denied_call_count as number | null) ?? null,
     toolSequence: typeof r.tool_sequence === "string" ? toolSequenceOrNull(safeJsonParse<unknown>(r.tool_sequence, null)) : null,
+    usageTotal: typeof r.usage_total === "string" ? safeJsonParse<TurnUsage | null>(r.usage_total, null) : null,
   }));
 }
 

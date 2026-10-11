@@ -1206,6 +1206,15 @@ export interface components {
                 /** @enum {boolean} */
                 denied?: true;
             }[] | null;
+            usageTotal: {
+                input: number;
+                output: number;
+                reasoning: number;
+                cacheRead: number;
+                cacheWrite: number;
+                cost: number;
+                steps: number;
+            } | null;
         };
         AppTelemetryView: {
             app: string;

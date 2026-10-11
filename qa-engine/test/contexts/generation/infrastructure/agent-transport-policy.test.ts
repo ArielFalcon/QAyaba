@@ -847,6 +847,7 @@ const SAMPLE_CALL_METRICS = {
   timeToFirstWriteMs: 4_200,
   deniedCallCount: 1,
   toolSequence: [{ tool: "read", target: "src/a.ts" }],
+  usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.001, steps: 3 },
 };
 
 async function promptWithCollaborators(

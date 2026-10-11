@@ -327,13 +327,14 @@ const measuredTurn: AgentTurnRecord = {
   ended: "timeout",
   durationMs: 360_000, timeToFirstCallMs: 70_000, timeToFirstWriteMs: 150_000, deniedCallCount: 2,
   toolSequence: [{ tool: "read", target: "src/a.ts" }, { tool: "bash", target: "rm -rf /", denied: true }],
+  usageTotal: { input: 100, output: 20, reasoning: 0, cacheRead: 5_000, cacheWrite: 0, cost: 0.05, steps: 31 },
 };
 
 test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, null where unmeasured", async () => {
   const unmeasured: AgentTurnRecord = {
     ...measuredTurn, sessionId: "sess-2", totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null,
     writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
-    durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null,
+    durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null, usageTotal: null,
   };
   const r = mkRes();
   await handleApi(
@@ -356,6 +357,8 @@ test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, n
   assert.equal(second.durationMs, null);
   assert.equal(second.deniedCallCount, null, "an unmeasured turn has no denial count, not zero");
   assert.equal(second.toolSequence, null);
+  assert.equal(first.usageTotal.steps, 31);
+  assert.equal(second.usageTotal, null);
   assert.equal(first.promptText, "the prompt", "existing fields are unchanged");
   assert.equal(second.totalCalls, null);
   assert.equal(second.exhausted, null);
@@ -1294,7 +1297,7 @@ test("phase-0b: GET /api/runs/:id/turns returns 404 when the run is not found", 
 const UNMEASURED_TURN_FIELDS = {
   totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null,
   redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
-  durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null,
+  durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null, usageTotal: null,
 };
 
 test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a JSON array", async () => {
