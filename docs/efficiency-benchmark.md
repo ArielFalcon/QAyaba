@@ -163,7 +163,8 @@ docker compose exec orchestrator npm run probe-report -- <runId> [<runId>...] [-
 
 It prints a table of the runs and one of their agent turns, and writes each run's full report, with
 the ordered tool sequence of every turn, to `config/benchmarks/probe-results/<runId>.json`
-(gitignored).
+(gitignored). `--ground-truth <file>` adds the stitcher figures' companion, a score of the run's evidence against a
+hand-written answer: see [Cross-repo case](#cross-repo-case).
 
 | Figure | Source |
 |---|---|
@@ -264,6 +265,89 @@ Differences between the arms that the numbers do not hide:
 - The agent can run `npx playwright test` from a directory other than `e2e/` and the shell patterns
   cannot stop it; the prompt names the working directory. A command chained after an allowed one is
   checked by the server command by command.
+
+### Cross-repo case
+
+The question here is narrower than "which arm writes a better test": **does the cross-repo stitcher (service
+links, contracts, code graph) help the agent find front-end code a backend change affects, when nothing in the
+backend diff points at it?** One case is fixed beforehand: service `joomeco/ms-name-users` at `d842b71a619e5a6a84d1a7966d74c670285cdaa8`
+(domain-only; adding a duplicate delivery address now throws a 409; no OpenAPI change), seen from the app
+`name-webapp`. Its ground truth is `config/benchmarks/ground-truth/name-webapp-address-duplicate-409.json`
+(gitignored app data; the neutral `config/benchmarks/ground-truth.example.json` ships). It lists the affected
+files (`address.api.ts`, `address.store.ts`, `address-form.page.ts`), the affected route (`/user/address/new`) and
+the read-only consumers that must not be credited (`order-delivery`, `location-picker`, `user.page`).
+
+**Before either arm** (both need DEV to themselves): the queue is idle, the warm snapshot is restored (see
+[Warm start](#warm-start); `QA_PRESERVE_UNTRACKED_SUITE=1` keeps it through the pipeline's clean), and the app
+is in shadow mode (a webhook cannot set it; `GET /api/apps` shows `shadow` and `services`). At the time of writing
+`name-webapp` is `shadow: true`, declares `joomeco/ms-name-users` (the only app that does) and has no
+`versionUrl` anywhere, so the deploy gate is skipped.
+
+**Arm B, the pipeline's cross-repo run.** The webhook is the only path that runs the suite of the app that
+*owns* a service from that service's commit: `POST /api/runs` and `npm run qa` always run the app's own commit and
+never carry a trigger repo. A POST of `{repo, sha}` for a service repo resolves to every app that declares it and
+enqueues a diff-mode e2e run of each (diff, classify and gate from the service mirror, suite from the app's
+mirror; `mode` and `baseSha` in the payload are ignored for a service). From the host, which publishes the
+orchestrator on port 458:
+
+```bash
+curl -s -X POST http://localhost:458 -H 'content-type: application/json' \
+  -d '{"repo":"joomeco/ms-name-users","sha":"d842b71a619e5a6a84d1a7966d74c670285cdaa8"}'
+# 202 {"message":"enqueued"}
+```
+
+Signatures: with `WEBHOOK_SECRET` set the request must carry `x-hub-signature-256: sha256=<hex HMAC-SHA256 of the
+raw body>`, otherwise it is a `401`; with no secret the orchestrator fails closed unless `WEBHOOK_ALLOW_UNSIGNED=true`
+(the state of the running container when this was written: no secret, unsigned allowed, so the command above works
+as is). With a secret, run it inside the orchestrator, which has the variable:
+
+```bash
+docker compose exec orchestrator sh -c 'BODY='"'"'{"repo":"joomeco/ms-name-users","sha":"d842b71a619e5a6a84d1a7966d74c670285cdaa8"}'"'"'
+  SIG=$(printf %s "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | awk '"'"'{print $NF}'"'"')
+  curl -s -X POST http://localhost:${PORT:-458} -H "content-type: application/json" -H "x-hub-signature-256: sha256=$SIG" -d "$BODY"'
+```
+
+The answer carries no run id: read it with `GET /api/runs?app=name-webapp&limit=1` (Bearer `QA_API_TOKEN`, or the
+TUI), then, **right after the run and before anything else touches the app's mirror**:
+
+```bash
+docker compose exec orchestrator npm run probe-report -- <runId> \
+  --ground-truth config/benchmarks/ground-truth/name-webapp-address-duplicate-409.json
+```
+
+**Arm A, the plain agent.** Run it after arm B (it never fetches: it uses the mirror's `origin/<baseBranch>` as
+the last pipeline sync left it, so B's sync is what makes both arms see the same app commit; the arm prints it, and
+records it as `detail.service.primarySha`, to compare with `git -C /app/.mirrors/joomeco__name-webapp rev-parse HEAD`
+after B). The service must be one the app declares.
+
+```bash
+docker compose exec orchestrator npm run baseline-agent -- --app name-webapp \
+  --service joomeco/ms-name-users --service-sha d842b71a619e5a6a84d1a7966d74c670285cdaa8 \
+  --timeout-min <n> --label <l> --warm <snapshot-label> \
+  --ground-truth config/benchmarks/ground-truth/name-webapp-address-duplicate-409.json
+```
+
+| Aspect | How |
+|---|---|
+| Copy | the app at its base branch's head (as in the pipeline run), not at a service commit; the suite lives there |
+| Prompt | the service commit's message, stat and diff, a line saying the change is deployed on DEV and where its source is, and the request for tests of the front-end behavior it affects. No page, route or component is named |
+| Service source | the service's files at the commit under `services/<repo>/` in the copy (a clone of the service mirror, checked out, its git data removed), outside the suite directory. Readable and searchable, fenced against every write tool; the shell stays Playwright-only. The server's resolved permissions are probed for the fence before any token is spent |
+
+**What the report adds** (both arms, `### Stitcher signals` and `### Ground truth` in the markdown, `stitcher` and
+`groundTruth` in the JSON):
+
+| Figure | Meaning |
+|---|---|
+| `serviceLinksCount`, `contractDriftCount`, `structuralSignalBytes`, `crossRepoImpactedCount` | the run's recorded gate signals; `n/a` when the resolver was not wired (it needs `services[]` and `boundaries[]` in the app and `qa.structuralSignals.mode` not `off`), and always `n/a` for arm A, which has no stitcher |
+| prompt `service-links`, `blast-radius`, `co-change` bytes | whether the generator's first-pass prompt carried each advisory section (`absent` or its bytes, up to the next level-2 heading); for arm A it is its own prompt, so always `absent` |
+| ground truth, per source | **brief blast radius** (the files in the explorer brief's `blastRadius`; arm B only), **files read** (content reads of every agent turn; a path matches by its tail, so absolute paths and `:line` suffixes count) and **spec routes** (`page.goto` literals of the generated specs, origin, query and trailing slash removed; a route built at run time is counted in `dynamicGotos` and not scored) |
+| `hits`, `misses`, `false positives` | affected items reached, affected items not reached, and items the ground truth says are not affected that the source named |
+| `precision`, `precision-all`, `recall` | hits / (hits + false positives), over what the ground truth can judge; affected items named / all items named (what is neither affected nor rejected counts as wrong); hits / affected items |
+
+A source that could not be observed (no brief in arm A, no tool sequence, no readable spec) reads `n/a`, never a
+zero score. Read the arms with the asymmetry in mind: B is given curated context (links, contracts, graph, the
+service's staged context), A the raw service source and diff; "files read" for A includes service files, which the
+ground truth neither credits nor rejects (they show as unjudged).
 
 ## Success criteria and guardrails
 
