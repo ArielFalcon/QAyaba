@@ -65,6 +65,28 @@ const cases: ReadonlyArray<readonly [string, ShellCommandClass]> = [
   ["npx ts-node x.ts", "script"],
   ["cd /tmp && node probe.mjs", "script"],
 
+  /* Control flow and subshells run the commands inside them: the line is what they run. */
+  ["for f in e2e/*.mjs; do node $f; done", "script"],
+  ["for f in a b\ndo\n  node $f\ndone", "script"],
+  ["if [ -f x.mjs ]; then node x.mjs; fi", "script"],
+  ["if node check.mjs; then echo ok; else echo no; fi", "script"],
+  ["while true; do node poll.mjs; done", "script"],
+  ["until node ready.mjs; do true; done", "script"],
+  ["(node /tmp/x.mjs)", "script"],
+  ["(cd e2e && node x.mjs)", "script"],
+  ["{ node x.mjs; }", "script"],
+  ["! node x.mjs", "script"],
+  ["case $x in a) node x.mjs ;; esac", "script"],
+  ["echo $(node x.mjs)", "script"],
+  ["if false; then true; elif node x.mjs; then true; fi", "script"],
+  ["select f in a b; do node $f; done", "script"],
+  ["for f in e2e/*.ts; do npx tsc --noEmit; done", "validate"],
+  ["if npx tsc --noEmit; then echo ok; fi", "validate"],
+  ["for f in e2e/*.ts; do cat $f; done", "read"],
+  ["(cd e2e && ls)", "read"],
+  ["if [ -d e2e ]; then ls e2e; fi", "read"],
+  ["while read l; do cat $l; done < list.txt", "read"],
+
   /* Anything that changes the tree, or that the table does not know, is not classified. */
   ["rm -rf dist", "unknown"],
   ["mkdir -p e2e/flows", "unknown"],
@@ -84,6 +106,11 @@ const cases: ReadonlyArray<readonly [string, ShellCommandClass]> = [
   ["   ", "unknown"],
   ["cd e2e", "unknown"],
   ["some-tool --flag", "unknown"],
+  ["for f in a b; do rm $f; done", "unknown"],
+  ["for f in a b; do echo $f; done", "unknown"],
+  ["(rm -rf dist)", "unknown"],
+  ["if [ -d e2e ]; then mkdir e2e/x; fi", "unknown"],
+  ["for f in $(ls); do cat $f; done", "unknown"],
 ];
 
 for (const [command, expected] of cases) {

@@ -589,6 +589,7 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
         observationComplete: true,
         callsBeforeFirstWrite: 27,
         writeCount: 2,
+        commandCount: 1,
         redundantReadCount: 6,
         duplicateCallCount: 4,
         promptProvidedReadCount: 3,
@@ -621,7 +622,7 @@ test("saveAgentTurnEvent keeps how a turn ended, and a turn that never answered 
     ended: "timeout",
     stepBudget: { maxSteps: 50, exhausted: false },
     callMetrics: {
-      totalCalls: 31, stepsUsed: 12, observationComplete: true, callsBeforeFirstWrite: 31, writeCount: 0, redundantReadCount: 0,
+      totalCalls: 31, stepsUsed: 12, observationComplete: true, callsBeforeFirstWrite: 31, writeCount: 0, commandCount: 0, redundantReadCount: 0,
       duplicateCallCount: 0, promptProvidedReadCount: 0, pathProvidedReadCount: 0,
       buckets: { code_read: 20, browser: 6, write: 0, validate_run: 1, script_run: 4, memory: 0, subagent: 0, other: 0 },
     },

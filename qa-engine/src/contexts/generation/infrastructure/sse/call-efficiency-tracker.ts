@@ -24,7 +24,7 @@
  */
 import { resolve } from "node:path";
 import type { RawOpencodeEvent } from "./activity-mapper.ts";
-import { bucketForTool, toolInputPath, type CallBucket } from "../../domain/tool-call-taxonomy.ts";
+import { bucketForTool, isShellTool, toolInputPath, type CallBucket } from "../../domain/tool-call-taxonomy.ts";
 import {
   detectRedundantReads,
   isContentReadTool,
@@ -50,6 +50,8 @@ interface TrackedCall {
   callId: string;
   tool: string;
   bucket: CallBucket;
+  /** Whether the call went through a shell tool, whatever its command line did. */
+  shellCall: boolean;
   repeatKey: string;
   path?: string;
   window?: string;
@@ -123,7 +125,7 @@ function newSession(cwd: string, stepsComplete: boolean): SessionState {
 }
 
 function toCallRecord(call: TrackedCall): CallRecord {
-  return { callId: call.callId, status: "completed", bucket: call.bucket, repeatKey: call.repeatKey };
+  return { callId: call.callId, status: "completed", bucket: call.bucket, shellCall: call.shellCall, repeatKey: call.repeatKey };
 }
 
 function toReadWriteEvent(call: TrackedCall): ReadWriteEvent {
@@ -268,6 +270,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     const seen = {
       repeatKey: callFingerprint(part.tool, input),
       bucket: bucketForTool(part.tool, input),
+      shellCall: isShellTool(part.tool),
       path: pathOf(input, session.cwd),
       window: readWindowOf(input),
     };

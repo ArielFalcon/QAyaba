@@ -20,13 +20,13 @@ export interface CoarseRunEfficiency {
 
 type AgentActivityEvent = Extract<RunEventBody, { type: "agent.activity" }>;
 
-/* The coarse side only knows the 4-value agent.activity kind, never the raw tool —
-   "analyzing" cannot be refined into code_read/browser/memory without it, so
-   it maps to `other`. write/command/subagent map one-to-one, as in the fine taxonomy. */
+/* The coarse side only knows the 4-value agent.activity kind, never the raw tool or a command
+   line — "analyzing" cannot be refined into code_read/browser/memory without the tool, and a
+   command into read/validate/script without its command line, so both map to `other`.
+   write/subagent map one-to-one, as in the fine taxonomy; a command is counted as a shell call. */
 function bucketForActivityKind(kind: AgentActivityEvent["kind"]): CallBucket {
   switch (kind) {
     case "writing": return CALL_BUCKETS.WRITE;
-    case "command": return CALL_BUCKETS.VALIDATE_RUN;
     case "subagent": return CALL_BUCKETS.SUBAGENT;
     default: return CALL_BUCKETS.OTHER;
   }
@@ -41,6 +41,7 @@ function toCallRecord(event: AgentActivityEvent): CallRecord {
     callId: event.callId!,
     status: event.status,
     bucket: bucketForActivityKind(event.kind),
+    shellCall: event.kind === "command",
     repeatKey: `${event.kind}:${event.target}`,
   };
 }

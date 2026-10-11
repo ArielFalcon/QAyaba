@@ -124,8 +124,8 @@ function bucketForShellCall(input: unknown): CallBucket {
  * Refines the coarse `analyzing` kind into `code_read` / `browser` / `memory` / `other`, and the
  * `command` kind by the command line the call carries (`bucketForShellCall`); `writing` and
  * `subagent` map one-to-one onto `write` and `subagent`. The coarse classifier cannot see a
- * command line, so it counts every `command` event as one: only the shell calls the fine side
- * buckets as `validate_run` reconcile with its command count.
+ * command line, so it buckets none of its `command` events: what both sides share is that a shell
+ * call is a command (`isShellTool`), whatever bucket the fine side gives it.
  */
 export function bucketForTool(tool: string, input?: unknown): CallBucket {
   const kind = kindForTool(tool);

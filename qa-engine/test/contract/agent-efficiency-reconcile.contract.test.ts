@@ -2,9 +2,9 @@
    metrics they share. The explorer's session is not observed in production (it is never registered
    for live observation), so its calls reach neither classifier and the grounding window stays empty.
    Repeated-call counts are deliberately NOT compared: the coarse side only has a (kind, target) proxy
-   for them. The coarse side cannot see a command line and counts every shell call as a command, while the
-   fine side buckets a shell call by its command: only the calls it buckets as validation reconcile with
-   the coarse command count, so the shell call here is a validation. */
+   for them. A command is a call of a shell tool, whatever its command line does: the coarse side counts
+   the shell calls it sees, and the fine side counts the same calls however it buckets each by its command
+   (reading, validating, running a script), so the generator here makes one shell call of each kind. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
@@ -49,6 +49,8 @@ const generatorEvents: RawOpencodeEvent[] = [
   ...toolLifecycle(GENERATOR, "g4", "task", { description: "review" }),
   ...toolLifecycle(GENERATOR, "g5", "write", { filePath: `${CWD}/e2e/a.spec.ts`, content: "x" }),
   ...toolLifecycle(GENERATOR, "g6", "read", { filePath: `${CWD}/src/b.ts` }),
+  ...toolLifecycle(GENERATOR, "g7", "bash", { command: "ls src" }),
+  ...toolLifecycle(GENERATOR, "g8", "bash", { command: "node /tmp/probe.mjs" }),
 ];
 
 function coarseRunEvents(): RunEventBody[] {
@@ -70,11 +72,12 @@ test("fine and coarse classifiers agree on calls, calls before the first write, 
   const coarse = classifyRunEfficiency(coarseRunEvents()).firstPass;
 
   assert.notEqual(fine, null);
-  assert.equal(fine!.totalCalls, 6);
+  assert.equal(fine!.totalCalls, 8);
   assert.equal(fine!.totalCalls, coarse.totalCalls);
   assert.equal(fine!.callsBeforeFirstWrite, coarse.callsBeforeFirstWrite);
   assert.equal(fine!.writeCount, coarse.writeCount);
-  assert.equal(fine!.buckets.validate_run, coarse.commandCount);
+  assert.equal(fine!.commandCount, 3);
+  assert.equal(fine!.commandCount, coarse.commandCount);
   assert.equal(fine!.buckets.subagent, coarse.subagentCount);
 });
 

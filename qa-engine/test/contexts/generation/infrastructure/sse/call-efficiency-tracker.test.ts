@@ -300,6 +300,14 @@ test("shell calls are counted by the command they run, so exploration through th
   assert.equal(metrics?.buckets.script_run, 1);
   assert.equal(metrics?.buckets.validate_run, 1);
   assert.equal(metrics?.buckets.other, 1);
+  assert.equal(metrics?.commandCount, 5, "every one of them is a command, whatever it was doing");
+});
+
+test("a call that is not a shell call is no command", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts" });
+  runCall(tracker, "s1", "c2", "write", { filePath: "/mirrors/org__app/e2e/a.spec.ts", content: "x" });
+  assert.equal(tracker.take("s1", "")?.commandCount, 0);
 });
 
 test("a shell call is bucketed by the command of its latest sighting", () => {

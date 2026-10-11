@@ -24,8 +24,8 @@ test("tallyBuckets zero-fills every CallBucket key, not just the ones seen", () 
 
 test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a call sequence and the extra fine-only counts", () => {
   const calls: CallRecord[] = [
-    { callId: "c1", status: "completed", bucket: CALL_BUCKETS.CODE_READ, repeatKey: "read:/a.ts" },
-    { callId: "c2", status: "completed", bucket: CALL_BUCKETS.WRITE, repeatKey: "write:/a.ts" },
+    { callId: "c1", status: "completed", bucket: CALL_BUCKETS.CODE_READ, shellCall: false, repeatKey: "read:/a.ts" },
+    { callId: "c2", status: "completed", bucket: CALL_BUCKETS.WRITE, shellCall: false, repeatKey: "write:/a.ts" },
   ];
   const sequence = summarizeCallSequence(calls);
 
@@ -53,8 +53,8 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
 
 test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence's repeatedCallCount", () => {
   const calls: CallRecord[] = [
-    { callId: "c1", status: "completed", bucket: CALL_BUCKETS.CODE_READ, repeatKey: "read:/a.ts" },
-    { callId: "c2", status: "completed", bucket: CALL_BUCKETS.CODE_READ, repeatKey: "read:/a.ts" },
+    { callId: "c1", status: "completed", bucket: CALL_BUCKETS.CODE_READ, shellCall: false, repeatKey: "read:/a.ts" },
+    { callId: "c2", status: "completed", bucket: CALL_BUCKETS.CODE_READ, shellCall: false, repeatKey: "read:/a.ts" },
   ];
   const sequence = summarizeCallSequence(calls);
   const metrics = buildTurnCallMetrics({

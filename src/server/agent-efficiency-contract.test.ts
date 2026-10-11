@@ -39,6 +39,7 @@ const measuredMetrics = {
   observationComplete: true,
   callsBeforeFirstWrite: 10,
   writeCount: 1,
+  commandCount: 1,
   redundantReadCount: 2,
   duplicateCallCount: 1,
   promptProvidedReadCount: 1,

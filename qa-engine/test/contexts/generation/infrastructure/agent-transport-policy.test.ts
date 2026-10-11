@@ -837,6 +837,7 @@ const SAMPLE_CALL_METRICS = {
   observationComplete: true,
   callsBeforeFirstWrite: 5,
   writeCount: 1,
+  commandCount: 1,
   redundantReadCount: 2,
   duplicateCallCount: 1,
   promptProvidedReadCount: 0,

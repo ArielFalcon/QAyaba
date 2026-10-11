@@ -1738,6 +1738,7 @@ const CALL_METRICS = {
   observationComplete: true,
   callsBeforeFirstWrite: 9,
   writeCount: 0,
+  commandCount: 0,
   redundantReadCount: 1,
   duplicateCallCount: 0,
   promptProvidedReadCount: 0,

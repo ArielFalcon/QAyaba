@@ -25,6 +25,8 @@ export interface TurnCallMetrics {
   observationComplete: boolean;
   callsBeforeFirstWrite: number;
   writeCount: number;
+  /** Calls made through a shell tool, whatever their command line did: the quantity the coarse classifier counts as commands. Held in memory for the turn's stats; not persisted. */
+  commandCount: number;
   redundantReadCount: number;
   duplicateCallCount: number;
   promptProvidedReadCount: number;
@@ -72,6 +74,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     observationComplete: input.observationComplete,
     callsBeforeFirstWrite: input.sequence.callsBeforeFirstWrite,
     writeCount: input.sequence.writeCount,
+    commandCount: input.sequence.commandCount,
     redundantReadCount: input.redundantReadCount,
     duplicateCallCount: input.sequence.repeatedCallCount,
     promptProvidedReadCount: input.promptProvidedReadCount,

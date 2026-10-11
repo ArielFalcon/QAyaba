@@ -5,8 +5,11 @@
  * recognize, and anything that changes the tree or substitutes a command, is `unknown`: the
  * classifier never guesses a flattering class.
  *
- * The line is split on the operators a shell splits on (`&&`, `||`, `;`, `|`, `&`, newline) outside
- * quotes, redirections and heredoc bodies are skipped over, and each command is judged on its own.
+ * The line is split on the operators a shell splits on (`&&`, `||`, `;`, `|`, `&`, newline, and the
+ * parentheses of a subshell or a `case` pattern) outside quotes, redirections and heredoc bodies are
+ * skipped over, and each command is judged on its own. A loop, a conditional or a brace group runs
+ * the commands inside it: the words that open or close one (`for`, `do`, `then`, `fi`, `{`) are not
+ * commands, and what follows them is.
  * The line takes the heaviest class among its commands: a script run outranks a validation, a
  * validation outranks everything else, and a command that is not read-only makes the line unknown.
  */
@@ -135,7 +138,7 @@ function splitSegments(command: string): Segment[] {
       endSegment();
       i++;
       skipHeredocBodies();
-    } else if (c === ";") {
+    } else if (c === ";" || c === "(" || c === ")") {
       endSegment();
       i++;
     } else if (c === "|") {
@@ -182,7 +185,12 @@ function splitSegments(command: string): Segment[] {
   return segments;
 }
 
-const NEUTRAL_COMMANDS = new Set(["cd", "pwd", "echo", "printf", "true", "false", "export", "set", "unset", "exit", ":", "test", "[", "[["]);
+const NEUTRAL_COMMANDS = new Set(["cd", "pwd", "echo", "printf", "true", "false", "export", "set", "unset", "exit", ":", "test", "[", "[[", "read"]);
+
+/* Words that open a command of their own inside a compound command (`do node x`, `if node x`, `! node x`): what follows them is the command. */
+const COMMAND_OPENERS = new Set(["do", "then", "else", "elif", "if", "while", "until", "{", "!"]);
+/* Words that head or close a compound command and run nothing themselves (`for f in a b`, `case $x in`, `done`, `fi`, `}`). */
+const COMPOUND_FRAMING = new Set(["for", "select", "case", "function", "done", "fi", "esac", "}"]);
 
 const READ_COMMANDS = new Set([
   "ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "rg", "ag", "ack", "fd", "find", "tree", "wc", "file", "stat", "sed", "awk",
@@ -310,9 +318,10 @@ function classifyCommand(head: string, args: readonly string[]): CommandClass {
 }
 
 function classifyWords(rawWords: readonly string[]): CommandClass {
-  const words = unwrap(rawWords);
+  let words = unwrap(rawWords);
+  while (words[0] !== undefined && COMMAND_OPENERS.has(words[0])) words = unwrap(words.slice(1));
   const head = words[0];
-  if (head === undefined) return "neutral";
+  if (head === undefined || COMPOUND_FRAMING.has(head)) return "neutral";
   const args = words.slice(1);
   if (head.includes("/")) {
     /* A path is a program to run; the build wrappers a project ships are the known ones. */
