@@ -7459,7 +7459,8 @@ test("a generation that ran out of steps with no specs ends the run as a persist
   assert.ok((run.out.note ?? "").includes(EXHAUSTED_NOTE));
 });
 
-const TIME_BUDGET_NOTE = "Time budget of 6 min exhausted with no spec reported: the generator's turn was stopped at the wall-clock limit its change allows.";
+/* Opaque on purpose: the run carries whatever note the generation ended with. */
+const TIME_BUDGET_NOTE = "the note the time-budget generation carried";
 
 test("a generation cut off by its time budget ends the run as a persisted infra-error with the time-budget class and its note", async () => {
   const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }));
@@ -7587,14 +7588,9 @@ test("a generation that ran out of steps feeds the fold, the reflector and the p
   assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
 });
 
-test("a generation cut off by its time budget feeds the fold, the reflector and the process audit, under its own class", async () => {
+test("a generation cut off by its time budget teaches nothing: wall-clock exhaustion is confounded by DEV latency", async () => {
   const learned = await learnFrom(scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }));
-  assert.equal(learned.folded.length, 1);
-  assert.equal(learned.folded[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
-  assert.equal(learned.reflected.length, 1);
-  assert.equal(learned.reflected[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
-  assert.equal(learned.audited.length, 1);
-  assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.deepEqual([learned.folded.length, learned.reflected.length, learned.audited.length], [0, 0, 0]);
 });
 
 test("a context-mode generation that ran out of steps teaches nothing, like every other context-mode terminal", async () => {
