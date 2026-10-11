@@ -4,6 +4,8 @@
  *
  *   npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run]
  *                             [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>]
+ *                             [--ground-truth <file>]
+ *   npm run baseline-agent -- --app <app> --service <owner/repo> --service-sha <sha> --timeout-min <n> --label <l> [...]
  *
  * It gives one agent (`qa-baseline`) what a developer with a coding agent would have: the whole repository at
  * the commit, a short prompt (the commit message, `git show --stat` and the full diff, plus a few lines of
@@ -24,6 +26,13 @@
  * seed: the same `e2e/` the pipeline arm is restored to, with a login already written for the app. The agent
  * is then not told about the login at all, and the specs the snapshot held are not counted as its own.
  *
+ * `--service <owner/repo> --service-sha <sha>` is the cross-repo case: a backend service the app declares changed,
+ * and the question is whether the agent finds the front-end behavior it affects. The copy is then the PRIMARY app at
+ * its base branch's head (the suite lives there, as in a pipeline cross-repo run), the prompt carries the SERVICE
+ * commit's message, stat and diff and says the change is deployed on DEV, and the service's source at that commit
+ * sits read-only under services/<repo>/ in the copy, outside the suite directory. `--ground-truth <file>` scores
+ * what the agent read and the routes its specs navigate to (scripts/probe-metrics.ts).
+ *
  * Run it inside the orchestrator container, with the queue idle: DEV is used by one thing at a time.
  */
 import { createHash } from "node:crypto";
@@ -38,9 +47,9 @@ import { finalStepText } from "@contexts/generation/domain/step-exhaustion.ts";
 import { AUTH_MATERIAL_FILES } from "../qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
 import {
-  DEFAULT_SUITE_DIR, renderMarkdown, totalsOf, turnFromCallMetrics, type PhaseDurations, type ProbeReport, type ProbeSpec, type ReadingContext,
+  DEFAULT_SUITE_DIR, contentReadsOf, promptSections, renderMarkdown, scoreGroundTruth, totalsOf, turnFromCallMetrics, type GroundTruth, type PhaseDurations, type ProbeReport, type ProbeSpec, type ReadingContext,
 } from "./probe-metrics.ts";
-import { assertFileName, defaultProbeResultsDir, writeJsonAtomically } from "./probe-report.ts";
+import { assertFileName, defaultProbeResultsDir, readGroundTruthFile, writeJsonAtomically } from "./probe-report.ts";
 import { MAX_FILE_BYTES, loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -55,6 +64,13 @@ export const BASELINE_BASH_ALLOW = ["npx playwright test*", "npx playwright test
 export const BASELINE_BROWSER_TOOLS = ["playwright_browser_navigate", "playwright_browser_snapshot", "playwright_browser_click", "playwright_browser_type"] as const;
 /** The longest diff the prompt carries, in characters; a longer one is cut and says so. */
 export const MAX_DIFF_CHARS = 200_000;
+/** Where, at the root of the throwaway copy, a cross-repo case puts the service's source. */
+export const SERVICES_DIR = "services";
+
+/** The directory (relative to the copy's root, no trailing slash) a service's source is placed in. */
+export function serviceDirOf(repo: string): string {
+  return `${SERVICES_DIR}/${repo.split("/").pop()}`;
+}
 
 /* ── the agent's configuration ─────────────────────────────────────────────────────── */
 
@@ -81,15 +97,18 @@ export function generatorSettings(config: unknown): GeneratorSettings {
 
 type PermissionConfig = Record<string, string | Record<string, string>>;
 
-/** The permission block of the baseline agent. Every tool not named is denied; the order matters (the last matching rule wins). */
-export function baselinePermission(): PermissionConfig {
+/**
+ * The permission block of the baseline agent. Every tool not named is denied; the order matters (the last matching rule wins).
+ * `readOnlyDirs` are directories of the copy the agent may read but never change (a cross-repo case's service source).
+ */
+export function baselinePermission(readOnlyDirs: readonly string[] = []): PermissionConfig {
   return {
     "*": "deny",
     read: { "*": "allow", "*.env": "deny", "*.env.*": "deny", "*.env.example": "allow" },
     glob: "allow",
     grep: "allow",
     list: "allow",
-    edit: "allow",
+    edit: { "*": "allow", ...Object.fromEntries(readOnlyDirs.map((dir) => [`${dir}/*`, "deny"])) },
     bash: { "*": "deny", ...Object.fromEntries(BASELINE_BASH_ALLOW.map((pattern) => [pattern, "allow"])) },
     ...Object.fromEntries(BASELINE_BROWSER_TOOLS.map((tool) => [tool, "allow"])),
     webfetch: "deny",
@@ -101,7 +120,7 @@ export function baselinePermission(): PermissionConfig {
 }
 
 /** The `opencode.json` that goes at the root of the throwaway copy. */
-export function baselineAgentConfig(g: GeneratorSettings): { $schema: string; agent: Record<string, unknown> } {
+export function baselineAgentConfig(g: GeneratorSettings, readOnlyDirs: readonly string[] = []): { $schema: string; agent: Record<string, unknown> } {
   return {
     $schema: "https://opencode.ai/config.json",
     agent: {
@@ -111,7 +130,7 @@ export function baselineAgentConfig(g: GeneratorSettings): { $schema: string; ag
         model: g.model,
         ...(g.steps !== null ? { steps: g.steps } : {}),
         ...(g.temperature !== null ? { temperature: g.temperature } : {}),
-        permission: baselinePermission(),
+        permission: baselinePermission(readOnlyDirs),
       },
     },
   };
@@ -174,6 +193,14 @@ export const PERMISSION_PROBES: readonly PermissionProbe[] = [
   probe("external_directory", "/etc/passwd", "deny"), probe("doom_loop", "*", "deny"),
 ];
 
+/** What a cross-repo case adds to the probes: the service's source is readable and searchable, and no tool may change it. */
+export function servicePermissionProbes(dir: string): PermissionProbe[] {
+  return [
+    probe("read", `${dir}/src/main/java/Handler.java`, "allow"), probe("read", `${dir}/.env`, "deny"), probe("grep", "DUPLICATE", "allow"), probe("glob", `${dir}/**/*.java`, "allow"),
+    probe("edit", `${dir}/src/main/java/Handler.java`, "deny"), probe("edit", `${dir}/new-file.txt`, "deny"), probe("edit", "e2e/flows/checkout.spec.ts", "allow"),
+  ];
+}
+
 export interface ProbeOutcome extends PermissionProbe {
   actual: PermissionAction;
   ok: boolean;
@@ -188,6 +215,14 @@ export function checkProbes(rules: readonly PermissionRule[], probes: readonly P
 
 /* ── the prompt ────────────────────────────────────────────────────────────────────── */
 
+/** The backend change a cross-repo case is about, as the prompt names it. */
+export interface PromptService {
+  repo: string;
+  sha: string;
+  /** Where the service's source is, relative to the working directory. */
+  dir: string;
+}
+
 export interface PromptInput {
   baseUrl: string;
   /** The app's `qa.testDataPrefix`. */
@@ -197,12 +232,21 @@ export interface PromptInput {
   commitMessage: string;
   stat: string;
   diff: string;
+  /** Present when the commit is a backend service's and the application under test is its consumer (the cross-repo case). */
+  service?: PromptService;
 }
 
 /** The instructions of the prompt, apart from the commit material. A handful of lines, generic to any app. */
-export function baselineInstructions(input: Pick<PromptInput, "baseUrl" | "testDataPrefix" | "loginUnavailable">): string[] {
+export function baselineInstructions(input: Pick<PromptInput, "baseUrl" | "testDataPrefix" | "loginUnavailable" | "service">): string[] {
+  const task = input.service
+    ? [
+        `A change to the backend service ${input.service.repo} (commit ${input.service.sha.slice(0, 7)}) is deployed on the live DEV site ${input.baseUrl}.`,
+        `The application under test is the repository in the current directory; the service's source at that commit is under ${input.service.dir}/ (read-only: read it, do not change it).`,
+        "Write Playwright E2E tests under e2e/ that verify the front-end behavior this backend change affects, against the live DEV site.",
+      ]
+    : [`Write Playwright E2E tests under e2e/ that verify this change against the live DEV site ${input.baseUrl}.`];
   return [
-    `Write Playwright E2E tests under e2e/ that verify this change against the live DEV site ${input.baseUrl}.`,
+    ...task,
     ...(input.loginUnavailable
       ? [
           "The automatic login did not work for this app: e2e/auth.setup.ts is the stock login. Fix it for this app if needed;",
@@ -220,16 +264,17 @@ const redact = (text: string): string => sanitizeText(text, "model").text;
 /** The prompt: the instructions, then the commit message, `git show --stat` and the full diff (cut at MAX_DIFF_CHARS, saying so). Text that leaves the system passes through the engine's redaction first. */
 export function buildBaselinePrompt(input: PromptInput): string {
   const diff = input.diff.length > MAX_DIFF_CHARS ? `${input.diff.slice(0, MAX_DIFF_CHARS)}\n[diff cut at ${MAX_DIFF_CHARS} characters; ${input.diff.length - MAX_DIFF_CHARS} more not shown]` : input.diff;
+  const of = input.service ? " of the backend change" : "";
   return [
     ...baselineInstructions(input),
     "",
-    "Commit message:",
+    `Commit message${of}:`,
     redact(input.commitMessage.trim()),
     "",
-    "git show --stat:",
+    `git show --stat${of}:`,
     redact(input.stat.trim()),
     "",
-    "Full diff:",
+    `Full diff${of}:`,
     redact(diff),
     "",
   ].join("\n");
@@ -425,7 +470,12 @@ export function classifyBaseline(input: { specs: number; noop: boolean; ended: "
 
 export interface BaselineArguments {
   app: string;
+  /** The commit under test: the app's own, or, in a cross-repo case, the service's (`--service-sha`). */
   sha: string;
+  /** The backend service whose commit is under test (cross-repo case), or null for a commit of the app itself. */
+  service: { repo: string } | null;
+  /** The ground-truth file to score the run against, or null. */
+  groundTruthPath: string | null;
   timeoutMin: number | null;
   label: string;
   dryRun: boolean;
@@ -437,11 +487,12 @@ export interface BaselineArguments {
 }
 
 const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
+const REPO_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export function parseArguments(argv: readonly string[]): { ok: true; args: BaselineArguments } | { ok: false; problem: string } {
   const values: Record<string, string> = {};
   const flags = new Set<string>();
-  const valued = new Set(["--app", "--sha", "--timeout-min", "--label", "--warm"]);
+  const valued = new Set(["--app", "--sha", "--timeout-min", "--label", "--warm", "--service", "--service-sha", "--ground-truth"]);
   const boolean = new Set(["--dry-run", "--check-auth", "--keep-copy", "--keep-session"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -452,8 +503,16 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
     } else if (boolean.has(a)) flags.add(a);
     else return { ok: false, problem: `error: unknown argument ${a}` };
   }
+  const serviceRepo = values["--service"];
+  const serviceSha = values["--service-sha"];
+  if ((serviceRepo === undefined) !== (serviceSha === undefined)) return { ok: false, problem: "error: --service and --service-sha go together" };
+  if (serviceRepo !== undefined) {
+    if (values["--sha"] !== undefined) return { ok: false, problem: "error: --sha is the app's own commit: with --service the commit under test is --service-sha" };
+    if (!REPO_SLUG.test(serviceRepo)) return { ok: false, problem: "error: --service must be <owner>/<repo>" };
+    values["--sha"] = serviceSha!;
+  }
   for (const required of ["--app", "--sha", "--label"]) if (!values[required]) return { ok: false, problem: `error: ${required} is required` };
-  if (!HEX_COMMIT_ID.test(values["--sha"]!)) return { ok: false, problem: "error: --sha must be 7-40 hex characters" };
+  if (!HEX_COMMIT_ID.test(values["--sha"]!)) return { ok: false, problem: `error: ${serviceRepo !== undefined ? "--service-sha" : "--sha"} must be 7-40 hex characters` };
   let timeoutMin: number | null = null;
   if (values["--timeout-min"] !== undefined) {
     timeoutMin = Number(values["--timeout-min"]);
@@ -470,7 +529,7 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
   return {
     ok: true,
     args: {
-      app: values["--app"]!, sha: values["--sha"]!, timeoutMin, label: values["--label"]!,
+      app: values["--app"]!, sha: values["--sha"]!, service: serviceRepo !== undefined ? { repo: serviceRepo } : null, groundTruthPath: values["--ground-truth"] ?? null, timeoutMin, label: values["--label"]!,
       dryRun: flags.has("--dry-run"), checkAuth: flags.has("--check-auth"), keepCopy: flags.has("--keep-copy"), keepSession: flags.has("--keep-session"),
       warm: values["--warm"] ?? null,
     },
@@ -486,11 +545,26 @@ export interface AppInfo {
   baseUrl: string;
   testDataPrefix: string;
   testIdAttribute?: string;
+  /** The branch the app's suite is built on (the `baseBranch` of its config, `main` when it states none). */
+  baseBranch: string;
+  /** The repos of the backend services the app declares. */
+  services: string[];
+}
+
+/** The backend commit a cross-repo case is about, and where its source goes in the copy. */
+export interface ServicePlan {
+  repo: string;
+  sha: string;
+  /** Relative to the copy's root, no trailing slash. */
+  dir: string;
 }
 
 export interface CopyPlan {
   repo: string;
+  /** The commit of `repo` the copy is checked out at: the commit under test, or, in a cross-repo case, the head of its base branch. */
   sha: string;
+  /** Set in a cross-repo case: the service whose source is placed read-only in the copy. */
+  service?: ServicePlan;
   /** The throwaway working copy. */
   copyDir: string;
   /** The orchestrator-only login material, beside the copy. */
@@ -528,10 +602,18 @@ export interface BaselineDeps {
   agentsConfig(): unknown;
   copyDirFor(label: string, app: AppInfo): { copyDir: string; authDir: string };
   copyExists(copyDir: string): boolean;
-  /** Clones the working copy at the commit, puts the warm snapshot's suite in place when the plan has one, installs the suite's dependencies, writes the agent's config and the harness files. */
+  /** The commit the app's base branch is at in its mirror, as the last pipeline sync left it (read-only: nothing is fetched). Throws when there is none. */
+  resolveBaseBranchHead(repo: string, branch: string): Promise<string>;
+  /** The ground truth in the file; throws, naming it, when it cannot be read or scored. */
+  readGroundTruth(path: string): GroundTruth;
+  /**
+   * Clones the working copy at the commit, puts the warm snapshot's suite in place when the plan has one, installs the suite's dependencies, writes the agent's config and the harness files.
+   * With a service in the plan, the service's source at its commit is placed under the plan's service directory, without any git data.
+   */
   prepareCopy(plan: CopyPlan): Promise<void>;
   removeCopy(plan: CopyPlan): void;
-  commitMaterial(copyDir: string, sha: string): Promise<CommitMaterial>;
+  /** The message, stat and diff of the commit under test: the plan's own commit, or the service's in a cross-repo case. */
+  commitMaterial(plan: CopyPlan): Promise<CommitMaterial>;
   /** The rules the server resolved for the baseline agent in the copy's directory. */
   resolvedPermissions(copyDir: string): Promise<PermissionRule[]>;
   /** The model the server resolved for the generator (`provider/model`), or null when it resolves none. */
@@ -544,8 +626,10 @@ export interface BaselineDeps {
   prepareAuth(app: AppInfo, plan: CopyPlan, phase: "pre-generate" | "pre-execute"): Promise<{ unauthored: boolean }>;
   runAgent(input: { copyDir: string; prompt: string; timeoutMs: number; keepSession: boolean }): Promise<AgentRun>;
   /** The specs the agent added or changed, relative to the suite directory (those the warm snapshot held, unchanged, are not its), and the paths it changed outside the suite directory. */
-  changedFiles(copyDir: string, warm?: LoadedSnapshot): Promise<{ specs: string[]; outsideSuite: string[] }>;
+  changedFiles(copyDir: string, warm?: LoadedSnapshot, serviceDir?: string): Promise<{ specs: string[]; outsideSuite: string[] }>;
   specLines(copyDir: string, specs: readonly string[]): Map<string, number | null>;
+  /** The source of each spec, for the routes it navigates to; a spec that cannot be read is null. */
+  specSources(copyDir: string, specs: readonly string[]): Map<string, string | null>;
   runSuite(input: { copyDir: string; authDir: string; app: AppInfo; namespace: string; specs: readonly string[] }): Promise<SuiteRun>;
   writeReport(label: string, report: ProbeReport): string;
   now(): number;
@@ -576,6 +660,10 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
     else await deps.assertQueueIdle();
 
     const app = deps.loadApp(args.app);
+    if (args.service && !app.services.includes(args.service.repo)) {
+      throw new Error(`${args.service.repo} is not a declared service of app '${app.name}' (declared: ${app.services.join(", ") || "none"}): a cross-repo case is run for a service the app declares`);
+    }
+    const groundTruth = args.groundTruthPath !== null ? deps.readGroundTruth(args.groundTruthPath) : undefined;
     const warm = args.warm !== null ? deps.loadWarmSnapshot(app.name, args.warm) : undefined;
     if (warm) {
       const status = warmStatus(warm);
@@ -586,22 +674,28 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
     const { copyDir, authDir } = deps.copyDirFor(args.label, app);
     if (deps.copyExists(copyDir)) throw new Error(`${copyDir} already exists: a label names one run, pick another or remove the directory`);
     const namespace = `${app.testDataPrefix}-${args.sha.slice(0, 7)}-${args.label}`;
+    /* A cross-repo case: the copy is the app at its base branch's head, as in a pipeline cross-repo run; the service's commit is what the agent is told about. */
+    const service: ServicePlan | undefined = args.service ? { repo: args.service.repo, sha: args.sha, dir: serviceDirOf(args.service.repo) } : undefined;
+    const primarySha = service ? await deps.resolveBaseBranchHead(app.repo, app.baseBranch) : args.sha;
+    if (service) {
+      out(`[baseline] cross-repo case: the app ${app.repo} at ${app.baseBranch} (${primarySha.slice(0, 7)}, as its mirror holds it: nothing is fetched), the change is ${service.repo}@${service.sha.slice(0, 7)}, its source read-only under ${service.dir}/`);
+    }
     plan = {
-      repo: app.repo, sha: args.sha, copyDir, authDir,
+      repo: app.repo, sha: primarySha, ...(service ? { service } : {}), copyDir, authDir,
       env: { baseUrl: app.baseUrl, namespace, ...(app.testIdAttribute ? { testIdAttribute: app.testIdAttribute } : {}), storageStatePath: join(authDir, AUTH_MATERIAL_FILES.storageState) },
-      agentConfig: baselineAgentConfig(generator),
+      agentConfig: baselineAgentConfig(generator, service ? [service.dir] : []),
       ...(warm ? { warm } : {}),
     };
 
     const setupStarted = deps.now();
-    out(`[baseline] preparing the throwaway copy of ${app.repo} at ${args.sha.slice(0, 7)}: ${copyDir}`);
+    out(`[baseline] preparing the throwaway copy of ${app.repo} at ${primarySha.slice(0, 7)}: ${copyDir}`);
     await deps.prepareCopy(plan);
-    const material = await deps.commitMaterial(copyDir, args.sha);
+    const material = await deps.commitMaterial(plan);
     const promptFor = (loginUnavailable: boolean): string =>
-      buildBaselinePrompt({ baseUrl: app.baseUrl, testDataPrefix: app.testDataPrefix, loginUnavailable, commitMessage: material.message, stat: material.stat, diff: material.diff });
+      buildBaselinePrompt({ baseUrl: app.baseUrl, testDataPrefix: app.testDataPrefix, loginUnavailable, commitMessage: material.message, stat: material.stat, diff: material.diff, ...(service ? { service } : {}) });
 
     const rules = await deps.resolvedPermissions(copyDir);
-    const outcomes = checkProbes(rules);
+    const outcomes = checkProbes(rules, service ? [...PERMISSION_PROBES, ...servicePermissionProbes(service.dir)] : PERMISSION_PROBES);
     const wrong = outcomes.filter((o) => !o.ok);
     /* The orchestrator's copy of agents/opencode.json can lag the file the agents container mounts: the model must be the one the server really uses for the generator. */
     const served = await deps.resolvedGeneratorModel(copyDir);
@@ -651,7 +745,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
     const ended: "completed" | "timeout" | "exhausted" | "error" = run.ended === "completed" ? (budget.exhausted === true ? "exhausted" : "completed") : run.ended;
     const wallMs = Math.max(0, run.endedAt - run.startedAt);
 
-    const changed = await deps.changedFiles(copyDir, warm);
+    const changed = await deps.changedFiles(copyDir, warm, service?.dir);
     const specs = changed.specs;
     await assertIdle(deps);
     const executeStarted = deps.now();
@@ -683,6 +777,8 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
     const lines = deps.specLines(copyDir, specs);
     const specList: ProbeSpec[] = specs.map((path) => ({ path, lines: lines.get(path) ?? null }));
     const last = runs[runs.length - 1];
+    const sources = groundTruth ? deps.specSources(copyDir, specs) : undefined;
+    const readSpecs = sources ? specs.flatMap((path) => { const text = sources.get(path); return typeof text === "string" ? [text] : []; }) : [];
     const report: ProbeReport = {
       schema: 1,
       arm: "baseline",
@@ -704,7 +800,14 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
       execution: last ? { passed: last.passed, failed: last.failed, flaky: runs.reduce((n, r) => n + r.flaky, 0) } : null,
       coverage: null,
       reviewer: null,
+      /* No stitcher feeds this arm: it has no service links to count, and its prompt carries none of the advisory sections. */
+      stitcher: { serviceLinksCount: null, contractDriftCount: null, structuralSignalBytes: null, crossRepoImpactedCount: null, generatorPrompt: promptSections(prompt) },
+      ...(groundTruth
+        ? { groundTruth: scoreGroundTruth(groundTruth, { briefText: null, filesRead: contentReadsOf([turn]), specSources: specs.length > 0 && readSpecs.length === 0 ? null : readSpecs }) }
+        : {}),
       detail: {
+        ...(service ? { service: { repo: service.repo, sha: service.sha, dir: service.dir, primaryRepo: app.repo, primaryBranch: app.baseBranch, primarySha } } : {}),
+        groundTruthFile: args.groundTruthPath,
         model: generator.model, stepCap: generator.steps, timeoutMin: args.timeoutMin, warmSnapshot: warm?.label ?? null, sessionId: run.sessionId, sessionError: run.error ?? null,
         suiteRuns: runs, declaredNoop: declaresNoop(finalText), changedOutsideSuite: changed.outsideSuite,
         finalText: redact(finalText).slice(0, 4_000), namespace, copyDir: args.keepCopy ? copyDir : null,
@@ -743,7 +846,8 @@ function lastAssistantParts(messages: readonly SessionMessage[]): Array<{ type: 
 }
 
 const USAGE = [
-  "usage: npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run] [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>]",
+  "usage: npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run] [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>] [--ground-truth <file>]",
+  "       npm run baseline-agent -- --app <app> --service <owner/repo> --service-sha <sha> --timeout-min <n> --label <l> [...the same options]",
   "  EXPERIMENT ONLY. Runs one plain agent (no pipeline stages) on a throwaway copy of the app at the commit, then runs its specs twice,",
   "  and writes config/benchmarks/probe-results/<label>.json in the shape probe-report emits.",
   "  --dry-run       prepare the copy, print the prompt and the permissions the server resolved for the agent, start no session",
@@ -751,6 +855,10 @@ const USAGE = [
   "  --keep-copy     keep the throwaway copy (default: removed at the end of a dry run, kept never otherwise unless set)",
   "  --keep-session  keep the OpenCode session (default: deleted once its metrics are collected)",
   "  --warm <label>  start the copy's e2e/ from a warm-suite snapshot (login already authored) instead of the stock seed; the prompt then says nothing about the login",
+  "  --service <owner/repo> --service-sha <sha>  cross-repo case: the commit under test is a declared backend service's. The copy is the app at its base branch's head",
+  "                  (as its mirror holds it: nothing is fetched, so run the pipeline arm first), the prompt carries the service commit and says it is deployed on DEV, and the",
+  "                  service's source at that commit is read-only under services/<repo>/. Replaces --sha.",
+  "  --ground-truth <file>  score what the agent read and the routes its specs navigate to against a ground truth (config/benchmarks/ground-truth/)",
   "run inside the orchestrator container, with the queue idle.",
 ].join("\n");
 
@@ -785,6 +893,37 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const serverPassword = env.OPENCODE_SERVER_PASSWORD;
   const headers = serverPassword ? { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } : undefined;
 
+  /* The agent wrote these specs, so they are read only through the confined reader. */
+  const readSpecs = (copyDir: string, specs: readonly string[]): Map<string, string | null> => {
+    const sources = new Map<string, string | null>();
+    const root = { mirrorDir: copyDir, specDir: join(copyDir, SUITE_DIR) };
+    for (const path of specs) {
+      try {
+        sources.set(path, readConfinedSpecFile(root, path));
+      } catch {
+        sources.set(path, null);
+      }
+    }
+    return sources;
+  };
+
+  /**
+   * The service's source at its commit, as plain files under the copy's service directory: cloned from the service's mirror (which is only read:
+   * nothing is fetched), checked out, and its git data removed, so nothing past the commit can be read and no git command can be run in it.
+   */
+  const placeServiceSource = async (svc: ServicePlan, copyDir: string): Promise<void> => {
+    const mirror = join(mirrorsRoot, slug(svc.repo));
+    if (!existsSync(mirror)) throw new Error(`there is no mirror of ${svc.repo} at ${mirror}: the pipeline fetches it on its first run of that service`);
+    await realGit(["cat-file", "-e", `${svc.sha}^{commit}`], mirror).catch(() => {
+      throw new Error(`commit ${svc.sha} is not in the mirror of ${svc.repo}: the pipeline fetches it on its first run of that commit`);
+    });
+    const dest = join(copyDir, svc.dir);
+    mkdirSync(dirname(dest), { recursive: true });
+    await realGit(["clone", "--local", "--no-checkout", mirror, dest]);
+    await realGit(["checkout", "-f", "--detach", svc.sha], dest);
+    rmSync(join(dest, ".git"), { recursive: true, force: true });
+  };
+
   return {
     assertQueueIdle: () => assertQueueIdle(service),
     queueState: async () => {
@@ -795,8 +934,20 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       const app = loadAppConfig(name);
       if (app.code === true || !app.dev?.baseUrl) throw new Error(`app '${name}' has no DEV site to test against`);
       if (app.auth?.kind === "mtls") throw new Error(`app '${name}' logs in with a client certificate, whose passphrase would have to reach the agent's shell: the baseline does not support it`);
-      return { name: app.name, repo: app.repo, baseUrl: app.dev.baseUrl, testDataPrefix: app.qa.testDataPrefix, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}) };
+      return {
+        name: app.name, repo: app.repo, baseUrl: app.dev.baseUrl, testDataPrefix: app.qa.testDataPrefix, baseBranch: app.baseBranch ?? "main", services: (app.services ?? []).map((s) => s.repo),
+        ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
+      };
     },
+    resolveBaseBranchHead: async (repo, branch) => {
+      const mirror = join(mirrorsRoot, slug(repo));
+      if (!existsSync(mirror)) throw new Error(`there is no mirror of ${repo} at ${mirror}: run the pipeline on the app once first`);
+      if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(branch)) throw new Error(`'${branch}' is not a branch name this arm will pass to git`);
+      const head = (await realGit(["rev-parse", "--verify", `refs/remotes/origin/${branch}^{commit}`], mirror).catch(() => "")).trim();
+      if (!head) throw new Error(`the mirror of ${repo} holds no origin/${branch}: run the pipeline on the app once first`);
+      return head;
+    },
+    readGroundTruth: readGroundTruthFile,
     loadWarmSnapshot: (appName, label) => loadSnapshot(warmSnapshotDir(join(mirrorsRoot, WARM_SNAPSHOTS_DIR), appName, label), label),
     agentsConfig: () => JSON.parse(readFileSync(env.OPENCODE_CONFIG ?? join(ROOT, "agents", "opencode.json"), "utf8")) as unknown,
     copyDirFor: (label) => {
@@ -835,6 +986,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
         writeFileSync(repoConfig, files.config, "utf8");
 
         writeFileSync(join(plan.copyDir, "opencode.json"), `${JSON.stringify(plan.agentConfig, null, 2)}\n`, "utf8");
+        if (plan.service) await placeServiceSource(plan.service, plan.copyDir);
         mkdirSync(plan.authDir, { recursive: true, mode: 0o700 });
       } catch (err) {
         rmSync(plan.copyDir, { recursive: true, force: true });
@@ -845,7 +997,9 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       rmSync(plan.copyDir, { recursive: true, force: true });
       rmSync(plan.authDir, { recursive: true, force: true });
     },
-    commitMaterial: async (copyDir, sha) => {
+    commitMaterial: async (plan) => {
+      /* A service's commit is read from its mirror (a read-only look at its objects): the copy holds only its files, no git data. */
+      const [copyDir, sha] = plan.service ? [join(mirrorsRoot, slug(plan.service.repo)), plan.service.sha] : [plan.copyDir, plan.sha];
       const message = await getCommitMessage(copyDir, sha, git);
       const diff = await getCommitDiff(copyDir, sha, git);
       const stat = await realGit(["show", "--stat", "--format=", "-m", "--first-parent", sha], copyDir);
@@ -929,7 +1083,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       return { sessionId, startedAt, endedAt, ended, ...(error ? { error } : {}), messages: (messages.data ?? []) as unknown as SessionMessage[] };
     },
 
-    changedFiles: async (copyDir, warm) => {
+    changedFiles: async (copyDir, warm, serviceDir) => {
       const listed = await listChangedSpecs(copyDir, SUITE_DIR, git);
       const root = { mirrorDir: copyDir, specDir: join(copyDir, SUITE_DIR) };
       const hashOf = (spec: string): string | null => {
@@ -944,20 +1098,12 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       const touched = status.split("\n").filter((l) => l.length > 3).map((l) => l.slice(3).replace(/^.* -> /, ""));
       /* The harness's own files, and opencode.json, are ours and not the agent's. */
       const ours = new Set([`${SUITE_DIR}/${WRAPPER_CONFIG}`, `${SUITE_DIR}/${WRAPPER_REPO_CONFIG}`, `${SUITE_DIR}/${WRAPPER_ENV_MODULE}`, "opencode.json"]);
-      return { specs, outsideSuite: touched.filter((p) => !p.startsWith(`${SUITE_DIR}/`) && !ours.has(p)) };
+      /* The service's source was placed by the harness, whatever the agent did to it (it may not edit it). */
+      const placed = (p: string): boolean => serviceDir !== undefined && p.startsWith(`${serviceDir}/`);
+      return { specs, outsideSuite: touched.filter((p) => !p.startsWith(`${SUITE_DIR}/`) && !ours.has(p) && !placed(p)) };
     },
-    specLines: (copyDir, specs) => {
-      const lines = new Map<string, number | null>();
-      const root = { mirrorDir: copyDir, specDir: join(copyDir, SUITE_DIR) };
-      for (const path of specs) {
-        try {
-          lines.set(path, countLines(readConfinedSpecFile(root, path)));
-        } catch {
-          lines.set(path, null);
-        }
-      }
-      return lines;
-    },
+    specLines: (copyDir, specs) => new Map([...readSpecs(copyDir, specs)].map(([path, text]) => [path, text === null ? null : countLines(text)])),
+    specSources: readSpecs,
     runSuite: async ({ copyDir, authDir, app, namespace, specs }) => {
       const started = Date.now();
       const result = await runE2E(

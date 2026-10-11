@@ -5,10 +5,10 @@ import assert from "node:assert/strict";
 import {
   BASELINE_AGENT, BASELINE_BASH_ALLOW, GENERATOR_AGENT, MAX_DIFF_CHARS, PERMISSION_PROBES,
   baselineAgentConfig, baselineInstructions, baselinePermission, buildBaselinePrompt, checkProbes, classifyBaseline, combineVerdicts, declaresNoop,
-  evaluatePermission, finalTextOf, flattenPermission, generatorSettings, harnessFiles, main, parseArguments, replaySession, wildcardMatch,
+  evaluatePermission, finalTextOf, flattenPermission, generatorSettings, harnessFiles, main, parseArguments, replaySession, serviceDirOf, servicePermissionProbes, wildcardMatch,
   type AgentRun, type BaselineDeps, type CopyPlan, type PermissionRule, type SessionMessage, type SuiteRun,
 } from "./baseline-agent.ts";
-import type { ProbeReport } from "./probe-metrics.ts";
+import type { GroundTruth, ProbeReport } from "./probe-metrics.ts";
 import type { LoadedSnapshot } from "./warm-suite.ts";
 
 /* ── the generator's settings ── */
@@ -244,6 +244,8 @@ function warmSnapshot(login = "setup('authenticate', async () => {});\n"): Loade
   };
 }
 
+const PRIMARY_HEAD = "f".repeat(40);
+const TRUTH: GroundTruth = { affectedFiles: ["src/cart.ts", "src/cart.store.ts"], affectedRoutes: ["/cart"], notAffectedFiles: ["src/home.ts"], notAffectedRoutes: [] };
 const GENERATOR_CONFIG = { agent: { [GENERATOR_AGENT]: { model: "p/m", maxSteps: 50, temperature: 0.2 } } };
 
 interface Harness {
@@ -262,14 +264,18 @@ function harness(over: Partial<BaselineDeps> = {}, opts: { rules?: PermissionRul
   const deps: BaselineDeps = {
     assertQueueIdle: async () => { calls.push("queue"); },
     queueState: async () => "idle",
-    loadApp: (name) => ({ name, repo: "org/demo", baseUrl: "https://dev.example.test", testDataPrefix: "qa-bot" }),
+    loadApp: (name) => ({ name, repo: "org/demo", baseUrl: "https://dev.example.test", testDataPrefix: "qa-bot", baseBranch: "main", services: ["org/orders-service"] }),
+    resolveBaseBranchHead: async () => PRIMARY_HEAD,
+    readGroundTruth: () => TRUTH,
     loadWarmSnapshot: () => warmSnapshot(),
     agentsConfig: () => GENERATOR_CONFIG,
     copyDirFor: (label) => ({ copyDir: `/mirrors/.baseline/${label}`, authDir: `/mirrors/.baseline/${label}.auth` }),
     copyExists: () => false,
     prepareCopy: async () => { calls.push("prepare"); },
     removeCopy: () => { calls.push("remove"); },
-    commitMaterial: async () => ({ message: "feat: coupon", stat: " src/cart.ts | 2 +-", diff: "diff --git a/src/cart.ts b/src/cart.ts\n", changedFiles: ["src/cart.ts"] }),
+    commitMaterial: async (plan) => (plan.service
+      ? { message: "feat(orders): reject a duplicate order line", stat: " src/main/Handler.java | 6 +++---", diff: "diff --git a/src/main/Handler.java b/src/main/Handler.java\n+throw conflict();\n", changedFiles: ["src/main/Handler.java"] }
+      : { message: "feat: coupon", stat: " src/cart.ts | 2 +-", diff: "diff --git a/src/cart.ts b/src/cart.ts\n", changedFiles: ["src/cart.ts"] }),
     resolvedPermissions: async () => opts.rules ?? designRules,
     resolvedGeneratorModel: async () => "p/m",
     prepareAuth: async (_app, _plan, phase) => { calls.push(`auth:${phase}`); return { unauthored: false }; },
@@ -280,6 +286,7 @@ function harness(over: Partial<BaselineDeps> = {}, opts: { rules?: PermissionRul
     },
     changedFiles: async () => ({ specs: ["flows/cart.spec.ts"], outsideSuite: [] }),
     specLines: () => new Map([["flows/cart.spec.ts", 41]]),
+    specSources: () => new Map([["flows/cart.spec.ts", "await page.goto('/cart');"]]),
     runSuite: async () => { calls.push("suite"); return run("pass"); },
     writeReport: (_label, report) => { reports.push(report); return `/results/${report.id}.json`; },
     now: (() => { let t = 0; return () => (t += 1_000); })(),
@@ -455,4 +462,158 @@ test("a warm login that cannot be made stops the case instead of sending the age
   const h = harness({ prepareAuth: async (_a, _p, phase) => { h.calls.push(`auth:${phase}`); return { unauthored: true }; } });
   assert.equal(await main(argv("--warm", "warm-1"), h.deps), 1);
   assert.equal(h.calls.includes("agent"), false);
+});
+
+/* ── a cross-repo case: a backend service changed, the app under test is its consumer ── */
+
+const SERVICE = "org/orders-service";
+const SERVICE_SHA = "d842b71a619e5a6a84d1a7966d74c670285cdaa8";
+const fencedRules = flattenPermission(baselinePermission(["services/orders-service"]));
+const serviceArgv = (...extra: string[]): string[] => ["--app", "demo", "--service", SERVICE, "--service-sha", SERVICE_SHA, "--timeout-min", "20", "--label", "arm-a-x", ...extra];
+
+test("--service and --service-sha go together and replace --sha: the commit under test is the service's", () => {
+  const ok = parseArguments(serviceArgv());
+  assert.ok(ok.ok);
+  assert.deepEqual(ok.ok && ok.args.service, { repo: SERVICE });
+  assert.equal(ok.ok && ok.args.sha, SERVICE_SHA);
+  const own = parseArguments(argv());
+  assert.ok(own.ok);
+  assert.equal(own.args.service, null);
+  for (const bad of [
+    ["--app", "demo", "--service", SERVICE, "--timeout-min", "5", "--label", "l"],
+    ["--app", "demo", "--service-sha", SERVICE_SHA, "--timeout-min", "5", "--label", "l"],
+    serviceArgv("--sha", SHA),
+    ["--app", "demo", "--service", "not-a-slug", "--service-sha", SERVICE_SHA, "--timeout-min", "5", "--label", "l"],
+    ["--app", "demo", "--service", "../x/y", "--service-sha", SERVICE_SHA, "--timeout-min", "5", "--label", "l"],
+    ["--app", "demo", "--service", SERVICE, "--service-sha", "xyz", "--timeout-min", "5", "--label", "l"],
+  ]) {
+    assert.equal(parseArguments(bad).ok, false, bad.join(" "));
+  }
+});
+
+test("the service's source may be read and searched but not changed, by any tool that writes", () => {
+  const dir = serviceDirOf(SERVICE);
+  assert.equal(dir, "services/orders-service");
+  const rules = flattenPermission(baselinePermission([dir]));
+  assert.deepEqual(checkProbes(rules, [...PERMISSION_PROBES, ...servicePermissionProbes(dir)]).filter((o) => !o.ok), []);
+  const stock = flattenPermission(baselinePermission());
+  assert.equal(evaluatePermission(stock, "edit", `${dir}/x.java`), "allow", "without a service the copy's own services/ is not restricted");
+  const loose = checkProbes(stock, servicePermissionProbes(dir)).filter((o) => !o.ok);
+  assert.ok(loose.length > 0, "a block that lets the agent change the service fails the probes");
+  assert.equal(evaluatePermission(rules, "bash", "cat services/orders-service/x"), "deny", "reading the service goes through the read tool, never the shell");
+});
+
+test("the prompt of a cross-repo case names the backend change, where its source is, and asks for the front-end behavior it affects, with no word on which page", () => {
+  const service = { repo: SERVICE, sha: SERVICE_SHA, dir: "services/orders-service" };
+  const input = { ...material, service };
+  const instructions = baselineInstructions(input).join("\n");
+  assert.ok(instructions.includes(SERVICE) && instructions.includes("d842b71") && instructions.includes("services/orders-service/"));
+  assert.ok(instructions.includes("deployed on the live DEV site https://dev.example.test"));
+  assert.ok(instructions.includes("front-end behavior this backend change affects"));
+  assert.ok(instructions.includes("read-only"));
+  for (const word of ["explorer", "reviewer", "serena", "engram", "manifest", "context map", "stitcher", "service link", "route", "page"]) assert.equal(instructions.toLowerCase().includes(word), false, word);
+  const prompt = buildBaselinePrompt(input);
+  assert.ok(prompt.startsWith(baselineInstructions(input).join("\n")));
+  assert.ok(prompt.includes("Commit message of the backend change:\nfeat(cart): apply coupon"));
+  assert.ok(prompt.includes("git show --stat of the backend change:") && prompt.includes("Full diff of the backend change:"));
+  assert.equal(buildBaselinePrompt(material).includes("backend"), false, "a commit of the app itself reads as before");
+});
+
+test("a cross-repo run checks out the app at its base branch's head, tells the agent about the service commit, and fences the service's source off from edits", async () => {
+  const plans: CopyPlan[] = [];
+  const seen: string[][] = [];
+  const asked: string[] = [];
+  const h = harness({
+    resolvedPermissions: async () => fencedRules,
+    prepareCopy: async (plan) => { plans.push(plan); },
+    resolveBaseBranchHead: async (repo, branch) => { asked.push(`${repo}@${branch}`); return PRIMARY_HEAD; },
+    changedFiles: async (_copyDir, _warm, serviceDir) => { seen.push([serviceDir ?? "none"]); return { specs: ["flows/cart.spec.ts"], outsideSuite: [] }; },
+  });
+  assert.equal(await main(serviceArgv(), h.deps), 0);
+  assert.deepEqual(asked, ["org/demo@main"]);
+  const plan = plans[0]!;
+  assert.equal(plan.repo, "org/demo");
+  assert.equal(plan.sha, PRIMARY_HEAD, "the copy is the app, not the service");
+  assert.deepEqual(plan.service, { repo: SERVICE, sha: SERVICE_SHA, dir: "services/orders-service" });
+  assert.ok(plan.env.namespace.startsWith("qa-bot-d842b71-"), "the namespace carries the commit under test");
+  const edit = (plan.agentConfig.agent[BASELINE_AGENT] as { permission: { edit: Record<string, string> } }).permission.edit;
+  assert.deepEqual(edit, { "*": "allow", "services/orders-service/*": "deny" });
+  assert.deepEqual(seen, [["services/orders-service"]], "what the harness placed there is not counted as the agent's change");
+  const prompt = h.prompts[0]!;
+  assert.ok(prompt.includes("feat(orders): reject a duplicate order line") && prompt.includes("throw conflict();"));
+  assert.equal(prompt.includes("feat: coupon"), false, "the app's own commit is not the material");
+  const report = h.reports[0]!;
+  assert.equal(report.sha, SERVICE_SHA, "as the pipeline's cross-repo run records it: the service's commit");
+  assert.equal(report.app, "demo");
+  assert.deepEqual((report.detail as Record<string, unknown>)["service"], { repo: SERVICE, sha: SERVICE_SHA, dir: "services/orders-service", primaryRepo: "org/demo", primaryBranch: "main", primarySha: PRIMARY_HEAD });
+  assert.ok(h.lines.some((l) => l.includes("cross-repo case") && l.includes("nothing is fetched")));
+});
+
+test("a server that resolved no fence around the service's source stops the cross-repo case before a session is started", async () => {
+  const h = harness();
+  assert.equal(await main(serviceArgv(), h.deps), 1);
+  assert.equal(h.calls.includes("agent"), false);
+  assert.ok(h.lines.some((l) => l.includes("FAIL") && l.includes("services/orders-service")));
+});
+
+test("a service the app does not declare, or a base branch the mirror does not hold, stops the case before a copy is made", async () => {
+  const undeclared = harness({ loadApp: (name) => ({ name, repo: "org/demo", baseUrl: "https://dev.example.test", testDataPrefix: "qa-bot", baseBranch: "main", services: ["org/other-service"] }) });
+  assert.equal(await main(serviceArgv(), undeclared.deps), 1);
+  assert.ok(undeclared.lines.some((l) => l.includes("not a declared service")));
+  assert.equal(undeclared.calls.includes("prepare"), false);
+
+  const noBranch = harness({ resolveBaseBranchHead: async () => { throw new Error("the mirror of org/demo holds no origin/main"); } });
+  assert.equal(await main(serviceArgv(), noBranch.deps), 1);
+  assert.equal(noBranch.calls.includes("prepare"), false);
+});
+
+test("a case on the app's own commit never resolves a branch, places a service or restricts a directory", async () => {
+  const plans: CopyPlan[] = [];
+  let resolved = false;
+  const h = harness({ prepareCopy: async (plan) => { plans.push(plan); }, resolveBaseBranchHead: async () => { resolved = true; return PRIMARY_HEAD; } });
+  assert.equal(await main(argv(), h.deps), 0);
+  assert.equal(resolved, false);
+  assert.equal(plans[0]?.service, undefined);
+  assert.equal(plans[0]?.sha, SHA);
+  assert.deepEqual((plans[0]!.agentConfig.agent[BASELINE_AGENT] as { permission: { edit: unknown } }).permission.edit, { "*": "allow" });
+  assert.equal((h.reports[0]!.detail as Record<string, unknown>)["service"], undefined);
+});
+
+test("a cross-repo dry run shows the service prompt and probes the fence, and starts no session", async () => {
+  const h = harness({ resolvedPermissions: async () => fencedRules });
+  assert.equal(await main(serviceArgv("--dry-run"), h.deps), 0);
+  const text = h.lines.join("\n");
+  assert.ok(text.includes("A change to the backend service org/orders-service"));
+  assert.ok(text.includes("edit \"services/orders-service/new-file.txt\" -> deny"));
+  assert.ok(text.includes("dry run: no session was started"));
+  assert.equal(h.calls.includes("agent"), false);
+});
+
+/* ── scoring against a ground truth ── */
+
+test("--ground-truth scores what the agent read and the routes its specs navigate to; the explorer's brief does not exist in this arm", async () => {
+  const h = harness();
+  assert.equal(await main(argv("--ground-truth", "/truth.json"), h.deps), 0);
+  const score = h.reports[0]!.groundTruth!;
+  assert.equal(score.briefBlastRadius, null, "no explorer, no brief: unknown rather than a zero");
+  assert.deepEqual(score.filesRead?.hits, ["src/cart.ts"], "the session read src/cart.ts");
+  assert.deepEqual(score.filesRead?.misses, ["src/cart.store.ts"]);
+  assert.equal(score.specRoutes?.recall, 1);
+});
+
+test("a run without --ground-truth carries no score, and every run says its prompt carried none of the stitcher's sections and that this arm has no links to count", async () => {
+  const h = harness();
+  await main(argv(), h.deps);
+  const report = h.reports[0]!;
+  assert.equal(report.groundTruth, undefined);
+  assert.equal(report.stitcher?.serviceLinksCount, null);
+  assert.equal(report.stitcher?.generatorPrompt?.serviceLinks.present, false);
+  assert.equal(report.stitcher?.generatorPrompt?.structuralBlastRadius.present, false);
+});
+
+test("a ground truth that cannot be read stops the case before anything is prepared", async () => {
+  const h = harness({ readGroundTruth: (path) => { throw new Error(`ground truth ${path}: unreadable`); } });
+  assert.equal(await main(argv("--ground-truth", "/gone.json"), h.deps), 1);
+  assert.ok(h.lines.some((l) => l.includes("/gone.json")));
+  assert.equal(h.calls.includes("prepare"), false);
 });
