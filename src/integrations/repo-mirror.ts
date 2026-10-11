@@ -9,7 +9,7 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { InfraError } from "../errors";
-import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
+import { MirrorProvisionAdapter, type MirrorProvisionDeps, type MirrorProvisionOptions } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
 import { hardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
 
@@ -87,13 +87,30 @@ function toProvisionDeps(deps: MirrorDeps): MirrorProvisionDeps {
 }
 
 
-export async function ensureMirror(repo: string, sha: string, deps: MirrorDeps): Promise<string> {
-  return new MirrorProvisionAdapter(toProvisionDeps(deps)).ensureMirror(repo, sha);
+export type MirrorOptions = MirrorProvisionOptions;
+
+export async function ensureMirror(repo: string, sha: string, deps: MirrorDeps, options?: MirrorOptions): Promise<string> {
+  return new MirrorProvisionAdapter(toProvisionDeps(deps)).ensureMirror(repo, sha, options);
 }
 
 
-export async function ensureMirrorAtBranch(repo: string, branch: string, deps: MirrorDeps): Promise<string> {
-  return new MirrorProvisionAdapter(toProvisionDeps(deps)).ensureMirrorAtBranch(repo, branch);
+export async function ensureMirrorAtBranch(repo: string, branch: string, deps: MirrorDeps, options?: MirrorOptions): Promise<string> {
+  return new MirrorProvisionAdapter(toProvisionDeps(deps)).ensureMirrorAtBranch(repo, branch, options);
+}
+
+/*
+ * Operator switch, OFF by default: every run cleans the mirror (`git clean -fd`), which deletes a suite that was never
+ * published (shadow mode opens no PR, so `e2e/` is untracked) and starts the next run cold. With the switch on, the clean
+ * leaves the app's spec directory alone so a suite can accumulate across runs, which is what a warm-start experiment needs.
+ * Read once by the composition root; the engine never reads the environment. A mistyped value throws, as the time budgets do.
+ */
+export const PRESERVE_UNTRACKED_SUITE_ENV = "QA_PRESERVE_UNTRACKED_SUITE";
+
+export function resolvePreserveUntrackedSuite(env: Record<string, string | undefined>): boolean {
+  const raw = (env[PRESERVE_UNTRACKED_SUITE_ENV] ?? "").trim().toLowerCase();
+  if (raw === "" || raw === "0" || raw === "false") return false;
+  if (raw === "1" || raw === "true") return true;
+  throw new Error(`${PRESERVE_UNTRACKED_SUITE_ENV} must be 1, true, 0, false or empty, got ${JSON.stringify(env[PRESERVE_UNTRACKED_SUITE_ENV])}`);
 }
 
 /*

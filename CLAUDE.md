@@ -233,6 +233,7 @@ threat-model header first) and a canary-before-promote hot-swap.
 - The suite's source of truth is **git** (app repo `e2e/`). engram (`engram-data`
   volume) is the only non-regenerable data; Serena index and mirrors are caches.
 - Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env.
+- Shadow mode never publishes `e2e/`, so the per-run `git clean -fd` deletes it and every run starts cold; the operator switch `QA_PRESERVE_UNTRACKED_SUITE=1` (off by default, read once in the composition root) keeps the primary repo's spec directory out of that clean for warm-start experiments (`docs/efficiency-benchmark.md`).
 
 ## Invariants — do not break these
 

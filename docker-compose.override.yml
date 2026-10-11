@@ -53,6 +53,9 @@ services:
       QA_DIFF_TIME_BUDGET_MS_TINY: ${QA_DIFF_TIME_BUDGET_MS_TINY:-}
       QA_DIFF_TIME_BUDGET_MS_FOCUSED: ${QA_DIFF_TIME_BUDGET_MS_FOCUSED:-}
       QA_DIFF_TIME_BUDGET_MS_BROAD: ${QA_DIFF_TIME_BUDGET_MS_BROAD:-}
+      # Keeps the primary repo's spec directory out of the per-run `git clean -fd`, so a suite that was never
+      # published (shadow mode) survives to the next run. Empty is off (docs/efficiency-benchmark.md).
+      QA_PRESERVE_UNTRACKED_SUITE: ${QA_PRESERVE_UNTRACKED_SUITE:-}
     volumes:
       - ./src:/app/src
       # Live src imports qa-engine via tsconfig paths. The image copy goes stale

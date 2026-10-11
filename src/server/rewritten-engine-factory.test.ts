@@ -11,7 +11,7 @@ import { enqueueTrackedRun } from "./runner";
 import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
+import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, PRESERVE_UNTRACKED_SUITE_ENV, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
@@ -2865,6 +2865,58 @@ test("GUARD: no triggerRepo — vcs reads the PRIMARY mirror dir", () => {
   const app = cfg("factory-guard-vcs");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal((config.vcs as unknown as { repoDir: string }).repoDir, "/tmp/mirrors/org__demo");
+});
+
+/* QA_PRESERVE_UNTRACKED_SUITE: the operator switch that keeps the primary mirror's spec directory out of the per-run clean. */
+function optionRecordingMirror() {
+  const calls: Array<{ via: "sha" | "branch"; repo: string; options: unknown }> = [];
+  const mirror = {
+    ensureMirror: async (repo: string, _sha: string, _deps: MirrorDeps, options?: unknown) => {
+      calls.push({ via: "sha", repo, options });
+      return `/mirrors/${repo.replaceAll("/", "__")}`;
+    },
+    ensureMirrorAtBranch: async (repo: string, _branch: string, _deps: MirrorDeps, options?: unknown) => {
+      calls.push({ via: "branch", repo, options });
+      return `/mirrors/${repo.replaceAll("/", "__")}`;
+    },
+  };
+  return { mirror, calls };
+}
+
+test("the primary mirror is checked out with no kept directory unless the operator switch is on", async () => {
+  const { mirror, calls } = optionRecordingMirror();
+  const config = buildRewrittenCompositionConfig(cfg("factory-preserve-off"), { getAgentDeps: stubAgentDeps, mirror, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" });
+  await config.checkout(Sha.of("abc1234567"));
+  assert.deepEqual(calls, [{ via: "sha", repo: "org/demo", options: undefined }]);
+});
+
+test("with the operator switch on, the primary mirror keeps the e2e directory out of the clean", async () => {
+  const { mirror, calls } = optionRecordingMirror();
+  const env = { [PRESERVE_UNTRACKED_SUITE_ENV]: "1" };
+  const config = buildRewrittenCompositionConfig(cfg("factory-preserve-on"), { getAgentDeps: stubAgentDeps, mirror, env }, "qa-bot-abc1234-run1", { mode: "diff" });
+  await config.checkout(Sha.of("abc1234567"));
+  assert.deepEqual(calls, [{ via: "sha", repo: "org/demo", options: { keepUntracked: ["e2e"] } }]);
+});
+
+test("with the operator switch on, a code run has no e2e suite to keep", async () => {
+  const { mirror, calls } = optionRecordingMirror();
+  const env = { [PRESERVE_UNTRACKED_SUITE_ENV]: "1" };
+  const config = buildRewrittenCompositionConfig(cfg("factory-preserve-code"), { getAgentDeps: stubAgentDeps, mirror, env }, "qa-bot-abc1234-run1", { mode: "diff", target: "code" });
+  await config.checkout(Sha.of("abc1234567"));
+  assert.deepEqual(calls, [{ via: "sha", repo: "org/demo", options: undefined }]);
+});
+
+test("with the operator switch on, a cross-repo run keeps the primary's suite and cleans the service mirror as usual", async () => {
+  const { mirror, calls } = optionRecordingMirror();
+  const { stageServiceContext } = spyStageServiceContext();
+  const app: AppConfig = { ...cfg("factory-preserve-crossrepo"), services: [{ repo: "org/svc" }] };
+  const env = { [PRESERVE_UNTRACKED_SUITE_ENV]: "1" };
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirror, stageServiceContext, env }, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/svc" });
+  await config.checkout(Sha.of("abc1234567"));
+  assert.deepEqual(calls, [
+    { via: "sha", repo: "org/svc", options: undefined },
+    { via: "branch", repo: "org/demo", options: { keepUntracked: ["e2e"] } },
+  ]);
 });
 
 /* 2. RED — triggerRepo = declared service: checkout(sha) must ensure the SERVICE repo at the event

@@ -241,6 +241,17 @@ With `--warm` the copy's `e2e/` is made equal to the snapshot before setup and t
 prompt says nothing about the login (the session is injected as usual), and the specs the snapshot held are
 not counted as the agent's. A cold or missing snapshot, or a warm login that cannot log in, stops the case.
 
+Shadow mode starts cold every run: it never opens a PR, so `e2e/` is never tracked, and the per-run
+`git clean -fd` on the mirror deletes it (the stock `auth.setup.ts` is seeded again and the generator
+authors the login again). To let a suite accumulate across pipeline runs, or to keep a restored snapshot
+through the next run, set `QA_PRESERVE_UNTRACKED_SUITE=1` on the orchestrator (`.env` or Doppler; it is passed
+through `docker-compose.override.yml`) and restart it. The clean then leaves the primary repo's spec directory
+alone (`git clean -fd -e node_modules -e /e2e/`) and cleans everything else as before. Unset, blank, `0` and
+`false` keep today's behavior, and any other value stops the composition with an error naming the variable.
+It is not a cache of what a published suite holds: `git checkout -f` still overwrites a file that collides
+with a path the checked-out commit tracks (git's own rule, untouched), and a tracked suite also keeps the
+untracked files an earlier run left in `e2e/`. A service repo's mirror and code-target runs are cleaned as usual.
+
 Differences between the arms that the numbers do not hide:
 
 - The agents container's global `instructions` (`agents/AGENTS.md`, the pipeline's shared rules) apply

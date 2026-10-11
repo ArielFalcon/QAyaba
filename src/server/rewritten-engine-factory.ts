@@ -116,7 +116,7 @@ import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/proce
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import { requireEnv } from "../util/env";
 import { RedactionPortAdapter, recordAudit } from "../orchestrator/sanitizer";
-import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
+import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, resolvePreserveUntrackedSuite, type MirrorOptions, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
@@ -653,6 +653,13 @@ export function buildRewrittenCompositionConfig(
    * (workdirRoot()). deps.mirrorRoot overrides the path, not the git collaborator.
    */
   const mirror = deps.mirror ?? { ensureMirror, ensureMirrorAtBranch };
+  /*
+   * QA_PRESERVE_UNTRACKED_SUITE (operator switch, off by default; read here once because qa-engine never reads process.env):
+   * the per-run clean leaves the primary repo's spec directory alone, so a suite that was never published (shadow mode)
+   * survives to the next run. A service mirror has no suite of this app's, so it is cleaned as always.
+   */
+  const preserveSuite = resolvePreserveUntrackedSuite(deps.env ?? process.env);
+  const mirrorOptionsFor = (repo: string): MirrorOptions | undefined => (!isCode && preserveSuite && repo === app.repo ? { keepUntracked: [e2eRelDir] } : undefined);
   /* Defaults to the real stageServiceContext in production. */
   const stage = deps.stageServiceContext ?? stageServiceContext;
 
@@ -784,8 +791,8 @@ export function buildRewrittenCompositionConfig(
       isCode,
     },
     {
-      ensureMirror: (repo, sha) => mirror.ensureMirror(repo, sha, defaultMirrorDeps),
-      ensureMirrorAtBranch: (repo, branch) => mirror.ensureMirrorAtBranch(repo, branch, defaultMirrorDeps),
+      ensureMirror: (repo, sha) => mirror.ensureMirror(repo, sha, defaultMirrorDeps, mirrorOptionsFor(repo)),
+      ensureMirrorAtBranch: (repo, branch) => mirror.ensureMirrorAtBranch(repo, branch, defaultMirrorDeps, mirrorOptionsFor(repo)),
       stageServiceContext: (input) => stage(input),
     },
   );
