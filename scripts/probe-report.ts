@@ -11,14 +11,14 @@
  * copies or the service. A figure the run did not record reads `n/a`; a run older than the columns
  * it needs reports those as unknown, never zero.
  */
-import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { readConfinedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
-import { buildPipelineReport, renderMarkdown, type ProbeReport, type TimedRunEvent } from "./probe-metrics.ts";
+import { buildPipelineReport, parseGroundTruth, renderMarkdown, type GroundTruth, type ProbeReport, type TimedRunEvent } from "./probe-metrics.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -50,6 +50,15 @@ export function writeJsonAtomically(path: string, value: unknown): void {
   }
 }
 
+/** The ground truth in a JSON file (config/benchmarks/ground-truth/<case>.json). Throws, naming the file, when it cannot be read or scored. */
+export function readGroundTruthFile(path: string): GroundTruth {
+  try {
+    return parseGroundTruth(JSON.parse(readFileSync(path, "utf8")) as unknown);
+  } catch (err) {
+    throw new Error(`ground truth ${path}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /** Where a run's recorded data is read from: the orchestrator's history in the container, a fake in tests. */
 export interface ReportDeps {
   events(runId: string): TimedRunEvent[];
@@ -60,6 +69,8 @@ export interface ReportDeps {
   changedFiles(record: RunRecord): Promise<string[] | null>;
   /** The line count of each reported spec still on disk; a spec that is gone is null. */
   specLines(record: RunRecord, reported: readonly string[]): Map<string, number | null>;
+  /** The source of each reported spec still on disk; a spec that is gone is null. */
+  specSources(record: RunRecord, reported: readonly string[]): Map<string, string | null>;
   /** The change-coverage minimum of the run's app. */
   minRatio(record: RunRecord): number;
 }
@@ -72,7 +83,7 @@ const reportedSpecPaths = (record: RunRecord | undefined, events: readonly Timed
 };
 
 /** One run's report. Throws when the run is unknown to the history (no record, outcome or event). */
-export async function collectReport(runId: string, deps: ReportDeps): Promise<ProbeReport> {
+export async function collectReport(runId: string, deps: ReportDeps, groundTruth?: GroundTruth): Promise<ProbeReport> {
   const record = deps.record(runId);
   const outcome = deps.outcome(runId);
   const events = deps.events(runId);
@@ -85,7 +96,9 @@ export async function collectReport(runId: string, deps: ReportDeps): Promise<Pr
     turns: deps.turns(runId),
     changedFiles: record ? await deps.changedFiles(record) : null,
     specLines: record ? deps.specLines(record, reportedSpecPaths(record, events)) : new Map(),
+    ...(record && groundTruth ? { specSources: deps.specSources(record, reportedSpecPaths(record, events)) } : {}),
     minRatio: record ? deps.minRatio(record) : DEFAULT_COVERAGE_MIN_RATIO,
+    ...(groundTruth ? { groundTruth } : {}),
   });
 }
 
@@ -109,6 +122,27 @@ export async function defaultReportDeps(warn: (line: string) => void = (l) => co
   };
   const mirrorOf = (repo: string): string => join(workdirRoot(), repo.replaceAll("/", "__"));
 
+  /* The agent named these paths, so they are read only through the confined reader. A name may be spec-directory relative or carry the directory. */
+  const readSpecs = (record: RunRecord, reported: readonly string[]): Map<string, string | null> => {
+    const sources = new Map<string, string | null>();
+    const app = appOf(record);
+    if (!app) return sources;
+    const mirrorDir = mirrorOf(app.repo);
+    const root = { mirrorDir, specDir: join(mirrorDir, "e2e") };
+    for (const path of reported) {
+      sources.set(path, null);
+      for (const candidate of [path, path.replace(/^e2e\//, "")]) {
+        try {
+          sources.set(path, readConfinedSpecFile(root, candidate));
+          break;
+        } catch {
+          /* try the next spelling; a spec that is gone stays unknown */
+        }
+      }
+    }
+    return sources;
+  };
+
   return {
     events: (runId) => history.loadRunEvents(runId).map((e) => ({ ts: e.ts, body: e.body as RunEventBody })),
     outcome: (runId) => history.getRunOutcome(runId),
@@ -127,26 +161,8 @@ export async function defaultReportDeps(warn: (line: string) => void = (l) => co
         return null;
       }
     },
-    specLines: (record, reported) => {
-      const lines = new Map<string, number | null>();
-      const app = appOf(record);
-      if (!app) return lines;
-      const mirrorDir = mirrorOf(app.repo);
-      const root = { mirrorDir, specDir: join(mirrorDir, "e2e") };
-      for (const path of reported) {
-        lines.set(path, null);
-        /* The agent named this path, so it is read only through the confined reader. A name may be spec-directory relative or carry the directory. */
-        for (const candidate of [path, path.replace(/^e2e\//, "")]) {
-          try {
-            lines.set(path, countLines(readConfinedSpecFile(root, candidate)));
-            break;
-          } catch {
-            /* try the next spelling; a spec that is gone stays unknown */
-          }
-        }
-      }
-      return lines;
-    },
+    specLines: (record, reported) => new Map([...readSpecs(record, reported)].map(([path, text]) => [path, text === null ? null : countLines(text)])),
+    specSources: readSpecs,
     minRatio: (record) => appOf(record)?.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO,
   };
 }
@@ -154,10 +170,11 @@ export async function defaultReportDeps(warn: (line: string) => void = (l) => co
 /* ── command line ──────────────────────────────────────────────────────────────────── */
 
 const USAGE = [
-  "usage: npm run probe-report -- <runId...> [--json] [--out-dir DIR]",
+  "usage: npm run probe-report -- <runId...> [--json] [--out-dir DIR] [--ground-truth FILE]",
   "  prints a markdown table per run (phases, verdict, specs, coverage, reviewer) and per agent turn (calls, time to first write, denied calls, tokens, cost, where it read)",
   "  --json     print the reports as JSON instead of markdown",
   "  --out-dir  where each run's full report is written as <runId>.json (default config/benchmarks/probe-results)",
+  "  --ground-truth  a JSON file {affectedFiles, affectedRoutes, notAffectedFiles[, notAffectedRoutes]} (config/benchmarks/ground-truth/): scores the explorer brief's blast radius, the files read and the routes the specs navigate to against it",
   "run inside the orchestrator container: it reads the run history and the working copies.",
 ].join("\n");
 
@@ -167,12 +184,13 @@ export interface MainOptions {
   outDir?: string;
 }
 
-type Parsed = { ok: true; runIds: string[]; json: boolean; outDir?: string } | { ok: false; problem: string };
+type Parsed = { ok: true; runIds: string[]; json: boolean; outDir?: string; groundTruthPath?: string } | { ok: false; problem: string };
 
 function parseArguments(args: readonly string[]): Parsed {
   const runIds: string[] = [];
   let json = false;
   let outDir: string | undefined;
+  let groundTruthPath: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--json") json = true;
@@ -180,11 +198,15 @@ function parseArguments(args: readonly string[]): Parsed {
       const v = args[++i];
       if (!v) return { ok: false, problem: "error: --out-dir needs a directory" };
       outDir = v;
+    } else if (a === "--ground-truth") {
+      const v = args[++i];
+      if (!v || v.startsWith("--")) return { ok: false, problem: "error: --ground-truth needs a file" };
+      groundTruthPath = v;
     } else if (a.startsWith("--")) return { ok: false, problem: `error: unknown option ${a}` };
     else runIds.push(a);
   }
   if (runIds.length === 0) return { ok: false, problem: "error: name at least one run id" };
-  return { ok: true, runIds, json, ...(outDir ? { outDir } : {}) };
+  return { ok: true, runIds, json, ...(outDir ? { outDir } : {}), ...(groundTruthPath ? { groundTruthPath } : {}) };
 }
 
 /** Returns the process exit code: 0 ok, 1 a run could not be reported, 2 bad usage. */
@@ -198,13 +220,14 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
   }
   try {
     for (const id of parsed.runIds) assertFileName(id, "run id");
+    const groundTruth = parsed.groundTruthPath ? readGroundTruthFile(parsed.groundTruthPath) : undefined;
     const deps = opts.deps ?? (await defaultReportDeps());
     const outDir = parsed.outDir ?? opts.outDir ?? defaultProbeResultsDir();
     const reports: ProbeReport[] = [];
     let failed = false;
     for (const id of parsed.runIds) {
       try {
-        const report = await collectReport(id, deps);
+        const report = await collectReport(id, deps, groundTruth);
         reports.push(report);
         writeJsonAtomically(join(outDir, `${id}.json`), report);
       } catch (err) {

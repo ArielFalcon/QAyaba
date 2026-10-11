@@ -8,8 +8,8 @@ import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequenc
 import type { AgentTurnRecord } from "../src/server/history.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
 import {
-  DEFAULT_SUITE_DIR, PHASES, buildPipelineReport, coverageOf, phaseDurations, renderMarkdown, renderRunRow, summarizeTools, toProbeTurn,
-  turnFromCallMetrics, type ReadingContext, type TimedRunEvent,
+  DEFAULT_SUITE_DIR, PHASES, buildPipelineReport, contentReadsOf, coverageOf, gotoRoutes, normalizeRoute, parseGroundTruth, phaseDurations, promptSections, renderMarkdown, renderRunRow,
+  scoreGroundTruth, specSourcesOf, stitcherMetrics, summarizeTools, toProbeTurn, turnFromCallMetrics, type GroundTruth, type ReadingContext, type TimedRunEvent,
 } from "./probe-metrics.ts";
 
 const step = (ts: number, name: string, detail?: string): TimedRunEvent => ({ ts, body: { type: "step.changed", step: name as "gate", ...(detail ? { detail } : {}) } });
@@ -267,4 +267,166 @@ test("the markdown row names the run and shows every unknown figure as n/a, neve
   const markdown = renderMarkdown([report]);
   assert.ok(markdown.includes("### Agent turns"));
   assert.ok(markdown.includes("last assistant message alone"));
+});
+
+/* ── the stitcher's signals ── */
+
+test("a generator prompt's advisory sections are found by their heading and measured in bytes up to the next level-2 heading", () => {
+  const links = ["## Cross-service links (deterministic — from the stitcher, advisory)", "- web/api.ts#create -> orders-service", "", "### Contract drift (WARNINGS)", "- WARNING: web/x.ts calls POST /nope"].join("\n");
+  const prompt = ["## Working rules", "rules", links, "## Structural blast radius (deterministic — from the code graph, advisory)", "- `A.b` (src/a.ts)", "## Task", "do it"].join("\n");
+  const sections = promptSections(prompt);
+  assert.deepEqual(sections.serviceLinks, { present: true, bytes: Buffer.byteLength(links, "utf8") }, "a ### sub-heading belongs to its section; the bytes are UTF-8, not characters");
+  assert.equal(sections.structuralBlastRadius.present, true);
+  assert.equal(sections.structuralBlastRadius.bytes, Buffer.byteLength("## Structural blast radius (deterministic — from the code graph, advisory)\n- `A.b` (src/a.ts)", "utf8"));
+  assert.deepEqual(sections.coChange, { present: false, bytes: 0 });
+});
+
+test("a section that opens the prompt is found, and a heading quoted mid-line is not a section", () => {
+  assert.equal(promptSections("## Files that historically change together (git history, advisory)\n- a.ts").coChange.present, true);
+  assert.equal(promptSections("see the ## Cross-service links above").serviceLinks.present, false);
+});
+
+test("the stitcher's figures are the run's recorded signals, unknown when it recorded none, and a recorded zero stays a zero", () => {
+  const none = stitcherMetrics(undefined, null);
+  assert.deepEqual(none, { serviceLinksCount: null, contractDriftCount: null, structuralSignalBytes: null, crossRepoImpactedCount: null, generatorPrompt: null });
+  const zero = stitcherMetrics({ serviceLinksCount: 0, contractDriftCount: 0 }, "no sections here");
+  assert.equal(zero.serviceLinksCount, 0);
+  assert.equal(zero.contractDriftCount, 0);
+  assert.equal(zero.structuralSignalBytes, null);
+  assert.equal(zero.generatorPrompt?.serviceLinks.present, false);
+});
+
+/* ── the ground truth ── */
+
+const TRUTH: GroundTruth = {
+  affectedFiles: ["src/app/features/cart/api/cart.api.ts", "src/app/features/cart/stores/cart.store.ts", "src/app/features/cart/pages/cart-form/cart-form.page.ts"],
+  affectedRoutes: ["/cart/new"],
+  notAffectedFiles: ["src/app/features/home/picker.component.ts"],
+  notAffectedRoutes: ["/cart/:id/view"],
+};
+
+test("a ground truth needs its three lists, a non-empty set of affected files and strings only; other keys and an absent notAffectedRoutes are fine", () => {
+  const ok = parseGroundTruth({ affectedFiles: ["a.ts"], affectedRoutes: [], notAffectedFiles: [], note: "free text" });
+  assert.deepEqual(ok.notAffectedRoutes, []);
+  for (const bad of [null, [], { affectedFiles: ["a.ts"], affectedRoutes: [] }, { affectedFiles: [], affectedRoutes: [], notAffectedFiles: [] }, { affectedFiles: ["a.ts", 3], affectedRoutes: [], notAffectedFiles: [] }, { affectedFiles: ["a.ts"], affectedRoutes: "/x", notAffectedFiles: [] }]) {
+    assert.throws(() => parseGroundTruth(bad), /ground truth/, JSON.stringify(bad));
+  }
+});
+
+test("routes are read from the literals a spec navigates to, without origin, query or trailing slash, and a route built at run time is counted apart", () => {
+  const spec = [
+    "await page.goto('/cart/new');",
+    'await page.goto("https://dev.example.test/cart/new/?x=1#top");',
+    "await page.goto(`/cart/list`);",
+    "await page.goto(`/cart/${id}/edit`);",
+    "await page.goto(baseUrl + '/x');",
+    "await page.goto('cart/other');",
+  ].join("\n");
+  assert.deepEqual(gotoRoutes([spec]), { routes: ["/cart/new", "/cart/list", "/cart/other"], dynamic: 1 });
+  assert.equal(normalizeRoute("https://dev.example.test"), "/");
+  assert.equal(normalizeRoute("/"), "/");
+});
+
+test("the brief's blast radius is scored by the files it lists: hits, misses, a named file the truth rejects, and the files it names that the truth cannot judge", () => {
+  const brief = JSON.stringify({ blastRadius: [
+    { symbol: "CartApi.create", file: "src/app/features/cart/api/cart.api.ts", role: "posts the cart" },
+    { symbol: "Picker", file: "src/app/features/home/picker.component.ts", role: "reads carts" },
+    { symbol: "Other", file: "src/app/features/other/other.ts", role: "x" },
+  ] });
+  const score = scoreGroundTruth(TRUTH, { briefText: brief, filesRead: null, specSources: null }).briefBlastRadius;
+  assert.ok(score);
+  assert.deepEqual(score.hits, ["src/app/features/cart/api/cart.api.ts"]);
+  assert.deepEqual(score.misses, ["src/app/features/cart/stores/cart.store.ts", "src/app/features/cart/pages/cart-form/cart-form.page.ts"]);
+  assert.deepEqual(score.falsePositives, ["src/app/features/home/picker.component.ts"]);
+  assert.equal(score.named, 3);
+  assert.equal(score.unjudged, 1);
+  assert.equal(score.precision, 0.5, "of the two files the truth can judge, one was right");
+  assert.ok(Math.abs((score.precisionAll ?? 0) - 1 / 3) < 1e-9, "counting the unjudged file as wrong");
+  assert.ok(Math.abs((score.recall ?? 0) - 1 / 3) < 1e-9);
+});
+
+test("a brief that is not the expected JSON is searched for the judged files only, and says it cannot count what it named", () => {
+  const score = scoreGroundTruth(TRUTH, { briefText: "Look at src/app/features/cart/stores/cart.store.ts and src/app/features/home/picker.component.ts.", filesRead: null, specSources: null }).briefBlastRadius;
+  assert.deepEqual(score?.hits, ["src/app/features/cart/stores/cart.store.ts"]);
+  assert.deepEqual(score?.falsePositives, ["src/app/features/home/picker.component.ts"]);
+  assert.equal(score?.named, null);
+  assert.equal(score?.unjudged, null);
+  assert.equal(score?.precisionAll, null);
+});
+
+test("files read match the truth from the repository root, an absolute path or with a line suffix, a file with only the same name does not, and a denied read is no read", () => {
+  const turns = [
+    toProbeTurn(turnRecord({ toolSequence: [read("/app/.mirrors/org__web/src/app/features/cart/api/cart.api.ts"), read("src/app/features/cart/stores/cart.store.ts:41"), read("src/other/cart.api.ts"), { tool: "read", target: "src/app/features/cart/pages/cart-form/cart-form.page.ts", denied: true }, { tool: "grep", target: "cart" }] }), ctx()),
+    toProbeTurn(turnRecord({ role: "qa-reviewer", toolSequence: [read("src/app/features/home/picker.component.ts")] }), ctx()),
+  ];
+  const filesRead = contentReadsOf(turns);
+  assert.ok(filesRead);
+  const score = scoreGroundTruth(TRUTH, { briefText: null, filesRead, specSources: null }).filesRead;
+  assert.deepEqual(score?.hits, ["src/app/features/cart/api/cart.api.ts", "src/app/features/cart/stores/cart.store.ts"]);
+  assert.deepEqual(score?.misses, ["src/app/features/cart/pages/cart-form/cart-form.page.ts"]);
+  assert.deepEqual(score?.falsePositives, ["src/app/features/home/picker.component.ts"]);
+  assert.equal(score?.named, 4);
+  assert.equal(score?.unjudged, 1);
+});
+
+test("a source that was not observed is unknown, not a zero score: no brief, no tool sequence, no readable spec", () => {
+  const unseen = scoreGroundTruth(TRUTH, { briefText: null, filesRead: contentReadsOf([toProbeTurn(turnRecord(), ctx())]), specSources: null });
+  assert.deepEqual(unseen, { briefBlastRadius: null, filesRead: null, specRoutes: null });
+  const noSpecs = scoreGroundTruth(TRUTH, { briefText: null, filesRead: null, specSources: [] }).specRoutes;
+  assert.equal(noSpecs?.recall, 0, "no spec navigated anywhere: every affected route was missed");
+  assert.equal(noSpecs?.precision, null);
+  assert.equal(noSpecs?.precisionAll, null);
+  assert.equal(specSourcesOf([{ path: "a.spec.ts", lines: 3 }], new Map([["a.spec.ts", null]])), null);
+  assert.deepEqual(specSourcesOf([], new Map()), []);
+});
+
+test("spec routes match the affected route with its parameters, and a route the truth rejects is a false positive", () => {
+  const specs = ["await page.goto('/cart/new');\nawait page.goto('/cart/7/view');\nawait page.goto('/login');"];
+  const score = scoreGroundTruth(TRUTH, { briefText: null, filesRead: null, specSources: specs }).specRoutes;
+  assert.deepEqual(score?.hits, ["/cart/new"]);
+  assert.deepEqual(score?.falsePositives, ["/cart/:id/view"]);
+  assert.equal(score?.unjudged, 1);
+  assert.equal(score?.precision, 0.5);
+  assert.ok(Math.abs((score?.precisionAll ?? 0) - 1 / 3) < 1e-9);
+  assert.equal(score?.recall, 1);
+});
+
+test("a pipeline report carries the stitcher's signals, the sections of the generator's first-pass prompt and the ground-truth score of its evidence", () => {
+  const prompt = "## Working rules\nr\n## Cross-service links (deterministic — from the stitcher, advisory)\n- a -> b\n## Task\nt";
+  const report = buildPipelineReport({
+    runId: RUN_ID, record: runRecord({ specs: [{ name: "flows/cart.spec.ts" }] }), outcome: outcome({ serviceLinksCount: 4, contractDriftCount: 0, structuralSignalBytes: 900 }),
+    events: baseEvents(), changedFiles: ["svc/Handler.java"], specLines: new Map(), minRatio: 0.7, groundTruth: TRUTH,
+    specSources: new Map([["flows/cart.spec.ts", "await page.goto('/cart/new');"]]),
+    turns: [
+      turnRecord({ role: EXPLORER_AGENT_NAME, outputText: JSON.stringify({ blastRadius: [{ symbol: "S", file: "src/app/features/cart/stores/cart.store.ts", role: "r" }] }), toolSequence: [read("src/app/features/cart/api/cart.api.ts")] }),
+      turnRecord({ role: "qa-generator", promptText: prompt, toolSequence: [read("src/app/features/cart/pages/cart-form/cart-form.page.ts")] }),
+      turnRecord({ role: "qa-generator", round: 1, isRepair: true, promptText: "## Task\nfix" }),
+    ],
+  });
+  assert.equal(report.stitcher?.serviceLinksCount, 4);
+  assert.equal(report.stitcher?.contractDriftCount, 0);
+  assert.equal(report.stitcher?.structuralSignalBytes, 900);
+  assert.equal(report.stitcher?.generatorPrompt?.serviceLinks.present, true, "the first generator pass, not the repair");
+  assert.equal(report.groundTruth?.briefBlastRadius?.recall, 1 / 3);
+  assert.equal(report.groundTruth?.filesRead?.recall, 2 / 3, "the explorer's read and the generator's both count as the agent reading");
+  assert.equal(report.groundTruth?.specRoutes?.recall, 1);
+});
+
+test("a pipeline report without a ground truth carries none, and one with no recorded stitcher signals reads them unknown", () => {
+  const report = buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: outcome(), events: baseEvents(), turns: [turnRecord({ role: "qa-generator" })], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  assert.equal(report.groundTruth, undefined);
+  assert.equal(report.stitcher?.serviceLinksCount, null);
+  assert.equal(report.stitcher?.generatorPrompt?.serviceLinks.present, false);
+});
+
+test("the markdown shows the stitcher table and the ground-truth table, an unavailable source as n/a", () => {
+  const report = buildPipelineReport({
+    runId: RUN_ID, record: runRecord(), outcome: outcome({ serviceLinksCount: 4 }), events: baseEvents(), changedFiles: null, specLines: new Map(), minRatio: 0.7, groundTruth: TRUTH,
+    turns: [turnRecord({ role: "qa-generator", promptText: "## Cross-service links (x)\nl" })],
+  });
+  const markdown = renderMarkdown([report]);
+  assert.ok(markdown.includes("### Stitcher signals"));
+  assert.ok(markdown.includes("### Ground truth"));
+  assert.ok(markdown.includes("| brief blast radius | n/a |"), "a source that was not observed reads n/a");
+  assert.equal(renderMarkdown([buildPipelineReport({ runId: RUN_ID, record: runRecord(), outcome: undefined, events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 })]).includes("### Ground truth"), false);
 });

@@ -11,6 +11,8 @@ export const PROMPT_HEADINGS = {
   groundTruthAtFailure: "GROUND TRUTH AT FAILURE",
   liveDevTree: "Live DEV accessibility tree",
   crossServiceLinks: "Cross-service links",
+  /* The code-graph exploration a structural signal that names symbols is titled with. */
+  structuralBlastRadius: "Structural blast radius",
   appLogin: "App login",
   harnessFacts: "Harness facts",
   /* The listing of the specs that already exist, titled by the id of its section. */

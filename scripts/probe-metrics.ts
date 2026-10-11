@@ -11,6 +11,7 @@ import type { RunEventBody } from "@kernel/contract/events.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { DecideCoverageService, type CoverageStatus } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { isContentReadTool } from "@contexts/generation/domain/call-sequence.ts";
+import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent.ts";
 import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence.ts";
 import type { TurnCallMetrics } from "@contexts/generation/domain/turn-efficiency-summary.ts";
@@ -314,6 +315,10 @@ export interface ProbeReport {
   execution: { passed: number | null; failed: number | null; flaky: number | null } | null;
   coverage: ProbeCoverage | null;
   reviewer: { approved: boolean | null; reasons: string[] } | null;
+  /** What the cross-repo stitcher supplied and what the generator's prompt carried of it. Absent in a report made before the figures existed. */
+  stitcher?: StitcherMetrics;
+  /** How the run's evidence scores against a hand-written ground truth (`--ground-truth`); absent when none was given. */
+  groundTruth?: GroundTruthScore;
   /** What only one arm can say (the plain agent's model, step cap and timeout, its final words, what it wrote outside the suite). Not compared across arms. */
   detail?: Record<string, unknown>;
 }
@@ -358,6 +363,10 @@ export interface PipelineReportInput {
   /** The change-coverage minimum of the app's policy. */
   minRatio: number;
   suiteDir?: string;
+  /** The source of each reported spec as it stood on disk; a spec that is gone is null. Read for the routes the specs navigate to. */
+  specSources?: ReadonlyMap<string, string | null>;
+  /** The hand-written ground truth to score the run against, when the operator gave one. */
+  groundTruth?: GroundTruth;
 }
 
 function reportedSpecs(input: PipelineReportInput): ProbeSpec[] {
@@ -393,6 +402,10 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
   const hasCoverage = computed !== undefined || (outcome?.gateSignals.coverageRatio ?? null) !== null;
   const reviewerApproved = verdictEvent?.approved ?? outcome?.gateSignals.reviewerApproved ?? null;
 
+  const generatorTurn = input.turns.find((t) => roleIs(t, "generator") && !t.isRepair && t.round === 0) ?? input.turns.find((t) => roleIs(t, "generator"));
+  const specs = reportedSpecs(input);
+  const stitcher = stitcherMetrics(outcome?.gateSignals, generatorTurn ? generatorTurn.promptText : null);
+
   return {
     schema: 1,
     arm: "pipeline",
@@ -410,7 +423,7 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
     nested: { explorerMs, domCaptureMs, reviewMs },
     turns,
     totals: totalsOf(turns),
-    specs: reportedSpecs(input),
+    specs,
     execution: record
       ? { passed: record.passed ?? null, failed: record.failed ?? null, flaky: events.filter((e) => e.body.type === "test.flaky").length }
       : null,
@@ -420,7 +433,271 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
     reviewer: verdictEvent
       ? { approved: verdictEvent.approved, reasons: verdictEvent.reasons }
       : reviewerApproved === null ? null : { approved: reviewerApproved, reasons: outcome?.gateSignals.reviewerCorrections ?? [] },
+    stitcher,
+    ...(input.groundTruth
+      ? { groundTruth: scoreGroundTruth(input.groundTruth, { briefText, filesRead: contentReadsOf(turns), specSources: specSourcesOf(specs, input.specSources) }) }
+      : {}),
   };
+}
+
+/* ── the cross-repo stitcher: what it supplied, and whether the evidence reaches the affected code ──────────────── */
+
+export interface SectionPresence {
+  present: boolean;
+  /** UTF-8 bytes from the section's heading to the next level-2 heading (or the end): a plain line right after the section may be counted with it. */
+  bytes: number;
+}
+
+/** The advisory structural sections of a generator prompt. */
+export interface PromptSections {
+  serviceLinks: SectionPresence;
+  structuralBlastRadius: SectionPresence;
+  coChange: SectionPresence;
+}
+
+export interface StitcherMetrics {
+  /** The run's recorded gate signals; null when the run did not record them (no resolver wired, or an arm without a stitcher). Never zero for "not measured". */
+  serviceLinksCount: number | null;
+  contractDriftCount: number | null;
+  structuralSignalBytes: number | null;
+  crossRepoImpactedCount: number | null;
+  /** What the generator's first-pass prompt carried; null when the prompt text was not recorded. */
+  generatorPrompt: PromptSections | null;
+}
+
+function sectionOf(prompt: string, title: string): SectionPresence {
+  const marker = `## ${title}`;
+  const newline = prompt.indexOf(`\n${marker}`);
+  const at = prompt.startsWith(marker) ? 0 : newline < 0 ? -1 : newline + 1;
+  if (at < 0) return { present: false, bytes: 0 };
+  const next = prompt.indexOf("\n## ", at + marker.length);
+  return { present: true, bytes: Buffer.byteLength(prompt.slice(at, next < 0 ? prompt.length : next), "utf8") };
+}
+
+/** Which advisory structural sections a generator prompt carries, and how large each is. */
+export function promptSections(prompt: string): PromptSections {
+  return {
+    serviceLinks: sectionOf(prompt, PROMPT_HEADINGS.crossServiceLinks),
+    structuralBlastRadius: sectionOf(prompt, PROMPT_HEADINGS.structuralBlastRadius),
+    coChange: sectionOf(prompt, PROMPT_HEADINGS.coChangeFiles),
+  };
+}
+
+type GateSignals = {
+  serviceLinksCount?: number;
+  contractDriftCount?: number;
+  structuralSignalBytes?: number;
+  crossRepoImpactedCount?: number;
+};
+
+/** The stitcher figures of a run: the recorded gate signals (null when absent) and the sections of the generator prompt. */
+export function stitcherMetrics(signals: GateSignals | undefined, generatorPrompt: string | null): StitcherMetrics {
+  return {
+    serviceLinksCount: signals?.serviceLinksCount ?? null,
+    contractDriftCount: signals?.contractDriftCount ?? null,
+    structuralSignalBytes: signals?.structuralSignalBytes ?? null,
+    crossRepoImpactedCount: signals?.crossRepoImpactedCount ?? null,
+    generatorPrompt: generatorPrompt === null ? null : promptSections(generatorPrompt),
+  };
+}
+
+/**
+ * What a case's correct answer is, written by hand before any run: the files and routes of the application under test a
+ * change affects, and the ones it must not be credited for. Files are repo-relative to the application under test.
+ */
+export interface GroundTruth {
+  affectedFiles: string[];
+  affectedRoutes: string[];
+  notAffectedFiles: string[];
+  /** Routes that must not count as the right target; optional because a spec may pass through them on its way. */
+  notAffectedRoutes: string[];
+}
+
+/** A ground truth from parsed JSON. Throws, naming the field, on a shape that cannot be scored. */
+export function parseGroundTruth(raw: unknown): GroundTruth {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) throw new Error("the ground truth must be a JSON object");
+  const obj = raw as Record<string, unknown>;
+  const list = (key: string, required: boolean): string[] => {
+    const value = obj[key];
+    if (value === undefined && !required) return [];
+    if (!Array.isArray(value) || value.some((v) => typeof v !== "string" || v.trim() === "")) throw new Error(`ground truth '${key}' must be an array of non-empty strings`);
+    return (value as string[]).map((v) => v.trim());
+  };
+  const truth: GroundTruth = {
+    affectedFiles: list("affectedFiles", true),
+    affectedRoutes: list("affectedRoutes", true),
+    notAffectedFiles: list("notAffectedFiles", true),
+    notAffectedRoutes: list("notAffectedRoutes", false),
+  };
+  if (truth.affectedFiles.length === 0) throw new Error("ground truth 'affectedFiles' is empty: there is nothing to recall");
+  return truth;
+}
+
+/** One source of evidence scored against the ground truth. */
+export interface SourceScore {
+  /** What the source is, for the reader: how its items were obtained. */
+  basis: string;
+  /** Distinct items the source named; null when the source is free text that can only be searched for the judged items. */
+  named: number | null;
+  /** Affected items the source reached, and the ones it did not. */
+  hits: string[];
+  misses: string[];
+  /** Items the ground truth says are NOT affected that the source named. */
+  falsePositives: string[];
+  /** Items named that the ground truth neither credits nor rejects; null when `named` is. */
+  unjudged: number | null;
+  /** hits / (hits + false positives): of the items the ground truth could judge, how many were right. Null when none was judged. */
+  precision: number | null;
+  /** Named items that are affected / items named: counts the unjudged as wrong. Null when `named` is null or zero. */
+  precisionAll: number | null;
+  /** hits / affected items. */
+  recall: number | null;
+}
+
+export interface GroundTruthScore {
+  /** The files the explorer's brief names in its blast radius; null when the run had no explorer brief. */
+  briefBlastRadius: SourceScore | null;
+  /** The files the agent read; null when no tool sequence was kept. */
+  filesRead: SourceScore | null;
+  /** The routes the generated specs navigate to (`goto` literals); null when the specs' source could not be read. */
+  specRoutes: (SourceScore & { dynamicGotos: number }) | null;
+}
+
+const normalizeFile = (p: string): string => p.trim().replaceAll("\\", "/").replace(/^\.\//, "").replace(/(?::|#L?)\d+(?:-\d+)?$/, "");
+
+/** A named path is a ground-truth file when it is that path or ends with it at a directory boundary (the agent may name it from the repository root or an absolute path). */
+const fileMatches = (truth: string, named: string): boolean => named === truth || named.endsWith(`/${truth}`);
+
+/** A route is a ground-truth route when every segment is equal; a `:param` segment of the truth matches any one segment. */
+function routeMatches(truth: string, named: string): boolean {
+  const a = truth.split("/");
+  const b = named.split("/");
+  return a.length === b.length && a.every((seg, i) => (seg.startsWith(":") && seg.length > 1 && b[i] !== "") || seg === b[i]);
+}
+
+const ratio = (n: number, d: number): number | null => (d === 0 ? null : n / d);
+
+function scoreNamed(basis: string, affected: readonly string[], notAffected: readonly string[], named: readonly string[], matches: (truth: string, named: string) => boolean): SourceScore {
+  const hits = affected.filter((a) => named.some((n) => matches(a, n)));
+  const falsePositives = notAffected.filter((x) => named.some((n) => matches(x, n)));
+  const judged = named.filter((n) => affected.some((a) => matches(a, n)) || notAffected.some((x) => matches(x, n))).length;
+  const namedHits = named.filter((n) => affected.some((a) => matches(a, n))).length;
+  return {
+    basis,
+    named: named.length,
+    hits,
+    misses: affected.filter((a) => !hits.includes(a)),
+    falsePositives,
+    unjudged: named.length - judged,
+    precision: ratio(hits.length, hits.length + falsePositives.length),
+    precisionAll: ratio(namedHits, named.length),
+    recall: ratio(hits.length, affected.length),
+  };
+}
+
+/** The files an explorer brief lists in its blast radius, or null when the brief is not the JSON the explorer is asked for. */
+export function briefBlastRadiusFiles(briefText: string): string[] | null {
+  const candidates = [briefText.trim(), briefText.slice(briefText.indexOf("{"), briefText.lastIndexOf("}") + 1)];
+  for (const text of candidates) {
+    try {
+      const parsed = JSON.parse(text) as { blastRadius?: unknown };
+      if (Array.isArray(parsed.blastRadius)) {
+        return [...new Set(parsed.blastRadius.flatMap((e) => (typeof (e as { file?: unknown } | null)?.file === "string" ? [normalizeFile((e as { file: string }).file)] : [])))];
+      }
+    } catch {
+      /* the next spelling */
+    }
+  }
+  return null;
+}
+
+/** A route as a spec navigates to it: no origin, query or hash, a leading slash and no trailing one. Null for a URL that cannot be read. */
+export function normalizeRoute(raw: string): string | null {
+  let path = raw.trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) {
+    try {
+      path = new URL(path).pathname;
+    } catch {
+      return null;
+    }
+  }
+  path = (path.split(/[?#]/)[0] ?? "").replace(/\/+$/, "");
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+const GOTO_LITERAL = /\bgoto\(\s*(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g;
+
+/** The routes spec sources navigate to with a `goto` of a literal, in order of first appearance; `dynamic` counts the calls whose argument is built at run time (a template with a substitution), which cannot be scored. */
+export function gotoRoutes(sources: readonly string[]): { routes: string[]; dynamic: number } {
+  const routes = new Set<string>();
+  let dynamic = 0;
+  for (const source of sources) {
+    for (const match of source.matchAll(GOTO_LITERAL)) {
+      const literal = match[1]!;
+      if (literal.startsWith("`") && literal.includes("${")) {
+        dynamic++;
+        continue;
+      }
+      const route = normalizeRoute(literal.slice(1, -1));
+      if (route !== null) routes.add(route);
+    }
+  }
+  return { routes: [...routes], dynamic };
+}
+
+/** The distinct files the turns read with a content-read tool (a denied call is not a read); null when no turn kept a tool sequence. */
+export function contentReadsOf(turns: readonly ProbeTurn[]): string[] | null {
+  const sequences = turns.map((t) => t.toolSequence).filter((s): s is ToolSequenceEntry[] => s !== null);
+  if (sequences.length === 0) return null;
+  return [...new Set(sequences.flatMap((seq) => seq.filter((e) => !e.denied && e.target !== null && isContentReadTool(e.tool)).map((e) => normalizeFile(e.target as string))))];
+}
+
+/** The sources of the specs that could be read; null when specs were reported and none could be read. */
+export function specSourcesOf(specs: readonly ProbeSpec[], sources: ReadonlyMap<string, string | null> | undefined): string[] | null {
+  if (sources === undefined) return null;
+  const read = specs.flatMap((s) => {
+    const text = sources.get(s.path);
+    return typeof text === "string" ? [text] : [];
+  });
+  return specs.length > 0 && read.length === 0 ? null : read;
+}
+
+export interface GroundTruthEvidence {
+  /** The explorer's output; null when there was no explorer. */
+  briefText: string | null;
+  filesRead: readonly string[] | null;
+  specSources: readonly string[] | null;
+}
+
+/** Scores each source of evidence against the ground truth: what it reached (recall), and how much of what it named was right (precision). */
+export function scoreGroundTruth(truth: GroundTruth, evidence: GroundTruthEvidence): GroundTruthScore {
+  const fileScore = (basis: string, named: readonly string[]): SourceScore => scoreNamed(basis, truth.affectedFiles, truth.notAffectedFiles, named, fileMatches);
+
+  let briefBlastRadius: SourceScore | null = null;
+  if (evidence.briefText !== null) {
+    const files = briefBlastRadiusFiles(evidence.briefText);
+    if (files !== null) briefBlastRadius = fileScore("files of the brief's blastRadius entries", files);
+    else {
+      /* Free text: only the judged files can be looked for in it. */
+      const text = evidence.briefText.replaceAll("\\", "/");
+      const mentioned = (file: string): boolean => text.includes(file);
+      const hits = truth.affectedFiles.filter(mentioned);
+      briefBlastRadius = {
+        basis: "ground-truth files mentioned in the brief's text (it was not the expected JSON)", named: null, hits, misses: truth.affectedFiles.filter((f) => !hits.includes(f)),
+        falsePositives: truth.notAffectedFiles.filter(mentioned), unjudged: null,
+        precision: ratio(hits.length, hits.length + truth.notAffectedFiles.filter(mentioned).length), precisionAll: null, recall: ratio(hits.length, truth.affectedFiles.length),
+      };
+    }
+  }
+
+  const filesRead = evidence.filesRead === null ? null : fileScore("files read with a content-read tool, by every agent turn", evidence.filesRead);
+
+  let specRoutes: GroundTruthScore["specRoutes"] = null;
+  if (evidence.specSources !== null) {
+    const { routes, dynamic } = gotoRoutes(evidence.specSources);
+    specRoutes = { ...scoreNamed("page.goto literals of the generated specs", truth.affectedRoutes, truth.notAffectedRoutes, routes, routeMatches), dynamicGotos: dynamic };
+  }
+  return { briefBlastRadius, filesRead, specRoutes };
 }
 
 /* ── rendering ─────────────────────────────────────────────────────────────────────── */
@@ -476,9 +753,44 @@ export function renderTurnRows(r: ProbeReport): string[] {
   });
 }
 
+const STITCHER_COLUMNS = ["id", "arm", "service links", "contract drift", "structural signal B", "prompt: service-links B", "prompt: blast-radius B", "prompt: co-change B"] as const;
+const GROUND_TRUTH_COLUMNS = ["id", "arm", "source", "named", "hits", "misses", "false positives", "unjudged", "precision", "precision-all", "recall"] as const;
+
+const sectionBytes = (s: SectionPresence | undefined): string => (s === undefined ? NA : s.present ? String(s.bytes) : "absent");
+const fixed = (v: number | null): string => (v === null ? NA : v.toFixed(2));
+
+/** The stitcher-signal table and the ground-truth table, for the reports that carry them (nothing when none does). */
+export function renderStitcherTables(reports: readonly ProbeReport[]): string[] {
+  const withStitcher = reports.filter((r) => r.stitcher !== undefined);
+  const withTruth = reports.filter((r) => r.groundTruth !== undefined);
+  const lines: string[] = [];
+  const row = (cells: readonly string[]): string => `| ${cells.map(cell).join(" | ")} |`;
+  if (withStitcher.length > 0) {
+    lines.push("", "### Stitcher signals", "", `| ${STITCHER_COLUMNS.join(" | ")} |`, `|${STITCHER_COLUMNS.map(() => "---").join("|")}|`);
+    for (const r of withStitcher) {
+      const st = r.stitcher!;
+      lines.push(row([r.id, r.arm, num(st.serviceLinksCount), num(st.contractDriftCount), num(st.structuralSignalBytes), sectionBytes(st.generatorPrompt?.serviceLinks), sectionBytes(st.generatorPrompt?.structuralBlastRadius), sectionBytes(st.generatorPrompt?.coChange)]));
+    }
+  }
+  if (withTruth.length > 0) {
+    lines.push("", "### Ground truth", "", `| ${GROUND_TRUTH_COLUMNS.join(" | ")} |`, `|${GROUND_TRUTH_COLUMNS.map(() => "---").join("|")}|`);
+    for (const r of withTruth) {
+      const gt = r.groundTruth!;
+      const sources: Array<[string, SourceScore | null]> = [["brief blast radius", gt.briefBlastRadius], ["files read", gt.filesRead], ["spec routes", gt.specRoutes]];
+      for (const [name, score] of sources) {
+        if (score === null) lines.push(row([r.id, r.arm, name, NA, NA, NA, NA, NA, NA, NA, NA]));
+        else lines.push(row([r.id, r.arm, name, num(score.named), String(score.hits.length), String(score.misses.length), String(score.falsePositives.length), num(score.unjudged), fixed(score.precision), fixed(score.precisionAll), fixed(score.recall)]));
+      }
+    }
+    lines.push("", "precision = hits / (hits + false positives), over what the ground truth can judge; precision-all = affected items named / items named. A source `n/a` was not available for that run (no explorer brief, no tool sequence, no readable spec).");
+  }
+  return lines;
+}
+
 /** Both tables for a set of reports, ready to paste. */
 export function renderMarkdown(reports: readonly ProbeReport[]): string {
   const lines = ["### Runs", "", RUN_TABLE_HEADER, ...reports.map(renderRunRow), "", "### Agent turns", "", TURN_TABLE_HEADER, ...reports.flatMap(renderTurnRows)];
+  lines.push(...renderStitcherTables(reports));
   if (reports.some((r) => r.totals.turnsWithPartialUsage > 0)) {
     lines.push("", "`*` tokens and cost of a turn recorded before per-step usage existed: the last assistant message alone, which understates a many-step turn.");
   }

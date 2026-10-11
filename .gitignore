@@ -13,6 +13,9 @@ config/benchmarks/efficiency-cases.json
 config/benchmarks/efficiency-results/
 # The pipeline-vs-plain-agent probe (scripts/probe-report.ts, scripts/baseline-agent.ts): per-run reports, run ids and numbers only.
 config/benchmarks/probe-results/
+# Ground truths name real files and routes of watched apps (user data) — only the neutral-placeholder
+# config/benchmarks/ground-truth.example.json ships tracked (see scripts/probe-metrics.ts).
+config/benchmarks/ground-truth/
 # Watched-app configs are user data (real repo URLs, tokens-adjacent settings) — only the
 # neutral-placeholder example ships tracked. A fresh clone has no app configured (see
 # CLAUDE.md's Onboarding note and docs invariants).

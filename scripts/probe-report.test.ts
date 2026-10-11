@@ -1,7 +1,7 @@
 /* The pipeline arm of the probe: a run id in, the shared metrics report out, written beside its markdown. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTurnRecord } from "../src/server/history.ts";
@@ -25,6 +25,7 @@ function fakeDeps(known: readonly string[], over: Partial<ReportDeps> = {}): Rep
     turns: (): AgentTurnRecord[] => [],
     changedFiles: async () => ["src/a.ts"],
     specLines: () => new Map(),
+    specSources: () => new Map(),
     minRatio: () => DEFAULT_COVERAGE_MIN_RATIO,
     ...over,
   };
@@ -105,4 +106,43 @@ test("no run id, or an unknown option, is a usage error", async () => {
   assert.equal(await main([], { deps: fakeDeps([]), out: (l) => lines.push(l) }), 2);
   assert.equal(await main(["run-1", "--nope"], { deps: fakeDeps(["run-1"]), out: (l) => lines.push(l) }), 2);
   assert.ok(lines.some((l) => l.startsWith("usage:")));
+});
+
+test("--ground-truth scores the run against the file: the report carries the score and the markdown the table", async () => {
+  const { dir, done } = scratch();
+  try {
+    const truth = join(dir, "truth.json");
+    writeFileSync(truth, JSON.stringify({ affectedFiles: ["src/a.ts"], affectedRoutes: ["/a"], notAffectedFiles: [] }), "utf8");
+    const lines: string[] = [];
+    const code = await main(["run-1", "--ground-truth", truth], {
+      deps: fakeDeps(["run-1"], { specSources: () => new Map([["flows/a.spec.ts", "await page.goto('/a');"]]), record: (id) => ({ ...record(id), specs: [{ name: "flows/a.spec.ts" }] }) }),
+      out: (l) => lines.push(l), outDir: dir,
+    });
+    assert.equal(code, 0);
+    const written = JSON.parse(readFileSync(join(dir, "run-1.json"), "utf8")) as ProbeReport;
+    assert.equal(written.groundTruth?.specRoutes?.recall, 1);
+    assert.ok(lines.join("\n").includes("### Ground truth"));
+  } finally {
+    done();
+  }
+});
+
+test("a ground-truth file that cannot be read or scored stops the report before any run is read, naming the file", async () => {
+  const { dir, done } = scratch();
+  try {
+    const bad = join(dir, "bad.json");
+    writeFileSync(bad, JSON.stringify({ affectedFiles: [] }), "utf8");
+    for (const path of [bad, join(dir, "missing.json")]) {
+      const lines: string[] = [];
+      assert.equal(await main(["run-1", "--ground-truth", path], { deps: fakeDeps(["run-1"]), out: (l) => lines.push(l), outDir: dir }), 1);
+      assert.ok(lines.join("\n").includes(path));
+    }
+    assert.equal(existsSync(join(dir, "run-1.json")), false);
+  } finally {
+    done();
+  }
+});
+
+test("--ground-truth without a file is a usage error", async () => {
+  assert.equal(await main(["run-1", "--ground-truth"], { deps: fakeDeps(["run-1"]), out: () => undefined }), 2);
 });
