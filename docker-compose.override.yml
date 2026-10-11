@@ -48,6 +48,11 @@ services:
       # is what keeps a published port from being an open control plane. Override here for local
       # `docker compose up`. Set false to force login.
       QA_WEB_AUTO_LOGIN: ${QA_WEB_AUTO_LOGIN:-true}
+      # Per-tier wall-time budget overrides for a diff run's generator first pass (ms or `none`);
+      # empty keeps the defaults (docs/efficiency-benchmark.md). Set per probe in the host env.
+      QA_DIFF_TIME_BUDGET_MS_TINY: ${QA_DIFF_TIME_BUDGET_MS_TINY:-}
+      QA_DIFF_TIME_BUDGET_MS_FOCUSED: ${QA_DIFF_TIME_BUDGET_MS_FOCUSED:-}
+      QA_DIFF_TIME_BUDGET_MS_BROAD: ${QA_DIFF_TIME_BUDGET_MS_BROAD:-}
     volumes:
       - ./src:/app/src
       # Live src imports qa-engine via tsconfig paths. The image copy goes stale
