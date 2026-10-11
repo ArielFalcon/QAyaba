@@ -1185,3 +1185,39 @@ test("the in-generate reviewer's verdict repair carries no limit when none was h
   assert.equal(reviewer[1]?.isRepair, true);
   assert.equal("stepLimit" in (reviewer[1] ?? {}), false);
 });
+
+/* A context run's product is the architecture map, not tests: no reviewer session is opened on it and no review verdict is reported, whatever the run is configured to review. */
+test("a context-mode generation opens no reviewer session and reports no review, even when review is on", async () => {
+  const opened: string[] = [];
+  const ports: GenerationPorts = {
+    runtime: {
+      openSession: async (role) => {
+        opened.push(role);
+        return { prompt: async () => ({ output: '{"specs":[]}' }), dispose: () => {} };
+      },
+    },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
+      renderWorker: () => ({ text: "", sectionSizes: {} }),
+      renderReviewer: () => ({ text: "REVIEW_PROMPT", sectionSizes: {} }),
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: () => ({ specs: [], parsed: true }),
+      parseReview: () => ({ approved: false, corrections: [], valid: true, issues: [], parsed: true }),
+    },
+    manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+  };
+
+  const result = await new GenerateTestsUseCase(ports).generate({
+    repo: "r", sha: "s", diff: "", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
+    needsReview: true, target: "e2e", mode: "context", appName: "a",
+  });
+
+  assert.equal(opened.includes("reviewer"), false, "no reviewer session was opened");
+  assert.equal(result.reviewed, false);
+  assert.equal(result.approved, true, "an unreviewed generation does not carry a rejection");
+});

@@ -4,6 +4,7 @@ import type { Objective } from "@kernel/objective.ts";
 import type { GenerationPort, GenerationEnrichment, GenerationOutput, RetrievedRule } from "../../application/ports/index.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, StepLimitFor, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/ports/generation-ports.ts";
+import { generationRunsReviewer } from "@contexts/generation/domain/generation-review.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { suiteEntryFile } from "@contexts/generation/domain/suite-entry.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
@@ -101,7 +102,7 @@ export class GenerationPortAdapter implements GenerationPort {
     const reviewerLearnedRules = enrichment?.learnedRules?.length ? renderLearnedRulesForReviewer(enrichment.learnedRules) : "";
     const stepLimit = await this.collaborators.stepLimitFor?.("generator");
     /* The in-generate reviewer's limit travels only with a generation that runs that reviewer's session. */
-    const reviewerStepLimit = this.ctx.needsReview ? await this.collaborators.stepLimitFor?.("reviewer") : undefined;
+    const reviewerStepLimit = generationRunsReviewer(this.ctx) ? await this.collaborators.stepLimitFor?.("reviewer") : undefined;
     const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
     /* On a regeneration turn only, what the run delivered, what a contradiction points at and the suite's own entries, minus the files that are no longer a regular file inside the spec directory (deleted, renamed away, a link out, a path that climbs): the agent can change the suite between passes, and a path it reported is never trusted. A first pass hands the suite's entries on as the grounding folded them. */
     const regenerating = enrichment !== undefined && isReGenTurn(enrichment) ? enrichment : undefined;

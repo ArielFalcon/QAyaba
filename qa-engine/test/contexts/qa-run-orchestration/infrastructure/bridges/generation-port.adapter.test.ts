@@ -1194,6 +1194,17 @@ test("generate() carries the in-generate reviewer's own limit when that reviewer
   assert.deepEqual([...asked].sort(), ["generator", "reviewer"]);
 });
 
+test("generate() never asks for the reviewer's limit in a context run, whose generation runs no reviewer", async () => {
+  const inputs: OpencodeRunInput[] = [];
+  const asked: StepLimitRole[] = [];
+  const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true, mode: "context" }, { stepLimitFor: resolverAsking(asked) });
+
+  await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+
+  assert.deepEqual(asked, ["generator"]);
+  assert.equal("reviewerStepLimit" in (inputs[0] ?? {}), false);
+});
+
 test("generate() carries no limit key when there is no resolver, or when the resolver has none for the role", async () => {
   const inputs: OpencodeRunInput[] = [];
   const noResolver = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true });

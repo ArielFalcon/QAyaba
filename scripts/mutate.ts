@@ -250,10 +250,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
       `${GEN}/application/generate-tests.use-case.ts:162-163`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:105-111`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:137-138`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:146-146`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:179-179`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:106-112`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:138-139`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:147-147`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:180-180`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
       `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:238-238`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */

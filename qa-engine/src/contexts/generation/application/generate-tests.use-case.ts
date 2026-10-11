@@ -16,6 +16,7 @@ import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
 import { declareSpecs } from "../domain/declared-specs.ts";
 import { diffStat } from "../domain/diff-stat.ts";
+import { generationRunsReviewer } from "../domain/generation-review.ts";
 import { generatorTimeBudgetMs } from "../domain/generator-time-budget.ts";
 import { isReGenTurn } from "../domain/regen-turn.ts";
 
@@ -61,7 +62,7 @@ export interface GenerateOpts {
 export class GenerateTestsUseCase {
   constructor(private readonly ports: GenerationPorts) {}
 
-  /* Generate E2E tests for a single input. Orchestrates the deterministic shell: 1. Build the generation prompt (via PromptRenderingPort). 2. Open a session and fire the prompt (via AgentRuntimePort). 3. Check generator contract; if invalid, fire ONE bounded repair re-prompt. 4. Parse the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). 6. If needsReview: open a reviewer session, parse the reviewer verdict, fire ONE bounded repair re-prompt on valid:false, apply the fail-closed gate. */
+  /* Generate E2E tests for a single input. Orchestrates the deterministic shell: 1. Build the generation prompt (via PromptRenderingPort). 2. Open a session and fire the prompt (via AgentRuntimePort). 3. Check generator contract; if invalid, fire ONE bounded repair re-prompt. 4. Parse the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). 6. If the run reviews (needsReview, never in context mode): open a reviewer session, parse the reviewer verdict, fire ONE bounded repair re-prompt on valid:false, apply the fail-closed gate. */
   async generate(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult> {
     const { runtime, rendering, verdicts, manifest, repair } = this.ports;
 
@@ -163,7 +164,7 @@ export class GenerateTestsUseCase {
     const declared = declaredSpecs.length > 0 ? { declaredSpecs } : {};
 
     /* A generation that ran out of time has no specs to review: the reviewer's session would be spent on nothing. */
-    if (!input.needsReview || end === GENERATION_END.TIME_BUDGET) {
+    if (!generationRunsReviewer(input) || end === GENERATION_END.TIME_BUDGET) {
       return {
         specs: deliverable.specs,
         ...declared,
