@@ -49,6 +49,9 @@ export function defaultCodexTimeoutMs(role: AgentRole, env: Record<string, strin
 
 export const CODEX_USAGE_AVAILABLE = false as boolean;
 
+/* The whole message of a deadline a Codex transport fires itself: CodexExecTransport's own timer, or the supervisor's relayed as its error body. Anchored, because the text an exec fails with can mention any timeout of the provider's. */
+const CODEX_OWN_DEADLINE = /^codex (?:prompt: |exec )timed out after \d+ms$/;
+
 /*
  * ROOT-CAUSE classifier for Codex: mirrors agentErrorToInfra (opencode-client.ts:1754) for the
  * Codex path. Maps `codex exec` non-zero exit / auth / out-of-credits to AgentUnavailableError and a
@@ -65,8 +68,8 @@ export function codexErrorToInfra(error: unknown): AgentTimeoutError | AgentUnav
   const msg = error.message.toLowerCase();
   const tail = "INCONCLUSIVE (infrastructure), not a test failure";
 
-  /* Timeout is the highest-priority check: it's the controlled case (CodexExecTransport fires SIGTERM). */
-  if (/timed out after \d+ms/.test(msg)) {
+  /* Timeout is the highest-priority check: it's the controlled case (CodexExecTransport fires SIGTERM). Only a deadline a transport fired itself is one: a timeout the exec's own stderr mentions is provider text. */
+  if (CODEX_OWN_DEADLINE.test(msg)) {
     return new AgentTimeoutError(`Codex prompt timed out. ${tail}.`, { cause: error });
   }
 
@@ -109,9 +112,15 @@ export interface CodexTransportStartInput {
   killSignal?: NodeJS.Signals;
 }
 
+/** What one prompt may state of its own. */
+export interface CodexTransportPromptOpts {
+  /** The longest this prompt may run. Absent: the session's limit stands. */
+  timeoutMs?: number;
+}
+
 export interface CodexTransportSession {
   id: string;
-  prompt(text: string): Promise<string>;
+  prompt(text: string, opts?: CodexTransportPromptOpts): Promise<string>;
   dispose(): Promise<void>;
 }
 
@@ -283,7 +292,10 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
         checkCodexCircuit(breakerRole);
         let rawOutput: string;
         try {
-          rawOutput = await session.prompt(withCodexRolePreamble(role, text, this.promptRoot));
+          rawOutput = await session.prompt(
+            withCodexRolePreamble(role, text, this.promptRoot),
+            promptOpts?.timeoutMs !== undefined ? { timeoutMs: promptOpts.timeoutMs } : undefined,
+          );
           recordCodexCircuitSuccess(breakerRole);
         } catch (err) {
           recordCodexCircuitFailure(breakerRole);
@@ -391,7 +403,7 @@ export class CodexExecTransport implements CodexHeadlessTransport {
     const id = randomUUID();
     return {
       id,
-      prompt: (text) => this.runExec(text, input),
+      prompt: (text, opts) => this.runExec(text, input, opts),
       dispose: async () => {},
     };
   }
@@ -410,7 +422,11 @@ export class CodexExecTransport implements CodexHeadlessTransport {
     return this.health();
   }
 
-  private runExec(prompt: string, input: CodexTransportStartInput): Promise<string> {
+  private runExec(prompt: string, session: CodexTransportStartInput, promptOpts?: CodexTransportPromptOpts): Promise<string> {
+    /* A limit the prompt states is the caller's own choice, as the session's is: it stops the child gently, where the strategy's default deadline kills it. */
+    const input: CodexTransportStartInput = promptOpts?.timeoutMs !== undefined
+      ? { ...session, timeoutMs: promptOpts.timeoutMs, killSignal: undefined }
+      : session;
     const args = codexExecArgs(input);
     return new Promise((resolve, reject) => {
       const child = this.spawnFn(this.command, args, {
@@ -475,7 +491,7 @@ export class SupervisorExecTransport implements CodexHeadlessTransport {
     const id = randomUUID();
     return {
       id,
-      prompt: (text) => this.runExec(text, input),
+      prompt: (text, opts) => this.runExec(text, input, opts),
       dispose: async () => {},
     };
   }
@@ -496,7 +512,8 @@ export class SupervisorExecTransport implements CodexHeadlessTransport {
     return CODEX_MODELS;
   }
 
-  private async runExec(prompt: string, input: CodexTransportStartInput): Promise<string> {
+  private async runExec(prompt: string, input: CodexTransportStartInput, promptOpts?: CodexTransportPromptOpts): Promise<string> {
+    const timeoutMs = promptOpts?.timeoutMs ?? input.timeoutMs;
     const res = await this.fetchImpl(`${this.baseUrl}/codex/exec`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -504,14 +521,15 @@ export class SupervisorExecTransport implements CodexHeadlessTransport {
        * `sandbox` is per-role (read-only roles cannot write): the supervisor must pass it through to
        * `codex exec --sandbox`. Sent unconditionally so a read-only role is never silently elevated.
        */
-      body: JSON.stringify({ cwd: input.cwd, prompt, sandbox: codexSandboxForRole(input.role), ...(input.model ? { model: input.model } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }),
+      body: JSON.stringify({ cwd: input.cwd, prompt, sandbox: codexSandboxForRole(input.role), ...(input.model ? { model: input.model } : {}), ...(timeoutMs ? { timeoutMs } : {}) }),
       ...(input.signal ? { signal: input.signal } : {}),
     });
     const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
     if (!res.ok) {
-      const raw = new Error(`codex exec via supervisor failed (${res.status}): ${body.error ?? "unknown"}`);
-      /* Classify infra errors (auth/credits/rate-limit) so the pipeline can surface infra-error. */
-      const infra = codexErrorToInfra(raw);
+      const detail = body.error ?? "unknown";
+      const raw = new Error(`codex exec via supervisor failed (${res.status}): ${detail}`);
+      /* Classify infra errors (auth/credits/rate-limit) so the pipeline can surface infra-error. The supervisor's own deadline arrives as the whole error body and is read as such; whatever else it relays is the exec's text. */
+      const infra = codexErrorToInfra(CODEX_OWN_DEADLINE.test(detail.toLowerCase()) ? new Error(detail) : raw);
       throw infra ?? raw;
     }
     return body.message ?? "";

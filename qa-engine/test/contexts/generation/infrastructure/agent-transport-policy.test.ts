@@ -417,6 +417,18 @@ test("createAgentDeps: open()/prompt()/dispose() delegate to the raw transport a
   await session.dispose();
 });
 
+test("createAgentDeps: a prompt's own time limit bounds that prompt, under the session's and the default", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-own-limit" }),
+    promptSession: () => new Promise(() => {}),
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  const session = await deps.open("qa-generator", "/tmp", { timeoutMs: 5000 });
+  await assert.rejects(() => session.prompt("do the thing", { timeoutMs: 5 }), /timed out after 5ms/);
+  await session.dispose();
+});
+
 test("createAgentDeps: retries on the fallback model after a transient (non-infra) primary-model fault", async () => {
   resetCircuit();
   let attempt = 0;

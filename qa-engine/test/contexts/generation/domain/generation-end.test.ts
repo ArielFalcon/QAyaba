@@ -5,6 +5,7 @@ import {
   classifyGenerationEnd,
   renderGenerationNote,
 } from "@contexts/generation/domain/generation-end.ts";
+import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 
 interface ClassifyRow {
@@ -33,7 +34,8 @@ const CLASSIFY_ROWS: readonly ClassifyRow[] = [
   { label: "no specs and a reason that is only whitespace", specCount: 0, parsed: true, noopReason: "   ", exhausted: false, expected: GENERATION_END.UNDECIDED_EMPTY },
   { label: "specs and a turn that timed out (the time is only recorded)", specCount: 2, parsed: true, noopReason: undefined, exhausted: false, timedOut: true, expected: GENERATION_END.DELIVERED },
   { label: "no specs, a turn that timed out", specCount: 0, parsed: false, noopReason: undefined, exhausted: false, timedOut: true, expected: GENERATION_END.TIME_BUDGET },
-  { label: "no specs, a timeout and a parsed no-op (a cut-off turn cannot be trusted to have decided)", specCount: 0, parsed: true, noopReason: "nothing to test", exhausted: false, timedOut: true, expected: GENERATION_END.TIME_BUDGET },
+  { label: "no specs, a timeout and a parsed no-op (a completed turn's decision stands when only a later turn was cut)", specCount: 0, parsed: true, noopReason: "nothing to test", exhausted: false, timedOut: true, expected: GENERATION_END.DECLARED_NOOP },
+  { label: "no specs, a timeout and a parsed verdict that decided nothing", specCount: 0, parsed: true, noopReason: undefined, exhausted: false, timedOut: true, expected: GENERATION_END.TIME_BUDGET },
   { label: "no specs, a timeout and exhaustion (the steps ran out first)", specCount: 0, parsed: false, noopReason: undefined, exhausted: true, timedOut: true, expected: GENERATION_END.EXHAUSTED },
 ];
 
@@ -205,20 +207,22 @@ test("a step count against no configured limit shows the count alone", () => {
 });
 
 test("a time-budget note names the budget the turn was held to, in minutes when it is a whole number of them", () => {
-  const note = renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 6 * 60_000 });
-  assert.match(note, /\b6 min\b/);
-  assert.match(note, /time budget/i);
+  const budgetMs = DIFF_TIME_BUDGET_MS.tiny as number;
+  assert.match(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs }), new RegExp(`\\b${budgetMs / 60_000} min\\b`));
 });
 
 test("a time-budget note names a budget that is not whole minutes in seconds", () => {
   assert.match(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 90_000 }), /\b90 s\b/);
 });
 
-test("a time-budget note names the repair turn only when the repair is what ran out of time", () => {
-  assert.match(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 60_000, repair: true }), /repair/i);
-  assert.doesNotMatch(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 60_000 }), /repair/i);
-});
-
-test("a time-budget note never claims the agent ran out of steps", () => {
-  assert.doesNotMatch(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 60_000 }), /step/i);
+test("a time-budget note tells the repair turn from the main one, and neither reads as another kind of end", () => {
+  const main = renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 60_000 });
+  const repair = renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 60_000, repair: true });
+  const steps = renderGenerationNote({ end: GENERATION_END.EXHAUSTED, outputTail: "" });
+  const undecided = renderGenerationNote({ end: GENERATION_END.UNDECIDED_EMPTY, outputTail: "" });
+  assert.notEqual(main, repair);
+  for (const other of [steps, undecided]) {
+    assert.notEqual(main.split(/[.(]/)[0], other.split(/[.(]/)[0]);
+    assert.notEqual(repair.split(/[.(]/)[0], other.split(/[.(]/)[0]);
+  }
 });

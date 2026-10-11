@@ -106,7 +106,8 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
 4. **Ground** — assemble what the agent receives (see below).
 5. **Generate** — agent writes/improves specs + `e2e/.qa/manifest.json`; an independent
    reviewer judges. Declared `noop` + zero specs → `skipped`. Zero specs without `noop`
-   → `infra-error E-NO-DECISION`; step budget exhausted → `infra-error E-STEP-BUDGET`.
+   → `infra-error E-NO-DECISION`; step budget exhausted → `infra-error E-STEP-BUDGET`; a diff run's
+   first pass stopped by its tier's time budget → `infra-error E-TIME-BUDGET`.
 6. **Validate** — `tsc` + ESLint (`eslint-plugin-playwright`) + `playwright --list` +
    manifest. Fail → `invalid`.
 7. **Execute** — Playwright against DEV → `pass`/`fail`/`flaky` (pass only on retry =
@@ -160,7 +161,17 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   see `docs/efficiency-benchmark.md`).
 - **Effort tier** — an e2e `diff` first pass gets the diff's real size and the effort its tier
   warrants (`generation/domain/diff-stat.ts`: tiny ≤2 files and 40 lines, focused ≤8 and 400,
-  broad above): always an upper bound, and every tier admits the reasoned no-op.
+  broad above): always an upper bound, and every tier admits the reasoned no-op. The same tiers bound
+  the first pass's wall time (`DIFF_TIME_BUDGET_MS`: tiny 6 min, focused 12 min, broad none), because a
+  step can be arbitrarily long and the step cap alone never ends a turn spent on a few slow ones. The
+  budget covers the whole first pass: the session carries it and each prompt, the repair included, is
+  given only what is left of it as its own `timeoutMs` (both runtimes); a repair with none left is not
+  sent. A tier whose time the transport's own deadline (`agentPromptCapMs`) does not exceed sets no
+  budget, since that deadline would fire first. A turn the budget stops ends `time-budget`, unless the
+  main turn already delivered specs or declared a no-op, which stand when only the repair was cut.
+  `E-TIME-BUDGET` is never learned from (DEV latency confounds it). A timeout in a
+  run with no budget (broad, other modes, a regeneration, whose callers read zero specs as "no fixes")
+  stays the loud integration error it was.
 - **Regeneration listing** — a regeneration lists the suite as that turn knows it (the specs
   the suite had before a diff/manual run, plus those this run delivered, each only while its
   file is still there): the specs it must change under "Editable" (all those a signal names;
@@ -225,7 +236,7 @@ threat-model header first) and a canary-before-promote hot-swap.
   authority, production activation switches: their own PR.
 - **Sequential queue** — one run at a time; never concurrent QA against DEV.
 - **Honor the explicit no-op.** Declared `noop` + reason + zero specs is a valid
-  `skipped`. Silence is not a decision (`E-NO-DECISION` / `E-STEP-BUDGET`). `approved`
+  `skipped`. Silence is not a decision (`E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET`). `approved`
   is never a no-op signal.
 - **Surface integration errors loudly** — never swallow agent-runtime, runner or git
   errors into an empty result. Throw and log.

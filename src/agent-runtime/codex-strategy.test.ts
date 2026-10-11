@@ -16,6 +16,7 @@ import {
   codexPreambleParts,
   CodexRuntimeStrategy,
   CodexExecTransport,
+  SupervisorExecTransport,
   CODEX_USAGE_AVAILABLE,
   type SpawnFn,
   type CodexHeadlessTransport,
@@ -121,7 +122,7 @@ describe("codexErrorToInfra", () => {
   it("timeout / SIGTERM → AgentTimeoutError (an infra error, never a provider rejection) INCONCLUSIVE", () => {
     const cases: string[] = [
       "Codex prompt: timed out after 30000ms",
-      "timed out after 60000ms",
+      "codex exec timed out after 60000ms",
     ];
     for (const msg of cases) {
       const err = codexErrorToInfra(new Error(msg));
@@ -129,6 +130,12 @@ describe("codexErrorToInfra", () => {
       assert.ok(err instanceof InfraError);
       assert.ok(!(err instanceof AgentUnavailableError), "a deadline is not the provider refusing");
       assert.ok(err.message.includes("INCONCLUSIVE (infrastructure)"));
+    }
+  });
+
+  it("a timeout the provider reports inside the exec's own stderr is not the transport's deadline", () => {
+    for (const stderr of ["upstream request timed out after 30000ms", "mcp server timed out after 5000ms while starting"]) {
+      assert.equal(codexErrorToInfra(new Error(`codex exec exited 1: ${stderr}`)), null, stderr);
     }
   });
 
@@ -1019,5 +1026,67 @@ describe("codexPreambleParts — the static layer a Codex turn ships with", () =
   it("parts that do not resolve are omitted", () => {
     const parts = codexPreambleParts("primary", "/nonexistent/prompts");
     assert.deepEqual(parts, { shared: "", rolePrompt: "", skills: [] });
+  });
+});
+
+/* A caller bounding several prompts by one budget hands each prompt only what is left of it. */
+describe("CodexRuntimeStrategy — per-prompt deadline", () => {
+  it("a prompt's own timeoutMs reaches the transport's prompt, and a prompt that states none sends none", async () => {
+    const seenOpts: Array<{ timeoutMs?: number } | undefined> = [];
+    const transport: CodexHeadlessTransport = {
+      async start(): Promise<CodexTransportSession> {
+        return { id: "s", prompt: async (_text, opts) => { seenOpts.push(opts); return "{}"; }, dispose: async () => {} };
+      },
+      async health(): Promise<AgentProviderHealth> { return { provider: "codex", status: "healthy", configured: true }; },
+      async listModels(): Promise<AgentModelInfo[]> { return []; },
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "k" }, transport, promptRoot: "/nonexistent/prompts" });
+    const session = await strategy.openSession("primary", "/tmp", { timeoutMs: 600_000 });
+
+    await session.prompt("first", { timeoutMs: 1_234 });
+    await session.prompt("second");
+
+    assert.equal(seenOpts[0]?.timeoutMs, 1_234);
+    assert.equal(seenOpts[1]?.timeoutMs, undefined);
+  });
+
+  it("CodexExecTransport holds a prompt to its own limit instead of the session's, and stops it with SIGTERM", { timeout: 10_000 }, async () => {
+    const { spawnFn, killSpy } = makeHangingSpawnFn();
+    const transport = new CodexExecTransport({ CODEX_API_KEY: "test" }, "codex", spawnFn);
+    const session = await transport.start({ role: "primary", cwd: "/tmp", timeoutMs: 600_000, killSignal: "SIGKILL" });
+
+    await assert.rejects(() => session.prompt("run", { timeoutMs: 20 }), (err: unknown) => err instanceof AgentTimeoutError && /timed out after 20ms/.test(err.message));
+    assert.equal(killSpy.signal, "SIGTERM", "a limit the caller chose is not the strategy's own default, which kills hard");
+  });
+
+  it("SupervisorExecTransport asks the supervisor for the prompt's own limit", async () => {
+    const bodies: string[] = [];
+    const transport = new SupervisorExecTransport({
+      baseUrl: "http://agents:4097",
+      env: { CODEX_API_KEY: "k" },
+      fetchImpl: async (_url, init) => { bodies.push(init?.body ?? ""); return { ok: true, status: 200, json: async () => ({ message: "ok" }) }; },
+    });
+    const session = await transport.start({ role: "primary", cwd: "/repo", timeoutMs: 600_000 });
+    await session.prompt("write", { timeoutMs: 4_321 });
+    assert.equal((JSON.parse(bodies[0]!) as { timeoutMs?: number }).timeoutMs, 4_321);
+  });
+});
+
+/* Only a deadline the transport itself fired is the time budget: a timeout the exec reports from the provider is not. */
+describe("SupervisorExecTransport — which failures are a deadline", () => {
+  const failing = (error: string) => new SupervisorExecTransport({
+    baseUrl: "http://agents:4097",
+    env: { CODEX_API_KEY: "k" },
+    fetchImpl: async () => ({ ok: false, status: 400, json: async () => ({ error }) }),
+  });
+
+  it("the supervisor's own deadline is the typed timeout", async () => {
+    const session = await failing("codex exec timed out after 360000ms").start({ role: "primary", cwd: "/repo" });
+    await assert.rejects(session.prompt("x"), (err: unknown) => err instanceof AgentTimeoutError);
+  });
+
+  it("a timeout the exec's stderr mentions is not the typed timeout", async () => {
+    const session = await failing("codex exec exited 1: upstream request timed out after 30000ms").start({ role: "primary", cwd: "/repo" });
+    await assert.rejects(session.prompt("x"), (err: unknown) => err instanceof Error && !(err instanceof AgentTimeoutError));
   });
 });

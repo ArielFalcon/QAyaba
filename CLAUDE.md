@@ -162,11 +162,14 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Effort tier** — an e2e `diff` first pass gets the diff's real size and the effort its tier
   warrants (`generation/domain/diff-stat.ts`: tiny ≤2 files and 40 lines, focused ≤8 and 400,
   broad above): always an upper bound, and every tier admits the reasoned no-op. The same tiers bound
-  the first pass's wall time (`DIFF_TIME_BUDGET_MS`: tiny 6 min, focused 12 min, broad none; clamped to
-  the transport's own deadline, `agentPromptCapMs`), because a step can be arbitrarily long and the step
-  cap alone never ends a turn spent on a few slow ones. The bound is the session's `timeoutMs` for both
-  runtimes; a turn it stops ends `time-budget` (the reflector reads the class itself, never gate signals as a test
-  failure), while a timeout in a
+  the first pass's wall time (`DIFF_TIME_BUDGET_MS`: tiny 6 min, focused 12 min, broad none), because a
+  step can be arbitrarily long and the step cap alone never ends a turn spent on a few slow ones. The
+  budget covers the whole first pass: the session carries it and each prompt, the repair included, is
+  given only what is left of it as its own `timeoutMs` (both runtimes); a repair with none left is not
+  sent. A tier whose time the transport's own deadline (`agentPromptCapMs`) does not exceed sets no
+  budget, since that deadline would fire first. A turn the budget stops ends `time-budget`, unless the
+  main turn already delivered specs or declared a no-op, which stand when only the repair was cut.
+  `E-TIME-BUDGET` is never learned from (DEV latency confounds it). A timeout in a
   run with no budget (broad, other modes, a regeneration, whose callers read zero specs as "no fixes")
   stays the loud integration error it was.
 - **Regeneration listing** — a regeneration lists the suite as that turn knows it (the specs

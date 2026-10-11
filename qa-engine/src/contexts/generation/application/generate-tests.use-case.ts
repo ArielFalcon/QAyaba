@@ -33,8 +33,10 @@ export interface GenerationPorts {
 
   budget: PromptBudgetPort;
   repair?: RepairPort;
-  /** The longest a single prompt may run on this host: the deadline of its transport. A generator time budget above it could never fire, so none is set higher. Absent: the host states none, and the budget is applied as the effort tier gives it. */
+  /** The longest a single prompt may run on this host: the deadline of its transport. A tier's time at or above it could never fire before that deadline, so no budget is set and a timeout there stays the host's. Absent: the host states none, and the budget is applied as the effort tier gives it. */
   promptCapMs?: number;
+  /** The clock the first pass's deadline is read from, in milliseconds. Absent: the system clock. */
+  now?: () => number;
 }
 
 export interface GenerationResult {
@@ -77,6 +79,15 @@ export class GenerateTestsUseCase {
           ...(this.ports.promptCapMs !== undefined ? { capMs: this.ports.promptCapMs } : {}),
         });
 
+    /* The budget bounds the whole first pass, the repair included: every prompt is given only what is left of it, and a prompt that finds none left is not sent. */
+    const now = this.ports.now ?? Date.now;
+    const deadline = timeBudgetMs !== undefined ? now() + timeBudgetMs : undefined;
+    const remainingMs = (): number | undefined => (deadline !== undefined ? deadline - now() : undefined);
+    const promptTime = (): { timeoutMs?: number } => {
+      const left = remainingMs();
+      return left !== undefined ? { timeoutMs: left } : {};
+    };
+
     const generatorRole: AgentRole = "primary";
     const session = await runtime.openSession(generatorRole, input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
@@ -86,7 +97,7 @@ export class GenerateTestsUseCase {
     let generatorOutput = "";
     let mainTurn: AgentTurnStats | undefined;
     let repairTurn: AgentTurnStats | undefined;
-    /* The budget and the turn it cut off, when one did. Only a deadline the generator was given a budget for is this; any other timeout is the integration error it always was. */
+    /* The budget and the turn it cut off, when one did. Only a deadline the generator was given a budget for is this; any other timeout, a prompt that merely mentions one included, is the integration error it always was. */
     let timeCut: { budgetMs: number; repair: boolean } | undefined;
     const cutByBudget = (err: unknown, repair: boolean): { budgetMs: number; repair: boolean } | undefined =>
       timeBudgetMs !== undefined && isAgentTimeoutError(err) ? { budgetMs: timeBudgetMs, repair } : undefined;
@@ -98,6 +109,7 @@ export class GenerateTestsUseCase {
           ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
           ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
           finalStepOnly: true,
+          ...promptTime(),
           onTurnStats: (stats) => { mainTurn = stats; },
         });
         generatorOutput = result.output;
@@ -110,17 +122,23 @@ export class GenerateTestsUseCase {
       if (repair && !timeCut && mainTurn?.exhausted !== true) {
         const genCheck = repair.checkGenerator(generatorOutput);
         if (!genCheck.valid) {
-          opts?.onRepair?.();
-          try {
-            const repairResult = await session.prompt(
-              repair.instruction("generator", genCheck.issues, { priorResponseTail: generatorOutput }),
-              { isRepair: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, onTurnStats: (stats) => { repairTurn = stats; } },
-            );
-            generatorOutput = repairResult.output;
-          } catch (err) {
-            /* The first turn's output stands: a repair that did not finish changes nothing it said. */
-            timeCut = cutByBudget(err, true);
-            if (!timeCut) throw err;
+          const left = remainingMs();
+          if (timeBudgetMs !== undefined && left !== undefined && left <= 0) {
+            /* The main turn spent the whole budget: its output stands and there is no time to ask for more. */
+            timeCut = { budgetMs: timeBudgetMs, repair: true };
+          } else {
+            opts?.onRepair?.();
+            try {
+              const repairResult = await session.prompt(
+                repair.instruction("generator", genCheck.issues, { priorResponseTail: generatorOutput }),
+                { isRepair: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, ...promptTime(), onTurnStats: (stats) => { repairTurn = stats; } },
+              );
+              generatorOutput = repairResult.output;
+            } catch (err) {
+              /* The first turn's output stands: a repair that did not finish changes nothing it said. */
+              timeCut = cutByBudget(err, true);
+              if (!timeCut) throw err;
+            }
           }
         }
       }

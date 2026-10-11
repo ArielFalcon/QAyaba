@@ -46,11 +46,11 @@ test("only a diff run is bounded by its change: every other mode keeps the defau
   }
 });
 
-test("the time a tier allows is clamped to the longest a single prompt may run", () => {
+test("a tier's time is a bound only while it is shorter than the longest a single prompt may run: past that, the host's own deadline is the one that fires", () => {
   const tiny = DIFF_TIME_BUDGET_MS.tiny as number;
-  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.tiny, capMs: tiny - 1 }), tiny - 1);
-  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.tiny, capMs: tiny }), tiny);
   assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.tiny, capMs: tiny + 1 }), tiny);
+  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.tiny, capMs: tiny }), undefined);
+  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.tiny, capMs: tiny - 1 }), undefined);
 });
 
 test("a tier with no bound stays unbounded whatever the cap, so the cap never becomes a bound of its own", () => {

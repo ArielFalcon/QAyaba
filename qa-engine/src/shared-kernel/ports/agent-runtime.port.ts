@@ -60,6 +60,8 @@ export interface AgentPromptOpts {
   onTurnStats?: (stats: AgentTurnStats) => void;
   /** The step limit this prompt states, as the runtime enforces it for the session's role. The turn it starts is classified against this number, so the figure a prompt states and the one its turn is judged by are the same. Absent: the prompt states none, and the agent's configured limit stands. */
   stepLimit?: number;
+  /** The longest this prompt may run, in milliseconds. Absent: the session's own limit stands. A caller bounding several prompts by one budget hands each only what is left of it. */
+  timeoutMs?: number;
 }
 
 export interface AgentSession {

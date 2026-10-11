@@ -5,6 +5,7 @@ import type { ManifestEntry } from "@contexts/generation/application/ports/index
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { DIFF_TIERS, DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat.ts";
 import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.ts";
+import { renderGenerationNote } from "@contexts/generation/domain/generation-end.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
@@ -17,14 +18,18 @@ const TINY_DIFF = diffOfLines(1);
 const FOCUSED_DIFF = diffOfLines(DIFF_TIERS.tiny.maxLines + 1);
 const BROAD_DIFF = diffOfLines(DIFF_TIERS.focused.maxLines + 1);
 
+const NOOP_REASON = "the change touches no behavior a user can reach";
+
 const TINY_MS = DIFF_TIME_BUDGET_MS.tiny as number;
 const FOCUSED_MS = DIFF_TIME_BUDGET_MS.focused as number;
 
-type Step = { output: string } | { throws: Error };
+type Step = ({ output: string } | { throws: Error }) & { takes?: number };
 
 interface Harness {
   opened: Array<{ role: AgentRole; opts: OpenSessionOpts | undefined }>;
-  prompts: Array<{ role: AgentRole; isRepair: boolean }>;
+  prompts: Array<{ role: AgentRole; isRepair: boolean; timeoutMs: number | undefined }>;
+  /** The fake clock the use case reads; a step's `takes` moves it forward while that prompt runs. */
+  clock: { now: number };
   disposed: AgentRole[];
 }
 
@@ -40,7 +45,7 @@ function build(
   generatorSteps: Step[],
   opts: { promptCapMs?: number; specs?: string[]; repairInvalid?: boolean } = {},
 ): { ports: GenerationPorts; seen: Harness } {
-  const seen: Harness = { opened: [], prompts: [], disposed: [] };
+  const seen: Harness = { opened: [], prompts: [], disposed: [], clock: { now: 1_000_000 } };
   const steps = [...generatorSteps];
   const ports: GenerationPorts = {
     runtime: {
@@ -48,9 +53,10 @@ function build(
         seen.opened.push({ role, opts: sessionOpts });
         return {
           prompt: async (_text, promptOpts) => {
-            seen.prompts.push({ role, isRepair: promptOpts?.isRepair === true });
+            seen.prompts.push({ role, isRepair: promptOpts?.isRepair === true, timeoutMs: promptOpts?.timeoutMs });
             if (role === "reviewer") return { output: "REVIEW" };
             const step = steps.shift() ?? { output: "" };
+            seen.clock.now += step.takes ?? 0;
             if ("throws" in step) throw step.throws;
             return { output: step.output };
           },
@@ -70,11 +76,14 @@ function build(
       parseGenerator: (text) =>
         text.includes("SPECS")
           ? { specs: opts.specs ?? ["flows/a.spec.ts"], parsed: true }
-          : { specs: [], parsed: false },
+          : text.includes("NOOP")
+            ? { specs: [], parsed: true, noopReason: NOOP_REASON }
+            : { specs: [], parsed: false },
       parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
     },
     manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
     budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+    now: () => seen.clock.now,
     ...(opts.promptCapMs !== undefined ? { promptCapMs: opts.promptCapMs } : {}),
     ...(opts.repairInvalid ? { repair: { checkGenerator: () => ({ valid: false, issues: ["no verdict"] }), instruction: () => "REPAIR" } } : {}),
   };
@@ -107,10 +116,10 @@ test("the tier follows the changed files the input names, as the prompt's own ef
   assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false, "nine files is a broad change however few the lines");
 });
 
-test("the time a tier allows is clamped to the longest a prompt may run on the host", async () => {
-  const { ports, seen } = build([{ output: "SPECS" }], { promptCapMs: TINY_MS - 1_000 });
-  await new GenerateTestsUseCase(ports).generate(baseInput());
-  assert.equal(generatorOpen(seen)?.opts?.timeoutMs, TINY_MS - 1_000);
+test("a host whose prompt deadline is not above the tier's time keeps its own deadline: no budget is set and its timeout stays the integration error it is", async () => {
+  const { ports, seen } = build([{ throws: new AgentTimeoutError("OpenCode prompt: timed out after 359000ms") }], { promptCapMs: TINY_MS - 1_000 });
+  await assert.rejects(new GenerateTestsUseCase(ports).generate(baseInput()), AgentTimeoutError);
+  assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false);
 });
 
 test("every mode other than diff opens the generator's session with the host's default", async () => {
@@ -140,7 +149,7 @@ test("a generator turn cut off by its time budget ends the generation as time-bu
   const result: GenerationResult = await new GenerateTestsUseCase(ports).generate(baseInput());
   assert.equal(result.end, GENERATION_END.TIME_BUDGET);
   assert.deepEqual(result.specs, []);
-  assert.match(result.note ?? "", /6 min/);
+  assert.equal(result.note, renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: TINY_MS }));
   assert.deepEqual(seen.disposed, ["primary"], "the cut-off session is still disposed");
 });
 
@@ -192,5 +201,44 @@ test("a repair turn that runs out of time with no spec delivered ends as time-bu
   const { ports } = build([{ output: "no verdict at all" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
   const result = await new GenerateTestsUseCase(ports).generate(baseInput());
   assert.equal(result.end, GENERATION_END.TIME_BUDGET);
-  assert.match(result.note ?? "", /repair/i);
+  assert.equal(result.note, renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: TINY_MS, repair: true }));
+});
+
+test("a repair cut by the time budget after a main turn that declared a no-op leaves the no-op standing", async () => {
+  const { ports } = build([{ output: "NOOP malformed" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(result.end, GENERATION_END.DECLARED_NOOP);
+  assert.equal(result.note, NOOP_REASON);
+  assert.deepEqual(result.specs, []);
+});
+
+test("the budget bounds the whole first pass: the main prompt may use all of it and the repair only what the main prompt left", async () => {
+  const MAIN_TOOK = 90_000;
+  const { ports, seen } = build([{ output: "malformed", takes: MAIN_TOOK }, { output: "SPECS" }], { repairInvalid: true });
+  await new GenerateTestsUseCase(ports).generate(baseInput());
+  const [main, repair] = seen.prompts;
+  assert.equal(main?.timeoutMs, TINY_MS);
+  assert.equal(repair?.isRepair, true);
+  assert.equal(repair?.timeoutMs, TINY_MS - MAIN_TOOK);
+});
+
+test("a main prompt that used the whole budget leaves no time to repair: the repair is not asked and the generation ends as time-budget naming the repair", async () => {
+  const { ports, seen } = build([{ output: "no verdict at all", takes: TINY_MS }], { repairInvalid: true });
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(seen.prompts.some((p) => p.isRepair), false, "no repair prompt was sent");
+  assert.equal(result.end, GENERATION_END.TIME_BUDGET);
+  assert.equal(result.note, renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: TINY_MS, repair: true }));
+});
+
+test("a main prompt that used the whole budget but declared a no-op keeps it: nothing is left to repair and nothing is lost", async () => {
+  const { ports } = build([{ output: "NOOP", takes: TINY_MS }], { repairInvalid: true });
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(result.end, GENERATION_END.DECLARED_NOOP);
+});
+
+test("a run with no budget sends its prompts no time of their own", async () => {
+  const { ports, seen } = build([{ output: "malformed" }, { output: "SPECS" }], { repairInvalid: true });
+  await new GenerateTestsUseCase(ports).generate(baseInput({ diff: BROAD_DIFF }));
+  assert.equal(seen.prompts.length, 2);
+  for (const p of seen.prompts) assert.equal(p.timeoutMs, undefined);
 });

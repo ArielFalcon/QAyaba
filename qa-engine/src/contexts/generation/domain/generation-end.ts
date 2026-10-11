@@ -14,23 +14,24 @@ export interface GenerationEndFacts {
   noopReason: string | null | undefined;
   /** Whether any of the generation's turns ran out of steps. */
   exhausted: boolean;
-  /** Whether a turn was cut off by the wall-clock budget its change allowed. */
+  /** Whether a turn was cut off by the wall-clock budget its change allowed. Only a completed turn's output is ever read, so a cut turn leaves nothing parsed behind. */
   timedOut: boolean;
 }
 
 /**
  * Specs decide first: with any spec the run continues, and exhaustion is only recorded. Without
  * specs, exhaustion outranks everything the output says, because a turn cut off by its budget
- * cannot be trusted to have decided, and a turn cut off by its time is the same: nothing it left
- * behind is a decision. Then a verdict that could not be read, a declared no-op, and
- * finally the parsed empty verdict that decided nothing.
+ * cannot be trusted to have decided. Then a declared no-op, which a cut repair leaves standing
+ * because it is the completed turn's own word (a cut main turn leaves no output to declare one),
+ * then a turn cut off by its time, nothing it left behind being a decision, a verdict that could
+ * not be read, and finally the parsed empty verdict that decided nothing.
  */
 export function classifyGenerationEnd(facts: GenerationEndFacts): GenerationEndKind {
   if (facts.specCount > 0) return GENERATION_END.DELIVERED;
   if (facts.exhausted) return GENERATION_END.EXHAUSTED;
+  if (facts.parsed && facts.noopReason?.trim()) return GENERATION_END.DECLARED_NOOP;
   if (facts.timedOut) return GENERATION_END.TIME_BUDGET;
   if (!facts.parsed) return GENERATION_END.NO_VERDICT;
-  if (facts.noopReason?.trim()) return GENERATION_END.DECLARED_NOOP;
   return GENERATION_END.UNDECIDED_EMPTY;
 }
 

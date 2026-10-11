@@ -23,6 +23,8 @@ import { createAgentDeps } from "@contexts/generation/infrastructure/agent-trans
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
 import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat";
+import { renderGenerationNote } from "@contexts/generation/domain/generation-end";
+import { GENERATION_END } from "@kernel/generation-end";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import {
@@ -1818,9 +1820,9 @@ async function generateOnAHungTransport(diff: string, advanceMs: number): Promis
 test("a tiny diff's generator turn is stopped at the time its tier allows and ends time-budget, through the whole wrapper chain", async () => {
   const budget = DIFF_TIME_BUDGET_MS.tiny as number;
   const { result, persisted } = await generateOnAHungTransport("d", budget);
-  assert.equal(result.end, "time-budget");
+  assert.equal(result.end, GENERATION_END.TIME_BUDGET);
   assert.deepEqual(result.specs, []);
-  assert.match(result.note ?? "", /6 min/);
+  assert.equal(result.note, renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: budget }), "the note names the budget the turn was held to");
   assert.equal(persisted.filter((t) => t.ended === "timeout").length, 1, "the cut-off turn is still recorded as a timeout");
 });
 

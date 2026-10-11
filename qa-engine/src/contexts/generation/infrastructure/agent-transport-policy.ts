@@ -265,7 +265,8 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
       };
       opts?.signal?.addEventListener("abort", onAbort, { once: true });
 
-      const promptTimeoutMs = opts?.timeoutMs ?? collab.defaultPromptTimeoutMs;
+      /* The session's limit, else the transport's default: what a prompt that states no limit of its own is held to. */
+      const sessionTimeoutMs = opts?.timeoutMs ?? collab.defaultPromptTimeoutMs;
 
       const abortRun = () => raw.abortSession(id).catch(() => {});
 
@@ -434,7 +435,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             }
             throw err;
           });
-          return withTimeout(attempts, promptTimeoutMs, "OpenCode prompt").catch((err: unknown) => {
+          return withTimeout(attempts, promptOpts?.timeoutMs ?? sessionTimeoutMs, "OpenCode prompt").catch((err: unknown) => {
             abortRun();
             /* An error the prompt itself raised was thrown before any turn was emitted; only a prompt that was cut short from outside (the deadline, the caller's abort) has a turn still to record. */
             if (!closed && err instanceof AgentTimeoutError) recordUnansweredTurn("timeout");
