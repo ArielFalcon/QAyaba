@@ -32,6 +32,22 @@ test("qa-generator: both copies forbid running the suite itself", () => {
   assertBothContain("qa-generator", "STOP touching the suite");
 });
 
+/* The shared layer owns the rule that authoring against live DEV observes and never writes; it is stated
+   once there, in both runtimes' copies, and the role file that used to invite form interaction no longer does. */
+test("shared instructions: both copies say live DEV is observed while authoring and only a generated spec writes to it", () => {
+  for (const path of [join("agents", "AGENTS.md"), join("agent", "AGENTS.md")]) {
+    const text = readFileSync(join(ROOT, path), "utf8");
+    assert.ok(text.includes("Authoring-time DEV exploration observes; it never writes."), `${path} is missing the observe-only rule`);
+    assert.match(text, /ad-hoc script/, `${path} must forbid ad-hoc scripts`);
+  }
+});
+
+test("qa-generator: neither copy invites submitting forms on live DEV while authoring", () => {
+  for (const [copy, text] of Object.entries(readBoth("qa-generator"))) {
+    assert.ok(!/interact with forms/i.test(text), `${copy} copy still tells the author to interact with forms`);
+  }
+});
+
 test("qa-proposer: both copies know the http-backend (BE→BE REST) transport", () => {
   assertBothContain("qa-proposer", "### `http-backend`");
   assertBothContain("qa-proposer", "rest-template-exchange");

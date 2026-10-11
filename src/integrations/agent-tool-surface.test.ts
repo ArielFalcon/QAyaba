@@ -159,6 +159,29 @@ const SESSION_SUMMARY_REASON =
   "instructions call the summary mandatory before an agent says it is done, which competes with the role's " +
   "verdict as its last action and spends a step of a hard cap. The denial is runtime config, not prompt wording.";
 
+const ARBITRARY_CODE_REASON =
+  "It runs code of the agent's own choosing in the page or in the browser process. Live DEV is observed while " +
+  "authoring (navigate, snapshot, click, type); a script that logs in and submits a record writes to DEV outside " +
+  "the harness and without the app's test-data prefix. Code that touches DEV belongs in a generated spec.";
+
+const FILE_PUSH_REASON =
+  "It pushes a file from the agent's disk into the live app (an upload, a drop). An upload is a write to DEV, " +
+  "which only a generated spec may do, under the app's test-data prefix.";
+
+const SHELL_REASON =
+  "A shell tool of the code-navigation server would make the allow-list on the built-in shell (or its absence) moot.";
+
+/* What a role that authors against live DEV is denied of the servers it holds. The Playwright ids are the
+   ones the MCP lists (`tools/list` of `@playwright/mcp`, PLAYWRIGHT_TOOL_NAMES); the runtime reports them
+   prefixed with the server name. */
+const AUTHORING_EXECUTION_DENIALS: Readonly<Record<string, string>> = {
+  playwright_browser_run_code_unsafe: ARBITRARY_CODE_REASON,
+  playwright_browser_evaluate: ARBITRARY_CODE_REASON,
+  playwright_browser_file_upload: FILE_PUSH_REASON,
+  playwright_browser_drop: FILE_PUSH_REASON,
+  serena_execute_shell_command: SHELL_REASON,
+};
+
 /* Tools of a server an agent otherwise holds that it is DELIBERATELY denied, by agent and then by the
    id the runtime reports (server name, an underscore, the tool), each with the reason. The prefixed
    id is the denial that binds; its bare twin is the redundant half of the belt-and-braces. Adding an
@@ -170,7 +193,9 @@ const DELIBERATE_MCP_TOOL_DENIALS: ToolDenials = {
     engram_mem_judge: MEMORY_MAINTENANCE_REASON,
     engram_mem_compare: MEMORY_MAINTENANCE_REASON,
     engram_mem_session_summary: SESSION_SUMMARY_REASON,
+    ...AUTHORING_EXECUTION_DENIALS,
   },
+  "qa-sidekick": AUTHORING_EXECUTION_DENIALS,
   "qa-explorer": {
     engram_mem_session_summary: SESSION_SUMMARY_REASON,
   },
@@ -534,7 +559,11 @@ test("qa-generator keeps serena+engram+playwright as the test author, minus the 
   const tools = agentTools(generator);
   assert.equal(tools.write, true, "qa-generator must have write");
   assert.equal(tools.edit, true, "qa-generator must have edit");
-  assert.equal(tools.bash, true, "qa-generator must have bash");
+  assert.notEqual(
+    tools.bash,
+    true,
+    "qa-generator's shell is governed by permission.bash; a tools.bash:true could be merged over the allow-list by a runtime",
+  );
   for (const server of MCP_ALLOWLIST) assertMcpServerAllowed("qa-generator", tools, server);
   /* Recalling and saving memory stays open under both ids; only judging and comparing memories is denied. */
   for (const tool of ["mem_search", "mem_save", "mem_get_observation", "mem_context"]) {
@@ -544,6 +573,94 @@ test("qa-generator keeps serena+engram+playwright as the test author, minus the 
   for (const tool of ["engram_mem_judge", "engram_mem_compare", "mem_judge", "mem_compare"]) {
     assert.equal(tools[tool], false, `qa-generator must deny "${tool}"`);
   }
+});
+
+/* How the pinned OpenCode decides a shell command, read from the shipped build's own source (1.18.31 is
+   the closest available to the pinned 1.17.7; its `opencode debug agent <name>` resolves a `permission.bash`
+   map into one `{permission:"bash", pattern, action}` rule per key, in the map's order):
+   - the shell tool parses the command and takes every simple command in it (a list `a && b`, a pipeline,
+     a `$(...)` substitution each yield their own), the text of a command with a redirection including the
+     redirection; `cd` and its kin are not evaluated against the patterns (their directory argument goes to
+     the external-directory check);
+   - each of those is evaluated on its own and ONE denied command denies the whole call;
+   - a command is decided by the LAST rule whose pattern matches it, and by "ask" when none does: nobody
+     answers in a run, so an "ask" would hang it and the map must never leave a command unmatched;
+   - a pattern is anchored; `*` matches anything (spaces, slashes, redirections included), `?` one character,
+     and a trailing " *" also matches the command alone. */
+function bashActionFor(rules: Record<string, unknown>, command: string): string {
+  let decided = "ask";
+  for (const [pattern, action] of Object.entries(rules)) {
+    let source = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+    if (source.endsWith(" .*")) source = `${source.slice(0, -3)}( .*)?`;
+    if (new RegExp(`^${source}$`, "s").test(command)) decided = String(action);
+  }
+  return decided;
+}
+
+function bashRulesOf(agent: unknown): Record<string, unknown> {
+  const permission = (agent as { permission?: { bash?: unknown } }).permission;
+  const bash = permission?.bash;
+  assert.ok(bash && typeof bash === "object", "expected a permission.bash pattern map");
+  return bash as Record<string, unknown>;
+}
+
+test("the generator's shell is an allow-list: the suite listing and nothing else", () => {
+  const { agents } = loadAgentConfig();
+  const rules = bashRulesOf(agents["qa-generator"]);
+  assert.equal(Object.keys(rules)[0], "*", "the catch-all comes first so that the exceptions after it are the last match");
+  assert.equal(rules["*"], "deny");
+
+  for (const command of ["cd e2e", "npx playwright test --list", "npx playwright test --list 2>&1"]) {
+    assert.equal(bashActionFor(rules, command), "allow", `the listing form "${command}" must stay allowed`);
+  }
+  for (const command of [
+    "node /tmp/opencode/explore-login.mjs",
+    "npx tsx /tmp/opencode/probe.ts",
+    "npx playwright test",
+    "npx playwright test e2e/flows/login.spec.ts",
+    "npx playwright test --list --config=/tmp/opencode/pw.config.ts",
+    "npx playwright test --list > /tmp/opencode/out.txt",
+    "npx playwright install chromium",
+    "bash -c 'node x.mjs'",
+    "curl -s https://dev.example.test/api/records",
+    "cat .env",
+    "rm -rf e2e",
+    "git push origin HEAD",
+  ]) {
+    assert.equal(bashActionFor(rules, command), "deny", `"${command}" must be denied`);
+  }
+});
+
+test("no pattern map of any agent answers 'ask' (a run has nobody to answer, so it would hang)", () => {
+  const { agents } = loadAgentConfig();
+  let checked = 0;
+  for (const [name, agent] of Object.entries(agents)) {
+    const permission = (agent as { permission?: Record<string, unknown> }).permission;
+    if (!permission) continue;
+    checked++;
+    for (const [tool, rule] of Object.entries(permission)) {
+      const actions = typeof rule === "string" ? [rule] : Object.values(rule as Record<string, unknown>);
+      assert.ok(!actions.includes("ask"), `agent "${name}" answers "ask" for ${tool}`);
+    }
+  }
+  assert.ok(checked >= 1, "expected at least one agent to declare a permission block");
+});
+
+test("the Playwright tools that run code or push a file are denied to every role that drives the browser and writes", () => {
+  const { agents } = loadAgentConfig();
+  let checked = 0;
+  for (const [name, agent] of Object.entries(agents)) {
+    const tools = agentTools(agent);
+    const writes = tools.write === true || tools.edit === true;
+    const drivesBrowser = tools["playwright*"] !== false;
+    if (!writes || !drivesBrowser) continue;
+    checked++;
+    for (const tool of ["browser_run_code_unsafe", "browser_evaluate", "browser_file_upload", "browser_drop"]) {
+      assert.equal(tools[`playwright_${tool}`], false, `SECURITY: ${name} must deny "playwright_${tool}"`);
+      assert.equal(tools[tool], false, `SECURITY: ${name} must deny "${tool}"`);
+    }
+  }
+  assert.ok(checked >= 2, `expected the generator and the sidekick, got ${checked} role(s)`);
 });
 
 test("the generator and the explorer are denied the session summary under both tool ids, and still recall and save memory", () => {

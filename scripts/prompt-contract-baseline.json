@@ -5,8 +5,8 @@
     "directives": 20
   },
   "staticLayers": {
-    "opencode": 19136,
-    "codex": 34046
+    "opencode": 19538,
+    "codex": 34448
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -13219,10 +13219,9 @@
     }
   },
   "lastIncrease": {
-    "reason": "architecture-mapping skill asks for implementationFiles on every route (the mapper left them empty, so route ranking could not tie a changed page file to its route); the Codex generator inlines the skill, +23 B static",
+    "reason": "Governance: the shared agent instructions gain the rule that authoring-time DEV exploration only observes and never runs ad-hoc scripts, and the generator prompt gains one line forbidding any other shell command; the growth is the enforceable-in-prose half of the shell allow-list and Playwright code/upload denials.",
     "budgets": [
-      "context/e2e/first/tree-none/none:bytes",
-      "context/e2e/first/tree-none/none/limit:bytes",
+      "static:opencode",
       "static:codex"
     ]
   }

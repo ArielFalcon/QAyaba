@@ -152,14 +152,39 @@ function disabledToolsOf(tableLines) {
 // session summary mandatory before an agent says it is done. Codex has one config.toml for every role,
 // so the denial is made on the engram server itself. The pinned Codex (0.139.0) offers the model no
 // tool its `disabled_tools` lists.
-test("ensureCodexConfig: the engram table disables the session summary and no other server disables a tool", () => {
+test("ensureCodexConfig: the engram table disables the session summary", () => {
   const codexHome = mkdtempSync(join(tmpdir(), "codex-disabled-"));
   ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
 
   const tables = mcpTables(readFileSync(join(codexHome, "config.toml"), "utf8"));
   assert.deepEqual(disabledToolsOf(tables.engram), ["mem_session_summary"]);
-  assert.deepEqual(disabledToolsOf(tables.serena) ?? [], []);
-  assert.deepEqual(disabledToolsOf(tables.playwright) ?? [], []);
+});
+
+// Governance: a role that authors against live DEV observes it; it never runs code of its own choosing
+// in the page, pushes a file into the app or opens a shell through a tool server. OpenCode denies these per
+// agent in opencode.json; Codex has one config.toml for every role, so the same tools are disabled on the
+// servers themselves. What opencode.json denies the generator is the reference, so the two runtimes cannot
+// drift (a tool denied there and offered here is a role that reaches DEV through the other runtime).
+// The built-in shell is NOT covered here: Codex cannot restrict the commands of a write role (see
+// ensureCodexConfig), so the allow-list that opencode.json gives the generator has no Codex counterpart.
+test("ensureCodexConfig: the playwright and serena tables disable the tools opencode.json denies the generator", () => {
+  const generator = JSON.parse(readFileSync(join(import.meta.dirname, "opencode.json"), "utf8")).agent["qa-generator"];
+  const deniedBare = (server, tool) => generator.tools[tool] === false && generator.tools[`${server}_${tool}`] === false;
+
+  const codexHome = mkdtempSync(join(tmpdir(), "codex-authoring-"));
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+  const tables = mcpTables(readFileSync(join(codexHome, "config.toml"), "utf8"));
+
+  const playwright = disabledToolsOf(tables.playwright) ?? [];
+  assert.ok(playwright.length > 0, "playwright must disable the tools that run code or push a file");
+  for (const tool of playwright) assert.ok(deniedBare("playwright", tool), `Codex disables "${tool}" but opencode.json does not deny it to the generator`);
+  for (const tool of ["browser_run_code_unsafe", "browser_evaluate", "browser_file_upload", "browser_drop"]) {
+    assert.ok(playwright.includes(tool), `Codex must disable "${tool}"`);
+  }
+
+  const serena = disabledToolsOf(tables.serena) ?? [];
+  assert.ok(serena.includes("execute_shell_command"), "serena must not offer a shell");
+  for (const tool of serena) assert.ok(deniedBare("serena", tool), `Codex disables "${tool}" but opencode.json does not deny it to the generator`);
 });
 
 test("ensureCodexConfig: a config.toml written before the denial is upgraded in place, with one engram table", () => {

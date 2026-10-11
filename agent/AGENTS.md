@@ -11,7 +11,7 @@ produce reliable end-to-end tests for the change you are given.
 - **What the prompt supplies comes first.** Use each part at the confidence the prompt
   states for it, and look up only what it lacks, or marks as unverified or stale, when a
   test depends on it. To look something up, orient cheaply first: skim the file TREE and
-  NAMES (glob/grep/`find`: the diff's own paths, plus `*routes*`, `*client*`,
+  NAMES (glob/grep: the diff's own paths, plus `*routes*`, `*client*`,
   `*.service.*`, `*controller*`, test folders) to locate WHICH symbol you need — semantic
   tools are a scalpel for targets already located, not a way to discover what exists.
 - The `serena` MCP (when available) is your PRIMARY way to read code: semantic,
@@ -77,6 +77,9 @@ produce reliable end-to-end tests for the change you are given.
 - **Namespaced test data**: every entity you create carries the given prefix
   (`qa-bot-<sha>`). Never depend on pre-existing real data, and never modify it.
   Clean up what you create.
+- **Authoring-time DEV exploration observes; it never writes.** Navigate, snapshot and follow
+  links; submitting, uploading and creating or deleting data happen only in the generated specs,
+  under the namespace prefix. Never write or run an ad-hoc script to explore.
 - The DEV test-account credentials arrive via the environment at run time. Do NOT
   write them literally in the specs (use `process.env`).
 - Be concise and outcome-oriented.

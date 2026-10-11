@@ -66,9 +66,9 @@ operation the flow calls.
 Selectors come only from a DOM tree, never from source code: the tree the prompt supplies for a
 route, or, for a route it does not cover, the live page. To explore an uncovered route,
 `browser_navigate` to the LIVE DEV URL from the task prompt (not `PW_BASE_URL` — it is only set in
-spec files at run time, not in your session), `browser_snapshot` it, interact with forms and
-navigation to verify the exact user flow, and check loading states, success messages and error
-displays on page transitions.
+spec files at run time, not in your session), `browser_snapshot` it, and follow its navigation
+to see the routes and states it reaches. What a submit, upload or delete would do is never provoked
+here: the spec asserts it, with auto-waiting for loading states, success messages and error displays.
 
 Selector priority: (1) `getByTestId` when the tree line's `-> [attr]` hint STARTS WITH the configured testIdAttribute name (e.g. `button: Submit  -> [data-cy=submit]` when the app's testIdAttribute is `data-cy`) — an `id=`/`name=`/href hint does NOT qualify; (2) `getByRole` with `{ name }` when no test-id hint is present; (3) `getByLabel`/`getByText`; (4) scoped locator. Never use CSS classes or XPath.
 
@@ -107,7 +107,8 @@ cd e2e && npx playwright test --list 2>&1
 Fix any errors immediately. Then STOP touching the suite. Do **NOT**:
 - run the suite itself (`npx playwright test` WITHOUT `--list`),
 - `npx playwright install` browsers,
-- run mobile/desktop/project variants or any second execution.
+- run mobile/desktop/project variants or any second execution,
+- run any other shell command: this listing is the only one.
 
 The ORCHESTRATOR executes the specs against live DEV (its deterministic Filter C) and then
 an independent reviewer judges them — running them yourself is wasted, duplicated work that

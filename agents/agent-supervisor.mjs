@@ -443,10 +443,33 @@ export function ensureCodexConfig(codexHome, env = process.env) {
   // disabled tool is disabled for all Codex roles. engram's `mem_session_summary` is disabled because no
   // pipeline role has a session to close, and the server's own instructions call the summary mandatory
   // before an agent says it is done, which competes with the role's verdict as its last action.
+  //
+  // The same list disables, for every Codex role, the tools that run code of the agent's own choosing in
+  // the browser (`browser_run_code_unsafe`, `browser_evaluate`), push a file from its disk into the live app
+  // (`browser_file_upload`, `browser_drop`) or open a shell through the code-navigation server
+  // (`execute_shell_command`). A role that authors against live DEV observes it (navigate, snapshot, click,
+  // type); only a generated spec writes to it. opencode.json denies the same tools to the generator and the
+  // sidekick, and a test pins that the two lists agree. No Codex role needs any of them.
+  //
+  // RESIDUAL GAP, not closed here: the built-in shell. OpenCode gives the generator an allow-list (deny
+  // every command but the suite listing). Codex cannot: a write role runs with
+  // `--dangerously-bypass-approvals-and-sandbox` (buildCodexExecArgs), there is no per-command allow-list
+  // in `codex exec`, and an execpolicy `.rules` file can forbid chosen prefixes but has no catch-all deny
+  // (nor was it shown to bind under the bypass flag). So a Codex generator can still write a script and
+  // run it with its shell against DEV. The prompt asks it not to; nothing enforces it. The container
+  // boundary and the orchestrator's revert of anything outside `e2e/` bound what such a script can reach,
+  // not what it does to DEV.
+  const BROWSER_CODE_AND_FILE_TOOLS = [
+    "browser_run_code_unsafe",
+    "browser_evaluate",
+    "browser_file_upload",
+    "browser_drop",
+  ];
   const MCP_SERVERS = [
     {
       name: "serena",
       command: ["serena", "start-mcp-server", "--transport", "stdio", "--context", "ide-assistant"],
+      disabledTools: ["execute_shell_command"],
     },
     {
       name: "engram",
@@ -457,6 +480,7 @@ export function ensureCodexConfig(codexHome, env = process.env) {
     {
       name: "playwright",
       command: ["npx", "@playwright/mcp", "--browser", "chromium", "--headless"],
+      disabledTools: BROWSER_CODE_AND_FILE_TOOLS,
     },
   ];
 
