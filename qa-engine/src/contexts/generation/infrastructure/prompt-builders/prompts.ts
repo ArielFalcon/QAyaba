@@ -303,13 +303,15 @@ const MAX_EXPLORER_MAP_ROUTE_CHARS = 160;
 function explorerMapRouteLines(input: OpencodeRunInput): string[] {
   const declared: unknown = input.contextMap?.routes;
   if (!Array.isArray(declared)) return [];
-  const paths: string[] = [];
+  const seen = new Set<string>();
   for (const entry of declared) {
     const path: unknown = (entry as { path?: unknown } | null)?.path;
     if (typeof path !== "string") continue;
     const clean = sanitizeText(path).text.replace(/\s+/g, " ").trim().slice(0, MAX_EXPLORER_MAP_ROUTE_CHARS);
-    if (clean !== "" && !paths.includes(clean)) paths.push(clean);
+    /* A path is shown whole in inline code: one with a backtick could end it early and write text of its own, and shown any other way it would no longer be the path the map declares. */
+    if (clean !== "" && !clean.includes("`")) seen.add(clean);
   }
+  const paths = [...seen];
   if (paths.length === 0) return [];
   const listed = paths.slice(0, MAX_EXPLORER_MAP_ROUTES);
   const rest = paths.length - listed.length;
