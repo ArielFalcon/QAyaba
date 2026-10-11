@@ -27,7 +27,7 @@ function strategy(
   const models = provider === "opencode"
     ? [
         { id: "opencode-go/glm-5.3-flash" },
-        { id: "opencode-go/muse-spark-1.3-contributor" },
+        { id: "opencode-go/minimax-m3" },
         { id: "opencode-go/kimi-k2.7-code" },
       ]
     : [
@@ -231,7 +231,7 @@ test("agent runtime manager re-injects runtime role models on applyConfig so rol
 
   try {
     const bytesBeforeReconfig = roleWindowBytes("qa-reviewer");
-    assert.equal(bytesBeforeReconfig, modelWindowBytes("minimax-m3"), "sanity: boot injected the 32K reviewer model");
+    assert.equal(bytesBeforeReconfig, modelWindowBytes("minimax-m3"), "sanity: boot injected the env-assigned reviewer model");
 
     const manager = createAgentRuntimeManager({
       env,
@@ -247,7 +247,7 @@ test("agent runtime manager re-injects runtime role models on applyConfig so rol
       assignments: { reviewer: { provider: "codex", model: "gpt-5.5" } },
     });
 
-    /* (c) roleWindowBytes must now reflect gpt-5.5's window (128K), not the stale minimax-m3 (32K)
+    /* (c) roleWindowBytes must now reflect gpt-5.5's window (128K), not the stale
        snapshot from boot.
      */
     const bytesAfterReconfig = roleWindowBytes("qa-reviewer");

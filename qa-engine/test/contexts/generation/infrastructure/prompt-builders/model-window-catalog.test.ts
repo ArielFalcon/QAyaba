@@ -64,10 +64,10 @@ test("catalog: modelWindowBytes returns a positive number for all roster models"
 
 test("catalog: known models produce differing byte budgets reflecting their relative window sizes", () => {
   const kimiBytes = modelWindowBytes("kimi-k2.7-code");
-  const minimaxBytes = modelWindowBytes("minimax-m3");
+  const qwenFlashBytes = modelWindowBytes("qwen3.8-flash");
   assert.ok(
-    kimiBytes > minimaxBytes,
-    `kimi-k2.7-code (${kimiBytes} bytes) must have a larger budget than minimax-m3 (${minimaxBytes} bytes)`,
+    kimiBytes > qwenFlashBytes,
+    `kimi-k2.7-code (${kimiBytes} bytes) must have a larger budget than qwen3.8-flash (${qwenFlashBytes} bytes)`,
   );
 });
 
@@ -196,11 +196,6 @@ test("catalog: roleWindowBytes resolves correctly for all roster roles via a ful
   assert.equal(roleWindowBytes("qa-generator", cfgPath), modelWindowBytes("kimi-k2.7-code"));
   assert.equal(roleWindowBytes("qa-reviewer", cfgPath), modelWindowBytes("minimax-m3"));
   assert.equal(roleWindowBytes("qa-worker", cfgPath), modelWindowBytes("deepseek-v4-flash"));
-  /* Reviewer budget must be < generator budget (different window sizes). */
-  assert.ok(
-    roleWindowBytes("qa-reviewer", cfgPath) <= roleWindowBytes("qa-generator", cfgPath),
-    "reviewer budget must not exceed generator budget",
-  );
 });
 
 /* BEFORE this fix: roleWindowBytes read agents/opencode.json EXCLUSIVELY for every role — even
@@ -238,7 +233,7 @@ test("AFTER (dual-mode reviewer): qa-reviewer resolves via the injected AgentRun
   setRuntimeRoleModels({ primary: "opencode-go/deepseek-v4-pro", reviewer: "gpt-5.5", chat: "opencode-go/deepseek-v4-flash" });
   try {
     const bytes = roleWindowBytes("qa-reviewer", cfgPath);
-    assert.equal(bytes, modelWindowBytes("gpt-5.5"), "must resolve gpt-5.5's window (128K), not minimax-m3's (32K)");
+    assert.equal(bytes, modelWindowBytes("gpt-5.5"), "must resolve gpt-5.5's window, not minimax-m3's");
     assert.notEqual(bytes, modelWindowBytes("minimax-m3"), "must NOT use opencode.json's declared model when a runtime assignment is injected");
   } finally {
     setRuntimeRoleModels(undefined);

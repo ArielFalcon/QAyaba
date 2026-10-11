@@ -257,7 +257,7 @@ The project uses provider-neutral role assignments. Configure them from the Dash
 | Role | Default provider/model | Purpose |
 |---|---|---|
 | `primary` (lead) | `opencode-go/glm-5.3-flash` | Reads code, writes Playwright tests, coordinates delegations |
-| `reviewer` | `opencode-go/muse-spark-1.3-contributor` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
+| `reviewer` | `opencode-go/minimax-m3` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
 | `chat` | `opencode-go/glm-5.3-flash` | Read-only operator assistant |
 
 The coordination sidekick runs on its own role (`sidekick`) with the same base model as the lead tier; assign it a stronger model via `COORDINATION_ESCALATED_MODEL` when you want escalated sidekick sessions to use a different capacity.

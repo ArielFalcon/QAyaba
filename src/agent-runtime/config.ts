@@ -26,7 +26,7 @@ const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["ass
     /* Must match agents/opencode.json qa-generator. */
     primary: "opencode-go/glm-5.3-flash",
     /* Must match qa-reviewer and differ from primary — two models guarantee independent judgment. */
-    reviewer: "opencode-go/muse-spark-1.3-contributor",
+    reviewer: "opencode-go/minimax-m3",
     chat: "opencode-go/glm-5.3-flash",
   },
   codex: {

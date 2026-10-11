@@ -1934,13 +1934,13 @@ test("qa-worker budget fix: buildWorkerPromptAssembled selects the budget role b
     JSON.stringify({
       agent: {
         /* Deliberately DIFFERENT catalog windows so the two roles are observably distinguishable —
-           kimi-k2.7-code (64K tokens -> 192,000 byte budget) vs minimax-m3 (32K tokens -> 96,000 byte
+           kimi-k2.7-code (64K tokens -> 192,000 byte budget) vs qwen3.8-flash (32K tokens -> 96,000 byte
            budget). The real production roster happens to assign the SAME model to both roles today,
            which is exactly why this bug was silent; this test proves the CALL SITE picks the right
            role regardless of what the roster currently happens to configure.
          */
         "qa-worker": { model: "opencode-go/kimi-k2.7-code" },
-        "qa-worker-code": { model: "opencode-go/minimax-m3" },
+        "qa-worker-code": { model: "opencode-go/qwen3.8-flash" },
       },
     }),
     "utf8",
