@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DIFF_TIER_NAMES, DIFF_TIERS, DIFF_TIME_BUDGET_MS, diffTier, type DiffStat, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
-import { generatorTimeBudgetMs } from "@contexts/generation/domain/generator-time-budget.ts";
+import { DIFF_TIME_BUDGET_ENV, generatorTimeBudgetMs, resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget.ts";
 import { RUN_MODES } from "@kernel/run-mode.ts";
 
 /* One stat inside each tier, built from the tier limits rather than re-typed. */
@@ -55,4 +55,50 @@ test("a tier's time is a bound only while it is shorter than the longest a singl
 
 test("a tier with no bound stays unbounded whatever the cap, so the cap never becomes a bound of its own", () => {
   assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.broad, capMs: 1 }), undefined);
+});
+
+test("a budget table handed in replaces the default for the tier the change falls in, and only for that tier", () => {
+  const budgets = { tiny: 90_000, focused: null, broad: 3_600_000 };
+  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.tiny, budgets }), 90_000);
+  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.focused, budgets }), undefined, "a tier the table leaves unbounded stays so");
+  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.broad, budgets }), 3_600_000, "a tier the default leaves unbounded can be given a bound");
+});
+
+test("a table handed in is still clamped by the host's own deadline: a time that deadline does not exceed is no bound", () => {
+  const budgets = { tiny: 600_000, focused: 600_000, broad: 600_000 };
+  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.tiny, budgets, capMs: 600_001 }), 600_000);
+  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.tiny, budgets, capMs: 600_000 }), undefined);
+  assert.equal(generatorTimeBudgetMs({ mode: "diff", stat: STAT_OF_TIER.broad, budgets, capMs: 1_000 }), undefined);
+});
+
+test("with no override in the environment the budgets are exactly the defaults", () => {
+  assert.deepEqual(resolveDiffTimeBudgets({}), DIFF_TIME_BUDGET_MS);
+  assert.deepEqual(resolveDiffTimeBudgets({ UNRELATED: "1" }), DIFF_TIME_BUDGET_MS);
+});
+
+test("each tier is overridden by its own variable, leaving the others at their defaults", () => {
+  for (const tier of DIFF_TIER_NAMES) {
+    const budgets = resolveDiffTimeBudgets({ [DIFF_TIME_BUDGET_ENV[tier]]: "123456" });
+    for (const other of DIFF_TIER_NAMES) assert.equal(budgets[other], other === tier ? 123_456 : DIFF_TIME_BUDGET_MS[other], `${tier} override seen on ${other}`);
+  }
+});
+
+test("a blank variable is no override, and 'none' removes a tier's bound", () => {
+  const budgets = resolveDiffTimeBudgets({ [DIFF_TIME_BUDGET_ENV.tiny]: "  ", [DIFF_TIME_BUDGET_ENV.focused]: "none", [DIFF_TIME_BUDGET_ENV.broad]: "NONE" });
+  assert.deepEqual(budgets, { tiny: DIFF_TIME_BUDGET_MS.tiny, focused: null, broad: null });
+});
+
+test("a value that is not a positive whole number of milliseconds fails loudly, naming the variable and the value", () => {
+  for (const bad of ["0", "-5", "1.5", "6min", "1e3", "abc", "0x10", String(Number.MAX_SAFE_INTEGER + 1)]) {
+    assert.throws(
+      () => resolveDiffTimeBudgets({ [DIFF_TIME_BUDGET_ENV.focused]: bad }),
+      (err: unknown) => err instanceof Error && err.message.includes(DIFF_TIME_BUDGET_ENV.focused) && err.message.includes(JSON.stringify(bad)),
+      bad,
+    );
+  }
+});
+
+test("the variables are named per tier so a new tier cannot be added without one", () => {
+  assert.deepEqual(Object.keys(DIFF_TIME_BUDGET_ENV).sort(), [...DIFF_TIER_NAMES].sort());
+  assert.equal(new Set(Object.values(DIFF_TIME_BUDGET_ENV)).size, DIFF_TIER_NAMES.length);
 });

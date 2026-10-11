@@ -37,6 +37,7 @@ import type { RunMode, TestTarget } from "@kernel/run-mode";
 
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case";
+import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
@@ -705,6 +706,8 @@ export function buildRewrittenCompositionConfig(
     repair,
     /* The transport's own deadline: the generator's time budget is never set above it. */
     promptCapMs: agentPromptCapMs(),
+    /* QA_DIFF_TIME_BUDGET_MS_{TINY,FOCUSED,BROAD} override a tier's time; read here once because qa-engine never reads process.env. A mistyped value throws. */
+    timeBudgets: resolveDiffTimeBudgets(process.env),
   });
 
 

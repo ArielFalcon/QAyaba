@@ -17,7 +17,7 @@ import { classifyGenerationEnd, renderGenerationNote } from "../domain/generatio
 import { declareSpecs } from "../domain/declared-specs.ts";
 import { diffStat } from "../domain/diff-stat.ts";
 import { generationRunsReviewer } from "../domain/generation-review.ts";
-import { generatorTimeBudgetMs } from "../domain/generator-time-budget.ts";
+import { generatorTimeBudgetMs, type DiffTimeBudgets } from "../domain/generator-time-budget.ts";
 import { isReGenTurn } from "../domain/regen-turn.ts";
 
 export interface RepairPort {
@@ -35,6 +35,8 @@ export interface GenerationPorts {
   repair?: RepairPort;
   /** The longest a single prompt may run on this host: the deadline of its transport. A tier's time at or above it could never fire before that deadline, so no budget is set and a timeout there stays the host's. Absent: the host states none, and the budget is applied as the effort tier gives it. */
   promptCapMs?: number;
+  /** The time each effort tier allows the first pass, as the composition root resolved it (operator overrides applied). Absent: the defaults. Still clamped by `promptCapMs`. */
+  timeBudgets?: DiffTimeBudgets;
   /** The clock the first pass's deadline is read from, in milliseconds. Absent: the system clock. */
   now?: () => number;
 }
@@ -77,6 +79,7 @@ export class GenerateTestsUseCase {
           mode: input.mode,
           stat: diffStat({ diff: input.diff, changedFiles: input.intent?.changedFiles }),
           ...(this.ports.promptCapMs !== undefined ? { capMs: this.ports.promptCapMs } : {}),
+          ...(this.ports.timeBudgets ? { budgets: this.ports.timeBudgets } : {}),
         });
 
     /* The budget bounds the whole first pass, the repair included: every prompt is given only what is left of it, and a prompt that finds none left is not sent. */

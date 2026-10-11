@@ -23,6 +23,7 @@ import { createAgentDeps } from "@contexts/generation/infrastructure/agent-trans
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
 import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat";
+import { DIFF_TIME_BUDGET_ENV } from "@contexts/generation/domain/generator-time-budget";
 import { renderGenerationNote } from "@contexts/generation/domain/generation-end";
 import { GENERATION_END } from "@kernel/generation-end";
 import { Sha } from "@kernel/sha";
@@ -583,6 +584,25 @@ test("buildRewrittenCompositionConfig gives GenerateTestsUseCase the transport's
   /* Same structural reach-in as the RepairPort wiring above: the ports are a private field with no accessor. */
   const ports = (config.generationUseCase as unknown as { ports: { promptCapMs?: number } }).ports;
   assert.equal(ports.promptCapMs, agentPromptCapMs());
+});
+
+test("buildRewrittenCompositionConfig gives GenerateTestsUseCase the tiers' time budgets, the defaults unless the environment overrides one", () => {
+  const budgetsOf = (): unknown => {
+    const config = buildRewrittenCompositionConfig(cfg("factory-time-budgets"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    return (config.generationUseCase as unknown as { ports: { timeBudgets?: unknown } }).ports.timeBudgets;
+  };
+  const saved = process.env[DIFF_TIME_BUDGET_ENV.tiny];
+  try {
+    delete process.env[DIFF_TIME_BUDGET_ENV.tiny];
+    assert.deepEqual(budgetsOf(), DIFF_TIME_BUDGET_MS);
+    process.env[DIFF_TIME_BUDGET_ENV.tiny] = "90000";
+    assert.deepEqual(budgetsOf(), { ...DIFF_TIME_BUDGET_MS, tiny: 90_000 });
+    process.env[DIFF_TIME_BUDGET_ENV.tiny] = "soon";
+    assert.throws(() => budgetsOf(), new RegExp(DIFF_TIME_BUDGET_ENV.tiny), "a mistyped override stops the composition instead of silently running on the default");
+  } finally {
+    if (saved === undefined) delete process.env[DIFF_TIME_BUDGET_ENV.tiny];
+    else process.env[DIFF_TIME_BUDGET_ENV.tiny] = saved;
+  }
 });
 
 test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-check branch end-to-end: a malformed verdict text triggers exactly one repair via the real wrapped checkGeneratorVerdict", async () => {

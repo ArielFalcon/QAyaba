@@ -4,6 +4,7 @@ import { GenerateTestsUseCase, type GenerationPorts, type GenerationResult } fro
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { DIFF_TIERS, DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat.ts";
+import type { DiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget.ts";
 import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.ts";
 import { renderGenerationNote } from "@contexts/generation/domain/generation-end.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -43,7 +44,7 @@ function baseInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
 
 function build(
   generatorSteps: Step[],
-  opts: { promptCapMs?: number; specs?: string[]; repairInvalid?: boolean } = {},
+  opts: { promptCapMs?: number; specs?: string[]; repairInvalid?: boolean; timeBudgets?: DiffTimeBudgets } = {},
 ): { ports: GenerationPorts; seen: Harness } {
   const seen: Harness = { opened: [], prompts: [], disposed: [], clock: { now: 1_000_000 } };
   const steps = [...generatorSteps];
@@ -85,6 +86,7 @@ function build(
     budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
     now: () => seen.clock.now,
     ...(opts.promptCapMs !== undefined ? { promptCapMs: opts.promptCapMs } : {}),
+    ...(opts.timeBudgets ? { timeBudgets: opts.timeBudgets } : {}),
     ...(opts.repairInvalid ? { repair: { checkGenerator: () => ({ valid: false, issues: ["no verdict"] }), instruction: () => "REPAIR" } } : {}),
   };
   return { ports, seen };
@@ -102,6 +104,28 @@ for (const [label, diff, expected] of [
     assert.equal(generatorOpen(seen)?.opts?.timeoutMs, expected);
   });
 }
+
+test("the budgets the composition root resolved replace the defaults: the session opens with the time its tier was given, and a broad run can be bounded", async () => {
+  const timeBudgets = { tiny: 45_000, focused: 90_000, broad: 7_200_000 };
+  for (const [diff, expected] of [[TINY_DIFF, 45_000], [FOCUSED_DIFF, 90_000], [BROAD_DIFF, 7_200_000]] as const) {
+    const { ports, seen } = build([{ output: "SPECS" }], { timeBudgets });
+    await new GenerateTestsUseCase(ports).generate(baseInput({ diff }));
+    assert.equal(generatorOpen(seen)?.opts?.timeoutMs, expected);
+  }
+});
+
+test("a resolved budget the host's prompt deadline does not exceed sets no budget: the host's deadline still fires first", async () => {
+  const { ports, seen } = build([{ output: "SPECS" }], { timeBudgets: { tiny: 600_000, focused: 600_000, broad: 600_000 }, promptCapMs: 600_000 });
+  await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false);
+});
+
+test("a first pass cut by an overridden budget reports the time it was actually given", async () => {
+  const { ports } = build([{ throws: new AgentTimeoutError("OpenCode prompt: timed out"), takes: 45_000 }], { timeBudgets: { tiny: 45_000, focused: 90_000, broad: null } });
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(result.end, GENERATION_END.TIME_BUDGET);
+  assert.match(result.note ?? "", /Time budget of 45 s exhausted/);
+});
 
 test("a broad diff run's session is opened with no time of its own: it keeps the host's default", async () => {
   const { ports, seen } = build([{ output: "SPECS" }]);

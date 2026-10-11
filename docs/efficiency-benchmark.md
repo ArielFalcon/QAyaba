@@ -130,6 +130,23 @@ one of those turns shows a known `steps used` below its `max steps`: the cap was
 counted in earlier turns. Note such a run when you see one. Until the question is closed, read
 `step use` as a per-turn ratio, not as how close a session came to its cap.
 
+## Time budget per tier
+
+A diff run's generator first pass is bounded by its tier's wall time (`DIFF_TIME_BUDGET_MS`: tiny 6 min,
+focused 12 min, broad none). To measure how much time a tier really needs, set these on the
+orchestrator (`.env` or Doppler) and restart it; no rebuild is needed:
+
+| Variable | Tier | Accepts |
+|---|---|---|
+| `QA_DIFF_TIME_BUDGET_MS_TINY` | tiny | a positive whole number of milliseconds, or `none` |
+| `QA_DIFF_TIME_BUDGET_MS_FOCUSED` | focused | the same |
+| `QA_DIFF_TIME_BUDGET_MS_BROAD` | broad | the same (the default is no bound) |
+
+Unset or blank keeps the default, `none` removes the tier's bound, and anything else (`6min`, `0`, `1.5`)
+stops the composition with an error naming the variable. The value is still clamped by the transport's
+own prompt deadline (`agentPromptCapMs`): a budget at or above it is not a bound, the host's deadline
+fires first. A cut run's note states the time it was actually given.
+
 ## Success criteria and guardrails
 
 Judge each side on its three labels together: pool the cases of the three labels for the rate and the

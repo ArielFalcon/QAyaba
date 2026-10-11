@@ -169,6 +169,11 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   sent. A tier whose time the transport's own deadline (`agentPromptCapMs`) does not exceed sets no
   budget, since that deadline would fire first. A turn the budget stops ends `time-budget`, unless the
   main turn already delivered specs or declared a no-op, which stand when only the repair was cut.
+  The tiers' times are operator-tunable without a rebuild: `QA_DIFF_TIME_BUDGET_MS_TINY`,
+  `_FOCUSED` and `_BROAD` (a positive whole number of milliseconds, or `none` for no bound beyond the
+  host's deadline; blank or unset keeps the default; anything else fails the composition loudly). They
+  are resolved once in the composition root (`resolveDiffTimeBudgets`, qa-engine never reads the
+  environment) and stay clamped by `agentPromptCapMs`: a value at or above it sets no budget.
   `E-TIME-BUDGET` is never learned from (DEV latency confounds it). A timeout in a
   run with no budget (broad, other modes, a regeneration, whose callers read zero specs as "no fixes")
   stays the loud integration error it was.
