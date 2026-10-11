@@ -60,6 +60,8 @@ npm run typecheck && npm run arch:check && npm run sdk:typecheck && npm run cont
 
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
 npm run efficiency-benchmark # agent step/call telemetry over real runs; never a gate (needs the stack up; docs/efficiency-benchmark.md)
+npm run probe-report -- <runId...> # one run's phases, turns, tool use, tokens and cost (inside the orchestrator container)
+npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> # experiment only: a plain agent on a throwaway copy, same metrics as probe-report
 
 # One run, same pipeline as the webhook (--mode diff|complete|exhaustive|manual, --target e2e|code):
 npm run qa -- --app my-app --sha <sha> [--mode manual --guidance "test the contact form"]

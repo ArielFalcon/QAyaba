@@ -178,6 +178,49 @@ the ordered tool sequence of every turn, to `config/benchmarks/probe-results/<ru
 | change-coverage status and ratio | the `coverage.computed` event (or the outcome's ratio) judged against the app's policy minimum |
 | reviewer verdict | the `reviewer.verdict` event |
 
+### The plain-agent arm: `baseline-agent`
+
+Experiment only; nothing in the service calls it. It gives one agent what a developer with a coding
+agent has (the whole repository at the commit, a short prompt, the live DEV site, a Playwright runner)
+and none of the pipeline's stages: no explorer, grounding, context map, reviewer, regeneration or
+deterministic gate. Run it in the orchestrator container, with the queue idle (it refuses otherwise,
+like `efficiency-benchmark run`: DEV is used by one thing at a time):
+
+```bash
+docker compose exec orchestrator npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l>
+docker compose exec orchestrator npm run baseline-agent -- --app <app> --sha <sha> --label <l> --dry-run [--check-auth]
+```
+
+| Aspect | How |
+|---|---|
+| Isolation | a throwaway clone of the app's mirror at the commit, under `<mirrors>/.baseline/<label>` (the mirror pruning never touches that directory). The clone has no remote, the real mirror is only read, and nothing is pushed. The commit must already be in the mirror (the pipeline fetched it on its first run of that commit). `--keep-copy` keeps the copy; otherwise it is removed at the end |
+| Suite and dependencies | the pipeline's own setup step (`buildSetupAdapter().setup`): the `config/e2e` seed when the repo has no `e2e/`, the managed fixtures, and the dependency install |
+| The agent | `qa-baseline`, defined in an `opencode.json` at the root of the copy. The server resolves its configuration per session directory, so the agent exists only there, with no entry in `agents/opencode.json`. Model, step cap and temperature are the generator's, read from `agents/opencode.json` and cross-checked against what the server resolves for `qa-generator` (a stale copy stops the run) |
+| Tools | read, glob, grep, list, edit/write, the Playwright browser's navigate, snapshot, click and type, and a shell that can only run `npx playwright test*`. No web fetch, no sub-agent, no serena or engram; `doom_loop` and `external_directory` denied; `.env` files unreadable. Before any session the runner asks the server for the rules it resolved and checks a set of probes against them (a shell command outside Playwright, a code-running browser tool, a web fetch...); a mismatch stops the run before a token is spent |
+| Prompt | the commit message, `git show --stat` and the full diff (cut at 200 000 characters, redacted by the engine's sanitizer), after five or six lines: write Playwright tests under `e2e/` for this change against the live DEV site, run them with `npx playwright test` and iterate, or say NOOP and why, prefix created data with the app's `qa.testDataPrefix`. If the automatic login did not work for the app the prompt says so and names `npx playwright test --project=setup` |
+| Authentication | the same login the pipeline's harness makes, in the orchestrator (the credentials never enter a file the agent can read): a session in an orchestrator-side directory beside the copy, which a small wrapper around the repo's own `playwright.config.ts` injects with the non-secret `PW_*` values. The wrapper also points Playwright at the headless shell the agents container has, because that container carries the MCP server's browsers, not the build the project's Playwright pins. The basic-auth credentials (`DEV_ENV_*`) are already in the environment of both containers |
+| Timeout | `--timeout-min` is a wall-clock limit on the session; at the limit the session is aborted and whatever it wrote is judged |
+| Metrics | the session's messages are replayed through the pipeline's own call tracker, so calls, buckets, denied calls, time to first call and first write, tool sequence and steps mean the same as for a pipeline turn; tokens and cost are summed over every step |
+| Verdict | the specs the agent added are run twice with the repo's Playwright runner (`runE2E`), after the login is made again with whatever `auth.setup.ts` the agent left: both green `pass`, both red `fail`, one of each or a pass only on retry `flaky`. No spec and NOOP is `skipped`; no spec and no NOOP is `infra-error` `E-NO-DECISION`; the clock or the step cap with no spec is `E-TIME-BUDGET` or `E-STEP-BUDGET` |
+
+It writes `config/benchmarks/probe-results/<label>.json` in the shape `probe-report` emits, with the
+arm-specific facts under `detail` (what the agent changed outside `e2e/`, its closing words, each suite
+run), and prints the same markdown rows. `--dry-run` prepares the copy, prints the prompt and the
+permissions the server resolved, and starts no session; `--check-auth` also makes the one login.
+
+Differences between the arms that the numbers do not hide:
+
+- The agents container's global `instructions` (`agents/AGENTS.md`, the pipeline's shared rules) apply
+  to every agent the server runs, `qa-baseline` included: this arm is "a plain agent" plus those shared
+  rules. A project config cannot remove them. If that matters, run the arm on an `opencode serve` whose
+  config has none.
+- The pipeline's change-coverage, static gate and reviewer do not exist here, so `change-coverage` and
+  `reviewer` read `n/a` for this arm. The two arms' tokens and cost are comparable only for turns whose
+  usage is summed over every step (no `*`).
+- The agent can run `npx playwright test` from a directory other than `e2e/` and the shell patterns
+  cannot stop it; the prompt names the working directory. A command chained after an allowed one is
+  checked by the server command by command.
+
 ## Success criteria and guardrails
 
 Judge each side on its three labels together: pool the cases of the three labels for the rate and the

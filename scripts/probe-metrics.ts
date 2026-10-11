@@ -314,6 +314,8 @@ export interface ProbeReport {
   execution: { passed: number | null; failed: number | null; flaky: number | null } | null;
   coverage: ProbeCoverage | null;
   reviewer: { approved: boolean | null; reasons: string[] } | null;
+  /** What only one arm can say (the plain agent's model, step cap and timeout, its final words, what it wrote outside the suite). Not compared across arms. */
+  detail?: Record<string, unknown>;
 }
 
 const sumKnown = (values: ReadonlyArray<number | null>): number | null => {
@@ -432,7 +434,7 @@ const kilo = (v: number | null): string => (v === null ? NA : v >= 10_000 ? `${(
 const clip = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, max - 1)}…`);
 const cell = (text: string): string => text.replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
 
-const RUN_COLUMNS = ["arm", "id", "app", "mode", "verdict", "error", "total", ...PHASES.filter((p) => p !== "health" && p !== "retry"), "specs", "coverage", "reviewer", "cost", "note"] as const;
+const RUN_COLUMNS = ["arm", "id", "app", "mode", "verdict", "error", "total", ...PHASES.filter((p) => p !== "health" && p !== "retry"), "specs", "change-coverage", "reviewer", "cost", "note"] as const;
 
 /** The header of the runs table. */
 export const RUN_TABLE_HEADER = `| ${RUN_COLUMNS.join(" | ")} |\n|${RUN_COLUMNS.map(() => "---").join("|")}|`;

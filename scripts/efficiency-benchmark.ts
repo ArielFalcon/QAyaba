@@ -198,7 +198,7 @@ export interface RunBenchmarkResult {
 /* A benchmark must be the only work against DEV: the service's queue is the one sequential queue, so a
    busy one means someone else's run would share the interval a case is measured over. The queue's
    `pending` counts the running job too, so an idle queue is exactly one with nothing running and nothing pending. */
-async function assertQueueIdle(service: BenchmarkService): Promise<void> {
+export async function assertQueueIdle(service: BenchmarkService): Promise<void> {
   const headers: Record<string, string> = service.token ? { Authorization: `Bearer ${service.token}` } : {};
   const res = await service.fetch(`${service.baseUrl}/api/v1/queue`, { headers });
   if (!res.ok) throw new Error(`could not read the service's queue (HTTP ${res.status})`);
@@ -662,7 +662,7 @@ function discoverApiToken(env: Record<string, string | undefined>): string | und
   }
 }
 
-async function defaultService(env: Record<string, string | undefined>): Promise<BenchmarkService> {
+export async function defaultService(env: Record<string, string | undefined>): Promise<BenchmarkService> {
   const { resolvePort } = await import("../src/server/port.ts");
   const token = discoverApiToken(env);
   return { fetch, baseUrl: `http://localhost:${resolvePort(env)}`, ...(token ? { token } : {}) };
