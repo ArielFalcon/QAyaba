@@ -349,6 +349,36 @@ zero score. Read the arms with the asymmetry in mind: B is given curated context
 service's staged context), A the raw service source and diff; "files read" for A includes service files, which the
 ground truth neither credits nor rejects (they show as unjudged).
 
+## Campaigns
+
+A campaign repeats the same cases for both arms, several times, so the arms can be compared on more than one draw.
+The pipeline learns from every run, and a replicate that starts from what the last one left is not a replicate.
+
+### Freeze switch: `QA_CAMPAIGN_FREEZE`
+
+Set `QA_CAMPAIGN_FREEZE=1` on the orchestrator (`.env` or Doppler; it is passed through `docker-compose.override.yml`)
+and restart it. It is read once, in the composition root (`src/server/campaign-freeze.ts`), and for every run it:
+
+| Skips | Because |
+|---|---|
+| rule retrieval and the rule fold (`learningRepo` is not wired, so the engine uses its no-op repository) | a rule learned in replicate 1 would ground replicate 2. The per-run value scorecard goes through the same repository, so it is not recorded either |
+| the curriculum select and fold | the archetypes offered to the generator would drift |
+| the reflector pass | it only feeds the rule ledger |
+| the process audit (no incident, hence the maintainer is never triggered; no rule is deprecated; the context map is not marked stale) | an audit finding from a campaign run must not change the system under test |
+| the context-map rebuild a stale flag requests | it would put a run that is not part of the campaign on the queue. A flag armed before the campaign is still read (the stored map is not used), the same for every replicate: clear it first by running `mode: context` once |
+
+Unset, blank, `0` and `false` keep today's behavior; any other value stops the composition with an error naming the
+variable. Run history, the run's own outcome and the agent turns are recorded as always, and a context-mode run still
+stores the map it builds.
+
+**Agent memory (engram) is not isolated by this switch.** The generator and the explorer hold engram tools by design and
+the data lives in the `engram-data` volume, which only the agents container mounts, as one SQLite file shared by every
+project. The orchestrator (where the campaign runs) can neither see it nor restore a single project of it (`engram import`
+only merges, and `engram export` is all-or-nothing), and a per-run tool switch would have to cross the agent transport
+and the Codex supervisor. To keep memory out of the comparison, give the campaign its own engram data directory instead:
+stop the agents container, point its `ENGRAM_DATA_DIR` at a fresh or pre-copied directory, and start it again before the
+campaign; the campaign JSON records `engramIsolated: false` unless you pass `--engram-isolated` to attest that you did.
+
 ## Success criteria and guardrails
 
 Judge each side on its three labels together: pool the cases of the three labels for the rate and the

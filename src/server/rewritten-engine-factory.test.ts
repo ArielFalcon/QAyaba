@@ -11,6 +11,7 @@ import { enqueueTrackedRun } from "./runner";
 import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import type { AgentDeps } from "../integrations/opencode-client";
+import { CAMPAIGN_FREEZE_ENV } from "./campaign-freeze";
 import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, PRESERVE_UNTRACKED_SUITE_ENV, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
@@ -3382,4 +3383,41 @@ test("service staging: declared services are mirrored CONCURRENTLY (Promise.all)
   ]);
   assert.equal(bStarted, true, "svc-b's mirror call must have started");
   assert.equal(outcome, "done", "checkout must complete promptly — a sequential loop would never reach svc-b while svc-a is still pending, deadlocking this test");
+});
+
+/*
+ * QA_CAMPAIGN_FREEZE: the operator switch that stops a run from reading or writing cross-run learning state, so
+ * the replicates of an A/B campaign start from the same ground.
+ */
+test("without the campaign freeze, the learning, reflector, process-audit and curriculum collaborators are wired", () => {
+  const config = buildRewrittenCompositionConfig(cfg("factory-freeze-off"), { getAgentDeps: stubAgentDeps, env: {} }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.ok(config.learningRepo, "learning is wired");
+  assert.ok(config.reflectorPort, "the reflector is wired");
+  assert.ok(config.processAudit, "the process audit is wired");
+  assert.ok(config.curriculumPort, "the curriculum is wired");
+});
+
+test("with the campaign freeze on, a run neither learns nor reflects nor audits nor reads the curriculum", () => {
+  const env = { [CAMPAIGN_FREEZE_ENV]: "1" };
+  const config = buildRewrittenCompositionConfig(cfg("factory-freeze-on"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(config.learningRepo, undefined, "no rule is retrieved or folded");
+  assert.equal(config.reflectorPort, undefined, "the reflector does not run");
+  assert.equal(config.processAudit, undefined, "no incident is recorded and no context is marked stale");
+  assert.equal(config.curriculumPort, undefined, "no archetype is selected or folded");
+  assert.ok(config.contextMapCapture, "a context-mode run still stores the map it builds");
+});
+
+test("with the campaign freeze on, a stale-flagged app requests no context rebuild", async () => {
+  const app = cfg(`factory-freeze-stale-${Math.random().toString(36).slice(2)}`);
+  markContextStale(app.name);
+  const requested: string[] = [];
+  buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, env: { [CAMPAIGN_FREEZE_ENV]: "1" }, enqueueContextRun: async (request) => { requested.push(request.sha); return "run-heal"; } },
+    "qa-bot-abc1234-run1",
+    { mode: "diff", sha: "abc1234" },
+  );
+  await flushMicrotasks();
+  assert.deepEqual(requested, [], "a frozen campaign never adds a run to the queue");
+  assert.equal(isContextStale(app.name), true, "the flag is left as the campaign found it");
 });

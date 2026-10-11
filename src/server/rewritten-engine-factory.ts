@@ -122,6 +122,7 @@ import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import { recordIncident } from "./maintainer";
+import { resolveCampaignFreeze } from "./campaign-freeze";
 import { attributableRules, preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
@@ -623,6 +624,13 @@ export function buildRewrittenCompositionConfig(
   const authDir = appAuthDir(root, app.name);
 
 
+  /*
+   * QA_CAMPAIGN_FREEZE (operator switch, off by default; read here once because qa-engine never reads process.env):
+   * the run reads and writes no cross-run learning state. The collaborators below are left out, which the
+   * composition root reads as "not wired" (a provable no-op), never as a stub that pretends to learn.
+   */
+  const campaignFrozen = resolveCampaignFreeze(deps.env ?? process.env);
+
   const triggerService =
     run.triggerRepo && run.triggerRepo !== app.repo
       ? app.services?.find((s) => s.repo === run.triggerRepo)
@@ -643,7 +651,10 @@ export function buildRewrittenCompositionConfig(
    * `!triggerService` (a service-triggered run's sha belongs to the service repo, not the primary).
    */
   const contextStale = !isCode && run.mode !== "context" && !triggerService && isContextStale(app.name);
-  if (contextStale) {
+  if (contextStale && campaignFrozen) {
+    /* A campaign's queue holds only its own runs: the rebuild is left for after it, and the flag stays as the campaign found it. */
+    console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run; the campaign freeze requests no rebuild.`);
+  } else if (contextStale) {
     console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run and requesting a rebuild.`);
     requestContextHeal(app.name, run.sha, deps.enqueueContextRun);
   }
@@ -799,6 +810,7 @@ export function buildRewrittenCompositionConfig(
   const checkout = (checkoutSha: Sha): Promise<string> => multiRepoCheckout.checkout(checkoutSha);
 
 
+  /* Built even when frozen (cheap, no I/O): the frozen config simply does not hand it to the engine. */
   const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name));
 
 
@@ -1062,7 +1074,7 @@ export function buildRewrittenCompositionConfig(
 
     ...(deps.historyFilePath ? { historyFilePath: deps.historyFilePath } : { runHistory: new SqliteRunHistoryAdapter() }),
 
-    learningRepo,
+    ...(campaignFrozen ? {} : { learningRepo }),
     /*
      * This factory is the one module that may import both qa-engine @contexts aliases and root
      * src/, so it is the only place that can construct ReflectorPortAdapter: same runtimeAdapter
@@ -1070,7 +1082,7 @@ export function buildRewrittenCompositionConfig(
      * REFLECTOR_TIMEOUT_MS parsed here with Number(process.env.X) || default; unset falls back
      * to the adapter's REFLECT_TIMEOUT_MS (60_000).
      */
-    reflectorPort: new ReflectorPortAdapter({
+    ...(campaignFrozen ? {} : { reflectorPort: new ReflectorPortAdapter({
       runtime: runtimeAdapter,
       repo: learningRepo,
 
@@ -1078,9 +1090,9 @@ export function buildRewrittenCompositionConfig(
       cwd: mirrorDir,
       app: app.name,
       timeoutMs: Number((deps.env ?? process.env).REFLECTOR_TIMEOUT_MS) || REFLECT_TIMEOUT_MS,
-    }),
+    }) }),
 
-    processAudit: new ProcessAuditPortAdapter({
+    ...(campaignFrozen ? {} : { processAudit: new ProcessAuditPortAdapter({
       app: app.name,
       readRecentOutcomes: (a, limit) => listRunOutcomes(a, limit),
       readRules: (a, limit) => listLearningRules(a, limit),
@@ -1106,13 +1118,13 @@ export function buildRewrittenCompositionConfig(
           return false; 
         }
       },
-    }),
+    }) }),
     /*
      * CurriculumPort — per-app scenario-archetype prior. Constructed here because its store is
      * history.ts (src-only; qa-engine may never import it). Wired unconditionally: measure-and-rank
-     * only, never gates a verdict, publish, or coverage decision.
+     * only, never gates a verdict, publish, or coverage decision. Left out under QA_CAMPAIGN_FREEZE.
      */
-    curriculumPort: new CurriculumPortAdapter(app.name, loadCurriculum, saveCurriculum),
+    ...(campaignFrozen ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, loadCurriculum, saveCurriculum) }),
     /*
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
      * same reason curriculumPort is: its store is history.ts (src-only; qa-engine may never import
