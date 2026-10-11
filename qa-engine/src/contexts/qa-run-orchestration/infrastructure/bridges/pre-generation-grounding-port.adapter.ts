@@ -43,6 +43,8 @@ export interface PreGenerationGroundingCollaborators {
     signal?: AbortSignal;
     sha: string;
     intent?: CommitIntent;
+    /** The architecture map ground() loaded; absent when there is none. */
+    contextMap?: ArchitectureContext;
     /** Threaded from ground()'s own opts.runId — absent when the caller has none. */
     runId?: string;
   }) => Promise<ExplorationBrief | undefined>;
@@ -258,6 +260,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(diff !== undefined ? { diff } : {}),
           ...(signal ? { signal } : {}),
           ...(opts?.intent ? { intent: opts.intent } : {}),
+          ...(contextMap ? { contextMap } : {}),
           ...(opts?.runId ? { runId: opts.runId } : {}),
         });
       } catch (err) {

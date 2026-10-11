@@ -1,14 +1,15 @@
 /* Deterministic pre-generation context pack (DOM + explorer brief + contracts). Read-only on watched repos. Every component is fail-open: a failed piece yields an absent section, never a crashed run. */
 
 import { sanitizeText } from "./sanitize-text.ts";
-import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES } from "./dom-snapshot.ts";
-import type { CaptureDomDeps } from "./dom-snapshot.ts";
+import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
+import type { CaptureDomDeps, CaptureRoutesInput } from "./dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
-import { partitionRoutes, type UncapturableRoute } from "../../../shared-kernel/route-capturability.ts";
+import { classifyRoutes, ROUTE_REASON } from "../../../shared-kernel/route-capturability.ts";
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import { rankRoutesByChange } from "../domain/route-ranking.ts";
+import { instantiableTemplate, instantiateRoute } from "../domain/route-instantiation.ts";
 
 export { PACK_HEADINGS };
 
@@ -68,7 +69,7 @@ export interface ContextPackAssembly {
 export interface ContextPackDeps {
   captureDomForRoutes(
     routes: string[],
-    input: { e2eDir: string; baseUrl?: string; testIdAttribute?: string },
+    input: CaptureRoutesInput,
     domDeps: CaptureDomDeps,
     changed?: ChangedElement[],
   ): Promise<string | undefined>;
@@ -129,8 +130,17 @@ const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
 /* The most routes the pack lists as not capturable: a long list says no more than its first lines. */
 export const MAX_LISTED_UNCAPTURABLE = 8;
 
-/* The routes left out of the capture because they name no single page, each with why. They are not degraded pages: nothing was captured for them. */
-function renderNotCapturable(routes: readonly UncapturableRoute[]): string {
+/* A route the pack did not capture, with why. */
+interface NotCaptured {
+  route: string;
+  reason: string;
+}
+
+/* Why a template of the map that was meant to be captured is not: no page the capture showed links to a page of it. */
+const NO_LINK_TO_TEMPLATE = `${ROUTE_REASON.TEMPLATE}: no link to a page of it was seen`;
+
+/* The routes left out of the capture because they name no single page, or no page of them was found, each with why. They are not degraded pages: nothing was captured for them. */
+function renderNotCapturable(routes: readonly NotCaptured[]): string {
   if (routes.length === 0) return "";
   const listed = routes.slice(0, MAX_LISTED_UNCAPTURABLE).map((entry) => `- ${s(entry.route)} (${entry.reason})`);
   const more = routes.length - listed.length;
@@ -177,6 +187,20 @@ function splitRedirectSection(captured: string): { grounded: string; advisory: s
   return { grounded: grounded.trimEnd(), advisory: advisory.join("").trimEnd() };
 }
 
+/* The pages redirects reached in two captures, as the one section they are: the first's heading and introduction, then the pages of both. */
+function joinRedirectSections(first: string, second: string): string {
+  if (first === "" || second === "") return first || second;
+  const at = second.indexOf(REDIRECT_ADVISORY_INTRO);
+  const pages = at === -1 ? second : second.slice(at + REDIRECT_ADVISORY_INTRO.length).replace(/^\n/, "");
+  return `${first}\n${pages}`;
+}
+
+/* One capture of the pack, split into the live DOM it grounds and the redirect section. */
+interface PackCapture {
+  grounded: string;
+  advisory: string;
+}
+
 export async function buildContextPack(
   input: ContextPackInput,
   deps: ContextPackDeps,
@@ -203,20 +227,54 @@ export async function buildContextPack(
   const deterministicRoutes = input.prChangedFiles
     ? rankRoutesByChange(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}) })
     : derivedRoutes;
-  /* A route that names no single page is dropped, and a route named twice counted once, BEFORE the cut: neither may take the slot of a route behind it. */
-  const { capturable, uncapturable } = partitionRoutes([...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes]);
-  const briefRoutes = capturable.slice(0, MAX_ROUTES);
-  for (const entry of uncapturable) log(`[qa] context-pack: route not capturable, left out of the capture: ${entry.route} (${entry.reason})`);
-  if (briefRoutes.length > 0 && input.e2eDir && input.baseUrl) {
+  /* A route named twice is counted once, and a route that names no page and no template of one is dropped, BEFORE the cut: neither may take the slot of a route behind it. A template stays in its place: it opens to a page through a link the site shows. */
+  const classified = classifyRoutes([...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes]);
+  const isTemplate = (entry: { route: string; reason?: string }): boolean => entry.reason === ROUTE_REASON.TEMPLATE && instantiableTemplate(entry.route);
+  const targets = classified.filter((entry) => entry.reason === undefined || isTemplate(entry)).slice(0, MAX_ROUTES);
+  const templates = targets.filter(isTemplate).map((entry) => entry.route);
+  const concrete = targets.filter((entry) => !isTemplate(entry)).map((entry) => entry.route);
+  const opened = new Set<string>();
+  const captures: PackCapture[] = [];
+  let renderedRoutes = 0;
+  const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
+    const rawCaptured = await deps.captureDomForRoutes(routes, captureInput, deps.domDeps, input.changedElements);
+    const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
+    if (!raw) return;
+    const { grounded, advisory } = splitRedirectSection(raw);
+    captures.push({ grounded, advisory });
+    renderedRoutes += routes.length;
+  };
+  if (targets.length > 0 && input.e2eDir && input.baseUrl) {
+    const base = { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute };
+    const harvested: string[] = [];
     try {
-      const rawCaptured = await deps.captureDomForRoutes(briefRoutes, { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute }, deps.domDeps, input.changedElements);
-      const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
-      if (raw) {
-        const { grounded, advisory } = splitRedirectSection(raw);
-        redirectSection = advisory;
-        const lines = grounded.split("\n");
+      /* The first capture is of the routes that are pages. With a template among the targets it also reports the links its pages show, and renders the app root for them when the root is no target: the template cannot be opened, but a link to a page of it can. */
+      const needsLinks = templates.length > 0;
+      await capture(concrete, {
+        ...base,
+        ...(needsLinks ? { onLinks: (links: string[]) => harvested.push(...links) } : {}),
+        ...(needsLinks && !concrete.includes("/") ? { linkSeeds: ["/"] } : {}),
+      });
+      const instances = new Map<string, string>();
+      for (const template of templates) {
+        const instance = instantiateRoute(template, harvested);
+        if (instance === undefined) continue;
+        opened.add(template);
+        if (!concrete.includes(instance) && !instances.has(instance)) instances.set(instance, template);
+      }
+      if (instances.size > 0) {
+        try {
+          await capture([...instances.keys()], { ...base, instanceOf: instances });
+        } catch (err) {
+          log(`[qa] context-pack: DOM capture of the pages found for route templates FAILED (${err instanceof Error ? err.message : String(err)}) — those templates are not grounded`);
+          for (const template of instances.values()) opened.delete(template);
+        }
+      }
+      if (captures.length > 0) {
+        const lines = captures.map((c) => c.grounded).filter((text) => text !== "").join("\n").split("\n");
         const maxLines = Math.max(10, Math.floor(domBudgetChars / 60));
         const { kept, dropped } = capDomLines(lines, maxLines);
+        redirectSection = captures.map((c) => c.advisory).reduce(joinRedirectSections, "");
         domSection = [
           `### ${PACK_HEADINGS.liveDom} (a11y tree — GROUND TRUTH for selectors)`,
           "These roles + accessible names are what the browser ACTUALLY exposes.",
@@ -224,14 +282,19 @@ export async function buildContextPack(
           kept.join("\n"),
           ...(dropped > 0 ? [`(${dropped} non-priority element(s) omitted — see the full tree with the Playwright MCP if needed)`] : []),
         ].join("\n");
-        log(`[qa] context-pack: DOM captured ${kept.length} lines for ${briefRoutes.length} route(s)${dropped > 0 ? ` (${dropped} omitted)` : ""}`);
+        log(`[qa] context-pack: DOM captured ${kept.length} lines for ${renderedRoutes} route(s)${dropped > 0 ? ` (${dropped} omitted)` : ""}`);
       } else {
-        log(`[qa] context-pack: DOM capture returned nothing for routes [${briefRoutes.join(", ")}] — grounding skipped`);
+        log(`[qa] context-pack: DOM capture returned nothing for routes [${targets.map((entry) => entry.route).join(", ")}] — grounding skipped`);
       }
     } catch (err) {
       log(`[qa] context-pack: DOM capture FAILED (${err instanceof Error ? err.message : String(err)}) — grounding skipped`);
     }
   }
+  /* What is left out: every route that names no single page, and the templates of the targets no page was found for. */
+  const notCaptured: NotCaptured[] = classified
+    .filter((entry) => entry.reason !== undefined && !(isTemplate(entry) && opened.has(entry.route)))
+    .map((entry) => ({ route: entry.route, reason: targets.some((target) => target.route === entry.route) ? NO_LINK_TO_TEMPLATE : entry.reason! }));
+  for (const entry of notCaptured) log(`[qa] context-pack: route not capturable, left out of the capture: ${entry.route} (${entry.reason})`);
 
   let contractSection = "";
   const relevantOps = filterRelevantContracts(input.contextMap, input.brief, input.prChangedFiles);
@@ -252,7 +315,7 @@ export async function buildContextPack(
     return { text: undefined, domBytes: 0, contractBytes: 0 };
   }
   /* The list of routes left out accompanies a pack that has something to say; it is no reason to make one. */
-  sections.push(...[{ text: renderNotCapturable(uncapturable), held: "the routes not capturable, with why" }].filter(hasText));
+  sections.push(...[{ text: renderNotCapturable(notCaptured), held: "the routes not capturable, with why" }].filter(hasText));
 
   /* The header names the sections the pack actually rendered: a pack with no DOM never mentions one. */
   const held = sections.map((section) => section.held).join(" and ");

@@ -216,14 +216,16 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [
       "qa-engine/src/shared-kernel/route-capturability.ts",
       `${GEN}/domain/route-ranking.ts`,
-      /* Only the lines that rank the derived routes, filter the candidates, cut them, log and list what was left out. */
-      `${GEN}/infrastructure/context-pack.ts:129-138`,
-      `${GEN}/infrastructure/context-pack.ts:201-209`,
-      `${GEN}/infrastructure/context-pack.ts:246-255`,
+      `${GEN}/domain/route-instantiation.ts`,
+      /* Only the lines that rank the derived routes, filter the candidates, cut them, open the templates through links, log and list what was left out. */
+      `${GEN}/infrastructure/context-pack.ts:130-148`,
+      `${GEN}/infrastructure/context-pack.ts:225-297`,
+      `${GEN}/infrastructure/context-pack.ts:309-318`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/route-capturability.test.ts",
       `${GEN_TEST}/domain/route-ranking.test.ts`,
+      `${GEN_TEST}/domain/route-instantiation.test.ts`,
       `${GEN_TEST}/infrastructure/context-pack.test.ts`,
       `${GEN_TEST}/infrastructure/dom-snapshot.test.ts`,
     ],
@@ -308,10 +310,11 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/infrastructure/route-catalog.ts:14-24`,
       `${GEN}/infrastructure/route-catalog.ts:65-128`,
       /* Only the lines that state a degraded route, build the advisory block and the capture, and warn about a gated app: the tree rendering they call is older code. */
-      `${GEN}/infrastructure/dom-snapshot.ts:227-231`,
-      `${GEN}/infrastructure/dom-snapshot.ts:251-287`,
-      `${GEN}/infrastructure/context-pack.ts:175-178`,
-      `${GEN}/infrastructure/context-pack.ts:215-216`,
+      `${GEN}/infrastructure/dom-snapshot.ts:236-240`,
+      `${GEN}/infrastructure/dom-snapshot.ts:261-288`,
+      `${GEN}/infrastructure/context-pack.ts:184-196`,
+      `${GEN}/infrastructure/context-pack.ts:243-244`,
+      `${GEN}/infrastructure/context-pack.ts:277-277`,
     ],
     tests: [
       `${GEN_TEST}/infrastructure/route-catalog.test.ts`,

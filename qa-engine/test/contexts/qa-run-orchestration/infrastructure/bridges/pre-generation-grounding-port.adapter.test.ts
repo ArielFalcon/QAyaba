@@ -963,3 +963,42 @@ test("ground(): with no runId in opts, exploreBrief receives no runId (never fab
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("ground(): the context map it loaded reaches the explorer, so the explorer names routes by the map's own paths", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-map-"));
+  try {
+    const map = { builtAtSha: "abc1234", routes: [{ path: "/shops/:province/:city" }], api: [], feBe: [] };
+    let seen: unknown;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        loadContextMap: () => map,
+        exploreBrief: async (args) => { seen = args.contextMap; return undefined; },
+        buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir, undefined, "the-diff", { sha: "abc1234" });
+    assert.deepEqual(seen, map);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): with no context map the explorer is asked without one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-nomap-"));
+  try {
+    let args: { contextMap?: unknown } | undefined;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        loadContextMap: () => undefined,
+        exploreBrief: async (received) => { args = received; return undefined; },
+        buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir, undefined, "the-diff", { sha: "abc1234" });
+    assert.ok(args !== undefined && !("contextMap" in args));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

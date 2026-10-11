@@ -12,6 +12,7 @@ import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, DEGRADE_REAS
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
+import { sameOriginPathnames } from "../domain/route-instantiation.ts";
 
 const processKill = new ProcessKillAdapter();
 
@@ -49,6 +50,10 @@ export interface RouteSnapshot {
   error?: string; /* capture failed for this route (degrade — never blocks review) */
   runtimeErrors?: { type: string; text: string }[];
   finalUrl?: string;
+  /* The pathnames of the same-origin links the page showed, in page order and once each: the real addresses a route template is filled from. */
+  links?: string[];
+  /* Set on a page opened from a route template of the map: the template `route` is an instance of. */
+  template?: string;
 }
 
 export interface CaptureDomInput {
@@ -66,6 +71,8 @@ export interface CaptureDomDeps {
 export const DEGRADED_ROUTE_LABEL = "route rendered empty or errored";
 
 export const MAX_ROUTES = 4;
+/* The most pages rendered only for the links they show. */
+export const MAX_LINK_SEEDS = 1;
 export const MAX_NODES_PER_ROUTE = 60;
 const MAX_ROUTES_UNION = 12;
 
@@ -215,25 +222,28 @@ function renderNodeLines(s: RouteSnapshot, changed?: ChangedElement[]): string[]
   return lines;
 }
 
+/* How a page is named in the report: its address, and the template of the map it was opened from when it was. */
+const routeLabel = (s: RouteSnapshot): string => (s.template === undefined ? s.route : `${s.route} (instance of ${s.template})`);
+
 /* The grounded routes: each captured route with its tree and test-ids, and every other route as a plain state. A route that failed to capture, rendered empty or ended on another page renders NO tree here: the agent must not trust this route's grounding. The page a redirect reached is formatRedirectAdvisory's, never part of this text. */
 export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedElement[]): string {
   const lines: string[] = [];
   for (const s of snaps) {
     if (s.error) {
-      lines.push(`route ${s.route}: (could not capture — ${s.error})`);
+      lines.push(`route ${routeLabel(s)}: (could not capture — ${s.error})`);
       continue;
     }
     /* A route that STRUCTURALLY failed to render (empty nodes, or a redirect — the buildRouteCatalog degrade policy) gets a state line instead of a silent bare header and its nodes are NOT rendered. The state is a plain fact: it says which, and where a redirect went, with no directive and no opinion about the app. */
     const catalog = buildRouteCatalog(s);
     if (catalog.status === ROUTE_STATUS.DEGRADED) {
-      lines.push(`route ${s.route}: (${catalog.degradeReason === DEGRADE_REASON.REDIRECTED ? `redirected to ${catalog.redirectedTo}` : DEGRADED_ROUTE_LABEL})`);
+      lines.push(`route ${routeLabel(s)}: (${catalog.degradeReason === DEGRADE_REASON.REDIRECTED ? `redirected to ${catalog.redirectedTo}` : DEGRADED_ROUTE_LABEL})`);
       continue;
     }
     /* Live-probe fix: a route that DID render but whose app logged a runtime error (a missing icon, an uncaught handler, a framework error) stays a TRUSTED grounding source — its nodes ARE rendered below — but the agent still gets an advisory heads-up so it asserts only what this tree shows and does not blindly assert app-generated content. The note is data, not a directive: the prompt forbids re-navigating a route the tree covers, so it must never send the agent back to the page. This warning is DECOUPLED from grounding trust: the route is captured, the selectors are real, only the app's own health is in question. */
     const runtimeErrorAdvisory = hasRuntimeErrorSignal(s.runtimeErrors ?? [])
       ? " (note: the app logged runtime errors on this route — possibly a defect; assert only content this tree shows)"
       : "";
-    lines.push(`route ${s.route}:${runtimeErrorAdvisory}`);
+    lines.push(`route ${routeLabel(s)}:${runtimeErrorAdvisory}`);
     lines.push(...renderNodeLines(s, changed));
     if (s.testIds && s.testIds.size > 0) {
       const entries = [...s.testIds.entries()];
@@ -249,7 +259,7 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
 }
 
 /* How the advisory block introduces itself: plain facts about what follows, in no trust vocabulary and with no directive. */
-const REDIRECT_ADVISORY_INTRO = "These routes sent the browser to another page. Each block below lists the page it reached, for orientation only: it is not the page of the route that was asked for.";
+export const REDIRECT_ADVISORY_INTRO = "These routes sent the browser to another page. Each block below lists the page it reached, for orientation only: it is not the page of the route that was asked for.";
 
 /** The pages redirects reached, as a section of their own under a heading naming it advisory: for each distinct page (a path with its tree), the routes that led there and the tree once. A route that failed, rendered empty or did not redirect is not here. Empty when no redirect reached a page with a tree. Never part of the grounded text: its trees were not the routes asked for. */
 export function formatRedirectAdvisory(snaps: RouteSnapshot[]): string {
@@ -303,20 +313,41 @@ export async function captureDom(input: CaptureDomInput, deps: CaptureDomDeps): 
   }
 }
 
+export interface CaptureRoutesInput {
+  e2eDir: string;
+  baseUrl?: string;
+  testIdAttribute?: string;
+  /* Pages rendered only for the links they show, after the routes asked for: they are no part of the report. One already among the routes asked for is not rendered twice. */
+  linkSeeds?: readonly string[];
+  /* For a route asked for that is an instance of a template of the map, that template: the report names both. */
+  instanceOf?: ReadonlyMap<string, string>;
+  /* Told the links of every page rendered (routes and seeds), in page order and once each. */
+  onLinks?: (links: string[]) => void;
+}
+
 export async function captureDomForRoutes(
   routes: string[],
-  input: { e2eDir: string; baseUrl?: string; testIdAttribute?: string },
+  input: CaptureRoutesInput,
   deps: CaptureDomDeps,
   changed?: ChangedElement[],
 ): Promise<string | undefined> {
   const clean = normalizeRoutes(routes).slice(0, MAX_ROUTES);
-  if (clean.length === 0 || !input.baseUrl) return undefined;
+  const seeds = normalizeRoutes([...(input.linkSeeds ?? [])]).slice(0, MAX_LINK_SEEDS).filter((seed) => !clean.includes(seed));
+  if ((clean.length === 0 && seeds.length === 0) || !input.baseUrl) return undefined;
+  const asked = [...clean, ...seeds];
   try {
-    const snaps = await deps.render(input.e2eDir, input.baseUrl, clean, input.testIdAttribute);
+    const snaps = await deps.render(input.e2eDir, input.baseUrl, asked, input.testIdAttribute);
     warnOnDegradedRoutes(snaps);
-    return formatDomCapture(snaps, changed);
+    input.onLinks?.([...new Set(snaps.flatMap((snap) => snap.links ?? []))]);
+    const reported = snaps
+      .filter((snap) => !seeds.includes(snap.route))
+      .map((snap) => {
+        const template = input.instanceOf?.get(snap.route);
+        return template === undefined ? snap : { ...snap, template };
+      });
+    return formatDomCapture(reported, changed);
   } catch (err) {
-    console.warn(`[qa] WARNING: DOM capture FAILED for ${clean.length} route(s) [${clean.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — the worker grounds via its own exploration this run.`);
+    console.warn(`[qa] WARNING: DOM capture FAILED for ${asked.length} route(s) [${asked.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — the worker grounds via its own exploration this run.`);
     return undefined;
   }
 }
@@ -598,7 +629,20 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
             return Array.from(document.querySelectorAll('[' + a + ']')).map(function(el) { return el.getAttribute(a); }).filter(function(v) { return v; });
           }, testIdAttr);
         } catch(_e) { testIdRawList = []; }
-        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl });
+        /* Every link the page shows, resolved by the browser; the orchestrator keeps the ones on the site's own origin. */
+        let hrefs = [];
+        try {
+          hrefs = await page.evaluate(function() {
+            var seen = Object.create(null);
+            var found = [];
+            Array.from(document.querySelectorAll('a[href]')).forEach(function(a) {
+              var href = a.href;
+              if (typeof href === 'string' && !seen[href] && found.length < 500) { seen[href] = true; found.push(href); }
+            });
+            return found;
+          });
+        } catch(_e) { hrefs = []; }
+        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs });
       } catch (e) { out.push({ route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors }); }
     }
   } catch (e) { process.stderr.write(String(e)); } finally { if (browser) await browser.close().catch(() => {}); }
@@ -658,7 +702,7 @@ export function createCaptureDomDeps(authDir: string, maxOutputChars: number = M
         child.on("close", () => {
           if (finished) return;
           try {
-            const raw = JSON.parse(stdout.text()) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string }>;
+            const raw = JSON.parse(stdout.text()) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown }>;
             done(raw.map((r) => {
               if (r.error) {
                 const errored: RouteSnapshot = { route: r.route, error: r.error };
@@ -676,6 +720,8 @@ export function createCaptureDomDeps(authDir: string, maxOutputChars: number = M
               if (r.settled === true) snap.settled = true;
               if (r.runtimeErrors && r.runtimeErrors.length > 0) snap.runtimeErrors = r.runtimeErrors;
               if (r.finalUrl) snap.finalUrl = r.finalUrl;
+              const links = sameOriginPathnames(r.hrefs, baseUrl);
+              if (links.length > 0) snap.links = links;
               return snap;
             }));
           } catch {

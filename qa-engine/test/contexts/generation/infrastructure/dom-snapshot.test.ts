@@ -1560,3 +1560,119 @@ test("a DOM capture within the output bound still yields its snapshots", { timeo
     assert.equal(snaps[0]?.route, "/home");
   });
 });
+
+/* ── links the pages showed: the real addresses a route template is filled from ───────────────── */
+
+const pageWithLinks = (route: string, links: string[]): RouteSnapshot => ({ route, nodes: [`heading: ${route}`], links });
+
+test("captureDomForRoutes reports the links of the pages it rendered, in the order rendered and once each", async () => {
+  const deps: CaptureDomDeps = {
+    render: async () => [pageWithLinks("/a", ["/x", "/y"]), pageWithLinks("/b", ["/y", "/z"])],
+  };
+  const seen: string[][] = [];
+  await captureDomForRoutes(["/a", "/b"], { e2eDir: "/m", baseUrl: "http://dev", onLinks: (links) => seen.push(links) }, deps);
+  assert.deepEqual(seen, [["/x", "/y", "/z"]]);
+});
+
+test("captureDomForRoutes renders a link seed for its links and leaves it out of the text", async () => {
+  const rendered: string[][] = [];
+  const deps: CaptureDomDeps = {
+    render: async (_e2eDir, _baseUrl, routes) => {
+      rendered.push(routes);
+      return routes.map((route) => pageWithLinks(route, [`/from${route}`]));
+    },
+  };
+  const links: string[] = [];
+  const text = (await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onLinks: (found) => links.push(...found) }, deps)) ?? "";
+  assert.deepEqual(rendered[0], ["/a", "/"], "the seed is rendered after the routes asked for");
+  assert.ok(text.includes("route /a:"));
+  assert.equal(text.includes("route /:"), false, "and is not part of the report");
+  assert.ok(links.includes("/from/"), "its links are reported");
+});
+
+test("captureDomForRoutes with only a link seed reports its links and no text", async () => {
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => routes.map((route) => pageWithLinks(route, ["/shops/madrid/madrid"])) };
+  const links: string[] = [];
+  const text = await captureDomForRoutes([], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onLinks: (found) => links.push(...found) }, deps);
+  assert.equal(text, undefined);
+  assert.deepEqual(links, ["/shops/madrid/madrid"]);
+});
+
+test("captureDomForRoutes does not render a seed twice when the routes asked for already include it", async () => {
+  const rendered: string[][] = [];
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => { rendered.push(routes); return routes.map((route) => pageWithLinks(route, [])); } };
+  const text = (await captureDomForRoutes(["/", "/a"], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"] }, deps)) ?? "";
+  assert.deepEqual(rendered[0], ["/", "/a"]);
+  assert.ok(text.includes("route /:"), "a seed that was also asked for stays in the report");
+});
+
+test("captureDomForRoutes without a seed or a listener renders exactly what it did before", async () => {
+  const rendered: string[][] = [];
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => { rendered.push(routes); return routes.map((route) => pageWithLinks(route, ["/x"])); } };
+  await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev" }, deps);
+  assert.deepEqual(rendered, [["/a"]]);
+});
+
+test("captureDomForRoutes labels a page opened from a template with both the address and the template", async () => {
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => routes.map((route) => ({ route, nodes: ["button: Filter"] })) };
+  const text = (await captureDomForRoutes(["/shops/madrid/madrid"], { e2eDir: "/m", baseUrl: "http://dev", instanceOf: new Map([["/shops/madrid/madrid", "/shops/:province/:city"]]) }, deps)) ?? "";
+  const header = text.split("\n").find((line) => line.startsWith("route ")) ?? "";
+  assert.ok(header.includes("/shops/madrid/madrid") && header.includes("/shops/:province/:city"), header);
+});
+
+test("a page opened from a template that did not render says so under both names as well", () => {
+  const text = formatDomSnapshot([{ route: "/shops/a/b", template: "/shops/:p/:c", error: "timeout" }]);
+  assert.ok(text.includes("/shops/a/b") && text.includes("/shops/:p/:c") && text.includes("timeout"));
+});
+
+test("a page with no template is labelled as before", () => {
+  assert.ok(formatDomSnapshot([{ route: "/a", nodes: ["button: Go"] }]).startsWith("route /a:"));
+});
+
+/* The capture script is the process boundary: a stand-in `playwright` module plays the browser, so what the script reports and what the orchestrator reads of it are the real ones. */
+function withFakeBrowser<T>(anchors: unknown[], body: (e2eDir: string, authDir: string) => Promise<T>): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "fake-browser-"));
+  const module = join(root, "node_modules", "playwright");
+  mkdirSync(module, { recursive: true });
+  writeFileSync(join(module, "index.js"), `
+const anchors = ${JSON.stringify(anchors)};
+let current = "";
+const page = {
+  on() {},
+  goto: async (url) => { current = url; },
+  waitForLoadState: async () => {},
+  url: () => current,
+  locator: () => ({ ariaSnapshot: async () => '- link "Home"' }),
+  evaluate: async (fn, arg) => {
+    globalThis.document = { querySelectorAll: (selector) => (selector === "a[href]" ? anchors.map((href) => ({ href, getAttribute: () => href })) : []), getElementById: () => null };
+    return fn(arg);
+  },
+};
+exports.chromium = { launch: async () => ({ newContext: async () => ({ newPage: async () => page }), close: async () => {} }) };
+`);
+  return body(root, join(root, "auth")).finally(() => rmSync(root, { recursive: true, force: true }));
+}
+
+test("a capture reports the same-origin links of each page it opened", { timeout: 30_000 }, async () => {
+  const anchors = ["http://dev.example/shops/madrid/madrid?page=2", "http://dev.example/about#team", "https://elsewhere.example/x", "mailto:a@b.example"];
+  await withFakeBrowser(anchors, async (e2eDir, authDir) => {
+    const snaps = await createCaptureDomDeps(authDir).render(e2eDir, "http://dev.example", ["/"]);
+    assert.deepEqual(snaps[0]?.links, ["/shops/madrid/madrid", "/about"]);
+  });
+});
+
+test("a page that shows no links has none reported", { timeout: 30_000 }, async () => {
+  await withFakeBrowser([], async (e2eDir, authDir) => {
+    const snaps = await createCaptureDomDeps(authDir).render(e2eDir, "http://dev.example", ["/"]);
+    assert.equal(snaps[0]?.links, undefined);
+  });
+});
+
+test("a capture output whose links are not a list of strings yields the page without links", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \"Save\"', hrefs: 'nope' }, { route: '/b', yaml: '- button \"Save\"', hrefs: [1, null, 'http://localhost/ok'] }]));";
+  await withStandInNode(script, async (root) => {
+    const snaps = await createCaptureDomDeps(join(root, "auth")).render(root, "http://localhost", ["/home", "/b"]);
+    assert.equal(snaps[0]?.links, undefined);
+    assert.deepEqual(snaps[1]?.links, ["/ok"]);
+  });
+});

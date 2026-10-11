@@ -12,7 +12,7 @@
 import { dirname } from "node:path";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { CommitIntent, ExplorationBrief, OpencodeRunInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext, CommitIntent, ExplorationBrief, OpencodeRunInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent.ts";
 import { buildExplorerPrompt } from "./prompt-builders/prompts.ts";
 
@@ -60,6 +60,8 @@ export interface ExploreBriefArgs {
   signal?: AbortSignal;
   sha: string;
   intent?: CommitIntent;
+  /** The architecture map of the app, when one is loaded: its route paths are what the explorer names pages by. */
+  contextMap?: ArchitectureContext;
   /** Threaded from RunQaInput.runId so the explorer's own
    *  turns persist attributed to this run. Never fabricated — absent when
    *  the caller has no run context. */
@@ -115,6 +117,7 @@ export class ExplorerBriefSessionAdapter {
         ...(this.ctx.baseUrl ? { baseUrl: this.ctx.baseUrl } : {}),
         ...(this.ctx.guidance ? { guidance: this.ctx.guidance } : {}),
         ...(args.intent ? { intent: args.intent } : {}),
+        ...(args.contextMap ? { contextMap: args.contextMap } : {}),
         ...(this.ctx.triggerService && this.deps.serviceContextDir
           ? {
               service: {

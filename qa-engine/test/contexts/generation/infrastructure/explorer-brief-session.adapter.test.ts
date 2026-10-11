@@ -390,3 +390,32 @@ for (const mode of ["diff", "manual"] as const) {
     assert.equal(opens.length, 1);
   });
 }
+
+test("explore(): hands the context map to the prompt it builds, so the explorer sees the routes of the app", async () => {
+  let built: OpencodeRunInput | undefined;
+  const session: AgentSession = { prompt: async () => ({ output: "{}" }), dispose: async () => {} };
+  const adapter = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(session),
+    parseBrief: () => null,
+    buildPrompt: (input) => { built = input; return "prompt"; },
+  });
+  const contextMap = { builtAtSha: "abc1234", routes: [{ path: "/shops/:province/:city" }], api: [], feBe: [] };
+
+  await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef", contextMap });
+
+  assert.deepEqual(built?.contextMap?.routes, contextMap.routes);
+});
+
+test("explore(): with no context map the prompt input carries none", async () => {
+  let built: OpencodeRunInput | undefined;
+  const session: AgentSession = { prompt: async () => ({ output: "{}" }), dispose: async () => {} };
+  const adapter = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(session),
+    parseBrief: () => null,
+    buildPrompt: (input) => { built = input; return "prompt"; },
+  });
+
+  await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+  assert.equal(built?.contextMap, undefined);
+});

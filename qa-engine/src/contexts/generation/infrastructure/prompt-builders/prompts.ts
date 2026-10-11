@@ -295,6 +295,33 @@ export function buildWorkerPrompt(w: ParallelWorkerInput): string {
   return buildWorkerPromptAssembled(w).text;
 }
 
+/* The most route paths of the map the explorer is shown, and the longest one it is shown whole: the map is data read from a file, so each path is cleaned and bounded where it is rendered. */
+export const MAX_EXPLORER_MAP_ROUTES = 80;
+const MAX_EXPLORER_MAP_ROUTE_CHARS = 160;
+
+/* The route paths the context map declares, so the explorer names a page it maps by the path the rest of the run already uses for it (the context pack ranks, matches and opens the map's routes by exactly that text). One path per line; none, no block. */
+function explorerMapRouteLines(input: OpencodeRunInput): string[] {
+  const declared: unknown = input.contextMap?.routes;
+  if (!Array.isArray(declared)) return [];
+  const paths: string[] = [];
+  for (const entry of declared) {
+    const path: unknown = (entry as { path?: unknown } | null)?.path;
+    if (typeof path !== "string") continue;
+    const clean = sanitizeText(path).text.replace(/\s+/g, " ").trim().slice(0, MAX_EXPLORER_MAP_ROUTE_CHARS);
+    if (clean !== "" && !paths.includes(clean)) paths.push(clean);
+  }
+  if (paths.length === 0) return [];
+  const listed = paths.slice(0, MAX_EXPLORER_MAP_ROUTES);
+  const rest = paths.length - listed.length;
+  return [
+    ``,
+    `## Routes of the app (from the context map)`,
+    `When a page you map is one of these routes, set \`routes[].path\` to its listed path verbatim; name any other page by its path in the app's router.`,
+    ...listed.map((path) => `- \`${path}\``),
+    ...(rest > 0 ? [`(+${rest} more not shown)`] : []),
+  ];
+}
+
 export function buildExplorerPrompt(input: OpencodeRunInput): string {
   /* Rendering the (empty) diff would give the explorer nothing to map, so its brief would be empty and the manual Context Pack would carry no grounding. Drive the exploration from the guidance instead. */
   if (input.mode === "manual") {
@@ -312,6 +339,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
       ...(input.service
         ? [``, `## Cross-repo (microservice)`, `Related service: ${input.service.repo} (a READ-ONLY staged snapshot — contracts + this commit's changed files, not the full source — is at ${input.service.mirrorDir}). Map the FRONTEND flows that exercise it.`]
         : []),
+      ...explorerMapRouteLines(input),
       ``,
       ...explorerStepLimitLines(input),
       `## Output — set builtForSha to ${input.sha}; end with ONLY the ExplorationBrief JSON (schema in your role prompt).`,
@@ -336,6 +364,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
     ...(input.service
       ? [``, `## Cross-repo change (microservice)`, `The change is in ${input.service.repo} (a READ-ONLY staged snapshot — contracts + this commit's changed files, not the full source — is at ${input.service.mirrorDir}). Map the FRONTEND flows that exercise it.`]
       : []),
+    ...explorerMapRouteLines(input),
     ``,
     ...explorerStepLimitLines(input),
     `## Output — set builtForSha to ${input.sha}; end with ONLY the ExplorationBrief JSON (schema in your role prompt).`,

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROUTE_REASON, classifyRoute, partitionRoutes, type RouteReason } from "@kernel/route-capturability.ts";
+import { ROUTE_REASON, classifyRoute, classifyRoutes, partitionRoutes, type RouteReason } from "@kernel/route-capturability.ts";
 
 const CAPTURABLE: ReadonlyArray<[string, string]> = [
   ["the root", "/"],
@@ -97,4 +97,20 @@ test("partitioning an empty list gives two empty lists and leaves its input alon
   const input = [" /a ", "/:id"];
   partitionRoutes(input);
   assert.deepEqual(input, [" /a ", "/:id"]);
+});
+
+test("classifying keeps every route in the order asked, trimmed and once each, whatever its class", () => {
+  const classified = classifyRoutes([" /b ", "/product/:id", "", "/b", "the cart page", "/a", "/product/:id"]);
+  assert.deepEqual(classified, [
+    { route: "/b" },
+    { route: "/product/:id", reason: ROUTE_REASON.TEMPLATE },
+    { route: "the cart page", reason: ROUTE_REASON.FREE_TEXT },
+    { route: "/a" },
+  ]);
+});
+
+test("classifying agrees with partitioning on what is capturable", () => {
+  const routes = ["/b", "/x/:id", "https://app.example/x", "/a"];
+  const classified = classifyRoutes(routes);
+  assert.deepEqual(classified.filter((entry) => entry.reason === undefined).map((entry) => entry.route), partitionRoutes(routes).capturable);
 });
