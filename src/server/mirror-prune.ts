@@ -18,6 +18,7 @@ import { readdirSync, statSync, rmSync } from "node:fs";
 import { loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
 import { currentRun, getRecord } from "./history";
 import { logJson } from "../integrations/logger";
+import { EXPERIMENT_COPIES_DIR } from "../paths";
 
 export const PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;  /* 7 days */
 /* Mirrors that are never pruned (the maintainer's own working copy). */
@@ -69,7 +70,7 @@ export function pruneMirrors(deps: MirrorPruneDeps): MirrorPruneResult {
   const deleted: string[] = [];
   let freedBytes = 0;
   for (const entry of entries) {
-    if (PROTECTED_MIRROR_NAMES.has(entry.name)) continue;
+    if (PROTECTED_MIRROR_NAMES.has(entry.name) || entry.name === EXPERIMENT_COPIES_DIR) continue;
     if (active.has(entry.name)) continue;  /* never touch the running job's mirrors */
     const isOrphan = !configured.has(entry.name);
     const isStale = now - entry.mtimeMs > PRUNE_MAX_AGE_MS;

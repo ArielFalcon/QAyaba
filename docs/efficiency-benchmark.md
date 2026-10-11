@@ -147,6 +147,37 @@ stops the composition with an error naming the variable. The value is still clam
 own prompt deadline (`agentPromptCapMs`): a budget at or above it is not a bound, the host's deadline
 fires first. A cut run's note states the time it was actually given.
 
+## Probe: what one pipeline run did, and a plain agent for comparison
+
+The benchmark above compares the pipeline with itself. To decide whether the pipeline beats a plain
+agent (the whole repo, a short prompt, and the ability to run its own spec), both arms emit the same
+metrics shape (`scripts/probe-metrics.ts`) and one reads the two reports side by side. Everything
+here is telemetry: it never gates a run. A figure that was not measured reads `n/a`, never `0`.
+
+`probe-report` describes a run the pipeline already made. Run it in the orchestrator container, right
+after the run (the working copy still holds the specs then):
+
+```bash
+docker compose exec orchestrator npm run probe-report -- <runId> [<runId>...] [--json]
+```
+
+It prints a table of the runs and one of their agent turns, and writes each run's full report, with
+the ordered tool sequence of every turn, to `config/benchmarks/probe-results/<runId>.json`
+(gitignored).
+
+| Figure | Source |
+|---|---|
+| verdict, error class, note | the run's outcome and record |
+| total time and per-phase time (gate, classify, setup, grounding, generation, validate, execute, coverage, decide) | the `step.changed` events the run already records: a phase lasts until the next step change; `grounding` is the pre-generation sub-step of `generate`; a phase the run never entered is `n/a` |
+| explorer, page capture, review time | the explorer's and the reviewer's turn durations; the page capture is the grounding time minus the explorer's |
+| turn wall time, time to first call, time to first write, calls before first write, denied calls | `agent_turns` (`duration_ms`, `time_to_first_call_ms`, `time_to_first_write_ms`, `calls_before_first_write`, `denied_call_count`), measured by the call tracker; a turn recorded before those columns existed reads `n/a` |
+| steps used / max, calls, buckets, redundant and prompt-provided reads, prompt bytes | `agent_turns`, as in the benchmark |
+| tokens in/out/reasoning/cache and cost | `agent_turns.usage_total`, summed over every step the turn finished. Older rows only have the last message's usage (the `*` in the table), which understates a many-step turn; a turn that timed out recorded none before `usage_total` |
+| files read, outside the diff's directories, outside the explorer's brief, browser URLs | the turn's ordered tool sequence (`agent_turns.tool_sequence`: tool plus the redacted, capped file, pattern, URL or command each call pointed at; never what the agent typed or wrote). "Outside the diff's directories": a file not under any directory that holds a changed file, and not under `e2e/`; "outside the brief": a file whose path the explorer's output does not contain |
+| specs (paths, line counts) | `spec.written` events and the run record; line counts are read from the working copy through the confined reader, so a spec the next run cleaned away is `n/a` lines |
+| change-coverage status and ratio | the `coverage.computed` event (or the outcome's ratio) judged against the app's policy minimum |
+| reviewer verdict | the `reviewer.verdict` event |
+
 ## Success criteria and guardrails
 
 Judge each side on its three labels together: pool the cases of the three labels for the rate and the

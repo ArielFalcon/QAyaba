@@ -12,3 +12,9 @@ export function qayabaRoot(): string {
 export function qayabaDataDir(): string {
   return join(qayabaRoot(), "data");
 }
+
+/*
+ * The directory under the mirrors root that holds an experiment's throwaway working copies (the plain-agent
+ * baseline of scripts/baseline-agent.ts). It is not a repo's mirror, so the mirror pruning must leave it alone.
+ */
+export const EXPERIMENT_COPIES_DIR = ".baseline";
