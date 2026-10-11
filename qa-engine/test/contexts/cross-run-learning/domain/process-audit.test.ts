@@ -72,6 +72,17 @@ test("two step-budget runs in a row are not yet a streak", () => {
   assert.deepEqual(auditProcess({ outcome: o, recent: [o, outcome({ errorClass: "E-STEP-BUDGET", sha: "b" }), outcome({ errorClass: "E-EXEC-FAIL", sha: "c" })], rules: [] }), []);
 });
 
+test("a recurring time-budget end is only observed, worded as the generator running out of time and not as an app-behavior gap", () => {
+  const timeBudget = (sha: string) => outcome({ errorClass: "E-TIME-BUDGET", verdict: "infra-error", sha });
+  const o = timeBudget("a");
+  const findings = auditProcess({ outcome: o, recent: [o, timeBudget("b"), timeBudget("c")], rules: [] });
+  assert.equal(findings.length, 1, "one finding: the streak itself");
+  assert.equal(findings[0]!.disposition, "observe");
+  assert.match(findings[0]!.summary, /time/i);
+  assert.match(findings[0]!.evidence, /E-TIME-BUDGET/);
+  assert.doesNotMatch(findings[0]!.summary, /rule promotion|app-behavior/i);
+});
+
 test("a recurring precondition failure is only observed, and is not read as an app-behavior gap", () => {
   const precondition = (sha: string) => outcome({ errorClass: "E-PRECONDITION", verdict: "infra-error", sha });
   const o = precondition("a");

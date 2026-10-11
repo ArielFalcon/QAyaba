@@ -114,7 +114,7 @@ import { attributeContradictions } from "../domain/helpers/contradiction-attribu
 import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
 import { resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
-import { terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
+import { engineSideCauseOf, terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
 import { terminalForPrecondition } from "../domain/helpers/precondition-terminal.ts";
 import { learningGates } from "../domain/helpers/learning-gates.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
@@ -1062,7 +1062,7 @@ export class RunQaUseCase {
         this.deps.observer?.onEvent({
           type: "log.line",
           level: "error",
-          text: `[qa] generation ended without specs (${terminal.errorClass}): an engine-side ${generated.end === GENERATION_END.EXHAUSTED ? "step-budget exhaustion" : "missing decision"}, not a fault of the app under test`,
+          text: `[qa] generation ended without specs (${terminal.errorClass}): an engine-side ${engineSideCauseOf(generated.end)}, not a fault of the app under test`,
         });
         return await this.terminalResult(terminal.verdict, cfg, input, { generating: true, static: false }, {
           generationEnd: generated.end,

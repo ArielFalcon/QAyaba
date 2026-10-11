@@ -14,17 +14,21 @@ export interface GenerationEndFacts {
   noopReason: string | null | undefined;
   /** Whether any of the generation's turns ran out of steps. */
   exhausted: boolean;
+  /** Whether a turn was cut off by the wall-clock budget its change allowed. */
+  timedOut: boolean;
 }
 
 /**
  * Specs decide first: with any spec the run continues, and exhaustion is only recorded. Without
  * specs, exhaustion outranks everything the output says, because a turn cut off by its budget
- * cannot be trusted to have decided. Then a verdict that could not be read, a declared no-op, and
+ * cannot be trusted to have decided, and a turn cut off by its time is the same: nothing it left
+ * behind is a decision. Then a verdict that could not be read, a declared no-op, and
  * finally the parsed empty verdict that decided nothing.
  */
 export function classifyGenerationEnd(facts: GenerationEndFacts): GenerationEndKind {
   if (facts.specCount > 0) return GENERATION_END.DELIVERED;
   if (facts.exhausted) return GENERATION_END.EXHAUSTED;
+  if (facts.timedOut) return GENERATION_END.TIME_BUDGET;
   if (!facts.parsed) return GENERATION_END.NO_VERDICT;
   if (facts.noopReason?.trim()) return GENERATION_END.DECLARED_NOOP;
   return GENERATION_END.UNDECIDED_EMPTY;
@@ -49,6 +53,13 @@ export type GenerationNoteInput =
       noopReason: string;
     }
   | {
+      end: typeof GENERATION_END.TIME_BUDGET;
+      /** The wall-clock budget the turn was held to. */
+      budgetMs: number;
+      /** Whether the repair turn (not the main one) is what ran out of time. */
+      repair?: boolean;
+    }
+  | {
       end: typeof GENERATION_END.EXHAUSTED | typeof GENERATION_END.UNDECIDED_EMPTY;
       turn?: GenerationTurnFacts;
       /** The end of the agent's output, already sanitized. */
@@ -57,7 +68,7 @@ export type GenerationNoteInput =
       repairExhausted?: boolean;
     };
 
-type NoteWithoutSpecs = Exclude<GenerationNoteInput, { end: typeof GENERATION_END.DECLARED_NOOP }>;
+type NoteWithoutSpecs = Exclude<GenerationNoteInput, { end: typeof GENERATION_END.DECLARED_NOOP | typeof GENERATION_END.TIME_BUDGET }>;
 
 const TAIL_LABEL = " Output tail: ";
 
@@ -80,6 +91,11 @@ function leadFor(input: NoteWithoutSpecs): string {
     : "Step budget exhausted with no spec reported";
 }
 
+/** A budget as an operator reads it: whole minutes when it is that, otherwise seconds. */
+function budgetText(ms: number): string {
+  return ms % 60_000 === 0 ? `${ms / 60_000} min` : `${Math.round(ms / 1000)} s`;
+}
+
 /**
  * The note persisted for a generation that ends a run. A declared no-op's note is its reason. The
  * others state what happened, what the turn measured and the end of the output, cut from the start
@@ -89,6 +105,9 @@ function leadFor(input: NoteWithoutSpecs): string {
 export function renderGenerationNote(input: GenerationNoteInput): string {
   if (input.end === GENERATION_END.DECLARED_NOOP) {
     return input.noopReason.trim().slice(0, GENERATION_NOTE_MAX_CHARS);
+  }
+  if (input.end === GENERATION_END.TIME_BUDGET) {
+    return `Time budget of ${budgetText(input.budgetMs)} exhausted${input.repair ? " in the repair turn" : ""} with no spec reported: the generator's turn was stopped at the wall-clock limit its change allows.`;
   }
   const head = `${leadFor(input)} (${stepsFact(input.turn)}; ${writesFact(input.turn)}).`;
   const tail = input.outputTail.replace(/\s+/g, " ").trim();

@@ -15,6 +15,7 @@ export const ERROR_CLASSES = [
   "E-STEP-BUDGET",
   "E-NO-DECISION",
   "E-PRECONDITION",
+  "E-TIME-BUDGET",
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
@@ -125,6 +126,7 @@ export function errorClassFromVerdict(
 const ENGINE_SIDE_GLOSS: Readonly<Record<string, string>> = {
   "E-STEP-BUDGET": "the agent ran out of steps without reporting any spec — an engine-side condition, not a fault of the app",
   "E-NO-DECISION": "the agent returned no specs and no decision to skip — an engine-side condition, not a fault of the app",
+  "E-TIME-BUDGET": "the agent ran out of time without reporting any spec — an engine-side condition, not a fault of the app",
 };
 /*
  * A login the run could not complete is neither the engine's condition nor the DEV environment's: it

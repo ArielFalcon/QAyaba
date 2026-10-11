@@ -11,7 +11,7 @@ import { execFileSync, spawn } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentTimeout, withTimeout } from "../integrations/opencode-client";
+import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, withTimeout } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 
@@ -703,6 +703,8 @@ export function buildRewrittenCompositionConfig(
     manifest: new ManifestRepositoryAdapter({ readManifest, reconcileManifest }),
     budget: new PromptBudgetAdapter(roleWindowBytes, capDiff, capText),
     repair,
+    /* The transport's own deadline: the generator's time budget is never set above it. */
+    promptCapMs: agentPromptCapMs(),
   });
 
 

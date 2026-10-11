@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -22,10 +22,12 @@ import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-eviden
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
+import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import {
   REVIEWER_TIMEOUT_MS,
+  agentPromptCapMs,
   agentTimeout,
   withUsageSink,
   withStallWatchdog,
@@ -572,6 +574,13 @@ test("buildRewrittenCompositionConfig wires a non-undefined RepairPort into Gene
    */
   const ports = (config.generationUseCase as unknown as { ports: { repair?: unknown } }).ports;
   assert.ok(ports.repair, "GenerationPorts.repair must be wired (was dormant/undefined before this fix)");
+});
+
+test("buildRewrittenCompositionConfig gives GenerateTestsUseCase the transport's own deadline as the ceiling of the generator's time budget", () => {
+  const config = buildRewrittenCompositionConfig(cfg("factory-time-cap"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  /* Same structural reach-in as the RepairPort wiring above: the ports are a private field with no accessor. */
+  const ports = (config.generationUseCase as unknown as { ports: { promptCapMs?: number } }).ports;
+  assert.equal(ports.promptCapMs, agentPromptCapMs());
 });
 
 test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-check branch end-to-end: a malformed verdict text triggers exactly one repair via the real wrapped checkGeneratorVerdict", async () => {
@@ -1761,6 +1770,58 @@ test("a generation that ran out of steps ends exhausted and is never sent a repa
   assert.equal(result.end, "exhausted");
   assert.equal(persisted.filter((t) => t.isRepair).length, 0, "the exhausted session was not asked to re-emit its verdict");
   assert.match(result.note ?? "", /30\/30/);
+});
+
+/*
+ * The time budget end to end, on a virtual clock: a raw transport whose prompt never answers, behind
+ * the real transport policy and the wrapper chain the factory composes. Advancing the clock by the
+ * budget the change's tier allows is all it takes for the generator's turn to be stopped and classified.
+ */
+async function generateOnAHungTransport(diff: string, advanceMs: number): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildRewrittenCompositionConfig>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
+  const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
+  let prompting = false;
+  const base = createAgentDeps(
+    {
+      createSession: async () => ({ id: `factory-time-session-${Math.random().toString(36).slice(2)}` }),
+      promptSession: () => { prompting = true; return new Promise<never>(() => {}); },
+      abortSession: async () => {},
+      deleteSession: async () => {},
+    },
+    { defaultPromptTimeoutMs: agentPromptCapMs(), getFallbackModel: () => undefined, persistTurn: (turn) => persisted.push(turn) },
+  );
+  const config = buildRewrittenCompositionConfig(
+    cfg("factory-time-budget"),
+    /* Without the stall watchdog: its inactivity timer would fire on the virtual clock long before the budget, and a hung transport is not what it is under test for. */
+    { getAgentDeps: () => withUsageSink(withSessionRegistration(base, { register: registerRunSession, unregister: unregisterRunSession })) },
+    "qa-bot-abc1234-runTime",
+    { mode: "diff" },
+  );
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const generating = config.generationUseCase.generate({
+      repo: "org/demo", sha: "abc1234", diff, mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "ns",
+      needsReview: false, target: "e2e", mode: "diff", appName: "factory-time-budget", runId: "run-factory-time",
+    });
+    while (!prompting) await new Promise<void>((resolve) => setImmediate(resolve));
+    mock.timers.tick(advanceMs);
+    /* A turn that outlives the clock never answers, so the wait is bounded: a few turns of the event loop, then the failure says so instead of hanging. */
+    let settled: Awaited<typeof generating> | undefined;
+    void generating.then((r) => { settled = r; });
+    for (let i = 0; i < 50 && settled === undefined; i++) await new Promise<void>((resolve) => setImmediate(resolve));
+    if (settled === undefined) throw new Error(`the generator's turn was still running after ${advanceMs}ms`);
+    return { result: settled, persisted };
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+test("a tiny diff's generator turn is stopped at the time its tier allows and ends time-budget, through the whole wrapper chain", async () => {
+  const budget = DIFF_TIME_BUDGET_MS.tiny as number;
+  const { result, persisted } = await generateOnAHungTransport("d", budget);
+  assert.equal(result.end, "time-budget");
+  assert.deepEqual(result.specs, []);
+  assert.match(result.note ?? "", /6 min/);
+  assert.equal(persisted.filter((t) => t.ended === "timeout").length, 1, "the cut-off turn is still recorded as a timeout");
 });
 
 test("only the final step's text is read as the generator's verdict, through the whole wrapper chain", async () => {

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { capabilitiesForRole } from "./types";
-import { AgentUnavailableError } from "../errors";
+import { AgentTimeoutError, AgentUnavailableError } from "../errors";
 import { sanitizeText } from "../orchestrator/sanitizer";
 import { saveAgentTurnEvent } from "../server/history";
 import {
@@ -51,22 +51,23 @@ export const CODEX_USAGE_AVAILABLE = false as boolean;
 
 /*
  * ROOT-CAUSE classifier for Codex: mirrors agentErrorToInfra (opencode-client.ts:1754) for the
- * Codex path. Maps `codex exec` non-zero exit / auth / out-of-credits / timeout to
- * AgentUnavailableError (infra-error) so billing/auth failures never surface as false `fail`/`invalid`
- * verdicts that open a spurious GitHub Issue. Returns null for non-infra outcomes (real test failures).
+ * Codex path. Maps `codex exec` non-zero exit / auth / out-of-credits to AgentUnavailableError and a
+ * deadline to AgentTimeoutError (both infra-error, the latter typed so a caller holding a time budget
+ * can tell it from a provider refusal without reading a message) so billing/auth failures never
+ * surface as false `fail`/`invalid` verdicts that open a spurious GitHub Issue. Returns null for non-infra outcomes (real test failures).
  * IMPORTANT: This classifier operates on a plain Error — `codex exec` (or the supervisor transport)
  * throws bare Error objects; the classification inspects the message for known infra signals.
  * Do NOT extend this to substring-match test-output prose: only known provider/infra error patterns
  * belong here. Any non-matching error returns null (caller decides the verdict).
  */
-export function codexErrorToInfra(error: unknown): AgentUnavailableError | null {
+export function codexErrorToInfra(error: unknown): AgentTimeoutError | AgentUnavailableError | null {
   if (!(error instanceof Error)) return null;
   const msg = error.message.toLowerCase();
   const tail = "INCONCLUSIVE (infrastructure), not a test failure";
 
   /* Timeout is the highest-priority check: it's the controlled case (CodexExecTransport fires SIGTERM). */
   if (/timed out after \d+ms/.test(msg)) {
-    return new AgentUnavailableError(`Codex prompt timed out. ${tail}.`, { cause: error });
+    return new AgentTimeoutError(`Codex prompt timed out. ${tail}.`, { cause: error });
   }
 
   /* Auth / credits / billing signals in stderr surfaced through the exit-code path. */
@@ -422,7 +423,7 @@ export class CodexExecTransport implements CodexHeadlessTransport {
       let stderr = "";
       const timeout = input.timeoutMs ? setTimeout(() => {
         child.kill(input.killSignal ?? "SIGTERM");
-        reject(new Error(`Codex prompt: timed out after ${input.timeoutMs}ms`));
+        reject(new AgentTimeoutError(`Codex prompt: timed out after ${input.timeoutMs}ms`));
       }, input.timeoutMs) : undefined;
 
       child.stdout.setEncoding("utf8");

@@ -23,6 +23,7 @@ const CLASS_LEARNS: Record<ErrorClass, boolean> = {
   "E-STEP-BUDGET": true,
   "E-NO-DECISION": false,
   "E-PRECONDITION": false,
+  "E-TIME-BUDGET": true,
 };
 
 const VERDICTS: readonly RunVerdict[] = ["pass", "fail", "flaky", "invalid", "infra-error", "skipped"];

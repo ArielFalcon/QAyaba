@@ -1,4 +1,4 @@
-/* Zero-LLM error taxonomy derived on every persisted RunOutcome. Hardcoding errorClass:null breaks the learning/governance flywheel (rule retrieval keys on this field). E-INFRA is recorded but excluded from learning — infrastructure failures teach nothing. E-STEP-BUDGET (the agent ran out of steps with no spec reported) is an engine-side infrastructure class that DOES feed learning; E-NO-DECISION (a verdict with no specs and no no-op) is recorded but never learned from. E-PRECONDITION (the app's login was positively evidenced to fail before generation) is recorded but never learned from: it says nothing about the tests or the engine. E-REVIEWER-REJECTED is not produced here; it is the corrections-distillation fallback in distill-rule.ts. */
+/* Zero-LLM error taxonomy derived on every persisted RunOutcome. Hardcoding errorClass:null breaks the learning/governance flywheel (rule retrieval keys on this field). E-INFRA is recorded but excluded from learning — infrastructure failures teach nothing. E-STEP-BUDGET (the agent ran out of steps with no spec reported) is an engine-side infrastructure class that DOES feed learning; E-NO-DECISION (a verdict with no specs and no no-op) is recorded but never learned from. E-PRECONDITION (the app's login was positively evidenced to fail before generation) is recorded but never learned from: it says nothing about the tests or the engine. E-TIME-BUDGET (the generator's turn was cut off by the wall-clock budget its change allowed, with no spec reported) is the time counterpart of E-STEP-BUDGET: an engine-side infrastructure class that DOES feed learning, with the class itself as the fact the reflector reads. E-REVIEWER-REJECTED is not produced here; it is the corrections-distillation fallback in distill-rule.ts. */
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 
 export const ERROR_CLASSES = [
@@ -16,6 +16,7 @@ export const ERROR_CLASSES = [
   "E-STEP-BUDGET",
   "E-NO-DECISION",
   "E-PRECONDITION",
+  "E-TIME-BUDGET",
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
@@ -27,6 +28,7 @@ export const ERROR_CLASS = {
   STEP_BUDGET: "E-STEP-BUDGET",
   NO_DECISION: "E-NO-DECISION",
   PRECONDITION: "E-PRECONDITION",
+  TIME_BUDGET: "E-TIME-BUDGET",
 } as const satisfies Record<string, ErrorClass>;
 
 /* Reviewer anti-pattern keywords. */
@@ -107,6 +109,7 @@ export interface ResolveErrorClassInput {
 /* A generation end that ended the run names its class before anything the verdict implies, and a failed precondition follows it; then verdict-derived structural classes short-circuit, then reviewer corrections, then E-COVERAGE-GAP, then E-VALUE-SURVIVED (green + good coverage but mutants survive). */
 export function resolveErrorClass(input: ResolveErrorClassInput): ErrorClass | null {
   if (input.generationEnd === GENERATION_END.EXHAUSTED) return ERROR_CLASS.STEP_BUDGET;
+  if (input.generationEnd === GENERATION_END.TIME_BUDGET) return ERROR_CLASS.TIME_BUDGET;
   if (input.generationEnd === GENERATION_END.UNDECIDED_EMPTY) return ERROR_CLASS.NO_DECISION;
   if (input.preconditionFailed) return ERROR_CLASS.PRECONDITION;
 

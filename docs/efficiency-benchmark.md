@@ -138,6 +138,7 @@ median, and compare the three per-label step-use means.
 | Criterion | Passes when | Read it from |
 |---|---|---|
 | Tiny-diff step-budget rate | the candidate's rate is at most half of `main`'s (aim: zero) | cases with `tier tiny` whose guardrails line says `error class E-STEP-BUDGET`, over all tiny cases |
+| Tiny-diff time-budget rate | the candidate's rate is at most half of `main`'s (aim: zero) | cases with `tier tiny` whose guardrails line says `error class E-TIME-BUDGET`, over all tiny cases |
 | Calls before the first write | the candidate's median is at least 25% lower | `before 1st write` on each case's `first pass:` line |
 | Step use | the candidate's is lower | the `mean` lines at the end of each report |
 

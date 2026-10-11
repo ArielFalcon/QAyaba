@@ -85,6 +85,19 @@ test("a step-budget exhaustion is put to the reflector as the agent running out 
   assert.match(sent, /E-STEP-BUDGET/, "the class the gates already decided is still named");
 });
 
+test("a time-budget end is put to the reflector as the generator running out of time, never as a static-gate failure", async () => {
+  const sent = await promptSentFor({
+    ...baseInput,
+    verdict: "infra-error",
+    errorClass: "E-TIME-BUDGET",
+    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+  });
+  assert.match(sent, /time-budget exhaustion/i);
+  assert.doesNotMatch(sent, /static gate: FAIL/);
+  assert.doesNotMatch(sent, /static gate: PASS/);
+  assert.match(sent, /E-TIME-BUDGET/, "the class the gates already decided is still named");
+});
+
 test("a class with no facts of its own is still put to the reflector with the measured gate signals", async () => {
   const sent = await promptSentFor({
     ...baseInput,

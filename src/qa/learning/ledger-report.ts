@@ -35,6 +35,7 @@ const ERROR_CLASS_LABEL: Record<string, string> = {
   "E-STEP-BUDGET": "agent ran out of steps",
   "E-NO-DECISION": "agent made no decision",
   "E-PRECONDITION": "app login could not be completed",
+  "E-TIME-BUDGET": "agent ran out of time",
 };
 
 function classLabel(errorClass: string): string {

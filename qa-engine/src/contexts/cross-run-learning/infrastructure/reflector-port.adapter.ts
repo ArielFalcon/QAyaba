@@ -77,6 +77,8 @@ function parseStructuredReflection(raw: string): StructuredReflection | null {
 const FACTS_BY_CLASS: Readonly<Record<string, string>> = {
   "E-STEP-BUDGET":
     "step-budget exhaustion: the agent ran out of its step budget before it wrote any spec, so no suite exists to measure — there is no static gate, coverage or value signal to read",
+  "E-TIME-BUDGET":
+    "time-budget exhaustion: the generator's turn was stopped at the wall-clock limit its change allows before it wrote any spec, so no suite exists to measure — there is no static gate, coverage or value signal to read",
 };
 
 function buildReflectionPrompt(input: ReflectionInput): string {

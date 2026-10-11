@@ -1,0 +1,196 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { GenerateTestsUseCase, type GenerationPorts, type GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
+import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import { DIFF_TIERS, DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat.ts";
+import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.ts";
+import { GENERATION_END } from "@kernel/generation-end.ts";
+import type { AgentRole } from "@kernel/agent-role.ts";
+import type { OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
+
+/* A diff of `added` one-line additions to a single file: its tier follows from how many. */
+const diffOfLines = (added: number): string =>
+  ["diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -1 +1 @@", ...Array.from({ length: added }, (_, i) => `+line ${i}`), ""].join("\n");
+
+const TINY_DIFF = diffOfLines(1);
+const FOCUSED_DIFF = diffOfLines(DIFF_TIERS.tiny.maxLines + 1);
+const BROAD_DIFF = diffOfLines(DIFF_TIERS.focused.maxLines + 1);
+
+const TINY_MS = DIFF_TIME_BUDGET_MS.tiny as number;
+const FOCUSED_MS = DIFF_TIME_BUDGET_MS.focused as number;
+
+type Step = { output: string } | { throws: Error };
+
+interface Harness {
+  opened: Array<{ role: AgentRole; opts: OpenSessionOpts | undefined }>;
+  prompts: Array<{ role: AgentRole; isRepair: boolean }>;
+  disposed: AgentRole[];
+}
+
+function baseInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
+  return {
+    repo: "org/demo", sha: "abc", diff: TINY_DIFF, mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
+    needsReview: false, target: "e2e", mode: "diff", appName: "a",
+    ...over,
+  };
+}
+
+function build(
+  generatorSteps: Step[],
+  opts: { promptCapMs?: number; specs?: string[]; repairInvalid?: boolean } = {},
+): { ports: GenerationPorts; seen: Harness } {
+  const seen: Harness = { opened: [], prompts: [], disposed: [] };
+  const steps = [...generatorSteps];
+  const ports: GenerationPorts = {
+    runtime: {
+      openSession: async (role, _cwd, sessionOpts) => {
+        seen.opened.push({ role, opts: sessionOpts });
+        return {
+          prompt: async (_text, promptOpts) => {
+            seen.prompts.push({ role, isRepair: promptOpts?.isRepair === true });
+            if (role === "reviewer") return { output: "REVIEW" };
+            const step = steps.shift() ?? { output: "" };
+            if ("throws" in step) throw step.throws;
+            return { output: step.output };
+          },
+          dispose: () => { seen.disposed.push(role); },
+        };
+      },
+    },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
+      renderWorker: () => ({ text: "", sectionSizes: {} }),
+      renderReviewer: () => ({ text: "REVIEW_PROMPT", sectionSizes: {} }),
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: (text) =>
+        text.includes("SPECS")
+          ? { specs: opts.specs ?? ["flows/a.spec.ts"], parsed: true }
+          : { specs: [], parsed: false },
+      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
+    },
+    manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+    ...(opts.promptCapMs !== undefined ? { promptCapMs: opts.promptCapMs } : {}),
+    ...(opts.repairInvalid ? { repair: { checkGenerator: () => ({ valid: false, issues: ["no verdict"] }), instruction: () => "REPAIR" } } : {}),
+  };
+  return { ports, seen };
+}
+
+const generatorOpen = (seen: Harness) => seen.opened.find((o) => o.role === "primary");
+
+for (const [label, diff, expected] of [
+  ["tiny", TINY_DIFF, TINY_MS],
+  ["focused", FOCUSED_DIFF, FOCUSED_MS],
+] as const) {
+  test(`a ${label} diff run's first pass opens the generator's session with the time its tier allows`, async () => {
+    const { ports, seen } = build([{ output: "SPECS" }]);
+    await new GenerateTestsUseCase(ports).generate(baseInput({ diff }));
+    assert.equal(generatorOpen(seen)?.opts?.timeoutMs, expected);
+  });
+}
+
+test("a broad diff run's session is opened with no time of its own: it keeps the host's default", async () => {
+  const { ports, seen } = build([{ output: "SPECS" }]);
+  await new GenerateTestsUseCase(ports).generate(baseInput({ diff: BROAD_DIFF }));
+  assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false);
+});
+
+test("the tier follows the changed files the input names, as the prompt's own effort line does", async () => {
+  const { ports, seen } = build([{ output: "SPECS" }]);
+  const many = Array.from({ length: DIFF_TIERS.focused.maxFiles + 1 }, (_, i) => `src/f${i}.ts`);
+  await new GenerateTestsUseCase(ports).generate(baseInput({ diff: TINY_DIFF, intent: { type: "feat", breaking: false, changedFiles: many } as OpencodeRunInput["intent"] }));
+  assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false, "nine files is a broad change however few the lines");
+});
+
+test("the time a tier allows is clamped to the longest a prompt may run on the host", async () => {
+  const { ports, seen } = build([{ output: "SPECS" }], { promptCapMs: TINY_MS - 1_000 });
+  await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(generatorOpen(seen)?.opts?.timeoutMs, TINY_MS - 1_000);
+});
+
+test("every mode other than diff opens the generator's session with the host's default", async () => {
+  for (const mode of ["manual", "complete", "exhaustive"] as const) {
+    const { ports, seen } = build([{ output: "SPECS" }]);
+    await new GenerateTestsUseCase(ports).generate(baseInput({ mode, guidance: "g" }));
+    assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false, mode);
+  }
+});
+
+test("a regeneration turn keeps the host's default: a timeout there is never read as 'no fixes'", async () => {
+  const { ports, seen } = build([{ output: "SPECS" }]);
+  await new GenerateTestsUseCase(ports).generate(baseInput({ reviewCorrections: ["fix the selector"] }));
+  assert.equal("timeoutMs" in (generatorOpen(seen)?.opts ?? {}), false);
+});
+
+test("the in-generate reviewer's session is never opened under the generator's time", async () => {
+  const { ports, seen } = build([{ output: "SPECS" }]);
+  await new GenerateTestsUseCase(ports).generate(baseInput({ needsReview: true }));
+  const reviewer = seen.opened.find((o) => o.role === "reviewer");
+  assert.ok(reviewer, "the reviewer ran");
+  assert.equal("timeoutMs" in (reviewer.opts ?? {}), false);
+});
+
+test("a generator turn cut off by its time budget ends the generation as time-budget, with a note naming the budget", async () => {
+  const { ports, seen } = build([{ throws: new AgentTimeoutError("OpenCode prompt: timed out after 360000ms") }]);
+  const result: GenerationResult = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(result.end, GENERATION_END.TIME_BUDGET);
+  assert.deepEqual(result.specs, []);
+  assert.match(result.note ?? "", /6 min/);
+  assert.deepEqual(seen.disposed, ["primary"], "the cut-off session is still disposed");
+});
+
+test("a generation that ran out of time does not open the reviewer on specs it never produced", async () => {
+  const { ports, seen } = build([{ throws: new AgentTimeoutError("timed out") }]);
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput({ needsReview: true }));
+  assert.equal(result.end, GENERATION_END.TIME_BUDGET);
+  assert.equal(result.reviewed, false);
+  assert.equal(seen.opened.some((o) => o.role === "reviewer"), false);
+});
+
+test("a timeout from another realm's error class is still the time budget, matched by name", async () => {
+  const foreign = new Error("timed out");
+  foreign.name = "AgentTimeoutError";
+  const { ports } = build([{ throws: foreign }]);
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(result.end, GENERATION_END.TIME_BUDGET);
+});
+
+test("a timeout the generator was given no budget for is not the time budget: it surfaces as the integration error it is", async () => {
+  const { ports } = build([{ throws: new AgentTimeoutError("OpenCode prompt: timed out after 1500000ms") }]);
+  await assert.rejects(new GenerateTestsUseCase(ports).generate(baseInput({ diff: BROAD_DIFF })), AgentTimeoutError);
+});
+
+test("a timeout in a mode that has no budget surfaces unchanged", async () => {
+  const { ports } = build([{ throws: new AgentTimeoutError("timed out") }]);
+  await assert.rejects(new GenerateTestsUseCase(ports).generate(baseInput({ mode: "manual", guidance: "g" })), AgentTimeoutError);
+});
+
+test("a provider failure under a budget is not the time budget: it surfaces unchanged", async () => {
+  const { ports, seen } = build([{ throws: new AgentUnavailableError("provider rejected: out of credits") }]);
+  await assert.rejects(new GenerateTestsUseCase(ports).generate(baseInput()), AgentUnavailableError);
+  assert.deepEqual(seen.disposed, ["primary"]);
+});
+
+test("a plain error under a budget that merely mentions a timeout is not the time budget", async () => {
+  const { ports } = build([{ throws: new Error("socket hang up after a timeout") }]);
+  await assert.rejects(new GenerateTestsUseCase(ports).generate(baseInput()), /socket hang up/);
+});
+
+test("a repair turn that runs out of time after specs were delivered keeps the delivery and does not end the run", async () => {
+  const { ports } = build([{ output: "SPECS but malformed" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(result.end, GENERATION_END.DELIVERED);
+  assert.deepEqual(result.specs, ["flows/a.spec.ts"]);
+});
+
+test("a repair turn that runs out of time with no spec delivered ends as time-budget and the note names the repair", async () => {
+  const { ports } = build([{ output: "no verdict at all" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(result.end, GENERATION_END.TIME_BUDGET);
+  assert.match(result.note ?? "", /repair/i);
+});

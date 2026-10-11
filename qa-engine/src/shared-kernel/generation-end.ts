@@ -7,6 +7,8 @@ export const GENERATION_END = {
   DECLARED_NOOP: "declared-noop",
   /** No specs, and the agent ran out of steps. */
   EXHAUSTED: "exhausted",
+  /** No specs, and the generator's turn was cut off by the wall-clock budget its change allowed. */
+  TIME_BUDGET: "time-budget",
   /** A verdict came back with no specs and no decision, even after the one repair. */
   UNDECIDED_EMPTY: "undecided-empty",
   /** No verdict could be read from the output, even after the one repair. */

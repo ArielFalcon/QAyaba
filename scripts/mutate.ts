@@ -180,6 +180,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "generator-time-budget": {
+    description: "generator time budget: which diff runs the generator's first pass is bounded for, the time each effort tier allows and the ceiling the transport's own deadline puts on it",
+    mutate: [`${GEN}/domain/generator-time-budget.ts`],
+    tests: [`${GEN_TEST}/domain/generator-time-budget.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "precondition-verdict": {
     description: "auth precondition: the typed error, the run terminal it maps to, the E-PRECONDITION class and where it is resolved, and the audit finding that keeps it out of learning",
     mutate: [
@@ -187,10 +193,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/domain/helpers/precondition-terminal.ts`,
       /* Only the lines that name and resolve the class: the rest of these modules belongs to other classes. */
       `${ORCH}/domain/helpers/error-class.ts:18-18`,
-      `${ORCH}/domain/helpers/error-class.ts:29-29`,
-      `${ORCH}/domain/helpers/error-class.ts:111-111`,
+      `${ORCH}/domain/helpers/error-class.ts:30-30`,
+      `${ORCH}/domain/helpers/error-class.ts:114-114`,
       `${LEARN}/process-audit.ts:27-27`,
-      `${LEARN}/process-audit.ts:80-87`,
+      `${LEARN}/process-audit.ts:91-98`,
     ],
     tests: [
       `${ORCH_TEST}/domain/auth-precondition.test.ts`,
@@ -243,7 +249,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
-      `${GEN}/application/generate-tests.use-case.ts:128-129`,
+      `${GEN}/application/generate-tests.use-case.ts:162-163`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:105-111`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:137-138`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:146-146`,

@@ -13,6 +13,7 @@ interface ClassifyRow {
   parsed: boolean;
   noopReason: string | undefined;
   exhausted: boolean;
+  timedOut?: boolean;
   expected: GenerationEndKind;
 }
 
@@ -30,12 +31,16 @@ const CLASSIFY_ROWS: readonly ClassifyRow[] = [
   { label: "no specs, a declared no-op", specCount: 0, parsed: true, noopReason: "nothing to test", exhausted: false, expected: GENERATION_END.DECLARED_NOOP },
   { label: "no specs, a parsed verdict and no decision", specCount: 0, parsed: true, noopReason: undefined, exhausted: false, expected: GENERATION_END.UNDECIDED_EMPTY },
   { label: "no specs and a reason that is only whitespace", specCount: 0, parsed: true, noopReason: "   ", exhausted: false, expected: GENERATION_END.UNDECIDED_EMPTY },
+  { label: "specs and a turn that timed out (the time is only recorded)", specCount: 2, parsed: true, noopReason: undefined, exhausted: false, timedOut: true, expected: GENERATION_END.DELIVERED },
+  { label: "no specs, a turn that timed out", specCount: 0, parsed: false, noopReason: undefined, exhausted: false, timedOut: true, expected: GENERATION_END.TIME_BUDGET },
+  { label: "no specs, a timeout and a parsed no-op (a cut-off turn cannot be trusted to have decided)", specCount: 0, parsed: true, noopReason: "nothing to test", exhausted: false, timedOut: true, expected: GENERATION_END.TIME_BUDGET },
+  { label: "no specs, a timeout and exhaustion (the steps ran out first)", specCount: 0, parsed: false, noopReason: undefined, exhausted: true, timedOut: true, expected: GENERATION_END.EXHAUSTED },
 ];
 
 for (const row of CLASSIFY_ROWS) {
   test(`a generation with ${row.label} ends ${row.expected}`, () => {
     assert.equal(
-      classifyGenerationEnd({ specCount: row.specCount, parsed: row.parsed, noopReason: row.noopReason, exhausted: row.exhausted }),
+      classifyGenerationEnd({ specCount: row.specCount, parsed: row.parsed, noopReason: row.noopReason, exhausted: row.exhausted, timedOut: row.timedOut ?? false }),
       row.expected,
     );
   });
@@ -197,4 +202,23 @@ test("a step count against no configured limit shows the count alone", () => {
   const note = renderGenerationNote({ end: GENERATION_END.EXHAUSTED, turn: { ...STEPS_FACTS, maxSteps: null, stepsUsed: 12 }, outputTail: "" });
   assert.match(note, /steps 12\b/);
   assert.doesNotMatch(note, /12\//);
+});
+
+test("a time-budget note names the budget the turn was held to, in minutes when it is a whole number of them", () => {
+  const note = renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 6 * 60_000 });
+  assert.match(note, /\b6 min\b/);
+  assert.match(note, /time budget/i);
+});
+
+test("a time-budget note names a budget that is not whole minutes in seconds", () => {
+  assert.match(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 90_000 }), /\b90 s\b/);
+});
+
+test("a time-budget note names the repair turn only when the repair is what ran out of time", () => {
+  assert.match(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 60_000, repair: true }), /repair/i);
+  assert.doesNotMatch(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 60_000 }), /repair/i);
+});
+
+test("a time-budget note never claims the agent ran out of steps", () => {
+  assert.doesNotMatch(renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: 60_000 }), /step/i);
 });

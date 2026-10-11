@@ -529,16 +529,22 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
   };
 }
 
-export async function defaultAgentDeps(): Promise<AgentDeps> {
-  /*
-   * The undici transport timeout must exceed EVERY per-prompt withTimeout, or it aborts the
-   * request before our own deadline fires. The reviewer, the explorer and the planner each have their
-   * OWN budget (REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) independent of the
-   * generator's; if an operator sets a small OPENCODE_TIMEOUT_MS (or raises a per-role one) it must NOT
-   * drag the transport below any of them. Take the max + headroom.
-   */
+/**
+ * The longest a single prompt may run: the deadline of the agent transport, and so the ceiling for any
+ * per-turn bound a caller sets (a bound above it could never fire). The undici transport timeout must
+ * exceed EVERY per-prompt withTimeout, or it aborts the request before our own deadline fires. The
+ * reviewer, the explorer and the planner each have their OWN budget (REVIEWER_TIMEOUT_MS,
+ * EXPLORER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) independent of the generator's; if an operator sets a small
+ * OPENCODE_TIMEOUT_MS (or raises a per-role one) it must NOT drag the transport below any of them.
+ * Take the max + headroom.
+ */
+export function agentPromptCapMs(): number {
   const generatorMax = Number(process.env.OPENCODE_TIMEOUT_MS) || MAX_AGENT_TIMEOUT_MS;
-  const dispatcherTimeoutMs = Math.max(generatorMax, REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) + 30_000;
+  return Math.max(generatorMax, REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) + 30_000;
+}
+
+export async function defaultAgentDeps(): Promise<AgentDeps> {
+  const dispatcherTimeoutMs = agentPromptCapMs();
   await installHttpDispatcher(dispatcherTimeoutMs);
 
   const raw = await buildRawAgentTransport();

@@ -17,6 +17,11 @@ test("an exhausted generation resolves to the step-budget class, whatever the ve
   assert.equal(resolveErrorClass({ ...BASE, verdict: "invalid", generationEnd: GENERATION_END.EXHAUSTED }), ERROR_CLASS.STEP_BUDGET);
 });
 
+test("a generation that ran out of time resolves to the time-budget class, whatever the verdict-derived class would be", () => {
+  assert.equal(resolveErrorClass({ ...BASE, verdict: "infra-error", generationEnd: GENERATION_END.TIME_BUDGET }), ERROR_CLASS.TIME_BUDGET);
+  assert.equal(resolveErrorClass({ ...BASE, verdict: "invalid", generationEnd: GENERATION_END.TIME_BUDGET }), ERROR_CLASS.TIME_BUDGET);
+});
+
 test("an undecided generation resolves to the no-decision class, ahead of reviewer corrections", () => {
   assert.equal(resolveErrorClass({ ...BASE, verdict: "infra-error", generationEnd: GENERATION_END.UNDECIDED_EMPTY }), ERROR_CLASS.NO_DECISION);
   assert.equal(

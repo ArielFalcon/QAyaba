@@ -369,6 +369,7 @@ describe("prompt-sync drift guard", () => {
       parsed: verdict.parsed,
       noopReason: verdict.noopReason,
       exhausted: false,
+      timedOut: false,
     });
   };
 

@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { AgentUnavailableError } from "../errors";
+import { AgentTimeoutError, AgentUnavailableError, InfraError } from "../errors";
 import { getAgentTurns } from "../server/history";
 import {
   codexErrorToInfra,
@@ -118,14 +118,16 @@ describe("codexErrorToInfra", () => {
     }
   });
 
-  it("timeout / SIGTERM → AgentUnavailableError INCONCLUSIVE", () => {
+  it("timeout / SIGTERM → AgentTimeoutError (an infra error, never a provider rejection) INCONCLUSIVE", () => {
     const cases: string[] = [
       "Codex prompt: timed out after 30000ms",
       "timed out after 60000ms",
     ];
     for (const msg of cases) {
       const err = codexErrorToInfra(new Error(msg));
-      assert.ok(err instanceof AgentUnavailableError, `Expected AgentUnavailableError for timeout: ${msg}`);
+      assert.ok(err instanceof AgentTimeoutError, `Expected AgentTimeoutError for timeout: ${msg}`);
+      assert.ok(err instanceof InfraError);
+      assert.ok(!(err instanceof AgentUnavailableError), "a deadline is not the provider refusing");
       assert.ok(err.message.includes("INCONCLUSIVE (infrastructure)"));
     }
   });
@@ -304,12 +306,13 @@ describe("CodexExecTransport timeout/SIGTERM path", () => {
      */
     const errMsg = (caughtErr as Error).message;
     assert.match(errMsg, /timed out after \d+ms/i, `timeout error message must match the pattern. Got: ${errMsg}`);
+    assert.ok(caughtErr instanceof AgentTimeoutError, "the deadline is rejected as the typed timeout, so a caller never has to read its message");
 
-    /* codexErrorToInfra must classify this as AgentUnavailableError (infra). */
+    /* codexErrorToInfra must classify this as an infra timeout. */
     const infraErr = codexErrorToInfra(caughtErr as Error);
     assert.ok(
-      infraErr instanceof AgentUnavailableError,
-      `timeout error must be classifiable as infra (AgentUnavailableError). Got: ${infraErr}`,
+      infraErr instanceof AgentTimeoutError,
+      `timeout error must be classifiable as infra (AgentTimeoutError). Got: ${infraErr}`,
     );
     assert.ok(
       infraErr.message.includes("INCONCLUSIVE (infrastructure)"),

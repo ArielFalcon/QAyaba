@@ -24,7 +24,7 @@ function rule(overrides: Partial<LearningRule> = {}): LearningRule {
 
 describe("renderLedgerReport — engine-side classes", () => {
   it("reads an engine-side class in plain words, never as its E-… code", () => {
-    for (const errorClass of ["E-STEP-BUDGET", "E-NO-DECISION"] as const) {
+    for (const errorClass of ["E-STEP-BUDGET", "E-TIME-BUDGET", "E-NO-DECISION"] as const) {
       const out = renderLedgerReport([rule({ errorClass, status: "active", confidence: "medium" })]);
       assert.doesNotMatch(out, new RegExp(errorClass), errorClass);
       assert.doesNotMatch(out, /\bE-[A-Z]/, errorClass);

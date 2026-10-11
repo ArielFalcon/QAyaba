@@ -34,6 +34,13 @@ describe("infraErrorGloss", () => {
     assert.match(gloss, /engine/i);
   });
 
+  it("says the time-budget class is the agent running out of time, engine-side", () => {
+    const gloss = infraErrorGloss("E-TIME-BUDGET");
+    assert.match(gloss, /time/i);
+    assert.match(gloss, /engine/i);
+    assert.doesNotMatch(gloss, /steps/i);
+  });
+
   it("says the no-decision class is an agent that decided nothing, engine-side", () => {
     const gloss = infraErrorGloss("E-NO-DECISION");
     assert.match(gloss, /decision/i);
@@ -53,8 +60,8 @@ describe("infraErrorGloss", () => {
   });
 
   it("gives each engine-side class its own wording, apart from the neutral one", () => {
-    const wordings = new Set([infraErrorGloss("E-STEP-BUDGET"), infraErrorGloss("E-NO-DECISION"), infraErrorGloss("E-PRECONDITION"), infraErrorGloss("E-INFRA")]);
-    assert.equal(wordings.size, 4);
+    const wordings = new Set([infraErrorGloss("E-STEP-BUDGET"), infraErrorGloss("E-NO-DECISION"), infraErrorGloss("E-PRECONDITION"), infraErrorGloss("E-TIME-BUDGET"), infraErrorGloss("E-INFRA")]);
+    assert.equal(wordings.size, 5);
     assert.equal(infraErrorGloss(null), infraErrorGloss("E-INFRA"));
     assert.equal(infraErrorGloss("E-FUTURE-CLASS"), infraErrorGloss("E-INFRA"));
   });
