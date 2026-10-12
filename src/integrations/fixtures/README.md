@@ -5,24 +5,25 @@
 Recorded-output fixture for `listAgentCaps`: the body of `GET /agent?directory=<dir>` as an OpenCode
 server returns it (the SDK's `app.agents`, whose element type is the v2 `Agent`).
 
-Captured 2026-10-11 from an `opencode serve` 1.17.7, the build `agents/Dockerfile` pins, run inside the
+Captured 2026-10-12 from an `opencode serve` 1.17.7, the build `agents/Dockerfile` pins, run inside the
 `agents` container (so the Linux/Node build the stack ships) and bound to 127.0.0.1. The server ran with an
 isolated HOME and XDG directories and an empty environment (`env -i`), with no credentials, no provider and
 no repository, and its config sat at `$XDG_CONFIG_HOME/opencode/opencode.json`: the `OPENCODE_CONFIG`
 variable loads a file but does not turn an agent's `tools` map into permission rules, so it records a
-different resolution than the real one. The config declared `qa-generator` (`maxSteps: 50`), `qa-reviewer`
-(`maxSteps: 25`), `qa-explorer` (`maxSteps: 25`), `probe-steps` (`steps: 40`), `probe-both` (`steps: 33` and
-`maxSteps: 22`) and `probe-none` (no cap). The three `qa-` agents carry the `tools` map and, for the
-generator, the `permission` block they have in `agents/opencode.json`, copied from it with `jq`, and the
-config carries that file's top-level `permission` block, so the recorded rules are the ones the real roles
-resolve to (`GET /agent` on the real container shows the same rules). Re-record it whenever either block
-changes.
+different resolution than the real one. The config was `agents/opencode.json` with its `prompt`, `instructions`,
+`server` and `mcp` keys removed, plus `probe-steps` (`steps: 40`), `probe-both` (`steps: 33` and `maxSteps: 22`)
+and `probe-none` (no cap). Every `qa-` agent therefore carries the `tools` map and the `permission` block it
+has in `agents/opencode.json`, and the config carries that file's top-level `permission` block, so the
+recorded rules are the ones the real roles resolve to (`GET /agent` on the real container shows the same
+rules). Re-record it whenever either block, or a role, changes.
 
 Edits to the recorded body, and nothing else:
 
 - every agent's `prompt` is removed;
 - the isolated server's data directory, which appears in a tool-output allow rule, reads `<data>`, and
   its home directory, which appears in the skills allow rule, reads `<home>`;
+- every `qa-` agent's `description` is `null` and its `temperature` is `null` and its `model` is removed (a recording
+  names no model);
 - the unused native agents (`plan`, `explore`, `compaction`, `summary`, `title`) are dropped;
 - each permission rule is laid out on one line.
 

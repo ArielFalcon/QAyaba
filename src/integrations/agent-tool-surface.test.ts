@@ -659,6 +659,84 @@ test("the resolved permissions of every configured role leave no 'ask' standing"
   }
 });
 
+/* A path pattern as OpenCode's permission matcher reads it: `*` is any run of characters (a `/` too), `?` is one. */
+function patternMatches(pattern: string, path: string): boolean {
+  const source = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${source}$`, "s").test(path);
+}
+
+/* The rule that decides a read: the last one of the resolved list that matches (the runtime's defaults come
+   first, the configuration after them). */
+function readDecision(rules: ResolvedRule[], path: string): string | undefined {
+  return rules.filter((rule) => rule.permission === "read" && patternMatches(rule.pattern, path)).pop()?.action;
+}
+
+/* Files that hold a credential or a login session, wherever a watched repo's working copy keeps them. */
+const SECRET_PATHS = [
+  "/mirrors/shop/.env",
+  "/mirrors/shop/e2e/.env",
+  "/mirrors/shop/service.env",
+  "/mirrors/shop/e2e/.env.local",
+  "/mirrors/shop/e2e/.env.production",
+  "/mirrors/shop/e2e/.auth/user.json",
+  "/mirrors/shop/e2e/.auth/client.p12",
+  "/mirrors/shop/e2e/storageState.json",
+  "/mirrors/shop/e2e/storageState.admin.json",
+  "/qa-data/data/auth/shop/user.json",
+  "/qa-data/data/auth/shop/cert.pass",
+];
+
+test("every role of the real configuration is in the recording, so the resolved rules below cover all of them", () => {
+  const recorded = new Set(recordedAgents().map((agent) => agent.name));
+  for (const name of Object.keys(loadAgentConfig().agents)) {
+    assert.ok(recorded.has(name), `"${name}" is configured but absent from the recorded GET /agent body: re-record it (fixtures/README.md)`);
+  }
+});
+
+test("no role can read an env file, a stored login session or the orchestrator's auth material, whatever else its tools allow", () => {
+  /* The runtime's default allows every read, asks for an env file and is followed by the role's own
+     `tools.read: true` (`read * allow`): a rule that only the role's `permission` block, merged last, can outweigh. */
+  const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
+  assert.ok(configured.length >= 10, `expected every configured role in the recording, got ${configured.length}`);
+  for (const agent of configured) {
+    for (const path of SECRET_PATHS) {
+      assert.equal(readDecision(agent.permission, path), "deny", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);
+    }
+  }
+});
+
+test("a role still reads the example env file and an ordinary source file when its tools allow reading", () => {
+  const generator = recordedAgents().find((agent) => agent.name === "qa-generator");
+  assert.ok(generator, "expected the recorded qa-generator");
+  assert.equal(readDecision(generator.permission, "/mirrors/shop/e2e/tests/login.spec.ts"), "allow");
+  assert.equal(readDecision(generator.permission, "/mirrors/shop/.env.example"), "allow", "an example file carries no secret and the runtime allows it");
+});
+
+test("every role that reads declares the same read denial in its own permission block, which overrides its tools.read", () => {
+  /* `tools.read: true` becomes the permission key "read" and a `permission.read` of the same agent replaces it: the
+     map therefore restates the catch-all allow first, and the denials after it are the last match. A role whose
+     tools turn reading off keeps the `read: deny` that tools map gives it, so a map there would re-open it. */
+  const { agents } = loadAgentConfig();
+  let canonical: string | undefined;
+  let readers = 0;
+  for (const [name, agent] of Object.entries(agents)) {
+    const read = (agent as { permission?: { read?: unknown } }).permission?.read;
+    if (agentTools(agent).read !== true) {
+      assert.equal(read, undefined, `"${name}" cannot read, and a permission.read would replace the denial its tools give it`);
+      continue;
+    }
+    readers += 1;
+    assert.ok(read && typeof read === "object", `"${name}" reads and must declare permission.read as a pattern map`);
+    const entries = Object.entries(read as Record<string, unknown>);
+    assert.deepEqual(entries[0], ["*", "allow"], `"${name}": the catch-all allow comes first so that every denial after it is the last match`);
+    assert.ok(entries.every(([, action]) => action === "deny" || action === "allow"), `"${name}" answers a read with neither deny nor allow`);
+    const serialized = JSON.stringify(entries);
+    canonical ??= serialized;
+    assert.equal(serialized, canonical, `"${name}" declares a different read denial than the other roles`);
+  }
+  assert.ok(readers >= 6, `expected the reading roles to be checked, got ${readers}`);
+});
+
 test("the resolved generator has no allowed shell command and keeps the runtime's tool-output directory", () => {
   const generator = recordedAgents().find((agent) => agent.name === "qa-generator");
   assert.ok(generator, "expected the recorded qa-generator");

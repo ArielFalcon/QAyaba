@@ -43,7 +43,19 @@
         "execute_shell_command": false
       },
       "permission": {
-        "bash": "deny"
+        "bash": "deny",
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "**/.env*": "deny",
+          "**/.auth/**": "deny",
+          "**/storageState*.json": "deny",
+          "**/data/auth/**": "deny",
+          "**/client.p12": "deny",
+          "**/cert.pass": "deny",
+          "*.env.example": "allow"
+        }
       },
       "maxSteps": 50,
       "temperature": 0.2
@@ -127,7 +139,21 @@
         "browser_wait_for": false
       },
       "maxSteps": 25,
-      "temperature": 0.1
+      "temperature": 0.1,
+      "permission": {
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "**/.env*": "deny",
+          "**/.auth/**": "deny",
+          "**/storageState*.json": "deny",
+          "**/data/auth/**": "deny",
+          "**/client.p12": "deny",
+          "**/cert.pass": "deny",
+          "*.env.example": "allow"
+        }
+      }
     },
     "qa-maintainer": {
       "description": "Self-maintenance agent for qayaba itself. Diagnoses and fixes incidents; never touches watched app repos. Has serena+engram MCP access by design (no playwright — it never drives a browser).",
@@ -165,7 +191,21 @@
         "browser_wait_for": false
       },
       "maxSteps": 50,
-      "temperature": 0.1
+      "temperature": 0.1,
+      "permission": {
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "**/.env*": "deny",
+          "**/.auth/**": "deny",
+          "**/storageState*.json": "deny",
+          "**/data/auth/**": "deny",
+          "**/client.p12": "deny",
+          "**/cert.pass": "deny",
+          "*.env.example": "allow"
+        }
+      }
     },
     "qa-assistant": {
       "description": "Read-only run Q&A for the interactive layer (TUI chat). Tool-less: answers ONLY from the run context injected in the prompt (src/server/chat.ts buildRunChatContext deterministically embeds run outcomes, learning rules and curriculum as text). ALL MCP toolsets (serena/engram/playwright) are explicitly denied.",
@@ -384,7 +424,21 @@
         "browser_wait_for": false
       },
       "maxSteps": 30,
-      "temperature": 0.3
+      "temperature": 0.3,
+      "permission": {
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "**/.env*": "deny",
+          "**/.auth/**": "deny",
+          "**/storageState*.json": "deny",
+          "**/data/auth/**": "deny",
+          "**/client.p12": "deny",
+          "**/cert.pass": "deny",
+          "*.env.example": "allow"
+        }
+      }
     },
     "qa-worker-code": {
       "description": "Parallel worker for code-only objectives (no UI navigation). Same as qa-worker but without the Playwright MCP — no DEV pressure, no browser overhead. Has serena MCP access by design (no engram, no playwright).",
@@ -441,7 +495,21 @@
         "browser_wait_for": false
       },
       "maxSteps": 30,
-      "temperature": 0.3
+      "temperature": 0.3,
+      "permission": {
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "**/.env*": "deny",
+          "**/.auth/**": "deny",
+          "**/storageState*.json": "deny",
+          "**/data/auth/**": "deny",
+          "**/client.p12": "deny",
+          "**/cert.pass": "deny",
+          "*.env.example": "allow"
+        }
+      }
     },
     "qa-explorer": {
       "description": "Read-only blast-radius explorer. Maps a change's affected symbols, FE↔BE links and contracts into a distilled ExplorationBrief JSON so the test-writer need not re-read the code. Writes nothing; emits only the brief. Has serena+engram MCP access by design (no playwright — it never drives a browser), except mem_session_summary: it emits only the brief and has no session to summarize.",
@@ -481,7 +549,21 @@
         "mem_session_summary": false
       },
       "maxSteps": 25,
-      "temperature": 0.2
+      "temperature": 0.2,
+      "permission": {
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "**/.env*": "deny",
+          "**/.auth/**": "deny",
+          "**/storageState*.json": "deny",
+          "**/data/auth/**": "deny",
+          "**/client.p12": "deny",
+          "**/cert.pass": "deny",
+          "*.env.example": "allow"
+        }
+      }
     },
     "qa-proposer": {
       "description": "Read-only cross-service boundary proposer. Hypothesizes the app's HTTP/event convention as candidate BoundaryProfiles for a deterministic scorer to grade against real repos. Writes nothing; emits only the verdict. Has serena MCP access by design (no engram, no playwright).",
@@ -538,7 +620,21 @@
         "browser_wait_for": false
       },
       "maxSteps": 25,
-      "temperature": 0.2
+      "temperature": 0.2,
+      "permission": {
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "**/.env*": "deny",
+          "**/.auth/**": "deny",
+          "**/storageState*.json": "deny",
+          "**/data/auth/**": "deny",
+          "**/client.p12": "deny",
+          "**/cert.pass": "deny",
+          "*.env.example": "allow"
+        }
+      }
     },
     "qa-sidekick": {
       "description": "Coordination sidekick — a bounded delegation executor, invoked by the deterministic router for larger blast radii instead of the lead. Receives a self-contained delegation brief (objective, acceptance criteria, writable/readable scope, known facts, validation plan) and, unlike the single-spec-per-session parallel worker, may edit multiple EXISTING specs within its writable scope across follow-up feedback turns in the SAME session. Frozen authority: cannot change acceptance criteria/architecture, cannot write outside writablePaths, never performs git writes; a claimed result is externally validated against what actually exists on disk. Has serena + playwright MCP access by design (no engram — operational context only, never test-authoring rules), minus the tools that run code, push a file or open a shell (its built-in shell is off too). Enforced: those tools are denied. Not enforced: browser_click, browser_type and browser_fill_form can still submit a form on DEV through the UI, which only the prompt forbids.",
@@ -582,7 +678,21 @@
         "mem_doctor": false
       },
       "maxSteps": 60,
-      "temperature": 0.3
+      "temperature": 0.3,
+      "permission": {
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "**/.env*": "deny",
+          "**/.auth/**": "deny",
+          "**/storageState*.json": "deny",
+          "**/data/auth/**": "deny",
+          "**/client.p12": "deny",
+          "**/cert.pass": "deny",
+          "*.env.example": "allow"
+        }
+      }
     }
   },
   "mcp": {
