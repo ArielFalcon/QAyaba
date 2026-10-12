@@ -108,3 +108,63 @@ test("a positively evidenced login failure keeps its kind and its note also name
   assert.match(failure.note, /cdn\.example\.test/);
   assert.match(failure.note, /dev\.allowedOrigins/);
 });
+
+/* Telemetry, analytics and the like are refused on every page of the app, so the filter's refusal of them says nothing of why a login failed: the app's config lists the origins it leaves blocked on purpose. */
+function adapterBlocking(spawn: AuthSessionAdapterSpawn, blocked: (host: string) => boolean): { adapter: AuthSessionAdapter; specDir: string } {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-egress-"));
+  writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login */\n");
+  return { adapter: new AuthSessionAdapter({ env: { QA_USER: "alice", QA_PASS: "s3cret-pass" }, authDir: mkdtempSync(join(tmpdir(), "auth-dir-")), spawnSetup: spawn, intentionallyBlocked: blocked }), specDir };
+}
+const isTelemetry = (host: string): boolean => host.endsWith(".telemetry.example.test");
+
+test("a login that fails while only hosts the app leaves blocked on purpose were refused is the login's own failure, not an egress one", async () => {
+  const report = newSandboxReport();
+  const { adapter, specDir } = adapterBlocking(async () => {
+    await refusedChild(report, ["ingest.telemetry.example.test"], { exitCode: 1, logs: "" })();
+    return { exitCode: 1, logs: "button never became visible" };
+  }, isTelemetry);
+  await assert.rejects(() => prepareIn(report, () => adapter.prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-generate", auth: AUTH })), /button never became visible/);
+});
+
+test("a failed login names the hosts that count, not the ones left blocked on purpose", async () => {
+  const report = newSandboxReport();
+  const { adapter, specDir } = adapterBlocking(refusedChild(report, ["ingest.telemetry.example.test", "fonts.example.test"], { exitCode: 1, logs: "" }), isTelemetry);
+  const failure = await prepareIn(report, () => adapter.prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-generate", auth: AUTH })).catch((err: unknown) => err);
+  assert.ok(failure instanceof AuthPreconditionError);
+  assert.equal(failure.kind, PRECONDITION_KIND.EGRESS_DENIED);
+  assert.match(failure.note, /fonts\.example\.test/);
+  assert.doesNotMatch(failure.note, /telemetry\.example\.test/);
+  assert.match(failure.note, /1 host\(s\)/);
+});
+
+test("the note of an egress failure says where a host that should stay blocked is declared", async () => {
+  const report = newSandboxReport();
+  const { adapter, specDir } = adapterWith(refusedChild(report, ["fonts.example.test"], { exitCode: 1, logs: "" }), true);
+  const failure = await prepareIn(report, () => adapter.prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-generate", auth: AUTH })).catch((err: unknown) => err);
+  assert.ok(failure instanceof AuthPreconditionError);
+  assert.match(failure.note, /dev\.blockedOrigins/);
+});
+
+test("hosts left blocked on purpose are also left out of the hosts a positively evidenced failure adds to its note", async () => {
+  const report = newSandboxReport();
+  const specDir = mkdtempSync(join(tmpdir(), "auth-egress-"));
+  writeFileSync(join(specDir, "auth.setup.ts"), STOCK_SEED);
+  const adapter = new AuthSessionAdapter({
+    env: { QA_USER: "alice", QA_PASS: "s3cret-pass" },
+    authDir: mkdtempSync(join(tmpdir(), "auth-dir-")),
+    spawnSetup: async () => { throw new Error("the seed must not run after a submitted login"); },
+    intentionallyBlocked: isTelemetry,
+    discovery: {
+      discoverLogin: async () => {
+        for (const watcher of report.watchers ?? []) { watcher("ingest.telemetry.example.test"); watcher("cdn.example.test"); }
+        return scriptedLoginEvidence();
+      },
+      redact: (text) => text,
+    },
+  });
+  const failure = await prepareIn(report, () => adapter.prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-generate", auth: AUTH })).catch((err: unknown) => err);
+  assert.ok(failure instanceof AuthPreconditionError);
+  assert.equal(failure.kind, PRECONDITION_KIND.CREDENTIALS_REJECTED);
+  assert.match(failure.note, /cdn\.example\.test/);
+  assert.doesNotMatch(failure.note, /telemetry\.example\.test/);
+});

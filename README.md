@@ -389,12 +389,14 @@ dev:
   allowedOrigins:
     - "https://login.my-idp.example"
     - "https://*.cdn.my-app.example"
+  blockedOrigins:                 # optional: hosts left blocked on purpose (telemetry, analytics); never taken as why a login failed
+    - "https://*.ingest.sentry.io"
 egress:
   installOrigins:                 # optional: a private registry or mirror, on top of config/egress/registries.yaml
     - "https://npm.internal.example"
 ```
 
-A run that tries a host it did not declare is not failed for it: the host is listed in the run's `gateSignals.sandbox.denied`, so the first run of an app shows exactly what to add. See [docs/execution-sandbox.md](docs/execution-sandbox.md).
+A run that tries a host it did not declare is not failed for it: the host is listed in the run's `gateSignals.sandbox.denied`, so the first run of an app shows exactly what to add. A stylesheet or script a page loads from another host (a web-font import, for one) that is refused can stop that page from rendering at all, so a login that stalls names the hosts refused to it. See [docs/execution-sandbox.md](docs/execution-sandbox.md).
 
 **The login is a verified onboarding step.** An app that declares a form login (`auth.kind: form` in the YAML) is not onboarded until its login signs in: after the architecture map, onboarding enqueues a manual run for the login purpose that authors `e2e/auth.setup.ts` and one smoke spec of a route that needs the session. When that run is accepted (green, reviewed, not held back by coverage) the login and the spec are kept in the **suite store** (`data/suites/<app>/` in the qa-data volume), so later runs, including shadow runs that publish nothing, start from a working login instead of authoring it again. Purging an app removes its store. The onboarding status reports `loginProgress.status` as `verified`, `unauthored` or `failed`; the same run can be started on its own with `POST /api/v1/apps/{name}/login-bootstrap`.
 

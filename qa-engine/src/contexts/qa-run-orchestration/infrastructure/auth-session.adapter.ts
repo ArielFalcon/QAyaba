@@ -68,6 +68,12 @@ export interface AuthSessionAdapterDeps {
    * can open. Absent: the child writes straight into `authDir`, as a login run as the orchestrator did.
    */
   loginStaging?(): { dir: string; root: string };
+  /**
+   * Whether the app leaves this host blocked on purpose (its config's `dev.blockedOrigins`: telemetry, analytics, ads). The
+   * filter refuses such a host on every page whatever the login does, so its refusal is no evidence about a failed login and
+   * is left out of what decides it and of what its note names. Absent: every refused host counts.
+   */
+  intentionallyBlocked?(host: string): boolean;
 }
 
 /* The env names the seed playwright.config.ts reads for the test-id attribute and the action auto-wait bound; the execute and DOM-capture spawns pass the same pair. */
@@ -139,16 +145,17 @@ export class AuthSessionAdapter implements AuthSessionPort {
     return { clientCertPath: certPath, unauthored: false };
   }
 
-  /* The login, with the hosts the egress filter refused its children collected apart from the rest of the run. A login that did not sign in while its child was refused hosts failed on the network layer more probably than on the account: it ends as an egress precondition that names them, never as a login the caller may replace or retry, and any other failure note says which hosts were refused too. */
+  /* The login, with the hosts the egress filter refused its children collected apart from the rest of the run. A login that did not sign in while its child was refused hosts failed on the network layer more probably than on the account: it ends as an egress precondition that names them, never as a login the caller may replace or retry, and any other failure note says which hosts were refused too. Hosts the app leaves blocked on purpose are not among them. */
   private async runFormSetup(req: AuthSessionRequest, signal?: AbortSignal): Promise<AuthSession> {
     const window = openDeniedWindow();
+    const refused = (): string[] => window.hosts().filter((host) => !(this.deps.intentionallyBlocked?.(host) ?? false));
     const started = Date.now();
     try {
       const session = await this.attemptFormLogin(req, signal);
-      if (session.storageStatePath || window.hosts().length === 0) return session;
-      throw new AuthPreconditionError(PRECONDITION_KIND.EGRESS_DENIED, this.deniedNote(window.hosts()), Date.now() - started);
+      if (session.storageStatePath || refused().length === 0) return session;
+      throw new AuthPreconditionError(PRECONDITION_KIND.EGRESS_DENIED, this.deniedNote(refused()), Date.now() - started);
     } catch (err) {
-      const hosts = window.hosts();
+      const hosts = refused();
       if (hosts.length === 0 || err instanceof AuthPreconditionError && err.kind === PRECONDITION_KIND.EGRESS_DENIED) throw err;
       if (err instanceof AuthPreconditionError) throw new AuthPreconditionError(err.kind, `${err.note} ${this.deniedNote(hosts)}`, err.ms);
       throw new AuthPreconditionError(PRECONDITION_KIND.EGRESS_DENIED, this.deniedNote(hosts), Date.now() - started);
@@ -161,7 +168,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
   private deniedNote(hosts: readonly string[]): string {
     const shown = hosts.slice(0, MAX_HOSTS_IN_NOTE).map((host) => (HOST_SHAPE.test(host) ? host : "(unprintable name)"));
     const more = hosts.length > shown.length ? ` and ${hosts.length - shown.length} more` : "";
-    const text = `the egress filter refused the login's browser ${hosts.length} host(s): ${shown.join(", ")}${more}. If the login needs them (an identity provider on another origin, for one), declare their origins in dev.allowedOrigins`;
+    const text = `the egress filter refused the login's browser ${hosts.length} host(s): ${shown.join(", ")}${more}. If the login needs them (an identity provider on another origin, a stylesheet or script its pages load, for example), declare their origins in dev.allowedOrigins; a host that should stay blocked (telemetry, analytics) goes in dev.blockedOrigins`;
     return redactByValue(this.deps.discovery ? this.deps.discovery.redact(text) : text);
   }
 

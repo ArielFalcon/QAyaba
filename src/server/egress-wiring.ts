@@ -69,6 +69,14 @@ export function resolveRunOrigins(app: Pick<AppConfig, "dev" | "egress">, target
   return { dev, install };
 }
 
+/* Whether a host is one the app leaves blocked on purpose (dev.blockedOrigins). Only the name is matched: the filter refuses by name, and a refusal carries no scheme or port. */
+export function blockedHostMatcher(app: Pick<AppConfig, "dev">): (host: string) => boolean {
+  const blocked = app.dev?.blockedOrigins;
+  if (!blocked || blocked.length === 0) return () => false;
+  const policy = compileEgressPolicy(blocked);
+  return (host) => policy.allowsName(host);
+}
+
 let shared: { gate: EgressController | undefined; key: string } | undefined;
 
 /* The process-wide egress controller, or none when the sandbox uid does not apply (the filter matches on that uid). Created on first use; the proxy listeners, the DNS filter and the kernel rules it brings up live as long as the process. */

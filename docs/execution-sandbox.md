@@ -170,6 +170,7 @@ declare wildcards only below names you own); no path, query or credentials; an I
 | `dev.baseUrl` (always) and `dev.allowedOrigins` in `config/apps/<app>.yaml` | `suite` and `login` children |
 | `config/egress/registries.yaml` (groups `npm`, `maven`, `gradle`, `pip`, `go`, `cargo`) | `install` children: the e2e target uses `npm`, the code target all groups |
 | `egress.installOrigins` in the app config | `install` children: a private registry or mirror |
+| `dev.blockedOrigins` in the app config | nothing: origins left blocked on purpose (telemetry, analytics). The filter refuses them like any undeclared host; the only effect is that a refusal of one is never taken as the reason a login failed (`E-PRECONDITION`, kind `egress-denied`). An origin cannot be both allowed and blocked |
 
 A bad origin is refused when the config loads. A run that tries an undeclared host does not fail for it by itself: the host
 is recorded in `gateSignals.sandbox.denied` (at most 64 per run), which is how the first run of an app shows what to declare.
@@ -275,7 +276,7 @@ never an assumption. A spawn the launcher refused because of the files names wha
 - **`DEV_ENV_USER/PASS` are visible to the specs** (the DEV HTTP-Basic gate is a suite input); they can only be sent to declared origins.
 - **Loopback is closed to the sandbox uid except the filter.** A spec or a tool that needs a TCP server on `127.0.0.1` (a local
   mock, a Playwright `webServer`) will fail; Playwright's own browser and worker channels use pipes, not TCP.
-- **Third-party subresources** of an app's pages (fonts, analytics) fail until declared; the denied list names them.
+- **Third-party subresources** of an app's pages (fonts, analytics) fail until declared; the denied list names them, and a refused stylesheet (or a script a page imports) can stop the page from rendering at all, not just lose a font: an identity provider's login form built on a theme that `@import`s a web-font stylesheet never shows its fields until that host is declared. A refusal is immediate (the DNS filter answers `NXDOMAIN` within milliseconds), so nothing stalls on a denied host; what a page does with the failure is the page's.
 - A mirror created *during* a run (a service repo cloned for a cross-repo run) is readable by the sandbox until the run's scope
   ends and seals it.
 - Operator scripts that run suites outside the queue (`baseline-agent`, `campaign`) use the same launcher in their own process:

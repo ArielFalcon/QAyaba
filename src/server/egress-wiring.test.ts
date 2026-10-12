@@ -1,7 +1,7 @@
 /* Which origins a run's children may reach is decided from the app's config and the registries file; the controller itself is tested where it lives. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadRegistryGroups, resolveEgressMode, resolveRunOrigins } from "./egress-wiring";
+import { blockedHostMatcher, loadRegistryGroups, resolveEgressMode, resolveRunOrigins } from "./egress-wiring";
 
 const REGISTRIES = { npm: ["https://registry.npmjs.org"], maven: ["https://repo.maven.apache.org"], pip: ["https://pypi.org"] };
 
@@ -49,4 +49,14 @@ test("the registries file the repo ships parses, and every origin in it compiles
   const { qayabaRoot } = await import("../paths");
   const groups = loadRegistryGroups(qayabaRoot());
   assert.ok((groups.npm?.length ?? 0) > 0, "the e2e target needs the npm registry");
+});
+
+test("the hosts an app leaves blocked on purpose are the names its blocked origins cover, and an app that declares none leaves none", () => {
+  const blocked = blockedHostMatcher({ dev: { baseUrl: "https://dev.example.com", blockedOrigins: ["https://*.ingest.example.net", "https://stats.example.com"] } });
+  assert.equal(blocked("o123.ingest.example.net"), true);
+  assert.equal(blocked("stats.example.com"), true);
+  assert.equal(blocked("ingest.example.net"), false, "a wildcard covers subdomains only");
+  assert.equal(blocked("fonts.example.com"), false);
+  assert.equal(blockedHostMatcher({ dev: { baseUrl: "https://dev.example.com" } })("stats.example.com"), false);
+  assert.equal(blockedHostMatcher({})("stats.example.com"), false);
 });

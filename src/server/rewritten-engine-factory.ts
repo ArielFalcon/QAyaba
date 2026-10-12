@@ -131,7 +131,7 @@ import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "
 import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
 import { buildExecWiring, suiteAccountFor } from "./exec-sandbox-factory";
-import { egressGateFor, loadRegistryGroups, resolveRunOrigins } from "./egress-wiring";
+import { blockedHostMatcher, egressGateFor, loadRegistryGroups, resolveRunOrigins } from "./egress-wiring";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import { requireEnv } from "../util/env";
@@ -1208,6 +1208,8 @@ export function buildRewrittenCompositionConfig(
               redact: (text: string) => redactionPort.redact(text),
               loadContextMap: loadContextMapFromDisk,
             },
+            /* The hosts the app leaves blocked on purpose (dev.blockedOrigins) are no evidence that a failed login was the filter's doing. */
+            intentionallyBlocked: blockedHostMatcher(app),
             /* The login child is the one process that carries the account: the launcher's `login` profile. It writes the session in the run's own `login` folder, and the adapter brings a confirmed one into the auth directory. */
             loginStaging: () => ({ dir: join(exec.workDir(), "login"), root: exec.workDir() }),
             spawnSetup: async (specDir, env, signal) => {

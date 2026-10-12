@@ -322,6 +322,29 @@ test("an origin the egress filter would refuse is refused when the config is loa
   }
 });
 
+test("dev.blockedOrigins accepts origins and wildcard origins, and a bad one is refused naming it", () => {
+  const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", blockedOrigins: ["https://*.ingest.sentry.io", "https://stats.shop.io"] } });
+  assert.deepEqual(cfg.dev?.blockedOrigins, ["https://*.ingest.sentry.io", "https://stats.shop.io"]);
+  for (const bad of ["stats.shop.io", "https://stats.shop.io/path", "https://*.io"]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", blockedOrigins: [bad] } }), (err: unknown) => String(err).includes(bad), `dev.blockedOrigins ${bad}`);
+  }
+});
+
+test("an origin cannot be both allowed and left blocked on purpose, the app's own included", () => {
+  const contradictions: Array<[string[], string[]]> = [
+    [["https://stats.shop.io"], ["https://stats.shop.io"]],
+    [["https://*.cdn.shop.io"], ["https://img.cdn.shop.io"]],
+    [["https://img.cdn.shop.io"], ["https://*.cdn.shop.io"]],
+  ];
+  for (const [allowedOrigins, blockedOrigins] of contradictions) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", allowedOrigins, blockedOrigins } }), /blockedOrigins/, JSON.stringify({ allowedOrigins, blockedOrigins }));
+  }
+  assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io/app", blockedOrigins: ["https://dev.shop.io"] } }), /blockedOrigins/);
+  assert.doesNotThrow(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", allowedOrigins: ["https://idp.shop.io"], blockedOrigins: ["https://stats.shop.io"] } }));
+  /* A bad allowed origin is reported as itself, not as a crash of the contradiction check. */
+  assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", allowedOrigins: ["https://*.io"], blockedOrigins: ["https://stats.shop.io"] } }), (err: unknown) => String(err).includes("https://*.io"));
+});
+
 test("an app that declares no extra origins loads as before", () => {
   const cfg = AppConfigSchema.parse(base);
   assert.equal(cfg.dev?.allowedOrigins, undefined);

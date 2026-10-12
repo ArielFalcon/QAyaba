@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { LoginPathSchema } from "../../qa-engine/src/shared-kernel/login-path";
 import { mutatingEntryError, routePatternError } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard";
-import { compileEgressPolicy, EgressPolicyError } from "../../qa-engine/src/shared-infrastructure/egress/egress-policy";
+import { compileEgressPolicy, EgressPolicyError, originOf } from "../../qa-engine/src/shared-infrastructure/egress/egress-policy";
 
 /*
  * A list of origins the execution sandbox may reach (`scheme://host[:port]`, or `scheme://*.suffix[:port]`). Each is compiled
@@ -123,6 +123,32 @@ export const AppConfigSchema = z
          * gate signals, so an app that loads a third-party host declares it here once.
          */
         allowedOrigins: OriginListSchema.optional(),
+        /*
+         * Origins the app leaves blocked on purpose (telemetry, analytics, ads): the filter refuses them like any undeclared host,
+         * and a refusal of one is never taken as the reason a login failed. Declaring one does not open it.
+         */
+        blockedOrigins: OriginListSchema.optional(),
+      })
+      .superRefine((dev, ctx) => {
+        if (dev.blockedOrigins === undefined) return;
+        /* An origin that is both reachable and blocked on purpose says two things at once; the app's own origin is reachable by definition. */
+        const own = originOf(dev.baseUrl);
+        let reachable;
+        try {
+          reachable = compileEgressPolicy([...(dev.allowedOrigins ?? []), ...(own ? [own] : [])]);
+        } catch {
+          return; /* OriginListSchema has said what is wrong with allowedOrigins */
+        }
+        dev.blockedOrigins.forEach((origin, index) => {
+          let blocked;
+          try {
+            blocked = compileEgressPolicy([origin]);
+          } catch {
+            return; /* OriginListSchema has said what is wrong with it */
+          }
+          const contradicts = blocked.rules.some((rule) => reachable.allowsName(rule.host)) || reachable.rules.some((rule) => blocked.allowsName(rule.host));
+          if (contradicts) ctx.addIssue({ code: "custom", message: `dev.blockedOrigins ${JSON.stringify(origin)} is also reachable (dev.allowedOrigins or the app's own origin): an origin is one or the other`, path: ["blockedOrigins", index] });
+        });
       })
       .optional(),
     /*

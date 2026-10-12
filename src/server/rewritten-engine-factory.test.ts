@@ -21,6 +21,7 @@ import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-s
 import { AUTH_SETUP_ENV } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition";
 import { SUBMITTED_MARKER } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script";
+import { activeExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-evidence";
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
@@ -165,6 +166,56 @@ test("the composed auth session passes neither name to its setup spawn when the 
   const seen = await authSetupSpawnEnv({ ...cfg("auth-env-unconfigured"), auth: formAuth }, undefined);
   assert.equal(seen.testIdAttribute, "unset");
   assert.equal(seen.actionTimeoutMs, "unset");
+});
+
+/* The composed login attributes a failure to the egress filter from the hosts it refused its child, except those the app's config
+   leaves blocked on purpose. The `npx` on PATH is the process-boundary double (it fails the login after a pause), and the
+   filter's refusals are told to the run's sandbox report the way the controller tells them. */
+async function loginFailingWhileRefused(app: AppConfig, hosts: string[]): Promise<unknown> {
+  const root = mkdtempSync(join(tmpdir(), "factory-root-"));
+  const binDir = mkdtempSync(join(tmpdir(), "factory-bin-"));
+  const specDir = mkdtempSync(join(tmpdir(), "factory-spec-"));
+  const saved = new Map(["QAYABA_ROOT", "PATH", "QA_FORM_USER", "QA_FORM_PASS"].map((k) => [k, process.env[k]]));
+  try {
+    writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login */\n");
+    writeFileSync(join(binDir, "npx"), "#!/bin/sh\nsleep 0.3\necho 'username field never appeared'\nexit 1\n");
+    chmodSync(join(binDir, "npx"), 0o755);
+    process.env.QAYABA_ROOT = root;
+    process.env.PATH = `${binDir}:${saved.get("PATH") ?? ""}`;
+    process.env.QA_FORM_USER = "synthetic-user";
+    process.env.QA_FORM_PASS = "synthetic-pass";
+    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
+    return await inRunScope(config, async () => {
+      const refusals = setInterval(() => {
+        for (const watcher of activeExecScope()?.report.watchers ?? []) for (const host of hosts) watcher(host);
+      }, 20);
+      try {
+        return await config.authSession!.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) });
+      } finally {
+        clearInterval(refusals);
+      }
+    }).catch((error: unknown) => error);
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    for (const dir of [root, binDir, specDir]) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("the composed login counts a refused host against the login unless the app's dev.blockedOrigins leaves it blocked on purpose", async () => {
+  const app: AppConfig = { ...cfg("blocked-origins-wired"), auth: formAuth, dev: { baseUrl: "https://dev", blockedOrigins: ["https://*.telemetry.example.test"] } };
+  const counted = await loginFailingWhileRefused(app, ["ingest.telemetry.example.test", "fonts.example.test"]);
+  assert.ok(counted instanceof AuthPreconditionError && counted.kind === PRECONDITION_KIND.EGRESS_DENIED);
+  assert.match(counted.note, /fonts\.example\.test/);
+  assert.doesNotMatch(counted.note, /telemetry\.example\.test/);
+  const ignored = await loginFailingWhileRefused(app, ["ingest.telemetry.example.test"]);
+  assert.ok(ignored instanceof Error && !(ignored instanceof AuthPreconditionError), `expected the login's own failure, got ${String(ignored)}`);
+  assert.match(ignored.message, /username field never appeared/);
+  const undeclared = await loginFailingWhileRefused({ ...app, dev: { baseUrl: "https://dev" } }, ["ingest.telemetry.example.test"]);
+  assert.ok(undeclared instanceof AuthPreconditionError && undeclared.kind === PRECONDITION_KIND.EGRESS_DENIED, "an app that declares nothing blocked keeps every refusal as evidence");
 });
 
 /* Structural login discovery is the production activation switch: an e2e app with a form login composes
