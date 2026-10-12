@@ -53,6 +53,16 @@ services:
       QA_DIFF_TIME_BUDGET_MS_TINY: ${QA_DIFF_TIME_BUDGET_MS_TINY:-}
       QA_DIFF_TIME_BUDGET_MS_FOCUSED: ${QA_DIFF_TIME_BUDGET_MS_FOCUSED:-}
       QA_DIFF_TIME_BUDGET_MS_BROAD: ${QA_DIFF_TIME_BUDGET_MS_BROAD:-}
+      # Wall-time bound of a WHOLE run, per kind of run (positive whole milliseconds; empty keeps the default,
+      # there is no way to remove it): the first pass's tier budget above applies inside it
+      # (docs/efficiency-benchmark.md, "Run deadline").
+      QA_RUN_TIME_BUDGET_MS_DIFF_TINY: ${QA_RUN_TIME_BUDGET_MS_DIFF_TINY:-}
+      QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED: ${QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED:-}
+      QA_RUN_TIME_BUDGET_MS_DIFF_BROAD: ${QA_RUN_TIME_BUDGET_MS_DIFF_BROAD:-}
+      QA_RUN_TIME_BUDGET_MS_MANUAL: ${QA_RUN_TIME_BUDGET_MS_MANUAL:-}
+      QA_RUN_TIME_BUDGET_MS_COMPLETE: ${QA_RUN_TIME_BUDGET_MS_COMPLETE:-}
+      QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE: ${QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE:-}
+      QA_RUN_TIME_BUDGET_MS_CONTEXT: ${QA_RUN_TIME_BUDGET_MS_CONTEXT:-}
       # Keeps the primary repo's spec directory out of the per-run `git clean -fd`, so a suite that was never
       # published (shadow mode) survives to the next run. Empty is off (docs/efficiency-benchmark.md).
       QA_PRESERVE_UNTRACKED_SUITE: ${QA_PRESERVE_UNTRACKED_SUITE:-}
