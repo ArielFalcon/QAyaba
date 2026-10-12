@@ -163,7 +163,7 @@ test("wires coordination only into RunQaUseCase — generation/FixLoop/AgentRunt
     join(qaEngineRoot, "src/contexts/qa-run-orchestration/application/run-qa.use-case.ts"),
     "utf8",
   );
-  assert.equal(useCase.includes("CoordinationPort"), true);
+  assert.equal(useCase.includes("LeadSidekicks"), true);
   assert.equal(useCase.includes("advisoryOnly"), false, "advisory downgrade was removed with the modes");
   const composition = readFileSync(
     join(qaEngineRoot, "src/contexts/qa-run-orchestration/composition/composition-root.ts"),
@@ -172,6 +172,6 @@ test("wires coordination only into RunQaUseCase — generation/FixLoop/AgentRunt
   assert.equal(
     composition.includes("coordinationMode"),
     false,
-    "the mode selector is gone — coordination is the single mode",
+    "the engine-wide mode selector is gone — a run's mode is a setting, not a branch of the composition",
   );
 });

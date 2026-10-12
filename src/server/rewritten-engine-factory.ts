@@ -162,17 +162,6 @@ export function resolveCoordinationTelemetryPath(): string {
   );
 }
 
-/*
- * Per-delegation wall-clock cap (ms), env-tunable. qa-engine's composition-root never reads
- * process.env itself (CLAUDE.md invariant) — this shell resolves the env var ONCE and threads the
- * result into CompositionConfig.sidekickTimeoutMs; composition-root falls back to its own hardcoded
- * default (420_000) when this returns undefined (env absent/invalid).
- */
-export function resolveSidekickTimeoutMsFromEnv(): number | undefined {
-  const raw = Number(process.env.COORDINATION_SIDEKICK_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : undefined;
-}
-
 export function roleToAgentName(role: AgentRole): string {
   return AGENT_NAME_FOR_ROLE[role];
 }
@@ -729,7 +718,6 @@ export function buildRewrittenCompositionConfig(
   const codeSandbox = resolveCodeSandbox(deps.env ?? process.env);
 
   const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
-  const sidekickTimeoutMs = resolveSidekickTimeoutMsFromEnv();
 
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
   /*
@@ -1030,7 +1018,6 @@ export function buildRewrittenCompositionConfig(
      * Per-delegation wall-clock cap — env-tunable here (the shell), never read by qa-engine's
      * composition-root itself. Absent → composition-root's own hardcoded default (420_000).
      */
-    ...(sidekickTimeoutMs !== undefined ? { sidekickTimeoutMs } : {}),
     /*
      * The same coveragePolicy that configures the objective signal (computed once, above), so
      * the policy that measures coverage and the one that decides whether it blocks never diverge.

@@ -1,6 +1,6 @@
 /*
- * Wall-clock ceiling the coordination router consults, before each fix-loop regeneration, to choose between
- * escalating and aborting (run-qa.use-case.ts, via exhausted()). It is a routing signal and nothing more: it
+ * Wall-clock ceiling the run consults, before each fix-loop regeneration, to decide whether another agent turn
+ * may start (run-qa.use-case.ts, via exhausted()). It is a gate on starting a turn and nothing more: it
  * never stops an agent turn in flight and does not end the run. The bound on the run's total time is the run
  * deadline (run-deadline.ts), which every agent turn is held to. CycleBudget's ceiling is telemetry-only (see
  * cycle-budget.ts); nothing enforces a cycle count.

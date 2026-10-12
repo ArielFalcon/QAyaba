@@ -151,7 +151,6 @@ Optional environment tuning (defaults are production-safe, no configuration requ
 | Env var | Default | Purpose |
 |---|---|---|
 | `COORDINATION_TELEMETRY_PATH` | `data/coordination-events.jsonl` | Durable sink for coordination events (e.g. point to a mounted volume). |
-| `COORDINATION_SIDEKICK_TIMEOUT_MS` | `420000` | Wall-clock cap per delegation; exceeded delegations fall back to the lead. |
 | `COORDINATION_ESCALATED_MODEL` | same model as the standard sidekick | Optional stronger model for escalated sidekick sessions; it must be a model of the provider the primary role is assigned to. |
 
 ### What happens at the end

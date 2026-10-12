@@ -14,7 +14,8 @@ import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructur
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
-import { createCoordinationPort, CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+import { CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type {
@@ -7794,7 +7795,15 @@ async function coordinationReviewOutcome(opts: {
     ...(opts.review ? { review: opts.review } : {}),
   });
   const telemetry = new CoordinationTelemetryRecorder();
-  await new RunQaUseCase({ ...ports, coordination: createCoordinationPort(), coordinationTelemetry: telemetry, config: { ...baseConfig, needsReview: opts.needsReview } }).run(baseInput);
+  /* A coordinated run is the one that reports an outcome: the lead hands the change back to be authored in one piece. */
+  const leadSidekicks = { coordinate: async () => ({ action: "single" as const, signal: { mode: COORDINATION_MODE.LEAD_SIDEKICKS, plan: "single", flows: 1, delivered: 0, incomplete: 0, takeover: false } }) };
+  await new RunQaUseCase({
+    ...ports,
+    coordinationSettings: { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS },
+    leadSidekicks,
+    coordinationTelemetry: telemetry,
+    config: { ...baseConfig, needsReview: opts.needsReview },
+  }).run(baseInput);
   return telemetry.events.find((event) => event.kind === "outcome")?.reviewOutcome;
 }
 

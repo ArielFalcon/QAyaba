@@ -4,7 +4,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
-import { existingWritableFiles } from "@contexts/qa-run-orchestration/application/coordination/existing-writable-files.ts";
 import {
   resolveCapabilityRole,
   SidekickExecutor,
@@ -275,7 +274,7 @@ test("SidekickExecutor marks write outside writablePaths as blocked", async () =
   assert.equal(result.recommendation, "escalate");
 });
 
-/* filesChanged is an authority input (scope check + on-disk adoption), not free-form prose: a
+/* filesChanged is an authority input (the copy-back reads it), not free-form prose: a
    redaction pass that rewrites a legitimate path makes the lead reject work the sidekick really did. */
 test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wrote, while still redacting a secret in a concern", async () => {
   const written = [
@@ -316,8 +315,7 @@ test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wro
     const result = await executor.execute(brief(), { cwd: mirror, capability: "sidekick-standard" });
 
     assert.equal(result.status, "completed-with-concerns");
-    const adopted = existingWritableFiles(mirror, result.filesChanged, scope.writablePaths).map((f) => f.path);
-    assert.deepEqual([...adopted].sort(), [...written].sort());
+    assert.deepEqual(result.filesChanged.map((f) => f.path).sort(), [...written].sort());
     assert.doesNotMatch(result.concerns.join("\n"), /ghs_supersecretvalue/);
   } finally {
     rmSync(mirror, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-/* The specs a run delivers are carried into every regeneration it makes: merged after each generation pass (the lead's declarations refresh, a sidekick's specs join by path alone) and handed to each regeneration as `deliveredSpecs`; a selector contradiction is attributed to the specs that hold its selector as `attributedSpecFiles`. Driven through RunQaUseCase with the ports faked at the boundary. */
+/* The specs a run delivers are carried into every regeneration it makes: merged after each generation pass (the lead's declarations refresh) and handed to each regeneration as `deliveredSpecs`; a selector contradiction is attributed to the specs that hold its selector as `attributedSpecFiles`. Driven through RunQaUseCase with the ports faked at the boundary. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -6,9 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
-import type { AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
-import { RunQaUseCase, type RunQaConfig, type RunQaUseCaseDeps } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
+import { RunQaUseCase, type RunQaConfig } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import type {
   ExecutionPort,
   GenerationEnrichment,
@@ -18,7 +17,6 @@ import type {
   ReviewPort,
   ValidationPort,
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
-import { createCoordinationPort, SidekickExecutor, type DelegationResult } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 
 /** A spec the lead delivered and declared. */
@@ -44,10 +42,8 @@ interface Scenario {
   blocks?: ObjectiveSignalPort["blocks"];
   capture?: PreExecGroundingPort["capture"];
   config?: Partial<RunQaConfig>;
-  /** Files that are on disk under the suite directory when the run starts: what a sidekick's claims are checked against. */
+  /** Files that are on disk under the suite directory when the run starts: what the run's spec directory holds before it starts. */
   files?: string[];
-  /** What each delegation to the sidekick returns, in order; the last one repeats. */
-  sidekick?: { delegations: DelegationResult[]; points: NonNullable<RunQaUseCaseDeps["coordinationEnabledPoints"]> };
 }
 
 const PASSING: ExecutionPort["execute"] = async () => ({ verdict: "pass", cases: [], logs: "" });
@@ -75,36 +71,6 @@ const AMBIGUOUS = `await page.goto("/owners"); await page.getByTestId("ghost-id"
 const CLEAN = `await page.goto("/owners"); await page.getByTestId("real-id").click();`;
 const OWNERS_TWICE = [{ route: "/owners", nodes: [], status: "captured" as const, settled: true, testIds: new Map([["real-id", 1]]) }];
 const OWNERS_ONCE = OWNERS_TWICE;
-
-function delegationOf(runId: string, point: string, ...files: string[]): DelegationResult {
-  return {
-    delegationId: `${runId}-${point}`,
-    runId,
-    status: "completed",
-    summary: "wrote the specs",
-    filesChanged: files.map((path) => ({ path })),
-    evidence: [],
-    validation: [],
-    assumptions: [],
-    concerns: [],
-    unresolvedQuestions: [],
-    recommendation: "accept",
-    acceptance: point === "fix-loop-regen" ? [{ criterion: 1, status: "unverified" }, { criterion: 2, status: "met" }] : [],
-  };
-}
-
-function sidekickReturning(results: DelegationResult[]): SidekickExecutor {
-  let delegations = 0;
-  return new SidekickExecutor({
-    runtime: {
-      openSession: async () => {
-        const result = results[Math.min(delegations++, results.length - 1)]!;
-        const session: AgentSession = { async prompt() { return { output: JSON.stringify(result) }; }, async dispose() {} };
-        return session;
-      },
-    },
-  });
-}
 
 /** Runs the whole use case over a scratch mirror and returns the enrichment of every generate() call, in order. */
 async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
@@ -145,13 +111,6 @@ async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
       setup: { setup: async () => {} },
       cleanup: { cleanup: async () => {} },
       ...(scenario.capture ? { preExecGrounding: { capture: scenario.capture } } : {}),
-      ...(scenario.sidekick
-        ? {
-            coordination: createCoordinationPort(),
-            coordinationEnabledPoints: scenario.sidekick.points,
-            sidekick: sidekickReturning(scenario.sidekick.delegations),
-          }
-        : {}),
       config: { needsReview: false, ...scenario.config },
     });
     await useCase.run({ app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "carry-forward" });
@@ -351,52 +310,4 @@ test("a file that a pre-exec contradiction and a Lever-2 contradiction both poin
   assert.ok(regeneration, "the FixLoop regenerates");
   assert.equal(regeneration.selectorContradictions?.length, 2, "the pending pre-exec contradiction and Lever-2's");
   assert.deepEqual(regeneration.attributedSpecFiles, ["a.spec.ts"]);
-});
-
-test("a sidekick FixLoop round consumes the pending pre-exec contradictions and their attribution: a later lead round carries neither", async () => {
-  let captures = 0;
-  const calls = await run({
-    generations: [lead(A1)],
-    files: ["e2e/d.spec.ts"],
-    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [++captures === 1 ? AMBIGUOUS : CLEAN], routes: captures === 1 ? OWNERS_TWICE : OWNERS_ONCE }),
-    execute: FAILS_EVERY_TIME(),
-    /* The first delegation writes d.spec.ts; the second claims no file on disk, so the lead takes that round. */
-    sidekick: { delegations: [delegationOf("carry-forward", "fix-loop-regen", "e2e/d.spec.ts"), delegationOf("carry-forward", "fix-loop-regen")], points: ["fix-loop-regen"] },
-    config: { maxRetries: 2 },
-  });
-  const leadRound = calls.filter((call) => (call.fixCases?.length ?? 0) > 0);
-  assert.equal(leadRound.length, 1, "the lead regenerated once in the FixLoop, after the sidekick's round");
-  assert.equal("selectorContradictions" in leadRound[0]!, false);
-  assert.equal("attributedSpecFiles" in leadRound[0]!, false);
-  assert.deepEqual(leadRound[0]!.deliveredSpecs, [A1, { file: "d.spec.ts" }]);
-});
-
-/* ── sidekick passes ── */
-
-test("a pre-generate sidekick's specs are carried by path alone, whatever objective its delegation was given", async () => {
-  const calls = await run({
-    generations: [lead(B1)],
-    files: ["e2e/d.spec.ts"],
-    sidekick: { delegations: [delegationOf("carry-forward", "pre-generate", "e2e/d.spec.ts")], points: ["pre-generate"] },
-    validate: INVALID_ONCE(),
-  });
-  /* The sidekick wrote the first pass, so the only generate() call is the static-fix regeneration. */
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.fixCases?.[0]?.name, "static-gate");
-  assert.deepEqual(calls[0]!.deliveredSpecs, [{ file: "d.spec.ts" }]);
-});
-
-test("a FixLoop sidekick's specs join the lead's by path alone, and a spec of the lead's it delivers again keeps the lead's objective", async () => {
-  const calls = await run({
-    generations: [lead(A1)],
-    files: ["e2e/a.spec.ts", "e2e/d.spec.ts"],
-    execute: FAILS_THEN_PASSES(),
-    sidekick: { delegations: [delegationOf("carry-forward", "fix-loop-regen", "e2e/a.spec.ts", "e2e/d.spec.ts")], points: ["fix-loop-regen"] },
-    review: REJECTS_ONCE(),
-    config: { needsReview: true },
-  });
-  /* The sidekick wrote the FixLoop's regeneration, so the first pass and the reviewer-correction regeneration are the two generate() calls. */
-  assert.equal(calls.length, 2);
-  assert.ok((calls[1]!.reviewCorrections?.length ?? 0) > 0);
-  assert.deepEqual(calls[1]!.deliveredSpecs, [A1, { file: "d.spec.ts" }]);
 });

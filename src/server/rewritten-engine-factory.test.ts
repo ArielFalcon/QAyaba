@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appSuiteStoreDir, createRewrittenEngineFactory, engineAgentDeps, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
+import { appSuiteStoreDir, createRewrittenEngineFactory, engineAgentDeps, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, type ContextHealRunRequest } from "./rewritten-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
@@ -254,45 +254,6 @@ test("an e2e app with no login declared never starts discovery", async () => {
 test("a code-mode app composes no auth session at all", () => {
   const config = buildRewrittenCompositionConfig({ name: "discovery-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", shadow: true }, report: { onFailure: "github-issue" } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.authSession, undefined);
-});
-
-test("resolveSidekickTimeoutMsFromEnv reads COORDINATION_SIDEKICK_TIMEOUT_MS, undefined when absent/invalid", () => {
-  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-  try {
-    delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-    assert.equal(resolveSidekickTimeoutMsFromEnv(), undefined);
-    process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "not-a-number";
-    assert.equal(resolveSidekickTimeoutMsFromEnv(), undefined);
-    process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "90000";
-    assert.equal(resolveSidekickTimeoutMsFromEnv(), 90_000);
-  } finally {
-    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
-  }
-});
-
-test("buildRewrittenCompositionConfig threads COORDINATION_SIDEKICK_TIMEOUT_MS into config.sidekickTimeoutMs", () => {
-  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-  try {
-    process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "77000";
-    const config = buildRewrittenCompositionConfig(cfg("timeout-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-    assert.equal(config.sidekickTimeoutMs, 77_000);
-  } finally {
-    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
-  }
-});
-
-test("buildRewrittenCompositionConfig omits config.sidekickTimeoutMs when the env var is absent (composition-root applies its own default)", () => {
-  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-  try {
-    delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-    const config = buildRewrittenCompositionConfig(cfg("timeout-app-absent"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-    assert.equal(config.sidekickTimeoutMs, undefined);
-  } finally {
-    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
-  }
 });
 
 /* ── Curriculum wiring: the per-app scenario-archetype prior, backed by history.ts's store ────────

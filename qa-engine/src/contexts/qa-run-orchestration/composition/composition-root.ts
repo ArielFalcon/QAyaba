@@ -286,8 +286,6 @@ export interface CompositionConfig {
   sidekickEscalatedModel?: string;
   /* Durable JSONL sink for coordination telemetry: events appended here survive process restarts so routing/cost signals can be analyzed offline. Absent -> memory-only. */
   coordinationTelemetryPath?: string;
-  /* Per-delegation wall-clock cap in ms (compose/environment tunable). Absent -> 420_000. */
-  sidekickTimeoutMs?: number;
   /* How the app's runs are coordinated (qa.coordination, limits defaulted). Absent: the single mode, the lead authors alone. */
   coordinationSettings?: CoordinationSettings;
   /* What the lead/sidekick mode needs from the shell. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.leadSidekicks and a run in that mode is authored by its lead alone. */
@@ -296,17 +294,6 @@ export interface CompositionConfig {
 
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
 const DEFAULT_DEPLOY_GATE_TIMEOUT_MS = 60000;
-
-/* Default per-delegation wall-clock cap (ms) when cfg.sidekickTimeoutMs is absent. Documented as
-   COORDINATION_SIDEKICK_TIMEOUT_MS in README.md — the shell (rewritten-engine-factory.ts) is the
-   ONLY place that reads that env var; qa-engine never reads process.env (CLAUDE.md invariant). */
-const DEFAULT_SIDEKICK_TIMEOUT_MS = 420_000;
-
-/* Pure — deliberately takes no env/process access, so a stray process.env read can never sneak
-   back in here. cfg.sidekickTimeoutMs is populated by the shell from COORDINATION_SIDEKICK_TIMEOUT_MS. */
-export function resolveSidekickTimeoutMs(cfg: Pick<CompositionConfig, "sidekickTimeoutMs">): number {
-  return cfg.sidekickTimeoutMs ?? DEFAULT_SIDEKICK_TIMEOUT_MS;
-}
 
 /* Where a map may name the staged snapshot of the triggering service: from the working copy and from the e2e dir, each only when the snapshot lies inside it. The shell stages it under the e2e dir; which of the two a context run records is not settled, so both are offered. An empty list says no directory holds the snapshot, and the run is still a cross-repo run. */
 function stagedRootsOf(workingCopyDir: string, e2eDir: string, stagedDir: string): string[] {
