@@ -245,6 +245,18 @@ test("a flow is given its own run_spec loop, staged at the probe path of its fil
   assert.deepEqual([...r.shares].sort(), [["run-1-flow-cart", 30], ["run-1-flow-login", 30]]);
 });
 
+test("a sidekick is told its tool budgets in the task: the run_spec share of its flow and the browser's", async () => {
+  const r = rig();
+  await r.coordinator.coordinate(input(r));
+  const task = r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!.brief.task;
+  assert.match(task, /run_spec: at most 4 calls/);
+  assert.match(task, /at most 30 authbrowser_\* calls/);
+  assert.match(task, /e2e\/flows\/cart\.spec\.ts/);
+  const bare = rig();
+  await bare.coordinator.coordinate(input(bare, { closedLoop: undefined }));
+  assert.match(bare.executed[0]!.brief.task, /cannot run the spec/);
+});
+
 test("the tools a sidekick is denied are the code-navigation server and the plain browser, and run_spec only when its flow has no loop", async () => {
   const withLoop = rig();
   await withLoop.coordinator.coordinate(input(withLoop));

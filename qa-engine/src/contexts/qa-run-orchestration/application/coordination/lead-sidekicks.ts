@@ -267,7 +267,7 @@ export class LeadSidekicks {
         delegationId,
         runId: input.runId,
         objective: flow.objective,
-        task: taskOf(flow, loop),
+        task: taskOf(flow, loop, context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser ? input.agentBrowser.limits.perCallMs : undefined),
         acceptanceCriteria: flow.acceptance,
         scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
         knownFacts: input.knownFacts ?? [],
@@ -356,7 +356,7 @@ function describePlan(plan: AdmittedPlan): string {
 }
 
 /* What a sidekick is told to do for one flow. The facts about its tools are the orchestrator's; the rest is the flow's own. */
-function taskOf(flow: AdmittedFlow, loop: FlowLoopHandle | undefined): string {
+function taskOf(flow: AdmittedFlow, loop: FlowLoopHandle | undefined, browserCallMs: number | undefined): string {
   return [
     `Write the Playwright E2E spec for ONE flow, as the single file ${flow.writablePaths[0]}. It is the only file you may write.`,
     `Flow: ${flow.id}. It proves: ${flow.objective}`,
@@ -364,6 +364,9 @@ function taskOf(flow: AdmittedFlow, loop: FlowLoopHandle | undefined): string {
     loop
       ? `run_spec: at most ${loop.limits.maxCalls} calls, ${Math.round(loop.limits.perCallMs / 1000)} seconds each, ${loop.limits.maxDevWrites} requests that write to DEV in all. It runs ${flow.writablePaths[0]} and no other file. Run it until it passes, then finish.`
       : "You cannot run the spec: verify it by reading the pages and the grounding.",
+    browserCallMs !== undefined && flow.browserCalls > 0
+      ? `Authenticated browser: at most ${flow.browserCalls} authbrowser_* calls, ${Math.round(browserCallMs / 1000)} seconds each. It reads DEV as the test account and never writes.`
+      : "",
     `Finish by emitting the DelegationResult JSON contract from the brief. If this flow needs no test of its own, write no file and say why in summary.`,
   ].filter(Boolean).join("\n");
 }
