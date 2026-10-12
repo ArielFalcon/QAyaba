@@ -296,6 +296,13 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/",
   "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
   "qa-engine/src/shared-kernel/agent-browser.ts",
+  /* Which session holds the browser (the registry), the adapter that serves the calls and the one place a session is renewed: the bridges/ prefix covers the last two, and they are listed so that narrowing it cannot unprotect them, like the closed-loop twins below. */
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-session-material.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/trusted-session-renewal.ts",
+  /* The one place a prompt's tools are decided for the runtime: the denial of writes for a read-only turn, the tools a session's run denied it, and which sessions are granted the browser. A fix that loosened it would hand a planning turn or a sidekick tools its run withheld. */
+  "src/integrations/opencode-client.ts",
   "src/server/tools-endpoint.ts",
   "agents/tool/authbrowser.ts",
   "agents/lib/authbrowser-client.mjs",
