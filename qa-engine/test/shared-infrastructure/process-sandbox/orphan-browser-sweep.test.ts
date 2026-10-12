@@ -17,7 +17,7 @@ function proc(entries: Record<string, string[]>, own = 1): { deps: OrphanSweepDe
   };
 }
 
-const BROWSER = ["/ms-playwright/chromium/chrome", "--headless", "--remote-debugging-port=0", `--user-data-dir=${ROOT}/run-1/browser-ab12/profile`, "about:blank"];
+const BROWSER = ["/ms-playwright/chromium/chrome", "--headless", "--remote-debugging-pipe", `--user-data-dir=${ROOT}/run-1/browser-ab12/profile`, "about:blank"];
 
 test("a browser the agent tools started in a run's work dir, left behind, is killed with its group", () => {
   const { deps, killed } = proc({ "300": BROWSER });
@@ -31,9 +31,9 @@ test("the lifetime wrapper in front of the browser is found by the same command 
   assert.deepEqual(killed, [[-310, "SIGKILL"]]);
 });
 
-test("a browser that is not ours is left alone: another profile directory, no debugging port, or the orchestrator itself", () => {
+test("a browser that is not ours is left alone: another profile directory, no debugging pipe, or the orchestrator itself", () => {
   const { deps, killed } = proc({
-    "400": ["/usr/bin/chromium", "--remote-debugging-port=0", "--user-data-dir=/home/user/.config/chromium"],
+    "400": ["/usr/bin/chromium", "--remote-debugging-pipe", "--user-data-dir=/home/user/.config/chromium"],
     "401": ["/ms-playwright/chromium/chrome", `--user-data-dir=${ROOT}/run-1/browser-x/profile`],
     "402": ["node", "tsx", "src/index.ts"],
     "1": BROWSER,

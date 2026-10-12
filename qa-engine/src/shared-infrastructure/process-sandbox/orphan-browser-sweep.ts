@@ -1,7 +1,7 @@
 /*
  * Ends the browsers the authenticated agent tools started and nobody stopped: the orchestrator was restarted in place (a hot
  * swap) while a run was holding one. The run's own finally stops its browser, a lifetime wrapper bounds it, and this closes
- * what is left at boot. A browser of ours is told by its command line alone: a debugging port the browser picks itself and a
+ * what is left at boot. A browser of ours is told by its command line alone: a debugging pipe and a
  * profile directory inside the runs' work root, which nothing else starts. The signal goes to the process group, since the
  * launcher starts it detached and its renderers share the group. No process table (not Linux): nothing to do.
  */
@@ -44,7 +44,7 @@ export function sweepOrphanAgentBrowsers(workRoot: string, deps: OrphanSweepDeps
     const pid = Number(name);
     if (!Number.isInteger(pid) || pid <= 1 || pid === deps.ownPid) continue;
     const args = deps.commandLine(pid);
-    if (!args || !args.includes("--remote-debugging-port=0") || !args.some((arg) => arg.startsWith(profilePrefix))) continue;
+    if (!args || !args.includes("--remote-debugging-pipe") || !args.some((arg) => arg.startsWith(profilePrefix))) continue;
     try {
       deps.kill(-pid, "SIGKILL");
       killed += 1;
