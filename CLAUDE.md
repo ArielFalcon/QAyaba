@@ -308,8 +308,9 @@ threat-model header first) and a canary-before-promote hot-swap.
   deterministic orchestrator writes to git (push/PR). Never give the agent, or any
   chat/operator layer, write access to a watched repo.
 - **No role reads credentials.** Every role that reads declares a `permission.read` block in
-  `agents/opencode.json` that denies env files, `.auth/`, `storageState*.json` and the orchestrator's auth
-  material after its catch-all allow (the runtime's own `*.env` default is `ask`, which a later `read *: allow`
+  `agents/opencode.json` that denies env files, the suite's `e2e/.auth/`, `storageState*.json`, `client.p12` and `cert.pass`
+  after its catch-all allow (the orchestrator's auth directory is not mounted into the agents container, so no rule names it,
+  and an app's own `auth/` or `.auth/` source folders stay readable) (the runtime's own `*.env` default is `ask`, which a later `read *: allow`
   shadows, and a run has nobody to answer an `ask`). A role that cannot read keeps the `read: deny` its `tools`
   map gives it, so it carries no `read` block. `agent-tool-surface.test.ts` checks the resolved rules against
   `src/integrations/fixtures/opencode-agent-list.json`: re-record it (its README) whenever a role or a block changes.

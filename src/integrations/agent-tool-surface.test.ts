@@ -682,8 +682,15 @@ const SECRET_PATHS = [
   "/mirrors/shop/e2e/.auth/client.p12",
   "/mirrors/shop/e2e/storageState.json",
   "/mirrors/shop/e2e/storageState.admin.json",
-  "/qa-data/data/auth/shop/user.json",
-  "/qa-data/data/auth/shop/cert.pass",
+  "/mirrors/shop/e2e/cert.pass",
+];
+
+/* Folders and files of a watched app that merely look like auth material: its own code is what a test author reads to learn the app. The orchestrator's auth directory is not mounted into the agents container, so no rule names it. */
+const APP_AUTH_SOURCES = [
+  "/mirrors/shop/src/app/data/auth/auth.service.ts",
+  "/mirrors/shop/src/app/data/auth/login.component.html",
+  "/mirrors/shop/src/app/.auth/session.ts",
+  "/mirrors/shop/e2e/flows/auth/login.spec.ts",
 ];
 
 test("every role of the real configuration is in the recording, so the resolved rules below cover all of them", () => {
@@ -701,6 +708,17 @@ test("no role can read an env file, a stored login session or the orchestrator's
   for (const agent of configured) {
     for (const path of SECRET_PATHS) {
       assert.equal(readDecision(agent.permission, path), "deny", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);
+    }
+  }
+});
+
+test("a role still reads an app's own auth source code: only the suite's session directory and storage-state files are closed", () => {
+  const { agents } = loadAgentConfig();
+  const readers = recordedAgents().filter((agent) => agent.name.startsWith("qa-") && agentTools(agents[agent.name]).read === true);
+  assert.ok(readers.length >= 6, `expected the reading roles to be checked, got ${readers.length}`);
+  for (const agent of readers) {
+    for (const path of APP_AUTH_SOURCES) {
+      assert.equal(readDecision(agent.permission, path), "allow", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);
     }
   }
 });
