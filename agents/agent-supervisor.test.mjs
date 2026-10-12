@@ -274,3 +274,42 @@ test("codexExecEnv forwards the DEV gate to a headless agent but never the test 
   assert.equal(env.DEV_TEST_PASS, undefined);
   assert.equal(env.GITHUB_TOKEN, undefined);
 });
+
+// ─── a watched repo's own agent configuration is never loaded ───
+// OpenCode resolves its configuration per session directory and merges the directory's opencode.json and
+// .opencode/ (agents, plugins, MCP servers, permission overrides) over qayaba's: a repo could re-grant
+// the generator a shell, open env reads or run a plugin inside the agents container. The server therefore
+// ignores project configuration altogether; only the baseline experiment, which defines its agent that way,
+// opts back in, explicitly and for the whole container.
+test("the OpenCode server ignores project configuration, whatever the environment says", () => {
+  assert.equal(commandFor("opencode", { PATH: "/bin" }).env.OPENCODE_DISABLE_PROJECT_CONFIG, "true");
+  assert.equal(
+    commandFor("opencode", { OPENCODE_DISABLE_PROJECT_CONFIG: "false" }).env.OPENCODE_DISABLE_PROJECT_CONFIG,
+    "true",
+    "a stray value cannot turn the protection off",
+  );
+});
+
+test("only the explicit baseline opt-in lets the OpenCode server read project configuration", () => {
+  assert.equal("OPENCODE_DISABLE_PROJECT_CONFIG" in commandFor("opencode", { AGENT_ALLOW_PROJECT_CONFIG: "true" }).env, false);
+  for (const value of ["", "1", "yes", "false", "TRUE "]) {
+    assert.equal(
+      commandFor("opencode", { AGENT_ALLOW_PROJECT_CONFIG: value }).env.OPENCODE_DISABLE_PROJECT_CONFIG,
+      "true",
+      `"${value}" is not the opt-in`,
+    );
+  }
+});
+
+test("ensureCodexConfig forgets any project trust, so a repo's own .codex configuration is never loaded", () => {
+  const codexHome = mkdtempSync(join(tmpdir(), "codex-trust-"));
+  writeFileSync(
+    join(codexHome, "config.toml"),
+    '[auth]\nmethod = "chatgpt"\n\n[projects."/app/.mirrors/acme__shop"]\ntrust_level = "trusted"\n\n[mcp_servers.old]\ncommand = "x"\n',
+    "utf8",
+  );
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+  const content = readFileSync(join(codexHome, "config.toml"), "utf8");
+  assert.ok(!content.includes("trust_level"), "a trusted project would load its .codex/config.toml (MCP servers, hooks)");
+  assert.ok(content.includes("[auth]"), "the rest of the file is preserved");
+});

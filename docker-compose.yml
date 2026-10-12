@@ -135,6 +135,9 @@ services:
       CODEX_API_KEY: ${CODEX_API_KEY:-}
       DEV_ENV_USER: ${DEV_ENV_USER:-}
       DEV_ENV_PASS: ${DEV_ENV_PASS:-}
+      # `opencode serve` ignores a watched repo's own opencode.json/.opencode (they could re-grant a shell or run a
+      # plugin). Only the baseline experiment needs them: set exactly "true" for that run, never in production.
+      AGENT_ALLOW_PROJECT_CONFIG: ${AGENT_ALLOW_PROJECT_CONFIG:-}
     volumes:
       - ./agents:/root/.config/opencode:ro # opencode.json + agents + AGENTS.md + skills (read-only: agents must NOT rewrite their own prompts)
       - ./agent:/root/.config/agent:ro # provider-neutral prompts/skills for Codex and future OpenCode config

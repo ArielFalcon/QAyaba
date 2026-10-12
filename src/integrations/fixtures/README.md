@@ -36,6 +36,8 @@ them; the two about the directory were observed on the 1.16.2 capture of 2026-10
   `steps` key at all. The SDK type says `steps?: number`, so a `null` is the wire's, not the type's.
 - The directory is honoured. With a project-level `opencode.json` in the requested directory setting
   `qa-generator` to `maxSteps: 12`, `GET /agent?directory=<that directory>` returned `steps: 12` for it,
-  while another directory returned 50. That second response is not part of this fixture.
+  while another directory returned 50. That second response is not part of this fixture. The production server no longer reads a directory's own
+  configuration (`OPENCODE_DISABLE_PROJECT_CONFIG`, set by the supervisor), so there the directory only selects
+  which instance answers; the observation holds for a server started without it, as this recording's was.
 - A request with no `directory`, and one naming a directory that does not exist, both answer 200 with the
   default agent list.

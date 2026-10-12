@@ -320,6 +320,13 @@ threat-model header first) and a canary-before-promote hot-swap.
   environment and the Codex exec env (`CODEX_EXEC_ENV_PREFIX`, in the supervisor and `codex-strategy.ts`) does not
   forward them: the app login is the orchestrator's (`AuthSessionAdapter`) and the agent only gets the saved session.
   `DEV_ENV_*` (the DEV HTTP Basic gate) stays, for the baseline arm's Playwright config and a Codex shell.
+- **A watched repo cannot configure the agent.** OpenCode merges a session directory's `opencode.json` and
+  `.opencode/` (permission overrides, plugins that run code, MCP servers) over `agents/opencode.json`; a mirror is a
+  watched repo's working copy. The supervisor starts `opencode serve` with `OPENCODE_DISABLE_PROJECT_CONFIG=true`
+  (verified live: a hostile `opencode.json` raised `qa-generator` to `bash: allow` and a `.opencode/plugin` ran code
+  just by listing agents, both gone with the flag), and drops any Codex `[projects.*]` trust at boot, so a repo's
+  `.codex/config.toml` is never loaded. Only the baseline experiment opts back in (`AGENT_ALLOW_PROJECT_CONFIG=true`).
+  A repo's `AGENTS.md`/`CLAUDE.md` stay prompt text, the same trust class as the source the agent reads.
 - **What the agent writes or reports is untrusted input.** Orchestrator code that reads, lists
   or writes a path the agent can influence (a reported spec path, the manifest, the context
   map, files setup replaces, what a test run leaves) goes through the confined reader,

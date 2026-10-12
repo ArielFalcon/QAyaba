@@ -1022,7 +1022,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       const res = await client.app.agents({ directory: copyDir });
       if (res.error) throw new Error(`GET /agent failed: ${JSON.stringify(res.error)}`);
       const agent = (res.data ?? []).find((a) => a.name === BASELINE_AGENT);
-      if (!agent) throw new Error(`the server resolved no agent '${BASELINE_AGENT}' for ${copyDir}: its project config was not picked up`);
+      if (!agent) throw new Error(`the server resolved no agent '${BASELINE_AGENT}' for ${copyDir}: its project config was not picked up (the agents service ignores a directory's opencode.json unless it runs with AGENT_ALLOW_PROJECT_CONFIG=true, for this experiment only)`);
       return agent.permission as PermissionRule[];
     },
 

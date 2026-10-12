@@ -108,13 +108,23 @@ export function openCodeServerEnv(env = process.env, { warn = console.warn } = {
   return { ...env, OPENCODE_SERVER_PASSWORD: generatedServerPassword };
 }
 
+// OpenCode merges the opencode.json and .opencode/ (agents, plugins, MCP servers, permission overrides) of a
+// session's directory over its own configuration. A session directory is a watched repo's working copy, so
+// the server ignores project configuration altogether. The baseline experiment (scripts/baseline-agent.ts)
+// defines its agent in the copy's opencode.json and is the only reason to opt back in, with exactly
+// AGENT_ALLOW_PROJECT_CONFIG=true on the agents service, for every role of that container.
+function projectConfigEnv(env) {
+  const { OPENCODE_DISABLE_PROJECT_CONFIG: _ignored, ...rest } = env;
+  return env.AGENT_ALLOW_PROJECT_CONFIG === "true" ? rest : { ...rest, OPENCODE_DISABLE_PROJECT_CONFIG: "true" };
+}
+
 export function commandFor(provider, env = process.env) {
   // Only OpenCode is a managed long-lived process.
   if (provider === "opencode") {
     return {
       cmd: "opencode",
       args: ["serve", "--hostname", env.OPENCODE_SERVE_HOSTNAME || "0.0.0.0", "--port", "4096"],
-      env: openCodeServerEnv(env),
+      env: projectConfigEnv(openCodeServerEnv(env)),
     };
   }
   return undefined;
@@ -557,9 +567,11 @@ export function ensureCodexConfig(codexHome, env = process.env) {
     }
     blocks.push(current);
 
-    // Keep only non-mcp_servers blocks (discard any [mcp_servers.*] block).
+    // Keep only the blocks that are neither ours to regenerate ([mcp_servers.*]) nor a project trust
+    // ([projects.*]): codex loads a trusted project's own .codex/config.toml (MCP servers, hooks), and a
+    // mirror is a watched repo's working copy, so no project is ever trusted.
     const kept = blocks.filter(
-      (b) => b.header === null || !b.header.startsWith("[mcp_servers.")
+      (b) => b.header === null || !(b.header.startsWith("[mcp_servers.") || b.header.startsWith("[projects."))
     );
 
     // Reconstruct retained content.

@@ -128,3 +128,11 @@ test("the agents service holds no test-account credentials: the app login is the
     assert.ok(!/DEV_TEST_/.test(value), `SECURITY: services.agents.environment.${key} aliases a DEV_TEST_* variable`);
   }
 });
+
+test("the agents service does not read a watched repo's own OpenCode configuration unless an operator opts in", () => {
+  const agents = getService(loadCompose(), "agents");
+  assert.ok(agents, "missing `agents` service");
+  const optIn = envEntries(agents.environment).find(([key]) => key === "AGENT_ALLOW_PROJECT_CONFIG");
+  assert.ok(optIn, "the opt-in is declared so that an operator can set it, and its default is visible");
+  assert.match(optIn[1], /^\$\{AGENT_ALLOW_PROJECT_CONFIG:-\}$/, "it defaults to empty: never a literal 'true' in the compose file");
+});
