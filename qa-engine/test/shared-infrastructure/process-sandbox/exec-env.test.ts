@@ -152,3 +152,10 @@ test("the login profile's own account wins over the suite opt-in", () => {
   const env = buildExecEnv(input("login", { account: { user: "login-user", pass: "login-pass" }, suiteAccount: { user: "spec-user", pass: "spec-pass-1" } }));
   assert.equal(env.DEV_TEST_USER, "login-user");
 });
+
+test("no profile's child checks the package registry for a newer npm: a tool must not reach a host only to say a version is out", () => {
+  for (const profile of SANDBOX_PROFILES) {
+    assert.equal(buildExecEnv(input(profile)).npm_config_update_notifier, "false", profile);
+    assert.equal(buildExecEnv(input(profile, { base: { ...SECRETS, npm_config_update_notifier: "true" } })).npm_config_update_notifier, "false", `${profile} with the orchestrator's own setting`);
+  }
+});

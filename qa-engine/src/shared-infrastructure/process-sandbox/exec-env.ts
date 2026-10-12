@@ -74,6 +74,8 @@ export function buildExecEnv(input: ExecEnvInput): Record<string, string> {
       if (value !== undefined) raw[key] = value;
     }
   }
+  /* `npx` and `npm` ask the registry whether a newer npm exists. That is a host the child contacts for no reason of its own: it is refused (and listed as denied) under the egress filter, which would read as evidence against whatever the child was doing, and it is a call out on every spawn where the filter lets it through. */
+  raw.npm_config_update_notifier = "false";
   /* Kept as the base spells it so the sandbox rebase below can move paths under it onto the sandbox home. */
   raw.HOME = input.base.HOME ?? "";
   const tmp = join(input.workDir, "tmp");
