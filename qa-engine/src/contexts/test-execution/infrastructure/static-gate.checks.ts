@@ -6,6 +6,7 @@ import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
+import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import type { SandboxProfile } from "../../../shared-infrastructure/process-sandbox/exec-env.ts";
 import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
@@ -139,7 +140,8 @@ export function runCheck(
     child.stdout!.on("data", (d: string) => out.append(d));
     child.stderr!.on("data", (d: string) => out.append(d));
     child.on("error", (e) => settle({ ok: false, output: String(e), infra: true }));
-    child.on("close", (code) => settle({ ok: code === 0, output: out.text(), infra: code === null ? true : undefined }));
+    /* The check's output goes back to the agent as feedback: the run's secrets are taken out by value where it enters. */
+    child.on("close", (code) => settle({ ok: code === 0, output: redactByValue(out.text()), infra: code === null ? true : undefined }));
   });
 }
 

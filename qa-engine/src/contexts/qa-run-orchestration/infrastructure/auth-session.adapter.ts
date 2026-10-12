@@ -13,7 +13,7 @@ import { join, relative } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { ConfinedPathError, MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
-import { MAX_STORAGE_STATE_BYTES, activeRunSecretScope, registerSessionSecretsFromStorageState } from "../../../shared-infrastructure/run-secret-redaction.ts";
+import { MAX_STORAGE_STATE_BYTES, activeRunSecretScope, redactByValue, registerSessionSecretsFromStorageState } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
 import { AuthPreconditionError } from "../domain/auth-precondition.ts";
@@ -187,7 +187,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
     if (stock && req.phase === "pre-generate") {
       return { unauthored: true };
     }
-    const detail = result.logs.trim() || `exit ${result.exitCode}`;
+    const detail = redactByValue(result.logs.trim()) || `exit ${result.exitCode}`;
     throw new Error(`auth setup failed: ${detail.slice(0, 4000)}`);
   }
 

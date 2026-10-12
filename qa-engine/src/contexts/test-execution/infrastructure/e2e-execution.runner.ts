@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import type { QaCase, CaseStatus } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
+import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { parseAriaSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { BoundedLineReader } from "@kernel/process-sandbox/bounded-line-reader.ts";
@@ -317,6 +318,8 @@ export async function runE2E(
   }
 
   const qaCases = parsed.cases as QaCase[];
+  /* A spec can print the account's password into an assertion message, and a page can echo it into the DOM the fixture dumped: what a child reported has the run's secrets taken out by value where it enters, before anything stores or forwards a case. */
+  for (const c of qaCases) redactCaseByValue(c);
 
   return {
     sha: opts.namespace,
@@ -331,6 +334,14 @@ export async function runE2E(
       try { rmSync(failureCaptureDir, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
   }
+}
+
+function redactCaseByValue(c: QaCase): void {
+  c.name = redactByValue(c.name);
+  if (c.detail !== undefined) c.detail = redactByValue(c.detail);
+  if (c.failureDom !== undefined) c.failureDom = redactByValue(c.failureDom);
+  if (c.finalUrl !== undefined) c.finalUrl = redactByValue(c.finalUrl);
+  if (c.runtimeErrors !== undefined) c.runtimeErrors = c.runtimeErrors.map((e) => ({ type: e.type, text: redactByValue(e.text) }));
 }
 
 const TITLE_SEP = " › ";

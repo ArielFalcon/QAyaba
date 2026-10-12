@@ -12,6 +12,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SandboxedBinaryRunner } from "../../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+import { redactByValue } from "../../../../shared-infrastructure/run-secret-redaction.ts";
 import { FORM_STATE, scrubSecrets, type LoginEvidence } from "../../domain/helpers/login-evidence.ts";
 import { CHILD_DEADLINE_MS, SUBMITTED_MARKER, buildLoginDiscoveryScript } from "./login-discovery.script.ts";
 
@@ -102,7 +103,7 @@ export function createDiscoverLogin(deps: LoginDiscoveryRunnerDeps): (input: Log
     if (signal?.aborted) return { crashed: true, attempted: false };
     const secrets = [input.env.DEV_TEST_USER, input.env.DEV_TEST_PASS].filter((secret): secret is string => secret !== undefined && secret !== "");
     /* Everything the child says about itself is untrusted text: the account comes out by exact value before it is logged. */
-    const report = (what: string, text: string): void => log(`[qa] login discovery ${what}: ${scrubSecrets(text, secrets).slice(0, LOGGED_TEXT_MAX)}`);
+    const report = (what: string, text: string): void => log(`[qa] login discovery ${what}: ${redactByValue(scrubSecrets(text, secrets)).slice(0, LOGGED_TEXT_MAX)}`);
     const work = deps.writeScript ? undefined : mkdtempSync(join(tmpdir(), "qa-login-"));
     try {
       const source = buildLoginDiscoveryScript(join(input.specDir, "node_modules", "playwright"));
