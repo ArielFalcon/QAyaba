@@ -150,7 +150,7 @@ export class AgentBrowserUseCase {
 
     capability.recordBlocks(state.blocked.length);
     const lost = detectInvalidation(
-      { url: state.url, requestedPath: state.requestedPath, passwordFieldVisible: state.passwordFieldVisible, ...(state.documentStatus !== undefined ? { documentStatus: state.documentStatus } : {}) },
+      { url: state.url, requestedPath: state.requestedPath, viaNavigation: action.kind === "navigate", passwordFieldVisible: state.passwordFieldVisible, ...(state.documentStatus !== undefined ? { documentStatus: state.documentStatus } : {}) },
       { ...(this.deps.loginPath !== undefined ? { loginPath: this.deps.loginPath } : {}) },
     );
     if (lost) return this.invalidated(lost.detail, signal);

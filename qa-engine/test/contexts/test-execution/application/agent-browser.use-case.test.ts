@@ -282,6 +282,19 @@ test("a session the app dropped is reported as invalidated, the auth port is ask
   assert.equal(capability.signal.renewals, 1);
 });
 
+test("pages that merely look like a login, or ask for a password after a click, do not cost the run a renewal and its siblings their pages", async () => {
+  const host = new FakeHost();
+  let renewals = 0;
+  const { useCase, capability } = setup({ host, renew: async () => { renewals += 1; return true; } });
+  host.next = () => page({ url: `${BASE}/auth/callback`, requestedPath: "/auth/callback" });
+  assert.equal((await useCase.call(nav("/auth/callback"))).ok, true, "a page the agent asked for");
+  host.next = () => page({ url: `${BASE}/settings/security`, requestedPath: "/settings", passwordFieldVisible: true });
+  assert.equal((await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "click", ref: "e3" })).ok, true, "a page a click led to");
+  assert.equal(renewals, 0);
+  assert.equal(host.resets, 0);
+  assert.equal(capability.signal.invalidations, 0);
+});
+
 test("a session that cannot be renewed says so, and after the allowed renewals no more are attempted", async () => {
   const host = new FakeHost();
   host.next = () => page({ documentStatus: 401 });

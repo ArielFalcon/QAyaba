@@ -73,6 +73,8 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
   private context: PwContext | undefined;
   private building: Promise<PwContext> | undefined;
   private readonly entries = new Map<string, PageEntry>();
+  /* Sessions that had a page a reset or a crash took away: their next page is new, and they are told. */
+  private readonly lostPages = new Set<string>();
   private readonly byPage = new WeakMap<PwPage, PageEntry>();
   /* Blocks and notes no page could be told of (a request of a page that is gone, a tab closed on its own). */
   private readonly loose: { blocked: BlockedRequest[]; notes: string[] } = { blocked: [], notes: [] };
@@ -130,12 +132,12 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     this.context = undefined;
     this.building = undefined;
     this.epoch += 1;
-    for (const entry of this.entries.values()) this.byPage.delete(entry.page);
-    this.entries.clear();
+    this.forgetPages();
     if (context) await context.close().catch(() => undefined);
   }
 
   async release(sessionId: string): Promise<void> {
+    this.lostPages.delete(sessionId);
     const entry = this.entries.get(sessionId);
     if (!entry) return;
     this.entries.delete(sessionId);
@@ -152,6 +154,15 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     if (launched) await this.stop(launched);
   }
 
+  /* Every page goes with its context. A reset on one session's account of the login renews the session for all of them, so the sessions that had a page are remembered, to be told when they get a new one. */
+  private forgetPages(): void {
+    for (const [sessionId, entry] of this.entries) {
+      this.byPage.delete(entry.page);
+      this.lostPages.add(sessionId);
+    }
+    this.entries.clear();
+  }
+
   /* Stops a browser and its process; never throws. */
   private async stop(launched: LaunchedBrowser): Promise<void> {
     await launched.browser.close().catch(() => undefined);
@@ -165,8 +176,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     this.epoch += 1;
     this.context = undefined;
     this.building = undefined;
-    for (const entry of this.entries.values()) this.byPage.delete(entry.page);
-    this.entries.clear();
+    this.forgetPages();
     console.error("[qa] the agent browser disconnected; the next call starts a new one");
     await this.stop(launched);
   }
@@ -267,6 +277,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
       void dialog.dismiss().catch(() => undefined);
       entry.notes.push("a dialog the page raised was dismissed");
     });
+    if (this.lostPages.delete(sessionId)) entry.notes.push("the browser was restarted (the saved session was renewed, or the browser stopped), so this is a new page: navigate to the address you need and take refs from a fresh snapshot");
     this.byPage.set(page, entry);
     this.entries.set(sessionId, entry);
     return entry;

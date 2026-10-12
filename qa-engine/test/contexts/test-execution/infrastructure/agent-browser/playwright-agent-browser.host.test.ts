@@ -462,3 +462,24 @@ test("a crash that comes after the host was closed starts nothing", async () => 
   assert.equal(counts().launches, 1);
   assert.equal(counts().disposed, 1, "the close already stopped it, and the crash does not stop it again");
 });
+
+test("a session whose page a reset took away is told its page is new, and a session that never had one is told nothing", async () => {
+  const { host, call } = setup();
+  await call("s1", { kind: "navigate", url: `${BASE}/orders` });
+  await call("s2", { kind: "navigate", url: `${BASE}/cart` });
+  await host.reset();
+  const again = await call("s2", { kind: "snapshot" });
+  assert.ok(again.notes.some((n) => /new page|restarted/.test(n)), "the agent is told its refs are gone");
+  const first = await call("s3", { kind: "snapshot" });
+  assert.deepEqual(first.notes, []);
+  const next = await call("s2", { kind: "snapshot" });
+  assert.deepEqual(next.notes, [], "and told once");
+});
+
+test("a session whose page a crashed browser took away is told its page is new", async () => {
+  const { browsers, call } = setup();
+  await call("s1", { kind: "navigate", url: `${BASE}/orders` });
+  browsers[0]!.crash();
+  const again = await call("s1", { kind: "snapshot" });
+  assert.ok(again.notes.some((n) => /new page|restarted/.test(n)));
+});
