@@ -192,7 +192,7 @@ origin are never requested, no service worker registers, no process outlives the
 are offered to the two authoring roles alone, reach the endpoint with the real session id, agent name and token, and a per-prompt tools map can hide them. Re-run both after a pin bump.
 
 Known limits: the page content the agent reads (account data among it) goes to the model provider, as it does through the plain Playwright MCP; a page can still obtain a pristine `ServiceWorkerContainer` from a fresh frame, in which case a worker's own requests
-are held by the egress filter and the session's rights, not by the route guard; a sidekick holds the tools, but its prompt does not describe them (an app with a login keeps the lead, so none runs where the browser exists).
+are held by the egress filter and the session's rights, not by the route guard; a sidekick holds the tools when the lead/sidekick mode grants them to its flow (a per-flow share of the run's caps), and a sidekick without a grant has them denied per prompt (`docs/lead-sidekicks.md`).
 
 ### The answer of a tool is a channel
 

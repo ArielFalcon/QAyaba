@@ -195,6 +195,26 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   a boot sweep ends a browser a previous process left. A prompt of an authoring session the run did not grant hides the tools
   (a per-prompt `tools` map, `openCodePromptBody`). The `Authenticated browser budget` prompt section (facts only) exists only
   when granted; Codex is never granted it (a custom tool is OpenCode's).
+- **Lead and sidekicks (`qa.coordination`)** — `mode: single` (default) is the lead authoring the change alone, exactly the call
+  sequence a run without this mode makes; `mode: lead-sidekicks` (the app's `qa.coordination`, or a run's own choice: `--coordination
+  single|lead-sidekicks`, `coordinationMode` on `POST /api/v1/runs`, the campaign's `--coordination`; the run's choice wins and is recorded
+  in the probe report) has the lead return a **plan** instead of specs (`GenerationPort.plan`, a read-only turn, `plan` in the generator's
+  verdict) and each flow authored by a sidekick in parallel. The plan is untrusted: `admitLeadPlan` keeps only what its shape and the
+  run's limits allow (`maxFlows`, a deterministic spec path `e2e/flows/<slug>.spec.ts` per flow, the lead's own write lists ignored) and
+  downgrades to `single` with a recorded reason otherwise. Each sidekick works in a plain bounded copy of what the run may read
+  (`<mirrors>/.qa-delegations/<run>/<delegation>`, `DelegationWorkspacePort`); only the files its brief names (`writablePaths`) are taken
+  back, through `spec-path-confinement`, and anything else it changed is listed as a proposal and never applied. A pool of at most
+  `maxParallel` flows runs under `FanOutDispatcher` (a signal and a time per flow, a throwing flow isolated); each flow closes its own
+  `run_spec` loop (`ClosedLoopHandle.openFlow`, the same `AccountLock` lease, its own caps and namespace) and, with a login, reads DEV
+  through the orchestrator's authenticated browser with a share of the run's caps. What a sidekick may author with is
+  `sidekickAuthoring`: authenticated browser, `run_spec` only, the plain browser for an app with no login (one flow at a time), or
+  excluded (a Codex sidekick, or a login with neither grant): the lead then authors alone and the log says why. A flow climbs the
+  escalation ladder (a second attempt, then the lead takes it back) on what the orchestrator saw of its `run_spec` calls, never on the
+  sidekick's word. Flows that deliver are added up like a generation (`aggregateFlowOutcomes`), and the rest of the run (validate,
+  execute, coverage, review, decide) is unchanged. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
+  whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
+  Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { mode, plan, downgrade, flows, delivered,
+  incomplete, takeover, authoring }`. `docs/lead-sidekicks.md`.
 - **Step limit and milestone** — the generator, explorer and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the legacy `maxSteps` mapped into it; `stepLimits`
@@ -238,7 +258,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   a note naming the budget and the turn, nothing published and nothing learned. Deterministic phases
   (validation, a Playwright execution) are not cut: they have their own timeouts and the next agent turn
   meets the deadline. This is separate from `WallClockBudget` (`wallClockBudgetMs`), which only decides,
-  before a fix-loop regeneration, whether the coordination router escalates or aborts; it never stops a
+  before a fix-loop regeneration, whether another agent turn may start; it never stops a
   turn. An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
   (`observesOperatingSignal`), which logs an observe-only `recurring-time-exhaustion` finding; it never
   folds, reflects, opens a maintainer incident or changes a rule.
