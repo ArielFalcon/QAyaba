@@ -469,7 +469,7 @@ export function stallMs(): number {
  * names and not patterns.
  */
 export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
-  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
+  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
 );
 
 /** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; every other prompt leaves the tools to its agent's configuration. */

@@ -46,6 +46,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
+import { AGENT_BROWSER_TOOLS } from "../../qa-engine/src/shared-kernel/agent-browser";
+import { AGENT_BROWSER_AGENTS } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-capability";
+import { NO_TOOLS } from "./opencode-client";
 import type { AgentRole } from "../agent-runtime/types";
 
 /* The ONLY MCP servers the agents may reach. None of these runs the orchestrator's
@@ -219,7 +222,7 @@ const BUILTIN_TOOL_KEYS = new Set([
 ]);
 
 /* Tools the repo ships itself (agents/tool/*.ts) rather than OpenCode or an MCP server: run_spec lets the generator ask the orchestrator to run a spec it wrote. */
-const CUSTOM_TOOL_KEYS = new Set(["run_spec"]);
+const CUSTOM_TOOL_KEYS = new Set<string>(["run_spec", ...AGENT_BROWSER_TOOLS]);
 
 function loadRawConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(process.cwd(), "agents", "opencode.json"), "utf8")) as Record<string, unknown>;
@@ -929,4 +932,38 @@ test("the run_spec tool file exists and its package is installed in the agents i
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "run_spec.ts")), "the tool file the config enables exists");
   const dockerfile = readFileSync(join(process.cwd(), "agents", "Dockerfile"), "utf8");
   assert.match(dockerfile, /npm ci/, "the tool's package is installed in the image, not taken from a host folder");
+});
+
+/* Whether a tools-map key switches the named tool: the exact name, or a wildcard whose prefix the name starts with. */
+function keyCovers(key: string, name: string): boolean {
+  return key === name || (key.endsWith("*") && name.startsWith(key.slice(0, -1)));
+}
+
+test("the authenticated browser tools are off for every agent by the global tools map and on for the authoring roles alone", () => {
+  const raw = loadRawConfig();
+  const globalTools = (raw.tools ?? {}) as Record<string, unknown>;
+  for (const tool of AGENT_BROWSER_TOOLS) assert.equal(globalTools[tool], false, `the global default switches ${tool} off`);
+
+  const { agents } = loadAgentConfig();
+  const authoring = [...AGENT_BROWSER_AGENTS].sort();
+  const on = Object.entries(agents)
+    .filter(([, agent]) => AGENT_BROWSER_TOOLS.every((tool) => agentTools(agent)[tool] === true))
+    .map(([name]) => name)
+    .sort();
+  assert.deepEqual(on, authoring, "all four tools are on for the authoring roles and for no other agent");
+  for (const [name, agent] of Object.entries(agents)) {
+    if (AGENT_BROWSER_AGENTS.has(name)) continue;
+    for (const [key, value] of Object.entries(agentTools(agent))) {
+      for (const tool of AGENT_BROWSER_TOOLS) assert.ok(!(value === true && keyCovers(key, tool)), `${name} must not enable ${tool} (via "${key}")`);
+    }
+  }
+});
+
+test("a prompt that asks for no tool at all denies the browser tools too", () => {
+  for (const tool of AGENT_BROWSER_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["authbrowser*"] === false, true, tool);
+});
+
+test("the browser tool file exists, where the tools directory of the config puts it", () => {
+  assert.ok(existsSync(join(process.cwd(), "agents", "tool", "authbrowser.ts")), "the file whose exports are the four tools exists");
+  assert.ok(existsSync(join(process.cwd(), "agents", "lib", "authbrowser-client.mjs")), "and so does the client it calls through");
 });

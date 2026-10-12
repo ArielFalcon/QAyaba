@@ -15,9 +15,9 @@ export const DEFAULT_HOST = "orchestrator";
 // refusal included, is what the model reads, not a timeout of this client.
 export const CLIENT_TIMEOUT_MS = 12 * 60 * 1000;
 
-export function endpointOf(env) {
+export function endpointOf(env, path = "/internal/run-spec") {
   const base = (env[URL_ENV] ?? "").trim() || `http://${DEFAULT_HOST}:${(env[PORT_ENV] ?? "").trim() || DEFAULT_PORT}`;
-  return `${base.replace(/\/+$/, "")}/internal/run-spec`;
+  return `${base.replace(/\/+$/, "")}${path}`;
 }
 
 function asText(body) {

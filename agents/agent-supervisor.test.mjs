@@ -346,3 +346,14 @@ test("ensureCodexConfig forgets any project trust, so a repo's own .codex config
   assert.ok(!content.includes("trust_level"), "a trusted project would load its .codex/config.toml (MCP servers, hooks)");
   assert.ok(content.includes("[auth]"), "the rest of the file is preserved");
 });
+
+// ─── the authenticated browser is served by the orchestrator and is not an MCP server of the Codex config ───
+// A Codex role cannot call a custom tool and must never be handed a browser that holds a session: the config the supervisor
+// writes for every Codex role names no such server, and no tool of the authenticated browser.
+test("ensureCodexConfig: the Codex config holds nothing of the authenticated browser", () => {
+  const codexHome = mkdtempSync(join(tmpdir(), "codex-authbrowser-"));
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+  const content = readFileSync(join(codexHome, "config.toml"), "utf8");
+  assert.doesNotMatch(content, /authbrowser/i);
+  assert.doesNotMatch(content, /QA_TOOLS/);
+});

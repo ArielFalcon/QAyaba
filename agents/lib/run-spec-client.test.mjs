@@ -70,3 +70,7 @@ test("the runtime's own abort stops the wait", async () => {
   const out = JSON.parse(await pending);
   assert.equal(out.code, "unreachable");
 });
+
+test("the endpoint of another tool differs by its path alone", () => {
+  assert.equal(endpointOf({ QA_TOOLS_PORT: "4590" }, "/internal/authbrowser"), "http://orchestrator:4590/internal/authbrowser");
+});
