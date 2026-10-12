@@ -123,10 +123,33 @@ are gone, the rules could not be applied) and the mode is `enforce`, a run that 
 `/api/health` answers 200 with `sandbox.degraded: true` and the reason. With `warn` the child runs with the container's full
 network and the run records `gateSignals.sandbox.egress = "unenforced"`.
 
+## The `run_spec` tool
+
+With `qa.closedLoop.enabled` (or a run's own choice) the OpenCode generator may execute a spec it wrote while it authors. The agent never runs code: the tool
+(`agents/tool/run_spec.ts`) sends the session id and agent name the runtime reports, the spec's path and a title fragment to the orchestrator, which decides, runs and answers.
+
+| Boundary | How |
+|---|---|
+| Who may call | only a session the agent transport bound to the generator of a live run (`ClosedLoopRegistry`); `"run_spec": false` for every other agent in `agents/opencode.json`; a Codex role has no such tool |
+| Transport | `POST /internal/run-spec` on a second listener (`QA_TOOLS_PORT`, default 459) that compose does **not** publish, behind `QA_TOOLS_TOKEN` (the same value on both services; unset, each side generates its own and every call is refused with a message naming the variable). The sandbox uid cannot reach it: its loopback ports and every undeclared address are rejected by the egress chain |
+| What runs | one `*.spec.ts` of the suite (never `auth.setup.ts`, never outside `e2e/`), read with the strict reader, importing its `test` from the suite's fixtures; the `suite` profile, `retries 0`, a fresh session copy, `PW_NAMESPACE=<runId>-rs<n>`, the grep escaped, then the cleanup pass of that namespace; one call at a time per run, and one holder at a time per test account (`AccountLock`) |
+| Caps | calls, seconds per call (also bounded by what the run deadline has left), mutating requests to DEV; counted by the orchestrator, from the capture block's per-test ledger in `fixtures.ts` (browser requests and the `request` fixture, `page.request`, `context.request`) |
+| What comes back | status, per test the title, status, error (2 KB), final page address (no query) and its accessibility tree (8 KB), the budget left; every text passes the run's by-value redaction and the pattern redaction; never raw process output |
+| Session lost | a failed call that ends on the login page renews the saved session once and says so |
+| Probes | scratch specs under `e2e/.qa-probe/` are swept after every generation and when the run ends, and are never delivered, stored or validated |
+
+In the agents image the tool's package is installed in `/root/node_modules` (the config directory is a read-only bind mount of `./agents`). `node agents/smoke/run-spec-tool.smoke.mjs`
+(run in the built agents image, see its header) proves on the pinned OpenCode build that the tool loads from the global config with project configuration disabled, is allowed for `qa-generator` alone, and is called with the real
+session id, agent name and token.
+
+Known limits: writes sent by a spec through Node's own `fetch` or a `playwright.request.newContext()` are not counted (the call cap and the egress filter still bound them); a spec that fails to
+leave DEV data the fixtures' `cleanup()` should have undone is covered by the namespace cleanup pass only if the app's `cleanup.spec.ts` handles that namespace.
+
 ## What a run records
 
 `gateSignals.sandbox = { egress: "enforced" | "unenforced" | "not-applicable", denied: string[] }`, persisted with the outcome.
-It is observation only: nothing reads it to decide a verdict.
+It is observation only: nothing reads it to decide a verdict. A run that granted the `run_spec` tool also records
+`gateSignals.closedLoop = { calls, devWrites, closed }`; there `closed` is read back by the run to skip regenerations that repeat what the generator already saw pass.
 
 ## Operating it
 

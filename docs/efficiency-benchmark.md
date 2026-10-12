@@ -405,8 +405,12 @@ Three things make a single run of each arm a poor comparison, and the campaign r
 # once: the warm snapshot (see Warm start), with QA_CAMPAIGN_FREEZE=1 on the orchestrator
 cp config/benchmarks/campaign-cases.example.json config/benchmarks/campaign-cases.json   # gitignored: it names real commits
 docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> --dry-run
-docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> [--arms A,B] [--wall-cap-min 30]
+docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> [--arms A,B] [--wall-cap-min 30] [--closed-loop on|off]
 ```
+
+`--arms` takes `A` (the plain agent), `A'` (the plain agent whose delivery is judged by the pipeline's acceptance) and `B` (the pipeline); the default stays `A,B`.
+`--closed-loop on|off` is the pipeline arm's own choice about the `run_spec` loop (see [The closed loop](#the-closed-loop-run_spec-ab)); a cross-repo case enters through
+the webhook, which cannot carry it, so the app's `qa.closedLoop` decides there.
 
 The cases file is validated whole before anything runs (an unknown key is an error):
 
@@ -429,6 +433,7 @@ login before every arm-run of the case, because a case that writes data (an addr
 | Before each arm-run | wait for an idle queue (up to 5 min; then the campaign stops, keeping what finished), run the case's cleanup, seed the warm snapshot into the app's suite store (`warm-suite seed-store`; the pipeline restores it after its checkout, the plain agent applies it to its own copy) |
 | Arm B | `diff`: `POST /api/v1/runs` with `shadow: true` (always). `cross-repo`: the webhook, signed with `WEBHOOK_SECRET` when set; a webhook cannot ask for shadow, so the app must be in shadow mode. The run is found by the app and the trigger repo, waited for, and read with `probe-report`'s collector right after it ends. If other apps declare the same service the webhook starts their runs too: the campaign waits for the queue before its next step |
 | Arm A | `baseline-agent` in-process, with `--warm`, `--timeout-min` = the wall cap and `--keep-specs <campaign>/<case>/A-<n>/files` (it copies every file it added or changed in `e2e/` since the snapshot before its throwaway copy is removed; it needs `--warm`) |
+| Arm A' | the same agent as A, started with `--accept` (and `--accept-review` when the app has `qa.needsReview`): its own two runs are replaced by the pipeline's acceptance ([Arm A'](#arm-a-the-plain-agent-judged-by-the-pipelines-acceptance)). Its label and directory use `Ap` for `A'` (`<case>/Ap-<n>/`) |
 | Wall cap | `--wall-cap-min` (default 30) for each arm-run. B is cancelled with `DELETE /api/v1/runs/<id>` when it outlives the cap (the replicate is flagged invalid); A's cap is the agent session, as `--timeout-min` is (its setup and its own suite runs are outside it, B's cap covers the whole run, so A may exceed it by those) |
 | Refusals before anything runs | app not in shadow mode (unless `--allow-non-shadow`); for arm B, `QA_CAMPAIGN_FREEZE` not on in this process (unless `--skip-env-checks`, for a server started with it by another route); snapshot not warm; a cleanup spec the snapshot lacks; a service the app does not declare; for arm A, a commit missing from the mirrors (the plain agent never fetches: run the pipeline arm once on the case first, `--arms B --replicas 1`); a campaign label that exists |
 | Dry run | `--dry-run` runs all of those checks and prints the plan; it starts no run |
@@ -447,13 +452,35 @@ A replicate is flagged **invalid** (and left out of the summary) when the enviro
 cleanup failed, the run was lost, an infra-error the arm did not cause (`E-NO-DECISION`, `E-STEP-BUDGET` and `E-TIME-BUDGET` are the arm's own
 results), or the re-run could not execute against DEV.
 
+### Arm A': the plain agent, judged by the pipeline's acceptance
+
+Arm A calls any spec that passed its own two runs a pass, while the pipeline keeps a suite only when it was validated, executed, measured and reviewed. A' asks the plain
+agent's delivery the same questions (`qa-engine/.../application/accept-delivered-specs.use-case.ts`, composed over the pipeline's own parts by `buildAcceptanceHarness`):
+
+1. the static gate (`tsc`, ESLint, `playwright --list`), failing → `invalid` (`E-STATIC`), nothing executed;
+2. the delivered specs executed **twice with `retries: 0`** through the sandbox (`pass` only when both pass, one of each is `flaky`, a run that could not execute is `infra-error`);
+3. change-coverage under the app's policy (value oracle off), only when green;
+4. with `--accept-review` (the campaign passes it when the app has `qa.needsReview`), the independent reviewer: approved with no blocking correction, a reviewer that could not be reached is no approval;
+5. the same `decide()` and `isAccepted()` the pipeline publishes by (shadow ignored for `isAccepted`: flaky is never accepted).
+
+The result is `detail.acceptance` of the arm's probe report (`validate`, `runs[]`, `coverage`, `reviewer`, `decision`, `accepted`), and the report's `verdict` and runs are the acceptance's.
+`baseline-agent --accept` works alone, outside a campaign. The reviewer runs on the host's OpenCode sessions whatever the generator's runtime is.
+
+### The closed loop (`run_spec`): A/B
+
+`qa.closedLoop.enabled` (or `--closed-loop on` of the campaign / `npm run qa`, or `closedLoop: true` on `POST /api/v1/runs`) lets the OpenCode generator execute a spec it wrote
+while it authors (`docs/execution-sandbox.md`, "The run_spec tool"). It ships **off**: the A/B is two campaigns that differ only in `--closed-loop on` and `--closed-loop off`
+(`--arms B`, same cases, same warm snapshot). Read `gateSignals.closedLoop { calls, devWrites, closed }` in each pipeline arm's probe report (`closedLoop` field): `closed` is whether every delivered spec was
+seen passing in its final bytes, which is what skips the static-fix rounds, the pre-exec corrective regeneration and the fix loop's regeneration. Compare cost, wall time, steps and the rubric score of the valid
+replicates; the loop adds DEV load (calls and writes are capped per run: `maxCalls` 8, `perCallMs` 120000, `maxDevWrites` 20 by default).
+
 ### Validity
 
 After each arm-run the harness takes the files the arm delivered and judges them itself:
 
 1. **Delivered.** B: the files that differ from the seeded snapshot in the app's mirror (the run restored it from the suite store), and only when the run's verdict is `pass` or `flaky`, the reviewer did not reject it and
    the app's change-coverage policy does not block it (never those of an `invalid`, `fail`, reviewer-rejected, coverage-blocked or cut run; those are kept under `rejected/`). A: everything the agent added or changed (it has no acceptance gate; its own verdict is
-   recorded as it was). `.qa/` (the pipeline's state) is not part of the set.
+   recorded as it was). A': the same files, but only when the acceptance accepted them (otherwise they are kept under `rejected/`, like B's). `.qa/` (the pipeline's state) is not part of the set.
 2. **Fake-pass detector** (`scripts/fake-pass-detector.ts`, pure, the same for both arms). A spec is flagged when its name looks like a probe
    (`_explore`, `_register`, `tmp`, `scratch`, `probe`, `playground`, as a whole word of a path segment or a leading underscore), when the file
    defines no test, when a test body is empty, when an `expect` is on a literal (`expect(true)`, `expect(1 + 1).toBe(2)`) or compares a value with

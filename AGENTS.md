@@ -113,7 +113,9 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
    reviewer judges. Declared `noop` + zero specs → `skipped`. Zero specs without `noop`
    → `infra-error E-NO-DECISION`; step budget exhausted → `infra-error E-STEP-BUDGET`; a diff run's
    first pass stopped by its tier's time budget, or any agent turn of the run stopped by the run's
-   wall-clock deadline (below) → `infra-error E-TIME-BUDGET`.
+   wall-clock deadline (below) → `infra-error E-TIME-BUDGET`. With the closed loop on (below) the generator may also
+   execute a spec it wrote while it authors; a run whose every delivered spec was seen passing in its final bytes
+   skips the static-fix rounds, the pre-exec corrective regeneration and the fix loop's regeneration.
 6. **Validate** — `tsc` + ESLint (`eslint-plugin-playwright`) + `playwright --list` +
    manifest. Fail → `invalid`.
 7. **Execute** — Playwright against DEV → `pass`/`fail`/`flaky` (pass only on retry =
@@ -163,6 +165,19 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   are counted (`preExecAmbiguityCatches`) and logged as a warning, never fold the verdict, request a
   regeneration or feed the FixLoop; execution decides. Only the catalog gate's fabricated test-ids
   (a captured, settled route) feed the one-shot corrective regeneration.
+- **Closed loop (`run_spec`)** — off unless `qa.closedLoop.enabled` (or a run asks: `--closed-loop on|off`, `closedLoop` on
+  `POST /api/v1/runs`). The OpenCode generator gets one custom tool, `agents/tool/run_spec.ts`, that POSTs its session id and
+  agent name to the orchestrator's internal listener (`src/server/tools-endpoint.ts`, `QA_TOOLS_PORT`, not published, behind
+  `QA_TOOLS_TOKEN`); the orchestrator runs the spec once (sandbox profile `suite`, retries 0, a fresh session copy, namespace
+  `<runId>-rs<n>`, a cleanup pass after every call, per-account lock) and answers with a bounded, redacted report, never raw
+  output. The capability (`test-execution/domain/run-spec-capability.ts`) is the orchestrator's, bound to the generator
+  sessions the agent transport reports for the run (`ClosedLoopRegistry`): caps on calls, time per call (also bounded by the
+  run deadline) and DEV writes (counted by the capture block's ledger in `fixtures.ts`, a spec must import its `test` from
+  there), a ledger of every call's sha256, revoked when the run ends. Scratch specs live in `e2e/.qa-probe/` and are swept
+  after every generation: never delivered, stored or validated. When `loopClosed` (every delivered spec's current bytes are those
+  whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /
+  `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single enforce-mode coverage regeneration are unchanged. The `Run spec budget` prompt
+  section (facts only) exists only when granted; Codex is never granted it. `gateSignals.closedLoop { calls, devWrites, closed }`.
 - **Step limit and milestone** — the generator, explorer and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the legacy `maxSteps` mapped into it; `stepLimits`
@@ -337,6 +352,11 @@ threat-model header first) and a canary-before-promote hot-swap.
   just by listing agents, both gone with the flag), and drops any Codex `[projects.*]` trust at boot, so a repo's
   `.codex/config.toml` is never loaded. Only the baseline experiment opts back in (`AGENT_ALLOW_PROJECT_CONFIG=true`).
   A repo's `AGENTS.md`/`CLAUDE.md` stay prompt text, the same trust class as the source the agent reads.
+- **`run_spec` does not give the agent a way to run code.** The agent asks; the orchestrator, which owns every limit, runs a
+  spec file the agent wrote in the sandbox. A call is served only for a session the transport bound to the generator of a live
+  run, behind a service token on an unpublished port the sandbox uid cannot reach; the path is confined to `*.spec.ts` of the
+  suite (never `auth.setup.ts`, never outside `e2e/`), read with the strict reader, and answered without raw process output.
+  Never widen the tool to another agent, a Codex role, a free-form command or a path outside the spec directory.
 - **Agent-influenced code runs only through the execution launcher**
   (`qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
   Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts, the DOM capture, a code-mode
@@ -387,6 +407,8 @@ threat-model header first) and a canary-before-promote hot-swap.
   git) are the deliberately uncovered boundaries; each exports `*Deps` + `default*Deps`.
   Follow that pattern for new side-effecting code.
 - **No build step** — `tsx` is a devDependency; install ALL deps in Docker.
+- **When the OpenCode pin or `@opencode-ai/plugin` moves**, re-run `agents/smoke/run-spec-tool.smoke.mjs` in the new image
+  (the plugin's `ToolContext` is the one thing the tool depends on) next to re-recording the agent-list fixture.
 - **Pin exact versions on the execution path** — Playwright `1.60.0` matches the
   `playwright:v1.60.0-noble` image. Never use `^`. The OpenCode build is pinned in
   `agents/Dockerfile`: when the pin moves, re-record

@@ -356,6 +356,19 @@ report:
   onFailure: "github-issue"
 ```
 
+**Optional: let the generator run its specs while it writes them** (`run_spec`, OpenCode only; off by default):
+
+```yaml
+qa:
+  closedLoop:
+    enabled: true
+    maxCalls: 8            # run_spec calls per run
+    perCallMs: 120000      # the longest one call may run
+    maxDevWrites: 20       # POST/PUT/PATCH/DELETE requests the executed specs may send to DEV in all
+```
+
+The agents and orchestrator services need the same `QA_TOOLS_TOKEN` (and `QA_TOOLS_PORT`, default 459, which compose does not publish). A run can choose for itself with `npm run qa -- ... --closed-loop on|off`. How it works and what bounds it: [docs/execution-sandbox.md](docs/execution-sandbox.md#the-run_spec-tool).
+
 **Declare every origin the app's pages load from.** The agent-written specs run in an execution sandbox whose network is closed by default: they can reach `dev.baseUrl`'s own origin and nothing else. An app whose pages load an identity provider, an API host or a CDN lists them (an origin is `scheme://host[:port]`, or `scheme://*.suffix` for every subdomain of a suffix of at least two labels; no path, no credentials):
 
 ```yaml
