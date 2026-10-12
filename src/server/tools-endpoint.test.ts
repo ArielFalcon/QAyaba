@@ -6,9 +6,10 @@ import type { RunSpecRequest, RunSpecResponse } from "@contexts/test-execution/a
 import { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
 import { AgentBrowserCapability, type AgentBrowserRefusalCode } from "@contexts/test-execution/domain/agent-browser-capability";
 import type { AgentBrowserRequest, AgentBrowserResponse } from "@contexts/test-execution/application/agent-browser.use-case";
-import { AUTHBROWSER_PATH, DEFAULT_TOOLS_PORT, handleToolsRequest, resolveToolsPort, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
+import net from "node:net";
+import { AUTHBROWSER_PATH, DEFAULT_TOOLS_PORT, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsPort, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
 
-const TOKEN = "service-token-for-tests";
+const TOKEN = "service-token-for-tests-0123456789abcdef";
 
 function liveRegistry(call: (request: RunSpecRequest) => Promise<RunSpecResponse> = async () => ({ ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } })) {
   const registry = new ClosedLoopRegistry();
@@ -85,7 +86,8 @@ test("a fault inside the call is a 500 that says nothing about its cause", async
 
 test("the token is the configured one, or a random one for this boot that no caller can know", () => {
   const quiet: string[] = [];
-  assert.deepEqual(resolveToolsToken({ QA_TOOLS_TOKEN: " abc " }, { warn: (m) => void quiet.push(m) }), { token: "abc", generated: false });
+  const long = "t".repeat(MIN_TOOLS_TOKEN_CHARS);
+  assert.deepEqual(resolveToolsToken({ QA_TOOLS_TOKEN: ` ${long} ` }, { warn: (m) => void quiet.push(m) }), { token: long, generated: false });
   assert.equal(quiet.length, 0);
   const warnings: string[] = [];
   const first = resolveToolsToken({}, { warn: (m) => void warnings.push(m) });
@@ -197,4 +199,81 @@ test("a fault inside a browser call is a 500 that says nothing about its cause",
   const response = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "snapshot" }), liveBrowsers(async () => { throw new Error("secret path /app/data/x leaked"); }));
   assert.equal(response.status, 500);
   assert.doesNotMatch(JSON.stringify(response.body), /secret path/);
+});
+
+
+test("a configured token shorter than the minimum is not used: a random one stands in, no tool is granted, and the log says why", () => {
+  const warnings: string[] = [];
+  const short = resolveToolsToken({ QA_TOOLS_TOKEN: "t".repeat(MIN_TOOLS_TOKEN_CHARS - 1) }, { warn: (m) => void warnings.push(m) });
+  assert.equal(short.generated, true);
+  assert.ok(short.token.length >= MIN_TOOLS_TOKEN_CHARS);
+  assert.notEqual(short.token, "t".repeat(MIN_TOOLS_TOKEN_CHARS - 1));
+  assert.match(warnings.join("\n"), new RegExp(`at least ${MIN_TOOLS_TOKEN_CHARS}`));
+  assert.doesNotMatch(warnings.join("\n"), /ttttt/, "the log never quotes the token");
+});
+
+test("an endpoint built with a short token answers nothing: it fails closed instead of trusting a guessable secret", async () => {
+  const response = await handleToolsRequest(request({ authorization: "Bearer short" }), { token: "short", registry: liveRegistry() });
+  assert.equal(response.status, 503);
+  const sameToken = await handleToolsRequest(request(), { token: "short", registry: liveRegistry() });
+  assert.equal(sameToken.status, 503);
+});
+
+test("a session that calls too often is told to slow down, and other sessions are not affected", async () => {
+  let clock = 0;
+  const limiter = createToolsRateLimiter({ maxCallsPerWindow: 3, windowMs: 1000, now: () => clock });
+  const deps = { token: TOKEN, registry: liveRegistry(), limiter };
+  const call = (sessionID: string) => handleToolsRequest(request({ body: JSON.stringify({ sessionID, agent: "qa-generator", path: "flows/a.spec.ts" }) }), deps);
+  assert.deepEqual([await call("ses-1"), await call("ses-1"), await call("ses-1")].map((r) => r.status), [200, 200, 200]);
+  const limited = await call("ses-1");
+  assert.equal(limited.status, 429);
+  assert.equal((limited.body as { code: string }).code, "rate-limited");
+  assert.equal((await call("ses-other")).status, 403, "another session reaches the normal answer");
+  clock = 1001;
+  assert.equal((await call("ses-1")).status, 200, "the window has passed");
+});
+
+test("repeated calls with a wrong token from one address are slowed down too, and a right token from another address still works", async () => {
+  const limiter = createToolsRateLimiter({ maxCallsPerWindow: 100, maxFailuresPerWindow: 2, windowMs: 1000, now: () => 0 });
+  const deps = { token: TOKEN, registry: liveRegistry(), limiter };
+  const bad = (remote: string) => handleToolsRequest(request({ authorization: "Bearer wrong", remote }), deps);
+  assert.deepEqual([await bad("10.0.0.9"), await bad("10.0.0.9"), await bad("10.0.0.9")].map((r) => r.status), [401, 401, 429]);
+  assert.equal((await handleToolsRequest(request({ remote: "10.0.0.7" }), deps)).status, 200);
+});
+
+test("a request that stalls while its body is sent is cut off, and a body over the cap is refused", async () => {
+  const server = createToolsServer({ token: TOKEN, registry: liveRegistry(), bodyTimeoutMs: 150 });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as net.AddressInfo).port;
+  try {
+    const stalled = await new Promise<string>((resolve) => {
+      const socket = net.connect(port, "127.0.0.1", () => socket.write(`POST /internal/run-spec HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer ${TOKEN}\r\nContent-Length: 50\r\n\r\n{"sess`));
+      let data = "";
+      socket.on("data", (d) => { data += d.toString(); });
+      socket.on("close", () => resolve(data));
+      setTimeout(() => socket.destroy(), 3000);
+    });
+    assert.match(stalled, /^HTTP\/1\.1 (400|408)/, "answered or closed, never left waiting");
+  } finally {
+    server.close();
+    server.closeAllConnections();
+  }
+});
+
+test("the listener is bounded on headers and on the whole request, so a client cannot hold it open", () => {
+  const server = createToolsServer({ token: TOKEN, registry: liveRegistry() });
+  assert.ok(server.headersTimeout > 0 && server.headersTimeout <= 15_000);
+  assert.ok(server.requestTimeout > 0 && server.requestTimeout <= 30_000);
+  assert.ok(server.maxHeadersCount !== null && server.maxHeadersCount <= 50);
+  server.close();
+});
+
+test("the tools listener binds to the container's one network interface when LISTEN_HOST is a wildcard, and to an explicit QA_TOOLS_LISTEN_HOST always", () => {
+  const eth0 = { lo: [{ address: "127.0.0.1", family: "IPv4", internal: true }], eth0: [{ address: "172.18.0.3", family: "IPv4", internal: false }, { address: "fe80::1", family: "IPv6", internal: false }] };
+  const two = { ...eth0, eth1: [{ address: "172.19.0.4", family: "IPv4", internal: false }] };
+  assert.equal(resolveToolsListenHost({}, "0.0.0.0", eth0), "172.18.0.3");
+  assert.equal(resolveToolsListenHost({}, "0.0.0.0", two), "0.0.0.0", "with several interfaces there is no single one to choose: the wildcard stays, and the doc says to set QA_TOOLS_LISTEN_HOST");
+  assert.equal(resolveToolsListenHost({}, "127.0.0.1", eth0), "127.0.0.1", "a loopback listener stays on loopback");
+  assert.equal(resolveToolsListenHost({ QA_TOOLS_LISTEN_HOST: "172.19.0.4" }, "0.0.0.0", two), "172.19.0.4");
+  assert.equal(resolveToolsListenHost({}, "0.0.0.0", {}), "0.0.0.0");
 });

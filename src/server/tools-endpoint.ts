@@ -12,6 +12,7 @@
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import os from "node:os";
 import type { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
 import type { AgentBrowserRefusalCode } from "@contexts/test-execution/domain/agent-browser-capability";
@@ -23,6 +24,9 @@ export const QA_TOOLS_PORT_ENV = "QA_TOOLS_PORT";
 export const DEFAULT_TOOLS_PORT = 459;
 export const RUN_SPEC_PATH = "/internal/run-spec";
 export const AUTHBROWSER_PATH = "/internal/authbrowser";
+export const QA_TOOLS_LISTEN_HOST_ENV = "QA_TOOLS_LISTEN_HOST";
+/* The service token is a bearer secret on a port other containers can reach: a guessable one is no secret. 32 characters is 128 bits of hex, and what a generated token has. */
+export const MIN_TOOLS_TOKEN_CHARS = 32;
 /* A call is a path, a short filter and two ids: anything near this is not one. */
 export const MAX_TOOLS_BODY_BYTES = 8 * 1024;
 
@@ -35,6 +39,57 @@ export interface ToolsRequest {
   path: string;
   authorization: string | undefined;
   body: string;
+  /* The caller's address, for the limit on failed authentications. */
+  remote?: string;
+}
+
+/* Calls per session and failed authentications per address in a sliding window. In memory, bounded, and with an injectable clock. */
+export interface ToolsRateLimiter {
+  /* Whether this address has already failed authentication too often in the window. */
+  blocked(remote: string | undefined): boolean;
+  recordFailure(remote: string | undefined): void;
+  /* Counts a call of the session; false when it is over its limit. */
+  allowCall(sessionId: string): boolean;
+}
+
+export interface ToolsRateLimiterOptions {
+  maxCallsPerWindow?: number;
+  maxFailuresPerWindow?: number;
+  windowMs?: number;
+  now?: () => number;
+}
+
+const MAX_TRACKED_KEYS = 1000;
+
+export function createToolsRateLimiter(options: ToolsRateLimiterOptions = {}): ToolsRateLimiter {
+  const maxCalls = options.maxCallsPerWindow ?? 60;
+  const maxFailures = options.maxFailuresPerWindow ?? 20;
+  const windowMs = options.windowMs ?? 10_000;
+  const now = options.now ?? Date.now;
+  const calls = new Map<string, number[]>();
+  const failures = new Map<string, number[]>();
+  const recent = (table: Map<string, number[]>, key: string): number[] => {
+    const at = now();
+    const kept = (table.get(key) ?? []).filter((t) => at - t < windowMs);
+    if (kept.length === 0) table.delete(key);
+    else table.set(key, kept);
+    return kept;
+  };
+  const note = (table: Map<string, number[]>, key: string): void => {
+    const kept = recent(table, key);
+    kept.push(now());
+    table.set(key, kept);
+    if (table.size > MAX_TRACKED_KEYS) table.delete(table.keys().next().value as string);
+  };
+  return {
+    blocked: (remote) => remote !== undefined && recent(failures, remote).length >= maxFailures,
+    recordFailure: (remote) => { if (remote !== undefined) note(failures, remote); },
+    allowCall: (sessionId) => {
+      if (recent(calls, sessionId).length >= maxCalls) return false;
+      note(calls, sessionId);
+      return true;
+    },
+  };
 }
 
 export interface ToolsResponse {
@@ -45,6 +100,8 @@ export interface ToolsResponse {
 export interface ToolsHandlerDeps {
   token: string;
   registry: ClosedLoopRegistry;
+  /* Absent: no limit on the rate of calls (a test); the listener always has one. */
+  limiter?: ToolsRateLimiter;
   /* Absent: no run is granted the authenticated browser and its endpoint answers like any session no run owns. */
   browsers?: AgentBrowserRegistry;
 }
@@ -142,6 +199,7 @@ function parseBrowserCall(body: string): AgentBrowserRequest | undefined {
 async function handleBrowserRequest(request: ToolsRequest, deps: ToolsHandlerDeps): Promise<ToolsResponse> {
   const call = parseBrowserCall(request.body);
   if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent and an action (navigate, snapshot, click or type) with its arguments" } };
+  if (deps.limiter && !deps.limiter.allowCall(call.sessionId)) return { status: 429, body: { ok: false, code: "rate-limited", message: "too many calls from this session in a short time; wait a few seconds and retry" } };
   const browser = deps.browsers?.find(call.sessionId);
   if (!browser) return { status: 403, body: { ok: false, code: "unknown-session", message: "the authenticated browser is not available to this session" } };
   try {
@@ -155,13 +213,20 @@ async function handleBrowserRequest(request: ToolsRequest, deps: ToolsHandlerDep
 }
 
 export async function handleToolsRequest(request: ToolsRequest, deps: ToolsHandlerDeps): Promise<ToolsResponse> {
-  if (!bearerMatches(request.authorization, deps.token)) return { status: 401, body: { ok: false, code: "unauthorized", message: `the service token was rejected: ${QA_TOOLS_TOKEN_ENV} differs between the agents and the orchestrator services` } };
+  /* A token this short is not a secret: the endpoint answers nothing rather than trust it. */
+  if (deps.token.length < MIN_TOOLS_TOKEN_CHARS) return { status: 503, body: { ok: false, code: "unavailable", message: `the tools endpoint is disabled: ${QA_TOOLS_TOKEN_ENV} must be at least ${MIN_TOOLS_TOKEN_CHARS} characters` } };
+  if (deps.limiter?.blocked(request.remote)) return { status: 429, body: { ok: false, code: "rate-limited", message: "too many rejected calls from this address; wait and retry" } };
+  if (!bearerMatches(request.authorization, deps.token)) {
+    deps.limiter?.recordFailure(request.remote);
+    return { status: 401, body: { ok: false, code: "unauthorized", message: `the service token was rejected: ${QA_TOOLS_TOKEN_ENV} differs between the agents and the orchestrator services` } };
+  }
   if (request.path !== RUN_SPEC_PATH && request.path !== AUTHBROWSER_PATH) return { status: 404, body: { ok: false, code: "not-found", message: "no such tool endpoint" } };
   if (request.method !== "POST") return { status: 405, body: { ok: false, code: "method-not-allowed", message: "POST only" } };
   if (request.path === AUTHBROWSER_PATH) return handleBrowserRequest(request, deps);
   const call = parseCall(request.body);
   if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent, path and an optional grep" } };
 
+  if (deps.limiter && !deps.limiter.allowCall(call.sessionID)) return { status: 429, body: { ok: false, code: "rate-limited", message: "too many calls from this session in a short time; wait a few seconds and retry" } };
   const loop = deps.registry.find(call.sessionID);
   if (!loop) return { status: 403, body: { ok: false, code: "unknown-session", message: "run_spec is not available to this session" } };
   try {
@@ -181,9 +246,31 @@ export async function handleToolsRequest(request: ToolsRequest, deps: ToolsHandl
  */
 export function resolveToolsToken(env: Record<string, string | undefined>, log: { warn: (message: string) => void } = console): { token: string; generated: boolean } {
   const configured = env[QA_TOOLS_TOKEN_ENV]?.trim();
-  if (configured) return { token: configured, generated: false };
+  if (configured && configured.length >= MIN_TOOLS_TOKEN_CHARS) return { token: configured, generated: false };
+  if (configured) {
+    log.warn(`[qa] ${QA_TOOLS_TOKEN_ENV} is shorter than ${MIN_TOOLS_TOKEN_CHARS} characters and is not used: it must be at least ${MIN_TOOLS_TOKEN_CHARS} (for example the output of \`openssl rand -hex 32\`). Generated a random one for this boot, so the run_spec and authenticated browser tools are refused until the same long ${QA_TOOLS_TOKEN_ENV} is set on the orchestrator and agents services.`);
+    return { token: randomBytes(32).toString("hex"), generated: true };
+  }
   log.warn(`[qa] ${QA_TOOLS_TOKEN_ENV} is not set: generated a random one for this boot, so the run_spec and authenticated browser tools are refused until the same ${QA_TOOLS_TOKEN_ENV} is set on the orchestrator and agents services (see .env.example).`);
   return { token: randomBytes(32).toString("hex"), generated: true };
+}
+
+type InterfaceTable = Record<string, ReadonlyArray<{ address: string; family: string | number; internal: boolean }> | undefined>;
+
+/*
+ * Where the tools listener binds. Compose publishes nothing of it, so what can reach it is whatever shares the container's network:
+ * the agents service, and any other container someone attaches. Docker gives a container one interface per network it joins and
+ * decides its address at start, so the address cannot be written in the compose file; QA_TOOLS_LISTEN_HOST names it when it is
+ * known (a user-defined network with a fixed subnet and a fixed address). Without it, a wildcard LISTEN_HOST narrows to the one
+ * non-loopback IPv4 address when there is exactly one, which drops the loopback listener (nothing in the container, the sandbox uid
+ * included, needs it); with several interfaces the wildcard stays and the choice is the operator's. A loopback LISTEN_HOST stays.
+ */
+export function resolveToolsListenHost(env: Record<string, string | undefined>, listenHost: string, interfaces: InterfaceTable = os.networkInterfaces()): string {
+  const explicit = env[QA_TOOLS_LISTEN_HOST_ENV]?.trim();
+  if (explicit) return explicit;
+  if (listenHost !== "0.0.0.0" && listenHost !== "::") return listenHost;
+  const addresses = Object.values(interfaces).flatMap((entries) => (entries ?? []).filter((entry) => !entry.internal && (entry.family === "IPv4" || entry.family === 4)).map((entry) => entry.address));
+  return addresses.length === 1 ? addresses[0]! : listenHost;
 }
 
 export function resolveToolsPort(env: Record<string, string | undefined>): number {
@@ -194,10 +281,14 @@ export function resolveToolsPort(env: Record<string, string | undefined>): numbe
   return port;
 }
 
-function readBody(req: IncomingMessage): Promise<string | undefined> {
+function readBody(req: IncomingMessage, timeoutMs: number): Promise<string | undefined> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
+    /* A body that is not complete in time is a bad request: the connection is not held open for a client that sends a byte a minute. */
+    const timer = setTimeout(() => resolve(undefined), timeoutMs);
+    req.once("close", () => clearTimeout(timer));
+    req.once("end", () => clearTimeout(timer));
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_TOOLS_BODY_BYTES) {
@@ -212,21 +303,37 @@ function readBody(req: IncomingMessage): Promise<string | undefined> {
   });
 }
 
-function send(res: ServerResponse, response: ToolsResponse): void {
+function send(res: ServerResponse, response: ToolsResponse, close = false): void {
   const payload = JSON.stringify(response.body);
-  res.writeHead(response.status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) });
+  res.writeHead(response.status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload), ...(close ? { Connection: "close" } : {}) });
   res.end(payload);
 }
 
+/* How long the headers, a whole request and a body may take to arrive. A tool call is a few hundred bytes from a container on the same network; the time a call takes to be answered is not bounded here (a spec runs for minutes). */
+export const TOOLS_HEADERS_TIMEOUT_MS = 10_000;
+export const TOOLS_REQUEST_TIMEOUT_MS = 20_000;
+export const TOOLS_BODY_TIMEOUT_MS = 10_000;
+
+export interface ToolsServerOptions extends ToolsHandlerDeps {
+  bodyTimeoutMs?: number;
+}
+
 /* The listener. Not started here: the entrypoint decides when, and what a bind failure means. */
-export function createToolsServer(deps: ToolsHandlerDeps): Server {
-  return createServer(async (req, res) => {
-    const body = await readBody(req);
+export function createToolsServer(deps: ToolsServerOptions): Server {
+  const limiter = deps.limiter ?? createToolsRateLimiter();
+  const bodyTimeoutMs = deps.bodyTimeoutMs ?? TOOLS_BODY_TIMEOUT_MS;
+  const server = createServer(async (req, res) => {
+    const body = await readBody(req, bodyTimeoutMs);
     if (body === undefined) {
-      send(res, { status: 400, body: { ok: false, code: "invalid-request", message: "the body could not be read within its limit" } });
+      send(res, { status: 400, body: { ok: false, code: "invalid-request", message: "the body could not be read within its limit" } }, true);
       return;
     }
     const path = (req.url ?? "").split("?")[0] ?? "";
-    send(res, await handleToolsRequest({ method: req.method ?? "", path, authorization: req.headers.authorization, body }, deps));
+    send(res, await handleToolsRequest({ method: req.method ?? "", path, authorization: req.headers.authorization, body, ...(req.socket.remoteAddress ? { remote: req.socket.remoteAddress } : {}) }, { ...deps, limiter }));
   });
+  server.headersTimeout = TOOLS_HEADERS_TIMEOUT_MS;
+  server.requestTimeout = TOOLS_REQUEST_TIMEOUT_MS;
+  server.keepAliveTimeout = 5_000;
+  server.maxHeadersCount = 30;
+  return server;
 }

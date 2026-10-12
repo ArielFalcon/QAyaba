@@ -53,7 +53,7 @@ import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrast
 import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
 import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListener } from "./server/port";
-import { createToolsServer, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
+import { createToolsServer, resolveToolsListenHost, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
 import { sweepOrphanAgentBrowsers } from "../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
@@ -880,7 +880,7 @@ server.on(
   }),
 );
 
-toolsServer.listen(toolsPort, listenHost, () => logJson("info", `tools endpoint listening on ${describeListenAddress(toolsServer.address())}`));
+toolsServer.listen(toolsPort, resolveToolsListenHost(process.env, listenHost), () => logJson("info", `tools endpoint listening on ${describeListenAddress(toolsServer.address())}`));
 
 server.listen(port, listenHost, () => {
   logJson("info", `qayaba listening on ${describeListenAddress(server.address())}${apiToken ? " (API auth on)" : ""}`);
