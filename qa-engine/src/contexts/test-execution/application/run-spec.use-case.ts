@@ -63,6 +63,8 @@ export interface RunSpecReport {
   tests: RunSpecTestReport[];
   budget: CallBudget;
   note?: string;
+  /* The saved session ended on the login page and could not be renewed from here: the tests' results say nothing about the spec. */
+  sessionLost?: true;
 }
 
 export type RunSpecResponse =
@@ -138,12 +140,14 @@ export class RunSpecUseCase {
     let tests: RunSpecTestReport[] = [];
     let devWrites = 0;
     let note: string | undefined;
+    let sessionLost = false;
     try {
       const outcome = await this.deps.lock.withLock(this.deps.account, () => this.executeAndClean(rel, grep, reservation.namespace, reservation.timeoutMs, stop), stop);
       status = outcome.status;
       tests = outcome.tests;
       devWrites = outcome.devWrites;
       note = outcome.note;
+      sessionLost = outcome.sessionLost === true;
       /* The ledger names the bytes that ran. The file is the agent's to change while the call is out, so what it holds now is read again: a pass is recorded only for a file that is still the one hashed before the run. */
       if (this.sha256Now(rel) !== sha256) {
         if (status === RUN_SPEC_STATUS.PASSED) status = RUN_SPEC_STATUS.ERROR;
@@ -155,10 +159,10 @@ export class RunSpecUseCase {
     } finally {
       capability.settle({ path: rel, sha256, status, ms: Date.now() - started, devWrites });
     }
-    return { ok: true, report: { status, tests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}) } };
+    return { ok: true, report: { status, tests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
   }
 
-  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; devWrites: number; note?: string }> {
+  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; devWrites: number; note?: string; sessionLost?: boolean }> {
     let result: SpecExecutionResult | undefined;
     let failure: string | undefined;
     try {
@@ -180,13 +184,19 @@ export class RunSpecUseCase {
     if (status === RUN_SPEC_STATUS.TIMED_OUT) notes.push(`the spec did not finish within ${Math.round(timeoutMs / 1000)}s and was stopped`);
     if (status === RUN_SPEC_STATUS.ERROR) notes.push(result.cases.length === 0 ? "no test ran: check the path and the grep" : "the run ended without a result");
     if (result.cases.length > MAX_REPORTED_TESTS) notes.push(`only the first ${MAX_REPORTED_TESTS} of ${result.cases.length} tests are listed`);
-    if (status !== RUN_SPEC_STATUS.PASSED && endedOnLoginWall(result.cases) && this.deps.session) {
-      const renewed = await this.renew();
-      notes.push(renewed ? "the saved session had expired and was renewed; run the spec again" : "the saved session had expired and could not be renewed; the spec will keep landing on the login page");
+    let sessionLost = false;
+    if (status !== RUN_SPEC_STATUS.PASSED && endedOnLoginWall(result.cases)) {
+      /* The renewal port decides whether a sign-in may run at all: it never runs a login the agent wrote, and it is bounded (see trusted-session-renewal.ts). Without one, or when it declines, the session is lost for the rest of the loop. */
+      const renewed = this.deps.session ? await this.renew() : false;
+      if (renewed) notes.push("the saved session had expired and was renewed; run the spec again");
+      else {
+        sessionLost = true;
+        notes.push("session lost: the saved session ended on the login page and cannot be renewed from here, since the app's login script is not run while you author; these results say nothing about the spec, and the run's own login phase renews the session");
+      }
     }
     /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled) is charged one, so the cap still shrinks with the calls. */
     if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; one write was charged");
-    return { status, tests, devWrites: result.devWrites ?? UNCOUNTED_WRITE_CHARGE, ...(notes.length > 0 ? { note: notes.join("; ") } : {}) };
+    return { status, tests, devWrites: result.devWrites ?? UNCOUNTED_WRITE_CHARGE, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
   }
 
   /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */

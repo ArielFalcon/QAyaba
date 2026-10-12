@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AgentBrowserPortAdapter, type AgentBrowserPortAdapterDeps } from "@contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts";
 import { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
@@ -138,18 +141,34 @@ test("an ended session closes its page and stops its call; the browser stays for
   assert.equal(r.host.closed, 0);
 });
 
-test("a lost session is renewed through the auth port and the browser starts over", async () => {
+test("a lost session is renewed through the auth port and the browser starts over", async (t) => {
+  const specDir = mkdtempSync(join(tmpdir(), "agent-browser-spec-"));
+  t.after(() => rmSync(specDir, { recursive: true, force: true }));
+  writeFileSync(join(specDir, "auth.setup.ts"), "// the login the run opened with\n");
   let renewals = 0;
   const r = rig({ renew: async () => { renewals += 1; return true; } });
   r.host.page = () => ({ ...PAGE, url: `${BASE}/login` });
-  const handle = await new AgentBrowserPortAdapter(r.deps).open(OPEN);
+  const handle = await new AgentBrowserPortAdapter(r.deps).open({ ...OPEN, specDir });
   r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-generator" });
   const res = await call(r.registry, "ses-1");
   assert.equal(res.ok, false);
   assert.equal(renewals, 1);
-  assert.deepEqual(r.prepared, [{ specDir: "/mirror/e2e", phase: "pre-execute" }], "the login is prepared again for this run's suite");
+  assert.deepEqual(r.prepared, [{ specDir, phase: "pre-execute" }], "the login is prepared again for this run's suite");
   assert.equal(r.host.resets, 1);
   assert.deepEqual({ ...handle!.signals() }, { calls: 1, blocks: 0, invalidations: 1, renewals: 1 });
+});
+
+test("a lost session is not renewed with a login the agent rewrote while it authored", async (t) => {
+  const specDir = mkdtempSync(join(tmpdir(), "agent-browser-spec-"));
+  t.after(() => rmSync(specDir, { recursive: true, force: true }));
+  writeFileSync(join(specDir, "auth.setup.ts"), "// the login the run opened with\n");
+  const r = rig({ renew: async () => true });
+  r.host.page = () => ({ ...PAGE, url: `${BASE}/login` });
+  await new AgentBrowserPortAdapter(r.deps).open({ ...OPEN, specDir });
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: "qa-generator" });
+  writeFileSync(join(specDir, "auth.setup.ts"), "// rewritten by the agent\n");
+  await call(r.registry, "ses-1");
+  assert.deepEqual(r.prepared, []);
 });
 
 test("closing revokes the right, forgets the sessions and stops the browser, once", async () => {

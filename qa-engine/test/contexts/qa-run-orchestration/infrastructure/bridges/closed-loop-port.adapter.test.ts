@@ -226,3 +226,36 @@ test("when the generator's session ends, the call it left running is stopped, an
   const response = await pending;
   assert.ok(response.ok && response.report.status === "error");
 });
+
+function rigWithLoginWall(t: TestContext): { r: Rig; prepared: string[] } {
+  const r = rig(t);
+  const prepared: string[] = [];
+  r.write("auth.setup.ts", "// the login the run opened with\n");
+  r.deps.execution = {
+    execute: async () => ({ verdict: "fail", cases: [{ name: "loads", status: "fail", detail: "x", finalUrl: "https://dev.example/login" }], logs: "", devWrites: 0 }),
+  };
+  r.deps.authSession = { prepare: async (req) => { prepared.push(req.phase); return { unauthored: false }; } };
+  r.deps.authContext = { baseUrl: "https://dev.example" };
+  return { r, prepared };
+}
+
+test("a call that ends on the login page renews the session once, with the login the loop opened with", async (t) => {
+  const { r, prepared } = rigWithLoginWall(t);
+  await new ClosedLoopPortAdapter(r.deps).open(r.openInput);
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  const first = await callOf(r);
+  assert.ok(first.ok && first.report.note?.includes("renewed"));
+  const second = await callOf(r);
+  assert.ok(second.ok && second.report.sessionLost === true, "a second loss in one run is reported, not renewed again");
+  assert.deepEqual(prepared, ["pre-execute"]);
+});
+
+test("a call never signs in with a login script the generator wrote while it authored", async (t) => {
+  const { r, prepared } = rigWithLoginWall(t);
+  await new ClosedLoopPortAdapter(r.deps).open(r.openInput);
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  r.write("auth.setup.ts", "// authored by the generator\n");
+  const response = await callOf(r);
+  assert.ok(response.ok && response.report.sessionLost === true);
+  assert.deepEqual(prepared, []);
+});

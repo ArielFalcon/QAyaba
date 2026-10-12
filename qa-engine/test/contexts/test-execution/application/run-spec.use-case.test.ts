@@ -280,14 +280,25 @@ test("a spec that left the session on the login page gets the session renewed on
   assert.ok(response.ok);
   assert.equal(h.renewals, 1);
   assert.match(response.report.note ?? "", /session/i);
+  assert.equal(response.report.sessionLost, undefined);
 });
 
-test("a session that cannot be renewed is said, not hidden", async (t) => {
+test("a session that cannot be renewed is a lost session: said, flagged, and not evidence about the spec", async (t) => {
   const h = harness(t, { session: { renew: async () => false } });
   h.next.result = { verdict: "fail", cases: [{ name: "t", status: "fail", detail: "x", failureDom: "textbox: Password" }], logs: "" };
   const response = await call(h, "flows/a.spec.ts");
   assert.ok(response.ok);
-  assert.match(response.report.note ?? "", /could not be renewed/i);
+  assert.equal(response.report.sessionLost, true);
+  assert.match(response.report.note ?? "", /session lost/i);
+});
+
+test("without a renewal port a login wall is a lost session too", async (t) => {
+  const h = harness(t);
+  delete h.deps.session;
+  h.next.result = { verdict: "fail", cases: [{ name: "t", status: "fail", detail: "x", finalUrl: "https://dev.example/login" }], logs: "" };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.sessionLost, true);
 });
 
 test("an ordinary failure does not touch the session", async (t) => {

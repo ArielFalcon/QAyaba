@@ -18,12 +18,12 @@ import { AgentBrowserCapability } from "@contexts/test-execution/domain/agent-br
 import { createRouteGuard } from "@contexts/test-execution/domain/agent-browser-route-guard.ts";
 import { AgentBrowserUseCase } from "@contexts/test-execution/application/agent-browser.use-case.ts";
 import type { AgentBrowserHostPort } from "@contexts/test-execution/application/ports/agent-browser.ports.ts";
-import type { SessionRenewalPort } from "@contexts/test-execution/application/ports/run-spec.ports.ts";
 import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
 import type { BrowserLauncherPort, SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 import type { AuthSessionContext, AuthSessionPort } from "../../application/ports/auth-session.port.ts";
 import type { AgentBrowserHandle, AgentBrowserOpenInput, AgentBrowserPort } from "../../application/ports/index.ts";
 import type { AgentBrowserRegistry } from "../agent-browser-registry.ts";
+import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
 
 /* How long a capability lives when the run has no deadline armed: far beyond any run, and only a backstop to the revocation the run does itself. */
 const DEFAULT_TTL_MS = 60 * 60 * 1000;
@@ -53,20 +53,8 @@ export interface AgentBrowserPortAdapterDeps {
   now?: () => number;
 }
 
-/* Wraps the auth port as the renewal the use case asks for: signs in again for the run's suite, which refreshes the saved session the next context reads. */
-export function sessionRenewalOf(authSession: AuthSessionPort, context: AuthSessionContext, specDir: string): SessionRenewalPort {
-  return {
-    renew: async (signal) => {
-      try {
-        await authSession.prepare({ specDir, baseUrl: context.baseUrl, ...(context.auth ? { auth: context.auth } : {}), phase: "pre-execute" }, signal);
-        return true;
-      } catch (err) {
-        console.error(`[qa] renewing the session for the agent browser failed: ${err instanceof Error ? err.message : String(err)}`);
-        return false;
-      }
-    },
-  };
-}
+/* The renewal the use case asks for: a sign-in again for the run's suite, only with the login the loop opened with and at most twice per run (trusted-session-renewal.ts). */
+export const MAX_AGENT_BROWSER_RENEWALS = 2;
 
 export class AgentBrowserPortAdapter implements AgentBrowserPort {
   constructor(private readonly deps: AgentBrowserPortAdapterDeps) {}
@@ -109,7 +97,7 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
       guard,
       account: this.deps.account,
       lock: this.deps.lock,
-      ...(this.deps.authSession && this.deps.authContext ? { session: sessionRenewalOf(this.deps.authSession, this.deps.authContext, input.specDir) } : {}),
+      ...(this.deps.authSession && this.deps.authContext ? { session: trustedSessionRenewal(this.deps.authSession, this.deps.authContext, input.specDir, MAX_AGENT_BROWSER_RENEWALS) } : {}),
       ...(this.deps.loginPath !== undefined ? { loginPath: this.deps.loginPath } : {}),
       ...(this.deps.deadline ? { deadline: this.deps.deadline } : {}),
       redact: this.deps.redact,

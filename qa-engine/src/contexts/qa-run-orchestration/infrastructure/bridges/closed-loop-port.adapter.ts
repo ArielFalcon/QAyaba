@@ -18,11 +18,15 @@ import { MAX_SPEC_SOURCE_BYTES, purgeRefusedDirectory, readOwnedSpecFile, type S
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { PROBE_REL_DIR, RunSpecCapability, loopClosed } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { RunSpecUseCase } from "@contexts/test-execution/application/run-spec.use-case.ts";
-import type { SessionRenewalPort, SpecCleanupPort, SpecExecutorPort } from "@contexts/test-execution/application/ports/run-spec.ports.ts";
+import type { SpecCleanupPort, SpecExecutorPort } from "@contexts/test-execution/application/ports/run-spec.ports.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { AuthSessionContext, AuthSessionPort } from "../../application/ports/auth-session.port.ts";
 import type { CleanupPort, ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopPort, ExecutionPort } from "../../application/ports/index.ts";
 import type { ClosedLoopRegistry } from "../closed-loop-registry.ts";
+import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
+
+/* How many times a run's calls may renew the saved session from inside the authoring loop (trusted-session-renewal.ts). */
+export const MAX_RUN_SPEC_RENEWALS = 1;
 
 /* How long a capability lives when the run has no deadline armed: far beyond any run, and only a backstop to the revocation the run does itself. */
 const DEFAULT_LOOP_TTL_MS = 60 * 60 * 1000;
@@ -77,7 +81,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       lock: this.deps.lock,
       executor: this.executor(input),
       cleanup: this.cleaner(input),
-      ...(this.deps.authSession && this.deps.authContext ? { session: this.renewal(input) } : {}),
+      ...(this.deps.authSession && this.deps.authContext ? { session: trustedSessionRenewal(this.deps.authSession, this.deps.authContext, input.specDir, MAX_RUN_SPEC_RENEWALS) } : {}),
       ...(this.deps.deadline ? { deadline: this.deps.deadline } : {}),
       redact: this.deps.redact,
       ...(input.signal ? { signal: input.signal } : {}),
@@ -156,20 +160,6 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
     return {
       cleanup: async (namespace, signal) => {
         await this.deps.cleanup?.cleanup(input.specDir, { namespace, ...(signal ? { signal } : {}) });
-      },
-    };
-  }
-
-  private renewal(input: ClosedLoopOpenInput): SessionRenewalPort {
-    return {
-      renew: async (signal) => {
-        try {
-          await this.deps.authSession!.prepare({ specDir: input.specDir, baseUrl: this.deps.authContext!.baseUrl, ...(this.deps.authContext!.auth ? { auth: this.deps.authContext!.auth } : {}), phase: "pre-execute" }, signal);
-          return true;
-        } catch (err) {
-          console.error(`[qa] renewing the session for run_spec failed: ${err instanceof Error ? err.message : String(err)}`);
-          return false;
-        }
       },
     };
   }
