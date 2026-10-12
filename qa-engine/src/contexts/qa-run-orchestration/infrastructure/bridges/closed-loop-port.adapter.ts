@@ -10,10 +10,10 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
-import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import { removeTreeBounded } from "../../../../shared-infrastructure/bounded-tree-removal.ts";
 import { MAX_SPEC_SOURCE_BYTES, purgeRefusedDirectory, readOwnedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { PROBE_REL_DIR, RunSpecCapability, loopClosed } from "@contexts/test-execution/domain/run-spec-capability.ts";
@@ -177,11 +177,11 @@ function currentSha256(root: SpecRoot, rel: string): string | undefined {
 
 /*
  * Removes the probe directory. A link, a pipe or a file where the directory should be is unlinked without being followed or
- * opened (the strict purge); an ordinary directory is removed with its tree, and a recursive removal does not follow a link
- * inside it. The known limit of every recursive removal of a tree the agent wrote (see spec-path-confinement.ts): it is not
- * bounded in time or depth.
+ * opened (the strict purge); an ordinary directory is removed with its tree by a walk that looks at each entry without following
+ * it and is bounded in entries, depth and time (bounded-tree-removal.ts), since the tree is the agent's to make. A tree past a
+ * bound is not removed and the sweep fails: the caller must not go on with probes in the working copy.
  */
 function sweepProbeDir(root: SpecRoot): void {
   purgeRefusedDirectory(root, PROBE_REL_DIR);
-  rmSync(join(root.specDir, PROBE_REL_DIR), { recursive: true, force: true });
+  removeTreeBounded(join(root.specDir, PROBE_REL_DIR));
 }

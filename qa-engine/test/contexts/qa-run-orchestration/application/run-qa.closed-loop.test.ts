@@ -283,3 +283,17 @@ test("the single change-coverage regeneration still runs when the loop is closed
     assert.ok(r.events.lastIndexOf("close") > r.events.lastIndexOf("generate"), "the loop outlives the last generation");
   }
 });
+
+
+test("a sweep that fails ends the run as an infra-error before anything validates, executes or publishes: probes the sweep left must not be judged or delivered", async () => {
+  const r = rig();
+  r.handle.sweepProbes = async () => { throw new Error("the probe tree could not be removed"); };
+  let published = 0;
+  const out = await new RunQaUseCase(r.deps({ publication: { publish: async () => (published++, { outcome: "pr" }) } })).run(INPUT);
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(r.events.includes("validate"), false);
+  assert.equal(r.events.includes("execute"), false);
+  assert.equal(published, 0);
+  assert.equal(r.saved.length, 1, "the run is recorded");
+  assert.ok(r.events.includes("close"), "the loop is still closed");
+});

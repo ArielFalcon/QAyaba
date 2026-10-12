@@ -494,6 +494,14 @@ interface RunTrail {
   agentBrowser?: AgentBrowserHandle;
 }
 
+/* The probes the generator left in the working copy could not be removed. */
+class ProbeSweepError extends Error {
+  constructor(reason: string) {
+    super(`the run_spec probes could not be removed from the working copy (${reason})`);
+    this.name = "ProbeSweepError";
+  }
+}
+
 export class RunQaUseCase {
   constructor(private readonly deps: RunQaUseCaseDeps) {}
 
@@ -520,6 +528,7 @@ export class RunQaUseCase {
       return await this.execute(input, signal, trail);
     } catch (err) {
       if (isSandboxUnavailable(err) && err.reason !== "scope") return await this.sandboxUnavailableResult(input, err, trail);
+      if (err instanceof ProbeSweepError) return await this.probeSweepResult(input, err, trail);
       if (!isRunDeadlineError(err)) throw err;
       return await this.deadlineResult(input, err, trail);
     } finally {
@@ -565,6 +574,18 @@ export class RunQaUseCase {
     this.deps.observer?.onEvent({ type: "agent.error", detail: note });
     return await this.terminalResult("infra-error", cfg, input, { generating: true, static: false }, {
       note,
+      ...(trail.rulesRetrieved ? { rulesRetrieved: trail.rulesRetrieved } : {}),
+      ...(trail.mirrorDir ? { mirrorDir: trail.mirrorDir } : {}),
+    });
+  }
+
+  /* The throwaway specs of the closed loop could not be swept: nothing in the working copy can be trusted to be a deliverable, so the run ends as a persisted infra-error before it validates, executes or publishes anything. */
+  private async probeSweepResult(input: RunQaInput, err: ProbeSweepError, trail: RunTrail): Promise<RunQaResult> {
+    const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
+    console.error(`[qa] ${err.message}`);
+    this.deps.observer?.onEvent({ type: "agent.error", detail: err.message });
+    return await this.terminalResult("infra-error", cfg, input, { generating: true, static: false }, {
+      note: err.message,
       ...(trail.rulesRetrieved ? { rulesRetrieved: trail.rulesRetrieved } : {}),
       ...(trail.mirrorDir ? { mirrorDir: trail.mirrorDir } : {}),
     });
@@ -1052,7 +1073,8 @@ export class RunQaUseCase {
       try {
         await closedLoop.sweepProbes();
       } catch (err) {
-        console.error(`[qa] sweeping the run_spec probes failed (the working copy may hold throwaway specs): ${err instanceof Error ? err.message : String(err)}`);
+        /* Fail closed: a working copy that may still hold throwaway specs is not validated, executed or published. The run ends as an infra-error (runInScope). */
+        throw new ProbeSweepError(err instanceof Error ? err.message : String(err));
       }
       return withoutProbeSpecs(output);
     };

@@ -167,6 +167,15 @@ test("sweeping removes the probe directory and leaves the suite alone; a link in
   assert.equal(readFileSync(join(outside, "keep.txt"), "utf8"), "keep", "what the link pointed at is untouched");
 });
 
+test("a probe tree too deep to be removed within its bounds fails the sweep instead of leaving it or freezing on it", async (t) => {
+  const r = rig(t);
+  const handle = (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!;
+  let deep = join(r.specDir, ".qa-probe");
+  for (let i = 0; i < 80; i++) deep = join(deep, "d");
+  mkdirSync(deep, { recursive: true });
+  await assert.rejects(handle.sweepProbes(), /bounds/);
+});
+
 test("closing revokes the right, forgets the loop, removes the probes and never throws", async (t) => {
   const r = rig(t);
   const handle = (await new ClosedLoopPortAdapter(r.deps).open(r.openInput))!;
