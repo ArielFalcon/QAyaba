@@ -369,6 +369,20 @@ qa:
 
 The agents and orchestrator services need the same `QA_TOOLS_TOKEN` (and `QA_TOOLS_PORT`, default 459, which compose does not publish). A run can choose for itself with `npm run qa -- ... --closed-loop on|off`. How it works and what bounds it: [docs/execution-sandbox.md](docs/execution-sandbox.md#the-run_spec-tool).
 
+**Optional: let the authoring agents look at the signed-in app while they write** (the authenticated browser, OpenCode only; off by default):
+
+```yaml
+qa:
+  agentBrowser:
+    enabled: true
+    denyRoutes: ["/admin/**", "/settings/billing"]   # paths the browser never reaches
+    allowMutating: ["POST /api/search"]              # the only requests that write which it lets through
+```
+
+The browser is the orchestrator's: it holds the saved session and the agents only ask it to open, read, click and type. It never writes to DEV
+unless an `allowMutating` entry says so, and it reaches only the origins the app declares. Same `QA_TOOLS_TOKEN` as above. A run can choose for
+itself with `npm run qa -- ... --agent-browser on|off`. How it works and what bounds it: [docs/execution-sandbox.md](docs/execution-sandbox.md#the-authenticated-agent-browser).
+
 **Declare every origin the app's pages load from.** The agent-written specs run in an execution sandbox whose network is closed by default: they can reach `dev.baseUrl`'s own origin and nothing else. An app whose pages load an identity provider, an API host or a CDN lists them (an origin is `scheme://host[:port]`, or `scheme://*.suffix` for every subdomain of a suffix of at least two labels; no path, no credentials):
 
 ```yaml

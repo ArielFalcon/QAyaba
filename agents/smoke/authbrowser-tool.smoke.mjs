@@ -172,7 +172,9 @@ try {
   const before = modelRequests.length;
   const hidden = await api("/session?directory=/tmp/authbrowser-smoke-repo", { method: "POST", body: "{}" });
   await api(`/session/${hidden.id}/message?directory=/tmp/authbrowser-smoke-repo`, { method: "POST", body: JSON.stringify({ agent: "qa-generator", tools: { "authbrowser*": false }, parts: [{ type: "text", text: "go" }] }) });
-  check(modelRequests.slice(before).every((r) => !r.tools.some((t) => t.startsWith("authbrowser"))) && modelRequests.length > before, "a per-prompt tools map with \"authbrowser*\": false hides the tools from an allowed role");
+  const hiddenTurn = modelRequests.slice(before).filter((r) => r.agent === "qa-generator");
+  check(hiddenTurn.length > 0 && hiddenTurn.every((r) => !r.tools.some((t) => t.startsWith("authbrowser"))), "a per-prompt tools map with \"authbrowser*\": false hides the tools from an allowed role");
+  check(hiddenTurn.length > 0 && hiddenTurn.every((r) => r.tools.includes("read") && r.tools.includes("write") && r.tools.includes("run_spec")), "and leaves every other tool of the role as its configuration has it");
 } catch (err) {
   check(false, `the smoke could not complete: ${err instanceof Error ? err.message : String(err)}`);
 } finally {

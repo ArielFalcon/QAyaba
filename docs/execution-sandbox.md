@@ -145,11 +145,39 @@ session id, agent name and token.
 Known limits: writes sent by a spec through Node's own `fetch` or a `playwright.request.newContext()` are not counted (the call cap and the egress filter still bound them); a spec that fails to
 leave DEV data the fixtures' `cleanup()` should have undone is covered by the namespace cleanup pass only if the app's `cleanup.spec.ts` handles that namespace.
 
+## The authenticated agent browser
+
+With `qa.agentBrowser.enabled` (or a run's own choice) the authoring roles (`qa-generator`, `qa-sidekick`) may read DEV signed in as the test account, without ever holding
+the session. The agent never runs a browser: four tools (`agents/tool/authbrowser.ts`: `authbrowser_navigate`, `_snapshot`, `_click`, `_type`) send the action to the
+orchestrator, which owns the browser, decides and answers. It reuses the `run_spec` mechanism (endpoint, token, session binding, account lease); it is not an MCP server, because the
+Playwright MCP's own build tracks a different Playwright than the image's browsers and a general MCP would have to be pruned instead of being small by construction.
+
+| Boundary | How |
+|---|---|
+| Who may call | only a session the agent transport bound to an authoring role of a live run (`AgentBrowserRegistry`); the tools are off in the global tools map and for every role but those two (`agents/opencode.json`, pinned by `agent-tool-surface.test.ts`); the Codex config names nothing of them and a Codex generator is never granted the browser |
+| Transport | `POST /internal/authbrowser` on the `run_spec` listener (`QA_TOOLS_PORT`, `QA_TOOLS_TOKEN`); the body is read key by key, so an action outside the four never reaches the browser. The tools are on for the authoring roles in the config, so a prompt of an authoring session the run did **not** grant carries a per-prompt `tools` map hiding them (`openCodePromptBody`, from the registry): a run without the browser does not list four tools the orchestrator would refuse |
+| The browser | Chromium started through the execution launcher (profile `suite`: the sandbox uid, the run's work dir, the egress lease of the app's origins, a `timeout` wrapper so it ends by itself), driven by `playwright-core` (pinned to the image's version, imported by one loader module only). The protocol runs over a pipe pair the browser inherits (`--remote-debugging-pipe`), behind a loopback WebSocket on a path of 32 random bytes for one client: the egress filter rejects every loopback connection of the sandbox uid, so a debugging port could not even answer the orchestrator |
+| The session | read into memory from the run's auth directory (strict reader) and handed to an ephemeral context as data; never staged to the browser's process, never written by the host (`npm run arch:check` fails on a file API in the browser modules), nothing the browser refreshes is saved; a context is built from the session as it is saved *then*, so a renewed login is picked up |
+| What it may request | the route guard (`agent-browser-route-guard.ts`, pure) judges **every** request of the context, subresources, redirects and web sockets included, and fails closed: scheme, then an origin the run declares (the same list the filter holds the sandbox to), then `denyRoutes` (closed to every method, in any spelling of the path), then the method: a request that writes is blocked unless an `allowMutating` entry (`[POST ]/path`) names it. Service workers are blocked (Playwright's switch plus a prototype-level stub), downloads are off, a dialog is dismissed, a tab the page opens is closed. The surface is four actions: no evaluate, no script injection, no file chooser; typing into a password field is refused |
+| DEV accounting | each call holds the test account's lease (`AccountLock`, the key `run_spec` uses) for its duration; a wait longer than `leaseWaitMs` answers `DEV busy`; calls per run and time per call are capped by the orchestrator |
+| Session lost | a page that ended on a login path, answered its document 401, or shows a password field on a page that was not asked for: the call errors with `session invalidated`, the auth port signs in again (twice per run at most) and the browser is reset |
+| What comes back | the address without query, the title, the accessibility tree (12 KB), what the guard blocked and the calls left; every text passes the run's by-value redaction |
+| Lifecycle | the capability is revoked, the browser (context, process, pipe) closed and its work dir removed when the run ends, however it ends; at boot the orchestrator ends any browser process a previous process left in the work root |
+
+`npx tsx scripts/agent-browser-smoke.ts` proves the browser half with real Chromium against a local server, and, run in the built orchestrator image as the sandbox uid, the same checks behind the
+real filter (see its header for the `--cap-add NET_ADMIN` form with `QA_SMOKE_ORIGIN`): the session reaches the page and is in no file, a form POST and a fetch POST never reach the server, a denied route and an undeclared
+origin are never requested, no service worker registers, no process outlives the host. `agents/smoke/authbrowser-tool.smoke.mjs` proves the agent half on the image's pinned OpenCode: the tools load under those names,
+are offered to the two authoring roles alone, reach the endpoint with the real session id, agent name and token, and a per-prompt tools map can hide them. Re-run both after a pin bump.
+
+Known limits: the page content the agent reads (account data among it) goes to the model provider, as it does through the plain Playwright MCP; a page can still obtain a pristine `ServiceWorkerContainer` from a fresh frame, in which case a worker's own requests
+are held by the egress filter and the session's rights, not by the route guard; a sidekick holds the tools, but its prompt does not describe them (an app with a login keeps the lead, so none runs where the browser exists).
+
 ## What a run records
 
 `gateSignals.sandbox = { egress: "enforced" | "unenforced" | "not-applicable", denied: string[] }`, persisted with the outcome.
 It is observation only: nothing reads it to decide a verdict. A run that granted the `run_spec` tool also records
 `gateSignals.closedLoop = { calls, devWrites, closed }`; there `closed` is read back by the run to skip regenerations that repeat what the generator already saw pass.
+A run that granted the authenticated browser records `gateSignals.agentBrowser = { calls, blocks, invalidations, renewals }`, persist-only; the probe report prints it.
 
 ## Operating it
 

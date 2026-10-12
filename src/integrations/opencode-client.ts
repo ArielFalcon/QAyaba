@@ -17,6 +17,7 @@ import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/con
 import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { installHttpDispatcher } from "../util/net";
 import { openCodeServerAuth } from "./opencode-server-auth";
+import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/domain/agent-browser-capability";
 
 
 import {
@@ -472,13 +473,29 @@ export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
   ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
 );
 
-/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; every other prompt leaves the tools to its agent's configuration. */
-export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined }) {
+/*
+ * Which sessions the orchestrator granted the authenticated browser: the host installs a lookup over its registry. The tools are on
+ * for the authoring roles in agents/opencode.json whether or not a run granted them, so a prompt of an authoring role whose session
+ * was not granted hides them with a per-prompt map instead of listing four tools the orchestrator would refuse. Until a lookup is
+ * installed (a test, the standalone CLI) nothing is granted.
+ */
+let browserGrant: ((sessionId: string) => boolean) | undefined;
+
+export function setAgentBrowserGrantLookup(lookup: ((sessionId: string) => boolean) | undefined): void {
+  browserGrant = lookup;
+}
+
+export function hidesBrowserTools(agent: string, sessionId: string): boolean {
+  return AGENT_BROWSER_AGENTS.has(agent) && !(browserGrant?.(sessionId) ?? false);
+}
+
+/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one of a session the browser was not granted to hides its tools; every other prompt leaves the tools to its agent's configuration. */
+export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; hideBrowserTools?: boolean | undefined }) {
   return {
     agent: args.agent,
     parts: [{ type: "text" as const, text: args.text }],
     ...(args.model ? { model: args.model } : {}),
-    ...(args.withoutTools ? { tools: { ...NO_TOOLS } } : {}),
+    ...(args.withoutTools ? { tools: { ...NO_TOOLS } } : args.hideBrowserTools ? { tools: { "authbrowser*": false as const } } : {}),
   };
 }
 
@@ -511,7 +528,7 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
       const res = await client.session.prompt({
         path: { id },
         query: { directory: cwd },
-        body: openCodePromptBody({ agent, text, model, withoutTools }),
+        body: openCodePromptBody({ agent, text, model, withoutTools, hideBrowserTools: hidesBrowserTools(agent, id) }),
       });
       if (res.error) {
         throw new Error(`OpenCode session.prompt failed: ${describeFailure(res.error)}`);

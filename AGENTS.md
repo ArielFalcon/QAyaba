@@ -178,6 +178,23 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   whose last call passed) the regenerations that only repeat that work are skipped; the declared no-op, `E-NO-DECISION` /
   `E-STEP-BUDGET` / `E-TIME-BUDGET` and the single enforce-mode coverage regeneration are unchanged. The `Run spec budget` prompt
   section (facts only) exists only when granted; Codex is never granted it. `gateSignals.closedLoop { calls, devWrites, closed }`.
+- **Authenticated browser (`authbrowser_*`)** — off unless `qa.agentBrowser.enabled` (or a run asks: `--agent-browser on|off`,
+  `agentBrowser` on `POST /api/v1/runs`). The authoring roles (`qa-generator`, `qa-sidekick`) get four custom tools
+  (`agents/tool/authbrowser.ts`: navigate, snapshot, click, type) that POST to the same internal listener as `run_spec`
+  (`/internal/authbrowser`, `QA_TOOLS_TOKEN`). The orchestrator owns the browser: Chromium started through the execution launcher
+  (sandbox uid, the egress lease of the app's origins; the protocol over a pipe, behind a loopback WebSocket on a random path) and
+  driven by `playwright-core` (pinned to the image's Playwright version) over one context per run, built from the saved session **held
+  in memory**: cookies reach the browser as data, nothing is written, nothing it refreshes is saved. Every request of the context
+  passes the route guard (`test-execution/domain/agent-browser-route-guard.ts`, pure): scheme, declared origin, `qa.agentBrowser.denyRoutes`,
+  and any method that writes unless `allowMutating` names it; a block is reported in the answer, and `gateSignals.agentBrowser
+  { calls, blocks, invalidations, renewals }` counts them. A page that says the session is gone (login path, 401 document, a password
+  field on a page that was not asked for) makes the tool error with `session invalidated`, asks the auth port to sign in again (at
+  most twice per run) and resets the browser. Each call holds the test account's lease (`AccountLock`, the same key as `run_spec`)
+  and a bounded wait answers `DEV busy`. The session is bound by `AgentBrowserRegistry` to the sessions the agent transport reports
+  for an authoring role of the run; the capability is revoked, the browser closed and its work dir removed when the run ends, and
+  a boot sweep ends a browser a previous process left. A prompt of an authoring session the run did not grant hides the tools
+  (a per-prompt `tools` map, `openCodePromptBody`). The `Authenticated browser budget` prompt section (facts only) exists only
+  when granted; Codex is never granted it (a custom tool is OpenCode's).
 - **Step limit and milestone** — the generator, explorer and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the legacy `maxSteps` mapped into it; `stepLimits`
@@ -357,6 +374,14 @@ threat-model header first) and a canary-before-promote hot-swap.
   run, behind a service token on an unpublished port the sandbox uid cannot reach; the path is confined to `*.spec.ts` of the
   suite (never `auth.setup.ts`, never outside `e2e/`), read with the strict reader, and answered without raw process output.
   Never widen the tool to another agent, a Codex role, a free-form command or a path outside the spec directory.
+- **The authenticated browser never gives an agent the session, and never writes.** The agent asks; the orchestrator's browser, in
+  the run's sandbox, holds the session in memory and reads. The surface is four actions (no evaluate, no script injection, no file
+  chooser, no download); every request passes the route guard, which fails closed; service workers are blocked; the saved session is
+  never staged to the browser's process nor written by it (`npm run arch:check` fails on a file API in the browser modules and on
+  `playwright-core` outside its loader). A call is served only for a session the transport bound to `qa-generator` or `qa-sidekick` of
+  a live run, behind the service token; every other role denies the tools (`agents/opencode.json`, pinned by a test) and Codex has none.
+  Never widen the tools to another role, add an action that runs script or sends a file, or let a mutating request through without an
+  `allowMutating` entry the app's config names.
 - **Agent-influenced code runs only through the execution launcher**
   (`qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
   Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts, the DOM capture, a code-mode
@@ -407,8 +432,10 @@ threat-model header first) and a canary-before-promote hot-swap.
   git) are the deliberately uncovered boundaries; each exports `*Deps` + `default*Deps`.
   Follow that pattern for new side-effecting code.
 - **No build step** — `tsx` is a devDependency; install ALL deps in Docker.
-- **When the OpenCode pin or `@opencode-ai/plugin` moves**, re-run `agents/smoke/run-spec-tool.smoke.mjs` in the new image
-  (the plugin's `ToolContext` is the one thing the tool depends on) next to re-recording the agent-list fixture.
+- **When the OpenCode pin or `@opencode-ai/plugin` moves**, re-run `agents/smoke/run-spec-tool.smoke.mjs` and
+  `agents/smoke/authbrowser-tool.smoke.mjs` in the new image (the plugin's `ToolContext` and the naming of a file's exports are what the
+  tools depend on) next to re-recording the agent-list fixture. **When Playwright moves**, `playwright-core` in `package.json` moves with
+  it, and `npx tsx scripts/agent-browser-smoke.ts` is re-run in the new orchestrator image (see `docs/execution-sandbox.md`).
 - **Pin exact versions on the execution path** — Playwright `1.60.0` matches the
   `playwright:v1.60.0-noble` image. Never use `^`. The OpenCode build is pinned in
   `agents/Dockerfile`: when the pin moves, re-record

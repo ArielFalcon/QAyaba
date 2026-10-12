@@ -405,12 +405,12 @@ Three things make a single run of each arm a poor comparison, and the campaign r
 # once: the warm snapshot (see Warm start), with QA_CAMPAIGN_FREEZE=1 on the orchestrator
 cp config/benchmarks/campaign-cases.example.json config/benchmarks/campaign-cases.json   # gitignored: it names real commits
 docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> --dry-run
-docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> [--arms A,B] [--wall-cap-min 30] [--closed-loop on|off]
+docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> [--arms A,B] [--wall-cap-min 30] [--closed-loop on|off] [--agent-browser on|off]
 ```
 
 `--arms` takes `A` (the plain agent), `A'` (the plain agent whose delivery is judged by the pipeline's acceptance) and `B` (the pipeline); the default stays `A,B`.
 `--closed-loop on|off` is the pipeline arm's own choice about the `run_spec` loop (see [The closed loop](#the-closed-loop-run_spec-ab)); a cross-repo case enters through
-the webhook, which cannot carry it, so the app's `qa.closedLoop` decides there.
+the webhook, which cannot carry it, so the app's `qa.closedLoop` decides there. `--agent-browser on|off` is the same for the authenticated agent browser (see [The authenticated agent browser](#the-authenticated-agent-browser-ab)).
 
 The cases file is validated whole before anything runs (an unknown key is an error):
 
@@ -473,6 +473,15 @@ while it authors (`docs/execution-sandbox.md`, "The run_spec tool"). It ships **
 (`--arms B`, same cases, same warm snapshot). Read `gateSignals.closedLoop { calls, devWrites, closed }` in each pipeline arm's probe report (`closedLoop` field): `closed` is whether every delivered spec was
 seen passing in its final bytes, which is what skips the static-fix rounds, the pre-exec corrective regeneration and the fix loop's regeneration. Compare cost, wall time, steps and the rubric score of the valid
 replicates; the loop adds DEV load (calls and writes are capped per run: `maxCalls` 8, `perCallMs` 120000, `maxDevWrites` 20 by default).
+
+### The authenticated agent browser: A/B
+
+`qa.agentBrowser.enabled` (or `--agent-browser on` of the campaign / `npm run qa`, or `agentBrowser: true` on `POST /api/v1/runs`) lets the OpenCode authoring agents read DEV signed in as the test account, through tools the
+orchestrator serves (`docs/execution-sandbox.md`, "The authenticated agent browser"). It ships **off**: the A/B is two campaigns that differ only in `--agent-browser on` and `--agent-browser off` (`--arms B`, same cases, same
+warm snapshot, the same `--closed-loop` choice in both). Read `gateSignals.agentBrowser { calls, blocks, invalidations, renewals }` in each pipeline arm's probe report (the `agentBrowser` field, and the "Authenticated browser"
+lines of its markdown): `blocks` counts the requests the guard refused (a write the agent tried, a closed route, an outside origin) and `invalidations` the calls that found the session gone. Compare cost, wall time, steps, the number
+of reads of the source before the first write, and the rubric score of the valid replicates; the browser adds DEV load (calls per run are capped at 150 by default, time per call at 30 s) and one Chromium process per run. The tools
+are hidden from the prompts of a session the run did not grant them (a per-prompt `tools` map), so the `off` arm carries no trace of them.
 
 ### Validity
 

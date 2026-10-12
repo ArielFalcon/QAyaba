@@ -23,6 +23,8 @@ import {
   fallbackModelFromConfig,
   createRawEventStreamOpener,
   openCodePromptBody,
+  setAgentBrowserGrantLookup,
+  hidesBrowserTools,
 } from "./opencode-client";
 import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
@@ -1503,4 +1505,29 @@ test("openCodePromptBody: any other prompt leaves the tools to its agent's confi
   const body = openCodePromptBody({ agent: "qa-reviewer", text: "judge", model });
   assert.deepEqual(body, { agent: "qa-reviewer", parts: [{ type: "text", text: "judge" }], model });
   assert.equal("tools" in openCodePromptBody({ agent: "a", text: "t", withoutTools: false }), false);
+});
+
+test("openCodePromptBody: a prompt of a session the run did not grant the browser hides its tools and changes nothing else", () => {
+  const model = { providerID: "p", modelID: "m" };
+  const hidden = openCodePromptBody({ agent: "qa-generator", text: "write", model, hideBrowserTools: true });
+  assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { "authbrowser*": false });
+  assert.equal(hidden.agent, "qa-generator");
+  assert.deepEqual(hidden.model, model);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "write", hideBrowserTools: false }), false);
+  const none = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutTools: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools;
+  assert.equal(none?.["authbrowser*"], false, "a prompt that asks for no tools still denies them, once");
+});
+
+test("a session is shown the browser's tools only when the orchestrator granted it, and only an authoring role is ever asked about", () => {
+  try {
+    assert.equal(hidesBrowserTools("qa-generator", "ses-1"), true, "until a host installs the lookup nothing is granted");
+    const granted = new Set(["ses-1"]);
+    setAgentBrowserGrantLookup((id) => granted.has(id));
+    assert.equal(hidesBrowserTools("qa-generator", "ses-1"), false);
+    assert.equal(hidesBrowserTools("qa-generator", "ses-2"), true);
+    assert.equal(hidesBrowserTools("qa-sidekick", "ses-2"), true);
+    assert.equal(hidesBrowserTools("qa-reviewer", "ses-2"), false, "a role that does not author has the tools off by its config and is left alone");
+  } finally {
+    setAgentBrowserGrantLookup(undefined);
+  }
 });

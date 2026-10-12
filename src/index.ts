@@ -35,7 +35,7 @@ import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metr
 import { createMaintainerRuntime } from "./server/maintainer-runtime";
 import { installHttpDispatcher } from "./util/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "./integrations/repo-mirror";
-import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps } from "./integrations/opencode-client";
+import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup } from "./integrations/opencode-client";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { CodexRuntimeStrategy, OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { appendLog, appendActivity, deleteAppHistory, runVerdictCounts } from "./server/history";
@@ -204,6 +204,8 @@ const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
  */
 const closedLoopRegistry = new ClosedLoopRegistry();
 const agentBrowserRegistry = new AgentBrowserRegistry();
+/* An authoring agent's prompt lists the browser's tools only when this run's session was granted them (see opencode-client.ts). */
+setAgentBrowserGrantLookup((sessionId) => agentBrowserRegistry.find(sessionId) !== undefined);
 /* A browser the authenticated agent tools started and a previous process of this container never stopped (it was restarted in place) ends here; a run closes its own browser when it ends. */
 const orphanBrowsers = sweepOrphanAgentBrowsers(execWorkRoot(process.env));
 if (orphanBrowsers > 0) logJson("warn", `stopped ${orphanBrowsers} agent browser process(es) a previous orchestrator process left behind`);
