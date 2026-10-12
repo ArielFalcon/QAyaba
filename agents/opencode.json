@@ -517,6 +517,7 @@
         "authbrowser_snapshot": true,
         "authbrowser_click": true,
         "authbrowser_type": true,
+        "webfetch": false,
         "playwright*": true,
         "playwright_browser_run_code_unsafe": false,
         "playwright_browser_evaluate": false,

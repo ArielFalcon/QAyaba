@@ -947,6 +947,20 @@ test("the authenticated browser tools are off for every agent by the global tool
   }
 });
 
+test("every role granted the authenticated browser tools denies webfetch, declared and as the server resolves it", () => {
+  const { agents } = loadAgentConfig();
+  const granted = Object.entries(agents)
+    .filter(([, agent]) => AGENT_BROWSER_TOOLS.some((tool) => agentTools(agent)[tool] === true))
+    .map(([name]) => name);
+  assert.ok(granted.length > 0, "expected at least one role holding the browser tools");
+  const recorded = recordedAgents();
+  for (const name of granted) {
+    assert.equal(agentTools(agents[name]).webfetch, false, `${name} must switch webfetch off in its tools map`);
+    const rules = recorded.find((agent) => agent.name === name)?.permission ?? [];
+    assert.equal(rules.filter((rule) => rule.permission === "webfetch").pop()?.action, "deny", `${name} resolves webfetch to a denial`);
+  }
+});
+
 test("a prompt that asks for no tool at all denies the browser tools too", () => {
   for (const tool of AGENT_BROWSER_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["authbrowser*"] === false, true, tool);
 });

@@ -679,6 +679,7 @@
       { "permission": "read", "pattern": "*.env.example", "action": "allow" },
       { "permission": "bash", "pattern": "*", "action": "deny" },
       { "permission": "engram*", "pattern": "*", "action": "deny" },
+      { "permission": "webfetch", "pattern": "*", "action": "deny" },
       { "permission": "playwright*", "pattern": "*", "action": "allow" },
       { "permission": "playwright_browser_run_code_unsafe", "pattern": "*", "action": "deny" },
       { "permission": "playwright_browser_evaluate", "pattern": "*", "action": "deny" },
