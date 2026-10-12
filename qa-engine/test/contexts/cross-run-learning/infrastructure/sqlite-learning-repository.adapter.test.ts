@@ -170,7 +170,7 @@ test("listAll carries the quarantine mark so an operator and the quarantine itse
 
 test("with unproven rules held back, a candidate row is not retrieved and a proven one is", async () => {
   const proven = { ...rows[1]!, confidence: "high" };
-  const repo = new SqliteLearningRepository({ selectRules: () => [rows[0]!, proven], ...noStore }, { unproven: false });
+  const repo = new SqliteLearningRepository({ selectRules: () => [rows[0]!, proven], ...noStore }, { reflectorUnproven: false });
   const top = await repo.topRules("test-app", Sha.of("abcdef1"), 10);
   assert.deepEqual(top.map((r) => r.trigger), ["t2"]);
 });
@@ -178,7 +178,7 @@ test("with unproven rules held back, a candidate row is not retrieved and a prov
 test("unproven rules are retrieved unless the repository was told to hold them back", async () => {
   const repo = new SqliteLearningRepository({ selectRules: () => rows, ...noStore });
   assert.equal((await repo.topRules("test-app", Sha.of("abcdef1"), 10)).length, 2);
-  const held = new SqliteLearningRepository({ selectRules: () => rows, ...noStore }, { unproven: true });
+  const held = new SqliteLearningRepository({ selectRules: () => rows, ...noStore }, { reflectorUnproven: true });
   assert.equal((await held.topRules("test-app", Sha.of("abcdef1"), 10)).length, 2);
 });
 

@@ -250,9 +250,11 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   turns it back on; `src/server/reflector-switch.ts`): it was handed a fragment of a run without its
   real error text and invented a cause from a false-positive gate signal, and the resulting rule
   told a shell-less generator to run `tsc`. With it off, no reflection is asked of an agent, and the
-  composition root builds `SqliteLearningRepository` with `{ unproven: false }`, so only a proven rule
-  (active, confidence above low, earned from measured outcomes) is retrieved into a prompt; no
-  candidate or "experimental" rule is injected or credited. The fold, governance and the process audit
+  composition root builds `SqliteLearningRepository` with `{ reflectorUnproven: false }`, so a rule the
+  reflector authored reaches a prompt only once proven (active, confidence above low, earned from measured
+  outcomes); no reflector candidate or "experimental" rule is injected or credited. A rule whose `source`
+  carries the deterministic-distiller prefix keeps its normal governance (exploration slots included); every
+  other rule, those stored before authorship was recorded too, counts as the reflector's. The fold, governance and the process audit
   stay on. **Quarantine**: `npm run learning:quarantine -- --app <app> --since <ISO date> [--dry-run]`
   (inside the orchestrator container) marks every in-force rule the app learned at or after the date
   (`learning_rules.quarantined_at`; `QuarantineLearnedRulesUseCase`). It deletes nothing, is idempotent,

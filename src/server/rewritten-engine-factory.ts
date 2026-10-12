@@ -859,7 +859,7 @@ export function buildRewrittenCompositionConfig(
 
 
   /* Built even when frozen (cheap, no I/O): the frozen config simply does not hand it to the engine. */
-  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { unproven: reflectorEnabled });
+  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { reflectorUnproven: reflectorEnabled });
 
 
   const setupAdapter = buildSetupAdapter(exec, codeSandbox);

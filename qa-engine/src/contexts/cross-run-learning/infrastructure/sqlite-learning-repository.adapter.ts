@@ -60,12 +60,12 @@ function rowToRule(row: LearningRow): LearningRule {
 export class SqliteLearningRepository implements LearningRepositoryPort {
   private readonly governance = new RuleGovernanceService();
   /**
-   * `unproven: false` retrieves only rules that earned their place (active, above low confidence), so no
-   * experiment's output reaches a prompt. Absent: every retrievable rule, as before; the composition root decides.
+   * `reflectorUnproven: false` retrieves only rules that earned their place (active, above low confidence) from the reflector,
+   * so none of its output reaches a prompt before it has proven itself; a deterministic distiller's rules keep their normal governance. Absent: every retrievable rule, as before; the composition root decides.
    */
   constructor(
     private readonly store: LearningStore,
-    private readonly policy: InjectionPolicy = { unproven: true },
+    private readonly policy: InjectionPolicy = { reflectorUnproven: true },
   ) {}
 
   async save(rule: LearningRule): Promise<void> {
