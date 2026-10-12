@@ -16,6 +16,7 @@ import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/c
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
 import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { installHttpDispatcher } from "../util/net";
+import { openCodeServerAuth } from "./opencode-server-auth";
 
 
 import {
@@ -220,12 +221,11 @@ let sharedClient: Awaited<ReturnType<typeof import("@opencode-ai/sdk").createOpe
 async function getSharedClient() {
   if (sharedClient) return sharedClient;
   const { createOpencodeClient } = await import("@opencode-ai/sdk");
-  const serverPassword = process.env.OPENCODE_SERVER_PASSWORD;
+  const auth = openCodeServerAuth();
   sharedClient = createOpencodeClient({
     baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
-    ...(serverPassword
-      ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
-      : {}),
+    headers: auth.headers,
+    fetch: auth.fetch as typeof fetch,
   });
   return sharedClient;
 }
@@ -243,12 +243,11 @@ let sharedEventClient: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpe
 async function getEventClient() {
   if (sharedEventClient) return sharedEventClient;
   const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
-  const serverPassword = process.env.OPENCODE_SERVER_PASSWORD;
+  const auth = openCodeServerAuth();
   sharedEventClient = createOpencodeClient({
     baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
-    ...(serverPassword
-      ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
-      : {}),
+    headers: auth.headers,
+    fetch: auth.fetch as typeof fetch,
   });
   return sharedEventClient;
 }
@@ -503,7 +502,7 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
   return {
     createSession: async (cwd) => {
       const created = await client.session.create({ query: { directory: cwd } });
-      if (created.error) throw new Error(`OpenCode session.create failed: ${JSON.stringify(created.error)}`);
+      if (created.error) throw new Error(`OpenCode session.create failed: ${describeFailure(created.error)}`);
       const id = created.data?.id;
       if (!id) throw new Error("OpenCode: the session returned no id");
       return { id };
@@ -515,7 +514,7 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
         body: openCodePromptBody({ agent, text, model, withoutTools }),
       });
       if (res.error) {
-        throw new Error(`OpenCode session.prompt failed: ${JSON.stringify(res.error)}`);
+        throw new Error(`OpenCode session.prompt failed: ${describeFailure(res.error)}`);
       }
       /*
        * A provider/agent fault (out of credits, auth, rate-limit, output-length) is embedded in the

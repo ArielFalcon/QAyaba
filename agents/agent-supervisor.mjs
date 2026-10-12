@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,10 +55,10 @@ function codexExecEnv(env = process.env) {
 
 // The codex/opencode CLIs can echo a key in an auth-failure message; never return
 // it raw. Masks our configured key values verbatim plus common token shapes.
-function redactForResponse(msg) {
+export function redactForResponse(msg) {
   if (typeof msg !== "string") return msg;
   let out = msg;
-  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY"]) {
+  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "OPENCODE_SERVER_PASSWORD"]) {
     const value = process.env[name];
     if (value && value.length >= 6 && out.includes(value)) out = out.split(value).join("[REDACTED_CREDENTIAL]");
   }
@@ -90,13 +91,28 @@ function selectedProviders() {
   return [single];
 }
 
-function commandFor(provider) {
+// `opencode serve` answers anyone who can reach port 4096 unless OPENCODE_SERVER_PASSWORD is set, and it
+// only warns when it is not. The password compose gives both services is what the orchestrator
+// authenticates with; with none set, a random one is generated for this process (kept across respawns)
+// so the server is never open, and the orchestrator's calls fail loudly until the variable is aligned.
+let generatedServerPassword;
+export function openCodeServerEnv(env = process.env, { warn = console.warn } = {}) {
+  const configured = env.OPENCODE_SERVER_PASSWORD?.trim();
+  if (configured) return { ...env, OPENCODE_SERVER_PASSWORD: configured };
+  if (!generatedServerPassword) {
+    generatedServerPassword = randomBytes(32).toString("hex");
+    warn("[supervisor] OPENCODE_SERVER_PASSWORD is not set: generated a random one for this boot. The orchestrator cannot authenticate with it; set the same OPENCODE_SERVER_PASSWORD on the orchestrator and agents services (see .env.example).");
+  }
+  return { ...env, OPENCODE_SERVER_PASSWORD: generatedServerPassword };
+}
+
+export function commandFor(provider, env = process.env) {
   // Only OpenCode is a managed long-lived process.
   if (provider === "opencode") {
     return {
       cmd: "opencode",
-      args: ["serve", "--hostname", process.env.OPENCODE_SERVE_HOSTNAME || "0.0.0.0", "--port", "4096"],
-      env: { ...process.env },
+      args: ["serve", "--hostname", env.OPENCODE_SERVE_HOSTNAME || "0.0.0.0", "--port", "4096"],
+      env: openCodeServerEnv(env),
     };
   }
   return undefined;

@@ -59,6 +59,9 @@ services:
       # BIND_ADDR above decides whether that port is exposed beyond the host.
       LISTEN_HOST: 0.0.0.0
       OPENCODE_SERVE_URL: http://agents:4096
+      # Basic-auth password of `opencode serve` on the agents service: the SAME value on both services (the
+      # supervisor generates a random one when it is unset, and the orchestrator then fails loudly on every call).
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       AGENT_SUPERVISOR_URL: http://agents:4097
       MIRROR_DIR: /app/.mirrors
       # codebase-memory's graph store (one SQLite db per indexed project). Explicit so the volume
@@ -125,6 +128,8 @@ services:
       OPENCODE_PRINT_LOGS: "true"
       OPENCODE_LOG_LEVEL: ${OPENCODE_LOG_LEVEL:-INFO}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+      # Required by `opencode serve` (port 4096 is open to every container on the network); see the orchestrator entry.
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       CODEX_API_KEY: ${CODEX_API_KEY:-}
       DEV_ENV_USER: ${DEV_ENV_USER:-}
       DEV_ENV_PASS: ${DEV_ENV_PASS:-}

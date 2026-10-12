@@ -311,6 +311,11 @@ threat-model header first) and a canary-before-promote hot-swap.
   shadows, and a run has nobody to answer an `ask`). A role that cannot read keeps the `read: deny` its `tools`
   map gives it, so it carries no `read` block. `agent-tool-surface.test.ts` checks the resolved rules against
   `src/integrations/fixtures/opencode-agent-list.json`: re-record it (its README) whenever a role or a block changes.
+- **`opencode serve` is never open.** The supervisor always starts it with `OPENCODE_SERVER_PASSWORD` (the value
+  compose gives the `agents` and `orchestrator` services, or a random one when unset, with a loud warning), and the
+  orchestrator's clients (`src/integrations/opencode-server-auth.ts`) send it as Basic auth, refuse to be built
+  without it and throw on a 401. The value is never logged, is scrubbed from untrusted spawns and from supervisor
+  responses, and must be identical on both services.
 - **What the agent writes or reports is untrusted input.** Orchestrator code that reads, lists
   or writes a path the agent can influence (a reported spec path, the manifest, the context
   map, files setup replaces, what a test run leaves) goes through the confined reader,

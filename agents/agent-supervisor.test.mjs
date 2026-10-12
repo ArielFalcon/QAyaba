@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig } from "./agent-supervisor.mjs";
+import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig, openCodeServerEnv, commandFor, redactForResponse } from "./agent-supervisor.mjs";
 
 // Importing agent-supervisor.mjs must NOT start the HTTP server (it is main-guarded). If it did, the
 // listening socket would keep this process alive and node:test would hang instead of exiting — so
@@ -226,4 +226,43 @@ test("read-only roles resolve --sandbox read-only; write roles bypass codex's sa
   // Default (no sandbox) is write-capable → same bypass — backward compat for an older orchestrator.
   const defaultArgs = buildCodexExecArgs({ cwd: "/repo" });
   assert.ok(defaultArgs.includes("--dangerously-bypass-approvals-and-sandbox"), "default (no sandbox) bypasses codex's sandbox");
+});
+
+// ─── `opencode serve` is never started unsecured ───
+// The server is reachable from every container on the compose network and from the host when a port is
+// published; without OPENCODE_SERVER_PASSWORD it accepts anyone. The supervisor therefore always hands the
+// child a password: the one compose provides (shared with the orchestrator, which authenticates with it), or
+// a random one generated for this process when none is set.
+test("openCodeServerEnv keeps the password compose provides", () => {
+  const out = openCodeServerEnv({ PATH: "/bin", OPENCODE_SERVER_PASSWORD: "from-compose" });
+  assert.equal(out.OPENCODE_SERVER_PASSWORD, "from-compose");
+  assert.equal(out.PATH, "/bin", "the rest of the environment is passed through");
+});
+
+test("openCodeServerEnv generates a strong password when none is set, and the same one for every respawn", () => {
+  const warnings = [];
+  const first = openCodeServerEnv({}, { warn: (line) => warnings.push(line) });
+  const second = openCodeServerEnv({ OPENCODE_SERVER_PASSWORD: "   " }, { warn: (line) => warnings.push(line) });
+  assert.ok(first.OPENCODE_SERVER_PASSWORD.length >= 32, "a generated password carries real entropy");
+  assert.equal(second.OPENCODE_SERVER_PASSWORD, first.OPENCODE_SERVER_PASSWORD, "a respawned server keeps the password of the first");
+  assert.ok(warnings.length >= 1 && warnings.every((line) => !line.includes(first.OPENCODE_SERVER_PASSWORD)), "the warning never carries the value");
+  assert.ok(warnings.some((line) => line.includes("OPENCODE_SERVER_PASSWORD")), "the warning says which variable the orchestrator needs");
+});
+
+test("the OpenCode server command always runs with a password in its environment", () => {
+  const spec = commandFor("opencode", { PATH: "/bin" });
+  assert.ok(spec.env.OPENCODE_SERVER_PASSWORD, "serve must never start without one");
+  assert.equal(commandFor("codex", {}), undefined);
+});
+
+test("redactForResponse masks the OpenCode server password wherever a CLI echoes it", () => {
+  const previous = process.env.OPENCODE_SERVER_PASSWORD;
+  process.env.OPENCODE_SERVER_PASSWORD = "s3cret-server-password";
+  try {
+    const masked = redactForResponse("auth failed for s3cret-server-password at x");
+    assert.ok(!masked.includes("s3cret-server-password"));
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_SERVER_PASSWORD;
+    else process.env.OPENCODE_SERVER_PASSWORD = previous;
+  }
 });

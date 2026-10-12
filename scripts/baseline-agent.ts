@@ -899,8 +899,8 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const git = defaultMirrorDeps;
   const slug = (repo: string): string => repo.replaceAll("/", "__");
   const serveUrl = env.OPENCODE_SERVE_URL ?? "http://agents:4096";
-  const serverPassword = env.OPENCODE_SERVER_PASSWORD;
-  const headers = serverPassword ? { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } : undefined;
+  const { openCodeServerAuth } = await import("../src/integrations/opencode-server-auth.ts");
+  const serverAuth = openCodeServerAuth(env);
 
   /* The agent wrote these specs, so they are read only through the confined reader. */
   const readSpecs = (copyDir: string, specs: readonly string[]): Map<string, string | null> => {
@@ -1018,7 +1018,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
 
     resolvedPermissions: async (copyDir) => {
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
-      const client = createOpencodeClient({ baseUrl: serveUrl, ...(headers ? { headers } : {}) });
+      const client = createOpencodeClient({ baseUrl: serveUrl, headers: serverAuth.headers, fetch: serverAuth.fetch as typeof fetch });
       const res = await client.app.agents({ directory: copyDir });
       if (res.error) throw new Error(`GET /agent failed: ${JSON.stringify(res.error)}`);
       const agent = (res.data ?? []).find((a) => a.name === BASELINE_AGENT);
@@ -1028,7 +1028,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
 
     resolvedGeneratorModel: async (copyDir) => {
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
-      const client = createOpencodeClient({ baseUrl: serveUrl, ...(headers ? { headers } : {}) });
+      const client = createOpencodeClient({ baseUrl: serveUrl, headers: serverAuth.headers, fetch: serverAuth.fetch as typeof fetch });
       const res = await client.app.agents({ directory: copyDir });
       const model = (res.data ?? []).find((a) => a.name === GENERATOR_AGENT)?.model;
       return model ? `${model.providerID}/${model.modelID}` : null;
@@ -1040,7 +1040,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     runAgent: async ({ copyDir, prompt, timeoutMs, keepSession }) => {
       await installHttpDispatcher(timeoutMs + 60_000);
       const { createOpencodeClient } = await import("@opencode-ai/sdk");
-      const client = createOpencodeClient({ baseUrl: serveUrl, ...(headers ? { headers } : {}) });
+      const client = createOpencodeClient({ baseUrl: serveUrl, headers: serverAuth.headers, fetch: serverAuth.fetch as typeof fetch });
       const created = await client.session.create({ query: { directory: copyDir } });
       const sessionId = created.data?.id;
       if (!sessionId) throw new Error(`OpenCode session.create failed: ${JSON.stringify(created.error)}`);

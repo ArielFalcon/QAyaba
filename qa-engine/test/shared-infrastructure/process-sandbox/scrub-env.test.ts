@@ -21,6 +21,17 @@ test("scrubEnv drops secrets even if extraAllowed would match", () => {
   }
 });
 
+test("scrubEnv drops the OpenCode server password even if extraAllowed would match", () => {
+  const key = "OPENCODE_SERVER_PASSWORD";
+  const saved = process.env[key];
+  try {
+    process.env[key] = "server-secret";
+    assert.equal(key in scrubEnv({ extraAllowed: /^OPENCODE_/ }), false);
+  } finally {
+    if (saved === undefined) delete process.env[key]; else process.env[key] = saved;
+  }
+});
+
 test("scrubEnv keeps OS + language essentials and forwards PLAYWRIGHT_BROWSERS_PATH", () => {
   const added = ["PATH", "PLAYWRIGHT_BROWSERS_PATH"] as const;
   const saved: Partial<Record<string, string>> = {};

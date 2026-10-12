@@ -107,3 +107,15 @@ test("the agent service does not bulk-import .env (which would leak every secret
     "SECURITY: the agent service must not use `env_file` — it would bulk-import the orchestrator's secrets. Enumerate only the keys the agent needs under `environment`.",
   );
 });
+
+test("the orchestrator and the agents service are given the same OpenCode server password, from the same variable", () => {
+  const compose = loadCompose();
+  const valueOf = (service: string): string | undefined => {
+    const entries = envEntries(getService(compose, service)?.environment);
+    return entries.find(([key]) => key === "OPENCODE_SERVER_PASSWORD")?.[1];
+  };
+  const agents = valueOf("agents");
+  assert.ok(agents, "the agents service must declare OPENCODE_SERVER_PASSWORD: opencode serve would otherwise start with a generated one the orchestrator cannot know");
+  assert.equal(valueOf("orchestrator"), agents, "both services must read the same variable, so that the orchestrator authenticates with the password the server started with");
+  assert.match(agents, /\$\{OPENCODE_SERVER_PASSWORD/, "the value comes from the environment, never a literal in the compose file");
+});
