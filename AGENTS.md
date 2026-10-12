@@ -42,7 +42,8 @@ auto-merge**. Failures open an Issue. The suite lives in git and improves run af
 | `agent/` | Provider-neutral prompt mirror consumed by the Codex runtime (`roles/`, `skills/`). Keep it in sync with `agents/`. |
 | `config/apps/` | Watched-app YAMLs (gitignored user data; template: `example.yaml`). `config/e2e/` is the seed copied into a repo's `e2e/`. |
 | `client/` | Go TUI. `web/` web console. `packages/sdk` + `contract/openapi.json` the API contract. |
-| `scripts/` | Mutation testing, efficiency benchmark, onboarding, contract generation. |
+| `scripts/` | Mutation testing, efficiency benchmark, onboarding, contract generation, `sandbox-smoke` (in-container isolation check). |
+| `bin/` | `qa`/`qayaba` clients and the container's root-only boot steps (`container-entrypoint.sh`, `egress-init.sh`). |
 
 ## Commands
 
@@ -59,7 +60,10 @@ npm run typecheck && npm run arch:check && npm run sdk:typecheck && npm run cont
 (cd client && go vet ./... && go test ./...)
 
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
+npm run sandbox:smoke       # IN the running orchestrator container: proves the execution sandbox holds (docs/execution-sandbox.md)
 npm run efficiency-benchmark # agent step/call telemetry over real runs; never a gate (needs the stack up; docs/efficiency-benchmark.md)
+npm run probe-report -- <runId...> # one run's phases, turns, tool use, tokens and cost (inside the orchestrator container)
+npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> # experiment only: a plain agent on a throwaway copy, same metrics as probe-report
 
 # One run, same pipeline as the webhook (--mode diff|complete|exhaustive|manual, --target e2e|code):
 npm run qa -- --app my-app --sha <sha> [--mode manual --guidance "test the contact form"]
@@ -102,19 +106,27 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
 1. **Gate** — wait until DEV serves this SHA (`dev.versionUrl`; skipped when absent).
 2. **Classify** — checkout, diff + message, `classifyCommit` (Conventional Commits
    cross-checked against the diff). `skip` → `skipped` without spending a token.
-3. **Setup** — seed `e2e/` from `config/e2e/` if missing, install deps.
+3. **Setup** — restore the app's accepted suite from the suite store (below), seed `e2e/` from
+   `config/e2e/` for whatever is still missing, install deps.
 4. **Ground** — assemble what the agent receives (see below).
 5. **Generate** — agent writes/improves specs + `e2e/.qa/manifest.json`; an independent
    reviewer judges. Declared `noop` + zero specs → `skipped`. Zero specs without `noop`
    → `infra-error E-NO-DECISION`; step budget exhausted → `infra-error E-STEP-BUDGET`; a diff run's
-   first pass stopped by its tier's time budget → `infra-error E-TIME-BUDGET`.
+   first pass stopped by its tier's time budget, or any agent turn of the run stopped by the run's
+   wall-clock deadline (below) → `infra-error E-TIME-BUDGET`.
 6. **Validate** — `tsc` + ESLint (`eslint-plugin-playwright`) + `playwright --list` +
    manifest. Fail → `invalid`.
 7. **Execute** — Playwright against DEV → `pass`/`fail`/`flaky` (pass only on retry =
    flaky → quarantine). DEV down → `infra-error`.
 8. **Change-coverage** — did the green run exercise the diff's changed lines? (below)
 9. **Decide** — green + approved + coverage not blocking → PR. Rejected/`fail`/`invalid`
-   → Issue. `shadow: true` replaces every PR/Issue with a log line.
+   → Issue. A reviewer that could not be reached (its session failed, or it returned nothing) judged
+   nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
+   (the reviewer's reason on the run record and in the log, no PR and no Issue, nothing learned; three in
+   a row log an observe-only audit finding). A reviewer that answered unreadably is still a fail-closed
+   parse miss. `shadow: true` replaces every PR/Issue with a log line. An accepted run (`isAccepted`:
+   `pass`, generated, approved or review not required, coverage not blocking; shadow ignored) first
+   captures its suite into the suite store, before publication.
 
 Verdicts: `pass | fail | flaky | invalid | infra-error | skipped`
 (`qa-engine/src/shared-kernel/run-verdict.ts`). `E-PRECONDITION` = login could not be
@@ -141,12 +153,16 @@ The harness pre-computes context so the agent does not have to rediscover it. An
 to the agent's behaviour must make it **consume** this context, not re-derive it:
 - **Pre-generation grounding** —
   `qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts`
-  (fail-open): explorer brief (blast radius; `qa.explorer`, default on when `services[]`),
+  (fail-open): explorer brief (blast radius; `qa.explorer`, default on when `services[]`) on diff and manual runs,
   context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
   capturable — `generation/infrastructure/context-pack.ts`), harness facts
   (`generation/domain/harness-facts.ts`), existing-suite manifest.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
   `review-dom-grounding-port.adapter.ts` (same folder).
+  The pre-exec selector-ambiguity check is a regex over the spec text and **advisory**: its findings
+  are counted (`preExecAmbiguityCatches`) and logged as a warning, never fold the verdict, request a
+  regeneration or feed the FixLoop; execution decides. Only the catalog gate's fabricated test-ids
+  (a captured, settled route) feed the one-shot corrective regeneration.
 - **Step limit and milestone** — the generator, explorer and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the legacy `maxSteps` mapped into it; `stepLimits`
@@ -169,9 +185,38 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   sent. A tier whose time the transport's own deadline (`agentPromptCapMs`) does not exceed sets no
   budget, since that deadline would fire first. A turn the budget stops ends `time-budget`, unless the
   main turn already delivered specs or declared a no-op, which stand when only the repair was cut.
-  `E-TIME-BUDGET` is never learned from (DEV latency confounds it). A timeout in a
-  run with no budget (broad, other modes, a regeneration, whose callers read zero specs as "no fixes")
-  stays the loud integration error it was.
+  The tiers' times are operator-tunable without a rebuild: `QA_DIFF_TIME_BUDGET_MS_TINY`,
+  `_FOCUSED` and `_BROAD` (a positive whole number of milliseconds, or `none` for no bound beyond the
+  host's deadline; blank or unset keeps the default; anything else fails the composition loudly). They
+  are resolved once in the composition root (`resolveDiffTimeBudgets`, qa-engine never reads the
+  environment) and stay clamped by `agentPromptCapMs`: a value at or above it sets no budget.
+  `E-TIME-BUDGET` is never learned from (DEV latency confounds it).
+- **Run deadline** — one wall-clock deadline bounds the whole run, so no tier, mode, regeneration or
+  repair is unbounded (`qa-run-orchestration/domain/run-time-budget.ts`, one named table:
+  `diff-tiny` 25 min, `diff-focused` 40, `diff-broad` 60, `manual` 45, `complete` 90, `exhaustive` 150,
+  `context` 60; override per row with `QA_RUN_TIME_BUDGET_MS_DIFF_TINY|DIFF_FOCUSED|DIFF_BROAD|MANUAL|COMPLETE|EXHAUSTIVE|CONTEXT`,
+  a positive whole number of milliseconds, there is deliberately no `none`; a mistyped value fails the
+  composition). The use case arms it once after classification (`RunDeadlinePort.arm`), because a diff
+  run's row follows its change's size; it counts from there, so the deploy-gate wait is not on it. Every
+  agent turn goes through `RunDeadlineRuntime`, a decorator over the agent runtime: a turn finding no time
+  left is not sent, and every other runs under the smaller of its own limit and what is left (the tier
+  budget above still applies, inside it). A turn the deadline itself ended (not one that hit a limit of
+  its own) raises `RunDeadlineExceededError`, which the fail-open catches around agent turns rethrow
+  (`rethrowIfRunDeadline`) and `RunQaUseCase.run` turns into a persisted `infra-error E-TIME-BUDGET` with
+  a note naming the budget and the turn, nothing published and nothing learned. Deterministic phases
+  (validation, a Playwright execution) are not cut: they have their own timeouts and the next agent turn
+  meets the deadline. This is separate from `WallClockBudget` (`wallClockBudgetMs`), which only decides,
+  before a fix-loop regeneration, whether the coordination router escalates or aborts; it never stops a
+  turn. An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
+  (`observesOperatingSignal`), which logs an observe-only `recurring-time-exhaustion` finding; it never
+  folds, reflects, opens a maintainer incident or changes a rule.
+- **Contract repair** — the re-prompt that only restates a verdict (generator or reviewer) runs with tools
+  disabled (`AgentPromptOpts.withoutTools`; OpenCode sends a per-prompt `tools` deny map, Codex has no
+  per-prompt tool control and ignores it) and under its own short timeout (`REPAIR_TURN_TIMEOUT_MS`,
+  2 min, further cut to the time left). A repair that outlasts its cap leaves the first answer standing:
+  the generation then ends `no-verdict` (loudly noted) and an unreadable review fails closed. A timeout
+  in a run with no tier budget (broad, other modes, a regeneration) is still the integration error it was,
+  unless it is the run deadline.
 - **Regeneration listing** — a regeneration lists the suite as that turn knows it (the specs
   the suite had before a diff/manual run, plus those this run delivered, each only while its
   file is still there): the specs it must change under "Editable" (all those a signal names;
@@ -190,10 +235,32 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   Brief routes keep their place in
   front, nothing is inferred from names, and a cross-repo run ranks only by the spec of an
   operation under the service's staged root.
+- **Templated routes** — a route template of the map (`/shops/:province/:city`) is opened through a real
+  link: the first capture renders the routes that are pages, and also the app root for the links it shows;
+  `generation/domain/route-instantiation.ts` matches those same-origin pathnames to the template segment by
+  segment (a template needs at least one literal segment), the cut is made on pages in rank order, not on
+  templates, and the pages found are captured in a second pass labelled with both address and template. A
+  template counts as opened only when the capture grounded its page at its own address; otherwise it is
+  listed as not capturable, with why. The explorer is shown the map's route paths so its brief names pages
+  by them.
 - **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: deterministic
   rule fold, rule governance, curriculum, and the `qa-reflector` pass (distils
   `candidate`/`low`-confidence rules only; flaky/infra verdicts excluded). engram holds
-  agent memory across runs.
+  agent memory across runs. **The reflector is OFF by default** (`QA_REFLECTOR_ENABLED=true`
+  turns it back on; `src/server/reflector-switch.ts`): it was handed a fragment of a run without its
+  real error text and invented a cause from a false-positive gate signal, and the resulting rule
+  told a shell-less generator to run `tsc`. With it off, no reflection is asked of an agent, and the
+  composition root builds `SqliteLearningRepository` with `{ reflectorUnproven: false }`, so a rule the
+  reflector authored reaches a prompt only once proven (active, confidence above low, earned from measured
+  outcomes); no reflector candidate or "experimental" rule is injected or credited. A rule whose `source`
+  carries the deterministic-distiller prefix keeps its normal governance (exploration slots included); every
+  other rule, those stored before authorship was recorded too, counts as the reflector's. The fold, governance and the process audit
+  stay on. **Quarantine**: `npm run learning:quarantine -- --app <app> --since <ISO date> [--dry-run]`
+  (inside the orchestrator container) marks every in-force rule the app learned at or after the date
+  (`learning_rules.quarantined_at`; `QuarantineLearnedRulesUseCase`). It deletes nothing, is idempotent,
+  and a quarantined rule is excluded from governance retrieval, the live ledger and
+  `recordRuleOutcome`; `ledger-cli show` lists it under QUARANTINED and `ledger-cli release <ruleId>`
+  lifts it.
 
 ### The agent and its prompts
 
@@ -221,6 +288,19 @@ threat-model header first) and a canary-before-promote hot-swap.
 - The suite's source of truth is **git** (app repo `e2e/`). engram (`engram-data`
   volume) is the only non-regenerable data; Serena index and mirrors are caches.
 - Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env.
+- **Suite store** (`qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts`,
+  `data/suites/<app>/` in the qa-data volume, never mounted into the agents container): the accepted
+  suite of an app that git does not hold yet. Shadow mode never publishes and a PR may not be merged
+  yet, while every run's checkout wipes the untracked `e2e/`; without the store each run starts cold,
+  re-seeds the stock login and orders the agent to author it again. An accepted run captures (specs
+  that ran green, support files, the app's `auth.setup.ts` only when it actually signed in); the next
+  run restores before setup and reconciles with git (untracked: store wins; tracked and unchanged since
+  the entry was admitted: unpublished change overlaid; tracked and different: git wins). A restored
+  login that fails to sign in is demoted and the stock seed takes its place. Store faults are off-path
+  (logged, never a verdict). Context-map, session state, credentials and `.qa-probe/` never enter it.
+  `deleteApp` with purge removes it (`suite:<name>`); a plain delete keeps it, like the mirror. Under
+  `QA_CAMPAIGN_FREEZE` it is read-only; `warm-suite seed-store` loads an experiment snapshot into it
+  (`docs/efficiency-benchmark.md`).
 
 ## Invariants — do not break these
 
@@ -229,6 +309,49 @@ threat-model header first) and a canary-before-promote hot-swap.
 - **Security boundary:** the agent is **read-only** on watched repos. Only the
   deterministic orchestrator writes to git (push/PR). Never give the agent, or any
   chat/operator layer, write access to a watched repo.
+- **No role reads credentials.** Every role that reads declares a `permission.read` block in
+  `agents/opencode.json` that denies env files, the suite's `e2e/.auth/`, `storageState*.json`, `client.p12` and `cert.pass`
+  after its catch-all allow (the orchestrator's auth directory is not mounted into the agents container, so no rule names it,
+  and an app's own `auth/` or `.auth/` source folders stay readable) (the runtime's own `*.env` default is `ask`, which a later `read *: allow`
+  shadows, and a run has nobody to answer an `ask`). A role that cannot read keeps the `read: deny` its `tools`
+  map gives it, so it carries no `read` block. `agent-tool-surface.test.ts` checks the resolved rules against
+  `src/integrations/fixtures/opencode-agent-list.json`: re-record it (its README) whenever a role or a block changes.
+- **`opencode serve` is never open.** The supervisor always starts it with `OPENCODE_SERVER_PASSWORD` (the value
+  compose gives the `agents` and `orchestrator` services, or a random one when unset, with a loud warning), and the
+  orchestrator's clients (`src/integrations/opencode-server-auth.ts`) send it as Basic auth, refuse to be built
+  without it and throw on a 401. The value is never logged, is scrubbed from untrusted spawns and from supervisor
+  responses, and must be identical on both services.
+- **The agents container never holds the test account.** `DEV_TEST_USER`/`DEV_TEST_PASS` are not in its compose
+  environment and the Codex exec env (`CODEX_EXEC_ENV_PREFIX`, in the supervisor and `codex-strategy.ts`) does not
+  forward them: the app login is the orchestrator's (`AuthSessionAdapter`) and the agent only gets the saved session.
+  `DEV_ENV_*` (the DEV HTTP Basic gate) stays, for the baseline arm's Playwright config and a Codex shell.
+- **A watched repo cannot configure the agent.** OpenCode merges a session directory's `opencode.json` and
+  `.opencode/` (permission overrides, plugins that run code, MCP servers) over `agents/opencode.json`; a mirror is a
+  watched repo's working copy. The supervisor starts `opencode serve` with `OPENCODE_DISABLE_PROJECT_CONFIG=true`
+  (verified live: a hostile `opencode.json` raised `qa-generator` to `bash: allow` and a `.opencode/plugin` ran code
+  just by listing agents, both gone with the flag), and drops any Codex `[projects.*]` trust at boot, so a repo's
+  `.codex/config.toml` is never loaded. Only the baseline experiment opts back in (`AGENT_ALLOW_PROJECT_CONFIG=true`).
+  A repo's `AGENTS.md`/`CLAUDE.md` stay prompt text, the same trust class as the source the agent reads.
+- **Agent-influenced code runs only through the execution launcher**
+  (`qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
+  Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts, the DOM capture, a code-mode
+  repo's install/test and the mutation oracle all start there: the sandbox uid, an environment built from an explicit
+  allowlist per profile (never `scrubEnv(process.env)`), a per-run work dir (`/tmp/qa-exec/<runId>`) for Playwright's
+  output, report and dumps, read back through the strict readers. **Only the `login` profile carries the test account**
+  (a suite gets it only for an app that sets `e2e.specCredentials: account`); a suite gets a per-spawn copy of the saved
+  session and never the auth dir. A new module that
+  imports `child_process` is a build failure (`npm run arch:check`, rule `no-child-process-outside-launchers`); add a
+  spawn site by adding a profile call, not an exception. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
+  without the sandbox uid (`infra-error E-SANDBOX`, never learned from, no Issue).
+- **The sandbox uid's network is closed by default.** An iptables chain matched on that uid redirects its DNS and TCP to a
+  DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, the app's own
+  origin, `egress.installOrigins`, `config/egress/registries.yaml`); everything else, IPv6 and the other loopback ports
+  included, is rejected. `QA_EGRESS_MODE=enforce` (default) ends a run `E-SANDBOX` when the filter is not active. Origins are
+  data: never add a host in code. Denied hosts land in `gateSignals.sandbox.denied`.
+- **File permissions are the boundary for secrets.** `bin/container-entrypoint.sh` closes `/app/data` (0700), `/app/config`
+  (0750) and the mirrors at every boot; the sandbox uid reads one mirror at a time (the run opens it to its group and seals
+  it again) and writes none of it. Do not give the sandbox uid, or a path it can write, a way to the API token, `/app/data`
+  or another mirror.
 - **What the agent writes or reports is untrusted input.** Orchestrator code that reads, lists
   or writes a path the agent can influence (a reported spec path, the manifest, the context
   map, files setup replaces, what a test run leaves) goes through the confined reader,
