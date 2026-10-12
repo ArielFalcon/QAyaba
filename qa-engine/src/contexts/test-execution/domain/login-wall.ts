@@ -6,7 +6,7 @@
 
 import type { QaCase } from "@kernel/qa-case.ts";
 
-const LOGIN_PATH = /\/(?:log-?in|sign-?in|sso|auth(?:enticate)?)(?:[/?#]|$)/i;
+const LOGIN_PATH = /\/(?:log[-_]?in|sign[-_]?in|sso|auth(?:enticate)?)(?:[/?#]|$)/i;
 const PASSWORD_FIELD = /^textbox: .*(?:password|contrase(?:ñ|n)a|clave)/im;
 
 export function endedOnLoginWall(cases: readonly Pick<QaCase, "status" | "finalUrl" | "failureDom">[]): boolean {
@@ -15,6 +15,11 @@ export function endedOnLoginWall(cases: readonly Pick<QaCase, "status" | "finalU
     if (c.finalUrl !== undefined && LOGIN_PATH.test(pathOf(c.finalUrl))) return true;
     return c.failureDom !== undefined && PASSWORD_FIELD.test(c.failureDom);
   });
+}
+
+/* Whether a URL path is one the app's login page commonly lives at. */
+export function pathLooksLikeLogin(pathname: string): boolean {
+  return LOGIN_PATH.test(pathname);
 }
 
 function pathOf(url: string): string {
