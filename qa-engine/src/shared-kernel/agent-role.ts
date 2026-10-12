@@ -1,8 +1,8 @@
 /* Who the agent is (role) and which provider+model serves it. Kernel-resident so AgentRuntimePort does not forward-depend on the agent-runtime context. The contract AgentRoleSchema is a narrower wire subset, not this runtime union. */
 
 export type AgentRole =
-  | "primary" | "reviewer" | "chat" | "worker"
-  | "workerCode" | "sidekick" | "maintainer" | "reflector" | "explorer" | "proposer";
+  | "primary" | "reviewer" | "chat"
+  | "sidekick" | "maintainer" | "reflector" | "explorer" | "proposer";
 
 export type AgentProvider = "opencode" | "codex";
 

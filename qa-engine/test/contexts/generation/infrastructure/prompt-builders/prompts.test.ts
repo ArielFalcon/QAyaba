@@ -9,7 +9,6 @@ import {
   buildPrompt,
   buildPromptAssembled,
   buildFollowupPrompt,
-  buildWorkerPrompt,
   buildReviewerPrompt,
   buildReviewerPromptAssembled,
   buildExplorerPrompt,
@@ -21,7 +20,7 @@ import {
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { OpencodeRunInput, ParallelWorkerInput, ReviewInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 setExplorationBriefCollaborators({
@@ -1295,18 +1294,6 @@ test("exactly MAX_LINKS (40) links does NOT append the marker (nothing was actua
   assert.doesNotMatch(text, /\.\.\.and \d+ more links?/i, "no marker when every link was actually rendered");
 });
 
-test("more than MAX_LINKS (40) links appends the '...and N more links' marker in the worker prompt too", () => {
-  const manyLinks = Array.from({ length: 42 }, (_, i) => ({
-    from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
-    to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
-    transport: "http" as const,
-    confidence: 0.5,
-    source: "openapi",
-  }));
-  const text = buildWorkerPrompt(mkWorkerInput({ serviceLinks: manyLinks }));
-  assert.match(text, /\.\.\.and 2 more links?/i, "42 links - 40 rendered = 2 must be named in the worker prompt marker too");
-});
-
 test("contractDrift present with serviceLinks ABSENT/empty still renders the section header and the drift WARNING (pure-drift scenario)", () => {
   const withoutLinks = buildPrompt(mkInput({ contractDrift: [drift1] }));
   assert.match(withoutLinks, /Cross-service links \(deterministic/, "must still render the section header when drift-only");
@@ -1421,49 +1408,6 @@ test("an impacted link past the MAX_LINKS cut still renders WITH its marker — 
   );
 });
 
-/* buildAttrHint (qa-engine dom-snapshot.ts) emits a `-> [attr]` hint for id=/name=/href/type= too,
-   not just test-id. The selector-priority rule must not instruct getByTestId for ANY `-> [attr]`
-   hint — that cannot resolve for a non-test-id hint. The rule must name the discriminator: the hint
-   text must start with the configured testIdAttribute name (e.g. "data-testid=") — NOT just
-   "carries a hint".
- */
-
-function mkWorkerInput(overrides: Partial<ParallelWorkerInput> = {}): ParallelWorkerInput {
-  return {
-    objective: "verify the owner list renders",
-    flow: "owners list",
-    symbols: ["OwnerListComponent"],
-    needsUi: true,
-    specFile: "flows/owners-list.spec.ts",
-    repo: "org/app",
-    mirrorDir: "/mirrors/org__app",
-    e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234",
-    appName: "testapp",
-    mode: "diff",
-    ...overrides,
-  };
-}
-
-test("defect 1: worker selector-priority rule names the test-id-attribute-name discriminator, not just 'carries a hint'", () => {
-  const text = buildWorkerPrompt(mkWorkerInput({ domSnapshot: "button: Add Owner -> [data-testid=add-owner]" }));
-  const rule = /Selector priority:[^\n]*/.exec(text)?.[0] ?? "";
-  assert.ok(rule.length > 0, "worker prompt must contain a Selector priority rule");
-  /* The old wording ("carries a ... hint") is ambiguous about id=/name=/href hints. The fixed
-     wording must name the discriminator concretely: the hint must START WITH the testIdAttribute
-     name (e.g. "data-testid=") — not merely "a hint is present".
-   */
-  assert.ok(
-    /starts with|begins with|testIdAttribute name|the configured test-id attribute/i.test(rule),
-    `worker selector-priority rule must name the test-id-only discriminator concretely; got: ${rule}`,
-  );
-  assert.doesNotMatch(
-    rule,
-    /carries a (trailing )?`?-> \[attr\]`? hint\b(?!.*test-id)/i,
-    "worker rule must not instruct getByTestId for ANY hint — only test-id hints",
-  );
-});
-
 test("the live tree section describes the hint format and leaves the test-id rule to the generator role, so no looser second statement can say any hint implies a test-id", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: false }));
   const domSection = text.slice(text.indexOf(PROMPT_HEADINGS.liveDevTree));
@@ -1484,147 +1428,6 @@ test("defect 2: GROUND-TRUTH-AT-FAILURE fallback offers getByText only, not CSS/
     /CSS\/data-testid|data-testid locator|scoped CSS\/data-testid/i,
     "the fallback must NOT offer a CSS/data-testid locator — that invites fabricating an unverified value",
   );
-});
-
-/* The worker prompt uses the same local s() sanitizer, MAX_LINKS/MAX_DRIFT caps, and
-   (hasLinks||hasDrift)-gated content as the single-agent builder, but with NO isGenerationMode
-   gate — the worker builder has no such mode switch (workers always generate).
- */
-
-test("worker prompt with populated serviceLinks renders the 'Cross-service links' section with from -> to (transport, confidence)", () => {
-  const text = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [link1] }));
-  assert.match(text, /Cross-service links \(deterministic/, "worker prompt must render the section header when serviceLinks is populated");
-  assert.match(
-    text,
-    /org\/front\/src\/api\.ts#getOrder.*->.*org\/orders.*GET \/orders\/\{id\}.*FE→BE HTTP, source openapi, confidence 0\.90/,
-    "worker prompt must render the from -> to (kind, source, confidence) line format",
-  );
-});
-
-/* The worker-prompt "Cross-service links" section uses the SAME inline "[IMPACTED:<tier>]" markers
-   on matched bullets — NOT a new/duplicate subsection — plus impacted-first-before-MAX_LINKS
-   ordering and a byte-identical-when-absent guarantee, on ParallelWorkerInput.
- */
-
-test("a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]' prefix in the worker prompt", () => {
-  const text = buildWorkerPrompt(mkWorkerInput({
-    serviceLinks: [link1],
-    crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
-  }));
-  assert.match(text, /\[IMPACTED:contract-file\]/, "the matched link's bullet must carry the inline tier marker");
-  assert.match(
-    text,
-    /\[IMPACTED:contract-file\] `org\/front\/src\/api\.ts#getOrder`/,
-    "the marker must prefix the SAME existing bullet line, not a separate entry",
-  );
-});
-
-test("no duplicate '### Impacted by this change' (or similarly named) subsection is ever rendered in the worker prompt", () => {
-  const text = buildWorkerPrompt(mkWorkerInput({
-    serviceLinks: [link1],
-    crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
-  }));
-  assert.ok(!/impacted by this change/i.test(text), "no separate 'Impacted by this change' subsection must ever be rendered in the worker prompt");
-  const occurrences = text.split("Cross-service links").length - 1;
-  assert.equal(occurrences, 1, "the Cross-service links section header must render exactly once in the worker prompt, never duplicated for the impacted subset");
-});
-
-test("an empty crossRepoImpact.impactedLinks is byte-identical to the field being entirely absent in the worker prompt", () => {
-  const withEmpty = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [] } }));
-  const withoutField = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [link1] }));
-  assert.equal(withEmpty, withoutField, "an empty impacted set must render byte-identical to the field being entirely absent");
-  assert.ok(!withoutField.includes("[IMPACTED:"), "no inline marker may render when crossRepoImpact is absent");
-});
-
-test("a link present in serviceLinks but NOT in crossRepoImpact.impactedLinks renders with NO marker prefix in the worker prompt", () => {
-  const unmatchedLink = {
-    from: { repo: "org/front", file: "src/other.ts", symbol: "getOther" },
-    to: { repo: "org/other", file: "src/routes.ts", symbol: "GET /other" },
-    transport: "http" as const,
-    contractRef: "GET /other",
-    confidence: 0.9,
-    source: "openapi",
-  };
-  const text = buildWorkerPrompt(mkWorkerInput({
-    serviceLinks: [link1, unmatchedLink],
-    crossRepoImpact: { impactedLinks: [{ link: link1, tier: "impacted-symbol" }] },
-  }));
-  assert.match(text, /\[IMPACTED:impacted-symbol\] `org\/front\/src\/api\.ts#getOrder`/, "the matched link must carry the marker");
-  assert.doesNotMatch(
-    text.split("\n").find((l) => l.includes("getOther")) ?? "",
-    /\[IMPACTED:/,
-    "an unmatched link's bullet must render with NO [IMPACTED:...] prefix",
-  );
-});
-
-test("an impacted link past the MAX_LINKS cut still renders WITH its marker in the worker prompt — impacted links survive truncation", () => {
-  const filler = Array.from({ length: 44 }, (_, i) => ({
-    from: { repo: "org/front", file: `src/f${i}.ts`, symbol: `call${i}` },
-    to: { repo: "org/other", file: "src/routes.ts", symbol: `GET /f${i}` },
-    transport: "http" as const,
-    contractRef: `GET /f${i}`,
-    confidence: 0.9,
-    source: "openapi",
-  }));
-  const text = buildWorkerPrompt(mkWorkerInput({
-    serviceLinks: [...filler, link1], /* the impacted link sits at index 44 — past the 40-link ceiling */
-    crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
-  }));
-  assert.match(
-    text,
-    /\[IMPACTED:contract-file\] `org\/front\/src\/api\.ts#getOrder`/,
-    "the impacted link must survive the MAX_LINKS truncation with its marker in the worker prompt — discovery order must not silently drop the one annotated link",
-  );
-});
-
-test("worker prompt with contractDrift renders the 'Contract drift (WARNINGS' sub-heading", () => {
-  const text = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [link1], contractDrift: [drift1] }));
-  assert.match(text, /Contract drift \(WARNINGS/, "worker prompt must render the drift sub-heading");
-  assert.match(text, /DELETE \/orders\/\{id\}/, "worker prompt must render the drift verb+path");
-});
-
-test("worker prompt with absent serviceLinks/contractDrift renders NO 'Cross-service links' section", () => {
-  const text = buildWorkerPrompt(mkWorkerInput({}));
-  assert.ok(!text.includes("Cross-service links"), "worker prompt without serviceLinks/contractDrift must render no section");
-});
-
-test("worker prompt with empty serviceLinks array is byte-identical to the field being entirely absent", () => {
-  const withEmpty = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [] }));
-  const withoutField = buildWorkerPrompt(mkWorkerInput({}));
-  assert.equal(withEmpty, withoutField, "an empty serviceLinks array must be byte-identical to the field being entirely absent");
-});
-
-test("worker prompt caps serviceLinks at MAX_LINKS (40) and contractDrift at MAX_DRIFT (20)", () => {
-  const manyLinks = Array.from({ length: 45 }, (_, i) => ({
-    from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
-    to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
-    transport: "http" as const,
-    confidence: 0.5,
-    source: "openapi",
-  }));
-  const manyDrift = Array.from({ length: 25 }, (_, i) => ({
-    from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
-    verb: "GET",
-    path: `/path${i}`,
-  }));
-  const text = buildWorkerPrompt(mkWorkerInput({ serviceLinks: manyLinks, contractDrift: manyDrift }));
-  assert.ok(text.includes("sym0") && text.includes("sym39"), "the first 40 links must render");
-  assert.ok(!text.includes("sym40") && !text.includes("sym44"), "links beyond the 40-cap must be dropped");
-  assert.ok(text.includes("/path0") && text.includes("/path19"), "the first 20 drift entries must render");
-  assert.ok(!text.includes("/path20") && !text.includes("/path24"), "drift entries beyond the 20-cap must be dropped");
-});
-
-test("worker prompt serviceLinks string fields pass through the local s() sanitize wrapper", () => {
-  const dirtyLink = {
-    from: { repo: "org/front", file: "src/api.ts", symbol: "const k = sk-abc123XYZsecretvalue" },
-    to: { repo: "org/orders", file: "src/routes.ts", symbol: "GET /orders/:id" },
-    transport: "http" as const,
-    confidence: 0.9,
-    source: "openapi",
-  };
-  const text = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [dirtyLink] }));
-  assert.ok(!text.includes("sk-abc123XYZsecretvalue"), "a secret-shaped string in a worker serviceLinks field must be redacted, never passed through raw");
-  assert.match(text, /REDACTED/, "the sanitize wrapper must have actually redacted the secret pattern");
 });
 
 /* PromptBudgetPort's capDiff existed but was never called — buildDiffSection (the e2e task-band diff
@@ -1915,59 +1718,6 @@ test("buildContextTask: describes each microservice path as a staged contract sn
   assert.doesNotMatch(text, /mirrored READ-ONLY|working copy/i);
   assert.match(text, /contracts\/openapi\/orders\.yaml/);
   assert.match(text, /staged contract snapshots are local paths you can read/i);
-});
-
-/* BEFORE this fix: buildWorkerPromptAssembled hardcoded `roleWindowBytes("qa-worker")` regardless
-   of `w.needsUi` — a code-only worker (needsUi:false, opens its session as "qa-worker-code" per
-   rewritten-engine-factory.ts's own role map) had its PROMPT BUDGET computed against "qa-worker"'s
-   catalog entry, not the role it actually runs as. Latent-correct today only because the current
-   roster happens to assign both roles the same model; a real bug in the code regardless, and one
-   that silently breaks the moment the roster diverges.
-   AFTER this fix: the budget role selection mirrors w.needsUi, exactly like the session-open role
-   mapping already does: needsUi ? "qa-worker" : "qa-worker-code".
- */
-test("qa-worker budget fix: buildWorkerPromptAssembled selects the budget role by w.needsUi (qa-worker for UI, qa-worker-code for code-only workers)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "worker-budget-fix-test-"));
-  mkdirSync(join(dir, "agents"), { recursive: true });
-  writeFileSync(
-    join(dir, "agents", "opencode.json"),
-    JSON.stringify({
-      agent: {
-        /* Deliberately DIFFERENT catalog windows so the two roles are observably distinguishable —
-           kimi-k2.7-code (64K tokens -> 192,000 byte budget) vs qwen3.8-flash (32K tokens -> 96,000 byte
-           budget). The real production roster happens to assign the SAME model to both roles today,
-           which is exactly why this bug was silent; this test proves the CALL SITE picks the right
-           role regardless of what the roster currently happens to configure.
-         */
-        "qa-worker": { model: "opencode-go/kimi-k2.7-code" },
-        "qa-worker-code": { model: "opencode-go/qwen3.8-flash" },
-      },
-    }),
-    "utf8",
-  );
-
-  const originalCwd = process.cwd();
-  process.chdir(dir);
-  try {
-    /* Sized to fit under qa-worker's 192,000-byte budget but exceed qa-worker-code's 96,000-byte
-       budget (learned-rules is the sole VOLATILE content here — no domSnapshot — so it is the ONLY
-       section budget shedding can act on; overflow defaults to "drop", giving a clean present/absent
-       signal instead of a partial truncation).
-     */
-    const learnedRules = "x".repeat(150_000);
-    const uiText = buildWorkerPrompt(mkWorkerInput({ needsUi: true, learnedRules }));
-    const codeText = buildWorkerPrompt(mkWorkerInput({ needsUi: false, learnedRules }));
-    assert.ok(
-      uiText.includes(learnedRules),
-      "needsUi:true must use qa-worker's LARGER budget (192,000 bytes) — the oversized learnedRules section must survive",
-    );
-    assert.ok(
-      !codeText.includes(learnedRules),
-      "needsUi:false must use qa-worker-code's SMALLER budget (96,000 bytes) — the oversized learnedRules section must be shed, proving the budget role is NOT hardcoded to 'qa-worker'",
-    );
-  } finally {
-    process.chdir(originalCwd);
-  }
 });
 
 /* The reviewer judges the specs the generator delivered, inlined from disk. The generator names them in its verdict, so a name can lead anywhere the agent pointed it: a spec that leaves the spec directory is never inlined, and the reviewer gets a block with no code in it instead. */

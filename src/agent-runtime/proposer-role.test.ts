@@ -45,11 +45,11 @@ type _KernelRuntimeRoleParity = AssertNever<KeyDiff<RuntimeAgentRole, KernelAgen
    literal lists themselves fall out of sync with one another.
  */
 const RUNTIME_ROLES = [
-  "primary", "reviewer", "chat", "worker", "workerCode", "sidekick", "maintainer", "reflector", "explorer", "proposer",
+  "primary", "reviewer", "chat", "sidekick", "maintainer", "reflector", "explorer", "proposer",
 ] as const satisfies readonly RuntimeAgentRole[];
 
 const KERNEL_ROLES = [
-  "primary", "reviewer", "chat", "worker", "workerCode", "sidekick", "maintainer", "reflector", "explorer", "proposer",
+  "primary", "reviewer", "chat", "sidekick", "maintainer", "reflector", "explorer", "proposer",
 ] as const satisfies readonly KernelAgentRole[];
 
 test("kernel and runtime AgentRole unions contain the exact same member set (includes proposer)", () => {

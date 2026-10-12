@@ -29,7 +29,6 @@ import type { TestTarget } from "@kernel/run-mode.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import {
   buildPromptAssembled,
-  buildWorkerPromptAssembled,
   buildReviewerPromptAssembled,
   buildExplorerPrompt,
   specFileForFlow,
@@ -49,7 +48,6 @@ function fakeGenerationPorts(overrides: {
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "prompt", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
@@ -1047,7 +1045,7 @@ async function runFirstReviewPass(rules: readonly RetrievedRule[]): Promise<{ ge
       }),
     },
     rendering: new PromptRenderingAdapter({
-      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+      buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
     }),
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/search.spec.ts"], parsed: true }),
@@ -1107,7 +1105,7 @@ async function generatorPromptFor(
       }),
     },
     rendering: new PromptRenderingAdapter({
-      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+      buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
     }),
     verdicts: {
       parseGenerator: () => ({ specs: [], parsed: true }),

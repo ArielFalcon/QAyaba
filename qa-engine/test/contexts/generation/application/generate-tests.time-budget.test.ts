@@ -70,7 +70,6 @@ function build(
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "REVIEW_PROMPT", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,

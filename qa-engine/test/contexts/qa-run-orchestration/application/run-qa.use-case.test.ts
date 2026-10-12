@@ -5378,7 +5378,6 @@ function fakeGenerationPortsForAntiInert(capture: { input?: OpencodeRunInput }):
     rendering: {
       render: () => "",
       renderMain: (input) => { capture.input = input; return { text: "", sectionSizes: {} }; },
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (f: string) => `${f}.spec.ts`,

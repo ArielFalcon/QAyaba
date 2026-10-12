@@ -879,7 +879,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
     return { transport, captures };
   }
 
-  it("worker role preamble inlines the playwright-authoring skill it references", async () => {
+  it("sidekick role preamble inlines the playwright-authoring skill it references", async () => {
     const { transport, captures } = makeCapturingTransport();
     const strategy = new CodexRuntimeStrategy({
       transport,
@@ -887,7 +887,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
       env: { CODEX_API_KEY: "test-key" },
     });
 
-    const session = await strategy.openSession("worker", "/tmp", {});
+    const session = await strategy.openSession("sidekick", "/tmp", {});
     await session.prompt("write a spec");
     await session.dispose();
 
@@ -895,7 +895,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
     const preamble = captures[0]!.text;
     assert.ok(
       preamble.includes("Craft knowledge for writing specs"),
-      "the worker preamble must inline playwright-authoring's SKILL.md content, not just reference its name",
+      "the sidekick preamble must inline playwright-authoring's SKILL.md content, not just reference its name",
     );
   });
 
@@ -977,7 +977,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
       warnings.push(args.map(String).join(" "));
     });
     try {
-      const session = await strategy.openSession("worker", "/tmp", {});
+      const session = await strategy.openSession("sidekick", "/tmp", {});
       const result = await session.prompt("write a spec");
       await session.dispose();
 
@@ -1005,7 +1005,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
       warnings.push(args.map(String).join(" "));
     });
     try {
-      const session = await strategy.openSession("worker", "/tmp", {});
+      const session = await strategy.openSession("sidekick", "/tmp", {});
       await session.prompt("write a spec");
       await session.dispose();
 

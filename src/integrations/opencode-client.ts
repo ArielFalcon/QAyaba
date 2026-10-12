@@ -38,8 +38,6 @@ export { extractJsonObjects, parseVerdict };
 
 import {
   specFileForFlow,
-  buildWorkerPrompt,
-  buildWorkerPromptAssembled,
   buildPrompt,
   buildPromptAssembled,
   buildExplorerPrompt,
@@ -52,7 +50,7 @@ import {
   renderExecutionResult,
   setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts";
-export { specFileForFlow, buildWorkerPrompt, buildWorkerPromptAssembled, buildPrompt, buildPromptAssembled, buildExplorerPrompt, buildContextTask, renderArchitectureContext, buildReviewerPrompt, buildReviewerPromptAssembled, reviewObjective, renderReviewSpecs, renderExecutionResult };
+export { specFileForFlow, buildPrompt, buildPromptAssembled, buildExplorerPrompt, buildContextTask, renderArchitectureContext, buildReviewerPrompt, buildReviewerPromptAssembled, reviewObjective, renderReviewSpecs, renderExecutionResult };
 export type { AssembledPrompt, ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 
 

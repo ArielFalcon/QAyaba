@@ -60,7 +60,6 @@ async function generate(turns: Turn[], options: { valid?: (text: string) => bool
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "MAIN PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,

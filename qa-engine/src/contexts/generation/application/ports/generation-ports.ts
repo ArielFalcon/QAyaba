@@ -1,4 +1,4 @@
-/* Canonical generation input types (OpencodeRunInput / ReviewInput / ParallelWorkerInput). */
+/* Canonical generation input types (OpencodeRunInput / ReviewInput). */
 
 import type { TestTarget, RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -187,27 +187,4 @@ export interface ReviewInput {
   executionResult?: string;
   /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
-}
-
-export interface ParallelWorkerInput {
-  objective: string;
-  flow: string;
-  symbols: string[];
-  needsUi: boolean;
-  brief?: ExplorationBrief;
-  specFile: string;
-  repo: string;
-  mirrorDir: string;
-  e2eRelDir: string;
-  namespace: string;
-  baseUrl?: string;
-  appName: string;
-  mode: RunMode;
-  learnedRules?: string;
-  domSnapshot?: string;
-  runId?: string;
-  staticSignal?: string; /* deterministic pre-computed analysis (signal-only, fail-open) */
-  serviceLinks?: ServiceLink[];
-  contractDrift?: ContractDrift[];
-  crossRepoImpact?: { impactedLinks: Array<{ link: ServiceLink; tier: string }> };
 }

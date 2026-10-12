@@ -1,9 +1,8 @@
 import type { PromptRenderingPort } from "../application/ports/index.ts";
-import type { OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "../application/ports/generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput } from "../application/ports/generation-ports.ts";
 
 export interface PromptBuilders {
   buildPromptAssembled(input: OpencodeRunInput): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] };
-  buildWorkerPromptAssembled(w: ParallelWorkerInput): { text: string; sectionSizes: Record<string, number> };
   buildReviewerPromptAssembled(input: ReviewInput): { text: string; sectionSizes: Record<string, number> };
   buildExplorerPrompt(input: OpencodeRunInput): string;
   specFileForFlow(flow: string): string;
@@ -14,10 +13,6 @@ export class PromptRenderingAdapter implements PromptRenderingPort {
 
   renderMain(input: OpencodeRunInput): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } {
     return this.b.buildPromptAssembled(input);
-  }
-
-  renderWorker(w: ParallelWorkerInput): { text: string; sectionSizes: Record<string, number> } {
-    return this.b.buildWorkerPromptAssembled(w);
   }
 
   renderReviewer(input: ReviewInput): { text: string; sectionSizes: Record<string, number> } {

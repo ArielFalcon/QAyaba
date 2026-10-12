@@ -710,7 +710,7 @@ test("no role can read an env file, a stored login session or the orchestrator's
   /* The runtime's default allows every read, asks for an env file and is followed by the role's own
      `tools.read: true` (`read * allow`): a rule that only the role's `permission` block, merged last, can outweigh. */
   const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
-  assert.ok(configured.length >= 10, `expected every configured role in the recording, got ${configured.length}`);
+  assert.ok(configured.length >= 8, `expected every configured role in the recording, got ${configured.length}`);
   for (const agent of configured) {
     for (const path of SECRET_PATHS) {
       assert.equal(readDecision(agent.permission, path), "deny", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);
@@ -865,18 +865,6 @@ test("qa-maintainer keeps serena+engram but denies playwright (never drives a br
   assertMcpServerAllowed("qa-maintainer", tools, "serena");
   assertMcpServerAllowed("qa-maintainer", tools, "engram");
   assertMcpServerDenied("qa-maintainer", tools, "playwright");
-});
-
-test("qa-worker and qa-worker-code keep serena only (engram and playwright denied)", () => {
-  const { agents } = loadAgentConfig();
-  for (const name of ["qa-worker", "qa-worker-code"]) {
-    const worker = agents[name];
-    assert.ok(worker, `expected a ${name} agent`);
-    const tools = agentTools(worker);
-    assertMcpServerAllowed(name, tools, "serena");
-    assertMcpServerDenied(name, tools, "engram");
-    assertMcpServerDenied(name, tools, "playwright");
-  }
 });
 
 test("qa-reviewer's mode matches how it is actually invoked (direct prompt, not subagent delegation)", () => {

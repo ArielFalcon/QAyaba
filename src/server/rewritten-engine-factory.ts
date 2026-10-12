@@ -92,7 +92,6 @@ import { IndexStatusAdapter } from "@contexts/qa-run-orchestration/infrastructur
 
 import {
   buildPromptAssembled,
-  buildWorkerPromptAssembled,
   buildReviewerPromptAssembled,
   buildExplorerPrompt,
   specFileForFlow,
@@ -686,7 +685,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
     ? new ReviewPortAdapter(
         {
           runtime: new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => getAgentDeps().open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.model ? { model: opts.model } : {}), ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}) }) }, roleToAgentName),
-          rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow }),
+          rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow }),
           verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }),
         },
         { diff: "", mirrorDir: copyDir, e2eRelDir, appName: app.name, mode: "diff", target: "e2e", baseUrl, timeoutMs: REVIEWER_TIMEOUT_MS },
@@ -857,7 +856,7 @@ export function buildRewrittenCompositionConfig(
    */
   const runDeadline = new RunDeadline({ now: deps.now ?? Date.now, budgets: resolveRunTimeBudgets(deps.env ?? process.env) });
   const boundedRuntime = new RunDeadlineRuntime(runtimeAdapter, runDeadline, { hostPromptCapMs: agentPromptCapMs() });
-  const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow });
+  const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow });
   const verdicts = new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
 
   /* Bounded contract-repair for malformed generator/reviewer verdicts — fail-closed if still invalid. */

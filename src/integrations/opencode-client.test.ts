@@ -6,12 +6,10 @@ import { join } from "node:path";
 import {
   buildPrompt,
   buildPromptAssembled,
-  buildWorkerPromptAssembled,
   buildContextTask,
   parseVerdict,
   extractJsonObjects,
   specFileForFlow,
-  buildWorkerPrompt,
   buildExplorerPrompt,
   renderArchitectureContext,
   buildReviewerPrompt,
@@ -28,7 +26,7 @@ import {
 } from "./opencode-client";
 import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
-import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { ANTI_WEAKENING_RULE, OBJECTIVE_QUESTION } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 
@@ -355,27 +353,6 @@ test("buildPrompt surfaces reviewer corrections as the highest-priority block", 
   assert.ok(order.indexOf("reviewer-corrections") < order.indexOf("task"), "corrections come before the task");
 });
 
-test("buildWorkerPrompt injects the exploration brief and forbids re-exploring the code", () => {
-  const brief: ExplorationBrief = {
-    builtForSha: "s",
-    objective: "pay",
-    blastRadius: [{ symbol: "CheckoutService.pay", file: "src/c.ts", role: "applies the bulk discount" }],
-  };
-  const w: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["CheckoutService.pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "diff", brief };
-  const p = buildWorkerPrompt(w);
-  assert.match(p, /Exploration brief/);
-  assert.match(p, /applies the bulk discount/);
-  assert.match(p, /do NOT re-(read|explore)/i);
-  assert.match(p, /live DOM/i, "selectors must still be verified against the live DOM");
-});
-
-test("buildWorkerPrompt without a brief is unchanged (serena symbols line, back-compat)", () => {
-  const w: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", appName: "a", mode: "complete" };
-  const p = buildWorkerPrompt(w);
-  assert.match(p, /read them with serena/);
-  assert.doesNotMatch(p, /Exploration brief/);
-});
-
 test("buildExplorerPrompt asks a read-only explorer to map the diff into an ExplorationBrief", () => {
   const p = buildExplorerPrompt(input);
   assert.match(p, /abc123/);
@@ -424,99 +401,6 @@ test("buildExplorerPrompt sanitizes attacker-influenceable changed-file names", 
 test("specFileForFlow produces a safe path under flows/", () => {
   assert.equal(specFileForFlow("Check Out / Pay!"), "flows/check-out-pay.spec.ts");
   assert.equal(specFileForFlow("   "), "flows/flow.spec.ts");
-});
-
-test("buildWorkerPrompt is surgical: exact file, write-early discipline, no manifest writes (workers do NOT navigate)", () => {
-  const w: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "complete" };
-  const p = buildWorkerPrompt(w);
-  assert.match(p, /Write EXACTLY this file: e2e\/flows\/checkout\.spec\.ts/);
-  /* Workers no longer explore (browser_navigate/browser_snapshot removed from qa-worker MCP).
-     They transcribe the injected a11y tree instead. No LIVE DEV URL line in needsUi branch.
-   */
-  assert.doesNotMatch(p, /browser_navigate/);
-  assert.doesNotMatch(p, /browser_snapshot/);
-  assert.doesNotMatch(p, /Explore EFFICIENTLY, then STOP/);
-  assert.match(p, /You have NO browser/);
-  assert.match(p, /required outcome: the file exists on disk/);
-  assert.match(p, /TOTAL FAILURE/);
-  assert.match(p, /Do NOT write to the manifest/);
-  assert.match(p, /\{"spec":"flows\/checkout\.spec\.ts"\}/);
-});
-
-test("buildWorkerPrompt injects learnedRules so fan-out workers don't repeat past mistakes", () => {
-  const base: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "complete" };
-  assert.doesNotMatch(buildWorkerPrompt(base), /Lessons learned/);
-  /* With rules: the block appears, carrying the rule text, before the closing JSON contract. */
-  const withRules = buildWorkerPrompt({ ...base, learnedRules: "- avoid waitForTimeout; assert on the visible outcome" });
-  assert.match(withRules, /Lessons learned from past runs/);
-  assert.match(withRules, /avoid waitForTimeout/);
-  assert.ok(withRules.indexOf("Lessons learned") < withRules.indexOf('{"spec"'), "lessons precede the JSON contract");
-});
-
-/* v5 grounding: when the orchestrator captures the live a11y tree for the flow's routes, the worker
-   gets it as GROUND TRUTH and TRANSCRIBES real selectors instead of guessing/exploring blind.
- */
-test("buildWorkerPrompt injects the live a11y tree as GROUND TRUTH when provided (worker transcribes, not guesses)", () => {
-  const base: ParallelWorkerInput = { objective: "list vets", flow: "vets", symbols: [], needsUi: true, specFile: "flows/vets.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "exhaustive" };
-  assert.doesNotMatch(buildWorkerPrompt(base), /GROUND TRUTH/);
-  const grounded = buildWorkerPrompt({ ...base, domSnapshot: "route /#!/vets:\n  cell: Helen Leary\n  cell: radiology" });
-  assert.match(grounded, /GROUND TRUTH/);
-  assert.match(grounded, /cell: Helen Leary/);
-  assert.match(grounded, /do NOT need to navigate/i); /* it stops the worker from burning budget exploring */
-});
-
-/* the canonical STABLE → SEMI-STABLE → VOLATILE → TASK → CRITICAL-RECAP order. These assertions
-   are the "section order contract" that must stay green whenever prompts.ts or context-assembler.ts
-   are modified.
- */
-test("buildWorkerPrompt assembled output preserves all functional sections in canonical order", () => {
-  const base: ParallelWorkerInput = {
-    objective: "verify checkout flow",
-    flow: "checkout",
-    symbols: ["CheckoutPage"],
-    needsUi: true,
-    specFile: "flows/checkout.spec.ts",
-    repo: "r",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    baseUrl: "https://dev",
-    appName: "a",
-    mode: "complete",
-    domSnapshot: "button: Place Order\nbutton: Cancel",
-    learnedRules: "- avoid waitForTimeout",
-  };
-
-  const { text, sectionSizes } = buildWorkerPromptAssembled(base);
-
-  /* All functional sections must be present (content preservation). */
-  assert.match(text, /Rules/);
-  assert.match(text, /Flow: checkout/);
-  assert.match(text, /GROUND TRUTH/);
-  assert.match(text, /Place Order/);
-  assert.match(text, /Lessons learned from past runs/);
-  assert.match(text, /avoid waitForTimeout/);
-  assert.match(text, /verify checkout flow/);
-  assert.match(text, /flows\/checkout\.spec\.ts/);
-
-  /* sectionSizes must record all non-empty sections. */
-  assert.ok("worker-rules" in sectionSizes, "worker-rules in sectionSizes");
-  assert.ok("worker-context" in sectionSizes, "worker-context in sectionSizes");
-  assert.ok("worker-dom" in sectionSizes, "worker-dom in sectionSizes");
-  assert.ok("worker-learned-rules" in sectionSizes, "worker-learned-rules in sectionSizes");
-  assert.ok("worker-task" in sectionSizes, "worker-task in sectionSizes");
-  assert.ok("worker-output-contract" in sectionSizes, "worker-output-contract in sectionSizes");
-
-  const rulesIdx = text.indexOf("## Rules");
-  const domIdx = text.indexOf("GROUND TRUTH");
-  const lessonsIdx = text.indexOf("Lessons learned from past runs");
-  const objectiveIdx = text.indexOf("## Objective");
-  const contractIdx = text.indexOf('{"spec"');
-
-  assert.ok(rulesIdx < domIdx, "stable-prefix (rules) before volatile (dom)");
-  assert.ok(domIdx < lessonsIdx, "dom (volatile p1) before lessons (volatile p2)");
-  assert.ok(lessonsIdx < objectiveIdx, "lessons (volatile) before task (objective)");
-  assert.ok(objectiveIdx < contractIdx, "task (objective) before critical-recap (output contract)");
 });
 
 test("buildPrompt renders the cross-repo service section in diff mode", () => {
@@ -583,39 +467,6 @@ test("buildContextTask asks the mapper for the files that implement each route, 
   assert.match(text, /implementationFiles/);
 });
 
-/* This test pins the CURRENT observable behavior of buildWorkerPrompt for complete/exhaustive
-   the sibling pins for shouldFanOut/runOpencodeParallel/generateParallel/buildPlanPrompt — those
-   surfaces were dead (no production caller); this builder is still live.
- */
-
-test("buildWorkerPrompt for complete mode preserves objective + context sections", () => {
-  /* Complete mode workers receive a prompt from buildWorkerPrompt. The prompt must still contain */
-  const completeWorker: ParallelWorkerInput = {
-    objective: "Given the owners list, when the user clicks Add Owner, then a form appears",
-    flow: "add-owner",
-    symbols: ["OwnerForm", "OwnerController"],
-    needsUi: true,
-    specFile: "flows/add-owner.spec.ts",
-    repo: "org/petclinic",
-    mirrorDir: "/m/petclinic",
-    e2eRelDir: "e2e",
-    namespace: "qa-bot-abc",
-    baseUrl: "https://dev.petclinic",
-    appName: "petclinic",
-    mode: "complete",
-    domSnapshot: "button: Add Owner\ntextbox: First Name",
-    learnedRules: "- avoid waitForTimeout in complete mode",
-  };
-  const prompt = buildWorkerPrompt(completeWorker);
-  assert.match(prompt, /flows\/add-owner\.spec\.ts/, "specFile present");
-  assert.match(prompt, /Add Owner, then a form appears/, "objective present");
-  assert.match(prompt, /OwnerForm/, "symbol present in context");
-  assert.match(prompt, /GROUND TRUTH/, "dom grounding section present");
-  assert.match(prompt, /Add Owner/, "dom content (button) present");
-  assert.match(prompt, /avoid waitForTimeout/, "learnedRules present");
-  assert.match(prompt, /flows\/add-owner\.spec\.ts.*\}/, "output contract references specFile");
-});
-
 test("askAssistant propagates error when deps.open throws", async () => {
   const failingDeps: AgentDeps = {
     open: async () => { throw new Error("OpenCode unavailable"); },
@@ -655,53 +506,6 @@ test("askAssistant opens the requested agent (reflection runs tool-less as qa-re
   assert.equal(openedAgent, "qa-reflector");
   await askAssistant({ context: "c", question: "q" }, deps, "/m");
   assert.equal(openedAgent, "qa-assistant"); /* default unchanged for the TUI chat path */
-});
-
-test("3.11(a) buildWorkerPrompt with needsUi:true + non-empty domSnapshot does NOT contain browser_navigate or browser_snapshot", () => {
-  const w: ParallelWorkerInput = {
-    objective: "list owners",
-    flow: "owners",
-    symbols: [],
-    needsUi: true,
-    specFile: "flows/owners.spec.ts",
-    repo: "r",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    baseUrl: "https://dev",
-    appName: "a",
-    mode: "complete",
-    domSnapshot: "button: Add Owner\ntextbox: First Name",
-  };
-  const p = buildWorkerPrompt(w);
-  assert.doesNotMatch(p, /browser_navigate/);
-  assert.doesNotMatch(p, /browser_snapshot/);
-  /* Must say to use the injected tree (not the live DOM) */
-  assert.match(p, /GROUND TRUTH/);
-  assert.match(p, /You have NO browser/);
-  assert.match(p, /do NOT need to navigate/i);
-});
-
-test("3.11(a) buildWorkerPrompt with needsUi:true and NO domSnapshot still has no browser_navigate", () => {
-  const w: ParallelWorkerInput = {
-    objective: "list owners",
-    flow: "owners",
-    symbols: [],
-    needsUi: true,
-    specFile: "flows/owners.spec.ts",
-    repo: "r",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    baseUrl: "https://dev",
-    appName: "a",
-    mode: "complete",
-  };
-  const p = buildWorkerPrompt(w);
-  assert.doesNotMatch(p, /browser_navigate/);
-  assert.doesNotMatch(p, /browser_snapshot/);
-  /* Without a domSnapshot, the worker gets a "mark selectors unverified" instruction */
-  assert.match(p, /unverified/);
 });
 
 test("3.11(b) fix-pass prompt with failureSourced:true contains GROUND TRUTH AT FAILURE heading and source-framing", () => {
@@ -807,27 +611,6 @@ test("buildPrompt omits the contradiction section when none are provided", () =>
     fixCases: [{ name: "t", status: "fail", detail: "x" }],
   });
   assert.doesNotMatch(p, /Lever-2 selector contradictions/i);
-});
-
-test("3.11(d) all existing prompt tests remain green (worker code path unaffected)", () => {
-  const codeWorker: ParallelWorkerInput = {
-    objective: "test checkout logic",
-    flow: "checkout",
-    symbols: ["checkout"],
-    needsUi: false,
-    specFile: "flows/checkout.spec.ts",
-    repo: "r",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    appName: "a",
-    mode: "complete",
-  };
-  const p = buildWorkerPrompt(codeWorker);
-  assert.doesNotMatch(p, /browser_navigate/);
-  assert.doesNotMatch(p, /browser_snapshot/);
-  assert.match(p, /CODE-ONLY/);
-  assert.match(p, /serena/);
 });
 
 test("phase-0b: askAssistant passes role (and optional runId) in the open() descriptor", async () => {

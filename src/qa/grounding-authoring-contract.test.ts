@@ -11,8 +11,6 @@ import { readFileSync } from "node:fs";
 const AUTHORING_PROMPTS = [
   "agent/roles/qa-generator.md",
   "agents/agent/qa-generator.md",
-  "agent/roles/qa-worker.md",
-  "agents/agent/qa-worker.md",
 ];
 
 for (const file of AUTHORING_PROMPTS) {

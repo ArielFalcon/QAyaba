@@ -19,6 +19,6 @@ test("AgentRole carries all 8 runtime roles (kernel-resident vocabulary)", () =>
      array check here since the kernel union is frozen for this plan; upgrade to the Record pattern
      if AgentRole ever becomes extensible.
    */
-  const roles: AgentRole[] = ["primary", "reviewer", "chat", "worker", "workerCode", "maintainer", "reflector", "explorer"];
-  assert.equal(roles.length, 8);
+  const roles: AgentRole[] = ["primary", "reviewer", "chat", "maintainer", "reflector", "explorer"];
+  assert.equal(roles.length, 6);
 });

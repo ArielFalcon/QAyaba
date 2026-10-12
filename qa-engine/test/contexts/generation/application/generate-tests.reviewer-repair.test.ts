@@ -29,7 +29,6 @@ function build(reviewerRepair: () => Promise<{ output: string }>) {
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "GEN", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "REV", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,

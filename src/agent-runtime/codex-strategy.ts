@@ -36,8 +36,8 @@ function envNumber(env: Record<string, string | undefined>, key: string, fallbac
 /*
  * The default deadline for a Codex session that received NO explicit timeoutMs from its caller.
  * Keyed by role, mirroring how opencode-client.ts budgets each role: the reviewer and the explorer
- * get their OWN (smaller) ceilings; every other role (the write-capable primary/maintainer/worker/
- * proposer, plus the read-only chat/reflector which have no dedicated OpenCode-side constant
+ * get their OWN (smaller) ceilings; every other role (the write-capable primary/maintainer/
+ * sidekick/proposer, plus the read-only chat/reflector which have no dedicated OpenCode-side constant
  * either) falls back to the generator's diff-mode budget — the smallest generator ceiling, and a
  * strictly-bounded floor where today there is none at all.
  */
@@ -556,8 +556,6 @@ function stripCodexReasoningWrappers(s: string): string {
 const ROLE_SKILLS: Partial<Record<AgentRole, readonly string[]>> = {
   primary: ["architecture-mapping", "playwright-authoring", "test-value-review"],
   reviewer: ["test-value-review"],
-  worker: ["playwright-authoring"],
-  workerCode: ["playwright-authoring"],
   sidekick: ["playwright-authoring"],
 };
 
@@ -603,9 +601,9 @@ function withCodexRolePreamble(role: AgentRole, text: string, promptRoot: string
   ].join("\n");
 }
 
-/* The role's prompt is agent/roles/<agent name>.md; workerCode has no prompt of its own and reads the worker's. */
+/* The role's prompt is agent/roles/<agent name>.md. */
 export function rolePromptName(role: AgentRole): string {
-  return AGENT_NAME_FOR_ROLE[role === "workerCode" ? "worker" : role];
+  return AGENT_NAME_FOR_ROLE[role];
 }
 
 function readPrompt(path: string): string {

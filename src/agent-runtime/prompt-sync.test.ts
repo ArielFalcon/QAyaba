@@ -67,13 +67,6 @@ const SKILL_FILE_PAIRS: Array<[string, string]> = [
   ],
 ];
 
-/* Must-match sections for the worker role (by canonical H2 header text).
-   The guard compares H2 bodies between the OpenCode mirror (agents/agent/qa-worker.md)
-   and the Codex mirror (agent/roles/qa-worker.md). The H1 is a model-free title in both; scripts/
-   model-agnostic-prompts.test.ts guards that.
- */
-const WORKER_MUST_MATCH_SECTIONS = ["How to write a valuable spec"];
-
 function readFile(rel: string): string {
   const p = join(REPO_ROOT, rel);
   assert.ok(existsSync(p), `Prompt file not found: ${rel} (resolved: ${p})`);
@@ -483,8 +476,8 @@ describe("prompt-sync drift guard", () => {
       ...GENERATOR_PROMPTS,
       "agents/skill/playwright-authoring/SKILL.md",
       "agent/skills/playwright-authoring/SKILL.md",
-      "agents/agent/qa-worker.md",
-      "agent/roles/qa-worker.md",
+      "agents/agent/qa-sidekick.md",
+      "agent/roles/qa-sidekick.md",
     ]) {
       assert.equal(restatementsIn(readFile(rel)), 0, rel);
     }
@@ -979,7 +972,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     }
   });
 
-  /* The authoring skill is loaded by more than one role (the generator and the worker), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */
+  /* The authoring skill is loaded by more than one role (the generator and the sidekick), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */
   const ROLE_PROMPT_REFERENCE = /\b(?:generator|reviewer|worker|explorer|proposer|sidekick|maintainer)\s+role\b|\brole prompt\b|\bProcedure \(step \d+\)/i;
 
   it("no file of the playwright-authoring skill refers to a role's prompt or to a step of it, in either tree", () => {
@@ -1003,39 +996,8 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     }
   });
 
-  /* ---------------------------------------------------------------------------
-     The worker H1 is a model-free title in both mirrors — the guard compares H2 bodies only.
-     ---------------------------------------------------------------------------
-   */
-  it("qa-worker.md 'How to write a valuable spec' section matches across both mirrors", () => {
-    const opencodeWorker = parseSections(readFile("agents/agent/qa-worker.md"));
-    const codexWorker = parseSections(readFile("agent/roles/qa-worker.md"));
-
-    for (const sectionHeader of WORKER_MUST_MATCH_SECTIONS) {
-      const opencodeBody = opencodeWorker.get(sectionHeader);
-      const codexBody = codexWorker.get(sectionHeader);
-
-      if (opencodeBody === undefined) continue; /* section only in codex mirror is allowed */
-
-      assert.ok(
-        codexBody !== undefined,
-        `prompt-sync DIVERGENCE: section "## ${sectionHeader}" is present in agents/agent/qa-worker.md ` +
-          `but missing from agent/roles/qa-worker.md. Port it.`,
-      );
-
-      assert.equal(
-        normalize(codexBody),
-        normalize(opencodeBody),
-        `prompt-sync DIVERGENCE in worker section "## ${sectionHeader}": ` +
-          `agent/roles/qa-worker.md and agents/agent/qa-worker.md differ. ` +
-          `The codex mirror must match the canonical OpenCode version.`,
-      );
-    }
-  });
-
   /* Inverse proofs — confirm the guard actually catches divergence.
      (a) Skill-file parity: appending a comment to the in-memory content must trigger AssertionError.
-     (b) Worker section parity: appending a comment to the in-memory section body must trigger AssertionError.
    */
   it("inverse: skill-file parity guard catches one-tree drift (skill file)", () => {
     const [opencodeRel] = SKILL_FILE_PAIRS[0]!;
@@ -1052,27 +1014,6 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
       },
       (err: unknown) => err instanceof assert.AssertionError,
       "The skill-file parity guard must throw an AssertionError when the codex mirror diverges.",
-    );
-  });
-
-  it("inverse: worker section parity guard catches one-tree drift (worker section)", () => {
-    const opencodeWorker = parseSections(readFile("agents/agent/qa-worker.md"));
-    const sectionHeader = WORKER_MUST_MATCH_SECTIONS[0]!;
-    const opencodeBody = opencodeWorker.get(sectionHeader);
-    if (!opencodeBody) return; /* section unexpectedly absent — skip inverse check */
-
-    const divergedBody = opencodeBody + "\n\n<!-- drift -->";
-
-    assert.throws(
-      () => {
-        assert.equal(
-          normalize(divergedBody),
-          normalize(opencodeBody),
-          `prompt-sync DIVERGENCE in worker section "## ${sectionHeader}"`,
-        );
-      },
-      (err: unknown) => err instanceof assert.AssertionError,
-      "The worker section-parity guard must throw an AssertionError when the codex mirror diverges.",
     );
   });
 });
