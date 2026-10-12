@@ -7,6 +7,7 @@
  * env-overlay reader) and every execute/DOM-capture caller must be given this SAME authDir.
  */
 
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
@@ -140,7 +141,8 @@ export class AuthSessionAdapter implements AuthSessionPort {
       throw new Error(`auth.kind form requires ${usernameEnv} and ${passwordEnv}`);
     }
 
-    const stock = this.isStock(req.specDir);
+    const setup = this.readSetup(req.specDir);
+    const stock = setup.stock;
     mkdirSync(this.deps.authDir, { recursive: true, mode: 0o700 });
     const storageStatePath = join(this.deps.authDir, AUTH_MATERIAL_FILES.storageState);
     /* The account and the dev gate's credentials, on top of the few DEV_ names a child may keep. */
@@ -177,7 +179,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
     const wrote = existsSync(storageStatePath);
     if (result.exitCode === 0 && wrote) {
       chmodSync(storageStatePath, 0o600);
-      return { storageStatePath, unauthored: false };
+      return { storageStatePath, unauthored: false, ...(setup.sha256 !== undefined && !stock ? { setupSha256: setup.sha256 } : {}) };
     }
     if (stock && req.phase === "pre-generate") {
       return { unauthored: true };
@@ -240,12 +242,12 @@ export class AuthSessionAdapter implements AuthSessionPort {
     }
   }
 
-  /* The same predicate setup uses to decide whether it may replace the file: only a shipped seed is stock, and a file that is not there is the seed to come. It is asked after the agent has run, about a file in a directory the agent writes into, so the file is read strictly: one the read cannot vouch for (a link, a named pipe, a directory, one over the cap) fails the login, aloud, as an infra-error; it is never waited on, followed or taken for stock or for the app's own. A file that is only unreadable fails the login with the failure itself. */
-  private isStock(specDir: string): boolean {
-    if (!existsSync(specDir)) return true;
+  /* The same predicate setup uses to decide whether it may replace the file: only a shipped seed is stock, and a file that is not there is the seed to come. It is asked after the agent has run, about a file in a directory the agent writes into, so the file is read strictly: one the read cannot vouch for (a link, a named pipe, a directory, one over the cap) fails the login, aloud, as an infra-error; it is never waited on, followed or taken for stock or for the app's own. A file that is only unreadable fails the login with the failure itself. The hash is of the bytes read, so it names the file that was judged, whatever the agent does with the path afterwards. */
+  private readSetup(specDir: string): { stock: boolean; sha256?: string } {
+    if (!existsSync(specDir)) return { stock: true };
     const read = readOwnedSpecFile({ mirrorDir: specDir, specDir }, AUTH_SETUP_FILE, MAX_SPEC_SOURCE_BYTES);
-    if ("absent" in read) return true;
+    if ("absent" in read) return { stock: true };
     if ("reason" in read) throw new ConfinedPathError(join(specDir, AUTH_SETUP_FILE), read.reason);
-    return isStockAuthSetup(read.bytes.toString("utf8"));
+    return { stock: isStockAuthSetup(read.bytes.toString("utf8")), sha256: createHash("sha256").update(read.bytes).digest("hex") };
   }
 }

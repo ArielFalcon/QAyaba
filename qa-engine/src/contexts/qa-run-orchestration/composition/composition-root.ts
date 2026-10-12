@@ -3,7 +3,7 @@ buildShadow always uses this engine with shadow-log publication and in-memory hi
 
 import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort } from "../application/ports/index.ts";
+import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort } from "../application/ports/index.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
@@ -194,6 +194,9 @@ export interface CompositionConfig {
      absent omits RunQaUseCaseDeps.contextMapCapture (no capture, same as today). The shell factory
      constructs ContextMapCapturePortAdapter backed by history.ts's saveContextMap. */
   contextMapCapture?: ContextMapCapturePort;
+
+  /* The durable copy of the app's accepted e2e suite (the qa-data volume). Optional, no stub: absent omits RunQaUseCaseDeps.suiteStore and every run starts from what the checkout holds. The shell factory constructs SuiteStoreAdapter (it owns the data directory and the git runner). */
+  suiteStore?: SuiteStorePort;
 
   /* Resolves a Sha to its working-copy mirrorDir. Cross-repo routing stays opaque inside this fn. */
   checkout: CheckoutFn;
@@ -489,6 +492,8 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
+    /* Absent suiteStore is omitted entirely — never a fabricated no-op stub (a stub that restores nothing would hide that no suite persists). */
+    ...(cfg.suiteStore ? { suiteStore: cfg.suiteStore } : {}),
     /* Coordination is always wired (no kill-switch). Governing points are listed independently below; the sidekick shares the reviewer's runtime with its own session lifecycle. */
     ...(() => {
       /* Process-lifetime store so adaptive thresholds see prior runs (not a fresh empty bag per composition). */

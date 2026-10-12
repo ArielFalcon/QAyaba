@@ -18,7 +18,7 @@ import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
-import type { AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
+import type { AuthSession, AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
@@ -54,6 +54,7 @@ import type {
   MirrorGcPort,
   CurriculumPort,
   ContextMapCapturePort,
+  SuiteStorePort,
   ArchitectureContext,
   ExplorationBrief,
   HarnessFacts,
@@ -110,7 +111,7 @@ interface PreconditionFailure {
   note: string;
   ms: number;
 }
-import { decide, type RunEvidence } from "../domain/run-decision.service.ts";
+import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
@@ -302,6 +303,13 @@ export interface RunQaUseCaseDeps {
    * the verdict or skips publication.
    */
   contextMapCapture?: ContextMapCapturePort;
+  /**
+   * The durable copy of the app's accepted e2e suite. Restored after the checkout and before the project setup (e2e runs that
+   * classify as work, never code or context runs); captured right after an accepted decision, before publication, in shadow runs
+   * too. Absent: a run starts from whatever the checkout holds. Off-path: a fault is logged and never changes the verdict, and a
+   * run whose restore failed captures nothing (the store would be compared with a working copy that never received it).
+   */
+  suiteStore?: SuiteStorePort;
   /**
    * Once, after pre-publish confinement and publish have both resolved, so gc
    * never races this run's git write. The sequential queue already prevents other
@@ -599,6 +607,28 @@ export class RunQaUseCase {
     }
 
     /*
+     * The accepted suite comes back before the project setup: the checkout has just wiped every untracked file of the mirror, and the
+     * setup would otherwise seed the stock login and nothing else. A fault here is a cold run, said aloud, not a failed one; the
+     * run then captures nothing, since the working copy was never compared with the store.
+     */
+    let suiteRestored = false;
+    let storeRestoredLogin = false;
+    if (this.deps.suiteStore && !cfg.isCode && input.mode !== "context") {
+      try {
+        const restored = await this.deps.suiteStore.restore({ mirrorDir: workspace.mirrorDir, specDir: workspace.specDir });
+        suiteRestored = true;
+        storeRestoredLogin = restored.authRestored;
+        this.announceSuite(
+          `[qa] suite store: restored ${restored.restored} file(s), overlaid ${restored.overlaid} unpublished change(s) over git, left ${restored.trackedWins} to git${restored.authRestored ? "; the app's login was restored" : ""}`,
+          "info",
+        );
+      } catch (err) {
+        rethrowIfUntrusted(err);
+        this.announceSuite(`[qa] suite store restore failed (off-path; the run starts cold and keeps nothing): ${err instanceof Error ? err.message : String(err)}`, "warn");
+      }
+    }
+
+    /*
      * After classify (skip already returned) and before generate. A throw is
      * infra-error, never a code verdict, and is not persisted.
      */
@@ -617,7 +647,13 @@ export class RunQaUseCase {
     /* A declared app login stays on the lead. The sidekick browser has no storageState, so it would author against the login wall and the suite would then run authenticated. */
     const loginKeepsLead = Boolean(this.deps.authContext?.auth);
     if (!cfg.isCode) {
-      const auth = await this.prepareAuth(workspace.specDir, "pre-generate", signal);
+      let auth = await this.prepareAuth(workspace.specDir, "pre-generate", signal);
+      if ("failed" in auth && storeRestoredLogin) {
+        /* The login the store brought back no longer signs in (the app changed since): the stock seed takes its place and the login is tried once more, which falls into discovery or the unauthored path. */
+        const healed = await this.replaceRestoredLogin(workspace, signal);
+        if (healed === "setup-failed") return this.infraErrorResult("setup failed while the app's stored login was replaced by the stock one", workspace.mirrorDir);
+        if (healed === "replaced") auth = await this.prepareAuth(workspace.specDir, "pre-generate", signal);
+      }
       if ("failed" in auth) return this.infraErrorResult(auth.failed, workspace.mirrorDir);
       if ("precondition" in auth) {
         /* A cancelled run is not a failed login: whatever the killed attempt saw, the abort wins. */
@@ -1337,6 +1373,8 @@ export class RunQaUseCase {
      * Context mode never executes — context.json is not a Playwright spec.
      * A successful context generation is an immediate pass with zero cases.
      */
+    /* The hash of the login script that signed in just before execute; only such a file is kept by the suite store. */
+    let authVerifiedSha256: string | undefined;
     if (input.mode !== "context" && !cfg.isCode) {
       const auth = await this.prepareAuth(workspace.specDir, "pre-execute", signal);
       if ("failed" in auth) return await preExecuteInfraError(auth.failed);
@@ -1346,6 +1384,7 @@ export class RunQaUseCase {
         this.announcePrecondition(auth.precondition, true);
         return await preExecuteInfraError(this.preconditionNote(auth.precondition), { preconditionFailed: true });
       }
+      authVerifiedSha256 = auth.setupSha256;
     }
     if (input.mode !== "context") {
       this.deps.observer?.onStep("execute");
@@ -2012,6 +2051,26 @@ export class RunQaUseCase {
         );
       }
     }
+    /*
+     * An accepted run proved its suite, whatever happens to the pull request (and in shadow mode none is opened): the suite is kept
+     * before publication, so the next run's checkout cannot wipe it. Off-path: a fault is logged and never changes the verdict.
+     */
+    if (this.deps.suiteStore && suiteRestored && isAccepted(evidence)) {
+      try {
+        const kept = await this.deps.suiteStore.capture({
+          mirrorDir: workspace.mirrorDir,
+          specDir: workspace.specDir,
+          runId: input.runId,
+          sha: input.sha.toString(),
+          executedGreen: run.cases.filter((c) => c.status === "pass" && c.file !== undefined).map((c) => c.file!),
+          ...(authVerifiedSha256 !== undefined ? { authVerifiedSha256 } : {}),
+        });
+        this.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
+      } catch (captureErr) {
+        rethrowIfUntrusted(captureErr);
+        this.announceSuite(`[qa] suite store capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`, "warn");
+      }
+    }
     let publishOutcome: string | undefined;
     if (decision.sideEffect !== "none") {
       /*
@@ -2384,11 +2443,11 @@ export class RunQaUseCase {
    * No-op when the port is unwired. unauthored is a setup note, not a failure. A failed prepare is
    * logged and returned as the infra-error note for the caller's terminal.
    */
-  private async prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean } | { failed: string } | { precondition: PreconditionFailure }> {
+  private async prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean; setupSha256?: string } | { failed: string } | { precondition: PreconditionFailure }> {
     const sessionPort = this.deps.authSession;
     const ctx = this.deps.authContext;
     if (!sessionPort || !ctx) return { unauthored: false };
-    let session: { unauthored: boolean };
+    let session: AuthSession;
     try {
       session = await sessionPort.prepare({
         specDir,
@@ -2408,7 +2467,37 @@ export class RunQaUseCase {
     if (session.unauthored) {
       this.deps.observer?.onStep("setup", "auth setup is still the seed; generation may rewrite e2e/auth.setup.ts");
     }
-    return { unauthored: session.unauthored };
+    return { unauthored: session.unauthored, ...(session.setupSha256 !== undefined ? { setupSha256: session.setupSha256 } : {}) };
+  }
+
+  /*
+   * The login restored from the suite store failed to sign in. It is marked as no longer working, taken out of the working copy and
+   * the project setup run again, which seeds the stock login. "unchanged" when the store could not be told (the original failure
+   * stands), "setup-failed" when the setup that follows threw, "replaced" when the caller should try the login once more.
+   */
+  private async replaceRestoredLogin(workspace: { specDir: string; mirrorDir: string }, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed"> {
+    try {
+      await this.deps.suiteStore!.demoteAuth(workspace, "the restored login did not complete a sign-in before generation");
+    } catch (err) {
+      rethrowIfUntrusted(err);
+      this.announceSuite(`[qa] suite store could not demote the failed login (the failure stands): ${err instanceof Error ? err.message : String(err)}`, "warn");
+      return "unchanged";
+    }
+    this.announceSuite("[qa] the login restored from the suite store failed to sign in; the stock seed replaces it and the login is tried once more", "warn");
+    if (!this.deps.setup) return "replaced";
+    try {
+      await this.deps.setup.setup(workspace.specDir, signal);
+    } catch (err) {
+      console.error("[qa] setup phase failed while replacing the restored login:", err);
+      return "setup-failed";
+    }
+    return "replaced";
+  }
+
+  /* One line about the suite store, on the console and on the run's own log. */
+  private announceSuite(text: string, level: "info" | "warn"): void {
+    (level === "warn" ? console.warn : console.log)(text);
+    this.deps.observer?.onEvent({ type: "log.line", level, text });
   }
 
   /* What a failed precondition ends the run with: its kind and scrubbed note, never any evidence. */

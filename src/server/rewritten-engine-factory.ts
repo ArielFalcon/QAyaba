@@ -64,6 +64,7 @@ import { VcsWriteAdapter } from "@contexts/workspace-and-publication/infrastruct
 import { CONFINEMENT_DENYLIST, WriteConfinementService } from "@contexts/workspace-and-publication/domain/write-confinement.service";
 import { WriteConfinementAdapter } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter";
 import { MirrorGcAdapter } from "@contexts/workspace-and-publication/infrastructure/mirror-gc.adapter";
+import { SuiteStoreAdapter, gitListTracked } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 import type { VcsPublishCollaborator } from "@contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage";
@@ -563,6 +564,14 @@ async function readStepLimits(getAgentFacade: () => AgentFacade, directory: stri
  */
 export function appAuthDir(root: string, appName: string): string {
   return join(root, "data", "auth", appName);
+}
+
+/*
+ * An app's suite store under QAYABA_ROOT/data — the qa-data volume, never mounted into the agents container: the accepted e2e
+ * suite and the login that was proven to work. Removed with the app on a purge.
+ */
+export function appSuiteStoreDir(root: string, appName: string): string {
+  return join(root, "data", "suites", appName);
 }
 
 /*
@@ -1154,6 +1163,14 @@ export function buildRewrittenCompositionConfig(
      * fresh: a committed map left untouched is neither stored nor disarms the flag.
      */
     contextMapCapture: new ContextMapCapturePortAdapter(storeFreshContextMap, contextMapWrittenThisRun),
+    /*
+     * The accepted e2e suite of this app, in the qa-data volume (never mounted into the agents container). A checkout wipes every
+     * untracked file of the mirror, and shadow mode never publishes: without the store every run would start cold, re-seed the
+     * stock login and ask the agent to author it again. E2e only; the code target keeps its tests in the repo's own framework.
+     */
+    ...(!isCode
+      ? { suiteStore: new SuiteStoreAdapter({ storeDir: appSuiteStoreDir(root, app.name), app: app.name, repo: app.repo, specRelDir: e2eRelDir, listTracked: gitListTracked(runner), now: () => new Date() }) }
+      : {}),
     ...(observer ? { observer } : {}),
   };
 }

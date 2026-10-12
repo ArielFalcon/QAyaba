@@ -104,7 +104,8 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
 1. **Gate** — wait until DEV serves this SHA (`dev.versionUrl`; skipped when absent).
 2. **Classify** — checkout, diff + message, `classifyCommit` (Conventional Commits
    cross-checked against the diff). `skip` → `skipped` without spending a token.
-3. **Setup** — seed `e2e/` from `config/e2e/` if missing, install deps.
+3. **Setup** — restore the app's accepted suite from the suite store (below), seed `e2e/` from
+   `config/e2e/` for whatever is still missing, install deps.
 4. **Ground** — assemble what the agent receives (see below).
 5. **Generate** — agent writes/improves specs + `e2e/.qa/manifest.json`; an independent
    reviewer judges. Declared `noop` + zero specs → `skipped`. Zero specs without `noop`
@@ -121,7 +122,9 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
    nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
    (the reviewer's reason on the run record and in the log, no PR and no Issue, nothing learned; three in
    a row log an observe-only audit finding). A reviewer that answered unreadably is still a fail-closed
-   parse miss. `shadow: true` replaces every PR/Issue with a log line.
+   parse miss. `shadow: true` replaces every PR/Issue with a log line. An accepted run (`isAccepted`:
+   `pass`, generated, approved or review not required, coverage not blocking; shadow ignored) first
+   captures its suite into the suite store, before publication.
 
 Verdicts: `pass | fail | flaky | invalid | infra-error | skipped`
 (`qa-engine/src/shared-kernel/run-verdict.ts`). `E-PRECONDITION` = login could not be
@@ -281,7 +284,16 @@ threat-model header first) and a canary-before-promote hot-swap.
 - The suite's source of truth is **git** (app repo `e2e/`). engram (`engram-data`
   volume) is the only non-regenerable data; Serena index and mirrors are caches.
 - Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env.
-- Shadow mode never publishes `e2e/`, so the per-run `git clean -fd` deletes it and every run starts cold; the operator switch `QA_PRESERVE_UNTRACKED_SUITE=1` (off by default, read once in the composition root) keeps the primary repo's spec directory out of that clean for warm-start experiments (`docs/efficiency-benchmark.md`).
+- **Suite store** (`qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts`,
+  `data/suites/<app>/` in the qa-data volume, never mounted into the agents container): the accepted
+  suite of an app that git does not hold yet. Shadow mode never publishes and a PR may not be merged
+  yet, while every run's checkout wipes the untracked `e2e/`; without the store each run starts cold,
+  re-seeds the stock login and orders the agent to author it again. An accepted run captures (specs
+  that ran green, support files, the app's `auth.setup.ts` only when it actually signed in); the next
+  run restores before setup and reconciles with git (untracked: store wins; tracked and unchanged since
+  the entry was admitted: unpublished change overlaid; tracked and different: git wins). A restored
+  login that fails to sign in is demoted and the stock seed takes its place. Store faults are off-path
+  (logged, never a verdict). Context-map, session state, credentials and `.qa-probe/` never enter it.
 
 ## Invariants — do not break these
 

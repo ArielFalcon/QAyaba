@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
+import { appSuiteStoreDir, createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
@@ -302,6 +302,20 @@ test("buildRewrittenCompositionConfig wires a CurriculumPort backed by the histo
 test("buildRewrittenCompositionConfig wires a ContextMapCapturePort backed by the history store", () => {
   const config = buildRewrittenCompositionConfig(cfg("contextmap-capture-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.contextMapCapture, "contextMapCapture must be wired unconditionally");
+});
+
+/* The accepted e2e suite is kept in the data volume for every e2e run, shadow or not; the code target has no e2e suite. */
+test("buildRewrittenCompositionConfig wires the suite store for an e2e run and leaves it out of a code run", () => {
+  const e2e = buildRewrittenCompositionConfig(cfg("suite-store-e2e"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.ok(e2e.suiteStore, "an e2e run keeps its suite");
+  const shadow = buildRewrittenCompositionConfig({ ...cfg("suite-store-shadow"), qa: { ...cfg("suite-store-shadow").qa, shadow: true } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.ok(shadow.suiteStore, "a shadow run keeps its suite too: nothing else would");
+  const code = buildRewrittenCompositionConfig(cfg("suite-store-code"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", target: "code" });
+  assert.equal(code.suiteStore, undefined);
+});
+
+test("an app's suite store lives under the data volume, one directory per app", () => {
+  assert.equal(appSuiteStoreDir("/srv/qayaba", "shop"), "/srv/qayaba/data/suites/shop");
 });
 
 test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMap: the stored map wins over the repo file when present", () => {
