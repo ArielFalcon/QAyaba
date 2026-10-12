@@ -72,6 +72,8 @@ const TOPO = "qa-engine/src/contexts/service-topology/infrastructure";
 const TOPO_TEST = "qa-engine/test/contexts/service-topology/infrastructure";
 const TE_INFRA = "qa-engine/src/contexts/test-execution/infrastructure";
 const TE_INFRA_TEST = "qa-engine/test/contexts/test-execution/infrastructure";
+const TE = "qa-engine/src/contexts/test-execution";
+const TE_TEST = "qa-engine/test/contexts/test-execution";
 
 const DEFAULT_THRESHOLDS: MutationThresholds = { high: 90, low: 80, break: null };
 
@@ -362,6 +364,23 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.step-limit.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.listing.test.ts`,
       "scripts/prompt-contract-matrix.sample.test.ts",
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "agent-browser": {
+    description: "authenticated agent browser: the route guard, the session-invalidation detector, the capability and the call's use case",
+    mutate: [
+      `${TE}/domain/agent-browser-route-guard.ts`,
+      `${TE}/domain/agent-browser-session-invalidation.ts`,
+      `${TE}/domain/agent-browser-capability.ts`,
+      `${TE}/application/agent-browser.use-case.ts`,
+    ],
+    tests: [
+      `${TE_TEST}/domain/agent-browser-route-guard.test.ts`,
+      `${TE_TEST}/domain/agent-browser-session-invalidation.test.ts`,
+      `${TE_TEST}/application/agent-browser.use-case.test.ts`,
+      `${ORCH_TEST}/infrastructure/agent-browser-registry.test.ts`,
+      `${ORCH_TEST}/infrastructure/bridges/agent-browser-port.adapter.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

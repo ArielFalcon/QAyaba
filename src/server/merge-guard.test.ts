@@ -321,6 +321,32 @@ test("isProtectedPath flags the bounded runners and the git call sites an untrus
   }
 });
 
+test("isProtectedPath flags the authenticated agent browser: its guard, host, launcher, endpoint and the tools the agents call it through", () => {
+  /* The guard decides every request the browser makes and the host holds the session in memory only; loosening either, or the endpoint and tools that reach them, lets an agent write to DEV or drive the browser around the guard. */
+  const files = [
+    "qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts",
+    "qa-engine/src/contexts/test-execution/domain/agent-browser-session-invalidation.ts",
+    "qa-engine/src/contexts/test-execution/domain/agent-browser-capability.ts",
+    "qa-engine/src/contexts/test-execution/application/agent-browser.use-case.ts",
+    "qa-engine/src/contexts/test-execution/application/ports/agent-browser.ports.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/cdp-pipe-bridge.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core.loader.ts",
+    "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
+    "qa-engine/src/shared-kernel/agent-browser.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-session-material.ts",
+    "src/server/tools-endpoint.ts",
+    "agents/tool/authbrowser.ts",
+    "agents/lib/authbrowser-client.mjs",
+  ];
+  for (const file of files) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, file);
+  }
+});
+
 test("every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {
   const unclassified = unclassifiedUnder(repoRoot, SECURITY_SENSITIVE_SURFACE_ROOTS);
   assert.deepEqual(unclassified, [], `unclassified security-sensitive file(s) — add each to PROTECTED_PATHS or NOT_SECURITY_SENSITIVE: ${JSON.stringify(unclassified)}`);

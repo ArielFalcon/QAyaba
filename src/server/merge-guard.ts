@@ -283,6 +283,18 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-kernel/process-sandbox/bounded-whole-output.ts",
 
   "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts",
+  /* The authenticated agent browser: the route guard that decides every request its browser makes, the detector of a lost session, the capability and the call's use case, the host, launcher and DevTools bridge of the browser (which import no file API and hold the session in memory only), the sweep that ends a browser a restart left, the kernel types of its limits, the endpoint that serves its calls, and the tools and client the agents call it through. An autonomous fix that loosened any of them could let an agent write to DEV, reach a host the run does not declare or drive the browser around the guard, without touching a caller. */
+  "qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts",
+  "qa-engine/src/contexts/test-execution/domain/agent-browser-session-invalidation.ts",
+  "qa-engine/src/contexts/test-execution/domain/agent-browser-capability.ts",
+  "qa-engine/src/contexts/test-execution/application/agent-browser.use-case.ts",
+  "qa-engine/src/contexts/test-execution/application/ports/agent-browser.ports.ts",
+  "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/",
+  "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
+  "qa-engine/src/shared-kernel/agent-browser.ts",
+  "src/server/tools-endpoint.ts",
+  "agents/tool/authbrowser.ts",
+  "agents/lib/authbrowser-client.mjs",
   /* 4. build/topology the canary cannot verify (image rebuild only) */
   ".github/",
   "Dockerfile",
