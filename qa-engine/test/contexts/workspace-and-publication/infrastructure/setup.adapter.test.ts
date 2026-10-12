@@ -598,6 +598,105 @@ test("the afterEach body, run as a real ES module, writes a dump (no ReferenceEr
   }
 });
 
+/* ── The write counter: how many mutating requests a spec sent to DEV (run_spec's cap) ───────────────── */
+
+async function loadCaptureModule(dir: string, name: string): Promise<{ beforeEachFn: (args: unknown) => Promise<void>; afterEachFn: (args: unknown, info: unknown) => Promise<void> }> {
+  const moduleSrc =
+    `const test = { beforeEach(fn) { globalThis.__qa_${name}_before = fn; }, afterEach(fn) { globalThis.__qa_${name}_after = fn; } };\n` +
+    FAILURE_CAPTURE_BLOCK +
+    `\nexport const beforeEachFn = globalThis.__qa_${name}_before;\nexport const afterEachFn = globalThis.__qa_${name}_after;\n`;
+  const modPath = join(dir, `${name}.mts`);
+  writeFileSync(modPath, moduleSrc);
+  return import(pathToFileURL(modPath).href);
+}
+
+function pageWithContext(requests: { handlers: Array<(r: unknown) => void> }, context: object = {}) {
+  const ctx = context as { on?: (event: string, cb: (r: unknown) => void) => void };
+  ctx.on ??= (event, cb) => { if (event === "request") requests.handlers.push(cb); };
+  return { on() {}, url: () => "http://localhost/", context: () => ctx, locator: () => ({ ariaSnapshot: async () => "" }) };
+}
+
+const passingInfo = { status: "passed", expectedStatus: "passed", titlePath: ["chromium", "orders", "creates one"], project: { name: "desktop" }, file: "/repo/e2e/orders.spec.ts", retry: 0, workerIndex: 0, testId: "abc-123" };
+
+test("with the counter asked for, a test's mutating requests are written to its ledger file, pass or fail", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "count");
+    const requests = { handlers: [] as Array<(r: unknown) => void> };
+    const page = pageWithContext(requests);
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page });
+    assert.equal(requests.handlers.length, 1, "one request listener on the test's context");
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) requests.handlers[0]!({ method: () => method });
+    await mod.afterEachFn({ page }, passingInfo);
+    const files = readdirSync(captureDir);
+    assert.equal(files.length, 1, `a passing test leaves only its ledger, got ${JSON.stringify(files)}`);
+    assert.match(files[0]!, /^ledger-[A-Za-z0-9_-]+\.json$/);
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, files[0]!), "utf8")), { writes: 4 });
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the counter starts from zero for every test and counts a shared context once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-shared-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "shared");
+    const requests = { handlers: [] as Array<(r: unknown) => void> };
+    const sharedContext = {};
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page: pageWithContext(requests, sharedContext) });
+    requests.handlers[0]!({ method: () => "POST" });
+    await mod.afterEachFn({ page: pageWithContext(requests, sharedContext) }, { ...passingInfo, testId: "t1" });
+    await mod.beforeEachFn({ page: pageWithContext(requests, sharedContext) });
+    assert.equal(requests.handlers.length, 1, "the second test on the same context adds no second listener");
+    await mod.afterEachFn({ page: pageWithContext(requests, sharedContext) }, { ...passingInfo, testId: "t2" });
+    const counts = readdirSync(captureDir).sort().map((f) => JSON.parse(readFileSync(join(captureDir, f), "utf8")).writes);
+    assert.deepEqual(counts, [1, 0]);
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("without the counter asked for, a passing test leaves nothing and a page with no context does not break the block", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-off-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "off");
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    delete process.env.PW_COUNT_DEV_WRITES;
+    const bare = { on() {}, url: () => "http://localhost/", locator: () => ({ ariaSnapshot: async () => "" }) };
+    await mod.beforeEachFn({ page: bare });
+    await mod.afterEachFn({ page: bare }, passingInfo);
+    assert.deepEqual(readdirSync(captureDir), []);
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page: bare });
+    await mod.afterEachFn({ page: bare }, passingInfo);
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, readdirSync(captureDir)[0]!), "utf8")), { writes: 0 });
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("httpStatus is absent when no ≥500 response was observed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-no5xx-"));
   try {

@@ -12,6 +12,8 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import {
   runE2E,
   type E2eExecuteDeps,
@@ -1016,4 +1018,128 @@ test("a Playwright suite child writes its output, report and failure dumps outsi
   assert.ok(output !== undefined && output.startsWith(workDir), `playwright output goes to ${output}, expected below ${workDir}`);
   assert.ok(env.PLAYWRIGHT_JSON_OUTPUT_NAME?.startsWith(workDir), "the JSON report goes to the work dir");
   assert.ok(env.QA_FAILURE_CAPTURE_DIR?.startsWith(workDir), "the failure dumps go to the work dir");
+});
+
+test("playwrightArgs: a single-attempt run and a title filter are options before the spec files", () => {
+  const args = playwrightArgs("reporter.cjs", undefined, ["flows/a.spec.ts"], "/work/results", { retries: 0, grep: "adds \\(one\\) item" });
+  assert.deepEqual(args, ["playwright", "test", "--reporter=reporter.cjs,json", "--output=/work/results", "--retries=0", "--grep=adds \\(one\\) item", "flows/a.spec.ts"]);
+});
+
+test("playwrightArgs: retries must be a small non-negative integer and the grep a bounded string", () => {
+  for (const retries of [-1, 1.5, Number.NaN, 11]) {
+    assert.throws(() => playwrightArgs("r.cjs", undefined, undefined, undefined, { retries }), /invalid retries/);
+  }
+  assert.throws(() => playwrightArgs("r.cjs", undefined, undefined, undefined, { grep: "x".repeat(201) }), /invalid grep/);
+  assert.throws(() => playwrightArgs("r.cjs", undefined, undefined, undefined, { grep: "" }), /invalid grep/);
+  assert.deepEqual(playwrightArgs("r.cjs", undefined, undefined, undefined, {}), playwrightArgs("r.cjs"));
+});
+
+test("runE2E hands the retries and the grep to the runner", async () => {
+  let seen: { retries?: number; grep?: string } = {};
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => {
+      seen = { retries: args.retries, grep: args.grep };
+      return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
+    },
+  };
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", retries: 0, grep: "loads" }, deps);
+  assert.deepEqual(seen, { retries: 0, grep: "loads" });
+});
+
+function withLedgerDir(files: Record<string, string>): { deps: (report?: unknown) => E2eExecuteDeps; root: string; cleanup(): void } {
+  const root = mkdtempSync(join(tmpdir(), "qa-ledger-"));
+  const dumps = join(root, "dumps");
+  mkdirSync(dumps);
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(dumps, name), text);
+  return {
+    root,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    deps: (report: unknown = { stats: { expected: 1 } }) => ({
+      allocateFailureDir: () => ({ dir: dumps, root, dispose: () => {} }),
+      runSuite: async () => ({ report, logs: "ok", ran: true }),
+    }),
+  };
+}
+
+test("runE2E reports the writes to DEV the fixtures counted, summed over the tests that ran", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":2}', "ledger-1-1.json": '{"writes":3}', "unrelated.json": '{"writes":100}' });
+  try {
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps());
+    assert.equal(run.devWrites, 5);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E reports the writes of a run that timed out as well, since the specs that ran before were counted", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":4}' });
+  try {
+    const deps = ledger.deps();
+    deps.runSuite = async () => ({ report: {}, logs: "playwright runner timed out after 10ms — killed", ran: false });
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, deps);
+    assert.equal(run.verdict, "infra-error");
+    assert.equal(run.devWrites, 4);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E does not look for a count nobody asked for", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":2}' });
+  try {
+    assert.equal((await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns" }, ledger.deps())).devWrites, undefined);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E reports no count when the fixtures left none or left something it cannot trust", async () => {
+  const none = withLedgerDir({});
+  const forged = withLedgerDir({ "ledger-0-1.json": '{"writes":-3}' });
+  const huge = withLedgerDir({ "ledger-0-1.json": "x".repeat(100_000) });
+  try {
+    assert.equal((await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, none.deps())).devWrites, undefined);
+    assert.equal((await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, forged.deps())).devWrites, undefined);
+    assert.equal((await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, huge.deps())).devWrites, undefined);
+  } finally {
+    none.cleanup();
+    forged.cleanup();
+    huge.cleanup();
+  }
+});
+
+test("the default runner starts the child with the narrowing options and the write counter only when asked", async () => {
+  const workRoot = mkdtempSync(join(tmpdir(), "qa-fake-exec-"));
+  const spawned: Array<{ args: readonly string[]; extraEnv: Record<string, string> | undefined }> = [];
+  const exec = {
+    isolated: false,
+    workDir: () => workRoot,
+    allocDir: (prefix: string, subdirs: readonly string[] = []) => {
+      const dir = mkdtempSync(join(workRoot, `${prefix}-`));
+      for (const sub of subdirs) mkdirSync(join(dir, sub), { recursive: true });
+      return dir;
+    },
+    prepareWritable: () => {},
+    writeScript: () => "",
+    spawn: (_cmd: string, args: readonly string[], options: { extraEnv?: Record<string, string> }) => {
+      spawned.push({ args, extraEnv: options.extraEnv });
+      const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      setImmediate(() => child.emit("close", 0, null));
+      return child;
+    },
+  };
+  try {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 5_000, exec as never);
+    await deps.runSuite({ dir: workRoot, baseUrl: "https://dev", namespace: "ns", specFiles: ["a.spec.ts"], retries: 0, grep: "x", countWrites: true });
+    await deps.runSuite({ dir: workRoot, baseUrl: "https://dev", namespace: "ns" });
+  } finally {
+    rmSync(workRoot, { recursive: true, force: true });
+  }
+  assert.ok(spawned[0]!.args.includes("--retries=0"));
+  assert.ok(spawned[0]!.args.includes("--grep=x"));
+  assert.equal(spawned[0]!.extraEnv?.PW_COUNT_DEV_WRITES, "1");
+  assert.equal(spawned[1]!.args.some((a) => a.startsWith("--retries") || a.startsWith("--grep")), false);
+  assert.equal(spawned[1]!.extraEnv?.PW_COUNT_DEV_WRITES, undefined);
 });

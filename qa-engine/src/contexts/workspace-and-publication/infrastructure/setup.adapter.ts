@@ -45,6 +45,7 @@ const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
   "aaaec869a29d0d5066cb7cb9ab89c829bae7b04797a9e0e5372fef24de034550",
   "607112cee45f4edf134ecefa660e815f6e40dfce2b9a0f19184f4e5372d935b1",
   "9490d34eb64c08551d6c9ac3dee476d21d5f227c5631e5b7af0155d4d4241569",
+  "0e5d28a7cbed9a6c8864f9b3e4d236cfe8579dd77169fd7a7880fffc42508260",
 ]);
 
 /*
@@ -97,10 +98,28 @@ let errorResponses: { url: string; status: number; resourceType: string }[] = []
 // orchestrator's runtime-error classifier turns this into a diagnostic signal ONLY — it never
 // blocks or masks a real generated-test defect.
 let runtimeErrors: { type: string; text: string }[] = [];
+// DEV-write counter, on only when the orchestrator asks (PW_COUNT_DEV_WRITES=1, for a spec it executes on the
+// generator's behalf): the mutating requests (POST, PUT, PATCH, DELETE) a test's page and context send, written
+// per test to a ledger file in the capture directory so the orchestrator can hold what a spec does to DEV to a cap.
+// A context is listened to once however many tests share it.
+let devWrites = 0;
+const countedContexts = new WeakSet<object>();
 test.beforeEach(async ({ page }) => {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
   runtimeErrors = [];                                 // same per-test reset discipline
+  devWrites = 0;
+  if (process.env.PW_COUNT_DEV_WRITES === '1') {
+    try {
+      const context = page.context();
+      if (!countedContexts.has(context)) {
+        countedContexts.add(context);
+        context.on('request', (r) => {
+          try { if (/^(?:POST|PUT|PATCH|DELETE)$/.test(r.method())) devWrites++; } catch {}
+        });
+      }
+    } catch {}
+  }
   try {
     page.on('response', (r) => {
       try { const s = r.status(); if (s >= 400) errorResponses.push({ url: r.url(), status: s, resourceType: r.request().resourceType() }); } catch {}
@@ -123,6 +142,14 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ page }, testInfo) => {
   const dir = process.env.QA_FAILURE_CAPTURE_DIR;
   if (!dir) return;                                   // degrade to no-op when the orchestrator did not ask
+  if (process.env.PW_COUNT_DEV_WRITES === '1') {
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const id = String(testInfo.testId ?? testInfo.title).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
+      writeFileSync(join(dir, 'ledger-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'), JSON.stringify({ writes: devWrites }));
+    } catch { /* best effort — the count is a bound on the spec, never a test failure */ }
+  }
   if (testInfo.status === testInfo.expectedStatus) return; // only on unexpected status (a real failure)
   try {
     const { writeFileSync } = await import("node:fs");

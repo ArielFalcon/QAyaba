@@ -17,6 +17,12 @@ export interface ExecutionRequest {
   namespace: string;
   faultInject?: boolean;
   specFiles?: string[];
+  /** Attempts after a failure; 0 is a single attempt. Absent: the suite's own config decides. */
+  retries?: number;
+  /** A title filter, already escaped as a literal. */
+  grep?: string;
+  /** Have the fixtures count the writes the specs send to DEV; the total comes back as `devWrites`. */
+  countWrites?: boolean;
   signal?: AbortSignal;
   timeoutMs?: number;
   testIdAttribute?: string;
@@ -26,7 +32,13 @@ export interface ExecutionRequest {
   onDiscovered?: (title: string, file?: string) => void;
   changedFiles?: string[];
 }
-export interface ExecutionResult { verdict: RunVerdict; cases: QaCase[]; logs: string; }
+export interface ExecutionResult {
+  verdict: RunVerdict;
+  cases: QaCase[];
+  logs: string;
+  /** Mutating requests the specs sent to DEV, as the fixtures counted them. Absent: not counted. */
+  devWrites?: number;
+}
 
 export interface ExecutionStrategyPort {
   run(req: ExecutionRequest): Promise<ExecutionResult>;

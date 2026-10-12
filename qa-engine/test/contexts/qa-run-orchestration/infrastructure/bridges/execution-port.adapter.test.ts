@@ -19,7 +19,7 @@ import type { E2eExecuteOptions } from "@contexts/test-execution/infrastructure/
 const E2E_EXECUTE_OPTIONS_ALL_FIELDS = {
   baseUrl: true, namespace: true, onCase: true, onRunning: true, onDiscovered: true,
   faultInject: true, signal: true, timeoutMs: true, project: true, testIdAttribute: true,
-  specFiles: true, cleanupPass: true,
+  specFiles: true, retries: true, grep: true, countWrites: true, cleanupPass: true,
 } satisfies Record<keyof E2eExecuteOptions, true>;
 
 const E2E_EXECUTE_OPTIONS_ALLOWLIST: Record<string, string> = {
@@ -29,7 +29,7 @@ const E2E_EXECUTE_OPTIONS_ALLOWLIST: Record<string, string> = {
 };
 
 test("E2eExecuteOptions' own field list matches the allowlist + ExecutionPortAdapter's mapped set exactly (retired seam-parity block (c))", () => {
-  const mapped = ["onCase", "onRunning", "onDiscovered", "faultInject", "signal", "timeoutMs", "project", "testIdAttribute", "specFiles"];
+  const mapped = ["onCase", "onRunning", "onDiscovered", "faultInject", "signal", "timeoutMs", "project", "testIdAttribute", "specFiles", "retries", "grep", "countWrites"];
   const allFieldNames = Object.keys(E2E_EXECUTE_OPTIONS_ALL_FIELDS).sort();
   const accountedFor = [...new Set([...mapped, ...Object.keys(E2E_EXECUTE_OPTIONS_ALLOWLIST)])].sort();
   assert.deepEqual(accountedFor, allFieldNames, "every E2eExecuteOptions field must be either mapped by ExecutionPortAdapter or allowlisted with a reason");
@@ -284,4 +284,16 @@ test("execute() falls back to ctx.namespace when opts.namespace is absent (backw
   const codeAdapter = new ExecutionPortAdapter({ e2e, code }, { target: "code", namespace: "qa-bot-def5678" });
   await codeAdapter.execute("/mirrors/org/app");
   assert.equal((codeOpts as { namespace: string }).namespace, "qa-bot-def5678");
+});
+
+test("execute() forwards a single-attempt, title-filtered run to the strategy and hands back the writes it counted", async () => {
+  let seen: { retries?: number; grep?: string; specFiles?: string[]; countWrites?: boolean } = {};
+  const e2e = new E2eExecutionStrategy(async (_dir, opts) => {
+    seen = { retries: opts.retries, grep: opts.grep, specFiles: opts.specFiles, countWrites: opts.countWrites };
+    return { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 2 };
+  });
+  const adapter = new ExecutionPortAdapter({ e2e, code: new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" })) }, { target: "e2e", baseUrl: "https://dev", namespace: "ns" });
+  const result = await adapter.execute("/m/e2e", { specFiles: ["a.spec.ts"], retries: 0, grep: "loads", countWrites: true });
+  assert.deepEqual(seen, { retries: 0, grep: "loads", specFiles: ["a.spec.ts"], countWrites: true });
+  assert.equal(result.devWrites, 2);
 });

@@ -28,11 +28,13 @@ function realAdapter(): SetupAdapter {
 }
 
 /* Playwright is not installed in this template, so its types are a hand-written stand-in covering exactly the API the block touches; @types/node is the real one. */
-const PLAYWRIGHT_TYPES_STAND_IN = `export interface Request { resourceType(): string; url(): string }
+const PLAYWRIGHT_TYPES_STAND_IN = `export interface Request { resourceType(): string; url(): string; method(): string }
 export interface Response { status(): number; url(): string; request(): Request }
 export interface ConsoleMessage { type(): string; text(): string }
 export interface Locator { ariaSnapshot(options?: { timeout?: number }): Promise<string> }
+export interface BrowserContext { on(event: "request", listener: (request: Request) => unknown): this }
 export interface Page {
+  context(): BrowserContext;
   on(event: "response", listener: (response: Response) => unknown): this;
   on(event: "console", listener: (message: ConsoleMessage) => unknown): this;
   on(event: "pageerror", listener: (error: Error) => unknown): this;
@@ -40,7 +42,7 @@ export interface Page {
   locator(selector: string): Locator;
 }
 export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
-export interface TestInfo { status?: TestStatus; expectedStatus: TestStatus; titlePath: string[]; project: { name: string }; file: string; retry: number }
+export interface TestInfo { status?: TestStatus; expectedStatus: TestStatus; titlePath: string[]; project: { name: string }; file: string; retry: number; testId: string; title: string; workerIndex: number }
 export interface TestType<Args> {
   (title: string, body: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
   beforeEach(hook: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;

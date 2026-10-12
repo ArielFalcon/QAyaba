@@ -13,7 +13,7 @@ import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.t
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
-import { describeReasons, scanRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
+import { describeReasons, readRunOutputDir, scanRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
 import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { parsePlaywrightReport } from "./playwright-report.ts";
 import { PLAYWRIGHT_INFRA_RE } from "../domain/playwright-infra.ts";
@@ -64,6 +64,12 @@ export interface E2eExecuteOptions {
   project?: string;
   testIdAttribute?: string;
   specFiles?: string[];
+  /* Attempts after the first failure; 0 makes a run a single attempt (the suite's own config retries otherwise). */
+  retries?: number;
+  /* A literal title filter, escaped for Playwright's --grep by the caller. */
+  grep?: string;
+  /* Have the fixtures count the mutating requests the specs send to DEV (PW_COUNT_DEV_WRITES) and report the total in `devWrites`. */
+  countWrites?: boolean;
   /* Run as the dedicated cleanup pass: the child is handed PW_CLEANUP=1, which the seed's cleanup.spec.ts needs to do anything (it skips otherwise), and `namespace` is then the BASE data prefix to clean. */
   cleanupPass?: boolean;
 }
@@ -121,6 +127,9 @@ export interface E2eExecuteDeps {
     faultInject?: boolean;
     project?: string;
     specFiles?: string[];
+    retries?: number;
+    grep?: string;
+    countWrites?: boolean;
     cleanupPass?: boolean;
     signal?: AbortSignal;
     timeoutMs?: number;
@@ -142,6 +151,8 @@ export interface E2eRunResult {
   cases: QaCase[];
   logs: string;
   note?: string;
+  /* Mutating requests the specs sent to DEV, as the fixtures counted them; absent when nothing trustworthy was counted. */
+  devWrites?: number;
 }
 
 /* Why a report that says every test passed is not believed, or undefined when how the child ended gives no reason to doubt it. Both the status and the signal come from the process, never from the report or the logs, so they are safe to say. */
@@ -209,6 +220,9 @@ export async function runE2E(
     project: opts.project,
     testIdAttribute: opts.testIdAttribute,
     specFiles: opts.specFiles,
+    retries: opts.retries,
+    grep: opts.grep,
+    countWrites: opts.countWrites,
     cleanupPass: opts.cleanupPass,
     signal: opts.signal,
     timeoutMs: opts.timeoutMs,
@@ -240,6 +254,9 @@ export async function runE2E(
     if (onAbort) opts.signal?.removeEventListener("abort", onAbort);
   }
   const { report, logs, ran } = out;
+  /* Counted before any early return: a run that timed out has still sent the writes of the specs that finished. */
+  const devWrites = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot) : undefined;
+  const counted = (result: E2eRunResult): E2eRunResult => (devWrites === undefined ? result : { ...result, devWrites });
 
   /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result (mirrors code-execution.runner.ts's own AMENDMENT-1 simplification) — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
@@ -250,49 +267,49 @@ export async function runE2E(
 
   /* The temp capture dir is removed on EVERY exit path — the early infra-error returns below, the main return, a throw from the harvest, AND a runSuite REJECT — via the finally at the end. A runner that produced no parseable report did not actually run the suite — it crashed (bad config, browser launch failure, OOM). That is INFRASTRUCTURE, not a pass: never let a swallowed parse error surface as green (the #1 invariant). */
   if (!ran || !isReportShaped(report)) {
-    return {
+    return counted({
       sha: opts.namespace,
       verdict: "infra-error",
       passed: false,
       cases: [],
       logs: sanitized.text || "the E2E runner produced no report (it crashed before reporting results)",
-    };
+    });
   }
 
   const parsed = parsePlaywrightReport(report);
 
   if (parsed.executed === 0) {
-    return {
+    return counted({
       sha: opts.namespace,
       verdict: "infra-error",
       passed: false,
       cases: parsed.cases,
       logs: sanitized.text || "the E2E suite ran but executed zero tests (no tests matched, or all were skipped)",
-    };
+    });
   }
 
   /* The report is written by the test process, so a report that says every test passed cannot be told from a forged one by what it holds. How the child ended can: Playwright exits with a failure status when a test failed, and a child that a signal ended never finished reporting. A pass that the child did not exit 0 for is a run that cannot be trusted: infrastructure, and none of its cases is handed on. A failure stays a failure whatever the status; the status only takes a pass away. */
   const distrust = parsed.verdict === "pass" ? untrustedExit(out) : undefined;
   if (distrust !== undefined) {
-    return {
+    return counted({
       sha: opts.namespace,
       verdict: "infra-error",
       passed: false,
       cases: [],
       logs: `${sanitized.text}\n[qa] ${distrust}`.trim(),
       note: distrust,
-    };
+    });
   }
 
   if (parsed.verdict === "fail" && allFailuresAreRunnerInfra(parsed.cases)) {
-    return {
+    return counted({
       sha: opts.namespace,
       verdict: "infra-error",
       passed: false,
       cases: parsed.cases,
       logs: sanitized.text,
       note: "Playwright could not launch the browser — runner infrastructure fault, not a test failure. Check the browser install / PLAYWRIGHT_BROWSERS_PATH.",
-    };
+    });
   }
 
   /* Post-run harvest: for each failed case, read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom. The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md). Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the failureDom we set here because the runtime objects are identical. */
@@ -321,19 +338,35 @@ export async function runE2E(
   /* A spec can print the account's password into an assertion message, and a page can echo it into the DOM the fixture dumped: what a child reported has the run's secrets taken out by value where it enters, before anything stores or forwards a case. */
   for (const c of qaCases) redactCaseByValue(c);
 
-  return {
+  return counted({
     sha: opts.namespace,
     verdict: parsed.verdict,
     passed: parsed.passed,
     cases: qaCases,
     logs: sanitized.text,
-  };
+  });
   } finally {
     if (disposeFailureDir) disposeFailureDir();
     else if (failureCaptureDir) {
       try { rmSync(failureCaptureDir, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
   }
+}
+
+/* The writes to DEV the specs of a run sent, from the ledger files the fixtures left in the failure-capture directory. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a missing, forged, oversized or unreadable file makes the whole count unknown (undefined) and never a smaller one. */
+const LEDGER_FILE_RE = /^ledger-[A-Za-z0-9_-]+\.json$/;
+const LEDGER_LIMITS: RunOutputLimits = { maxFileBytes: 4_096, maxTotalBytes: 1024 * 1024, maxFiles: 4_096 };
+const MAX_LEDGER_WRITES = 1_000_000;
+
+function readDevWrites(dir: string | undefined, root: string | undefined): number | undefined {
+  if (dir === undefined) return undefined;
+  const base = root ?? dir;
+  const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (_name, bytes) => {
+    const writes = (JSON.parse(bytes.toString("utf8")) as { writes?: unknown }).writes;
+    if (typeof writes !== "number" || !Number.isInteger(writes) || writes < 0 || writes > MAX_LEDGER_WRITES) throw new Error("not a count");
+    return writes;
+  }, LEDGER_LIMITS);
+  return files === undefined || files.length === 0 ? undefined : files.reduce((sum, n) => sum + n, 0);
 }
 
 function redactCaseByValue(c: QaCase): void {
@@ -531,7 +564,11 @@ class QaStreamReporter {
 module.exports = QaStreamReporter;
 `;
 
-export function playwrightArgs(reporterPath: string, project?: string, specFiles?: string[], outputDir?: string): string[] {
+/* The most attempts after a failure a caller may ask for, and the longest title filter. */
+const MAX_RETRIES = 10;
+const MAX_GREP_CHARS = 200;
+
+export function playwrightArgs(reporterPath: string, project?: string, specFiles?: string[], outputDir?: string, narrow: { retries?: number | undefined; grep?: string | undefined } = {}): string[] {
   const args = ["playwright", "test", `--reporter=${reporterPath},json`];
   /* Where Playwright writes traces, screenshots and videos: the run's work dir, because the mirror is read-only to the sandbox uid. */
   if (outputDir !== undefined) args.push(`--output=${outputDir}`);
@@ -540,6 +577,14 @@ export function playwrightArgs(reporterPath: string, project?: string, specFiles
       throw new Error(`invalid Playwright project name ${JSON.stringify(project)}: must match ${String(PW_PROJECT_RE)}`);
     }
     args.push(`--project=${project}`);
+  }
+  if (narrow.retries !== undefined) {
+    if (!Number.isInteger(narrow.retries) || narrow.retries < 0 || narrow.retries > MAX_RETRIES) throw new Error(`invalid retries ${JSON.stringify(narrow.retries)}: must be an integer from 0 to ${MAX_RETRIES}`);
+    args.push(`--retries=${narrow.retries}`);
+  }
+  if (narrow.grep !== undefined) {
+    if (typeof narrow.grep !== "string" || narrow.grep === "" || narrow.grep.length > MAX_GREP_CHARS) throw new Error(`invalid grep: must be a non-empty string of at most ${MAX_GREP_CHARS} characters`);
+    args.push(`--grep=${narrow.grep}`);
   }
   if (specFiles !== undefined && specFiles.length > 0) {
     assertSpecFiles(specFiles);
@@ -566,7 +611,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, testIdAttribute, faultInject, project, specFiles, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
+    runSuite: ({ dir, baseUrl, namespace, testIdAttribute, faultInject, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
       new Promise((resolve, reject) => {
         const work = exec.allocDir("pw", ["report", "results"]);
         const workRoot = exec.workDir();
@@ -577,10 +622,10 @@ export function createDefaultE2eExecuteDeps(
         exec.prepareWritable([join(dir, ".qa", "coverage"), join(dir, ".qa", "fault-injection")]);
 
         /* QA_FAILURE_CAPTURE_DIR: the qa-failure-capture afterEach fixture writes per-case aria snapshot dumps here on failure; the orchestrator harvests them post-run to populate QaCase.failureDom for the fix-loop grounding prompt. PW_TEST_ID_ATTRIBUTE: threads the configured testIdAttribute into the runner so playwright.config.ts resolves getByTestId correctly for the app's convention. PW_ACTION_TIMEOUT_MS: optional per-target override of the seed's action auto-wait bound (default 8000) so a slower DEV can widen it without editing the seed config — injected from the composition root (env-read confinement, this file's header). */
-        const child = exec.spawn("npx", playwrightArgs(reporterPath, project, specFiles, join(work, "results")), {
+        const child = exec.spawn("npx", playwrightArgs(reporterPath, project, specFiles, join(work, "results"), { retries, grep }), {
           cwd: dir,
           profile: "suite",
-          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) },
+          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) },
         });
 
         const stderr = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);

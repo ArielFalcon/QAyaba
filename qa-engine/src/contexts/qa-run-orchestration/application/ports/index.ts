@@ -340,6 +340,12 @@ export interface ExecutionOpts {
   faultInject?: boolean;
   /** Scope re-execution to only the specs that failed. */
   specFiles?: string[];
+  /** Attempts after a failure; 0 is a single attempt. Absent: the suite's own config decides. */
+  retries?: number;
+  /** A title filter, already escaped as a literal. */
+  grep?: string;
+  /** Have the fixtures count the writes the specs send to DEV; the total comes back as `devWrites`. */
+  countWrites?: boolean;
   project?: string;
   timeoutMs?: number;
   /**
@@ -358,7 +364,7 @@ export interface ExecutionOpts {
 }
 export interface ExecutionPort {
   /** Bare AbortSignal or richer opts bag; absent is specDir only. */
-  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string }>;
+  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number }>;
 }
 export interface ObjectiveSignalPort {
   /**
