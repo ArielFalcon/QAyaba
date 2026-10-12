@@ -16,6 +16,8 @@ export interface DelegateRunInput {
   guidance?: string;
   /** The run's own choice about the run_spec loop (an A/B arm), overriding the app's setting. */
   closedLoop?: boolean;
+  /** The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting. */
+  agentBrowser?: boolean;
 }
 
 export interface DelegateRunDeps {
@@ -58,6 +60,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
       mode: input.mode,
       ...(input.guidance ? { guidance: input.guidance } : {}),
       ...(input.closedLoop !== undefined ? { closedLoop: input.closedLoop } : {}),
+      ...(input.agentBrowser !== undefined ? { agentBrowser: input.agentBrowser } : {}),
     }),
   });
   const createBody = (await createRes.json().catch(() => ({}))) as Record<string, unknown>;

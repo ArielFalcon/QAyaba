@@ -147,3 +147,9 @@ test("delegateRun sends the run's own choice about the run_spec loop, and nothin
   assert.equal((await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff", closedLoop: true })).closedLoop, true);
   assert.equal("closedLoop" in (await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff" })), false);
 });
+
+test("delegateRun sends the run's own choice about the agent browser, and nothing when it makes none", async () => {
+  assert.equal((await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff", agentBrowser: false })).agentBrowser, false);
+  assert.equal((await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff", agentBrowser: true })).agentBrowser, true);
+  assert.equal("agentBrowser" in (await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff" })), false);
+});

@@ -259,6 +259,22 @@ test("a pipeline report carries how the generator used run_spec and whether the 
   assert.equal("closedLoop" in without, false);
 });
 
+test("a pipeline report carries how the authoring agents used the browser, and nothing when the run did not grant it", () => {
+  const used = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome({ agentBrowser: { calls: 9, blocks: 2, invalidations: 1, renewals: 1 } }), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  assert.deepEqual(used.agentBrowser, { calls: 9, blocks: 2, invalidations: 1, renewals: 1 });
+  const without = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome(), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  assert.equal("agentBrowser" in without, false);
+});
+
+test("the markdown row shows the browser's calls, blocks and lost sessions when the run used it, and a run without it shows none", () => {
+  const used = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome({ agentBrowser: { calls: 9, blocks: 2, invalidations: 1, renewals: 1 } }), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  const markdown = renderMarkdown([used]);
+  assert.match(markdown, /Authenticated browser/);
+  assert.match(markdown, /9 calls, 2 blocked, 1 session lost \(1 renewed\)/);
+  const without = renderMarkdown([buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome(), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 })]);
+  assert.doesNotMatch(without, /Authenticated browser/);
+});
+
 /* ── rendering ── */
 
 test("the markdown row names the run and shows every unknown figure as n/a, never 0, and flags partial usage", () => {

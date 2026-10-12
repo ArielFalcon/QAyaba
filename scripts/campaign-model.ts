@@ -153,6 +153,8 @@ export interface CampaignArguments {
   dryRun: boolean;
   /** The pipeline arm's own choice about the run_spec loop (an A/B), overriding the app's setting. Absent: the app's setting decides. */
   closedLoop?: boolean;
+  /** The pipeline arm's own choice about the authenticated agent browser (an A/B), overriding the app's setting. Absent: the app's setting decides. */
+  agentBrowser?: boolean;
 }
 
 export type ParsedArguments = { ok: true; args: CampaignArguments } | { ok: false; problem: string };
@@ -160,7 +162,7 @@ export type ParsedArguments = { ok: true; args: CampaignArguments } | { ok: fals
 export function parseArguments(argv: readonly string[]): ParsedArguments {
   const values: Record<string, string> = {};
   const flags = new Set<string>();
-  const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm", "--closed-loop"]);
+  const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm", "--closed-loop", "--agent-browser"]);
   const boolean = new Set(["--allow-non-shadow", "--skip-env-checks", "--engram-isolated", "--dry-run"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -179,6 +181,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
   const wallCapMin = values["--wall-cap-min"] === undefined ? DEFAULT_WALL_CAP_MIN : Number(values["--wall-cap-min"]);
   if (!Number.isFinite(wallCapMin) || wallCapMin <= 0) return { ok: false, problem: "error: --wall-cap-min needs a positive number of minutes" };
   if (values["--closed-loop"] !== undefined && values["--closed-loop"] !== "on" && values["--closed-loop"] !== "off") return { ok: false, problem: 'error: --closed-loop takes "on" or "off"' };
+  if (values["--agent-browser"] !== undefined && values["--agent-browser"] !== "on" && values["--agent-browser"] !== "off") return { ok: false, problem: 'error: --agent-browser takes "on" or "off"' };
   try {
     assertFileName(values["--label"]!, "label");
     assertFileName(values["--warm"]!, "warm snapshot label");
@@ -191,6 +194,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
       casesPath: values["--cases"]!, replicas, label: values["--label"]!, arms: arms as Arm[], wallCapMin, warm: values["--warm"]!,
       allowNonShadow: flags.has("--allow-non-shadow"), skipEnvChecks: flags.has("--skip-env-checks"), engramIsolated: flags.has("--engram-isolated"), dryRun: flags.has("--dry-run"),
       ...(values["--closed-loop"] !== undefined ? { closedLoop: values["--closed-loop"] === "on" } : {}),
+      ...(values["--agent-browser"] !== undefined ? { agentBrowser: values["--agent-browser"] === "on" } : {}),
     },
   };
 }

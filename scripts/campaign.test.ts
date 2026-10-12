@@ -532,3 +532,18 @@ test("--closed-loop on|off is the pipeline arm's own choice about the run_spec l
   const bad = harness();
   assert.equal(await runCampaign(argv("--closed-loop", "maybe"), bad.deps), 2);
 });
+
+test("--agent-browser on|off is the pipeline arm's own choice about the authenticated agent browser and is recorded; absent, the app's setting decides", async () => {
+  const on = harness();
+  await runCampaign(argv("--agent-browser", "on"), on.deps);
+  assert.equal(on.pipelineRequests[0]!.agentBrowser, true);
+  assert.equal(recordOf(on).args.agentBrowser, true);
+  const off = harness();
+  await runCampaign(argv("--agent-browser", "off"), off.deps);
+  assert.equal(off.pipelineRequests[0]!.agentBrowser, false);
+  const none = harness();
+  await runCampaign(argv(), none.deps);
+  assert.equal("agentBrowser" in none.pipelineRequests[0]!, false);
+  const bad = harness();
+  assert.equal(await runCampaign(argv("--agent-browser", "maybe"), bad.deps), 2);
+});

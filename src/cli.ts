@@ -4,6 +4,7 @@
  * exits with the run's verdict.
  * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
  * [--target e2e|code] [--guidance "..."] [--closed-loop on|off]
+ * [--agent-browser on|off]
  * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
  * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
@@ -87,7 +88,7 @@ function discoverApiToken(): string | undefined {
  */
 /** The run handed to the service. Carries --base-sha so the delegated run's diff spans the same range the standalone CLI and the webhook use. */
 export function delegateRunInput(
-  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean },
+  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean },
   target: TestTarget,
 ): DelegateRunInput {
   return {
@@ -98,10 +99,11 @@ export function delegateRunInput(
     mode: args.mode,
     guidance: args.guidance,
     ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
+    ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
   };
 }
 
-async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean }): Promise<void> {
+async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean }): Promise<void> {
   const port = resolvePort(process.env);
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
@@ -182,6 +184,7 @@ async function main(): Promise<void> {
     guidance: args.guidance,
     source: "manual",
     ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
+    ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
   }, { runEvents, engineFactory: cliEngineFactory });
   await queue.drain();
   const record = getRecord(id);
@@ -240,7 +243,7 @@ function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: Retur
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; learning: boolean } {
+export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; learning: boolean } {
   const out: Record<string, string> = {};
   let learning = false;
   for (let i = 0; i < argv.length; i++) {
@@ -251,7 +254,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
   }
   if (!learning && (!out.app || !out.sha)) {
     console.error(
-      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--closed-loop on|off]`,
+      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off]`,
     );
     console.error('       npm run qa -- --app <app> --learning');
     process.exit(2);
@@ -269,7 +272,13 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     console.error('--closed-loop takes "on" or "off"');
     process.exit(2);
   }
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), learning };
+  /* The run's own choice about the authenticated agent browser; absent unless given, so the app's setting decides. */
+  const agentBrowser = out["agent-browser"] === "on" ? true : out["agent-browser"] === "off" ? false : undefined;
+  if (out["agent-browser"] !== undefined && agentBrowser === undefined) {
+    console.error('--agent-browser takes "on" or "off"');
+    process.exit(2);
+  }
+  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), learning };
 }
 
 function showLearning(app: string): void {

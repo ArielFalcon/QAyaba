@@ -50,3 +50,14 @@ describe("--closed-loop", () => {
     assert.equal("closedLoop" in delegateRunInput(plain, "e2e"), false);
   });
 });
+
+describe("--agent-browser", () => {
+  it("is the run's own choice about the authenticated agent browser and reaches the service, and is absent unless given", () => {
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--agent-browser", "on"]).agentBrowser, true);
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--agent-browser", "off"]).agentBrowser, false);
+    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
+    assert.equal("agentBrowser" in plain, false);
+    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--agent-browser", "off"]), "e2e").agentBrowser, false);
+    assert.equal("agentBrowser" in delegateRunInput(plain, "e2e"), false);
+  });
+});

@@ -2066,6 +2066,9 @@
           },
           "closedLoop": {
             "type": "boolean"
+          },
+          "agentBrowser": {
+            "type": "boolean"
           }
         },
         "required": [

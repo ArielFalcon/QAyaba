@@ -123,6 +123,8 @@ export const CreateRunInputSchema = z.object({
   commits: z.number().int().min(1).max(20).optional(),
   /* The run's own choice about the run_spec loop (an A/B arm), overriding the app's qa.closedLoop.enabled. Absent: the app's setting decides. */
   closedLoop: z.boolean().optional(),
+  /* The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's qa.agentBrowser.enabled. Absent: the app's setting decides. */
+  agentBrowser: z.boolean().optional(),
 });
 
 export const CreateRunResultSchema = z.object({

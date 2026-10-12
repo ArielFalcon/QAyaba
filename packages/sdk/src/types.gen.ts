@@ -704,6 +704,7 @@ export interface components {
             shadow?: boolean;
             commits?: number;
             closedLoop?: boolean;
+            agentBrowser?: boolean;
         };
         CreateRunResult: {
             id: string;

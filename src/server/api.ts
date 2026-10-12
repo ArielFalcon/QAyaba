@@ -85,7 +85,7 @@ export type LoginOutcome =
 
 export interface ApiDeps {
   queue: { readonly size: number };
-  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean): string;
+  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean): string;
   loadApp(name: string): AppConfig;  /* throws if the app is not configured */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
@@ -465,9 +465,15 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   }
   const closedLoop = typeof body.closedLoop === "boolean" ? body.closedLoop : undefined;
 
+  if (body.agentBrowser !== undefined && typeof body.agentBrowser !== "boolean") {
+    json(res, 400, { error: "'agentBrowser' must be a boolean" });
+    return true;
+  }
+  const agentBrowser = typeof body.agentBrowser === "boolean" ? body.agentBrowser : undefined;
+
   let id: string;
   try {
-    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop);
+    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser);
   } catch (err) {
     json(res, 500, { error: `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}` });
     return true;

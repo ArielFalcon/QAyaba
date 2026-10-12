@@ -1530,3 +1530,23 @@ test("POST /api/v1/runs rejects a closedLoop that is not a boolean (nothing is e
   assert.match(res.body, /closedLoop/);
   assert.equal(enqueued, false);
 });
+
+test("POST /api/v1/runs forwards a run's own choice about the agent browser, and a plain run carries none", async () => {
+  const seen: Array<boolean | undefined> = [];
+  const enqueue: ApiDeps["enqueue"] = (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, _baseSha, _closedLoop, agentBrowser) => { seen.push(agentBrowser); return "run-browser"; };
+  for (const body of [{ agentBrowser: true }, { agentBrowser: false }, {}]) {
+    const res = mkRes();
+    await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));
+    assert.equal(res.status, 202);
+  }
+  assert.deepEqual(seen, [true, false, undefined]);
+});
+
+test("POST /api/v1/runs rejects an agentBrowser that is not a boolean (nothing is enqueued)", async () => {
+  let enqueued = false;
+  const res = mkRes();
+  await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", agentBrowser: "yes" })), res, deps({ enqueue: () => { enqueued = true; return "x"; } }));
+  assert.equal(res.status, 400);
+  assert.match(res.body, /agentBrowser/);
+  assert.equal(enqueued, false);
+});
