@@ -146,3 +146,18 @@ test("a pinned token does not start the service while the old file cannot be rem
     rmSync(r, { recursive: true, force: true });
   }
 });
+test("a token file a crashed start left half-written beside the real one is swept at the next start", () => {
+  const r = root();
+  try {
+    mkdirSync(join(r, "data"));
+    const stale = [join(r, "data", ".api_token.123.tmp"), join(r, "data", ".api_token.99999.tmp")];
+    for (const file of stale) writeFileSync(file, "half");
+    writeFileSync(join(r, "data", "other.tmp"), "kept");
+    const token = loadOrCreateApiToken(r, quiet);
+    for (const file of stale) assert.equal(existsSync(file), false, file);
+    assert.equal(existsSync(join(r, "data", "other.tmp")), true);
+    assert.equal(readFileSync(apiTokenPath(r), "utf8"), token);
+  } finally {
+    rmSync(r, { recursive: true, force: true });
+  }
+});
