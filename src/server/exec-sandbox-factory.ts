@@ -48,6 +48,7 @@ export function buildExecWiring(input: ExecWiringInput): ExecWiring {
     ...(gateCreds ? { gateCreds } : {}),
     egress: input.egressOrigins,
     ...(input.egress ? { egressGate: input.egress } : {}),
+    ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}),
   });
   return { exec, execScope, sandbox: input.sandbox, mode };
 }

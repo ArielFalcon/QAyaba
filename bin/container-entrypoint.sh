@@ -27,6 +27,7 @@ harden 0700 "$APP/data"
 harden 0750 "$APP/config"
 harden 0600 "$APP/config/.api_token"
 
+mkdir -p "$MIRRORS" 2>/dev/null || true
 if [ -d "$MIRRORS" ] && [ ! -L "$MIRRORS" ]; then
   chmod 0711 "$MIRRORS" || echo "[qa] WARNING: could not close $MIRRORS" >&2
   for mirror in "$MIRRORS"/*/; do

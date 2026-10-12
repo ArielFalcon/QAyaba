@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { newSandboxReport, withExecScope, type ExecScopePort, type RunScope } from "./exec-scope.ts";
 import type { EgressGate } from "./exec-sandbox.ts";
 import { openRunWorkDir, removeRunWorkDir } from "./exec-workdir.ts";
-import { closeMirror, type MirrorFsOps } from "./mirror-access.ts";
+import { sealMirrors, type MirrorFsOps } from "./mirror-access.ts";
 import type { Sandbox } from "./sandbox.ts";
 
 export interface ExecScopeProviderDeps {
@@ -15,15 +15,26 @@ export interface ExecScopeProviderDeps {
   authDir?: string;
   gateCreds?: { user: string; pass: string };
   egress: { dev: readonly string[]; install: readonly string[] };
+  /* The mirrors volume: every mirror is sealed to root alone when a run opens its scope and again when it ends, so none stays open to the sandbox group (and one created since boot is closed). */
+  mirrorRoot?: string;
   mirrorOps?: MirrorFsOps;
   /* The egress filter, prepared for the run's origins before its first child. */
   egressGate?: EgressGate;
 }
 
 export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopePort {
+  const sealAll = (): void => {
+    if (!deps.mirrorRoot || !deps.sandbox) return;
+    try {
+      sealMirrors(deps.mirrorRoot, deps.mirrorOps);
+    } catch (err) {
+      console.warn(`[qa] WARNING: the mirrors could not be sealed (${err instanceof Error ? err.message : String(err)}); the sandbox uid may reach a mirror it should not until the next boot.`);
+    }
+  };
   return {
     async open({ runId }) {
       await deps.egressGate?.prepare?.([...deps.egress.dev, ...deps.egress.install]);
+      sealAll();
       const workDir = openRunWorkDir(deps.workRoot, runId, deps.sandbox);
       const scope: RunScope = {
         runId,
@@ -38,13 +49,7 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
         close: () => {
           removeRunWorkDir(workDir);
           /* The mirrors the run opened to the sandbox's group go back to root alone. */
-          for (const mirror of scope.openedMirrors ?? []) {
-            try {
-              closeMirror(mirror, deps.mirrorOps);
-            } catch (err) {
-              console.warn(`[qa] WARNING: a mirror could not be closed to the sandbox group after the run (${err instanceof Error ? err.message : String(err)}); the next boot seals it.`);
-            }
-          }
+          sealAll();
         },
       };
     },

@@ -226,7 +226,7 @@ test("directories inside the mirror are created for the sandbox on request", () 
   }
 });
 
-test("a child that runs in a mirror gets that mirror opened to the sandbox group, once per run, and the scope hands it back", () => {
+test("a child that runs in a mirror gets that mirror opened to the sandbox group, once per run", () => {
   const opened: string[] = [];
   const ops = {
     lstat: () => ({ isDirectory: () => true, uid: 0 }),
