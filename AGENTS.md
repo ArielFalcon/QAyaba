@@ -293,9 +293,14 @@ threat-model header first) and a canary-before-promote hot-swap.
   suite of an app that git does not hold yet. Shadow mode never publishes and a PR may not be merged
   yet, while every run's checkout wipes the untracked `e2e/`; without the store each run starts cold,
   re-seeds the stock login and orders the agent to author it again. An accepted run captures (specs
-  that ran green, support files, the app's `auth.setup.ts` only when it actually signed in); the next
-  run restores before setup and reconciles with git (untracked: store wins; tracked and unchanged since
-  the entry was admitted: unpublished change overlaid; tracked and different: git wins). A restored
+  that ran green *with the bytes that executed* (fingerprinted right after the final execution, so a
+  reviewer-round or coverage regeneration never enters unproven), support files, the app's `auth.setup.ts`
+  only when it actually signed in, and never a file byte-equal to the engine's seed in `config/e2e/`); the
+  next run restores before setup (into a cold working copy it starts from the seed, then lays the stored
+  files over it, so seed upgrades reach apps) and reconciles with git (untracked: store wins; tracked and
+  unchanged since the entry was admitted: unpublished change overlaid; tracked and different: git wins,
+  except a warm-seeded entry, which is pinned and wins over git). A stored copy that no longer matches its
+  hash is rewritten by the next capture that holds the file. A restored
   login that fails to sign in is demoted and the stock seed takes its place. Store faults are off-path
   (logged, never a verdict). Context-map, session state, credentials and `.qa-probe/` never enter it.
   `deleteApp` with purge removes it (`suite:<name>`); a plain delete keeps it, like the mirror. Under
