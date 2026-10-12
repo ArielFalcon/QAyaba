@@ -327,3 +327,9 @@ test("an app that declares no extra origins loads as before", () => {
   assert.equal(cfg.dev?.allowedOrigins, undefined);
   assert.equal(cfg.egress, undefined);
 });
+
+test("e2e.specCredentials accepts none and account, and nothing else", () => {
+  for (const specCredentials of ["none", "account"]) assert.equal(AppConfigSchema.parse({ ...base, e2e: { specCredentials } }).e2e?.specCredentials, specCredentials);
+  assert.throws(() => AppConfigSchema.parse({ ...base, e2e: { specCredentials: "all" } }));
+  assert.equal(AppConfigSchema.parse(base).e2e?.specCredentials, undefined, "default: the specs never see the account");
+});

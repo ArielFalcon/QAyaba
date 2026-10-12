@@ -1,6 +1,7 @@
 /* Opens a run's sandbox scope: its work directory (made for the sandbox uid, removed when the run ends) and the policy its children run under. One provider per composition; one session per run. */
 
 import { join } from "node:path";
+import { activeRunSecretScope } from "../run-secret-redaction.ts";
 import { newSandboxReport, withExecScope, type ExecScopePort, type RunScope } from "./exec-scope.ts";
 import type { EgressGate } from "./exec-sandbox.ts";
 import { openRunWorkDir, removeRunWorkDir } from "./exec-workdir.ts";
@@ -14,6 +15,8 @@ export interface ExecScopeProviderDeps {
   /* The orchestrator-only auth directory of the app; copies of its contents are staged per spawn. */
   authDir?: string;
   gateCreds?: { user: string; pass: string };
+  /* The account an opted-in app's specs may log in with; registered as a run secret so it is redacted by value wherever it appears. */
+  suiteAccount?: { user: string; pass: string };
   egress: { dev: readonly string[]; install: readonly string[] };
   /* The mirrors volume: every mirror is sealed to root alone when a run opens its scope and again when it ends, so none stays open to the sandbox group (and one created since boot is closed). */
   mirrorRoot?: string;
@@ -41,11 +44,15 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
         workDir,
         ...(deps.authDir ? { authDir: deps.authDir } : {}),
         ...(deps.gateCreds ? { gateCreds: deps.gateCreds } : {}),
+        ...(deps.suiteAccount ? { suiteAccount: deps.suiteAccount } : {}),
         egress: deps.egress,
         report: newSandboxReport(),
       };
       return {
-        run: (fn) => withExecScope(scope, fn),
+        run: (fn) => withExecScope(scope, () => {
+          if (deps.suiteAccount) activeRunSecretScope()?.addAccountSecrets([deps.suiteAccount.user, deps.suiteAccount.pass]);
+          return fn();
+        }),
         close: () => {
           removeRunWorkDir(workDir);
           /* The mirrors the run opened to the sandbox's group go back to root alone. */

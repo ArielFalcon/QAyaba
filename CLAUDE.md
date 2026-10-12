@@ -42,7 +42,8 @@ auto-merge**. Failures open an Issue. The suite lives in git and improves run af
 | `agent/` | Provider-neutral prompt mirror consumed by the Codex runtime (`roles/`, `skills/`). Keep it in sync with `agents/`. |
 | `config/apps/` | Watched-app YAMLs (gitignored user data; template: `example.yaml`). `config/e2e/` is the seed copied into a repo's `e2e/`. |
 | `client/` | Go TUI. `web/` web console. `packages/sdk` + `contract/openapi.json` the API contract. |
-| `scripts/` | Mutation testing, efficiency benchmark, onboarding, contract generation. |
+| `scripts/` | Mutation testing, efficiency benchmark, onboarding, contract generation, `sandbox-smoke` (in-container isolation check). |
+| `bin/` | `qa`/`qayaba` clients and the container's root-only boot steps (`container-entrypoint.sh`, `egress-init.sh`). |
 
 ## Commands
 
@@ -59,6 +60,7 @@ npm run typecheck && npm run arch:check && npm run sdk:typecheck && npm run cont
 (cd client && go vet ./... && go test ./...)
 
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
+npm run sandbox:smoke       # IN the running orchestrator container: proves the execution sandbox holds (docs/execution-sandbox.md)
 npm run efficiency-benchmark # agent step/call telemetry over real runs; never a gate (needs the stack up; docs/efficiency-benchmark.md)
 npm run probe-report -- <runId...> # one run's phases, turns, tool use, tokens and cost (inside the orchestrator container)
 npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> # experiment only: a plain agent on a throwaway copy, same metrics as probe-report
@@ -327,6 +329,26 @@ threat-model header first) and a canary-before-promote hot-swap.
   just by listing agents, both gone with the flag), and drops any Codex `[projects.*]` trust at boot, so a repo's
   `.codex/config.toml` is never loaded. Only the baseline experiment opts back in (`AGENT_ALLOW_PROJECT_CONFIG=true`).
   A repo's `AGENTS.md`/`CLAUDE.md` stay prompt text, the same trust class as the source the agent reads.
+- **Agent-influenced code runs only through the execution launcher**
+  (`qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
+  Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts, the DOM capture, a code-mode
+  repo's install/test and the mutation oracle all start there: the sandbox uid, an environment built from an explicit
+  allowlist per profile (never `scrubEnv(process.env)`), a per-run work dir (`/tmp/qa-exec/<runId>`) for Playwright's
+  output, report and dumps, read back through the strict readers. **Only the `login` profile carries the test account**
+  (a suite gets it only for an app that sets `e2e.specCredentials: account`); a suite gets a per-spawn copy of the saved
+  session and never the auth dir. A new module that
+  imports `child_process` is a build failure (`npm run arch:check`, rule `no-child-process-outside-launchers`); add a
+  spawn site by adding a profile call, not an exception. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
+  without the sandbox uid (`infra-error E-SANDBOX`, never learned from, no Issue).
+- **The sandbox uid's network is closed by default.** An iptables chain matched on that uid redirects its DNS and TCP to a
+  DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, the app's own
+  origin, `egress.installOrigins`, `config/egress/registries.yaml`); everything else, IPv6 and the other loopback ports
+  included, is rejected. `QA_EGRESS_MODE=enforce` (default) ends a run `E-SANDBOX` when the filter is not active. Origins are
+  data: never add a host in code. Denied hosts land in `gateSignals.sandbox.denied`.
+- **File permissions are the boundary for secrets.** `bin/container-entrypoint.sh` closes `/app/data` (0700), `/app/config`
+  (0750) and the mirrors at every boot; the sandbox uid reads one mirror at a time (the run opens it to its group and seals
+  it again) and writes none of it. Do not give the sandbox uid, or a path it can write, a way to the API token, `/app/data`
+  or another mirror.
 - **What the agent writes or reports is untrusted input.** Orchestrator code that reads, lists
   or writes a path the agent can influence (a reported spec path, the manifest, the context
   map, files setup replaces, what a test run leaves) goes through the confined reader,

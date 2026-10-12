@@ -6,7 +6,7 @@ import { scrubEnvFrom } from "./scrub-env.ts";
 
 /* offline: runs agent code with no network (tsc, eslint, `playwright test --list`).
    suite: runs the agent's specs against DEV with the saved session, never the account.
-   login: the one profile that carries the test account (the auth setup and the login discovery).
+   login: the profile that carries the test account (the auth setup and the login discovery); a suite gets it only when its app opted in (e2e.specCredentials: account).
    install: package-manager and toolchain work that reaches registries only (npm ci, mvn, pip, cargo, go). */
 export const SANDBOX_PROFILES = ["offline", "suite", "login", "install"] as const;
 export type SandboxProfile = (typeof SANDBOX_PROFILES)[number];
@@ -28,6 +28,8 @@ export interface ExecEnvInput {
   staged?: StagedAuth;
   /* The account, honored by the login profile alone. */
   account?: { user: string; pass: string };
+  /* The account handed to a SUITE, only for an app that opted in (e2e.specCredentials: account): its specs log in themselves. Never to offline or install. */
+  suiteAccount?: { user: string; pass: string };
   extraEnv?: Record<string, string>;
 }
 
@@ -92,9 +94,10 @@ export function buildExecEnv(input: ExecEnvInput): Record<string, string> {
     }
     if (input.profile === "suite" && input.staged?.storageState) raw.PW_STORAGE_STATE = input.staged.storageState;
   }
-  if (input.profile === "login" && input.account) {
-    raw.DEV_TEST_USER = input.account.user;
-    raw.DEV_TEST_PASS = input.account.pass;
+  const account = input.profile === "login" ? input.account : input.profile === "suite" ? input.suiteAccount : undefined;
+  if (account) {
+    raw.DEV_TEST_USER = account.user;
+    raw.DEV_TEST_PASS = account.pass;
   }
   return sandboxSpawnOptions(raw, input.sandbox).env;
 }

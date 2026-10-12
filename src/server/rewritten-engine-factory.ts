@@ -117,7 +117,7 @@ import {
 import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
-import { buildExecWiring } from "./exec-sandbox-factory";
+import { buildExecWiring, suiteAccountFor } from "./exec-sandbox-factory";
 import { egressGateFor, loadRegistryGroups, resolveRunOrigins } from "./egress-wiring";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
@@ -652,6 +652,7 @@ export function buildRewrittenCompositionConfig(
    * installs, a login script, the watched repo's test command) starts through `exec`, and each run opens its scope
    * (work dir, auth copies, egress policy) in `execScope`.
    */
+  const suiteAccount = suiteAccountFor(app, deps.env ?? process.env);
   const egressGate = egressGateFor(deps.env ?? process.env, codeSandbox);
   const execWiring = buildExecWiring({
     env: deps.env ?? process.env,
@@ -660,6 +661,7 @@ export function buildRewrittenCompositionConfig(
     mirrorRoot,
     egressOrigins: resolveRunOrigins(app, target, loadRegistryGroups(root)),
     ...(egressGate ? { egress: egressGate } : {}),
+    ...(suiteAccount ? { suiteAccount } : {}),
   });
   const exec = execWiring.exec;
 

@@ -136,3 +136,19 @@ test("without a sandbox identity the child keeps the caller's home but still get
   assert.equal(env.HOME, "/root");
   assert.equal(env.TMPDIR, "/tmp/qa-exec/run-1/tmp");
 });
+
+test("a suite gets the account only when its app opted in, and then no other profile but login does either", () => {
+  const suiteAccount = { user: "spec-user", pass: "spec-pass-1" };
+  const optedIn = buildExecEnv(input("suite", { suiteAccount }));
+  assert.equal(optedIn.DEV_TEST_USER, "spec-user");
+  assert.equal(optedIn.DEV_TEST_PASS, "spec-pass-1");
+  for (const profile of ["offline", "install"] as const) {
+    assert.equal("DEV_TEST_PASS" in buildExecEnv(input(profile, { suiteAccount })), false, profile);
+  }
+  assert.equal("DEV_TEST_PASS" in buildExecEnv(input("suite")), false, "not opted in: no account");
+});
+
+test("the login profile's own account wins over the suite opt-in", () => {
+  const env = buildExecEnv(input("login", { account: { user: "login-user", pass: "login-pass" }, suiteAccount: { user: "spec-user", pass: "spec-pass-1" } }));
+  assert.equal(env.DEV_TEST_USER, "login-user");
+});

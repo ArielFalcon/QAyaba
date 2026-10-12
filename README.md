@@ -356,6 +356,21 @@ report:
   onFailure: "github-issue"
 ```
 
+**Declare every origin the app's pages load from.** The agent-written specs run in an execution sandbox whose network is closed by default: they can reach `dev.baseUrl`'s own origin and nothing else. An app whose pages load an identity provider, an API host or a CDN lists them (an origin is `scheme://host[:port]`, or `scheme://*.suffix` for every subdomain of a suffix of at least two labels; no path, no credentials):
+
+```yaml
+dev:
+  baseUrl: "https://dev.my-app.internal"
+  allowedOrigins:
+    - "https://login.my-idp.example"
+    - "https://*.cdn.my-app.example"
+egress:
+  installOrigins:                 # optional: a private registry or mirror, on top of config/egress/registries.yaml
+    - "https://npm.internal.example"
+```
+
+A run that tries a host it did not declare is not failed for it: the host is listed in the run's `gateSignals.sandbox.denied`, so the first run of an app shows exactly what to add. See [docs/execution-sandbox.md](docs/execution-sandbox.md).
+
 **The login is a verified onboarding step.** An app that declares a form login (`auth.kind: form` in the YAML) is not onboarded until its login signs in: after the architecture map, onboarding enqueues a manual run for the login purpose that authors `e2e/auth.setup.ts` and one smoke spec of a route that needs the session. When that run is accepted (green, reviewed, not held back by coverage) the login and the spec are kept in the **suite store** (`data/suites/<app>/` in the qa-data volume), so later runs, including shadow runs that publish nothing, start from a working login instead of authoring it again. Purging an app removes its store. The onboarding status reports `loginProgress.status` as `verified`, `unauthored` or `failed`; the same run can be started on its own with `POST /api/v1/apps/{name}/login-bootstrap`.
 
 ### Trigger a manual run
@@ -392,6 +407,20 @@ doppler run -- docker compose up --build
 # Without Doppler (secrets in .env)
 docker compose up --build
 ```
+
+<details>
+<summary>The execution sandbox (<code>QA_EXEC_SANDBOX</code>, <code>QA_EGRESS_MODE</code>)</summary>
+
+Everything that runs code an agent influenced (the generated specs, the e2e project's own `tsc`/`eslint`/`npm ci`, a login script, a code-mode app's install and test command) runs as the unprivileged `sandbox` user, with an environment built from an allowlist, in a per-run work directory, and with its network held to the origins the app declares. `docker-compose.yml` sets the two switches to their strict values; the container needs `NET_ADMIN` for the egress filter.
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `QA_EXEC_SANDBOX` | `required` in compose (`best-effort` outside it) | `required`: a run that cannot drop to the sandbox user refuses to execute agent code and ends `infra-error E-SANDBOX`. `best-effort`: it runs as the current user with a loud warning (a laptop without the user). |
+| `QA_EGRESS_MODE` | `enforce` | `enforce`: a run whose egress filter is not active ends `E-SANDBOX`. `warn`: it runs with the container's full network and records `gateSignals.sandbox.egress = "unenforced"`. |
+
+`GET /api/health` reports a degraded sandbox (still HTTP 200). After a deploy, `docker compose exec orchestrator npm run sandbox:smoke` proves the boundary in the running container. Details: [docs/execution-sandbox.md](docs/execution-sandbox.md).
+
+</details>
 
 <details>
 <summary>The control-plane port (<code>PORT</code>, default 458)</summary>

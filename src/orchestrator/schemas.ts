@@ -182,7 +182,18 @@ export const AppConfigSchema = z
      * Flows into PW_TEST_ID_ATTRIBUTE env, threading through capture and execute spawns.
      * No app-specific names are hardcoded in src/ — the value comes from config only.
      */
-    e2e: z.object({ testIdAttribute: z.string().min(1).optional() }).optional(),
+    e2e: z
+      .object({
+        testIdAttribute: z.string().min(1).optional(),
+        /*
+         * Whether the generated specs may log in themselves. `none` (default): they get the saved session and never the
+         * test account. `account`: the account (the declared auth env, or DEV_TEST_USER/PASS) is also handed to the suite
+         * children, for an app whose flows need a login the saved session cannot give them. Opt-in, per app: a spec
+         * that holds the account can send it to any origin the app declares.
+         */
+        specCredentials: z.enum(["none", "account"]).optional(),
+      })
+      .optional(),
     /*
      * App login. Absent = public app. `form` is a Playwright setup project that
      * writes storageState; `mtls` is a software PKCS#12 presented on the TLS

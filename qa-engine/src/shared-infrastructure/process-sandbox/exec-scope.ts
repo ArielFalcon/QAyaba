@@ -20,6 +20,8 @@ export interface RunScope {
   authDir?: string;
   /* The DEV gate's HTTP Basic credentials, when the app has one. */
   gateCreds?: { user: string; pass: string };
+  /* The test account, for a suite whose app opted in (e2e.specCredentials: account). Absent: specs never see the account. */
+  suiteAccount?: { user: string; pass: string };
   /* The origins each kind of child may reach: `dev` for a suite or a login, `install` for a package-manager or toolchain child. A child of the offline profile reaches none. */
   egress: { dev: readonly string[]; install: readonly string[] };
   report: SandboxReport;

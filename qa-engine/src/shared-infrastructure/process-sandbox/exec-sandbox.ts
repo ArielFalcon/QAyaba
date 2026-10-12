@@ -163,6 +163,7 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
         sandbox: deps.sandbox,
         workDir: scope.workDir,
         ...(scope.gateCreds ? { gateCreds: scope.gateCreds } : {}),
+        ...(scope.suiteAccount ? { suiteAccount: scope.suiteAccount } : {}),
         staged,
         ...(options.account ? { account: options.account } : {}),
         ...(options.extraEnv ? { extraEnv: options.extraEnv } : {}),

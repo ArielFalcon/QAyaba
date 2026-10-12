@@ -25,6 +25,8 @@ export interface ExecWiringInput {
   workRoot?: string;
   /* The mirrors volume, so that the mirror a child runs in is opened to the sandbox group for the run. */
   mirrorRoot?: string;
+  /* The account handed to the suite children of an app that opted in (e2e.specCredentials: account). */
+  suiteAccount?: { user: string; pass: string };
 }
 
 /* Where the per-run work directories live: `/tmp/qa-exec` in the container. */
@@ -49,6 +51,7 @@ export function buildExecWiring(input: ExecWiringInput): ExecWiring {
     egress: input.egressOrigins,
     ...(input.egress ? { egressGate: input.egress } : {}),
     ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}),
+    ...(input.suiteAccount ? { suiteAccount: input.suiteAccount } : {}),
   });
   return { exec, execScope, sandbox: input.sandbox, mode };
 }
@@ -83,4 +86,15 @@ export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null,
       }
     },
   };
+}
+
+/* The account an opted-in app's specs may log in with: the one its auth declaration names, else the conventional DEV_TEST_USER / DEV_TEST_PASS. None when the app did not opt in, or the environment holds no such account. */
+export function suiteAccountFor(
+  app: { e2e?: { specCredentials?: "none" | "account" | undefined } | undefined; auth?: { usernameEnv?: string | undefined; passwordEnv?: string | undefined } | undefined },
+  env: NodeJS.ProcessEnv,
+): { user: string; pass: string } | undefined {
+  if (app.e2e?.specCredentials !== "account") return undefined;
+  const user = env[app.auth?.usernameEnv ?? "DEV_TEST_USER"];
+  const pass = env[app.auth?.passwordEnv ?? "DEV_TEST_PASS"];
+  return user && pass ? { user, pass } : undefined;
 }
