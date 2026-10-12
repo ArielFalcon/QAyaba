@@ -12,9 +12,8 @@
 # This base file is the PRODUCTION definition: the orchestrator runs the src/ baked into the
 # image (COPY in the Dockerfile), so the maintainer hot-swap (which rewrites src/ + package
 # files) works on a normal filesystem. docker-compose.override.yml — auto-loaded by plain
-# `docker compose up` for local dev — bind-mounts the host source for live editing; those bind
-# mounts make src/ a mountpoint and the package files bind-files, which the swap canNOT rewrite
-# (EBUSY), so hot-swap is intentionally a no-op in dev. For production run WITHOUT the override:
+# `docker compose up` for local dev — bind-mounts the host source READ-ONLY for live editing; the
+# swap canNOT rewrite a read-only src/ or package file (EROFS), so hot-swap is intentionally a no-op in dev. For production run WITHOUT the override:
 #   docker compose -f docker-compose.yml up --build
 
 services:
@@ -28,7 +27,8 @@ services:
     # unprivileged `sandbox` user (uid 1002) with an environment built from an allowlist per profile,
     # so it cannot read the root-owned API token, the auth material, another repo's mirror or the
     # provider keys, tamper with the orchestrator's files, or write the mirror it runs in — see
-    # docs/execution-sandbox.md. no-new-privileges blocks the dropped child from re-acquiring root via
+    # docs/execution-sandbox.md. The entrypoint proves the file side at every boot by trying, as that uid, what it must not do
+    # (src/server/file-boundary-check.ts); a boundary that does not hold refuses agent code (E-SANDBOX). no-new-privileges blocks the dropped child from re-acquiring root via
     # setuid. NET_ADMIN is for the egress filter (bin/egress-init.sh): an iptables chain that holds the
     # sandbox uid's network to the origins the app declares.
     security_opt:
@@ -92,10 +92,13 @@ services:
       QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
       QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
     volumes:
-      - ./config:/app/config # app configs + the config/e2e seed (read-mostly; not hot-swapped)
+      # App configs + the config/e2e seed (read-mostly; not hot-swapped). Mounted under /app/.host, a directory only root may
+      # enter (/app/config is a link to it, see the Dockerfile): the host folder's own permissions may not be enforced (Docker
+      # Desktop's file sharing), the parent's always are, so the sandbox uid cannot reach the configs on any host.
+      - ./config:/app/.host/config
       # NOTE: src/ and package files are NOT bind-mounted here on purpose — the hot-swap must be
-      # able to rewrite them (a bind mount → EBUSY). They ship baked in the image. The dev
-      # override re-adds them for live editing. The E2E suite is NOT in a volume: it lives in git.
+      # able to rewrite them (a read-only bind mount → EROFS). They ship baked in the image. The dev
+      # override re-adds them, read-only, for live editing. The E2E suite is NOT in a volume: it lives in git.
       - mirrors:/app/.mirrors # local working copies (shared with the agents container); the harness runs over <repo>/e2e here
       - qa-data:/app/data # run history + maintainer state (markers/ledger/failure memory) — persists across restarts
       # The code graph indexed at onboarding (onboarding-auto-index). Regenerable cache — losing it

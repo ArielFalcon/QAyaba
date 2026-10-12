@@ -109,9 +109,10 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # own tsc/eslint/install, a login script, and the watched repo's own install/test/coverage. The
 # orchestrator runs as root and DROPS to this user for every one of those spawns (the execution
 # launcher, qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts), so untrusted code
-# cannot read the root-owned API token (config/.api_token), the auth material under /app/data, or
-# another watched repo under /app/.mirrors (bin/container-entrypoint.sh closes them at every boot),
-# tamper with the orchestrator's files (/app/src, node_modules), or write the mirror it runs in.
+# cannot read the root-owned API token (data/.api_token), the auth material under /app/data, the app
+# configs, or another watched repo under /app/.mirrors (bin/container-entrypoint.sh closes them at every
+# boot and then proves it as this uid), tamper with the orchestrator's files (/app/src, node_modules),
+# or write the mirror it runs in.
 # The user owns a writable home for toolchain caches (~/.m2, ~/.gradle, ~/.cache, ~/.cargo). NOBLE drift: Ubuntu 24.04 ships a default `ubuntu` user at uid 1000,
 # which pushed the Playwright image's `pwuser` to uid 1001 (it was 1000 on jammy). So `sandbox` uses
 # uid 1002 (the next free id) — docker-compose sets CODE_SANDBOX_UID=1002 so code-runner.ts matches.
@@ -125,6 +126,12 @@ COPY package.json package-lock.json* ./
 RUN npm install
 
 COPY . .
+
+# The app configs live behind a directory only root may enter: compose bind-mounts the host's config folder at
+# /app/.host/config, and /app/config is a link to it. A host bind mount can sit on a filesystem that does not enforce
+# permissions (Docker Desktop's file sharing hands every uid what it asks for); the lookup of /app/.host/config is
+# checked by /app/.host, which is on this image's own filesystem, so the sandbox uid cannot reach the configs on any host.
+RUN mkdir -p /app/.host && mv /app/config /app/.host/config && ln -s .host/config /app/config && chmod 0700 /app/.host
 
 # The e2e tooling (Playwright runner + eslint + tsc) is NOT installed here: it
 # lives in each repo's `e2e/`, and the orchestrator runs `npm ci` there per run
