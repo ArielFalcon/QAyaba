@@ -147,6 +147,36 @@ stops the composition with an error naming the variable. The value is still clam
 own prompt deadline (`agentPromptCapMs`): a budget at or above it is not a bound, the host's deadline
 fires first. A cut run's note states the time it was actually given.
 
+## Run deadline: the whole run's wall-clock bound
+
+The per-tier budget above bounds only a diff run's generator first pass. A regeneration, a fix-loop round,
+a repair, the coverage regeneration, the reviewer and every non-diff mode were unbounded, so a broad run
+could spend half an hour in the fix loop. One run-level deadline now bounds all of them: it is armed after
+classification, counts down on the orchestrator's clock, and every agent turn is given the smaller of its
+own limit and what is left. When it is spent, the run ends as a persisted `infra-error` `E-TIME-BUDGET`
+whose note names the budget (`diff-tiny`, `manual`, ...) and the turn that was stopped or not started; nothing is
+published and nothing is learned. Set these on the orchestrator (`.env` or Doppler) and restart it:
+
+| Variable | Run | Default |
+|---|---|---|
+| `QA_RUN_TIME_BUDGET_MS_DIFF_TINY` | diff run, tiny change | 25 min |
+| `QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED` | diff run, focused change | 40 min |
+| `QA_RUN_TIME_BUDGET_MS_DIFF_BROAD` | diff run, broad change | 60 min |
+| `QA_RUN_TIME_BUDGET_MS_MANUAL` | manual run | 45 min |
+| `QA_RUN_TIME_BUDGET_MS_COMPLETE` | complete run | 90 min |
+| `QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE` | exhaustive run | 150 min |
+| `QA_RUN_TIME_BUDGET_MS_CONTEXT` | context run | 60 min |
+
+Each accepts a positive whole number of milliseconds; blank or unset keeps the default, and anything else
+(`1h`, `0`, `none`) stops the composition with an error naming the variable. There is no way to remove a bound.
+
+Reading the evidence: a run that hit it has `error class E-TIME-BUDGET` and a note starting `Run time budget
+of N min (<kind>) exhausted`, against a tier-budget end's `Time budget of N min exhausted ... the generator's
+turn`. Three of them in a row log `[audit] observe (recurring-time-exhaustion)` on the orchestrator: the
+signal is visibility only (a slow DEV, or a budget too tight for the changes it meets), it never opens a
+maintainer incident. The contract-repair turn (the re-prompt that only restates a verdict) now runs with tools
+disabled under a 2 minute cap, so a `repair` turn with tool calls in an old report is the thing this removes.
+
 ## Probe: what one pipeline run did, and a plain agent for comparison
 
 The benchmark above compares the pipeline with itself. To decide whether the pipeline beats a plain

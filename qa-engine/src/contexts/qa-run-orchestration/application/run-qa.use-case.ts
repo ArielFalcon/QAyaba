@@ -58,7 +58,7 @@ import type {
   HarnessFacts,
   RelevanceBias,
 } from "./ports/index.ts";
-import { REVIEWER_UNAVAILABLE_MARKER, reviewerApprovalOf } from "./ports/index.ts";
+import { REVIEWER_UNAVAILABLE_MARKER, reviewerApprovalOf, type RunDeadlinePort } from "./ports/index.ts";
 
 /* What stands in for a generation when none ran (a regression run): it has no end, which no generation's result can have. */
 type RegressionStandIn = Omit<GenerationOutput, "end"> & { end: null };
@@ -112,11 +112,11 @@ import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
 import { attributeContradictions } from "../domain/helpers/contradiction-attribution.ts";
 import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
-import { resolveErrorClass } from "../domain/helpers/error-class.ts";
+import { ERROR_CLASS, resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
 import { terminalForPrecondition } from "../domain/helpers/precondition-terminal.ts";
-import { learningGates } from "../domain/helpers/learning-gates.ts";
+import { learningGates, observesOperatingSignal } from "../domain/helpers/learning-gates.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
 import type { CoordinationPort } from "./ports/coordination.port.ts";
@@ -157,6 +157,8 @@ import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rul
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../domain/helpers/derive-cycle-backstop.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
+import { isRunDeadlineError, rethrowIfRunDeadline, type RunDeadlineExceededError } from "../../../shared-kernel/run-deadline.ts";
+import { renderRunDeadlineNote } from "../domain/run-time-budget.ts";
 
 /* Same minRatio the coverage policy uses for the E-COVERAGE-GAP band. */
 const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
@@ -281,6 +283,11 @@ export interface RunQaUseCaseDeps {
    * absent never affects the other. Fault-isolated inside the adapter.
    */
   processAudit?: ProcessAuditPort;
+  /**
+   * The run-level wall-clock deadline, armed once after classification. Absent: no deadline is armed
+   * and the run is bounded only by its per-turn limits.
+   */
+  runDeadline?: RunDeadlinePort;
   /** Off-path. Fault-isolated inside the adapter — neither call site needs a try/catch. */
   curriculum?: CurriculumPort;
   /**
@@ -404,10 +411,50 @@ const DEFAULT_CONFIG: RunQaConfig = {
   coveragePolicyMode: "signal",
 };
 
+/** What the run knows when its deadline ends it: the little a terminal outcome carries, filled in as the run learns it. */
+interface RunTrail {
+  mirrorDir?: string;
+  rulesRetrieved?: string[];
+}
+
 export class RunQaUseCase {
   constructor(private readonly deps: RunQaUseCaseDeps) {}
 
   async run(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
+    const trail: RunTrail = {};
+    try {
+      return await this.execute(input, signal, trail);
+    } catch (err) {
+      if (!isRunDeadlineError(err)) throw err;
+      return await this.deadlineResult(input, err, trail);
+    }
+  }
+
+  /**
+   * The run's time ran out: an agent turn was refused or stopped by the run-level deadline. The run ends as a
+   * persisted infra-error under E-TIME-BUDGET with a note that says so, never as an empty result and never as an
+   * uncaught integration error. Nothing is published and nothing is learned (how long the agents took says nothing
+   * about the app or the tests).
+   */
+  private async deadlineResult(input: RunQaInput, err: RunDeadlineExceededError, trail: RunTrail): Promise<RunQaResult> {
+    const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
+    const note = renderRunDeadlineNote({ budgetMs: err.budgetMs, label: err.label, role: err.role, stop: err.stop });
+    console.error(`[qa] ${note}`);
+    this.deps.observer?.onEvent({ type: "agent.error", detail: note });
+    this.deps.observer?.onEvent({
+      type: "log.line",
+      level: "error",
+      text: `[qa] the run ended on its time budget (${ERROR_CLASS.TIME_BUDGET}): an engine-side limit on how long the agents may take, not a fault of the app under test`,
+    });
+    return await this.terminalResult("infra-error", cfg, input, { generating: true, static: false }, {
+      generationEnd: GENERATION_END.TIME_BUDGET,
+      note,
+      ...(trail.rulesRetrieved ? { rulesRetrieved: trail.rulesRetrieved } : {}),
+      ...(trail.mirrorDir ? { mirrorDir: trail.mirrorDir } : {}),
+    });
+  }
+
+  private async execute(input: RunQaInput, signal: AbortSignal | undefined, trail: RunTrail): Promise<RunQaResult> {
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     const startedAt = Date.now();
     const cycleBudget = CycleBudget.derive({
@@ -442,6 +489,7 @@ export class RunQaUseCase {
     }
 
     const workspace = await this.deps.workspace.prepare(input.sha);
+    trail.mirrorDir = workspace.mirrorDir;
 
     /*
      * confinementAcc stays undefined until the first enforce() completes, so an
@@ -509,6 +557,9 @@ export class RunQaUseCase {
       }
       generating = classification.action !== "regression";
     }
+
+    /* Armed here because a diff run's budget follows the size of its change, known only now; a classify-skip has already returned without spending any agent time. */
+    this.deps.runDeadline?.arm({ mode: input.mode, ...(classificationDiff !== undefined ? { diff: classificationDiff } : {}), ...(classificationIntent ? { changedFiles: classificationIntent.changedFiles } : {}) });
 
     /*
      * Requires both ports. Classify-skip already returned (that path may GC the
@@ -632,6 +683,7 @@ export class RunQaUseCase {
       console.error("[qa] learning retrieval failed (non-fatal, generation continues ungrounded):", err);
     }
     const retrievedRuleIds = retrievedRules.map((r) => r.id);
+    trail.rulesRetrieved = retrievedRuleIds;
 
     /*
      * Settled before any prompt is built. The fold must credit exactly the
@@ -667,6 +719,7 @@ export class RunQaUseCase {
         groundingContextBrief = grounding.contextBrief;
         groundingHarnessFacts = grounding.harnessFacts;
       } catch (err) {
+        rethrowIfRunDeadline(err);
         /* Abort during grounding takes the abort route, not ungrounded continue. */
         if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
         console.error("[qa] WARNING: pre-generation grounding failed (non-fatal, generation continues ungrounded):", err);
@@ -1004,6 +1057,7 @@ export class RunQaUseCase {
             logDelegationFallback("pre-generate", delegation);
           }
         } catch (err) {
+          rethrowIfRunDeadline(err);
           console.error(
             `[qa] coordination sidekick failed (fail-open — lead GenerationPort runs): ${err instanceof Error ? err.message : String(err)}`,
           );
@@ -1579,6 +1633,7 @@ export class RunQaUseCase {
               }
               logDelegationFallback("fix-loop-regen", delegation);
             } catch (err) {
+              rethrowIfRunDeadline(err);
               console.error(
                 `[qa] coordination fix-loop sidekick failed (fail-open — lead GenerationPort runs): ${err instanceof Error ? err.message : String(err)}`,
               );
@@ -2513,8 +2568,8 @@ export class RunQaUseCase {
         });
       }
 
-      /* Same independently-optional processAudit gate as the mainline. */
-      if (this.deps.processAudit && learning.reflect) {
+      /* Same independently-optional processAudit gate as the mainline, including the operating-signal-only audit. */
+      if (this.deps.processAudit && (learning.reflect || observesOperatingSignal({ mode: input.mode, errorClass: terminalOutcome.errorClass }))) {
         const auditStartedAt = Date.now();
         await this.deps.processAudit.audit(terminalOutcome);
         const auditMs = Date.now() - auditStartedAt;

@@ -62,6 +62,8 @@ export interface AgentPromptOpts {
   stepLimit?: number;
   /** The longest this prompt may run, in milliseconds. Absent: the session's own limit stands. A caller bounding several prompts by one budget hands each only what is left of it. */
   timeoutMs?: number;
+  /** The agent may answer from the conversation alone: no tool (read, write, shell, MCP) is available to this prompt. For a turn that only restates something already said, such as a verdict's contract repair. A runtime with no per-prompt control over tools ignores it. */
+  withoutTools?: boolean;
 }
 
 export interface AgentSession {

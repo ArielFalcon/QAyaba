@@ -15,6 +15,7 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort, VerdictParserPort, ReviewJudgment } from "@contexts/generation/application/ports/index.ts";
 import type { ReviewInput, StepLimitRole } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 
 function fakeRuntime(output: string): AgentRuntimePort {
   return {
@@ -415,4 +416,10 @@ test("review() sends its prompt with no limit key when there is no resolver, or 
 
   assert.equal(sent.length, 2);
   for (const opts of sent) assert.equal("stepLimit" in (opts ?? {}), false);
+});
+
+test("review() lets the run's deadline through: a reviewer turn the run's time ran out on is the run's end, not a reviewer to fail closed on", async () => {
+  const runtime: AgentRuntimePort = { openSession: async () => { throw new RunDeadlineExceededError(60_000, "manual", "reviewer", "before-turn"); } };
+  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+  await assert.rejects(adapter.review("/mirrors/org/app/e2e", cases), (err: unknown) => err instanceof RunDeadlineExceededError);
 });

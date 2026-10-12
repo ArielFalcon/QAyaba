@@ -22,6 +22,7 @@ import {
   maxStepsFromConfig,
   fallbackModelFromConfig,
   createRawEventStreamOpener,
+  openCodePromptBody,
 } from "./opencode-client";
 import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
@@ -1485,4 +1486,21 @@ test("a connection reset on the real stream client reaches the stream lifecycle 
   }
   assert.deepEqual(calls.map((c) => c.kind), ["opening", "connected", "interrupted", "closed"]);
   assert.equal(new Set(calls.map((c) => c.token)).size, 1);
+});
+
+test("openCodePromptBody: a prompt that asks for no tools carries a deny map covering the built-in tools and the MCP wildcards", () => {
+  const body = openCodePromptBody({ agent: "qa-generator", text: "restate", withoutTools: true });
+  assert.equal(body.agent, "qa-generator");
+  assert.deepEqual(body.parts, [{ type: "text", text: "restate" }]);
+  const tools = (body as { tools?: Record<string, boolean> }).tools;
+  assert.ok(tools, "the deny map is sent");
+  for (const name of ["bash", "read", "write", "edit", "glob", "grep", "serena*", "engram*", "playwright*"]) assert.equal(tools[name], false, name);
+  assert.ok(Object.values(tools).every((allowed) => allowed === false), "nothing is switched on by this map");
+});
+
+test("openCodePromptBody: any other prompt leaves the tools to its agent's configuration and keeps a model override", () => {
+  const model = { providerID: "p", modelID: "m" };
+  const body = openCodePromptBody({ agent: "qa-reviewer", text: "judge", model });
+  assert.deepEqual(body, { agent: "qa-reviewer", parts: [{ type: "text", text: "judge" }], model });
+  assert.equal("tools" in openCodePromptBody({ agent: "a", text: "t", withoutTools: false }), false);
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NON_LEARNING, learningGates } from "@contexts/qa-run-orchestration/domain/helpers/learning-gates.ts";
+import { NON_LEARNING, OBSERVED_OPERATING, learningGates, observesOperatingSignal } from "@contexts/qa-run-orchestration/domain/helpers/learning-gates.ts";
 import { ERROR_CLASS, ERROR_CLASSES, type ErrorClass } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 
@@ -121,4 +121,26 @@ test("a context-mode run neither folds nor reflects, whatever its stage, verdict
       }
     }
   }
+});
+
+test("the classes whose recurrence is observed are all classes that teach nothing: observing never smuggles a lesson in", () => {
+  for (const cls of OBSERVED_OPERATING) assert.ok(NON_LEARNING.has(cls), cls);
+});
+
+test("a run that ended on its time budget reaches the audit's operating signal alone: no fold, no reflection", () => {
+  assert.equal(observesOperatingSignal({ mode: "diff", errorClass: ERROR_CLASS.TIME_BUDGET }), true);
+  assert.deepEqual(learningGates({ stage: "terminal", verdict: "infra-error", errorClass: ERROR_CLASS.TIME_BUDGET, ...OPEN }), { fold: false, reflect: false });
+});
+
+test("every other class, and a run with none, has no operating signal to observe", () => {
+  for (const cls of ERROR_CLASSES) {
+    if (cls === ERROR_CLASS.TIME_BUDGET) continue;
+    assert.equal(observesOperatingSignal({ mode: "diff", errorClass: cls }), false, cls);
+  }
+  assert.equal(observesOperatingSignal({ mode: "diff", errorClass: null }), false);
+  assert.equal(observesOperatingSignal({ mode: "diff", errorClass: undefined }), false);
+});
+
+test("a context run is never audited, whatever it ended on", () => {
+  assert.equal(observesOperatingSignal({ mode: "context", errorClass: ERROR_CLASS.TIME_BUDGET }), false);
 });

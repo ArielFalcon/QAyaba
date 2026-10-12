@@ -8,6 +8,7 @@ import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generatio
 import type { ReviewInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { renderLearnedRulesForReviewer } from "./generation-port.adapter.ts";
+import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 
 export interface ReviewPortRuntime {
   runtime: AgentRuntimePort;
@@ -100,6 +101,8 @@ export class ReviewPortAdapter implements ReviewPort {
         ...(judgment.parsed !== undefined ? { parsed: judgment.parsed } : {}),
       };
     } catch (err) {
+      /* The run's time is spent: that ends the run, it is not a reviewer fault to fail closed on. */
+      rethrowIfRunDeadline(err);
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`[qa] reviewer session failed (${reason}) — reviewer unavailable, failing closed without burning a regeneration round.`);
       return {

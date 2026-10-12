@@ -281,6 +281,16 @@ export interface ReviewEnrichment {
   runId?: string;
 }
 /**
+ * Starts the run-level wall-clock deadline that holds every agent turn of the run. Armed once, after
+ * classification, because a diff run's budget follows the size of its change. Until it is armed nothing
+ * bounds the run; once it is, a turn the deadline refuses or stops ends the run as a persisted
+ * infra-error (E-TIME-BUDGET).
+ */
+export interface RunDeadlinePort {
+  arm(scope: { mode: RunMode; diff?: string; changedFiles?: readonly string[] }): void;
+}
+
+/**
  * Adapter catch produces `${REVIEWER_UNAVAILABLE_MARKER}: <reason>`; the
  * use-case matches on it. One constant so producer and matcher cannot drift.
  */

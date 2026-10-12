@@ -19,6 +19,7 @@ import { diffStat } from "../domain/diff-stat.ts";
 import { generationRunsReviewer } from "../domain/generation-review.ts";
 import { generatorTimeBudgetMs, type DiffTimeBudgets } from "../domain/generator-time-budget.ts";
 import { isReGenTurn } from "../domain/regen-turn.ts";
+import { REPAIR_TURN_TIMEOUT_MS, renderRepairTimeoutNote, repairTurnLimit } from "../domain/repair-turn.ts";
 
 export interface RepairPort {
   checkGenerator(text: string): { valid: boolean; issues: string[] };
@@ -39,6 +40,8 @@ export interface GenerationPorts {
   timeBudgets?: DiffTimeBudgets;
   /** The clock the first pass's deadline is read from, in milliseconds. Absent: the system clock. */
   now?: () => number;
+  /** The longest one contract-repair prompt may run, whatever time is left. Absent: `REPAIR_TURN_TIMEOUT_MS`. */
+  repairTimeoutMs?: number;
 }
 
 export interface GenerationResult {
@@ -102,6 +105,9 @@ export class GenerateTestsUseCase {
     let repairTurn: AgentTurnStats | undefined;
     /* The budget and the turn it cut off, when one did. Only a deadline the generator was given a budget for is this; any other timeout, a prompt that merely mentions one included, is the integration error it always was. */
     let timeCut: { budgetMs: number; repair: boolean } | undefined;
+    /* The repair prompt ran past its own cap, with the first-pass budget (if any) to spare: the first turn's output stands and says nothing readable. */
+    let repairTimedOutMs: number | undefined;
+    const repairCapMs = this.ports.repairTimeoutMs ?? REPAIR_TURN_TIMEOUT_MS;
     const cutByBudget = (err: unknown, repair: boolean): { budgetMs: number; repair: boolean } | undefined =>
       timeBudgetMs !== undefined && isAgentTimeoutError(err) ? { budgetMs: timeBudgetMs, repair } : undefined;
     try {
@@ -131,16 +137,21 @@ export class GenerateTestsUseCase {
             timeCut = { budgetMs: timeBudgetMs, repair: true };
           } else {
             opts?.onRepair?.();
+            const limit = repairTurnLimit({ capMs: repairCapMs, ...(left !== undefined ? { leftMs: left } : {}) });
             try {
               const repairResult = await session.prompt(
                 repair.instruction("generator", genCheck.issues, { priorResponseTail: generatorOutput }),
-                { isRepair: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, ...promptTime(), onTurnStats: (stats) => { repairTurn = stats; } },
+                { isRepair: true, withoutTools: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, timeoutMs: limit.timeoutMs, onTurnStats: (stats) => { repairTurn = stats; } },
               );
               generatorOutput = repairResult.output;
             } catch (err) {
               /* The first turn's output stands: a repair that did not finish changes nothing it said. */
-              timeCut = cutByBudget(err, true);
-              if (!timeCut) throw err;
+              timeCut = limit.boundByCaller ? cutByBudget(err, true) : undefined;
+              if (!timeCut) {
+                if (!(isAgentTimeoutError(err) && !limit.boundByCaller)) throw err;
+                repairTimedOutMs = limit.timeoutMs;
+                console.error(`[qa] the generator's contract-repair turn timed out after ${limit.timeoutMs}ms (tools disabled); its first answer stands`);
+              }
             }
           }
         }
@@ -176,9 +187,13 @@ export class GenerateTestsUseCase {
       exhausted: mainExhausted || repairExhausted,
       timedOut: timeCut !== undefined,
     });
-    const note = timeCut && end === GENERATION_END.TIME_BUDGET
+    const endNote = timeCut && end === GENERATION_END.TIME_BUDGET
       ? renderGenerationNote({ end, ...timeCut })
       : noteFor(end, deliverable, mainTurn, mainExhausted ? false : repairExhausted);
+    /* A repair that timed out explains an end that has no specs to show for it; with specs delivered, or a no-op declared, it changed nothing. */
+    const note = repairTimedOutMs !== undefined && (end === GENERATION_END.NO_VERDICT || end === GENERATION_END.UNDECIDED_EMPTY)
+      ? [endNote, renderRepairTimeoutNote(repairTimedOutMs)].filter(Boolean).join(" ")
+      : endNote;
     const outcome = { end, note, ...(mainTurn ? { turn: mainTurn } : {}) };
     /* The verdict's own declarations, read before the manifest drops anything: a spec the reviewer rejects, or one the manifest cannot hash, is still a spec the run delivered. */
     const declaredSpecs = declareSpecs(deliverable.specs, deliverable.specMetas);
@@ -235,12 +250,18 @@ export class GenerateTestsUseCase {
       let v = verdicts.parseReview(reviewText);
       if (!v.valid && repair) {
         opts?.onRepair?.();
-        const repaired = await reviewerSession.prompt(
-          repair.instruction("reviewer", v.issues, { priorResponseTail: reviewText }),
-          { isRepair: true, ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}) },
-        );
-        reviewText = repaired.output;
-        v = verdicts.parseReview(reviewText);
+        try {
+          const repaired = await reviewerSession.prompt(
+            repair.instruction("reviewer", v.issues, { priorResponseTail: reviewText }),
+            { isRepair: true, withoutTools: true, timeoutMs: repairCapMs, ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}) },
+          );
+          reviewText = repaired.output;
+          v = verdicts.parseReview(reviewText);
+        } catch (err) {
+          /* The reviewer's first answer stands, unreadable: the gate below fails closed on it. Any other fault is an integration error and surfaces. */
+          if (!isAgentTimeoutError(err)) throw err;
+          console.error(`[qa] the reviewer's contract-repair turn timed out after ${repairCapMs}ms (tools disabled); its first answer stands`);
+        }
       }
 
       reviewJudgment = v;

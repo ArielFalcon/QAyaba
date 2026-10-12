@@ -39,6 +39,9 @@ import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/g
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case";
 import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
+import { RunDeadline } from "@contexts/qa-run-orchestration/domain/run-deadline";
+import { resolveRunTimeBudgets } from "@contexts/qa-run-orchestration/domain/run-time-budget";
+import { RunDeadlineRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-deadline-runtime.adapter";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
 import { ManifestRepositoryAdapter } from "@contexts/generation/infrastructure/manifest-repository.adapter";
@@ -443,6 +446,8 @@ export interface RewrittenEngineFactoryDeps {
 
   historyFilePath?: string;
   env?: Record<string, string | undefined>;
+  /* Test seam: the clock the run-level deadline counts down on. Absent: the system clock. */
+  now?: () => number;
   mirrorRoot?: string;
   /* Test seam: inject spies for the two mirror primitives instead of real git/disk. */
   mirror?: {
@@ -706,6 +711,15 @@ export function buildRewrittenCompositionConfig(
     },
     roleToAgentName,
   );
+  /*
+   * The run-level wall-clock deadline: one per run (this factory builds the engine for one run), armed by the use case
+   * after classification and read by every agent turn of the run through the bounded runtime below, so no turn (a
+   * regeneration, a fix-loop round, a repair, the coverage regen, the reviewer, the explorer, a sidekick) outlives it.
+   * QA_RUN_TIME_BUDGET_MS_* override a kind of run's time; read here once because qa-engine never reads process.env. A
+   * mistyped value throws. The reflector keeps the unbounded runtime: it runs after the run's verdict is made.
+   */
+  const runDeadline = new RunDeadline({ now: deps.now ?? Date.now, budgets: resolveRunTimeBudgets(deps.env ?? process.env) });
+  const boundedRuntime = new RunDeadlineRuntime(runtimeAdapter, runDeadline, { hostPromptCapMs: agentPromptCapMs() });
   const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow });
   const verdicts = new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
 
@@ -716,7 +730,7 @@ export function buildRewrittenCompositionConfig(
   };
 
   const generationUseCase = new GenerateTestsUseCase({
-    runtime: runtimeAdapter,
+    runtime: boundedRuntime,
     rendering,
     verdicts,
     manifest: new ManifestRepositoryAdapter({ readManifest, reconcileManifest }),
@@ -838,7 +852,7 @@ export function buildRewrittenCompositionConfig(
         ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
         : {}),
     },
-    { runtime: runtimeAdapter, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor },
+    { runtime: boundedRuntime, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor },
   );
 
   return {
@@ -889,8 +903,9 @@ export function buildRewrittenCompositionConfig(
     vcs,
     generationUseCase,
     ...(stepLimitFor ? { stepLimitFor } : {}),
+    runDeadline,
     reviewRuntime: {
-      runtime: runtimeAdapter,
+      runtime: boundedRuntime,
       rendering,
       verdicts,
     },

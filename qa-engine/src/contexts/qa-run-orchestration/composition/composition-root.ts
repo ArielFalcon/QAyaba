@@ -3,7 +3,7 @@ buildShadow always uses this engine with shadow-log publication and in-memory hi
 
 import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort } from "../application/ports/index.ts";
+import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort } from "../application/ports/index.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
@@ -76,6 +76,8 @@ export interface CompositionConfig {
   agentTimeoutMs?: number;
   wallClockBudgetMs?: number;
   iterationBudget?: number;
+  /* The run-level wall-clock deadline the shell built (the same object its bounded agent runtime reads). Optional, no stub: absent omits RunQaUseCaseDeps.runDeadline and nothing arms. */
+  runDeadline?: RunDeadlinePort;
   guidance?: string;
   diff?: string;
   baseUrl?: string;
@@ -480,6 +482,8 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.mirrorGc ? { mirrorGc: cfg.mirrorGc } : {}),
     /* Absent processAudit is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
+    /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */
+    ...(cfg.runDeadline ? { runDeadline: cfg.runDeadline } : {}),
     /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */

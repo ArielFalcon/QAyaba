@@ -109,7 +109,8 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
 5. **Generate** — agent writes/improves specs + `e2e/.qa/manifest.json`; an independent
    reviewer judges. Declared `noop` + zero specs → `skipped`. Zero specs without `noop`
    → `infra-error E-NO-DECISION`; step budget exhausted → `infra-error E-STEP-BUDGET`; a diff run's
-   first pass stopped by its tier's time budget → `infra-error E-TIME-BUDGET`.
+   first pass stopped by its tier's time budget, or any agent turn of the run stopped by the run's
+   wall-clock deadline (below) → `infra-error E-TIME-BUDGET`.
 6. **Validate** — `tsc` + ESLint (`eslint-plugin-playwright`) + `playwright --list` +
    manifest. Fail → `invalid`.
 7. **Execute** — Playwright against DEV → `pass`/`fail`/`flaky` (pass only on retry =
@@ -180,9 +181,33 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   host's deadline; blank or unset keeps the default; anything else fails the composition loudly). They
   are resolved once in the composition root (`resolveDiffTimeBudgets`, qa-engine never reads the
   environment) and stay clamped by `agentPromptCapMs`: a value at or above it sets no budget.
-  `E-TIME-BUDGET` is never learned from (DEV latency confounds it). A timeout in a
-  run with no budget (broad, other modes, a regeneration, whose callers read zero specs as "no fixes")
-  stays the loud integration error it was.
+  `E-TIME-BUDGET` is never learned from (DEV latency confounds it).
+- **Run deadline** — one wall-clock deadline bounds the whole run, so no tier, mode, regeneration or
+  repair is unbounded (`qa-run-orchestration/domain/run-time-budget.ts`, one named table:
+  `diff-tiny` 25 min, `diff-focused` 40, `diff-broad` 60, `manual` 45, `complete` 90, `exhaustive` 150,
+  `context` 60; override per row with `QA_RUN_TIME_BUDGET_MS_DIFF_TINY|DIFF_FOCUSED|DIFF_BROAD|MANUAL|COMPLETE|EXHAUSTIVE|CONTEXT`,
+  a positive whole number of milliseconds, there is deliberately no `none`; a mistyped value fails the
+  composition). The use case arms it once after classification (`RunDeadlinePort.arm`), because a diff
+  run's row follows its change's size; it counts from there, so the deploy-gate wait is not on it. Every
+  agent turn goes through `RunDeadlineRuntime`, a decorator over the agent runtime: a turn finding no time
+  left is not sent, and every other runs under the smaller of its own limit and what is left (the tier
+  budget above still applies, inside it). A turn the deadline itself ended (not one that hit a limit of
+  its own) raises `RunDeadlineExceededError`, which the fail-open catches around agent turns rethrow
+  (`rethrowIfRunDeadline`) and `RunQaUseCase.run` turns into a persisted `infra-error E-TIME-BUDGET` with
+  a note naming the budget and the turn, nothing published and nothing learned. Deterministic phases
+  (validation, a Playwright execution) are not cut: they have their own timeouts and the next agent turn
+  meets the deadline. This is separate from `WallClockBudget` (`wallClockBudgetMs`), which only decides,
+  before a fix-loop regeneration, whether the coordination router escalates or aborts; it never stops a
+  turn. An audit signal, not a lesson: a streak of `E-TIME-BUDGET` ends reaches the process audit alone
+  (`observesOperatingSignal`), which logs an observe-only `recurring-time-exhaustion` finding; it never
+  folds, reflects, opens a maintainer incident or changes a rule.
+- **Contract repair** — the re-prompt that only restates a verdict (generator or reviewer) runs with tools
+  disabled (`AgentPromptOpts.withoutTools`; OpenCode sends a per-prompt `tools` deny map, Codex has no
+  per-prompt tool control and ignores it) and under its own short timeout (`REPAIR_TURN_TIMEOUT_MS`,
+  2 min, further cut to the time left). A repair that outlasts its cap leaves the first answer standing:
+  the generation then ends `no-verdict` (loudly noted) and an unreadable review fails closed. A timeout
+  in a run with no tier budget (broad, other modes, a regeneration) is still the integration error it was,
+  unless it is the run deadline.
 - **Regeneration listing** — a regeneration lists the suite as that turn knows it (the specs
   the suite had before a diff/manual run, plus those this run delivered, each only while its
   file is still there): the specs it must change under "Editable" (all those a signal names;

@@ -13,6 +13,7 @@ import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orche
 import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { createCoordinationPort, CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
@@ -45,6 +46,7 @@ import type {
   RelevanceBias,
   ContextMapCapturePort,
   GenerationEnrichment,
+  RunDeadlinePort,
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 /* reflector-rewire (design ADR-1/ADR-4/ADR-5): ReflectorPort/ReflectionInput are declared in
    cross-run-learning (co-located with StructuredReflection/LearningRepositoryPort), NOT in this
@@ -7627,7 +7629,34 @@ test("a generation that ran out of steps feeds the fold, the reflector and the p
 
 test("a generation cut off by its time budget teaches nothing: wall-clock exhaustion is confounded by DEV latency", async () => {
   const learned = await learnFrom(scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }));
-  assert.deepEqual([learned.folded.length, learned.reflected.length, learned.audited.length], [0, 0, 0]);
+  assert.deepEqual([learned.folded.length, learned.reflected.length], [0, 0]);
+});
+
+test("a time-budget end reaches the process audit alone, so a recurring one is visible, under its own class", async () => {
+  const learned = await learnFrom(scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }));
+  assert.equal(learned.audited.length, 1);
+  assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
+});
+
+test("a run ended by the run-level deadline is audited as a time-budget end too, and still folds and reflects nothing", async () => {
+  const learned: { folded: RunOutcome[]; reflected: ReflectionInput[]; audited: RunOutcome[] } = { folded: [], reflected: [], audited: [] };
+  const { ports } = stubPorts({ generate: async () => { throw deadlineExceeded("primary"); } });
+  ports.learning.fold = async (o) => { learned.folded.push(o); };
+  await new RunQaUseCase({
+    ...ports,
+    reflector: makeFakeReflector((i) => { learned.reflected.push(i); }),
+    processAudit: makeFakeProcessAudit((o) => { learned.audited.push(o); }),
+    config: baseConfig,
+  }).run(baseInput);
+  assert.deepEqual([learned.folded.length, learned.reflected.length, learned.audited.length], [0, 0, 1]);
+  assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
+});
+
+test("a context run that ended on its time budget is not audited either", async () => {
+  const audited: RunOutcome[] = [];
+  const { ports } = stubPorts({ generate: async () => scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }) });
+  await new RunQaUseCase({ ...ports, processAudit: makeFakeProcessAudit((o) => { audited.push(o); }), config: baseConfig }).run({ ...baseInput, mode: "context" });
+  assert.equal(audited.length, 0);
 });
 
 test("a context-mode generation that ran out of steps teaches nothing, like every other context-mode terminal", async () => {
@@ -7791,4 +7820,150 @@ test("an exhausted or undecided end reports no reviewer outcome when none ran", 
   assert.equal(exhausted.savedOutcomes[0]!.gateSignals.reviewerApproved, undefined);
   const undecided = await runEndingWith(scriptedGeneration({ specs: [], approved: true, reviewed: false, end: GENERATION_END.UNDECIDED_EMPTY, note: "no decision" }));
   assert.equal(undecided.savedOutcomes[0]!.gateSignals.reviewerApproved, undefined);
+});
+
+/* ── The run-level wall-clock deadline ──────────────────────────────────────────────────────────── */
+
+const DEADLINE_BUDGET_MS = 25 * 60_000;
+const deadlineExceeded = (role: string, stop: "before-turn" | "mid-turn" = "mid-turn") => new RunDeadlineExceededError(DEADLINE_BUDGET_MS, "diff-tiny", role, stop);
+
+interface ArmedScope { mode: string; diff?: string; changedFiles?: readonly string[] }
+
+/** A deadline port that records when and with what it was armed, against the other phases of the run. */
+function recordingDeadline(trace: string[]): { port: RunDeadlinePort; armed: ArmedScope[] } {
+  const armed: ArmedScope[] = [];
+  return { armed, port: { arm: (scope) => { trace.push("arm"); armed.push(scope); } } };
+}
+
+test("the run arms its deadline once, after the deploy gate and the classification, with the change it classified", async () => {
+  const trace: string[] = [];
+  const { ports } = stubPorts({
+    waitUntilServing: async () => { trace.push("gate"); return ok(true); },
+    classify: async () => { trace.push("classify"); return { action: "generate", reason: "r", diff: "diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n", intent: { type: "feat", breaking: false, message: "m", changedFiles: ["x"] } }; },
+    generate: async () => { trace.push("generate"); return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+  });
+  const { port, armed } = recordingDeadline(trace);
+  await new RunQaUseCase({ ...ports, runDeadline: port, config: baseConfig }).run(baseInput);
+  assert.deepEqual(trace.slice(0, 4), ["gate", "classify", "arm", "generate"]);
+  assert.equal(armed.length, 1);
+  assert.equal(armed[0]!.mode, "diff");
+  assert.match(armed[0]!.diff ?? "", /diff --git a\/x/);
+  assert.deepEqual(armed[0]!.changedFiles, ["x"]);
+});
+
+test("a mode that does not classify arms its deadline for its own mode, with no diff", async () => {
+  const trace: string[] = [];
+  const { ports } = stubPorts();
+  const { port, armed } = recordingDeadline(trace);
+  await new RunQaUseCase({ ...ports, runDeadline: port, config: baseConfig }).run({ ...baseInput, mode: "manual" });
+  assert.deepEqual(armed, [{ mode: "manual" }]);
+});
+
+test("a commit the classifier skips never arms the deadline: it spends no agent time", async () => {
+  const trace: string[] = [];
+  const { ports } = stubPorts({ classify: async () => ({ action: "skip", reason: "docs only", diff: "" }) });
+  const { port, armed } = recordingDeadline(trace);
+  await new RunQaUseCase({ ...ports, runDeadline: port, config: baseConfig }).run(baseInput);
+  assert.equal(armed.length, 0);
+});
+
+/** Runs a run whose agent boundary raises the run's deadline error and reports what the run did about it. */
+async function runEndedByDeadline(over: Parameters<typeof stubPorts>[0], config: Record<string, unknown> = baseConfig) {
+  let published = 0;
+  const pruned: string[] = [];
+  const learned = { folded: [] as RunOutcome[], reflected: [] as ReflectionInput[] };
+  const { ports, savedOutcomes } = stubPorts({
+    publish: async () => { published++; return { outcome: "issue" }; },
+    fold: async (o) => { learned.folded.push(o); },
+    ...over,
+  });
+  const { observer, events } = fakeObserver();
+  const reflector = makeFakeReflector((i) => { learned.reflected.push(i); });
+  const out = await new RunQaUseCase({ ...ports, observer, reflector, config, mirrorGc: { prune: async (d: string) => { pruned.push(d); } } }).run(baseInput);
+  return { out, savedOutcomes, events, published: () => published, pruned, learned };
+}
+
+test("a first generation stopped by the run's deadline ends the run as a persisted infra-error under the time-budget class, with a note that says so", async () => {
+  const run = await runEndedByDeadline({ generate: async () => { throw deadlineExceeded("primary"); } });
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.equal(run.savedOutcomes.length, 1, "the run is persisted: it never ends as a silent empty result");
+  assert.equal(run.savedOutcomes[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
+  const note = run.savedOutcomes[0]!.note ?? "";
+  assert.match(note, /Run time budget of 25 min \(diff-tiny\) exhausted/);
+  assert.match(note, /primary turn in progress was stopped/);
+  assert.match(note, /not a finding about the app/);
+  assert.ok((run.out.note ?? "").includes("Run time budget of 25 min"));
+});
+
+test("a run ended by its deadline publishes nothing, teaches nothing, prunes its working copy and says loudly that the cause is engine-side time", async () => {
+  const run = await runEndedByDeadline({ generate: async () => { throw deadlineExceeded("primary", "before-turn"); } });
+  assert.equal(run.out.decision.sideEffect, "none");
+  assert.equal(run.published(), 0, "no Issue and no PR");
+  assert.deepEqual([run.learned.folded.length, run.learned.reflected.length], [0, 0]);
+  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+  assert.ok(run.events.some((e) => e.type === "agent.error" && /next primary turn was not started/.test(e.detail)));
+  const engineSide = run.events.filter((e) => e.type === "log.line" && e.text.includes(ERROR_CLASS.TIME_BUDGET));
+  assert.equal(engineSide.length, 1);
+});
+
+test("the deadline stops a regeneration inside the fix loop the same way: infra-error E-TIME-BUDGET, not an empty regeneration the loop reads as 'no fixes'", async () => {
+  let generated = 0;
+  const run = await runEndedByDeadline({
+    generate: async () => { generated++; if (generated > 1) throw deadlineExceeded("primary"); return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+    execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" }),
+  });
+  assert.equal(generated, 2, "the first pass and the one regeneration the deadline refused");
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.equal(run.published(), 0, "a red run whose regeneration the deadline stopped opens no Issue: nothing was concluded about the app");
+});
+
+test("the deadline stopping the static-fix regeneration ends the run the same way", async () => {
+  let generated = 0;
+  const run = await runEndedByDeadline({
+    generate: async () => { generated++; if (generated > 1) throw deadlineExceeded("primary"); return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+    validate: async () => ({ ok: false, errors: ["TS2304: cannot find name"] }),
+  });
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.equal(run.out.decision.verdict, "infra-error");
+});
+
+test("the deadline stopping the reviewer ends the run as a time-budget infra-error, not as a reviewer that was unavailable", async () => {
+  const run = await runEndedByDeadline({ review: async () => { throw deadlineExceeded("reviewer"); } });
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.match(run.savedOutcomes[0]!.note ?? "", /reviewer turn in progress was stopped/);
+  assert.equal(run.published(), 0);
+});
+
+test("the deadline stopping the enforce-mode coverage regeneration ends the run the same way, after exactly the one regeneration", async () => {
+  let generated = 0;
+  const run = await runEndedByDeadline(
+    {
+      generate: async () => { generated++; if (generated > 1) throw deadlineExceeded("primary"); return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+      measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }),
+      blocks: (status) => status === "fail",
+    },
+    { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+  );
+  assert.equal(generated, 2);
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.equal(run.out.decision.verdict, "infra-error");
+});
+
+test("the deadline reaching the pre-generation grounding (the explorer's turn) ends the run: it is not ungrounded generation", async () => {
+  let generated = 0;
+  const run = await runEndedByDeadline({
+    ground: async () => { throw deadlineExceeded("explorer", "before-turn"); },
+    generate: async () => { generated++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+  });
+  assert.equal(generated, 0, "no generation runs on a run whose time is gone");
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+});
+
+test("an agent failure that is not the deadline is still the integration error it was: it propagates and is not recorded as a time-budget end", async () => {
+  const { ports, savedOutcomes } = stubPorts({ generate: async () => { throw new Error("provider returned 500"); } });
+  await assert.rejects(new RunQaUseCase({ ...ports, config: baseConfig }).run(baseInput), /provider returned 500/);
+  assert.equal(savedOutcomes.length, 0);
 });

@@ -25,6 +25,8 @@ import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastru
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
 import { DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/diff-stat";
 import { DIFF_TIME_BUDGET_ENV } from "@contexts/generation/domain/generator-time-budget";
+import { RUN_TIME_BUDGET_ENV } from "@contexts/qa-run-orchestration/domain/run-time-budget";
+import { isRunDeadlineError } from "@kernel/run-deadline";
 import { renderGenerationNote } from "@contexts/generation/domain/generation-end";
 import { GENERATION_END } from "@kernel/generation-end";
 import { Sha } from "@kernel/sha";
@@ -604,6 +606,39 @@ test("buildRewrittenCompositionConfig gives GenerateTestsUseCase the tiers' time
     if (saved === undefined) delete process.env[DIFF_TIME_BUDGET_ENV.tiny];
     else process.env[DIFF_TIME_BUDGET_ENV.tiny] = saved;
   }
+});
+
+test("buildRewrittenCompositionConfig reads the run-level time budgets from the environment it is given and a mistyped value stops the composition", () => {
+  const build = (env: Record<string, string>) => buildRewrittenCompositionConfig(cfg("factory-run-budget"), { getAgentDeps: stubAgentDeps, env }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.ok(build({}).runDeadline, "the deadline is wired into the composition");
+  assert.throws(() => build({ [RUN_TIME_BUDGET_ENV["diff-broad"]]: "1h" }), new RegExp(RUN_TIME_BUDGET_ENV["diff-broad"]));
+});
+
+test("the composed engine's agent turns are held to the run's deadline: once it is spent, no session is opened for the generator or the reviewer", async () => {
+  let opened = 0;
+  const clock = { t: 1_000 };
+  const fakeAgentDeps: AgentDeps = { open: async () => { opened++; throw new Error("a spent run must not open a session"); } };
+  const config = buildRewrittenCompositionConfig(
+    cfg("factory-run-deadline"),
+    { getAgentDeps: () => fakeAgentDeps, now: () => clock.t, env: { [RUN_TIME_BUDGET_ENV.manual]: "60000" } },
+    "qa-bot-abc1234-runDeadline",
+    { mode: "manual" },
+  );
+  config.runDeadline!.arm({ mode: "manual" });
+  clock.t += 60_000;
+  const input = { repo: "org/demo", sha: "abc1234", diff: "d", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "ns", needsReview: false, target: "e2e" as const, mode: "manual" as const, appName: "factory-run-deadline", runId: "run-deadline", guidance: "g" };
+  await assert.rejects(config.generationUseCase.generate(input), (err: unknown) => isRunDeadlineError(err) && (err as { stop: string }).stop === "before-turn");
+  await assert.rejects(config.reviewRuntime.runtime.openSession("reviewer", "/m"), (err: unknown) => isRunDeadlineError(err));
+  assert.equal(opened, 0);
+});
+
+test("until the use case arms the run's deadline, the composed engine's agent turns are not bounded by it", async () => {
+  let opened = 0;
+  const fakeAgentDeps: AgentDeps = { open: async () => { opened++; return { id: "s", prompt: async () => "{}", dispose: async () => {} }; } };
+  const config = buildRewrittenCompositionConfig(cfg("factory-run-unarmed"), { getAgentDeps: () => fakeAgentDeps, now: () => 5 }, "qa-bot-abc1234-runUnarmed", { mode: "manual" });
+  const session = await config.reviewRuntime.runtime.openSession("reviewer", "/m");
+  await session.dispose();
+  assert.equal(opened, 1);
 });
 
 test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-check branch end-to-end: a malformed verdict text triggers exactly one repair via the real wrapped checkGeneratorVerdict", async () => {

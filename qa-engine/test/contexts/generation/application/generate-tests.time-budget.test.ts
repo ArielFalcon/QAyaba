@@ -7,6 +7,7 @@ import { DIFF_TIERS, DIFF_TIME_BUDGET_MS } from "@contexts/generation/domain/dif
 import type { DiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget.ts";
 import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.ts";
 import { renderGenerationNote } from "@contexts/generation/domain/generation-end.ts";
+import { REPAIR_TURN_TIMEOUT_MS } from "@contexts/generation/domain/repair-turn.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
@@ -28,7 +29,7 @@ type Step = ({ output: string } | { throws: Error }) & { takes?: number };
 
 interface Harness {
   opened: Array<{ role: AgentRole; opts: OpenSessionOpts | undefined }>;
-  prompts: Array<{ role: AgentRole; isRepair: boolean; timeoutMs: number | undefined }>;
+  prompts: Array<{ role: AgentRole; isRepair: boolean; timeoutMs: number | undefined; withoutTools: boolean }>;
   /** The fake clock the use case reads; a step's `takes` moves it forward while that prompt runs. */
   clock: { now: number };
   disposed: AgentRole[];
@@ -44,7 +45,7 @@ function baseInput(over: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
 
 function build(
   generatorSteps: Step[],
-  opts: { promptCapMs?: number; specs?: string[]; repairInvalid?: boolean; timeBudgets?: DiffTimeBudgets } = {},
+  opts: { promptCapMs?: number; specs?: string[]; repairInvalid?: boolean; timeBudgets?: DiffTimeBudgets; repairTimeoutMs?: number } = {},
 ): { ports: GenerationPorts; seen: Harness } {
   const seen: Harness = { opened: [], prompts: [], disposed: [], clock: { now: 1_000_000 } };
   const steps = [...generatorSteps];
@@ -54,7 +55,7 @@ function build(
         seen.opened.push({ role, opts: sessionOpts });
         return {
           prompt: async (_text, promptOpts) => {
-            seen.prompts.push({ role, isRepair: promptOpts?.isRepair === true, timeoutMs: promptOpts?.timeoutMs });
+            seen.prompts.push({ role, isRepair: promptOpts?.isRepair === true, timeoutMs: promptOpts?.timeoutMs, withoutTools: promptOpts?.withoutTools === true });
             if (role === "reviewer") return { output: "REVIEW" };
             const step = steps.shift() ?? { output: "" };
             seen.clock.now += step.takes ?? 0;
@@ -87,6 +88,7 @@ function build(
     now: () => seen.clock.now,
     ...(opts.promptCapMs !== undefined ? { promptCapMs: opts.promptCapMs } : {}),
     ...(opts.timeBudgets ? { timeBudgets: opts.timeBudgets } : {}),
+    ...(opts.repairTimeoutMs !== undefined ? { repairTimeoutMs: opts.repairTimeoutMs } : {}),
     ...(opts.repairInvalid ? { repair: { checkGenerator: () => ({ valid: false, issues: ["no verdict"] }), instruction: () => "REPAIR" } } : {}),
   };
   return { ports, seen };
@@ -215,21 +217,21 @@ test("a plain error under a budget that merely mentions a timeout is not the tim
 });
 
 test("a repair turn that runs out of time after specs were delivered keeps the delivery and does not end the run", async () => {
-  const { ports } = build([{ output: "SPECS but malformed" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+  const { ports } = build([{ output: "SPECS but malformed", takes: TINY_MS - 60_000 }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
   const result = await new GenerateTestsUseCase(ports).generate(baseInput());
   assert.equal(result.end, GENERATION_END.DELIVERED);
   assert.deepEqual(result.specs, ["flows/a.spec.ts"]);
 });
 
 test("a repair turn that runs out of time with no spec delivered ends as time-budget and the note names the repair", async () => {
-  const { ports } = build([{ output: "no verdict at all" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+  const { ports } = build([{ output: "no verdict at all", takes: TINY_MS - 60_000 }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
   const result = await new GenerateTestsUseCase(ports).generate(baseInput());
   assert.equal(result.end, GENERATION_END.TIME_BUDGET);
   assert.equal(result.note, renderGenerationNote({ end: GENERATION_END.TIME_BUDGET, budgetMs: TINY_MS, repair: true }));
 });
 
 test("a repair cut by the time budget after a main turn that declared a no-op leaves the no-op standing", async () => {
-  const { ports } = build([{ output: "NOOP malformed" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+  const { ports } = build([{ output: "NOOP malformed", takes: TINY_MS - 60_000 }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
   const result = await new GenerateTestsUseCase(ports).generate(baseInput());
   assert.equal(result.end, GENERATION_END.DECLARED_NOOP);
   assert.equal(result.note, NOOP_REASON);
@@ -237,13 +239,19 @@ test("a repair cut by the time budget after a main turn that declared a no-op le
 });
 
 test("the budget bounds the whole first pass: the main prompt may use all of it and the repair only what the main prompt left", async () => {
-  const MAIN_TOOK = 90_000;
+  const MAIN_TOOK = TINY_MS - 100_000;
   const { ports, seen } = build([{ output: "malformed", takes: MAIN_TOOK }, { output: "SPECS" }], { repairInvalid: true });
   await new GenerateTestsUseCase(ports).generate(baseInput());
   const [main, repair] = seen.prompts;
   assert.equal(main?.timeoutMs, TINY_MS);
   assert.equal(repair?.isRepair, true);
-  assert.equal(repair?.timeoutMs, TINY_MS - MAIN_TOOK);
+  assert.equal(repair?.timeoutMs, 100_000);
+});
+
+test("a repair prompt never gets more than its own cap, however much of the budget is left", async () => {
+  const { ports, seen } = build([{ output: "malformed", takes: 1_000 }, { output: "SPECS" }], { repairInvalid: true });
+  await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(seen.prompts[1]?.timeoutMs, REPAIR_TURN_TIMEOUT_MS);
 });
 
 test("a main prompt that used the whole budget leaves no time to repair: the repair is not asked and the generation ends as time-budget naming the repair", async () => {
@@ -260,9 +268,47 @@ test("a main prompt that used the whole budget but declared a no-op keeps it: no
   assert.equal(result.end, GENERATION_END.DECLARED_NOOP);
 });
 
-test("a run with no budget sends its prompts no time of their own", async () => {
+test("a run with no budget sends its main prompt no time of its own and its repair only the repair cap", async () => {
   const { ports, seen } = build([{ output: "malformed" }, { output: "SPECS" }], { repairInvalid: true });
   await new GenerateTestsUseCase(ports).generate(baseInput({ diff: BROAD_DIFF }));
   assert.equal(seen.prompts.length, 2);
-  for (const p of seen.prompts) assert.equal(p.timeoutMs, undefined);
+  assert.equal(seen.prompts[0]?.timeoutMs, undefined);
+  assert.equal(seen.prompts[1]?.timeoutMs, REPAIR_TURN_TIMEOUT_MS);
+});
+
+test("the contract-repair prompt runs with no tools, and the prompt it repairs keeps its tools", async () => {
+  const { ports, seen } = build([{ output: "malformed" }, { output: "SPECS" }], { repairInvalid: true });
+  await new GenerateTestsUseCase(ports).generate(baseInput({ diff: BROAD_DIFF }));
+  assert.deepEqual(seen.prompts.map((p) => p.withoutTools), [false, true]);
+});
+
+test("a repair cap the ports state replaces the default", async () => {
+  const { ports, seen } = build([{ output: "malformed" }, { output: "SPECS" }], { repairInvalid: true, repairTimeoutMs: 30_000 });
+  await new GenerateTestsUseCase(ports).generate(baseInput({ diff: BROAD_DIFF }));
+  assert.equal(seen.prompts[1]?.timeoutMs, 30_000);
+});
+
+test("a repair that ran past its own cap, with the budget to spare, leaves the first answer standing: specs delivered stay delivered", async () => {
+  const { ports } = build([{ output: "SPECS but malformed" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(result.end, GENERATION_END.DELIVERED);
+  assert.deepEqual(result.specs, ["flows/a.spec.ts"]);
+});
+
+test("a repair that ran past its own cap with no readable verdict ends the generation as no-verdict, loudly, and not as the time budget", async () => {
+  const { ports } = build([{ output: "no verdict at all" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput());
+  assert.equal(result.end, GENERATION_END.NO_VERDICT);
+  assert.match(result.note ?? "", /contract-repair turn \(tools disabled\) did not answer within 120 s/);
+});
+
+test("a repair that ran past its own cap in a run with no budget does not become an integration error", async () => {
+  const { ports } = build([{ output: "no verdict at all" }, { throws: new AgentTimeoutError("timed out") }], { repairInvalid: true });
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput({ diff: BROAD_DIFF }));
+  assert.equal(result.end, GENERATION_END.NO_VERDICT);
+});
+
+test("a repair that fails for any reason other than time is still the integration error it is", async () => {
+  const { ports } = build([{ output: "no verdict at all" }, { throws: new AgentUnavailableError("provider rejected: out of credits") }], { repairInvalid: true });
+  await assert.rejects(new GenerateTestsUseCase(ports).generate(baseInput()), AgentUnavailableError);
 });

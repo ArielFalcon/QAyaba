@@ -26,7 +26,7 @@ const STEP_BUDGET_CLASS: ErrorClass = "E-STEP-BUDGET";
 /* A run that keeps ending on a login it could not complete is a condition of the app's setup (credentials, a login step no browser can finish): visible to an operator, never an engine defect and never an app-behavior gap a learned rule could close. */
 const PRECONDITION_CLASS: ErrorClass = "E-PRECONDITION";
 
-/* A generator that keeps being cut off by its time budget is an operating condition to watch (a slow DEV, a budget too tight for the changes it meets), never an engine defect to patch or an app-behavior gap a learned rule could close: it is observed and nothing more. */
+/* Runs that keep ending on their time budget (a generator turn cut off by its tier, or a whole run stopped by its deadline) are an operating condition to watch (a slow DEV, a budget too tight for the changes it meets), never an engine defect to patch or an app-behavior gap a learned rule could close: they are observed and nothing more, and they must never wake the maintainer. */
 const TIME_BUDGET_CLASS: ErrorClass = "E-TIME-BUDGET";
 
 /** A minimal view of a learning rule — only the fields the audit reasons about. Narrowing here would be a silent behavioral risk (a real row failing to structurally satisfy this type), not a simplification. */
@@ -85,7 +85,7 @@ export function auditProcess(input: AuditInput): ProcessFinding[] {
         kind: "recurring-time-exhaustion",
         disposition: "observe",
         severity: "warn",
-        summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the generator keeps running out of time without reporting any spec; visibility only, never an engine fix or a learned rule.`,
+        summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the runs keep ending on their time budget (a generator turn or the whole run's deadline); visibility only, never an engine fix or a learned rule.`,
         evidence,
       });
     } else if (recurringCls === PRECONDITION_CLASS) {

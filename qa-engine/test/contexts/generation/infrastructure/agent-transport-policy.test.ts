@@ -429,6 +429,36 @@ test("createAgentDeps: a prompt's own time limit bounds that prompt, under the s
   await session.dispose();
 });
 
+test("createAgentDeps: a prompt that asks for no tools reaches the transport as such, on the primary attempt and on the fallback retry", async () => {
+  resetCircuit();
+  const seen: Array<boolean | undefined> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-no-tools" }),
+    promptSession: async (args) => {
+      seen.push(args.withoutTools);
+      if (seen.length === 1) throw new Error("ECONNRESET transient network fault");
+      return { parts: [{ type: "text", text: "restated" }] };
+    },
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => "opencode-go/fallback-model" });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("restate your verdict", { withoutTools: true });
+  assert.deepEqual(seen, [true, true]);
+});
+
+test("createAgentDeps: a prompt that does not ask for it never carries the no-tools flag", async () => {
+  resetCircuit();
+  let flag: unknown = "unset";
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-tools" }),
+    promptSession: async (args) => { flag = "withoutTools" in args ? args.withoutTools : "absent"; return { parts: [{ type: "text", text: "x" }] }; },
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("write the spec");
+  assert.equal(flag, "absent");
+});
+
 test("createAgentDeps: retries on the fallback model after a transient (non-infra) primary-model fault", async () => {
   resetCircuit();
   let attempt = 0;

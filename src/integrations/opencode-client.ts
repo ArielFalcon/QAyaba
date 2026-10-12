@@ -464,6 +464,26 @@ export function stallMs(): number {
 
 
 /*
+ * Every tool a prompt can reach, named so a per-prompt `tools` map can switch it off: OpenCode's own tools, and the
+ * wildcard patterns for the MCP servers the roles are wired to (the same patterns agents/opencode.json denies per
+ * role). The bare "*" is the catch-all for a tool added later; the explicit names are for a build that matches
+ * names and not patterns.
+ */
+export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
+  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
+);
+
+/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; every other prompt leaves the tools to its agent's configuration. */
+export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined }) {
+  return {
+    agent: args.agent,
+    parts: [{ type: "text" as const, text: args.text }],
+    ...(args.model ? { model: args.model } : {}),
+    ...(args.withoutTools ? { tools: { ...NO_TOOLS } } : {}),
+  };
+}
+
+/*
  * Integration boundary: real connection to `opencode serve`. Not covered by unit
  * tests (like the Playwright runner). The SDK is imported lazily so tests do not
  * require the package. OPENCODE_SERVE_URL points to the `opencode` container.
@@ -488,11 +508,11 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
       if (!id) throw new Error("OpenCode: the session returned no id");
       return { id };
     },
-    promptSession: async ({ id, cwd, agent, text, model }): Promise<RawPromptResult> => {
+    promptSession: async ({ id, cwd, agent, text, model, withoutTools }): Promise<RawPromptResult> => {
       const res = await client.session.prompt({
         path: { id },
         query: { directory: cwd },
-        body: { agent, parts: [{ type: "text", text }], ...(model ? { model } : {}) },
+        body: openCodePromptBody({ agent, text, model, withoutTools }),
       });
       if (res.error) {
         throw new Error(`OpenCode session.prompt failed: ${JSON.stringify(res.error)}`);

@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { ProcessAuditPortAdapter, PROCESS_AUDIT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter.ts";
 import type { ProcessFinding, RuleView } from "@contexts/cross-run-learning/domain/process-audit.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import { NON_LEARNING } from "@contexts/qa-run-orchestration/domain/helpers/learning-gates.ts";
+import { NON_LEARNING, OBSERVED_OPERATING } from "@contexts/qa-run-orchestration/domain/helpers/learning-gates.ts";
 
 function outcome(over: Partial<RunOutcome> = {}): RunOutcome {
   return {
@@ -86,9 +86,9 @@ test("a step-budget run stays in the streak window, so recurring exhaustion can 
   assert.ok(logged.some((line) => line.includes("observe")), logged.join("\n"));
 });
 
-test("the streak window drops exactly the classes the learning gates treat as non-learning", async () => {
+test("the streak window drops exactly the classes the learning gates treat as non-learning, except the ones whose own recurrence is observed", async () => {
   const observed: string[] = [];
-  for (const errorClass of [...NON_LEARNING]) {
+  for (const errorClass of [...NON_LEARNING].filter((c) => !OBSERVED_OPERATING.has(c))) {
     const current = outcome({ errorClass, verdict: "infra-error" });
     const adapter = new ProcessAuditPortAdapter({
       app: "petclinic",
@@ -277,4 +277,69 @@ test("timeout-capped: a hanging read never blocks audit() past the configured ti
 
 test("PROCESS_AUDIT_TIMEOUT_MS default is exported and positive", () => {
   assert.ok(PROCESS_AUDIT_TIMEOUT_MS > 0);
+});
+
+/* ── The operating signal: recurring time-budget ends ───────────────────────────────────────────── */
+
+function timeBudget(sha: string): RunOutcome {
+  return outcome({ errorClass: "E-TIME-BUDGET", verdict: "infra-error", sha });
+}
+
+function auditing(recent: RunOutcome[]) {
+  const logs: string[] = [];
+  const incidents: ProcessFinding[] = [];
+  const deprecated: string[] = [];
+  let invalidated = 0;
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => recent,
+    readRules: () => [],
+    deprecateRule: (id) => { deprecated.push(id); },
+    recordEngineIncident: (f) => { incidents.push(f); },
+    invalidateContext: () => { invalidated++; return true; },
+    log: (line) => logs.push(line),
+  });
+  return { adapter, logs, incidents, deprecated, invalidated: () => invalidated };
+}
+
+test("three time-budget ends in a row are made visible as an observe-only finding", async () => {
+  const current = timeBudget("a");
+  const { adapter, logs } = auditing([current, timeBudget("b"), timeBudget("c")]);
+  await adapter.audit(current);
+  assert.equal(logs.filter((l) => l.includes("[audit] observe (recurring-time-exhaustion)")).length, 1);
+  assert.match(logs.join("\n"), /E-TIME-BUDGET 3 runs in a row/);
+});
+
+test("a recurring time-budget end never wakes the maintainer, deprecates a rule or rebuilds the map", async () => {
+  const current = timeBudget("a");
+  const { adapter, incidents, deprecated, invalidated } = auditing([current, timeBudget("b"), timeBudget("c")]);
+  await adapter.audit(current);
+  assert.deepEqual([incidents.length, deprecated.length, invalidated()], [0, 0, 0]);
+});
+
+test("two time-budget ends in a row are not yet a streak", async () => {
+  const current = timeBudget("a");
+  const { adapter, logs } = auditing([current, timeBudget("b"), outcome({ errorClass: "E-EXEC-FAIL", sha: "c" })]);
+  await adapter.audit(current);
+  assert.equal(logs.length, 0);
+});
+
+test("an outage or a flaky run between time-budget ends neither extends nor breaks their streak", async () => {
+  const current = timeBudget("a");
+  const { adapter, logs } = auditing([
+    current,
+    outcome({ errorClass: "E-INFRA", verdict: "infra-error", sha: "i" }),
+    timeBudget("b"),
+    outcome({ errorClass: "E-FLAKY", verdict: "flaky", sha: "f" }),
+    timeBudget("c"),
+  ]);
+  await adapter.audit(current);
+  assert.equal(logs.filter((l) => l.includes("recurring-time-exhaustion")).length, 1);
+});
+
+test("the time-budget ends stay out of the window of any other class's audit, as before", async () => {
+  const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
+  const { adapter, incidents } = auditing([current, timeBudget("t"), outcome({ errorClass: "E-STATIC", verdict: "invalid", sha: "b" }), outcome({ errorClass: "E-STATIC", verdict: "invalid", sha: "c" })]);
+  await adapter.audit(current);
+  assert.equal(incidents.length, 1, "the engine-defect streak of E-STATIC is not broken by a run that decided nothing");
 });
