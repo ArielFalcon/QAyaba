@@ -222,6 +222,43 @@ test("the pipeline's specs count only when its run was accepted: a failed run's 
   assert.ok([...h.saved.keys()].some((dir) => dir.endsWith("/rejected")), "the rejected files are kept for reading");
 });
 
+test("a run the reviewer rejected is not accepted although its verdict is pass: its files are kept apart and never validated", async () => {
+  const h = harness({ runPipeline: async () => ({ report: report("pipeline", "pass", { reviewer: { approved: false, reasons: ["asserts nothing"] } }), runId: "run-9", capped: false, lost: false, wallMs: 1 }) });
+  assert.equal(await runCampaign(argv(), h.deps), 0);
+  const r = recordOf(h).results[0]!;
+  assert.deepEqual(r.delivered, []);
+  assert.equal(r.outcome, "none");
+  assert.equal(h.validations.length, 0);
+  assert.ok([...h.saved.keys()].some((dir) => dir.endsWith("/rejected")), "the rejected files are kept for reading");
+});
+
+test("a run with no reviewer figure, or an approving one, is accepted", async () => {
+  for (const reviewer of [null, { approved: true, reasons: [] }, { approved: null, reasons: [] }]) {
+    const h = harness({ runPipeline: async () => ({ report: report("pipeline", "pass", { reviewer }), runId: "run-9", capped: false, lost: false, wallMs: 1 }) });
+    assert.equal(await runCampaign(argv(), h.deps), 0);
+    assert.deepEqual(recordOf(h).results[0]!.delivered, ["a.spec.ts"], JSON.stringify(reviewer));
+  }
+});
+
+const FAILED_COVERAGE = { status: "fail" as const, ratio: 0.1, changedLines: 10, coveredLines: 1, minRatio: 0.7 };
+
+test("a green run whose change-coverage blocks under the app's enforce policy is not accepted: its files are kept apart", async () => {
+  const h = harness({ runPipeline: async () => ({ report: report("pipeline", "pass", { coverage: FAILED_COVERAGE }), runId: "run-9", capped: false, lost: false, wallMs: 1 }) }, { app: { coverageMode: "enforce" } });
+  assert.equal(await runCampaign(argv(), h.deps), 0);
+  const r = recordOf(h).results[0]!;
+  assert.deepEqual(r.delivered, []);
+  assert.equal(h.validations.length, 0);
+  assert.ok([...h.saved.keys()].some((dir) => dir.endsWith("/rejected")));
+});
+
+test("a failed change-coverage never blocks under the signal policy, an unknown one never blocks under enforce", async () => {
+  for (const [coverageMode, coverage] of [["signal", FAILED_COVERAGE], [undefined, FAILED_COVERAGE], ["enforce", { ...FAILED_COVERAGE, status: "unknown" as const, ratio: null }]] as const) {
+    const h = harness({ runPipeline: async () => ({ report: report("pipeline", "pass", { coverage }), runId: "run-9", capped: false, lost: false, wallMs: 1 }) }, { app: coverageMode ? { coverageMode } : {} });
+    assert.equal(await runCampaign(argv(), h.deps), 0);
+    assert.deepEqual(recordOf(h).results[0]!.delivered, ["a.spec.ts"], `${coverageMode}/${coverage.status}`);
+  }
+});
+
 test("a spec the pipeline accepted and that is green twice with no retry is valid and waits for the rubric", async () => {
   const h = harness();
   assert.equal(await runCampaign(argv(), h.deps), 0);

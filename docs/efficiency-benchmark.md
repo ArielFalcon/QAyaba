@@ -451,8 +451,8 @@ results), or the re-run could not execute against DEV.
 
 After each arm-run the harness takes the files the arm delivered and judges them itself:
 
-1. **Delivered.** B: the files that differ from the seeded snapshot in the app's mirror (the run restored it from the suite store), and only when the run's verdict is `pass` or `flaky`
-   (never those of an `invalid`, `fail` or cut run). A: everything the agent added or changed (it has no acceptance gate; its own verdict is
+1. **Delivered.** B: the files that differ from the seeded snapshot in the app's mirror (the run restored it from the suite store), and only when the run's verdict is `pass` or `flaky`, the reviewer did not reject it and
+   the app's change-coverage policy does not block it (never those of an `invalid`, `fail`, reviewer-rejected, coverage-blocked or cut run; those are kept under `rejected/`). A: everything the agent added or changed (it has no acceptance gate; its own verdict is
    recorded as it was). `.qa/` (the pipeline's state) is not part of the set.
 2. **Fake-pass detector** (`scripts/fake-pass-detector.ts`, pure, the same for both arms). A spec is flagged when its name looks like a probe
    (`_explore`, `_register`, `tmp`, `scratch`, `probe`, `playground`, as a whole word of a path segment or a leading underscore), when the file

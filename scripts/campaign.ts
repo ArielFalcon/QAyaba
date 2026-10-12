@@ -14,8 +14,8 @@
  * What an arm "passed" is not taken from the arm. The files it delivered are saved under
  * config/benchmarks/campaigns/<label>/<case>/<arm>-<n>/ and re-run here twice with no retry against DEV, with the warm login;
  * a spec that looks fake (scripts/fake-pass-detector.ts) is never valid. The pipeline's files count only when its run was
- * accepted (verdict pass or flaky): after a reviewer rejection it accepts regenerated specs that never ran, and a rejected
- * run's files are kept apart. The result is a JSON, a markdown table and a rubric.csv of the valid candidates for the owner
+ * accepted (verdict pass or flaky, the reviewer did not reject it, and the app's change-coverage policy does not block it): after a
+ * reviewer rejection it accepts regenerated specs that never ran, and a rejected run's files are kept apart. The result is a JSON, a markdown table and a rubric.csv of the valid candidates for the owner
  * to score 0-3 (scripts/campaign-report.ts).
  *
  * Run it inside the orchestrator container. It does not make the agents' memory (engram) comparable between replicates:
@@ -27,6 +27,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
+import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { detectFakeSpec } from "./fake-pass-detector.ts";
 import {
   ARM, CASE_KIND, armOrder, assessSpecs, classifyOutcome, invalidReplicateReasons, matchesExpected, parseArguments, parseCases,
@@ -87,6 +88,8 @@ export interface AppFacts {
   testDataPrefix: string;
   /** `qa.shadow` of its config. */
   shadow: boolean;
+  /** `qa.changeCoverage.mode` of its config; absent is `signal`, the engine's default. */
+  coverageMode?: "off" | "signal" | "enforce";
   /** The repos of the backend services it declares. */
   services: string[];
   testIdAttribute?: string;
@@ -203,6 +206,17 @@ const sum = (values: ReadonlyArray<number | null>): number | null => {
 };
 
 const isAccepted = (verdict: RunVerdict | null): boolean => verdict === "pass" || verdict === "flaky";
+
+/**
+ * Whether the pipeline would have published this run: a pass or flaky verdict that the reviewer did not reject (no reviewer figure is not a
+ * rejection) and that the app's change-coverage policy does not block (only `enforce` blocks, and only a failed measurement).
+ */
+function pipelineAccepted(report: ProbeReport | null, app: AppFacts): boolean {
+  if (!isAccepted((report?.verdict ?? null) as RunVerdict | null)) return false;
+  if (report?.reviewer?.approved === false) return false;
+  const coverage = report?.coverage;
+  return !(coverage && new DecideCoverageService().blocks(coverage.status, { mode: app.coverageMode ?? "signal", minRatio: coverage.minRatio }));
+}
 
 interface Plan {
   args: CampaignArguments;
@@ -353,7 +367,7 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
       outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth });
       /* Read right after the run and before anything restores the mirror: the files are the only evidence of what the pipeline accepted. */
       const delta = await deps.pipelineDelta(app, snapshot);
-      if (isAccepted((outcome.report?.verdict ?? null) as RunVerdict | null) && !outcome.capped && !outcome.lost) files = delta.files;
+      if (pipelineAccepted(outcome.report, app) && !outcome.capped && !outcome.lost) files = delta.files;
       else rejected = delta.files;
     } else {
       outcome = await deps.runBaseline({ app: app.name, kind: c.kind, sha: c.sha, ...service, label, timeoutMin: args.wallCapMin, warm: args.warm, keepSpecsDir: filesDir, ...groundTruth });
@@ -506,6 +520,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       if (app.auth?.kind === "mtls") throw new Error(`app '${name}' logs in with a client certificate: the campaign does not support it`);
       return {
         name: app.name, repo: app.repo, baseUrl: app.dev.baseUrl, testDataPrefix: app.qa.testDataPrefix, shadow: app.qa.shadow === true, services: (app.services ?? []).map((s) => s.repo),
+        ...(app.qa.changeCoverage?.mode !== undefined ? { coverageMode: app.qa.changeCoverage.mode } : {}),
         ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
       };
     },
