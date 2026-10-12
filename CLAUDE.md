@@ -412,7 +412,10 @@ threat-model header first) and a canary-before-promote hot-swap.
   on, reads are capped; its header lists what it covers), never a bare `fs` call.
 - **Governance-sensitive changes ship alone** — security invariants, agent write
   authority, production activation switches: their own PR.
-- **Sequential queue** — one run at a time; never concurrent QA against DEV.
+- **Sequential queue** — one run at a time; runs never overlap against DEV. Within a run, every DEV action (a spec
+  execution or an authenticated agent-browser action) holds its test account's lease from the orchestrator: actions on
+  one account are serialized; actions run concurrently only on distinct accounts and only under the proxy's read-only
+  enforcement; an action that may write holds DEV exclusively. Agent-declared tags never decide isolation.
 - **Honor the explicit no-op.** Declared `noop` + reason + zero specs is a valid
   `skipped`. Silence is not a decision (`E-NO-DECISION` / `E-STEP-BUDGET` / `E-TIME-BUDGET`). `approved`
   is never a no-op signal.
