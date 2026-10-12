@@ -27,8 +27,12 @@ export interface SuiteRestoreResult {
 export interface SuiteCaptureInput extends SuiteRoot {
   runId: string;
   sha: string;
-  /** The specs (paths below the suite directory) that ran green in the accepted run. Only these are admitted; any other spec keeps the stored content. */
-  executedGreen: readonly string[];
+  /**
+   * The specs (paths below the suite directory) that ran green in the accepted run, each with the sha256 of the bytes that executed
+   * (`fingerprint`, taken before anything could rewrite them). A spec is admitted only while its bytes are still those: a regeneration
+   * after the run leaves a file that never executed, which keeps the stored content. Any other spec keeps the stored content too.
+   */
+  executedGreen: ReadonlyMap<string, string>;
   /** The hash of the `auth.setup.ts` that actually signed in this run; absent when none did. Only then is the login admitted. */
   authVerifiedSha256?: string;
 }
@@ -47,6 +51,8 @@ export interface SuiteCaptureResult {
 export interface SuiteStorePort {
   /** Puts the stored suite into the working copy, after a checkout and before the project setup. A store with nothing in it restores nothing. */
   restore(root: SuiteRoot): Promise<SuiteRestoreResult>;
+  /** The sha256 of the bytes each of these specs holds now, keyed by its normalized path; a spec that cannot be read confined is left out. Taken right after the run that executed them, it is the evidence a capture requires. */
+  fingerprint(root: SuiteRoot, specs: readonly string[]): Promise<ReadonlyMap<string, string>>;
   /** Replaces the stored suite with what an accepted run left. The caller calls it only after `restore` of the same run succeeded: a path the working copy lacks is read as deleted. */
   capture(input: SuiteCaptureInput): Promise<SuiteCaptureResult>;
   /** Marks the stored login as one that no longer works and takes it out of the working copy, so the project setup seeds the stock one again. */

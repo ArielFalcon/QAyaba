@@ -28,7 +28,10 @@ interface Rig {
   store(limits?: SuiteStoreLimits, readOnly?: boolean): SuiteStoreAdapter;
   manifest(): SuiteManifest;
   blobs(): string[];
-  capture(over?: Partial<SuiteCaptureInput>): ReturnType<SuiteStoreAdapter["capture"]>;
+  /** `executedGreen` as a list means "these paths ran green with the bytes they hold right now"; a map names the exact bytes that ran. */
+  capture(over?: Partial<Omit<SuiteCaptureInput, "executedGreen">> & { executedGreen?: readonly string[] | ReadonlyMap<string, string> }): ReturnType<SuiteStoreAdapter["capture"]>;
+  /** What the fingerprint of these paths is at this moment. */
+  ranGreen(...paths: string[]): Map<string, string>;
   warnings: string[];
 }
 
@@ -56,6 +59,8 @@ function rig(t: TestContext): Rig {
     writeFileSync(join(specDir, rel), text);
   };
   const adapter = store();
+  const ranGreen = (...paths: string[]): Map<string, string> =>
+    new Map(paths.filter((p) => existsSync(join(specDir, p))).map((p) => [p, sha(readFileSync(join(specDir, p)))]));
   return {
     base, mirrorDir, specDir, storeDir, tracked, warnings, put, store,
     read: (rel) => readFileSync(join(specDir, rel), "utf8"),
@@ -66,7 +71,8 @@ function rig(t: TestContext): Rig {
     },
     manifest: () => JSON.parse(readFileSync(join(storeDir, "manifest.json"), "utf8")) as SuiteManifest,
     blobs: () => (existsSync(join(storeDir, "blobs")) ? readdirSync(join(storeDir, "blobs")).sort() : []),
-    capture: (over = {}) => adapter.capture({ mirrorDir, specDir, runId: "run-1", sha: "abc1234", executedGreen: [], ...over }),
+    capture: (over = {}) => adapter.capture({ mirrorDir, specDir, runId: "run-1", sha: "abc1234", ...over, executedGreen: Array.isArray(over.executedGreen) ? ranGreen(...(over.executedGreen as string[])) : (over.executedGreen as ReadonlyMap<string, string> | undefined) ?? new Map() }),
+    ranGreen,
   };
 }
 
@@ -114,6 +120,42 @@ test("a spec is admitted only when it ran green this run; one that did not keeps
   assert.equal(r.read("flows/a.spec.ts"), "a v2");
   assert.equal(r.read("flows/b.spec.ts"), "b v1");
   assert.equal(r.has("flows/c.spec.ts"), false);
+});
+
+test("a spec whose bytes changed after they ran green is not admitted: the store keeps the content that ran", async (t) => {
+  const r = rig(t);
+  r.put("flows/a.spec.ts", "a ran green");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+
+  const ran = r.ranGreen("flows/a.spec.ts");
+  r.put("flows/a.spec.ts", "a regenerated after the run, never executed");
+  const result = await r.capture({ runId: "run-2", executedGreen: ran });
+
+  assert.equal(result.admitted, 0);
+  assert.equal(result.skipped.some((s) => s.path === "flows/a.spec.ts"), true, "the refusal is reported");
+  r.clean();
+  await r.store().restore(root(r));
+  assert.equal(r.read("flows/a.spec.ts"), "a ran green");
+});
+
+test("a new spec that was regenerated after it ran green is left out altogether", async (t) => {
+  const r = rig(t);
+  r.put("flows/new.spec.ts", "executed bytes");
+  const ran = r.ranGreen("flows/new.spec.ts");
+  r.put("flows/new.spec.ts", "other bytes");
+
+  const result = await r.capture({ executedGreen: ran });
+
+  assert.deepEqual({ entries: result.entries, admitted: result.admitted }, { entries: 0, admitted: 0 });
+  assert.equal(r.blobs().length, 0);
+});
+
+test("the fingerprint of a run names the bytes of each spec it is asked about, apart from a spec it cannot read", async (t) => {
+  const r = rig(t);
+  r.put("flows/a.spec.ts", "a");
+  const ran = await r.store().fingerprint(root(r), ["./flows/a.spec.ts", "flows/missing.spec.ts"]);
+
+  assert.deepEqual([...ran], [["flows/a.spec.ts", sha("a")]]);
 });
 
 test("a stored file the working copy no longer has is a deletion", async (t) => {
@@ -265,7 +307,7 @@ test("a file over the per-file cap is skipped, and a suite over the total cap st
   const adapter = r.store(limits);
   r.put("flows/small.spec.ts", "tiny");
   r.put("flows/huge.spec.ts", "0123456789");
-  const result = await adapter.capture({ mirrorDir: r.mirrorDir, specDir: r.specDir, runId: "r", sha: "s", executedGreen: ["flows/small.spec.ts", "flows/huge.spec.ts"] });
+  const result = await adapter.capture({ mirrorDir: r.mirrorDir, specDir: r.specDir, runId: "r", sha: "s", executedGreen: r.ranGreen("flows/small.spec.ts", "flows/huge.spec.ts") });
   assert.deepEqual(r.manifest().entries.map((e) => e.path), ["flows/small.spec.ts"]);
   assert.equal(result.skipped[0]?.path, "flows/huge.spec.ts");
 
@@ -273,7 +315,7 @@ test("a file over the per-file cap is skipped, and a suite over the total cap st
   r.put("flows/c.spec.ts", "ccccccc");
   r.put("flows/d.spec.ts", "ddddddd");
   await assert.rejects(
-    () => adapter.capture({ mirrorDir: r.mirrorDir, specDir: r.specDir, runId: "r2", sha: "s", executedGreen: ["flows/small.spec.ts", "flows/b.spec.ts", "flows/c.spec.ts", "flows/d.spec.ts"] }),
+    () => adapter.capture({ mirrorDir: r.mirrorDir, specDir: r.specDir, runId: "r2", sha: "s", executedGreen: r.ranGreen("flows/small.spec.ts", "flows/b.spec.ts", "flows/c.spec.ts", "flows/d.spec.ts") }),
     /over the store's limit/,
   );
   assert.deepEqual(r.manifest().entries.map((e) => e.path), ["flows/small.spec.ts"], "the previous store is untouched");
@@ -441,7 +483,7 @@ test("a read-only store restores, but a capture writes nothing and a demotion on
   r.clean();
   assert.equal((await frozen.restore(root(r))).restored, 3);
   r.put("flows/b.spec.ts", "b");
-  const captured = await frozen.capture({ ...root(r), runId: "r", sha: "s", executedGreen: ["flows/a.spec.ts", "flows/b.spec.ts"] });
+  const captured = await frozen.capture({ ...root(r), runId: "r", sha: "s", executedGreen: r.ranGreen("flows/a.spec.ts", "flows/b.spec.ts") });
   assert.deepEqual({ admitted: captured.admitted, dropped: captured.dropped }, { admitted: 0, dropped: 0 });
   await frozen.demoteAuth(root(r), "x");
 

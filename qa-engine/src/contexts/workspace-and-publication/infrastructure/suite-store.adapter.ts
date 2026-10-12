@@ -225,11 +225,21 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     return result;
   }
 
+  async fingerprint(root: SuiteRoot, specs: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    const hashes = new Map<string, string>();
+    for (const spec of specs) {
+      const path = normalizeSpecPath(spec);
+      const read = readOwnedSpecFile(root, path, this.limits.maxFileBytes);
+      if ("bytes" in read) hashes.set(path, sha256Of(read.bytes));
+    }
+    return hashes;
+  }
+
   async capture(input: SuiteCaptureInput): Promise<SuiteCaptureResult> {
     if (this.deps.readOnly) return { entries: this.load().entries.length, admitted: 0, dropped: 0, skipped: [] };
     const manifest = this.load();
     const tracked = await this.deps.listTracked(input.mirrorDir, this.deps.specRelDir);
-    const green = new Set(input.executedGreen.map(normalizeSpecPath));
+    const green = new Map([...input.executedGreen].map(([path, hash]) => [normalizeSpecPath(path), hash]));
     const admittedBy: SuiteEntryAdmission = { runId: input.runId, sha: input.sha, at: this.deps.now().toISOString() };
     const stored = new Map(manifest.entries.map((entry) => [entry.path, entry]));
     const skipped: Array<{ path: string; reason: string }> = [];
@@ -237,7 +247,8 @@ export class SuiteStoreAdapter implements SuiteStorePort {
 
     for (const file of this.suiteFiles(input)) {
       const kind = suiteEntryKind(file);
-      if (kind === SUITE_ENTRY_KIND.SPEC && !green.has(file)) {
+      const executed = green.get(file);
+      if (kind === SUITE_ENTRY_KIND.SPEC && executed === undefined) {
         decisions.set(file, { action: "keep" });
         continue;
       }
@@ -258,6 +269,11 @@ export class SuiteStoreAdapter implements SuiteStorePort {
         continue;
       }
       const sha = sha256Of(bytes);
+      if (kind === SUITE_ENTRY_KIND.SPEC && sha !== executed) {
+        decisions.set(file, { action: "keep" });
+        skipped.push({ path: file, reason: "changed after it ran green: these bytes never executed" });
+        continue;
+      }
       if (kind === SUITE_ENTRY_KIND.AUTH_SETUP && (sha !== input.authVerifiedSha256 || isStockAuthSetup(bytes.toString("utf8")))) {
         decisions.set(file, { action: "keep" });
         skipped.push({ path: file, reason: "not the login that signed in" });

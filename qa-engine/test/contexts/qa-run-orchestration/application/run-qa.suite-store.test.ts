@@ -24,6 +24,8 @@ interface Rig {
   captured: SuiteCaptureInput[];
   demoted: string[];
   store: SuiteStorePort;
+  /** What each spec file holds right now, by path; `fingerprint` reports it, and a test rewrites it to stand for a regeneration. */
+  disk: Map<string, string>;
   deps(over?: Partial<RunQaUseCaseDeps>): RunQaUseCaseDeps;
 }
 
@@ -31,7 +33,12 @@ function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrow
   const events: string[] = [];
   const captured: SuiteCaptureInput[] = [];
   const demoted: string[] = [];
+  const disk = new Map<string, string>([["flows/a.spec.ts", "a v1"], ["flows/b.spec.ts", "b v1"]]);
   const store: SuiteStorePort = {
+    fingerprint: async (_root, specs) => {
+      events.push("fingerprint");
+      return new Map(specs.map((spec) => spec.replace(/^\.\//, "")).filter((spec) => disk.has(spec)).map((spec) => [spec, `sha:${disk.get(spec)}`] as const));
+    },
     restore: async () => {
       events.push("restore");
       if (opts.restoreThrows) throw opts.restoreThrows;
@@ -65,7 +72,7 @@ function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrow
     config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
     ...over,
   });
-  return { events, captured, demoted, store, deps };
+  return { events, captured, demoted, store, disk, deps };
 }
 
 const withConfig = (config: Partial<RunQaConfig>): Partial<RunQaUseCaseDeps> => ({ config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, ...config } });
@@ -98,8 +105,43 @@ test("an accepted run captures its suite before the pull request is opened, with
   assert.deepEqual(r.events.filter((e) => e === "capture" || e === "publish"), ["capture", "publish"]);
   assert.equal(r.captured.length, 1);
   assert.deepEqual({ ...r.captured[0], executedGreen: [...r.captured[0]!.executedGreen].sort() }, {
-    ...WORKSPACE, runId: "suite-run", sha: "abc1234", executedGreen: ["./flows/b.spec.ts", "flows/a.spec.ts"],
+    ...WORKSPACE, runId: "suite-run", sha: "abc1234", executedGreen: [["flows/a.spec.ts", "sha:a v1"], ["flows/b.spec.ts", "sha:b v1"]],
   });
+});
+
+test("a spec the reviewer's correction round rewrote is captured with the bytes that executed, never with the regenerated ones", async () => {
+  const r = rig();
+  let reviews = 0;
+  let executions = 0;
+  const out = await new RunQaUseCase(r.deps({
+    generation: {
+      generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+        if (enrichment?.reviewCorrections !== undefined) r.disk.set("flows/a.spec.ts", "a v2, never executed");
+        return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+      },
+    },
+    review: { review: async () => (reviews++ === 0 ? { approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+    execution: { execute: async () => (executions++, { verdict: "pass", cases: PASSING, logs: "" }) },
+  })).run(INPUT);
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(executions, 1, "the correction round is not executed again: what it wrote has no evidence");
+  assert.equal(r.captured.length, 1);
+  const green = r.captured[0]!.executedGreen;
+  assert.equal(green.get("flows/a.spec.ts"), "sha:a v1", "the hash is that of the executed bytes");
+  assert.notEqual(green.get("flows/a.spec.ts"), `sha:${r.disk.get("flows/a.spec.ts")}`, "and it does not match the bytes now on disk");
+});
+
+test("a fingerprint that cannot be taken captures nothing admitted, and changes neither the verdict nor the publication", async () => {
+  const r = rig();
+  r.store.fingerprint = async () => {
+    throw new Error("EIO");
+  };
+  const out = await new RunQaUseCase(r.deps()).run(INPUT);
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(r.events.includes("publish"), true);
+  assert.deepEqual([...(r.captured[0]?.executedGreen ?? [])], []);
 });
 
 test("a shadow run that publishes nothing still keeps the suite it proved", async () => {
@@ -175,7 +217,7 @@ test("a restored login that fails before generation is demoted, the stock one se
   const out = await new RunQaUseCase(r.deps({ authSession, authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } } })).run(INPUT);
 
   assert.equal(out.decision.verdict, "pass");
-  assert.deepEqual(r.events.filter((e) => e !== "capture" && e !== "publish"), ["prepare", "restore", "setup", "demote", "setup"]);
+  assert.deepEqual(r.events.filter((e) => e !== "capture" && e !== "publish" && e !== "fingerprint"), ["prepare", "restore", "setup", "demote", "setup"]);
   assert.equal(r.demoted.length, 1);
   assert.doesNotMatch(r.demoted[0]!, /login form not found/, "the reason names the cause in general; the login's own output is not kept");
   assert.deepEqual(attempts.slice(0, 2), ["pre-generate", "pre-generate-after-demote"]);
@@ -201,5 +243,5 @@ test("a run without a suite store behaves as it always did", async () => {
   const { suiteStore: _omitted, ...without } = r.deps();
   const out = await new RunQaUseCase(without).run(INPUT);
   assert.equal(out.decision.sideEffect, "pr");
-  assert.equal(r.events.includes("restore") || r.events.includes("capture"), false);
+  assert.equal(r.events.includes("restore") || r.events.includes("capture") || r.events.includes("fingerprint"), false);
 });

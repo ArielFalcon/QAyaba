@@ -331,7 +331,7 @@ test("under the campaign freeze the suite store is read-only: a capture writes n
   process.env.QAYABA_ROOT = root;
   try {
     const config = buildRewrittenCompositionConfig(cfg("suite-store-frozen"), { getAgentDeps: stubAgentDeps, env: { QA_CAMPAIGN_FREEZE: "1" } }, "qa-bot-abc1234-run1", { mode: "diff" });
-    const result = await config.suiteStore!.capture({ mirrorDir: root, specDir: join(root, "e2e"), runId: "r", sha: "s", executedGreen: ["flows/a.spec.ts"] });
+    const result = await config.suiteStore!.capture({ mirrorDir: root, specDir: join(root, "e2e"), runId: "r", sha: "s", executedGreen: new Map([["flows/a.spec.ts", "0".repeat(64)]]) });
     assert.deepEqual({ admitted: result.admitted, dropped: result.dropped }, { admitted: 0, dropped: 0 });
     assert.equal(existsSync(join(root, "data", "suites")), false);
   } finally {

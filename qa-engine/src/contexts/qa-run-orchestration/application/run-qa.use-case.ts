@@ -1791,6 +1791,24 @@ export class RunQaUseCase {
     }
 
     /*
+     * The suite store admits a spec only with the bytes that executed green, so those bytes are fingerprinted here, before the
+     * reviewer's correction rounds or the coverage regeneration can rewrite a file that is never executed again. Off-path: a fault
+     * leaves no evidence, and a capture without evidence admits no spec.
+     */
+    let executedGreen: ReadonlyMap<string, string> = new Map();
+    if (this.deps.suiteStore && suiteRestored && run.verdict === "pass") {
+      try {
+        executedGreen = await this.deps.suiteStore.fingerprint(
+          { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
+          run.cases.filter((c) => c.status === "pass" && c.file !== undefined).map((c) => c.file!),
+        );
+      } catch (fingerprintErr) {
+        rethrowIfUntrusted(fingerprintErr);
+        this.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
+      }
+    }
+
+    /*
      * Capture executedRed before `if (run.verdict === "pass")` narrows the type;
      * inside that block a fail-check would be an unreachable comparison.
      */
@@ -2007,7 +2025,7 @@ export class RunQaUseCase {
           reviewerApproved = false;
           break;
         }
-        /* This loop does not re-execute regenerated specs against DEV. Execution evidence is round-0-only. */
+        /* This loop does not re-execute regenerated specs against DEV. Execution evidence is round-0-only: the suite store holds the bytes that ran (`executedGreen`), so a regenerated file is never admitted as proven. */
         reviewCases = regen.specs.map((file) => ({ name: file, file, status: run.cases[0]?.status ?? "pass" }));
       }
       /* A genuine review verdict overwrites generation's self-approval default. */
@@ -2095,7 +2113,7 @@ export class RunQaUseCase {
           specDir: workspace.specDir,
           runId: input.runId,
           sha: input.sha.toString(),
-          executedGreen: run.cases.filter((c) => c.status === "pass" && c.file !== undefined).map((c) => c.file!),
+          executedGreen,
           ...(authVerifiedSha256 !== undefined ? { authVerifiedSha256 } : {}),
         });
         this.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
