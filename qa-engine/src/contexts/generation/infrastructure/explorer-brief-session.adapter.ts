@@ -12,6 +12,7 @@
 import { dirname } from "node:path";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
+import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 import type { ArchitectureContext, CommitIntent, ExplorationBrief, OpencodeRunInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent.ts";
 import { buildExplorerPrompt } from "./prompt-builders/prompts.ts";
@@ -132,6 +133,8 @@ export class ExplorerBriefSessionAdapter {
       const { output } = await session.prompt(prompt, { textOnly: true, ...(stepLimit !== undefined ? { stepLimit } : {}) });
       return this.deps.parseBrief(output) ?? undefined;
     } catch (err) {
+      /* The run's spent deadline ends the run; only another fault is fail-open. */
+      rethrowIfRunDeadline(err);
       console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     } finally {

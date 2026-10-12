@@ -11,6 +11,7 @@ import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.
 import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/domain/harness-facts.ts";
 import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
+import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 import { withDeclaredResources } from "./implementation-resources.ts";
@@ -274,6 +275,8 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(opts?.runId ? { runId: opts.runId } : {}),
         });
       } catch (err) {
+        /* The run's spent deadline ends the run; only another fault is fail-open. */
+        rethrowIfRunDeadline(err);
         console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       }
     }

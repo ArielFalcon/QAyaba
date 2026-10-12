@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { OpencodeRunInput, StepLimitRole } from "@contexts/generation/application/ports/generation-ports.ts";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter.ts";
 
 const staticCtx = {
@@ -124,6 +125,28 @@ test("explore(): prompt() throwing still disposes the session and resolves to un
 
   assert.equal(brief, undefined);
   assert.equal(disposed, true, "dispose must run even when prompt() throws");
+});
+
+test("explore(): the run's spent deadline is not fail-open: it propagates, and the session is still disposed", async () => {
+  for (const where of ["open", "prompt"] as const) {
+    let disposed = false;
+    const deadline = new RunDeadlineExceededError(600_000, "diff", "explorer", "before-turn");
+    const session: AgentSession = {
+      prompt: async () => {
+        throw deadline;
+      },
+      dispose: async () => {
+        disposed = true;
+      },
+    };
+    const runtime: AgentRuntimePort = where === "open"
+      ? { openSession: async () => { throw deadline; } }
+      : fakeRuntime(session);
+    const adapter = new ExplorerBriefSessionAdapter(staticCtx, { runtime, parseBrief: () => null });
+
+    await assert.rejects(adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" }), RunDeadlineExceededError, where);
+    if (where === "prompt") assert.equal(disposed, true);
+  }
 });
 
 test("explore(): a parse failure (null) resolves to undefined, still disposes", async () => {

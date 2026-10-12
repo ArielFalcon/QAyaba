@@ -3,6 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -800,6 +801,27 @@ test("exploreBrief throw is fail-open — pack still builds without a brief", as
     const result = await adapter.ground(dir, undefined, undefined, { sha: "abc1234" });
     assert.equal(result.contextPack, "## pack");
     assert.equal(seenBrief, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a spent run deadline in the explorer pass is not fail-open: ground() rejects with it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-deadline-"));
+  try {
+    let built = false;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        exploreBrief: async () => { throw new RunDeadlineExceededError(600_000, "diff", "explorer", "mid-turn"); },
+        buildContextPack: async () => {
+          built = true;
+          return { text: "## pack", domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+    await assert.rejects(adapter.ground(dir, undefined, undefined, { sha: "abc1234" }), RunDeadlineExceededError);
+    assert.equal(built, false, "no time is spent on the pack of a run whose time is gone");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
