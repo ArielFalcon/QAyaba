@@ -377,7 +377,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/integrations/opencode-client.ts:314-316",
       "src/integrations/opencode-client.ts:324-334",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
-      "src/server/rewritten-engine-factory.ts:521-553",
+      "src/server/rewritten-engine-factory.ts:524-556",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",

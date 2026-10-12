@@ -70,6 +70,9 @@ services:
       # reflector, process audit with its incidents and context-stale flag), so the replicates of an A/B
       # campaign start from the same ground. Empty is off (docs/efficiency-benchmark.md, "Campaigns").
       QA_CAMPAIGN_FREEZE: ${QA_CAMPAIGN_FREEZE:-}
+      # Re-enables the reflector pass and the injection of unproven (candidate / low-confidence) learned
+      # rules into prompts. Empty is off, which is the default (CLAUDE.md, "Cross-run learning").
+      QA_REFLECTOR_ENABLED: ${QA_REFLECTOR_ENABLED:-}
     volumes:
       - ./src:/app/src
       # Live src imports qa-engine via tsconfig paths. The image copy goes stale

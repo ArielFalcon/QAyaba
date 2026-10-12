@@ -149,3 +149,54 @@ test("listAll tolerates a store without selectAllRules wired (fail-open to [])",
   const all = await repo.listAll("test-app", 200);
   assert.deepEqual(all, []);
 });
+
+/* ── Quarantine and the injection policy ────────────────────────────────────────────────────────── */
+
+const QUARANTINED_AT = "2026-10-01T00:00:00.000Z";
+const quarantinedRow = { ...rows[1]!, id: "rq", trigger_text: "tq", quarantined_at: QUARANTINED_AT };
+const noStore = { upsert: () => {}, recordOutcome: () => {} };
+
+test("a quarantined row is never retrieved, whatever its status", async () => {
+  const repo = new SqliteLearningRepository({ selectRules: () => [quarantinedRow, { ...rows[0]!, quarantined_at: QUARANTINED_AT }, { ...rows[1]!, quarantined_at: null }], ...noStore });
+  const top = await repo.topRules("test-app", Sha.of("abcdef1"), 10);
+  assert.deepEqual(top.map((r) => r.trigger), ["t2"]);
+});
+
+test("listAll carries the quarantine mark so an operator and the quarantine itself can see it", async () => {
+  const repo = new SqliteLearningRepository({ selectRules: () => [], selectAllRules: () => [quarantinedRow, rows[1]!], ...noStore });
+  const all = await repo.listAll("test-app", 10);
+  assert.deepEqual(all.map((r) => r.quarantinedAt ?? null), [QUARANTINED_AT, null]);
+});
+
+test("with unproven rules held back, a candidate row is not retrieved and a proven one is", async () => {
+  const proven = { ...rows[1]!, confidence: "high" };
+  const repo = new SqliteLearningRepository({ selectRules: () => [rows[0]!, proven], ...noStore }, { unproven: false });
+  const top = await repo.topRules("test-app", Sha.of("abcdef1"), 10);
+  assert.deepEqual(top.map((r) => r.trigger), ["t2"]);
+});
+
+test("unproven rules are retrieved unless the repository was told to hold them back", async () => {
+  const repo = new SqliteLearningRepository({ selectRules: () => rows, ...noStore });
+  assert.equal((await repo.topRules("test-app", Sha.of("abcdef1"), 10)).length, 2);
+  const held = new SqliteLearningRepository({ selectRules: () => rows, ...noStore }, { unproven: true });
+  assert.equal((await held.topRules("test-app", Sha.of("abcdef1"), 10)).length, 2);
+});
+
+test("quarantine hands the store the app, the ids and the moment, and returns how many rules it marked", async () => {
+  const calls: unknown[] = [];
+  const repo = new SqliteLearningRepository({ ...noStore, selectRules: () => [], quarantine: (app, ids, at) => { calls.push([app, [...ids], at]); return ids.length - 1; } });
+  assert.equal(await repo.quarantine("demo", ["a", "b", "c"], QUARANTINED_AT), 2);
+  assert.deepEqual(calls, [["demo", ["a", "b", "c"], QUARANTINED_AT]]);
+});
+
+test("quarantine of nothing touches nothing", async () => {
+  const calls: unknown[] = [];
+  const repo = new SqliteLearningRepository({ ...noStore, selectRules: () => [], quarantine: () => { calls.push(1); return 0; } });
+  assert.equal(await repo.quarantine("demo", [], QUARANTINED_AT), 0);
+  assert.equal(calls.length, 0);
+});
+
+test("a store that cannot quarantine fails the operator's command loudly instead of reporting a rule set aside that is not", async () => {
+  const repo = new SqliteLearningRepository({ ...noStore, selectRules: () => [] });
+  await assert.rejects(repo.quarantine("demo", ["a"], QUARANTINED_AT), /cannot quarantine/);
+});

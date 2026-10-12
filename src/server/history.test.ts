@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
+import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -286,6 +286,72 @@ test("listLearningRulesForGovernance: excludes deprecated/superseded rows, same 
   assert.ok(ids.includes("gov-active"));
   assert.ok(ids.includes("gov-candidate"));
   assert.ok(!ids.includes("gov-deprecated"), "deprecated rows must never reach governance retrieval");
+});
+
+/* ── Quarantine: a rule set aside, never deleted ───────────────────────────────────────────────── */
+
+const QUARANTINE_AT = "2026-10-12T10:00:00.000Z";
+
+function seedQuarantineApp(app: string): void {
+  upsertLearningRule({ id: `${app}-cand`, app, trigger: "t1", action: "a", errorClass: "E-STATIC", source: "run-1" });
+  upsertLearningRule({ id: `${app}-act`, app, trigger: "t2", action: "a", errorClass: "E-STATIC", source: "run-2", initialStatus: "active" });
+  upsertLearningRule({ id: `${app}-other`, app, trigger: "t3", action: "a", errorClass: "E-STATIC", source: "run-3" });
+}
+
+test("quarantineLearningRules marks the named rules, keeps them in the ledger and returns how many it newly marked", () => {
+  const app = "hist-quarantine-mark";
+  seedQuarantineApp(app);
+  assert.equal(quarantineLearningRules(app, [`${app}-cand`, `${app}-act`], QUARANTINE_AT), 2);
+  assert.equal(getLearningRule(app, `${app}-cand`)?.quarantinedAt, QUARANTINE_AT);
+  assert.equal(getLearningRule(app, `${app}-act`)?.quarantinedAt, QUARANTINE_AT);
+  assert.equal(getLearningRule(app, `${app}-other`)?.quarantinedAt, null, "a rule not named is left in force");
+  assert.equal(listAllLearningRules(app).length, 3, "nothing is deleted");
+});
+
+test("a quarantined rule is never retrieved, listed as live or folded onto, whatever its status", () => {
+  const app = "hist-quarantine-excluded";
+  seedQuarantineApp(app);
+  quarantineLearningRules(app, [`${app}-cand`, `${app}-act`], QUARANTINE_AT);
+  assert.deepEqual(listLearningRulesForGovernance(app).map((r) => r.id), [`${app}-other`]);
+  assert.deepEqual(listLearningRules(app, 50).map((r) => r.id), [`${app}-other`]);
+  recordRuleOutcome(`${app}-cand`, 1);
+  recordRuleOutcome(`${app}-act`, 1);
+  assert.equal(getLearningRule(app, `${app}-cand`)?.outcomeCount, 0, "a run that retrieved the rule before the quarantine credits it nothing");
+  assert.equal(getLearningRule(app, `${app}-act`)?.outcomeCount, 0);
+});
+
+test("quarantining again marks nothing and keeps the first mark: the command is idempotent", () => {
+  const app = "hist-quarantine-idempotent";
+  seedQuarantineApp(app);
+  assert.equal(quarantineLearningRules(app, [`${app}-cand`], QUARANTINE_AT), 1);
+  assert.equal(quarantineLearningRules(app, [`${app}-cand`], "2026-12-01T00:00:00.000Z"), 0);
+  assert.equal(getLearningRule(app, `${app}-cand`)?.quarantinedAt, QUARANTINE_AT);
+});
+
+test("a quarantine reaches only the app it was given, even for an id that exists in another app", () => {
+  seedQuarantineApp("hist-quarantine-a");
+  seedQuarantineApp("hist-quarantine-b");
+  assert.equal(quarantineLearningRules("hist-quarantine-a", ["hist-quarantine-b-cand"], QUARANTINE_AT), 0);
+  assert.equal(getLearningRule("hist-quarantine-b", "hist-quarantine-b-cand")?.quarantinedAt, null);
+});
+
+test("saving a rule again (a fold's upsert) does not lift its quarantine", () => {
+  const app = "hist-quarantine-upsert";
+  seedQuarantineApp(app);
+  quarantineLearningRules(app, [`${app}-cand`], QUARANTINE_AT);
+  upsertLearningRule({ id: `${app}-cand`, app, trigger: "t1", action: "a", errorClass: "E-STATIC", source: "run-1" });
+  assert.equal(getLearningRule(app, `${app}-cand`)?.quarantinedAt, QUARANTINE_AT);
+});
+
+test("releasing a quarantined rule puts it back in force, and an unknown or unquarantined rule is reported as such", () => {
+  const app = "hist-quarantine-release";
+  seedQuarantineApp(app);
+  quarantineLearningRules(app, [`${app}-cand`], QUARANTINE_AT);
+  assert.equal(releaseLearningRuleQuarantine(`${app}-cand`), true);
+  assert.equal(getLearningRule(app, `${app}-cand`)?.quarantinedAt, null);
+  assert.ok(listLearningRulesForGovernance(app).some((r) => r.id === `${app}-cand`));
+  assert.equal(releaseLearningRuleQuarantine(`${app}-cand`), false, "nothing to release the second time");
+  assert.equal(releaseLearningRuleQuarantine("no-such-rule"), false);
 });
 
 test("createRecord persists triggerRepo and getRecord returns it", () => {

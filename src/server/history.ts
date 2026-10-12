@@ -262,7 +262,8 @@ function ensureDb(): void {
       source TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'candidate',
       archetype TEXT,
-      at TEXT NOT NULL
+      at TEXT NOT NULL,
+      quarantined_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_rules_app ON learning_rules(app);
@@ -342,6 +343,10 @@ function ensureDb(): void {
   if (!columnExists("learning_rules", "oracle_outcome_count")) {
     db.exec("ALTER TABLE learning_rules ADD COLUMN oracle_outcome_count INTEGER NOT NULL DEFAULT 0");
   }
+  /* A rule an operator set aside (learning:quarantine): NULL while in force. Existing rows stay in force. */
+  if (!columnExists("learning_rules", "quarantined_at")) {
+    db.exec("ALTER TABLE learning_rules ADD COLUMN quarantined_at TEXT");
+  }
   if (!columnExists("runs", "trigger_repo")) {
     db.exec("ALTER TABLE runs ADD COLUMN trigger_repo TEXT");
   }
@@ -409,7 +414,7 @@ function ensureDb(): void {
       -- insert (a rule's identity/shape never changes). Distilled IDs are random so this branch only
       -- fires on an explicit stable-ID re-upsert (tests), where preserving the original is correct.
   `);
-  listRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') ORDER BY (status = 'active') DESC, COALESCE(success_rate, 0) DESC, at DESC LIMIT ?");
+  listRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') AND quarantined_at IS NULL ORDER BY (status = 'active') DESC, COALESCE(success_rate, 0) DESC, at DESC LIMIT ?");
   /*
    * Governance-path fetch (backs listLearningRulesForGovernance, below): every retrievable row, no
    * ORDER BY and no LIMIT — ranking is RuleGovernanceService's job alone (see that service's own
@@ -417,7 +422,7 @@ function ensureDb(): void {
    * match governance's ranking (success rate plus the per-run relevance bias, plus the newest-
    * candidate exploration slots), so a cap always hides rules governance would pick.
    */
-  listRetrievableRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate')");
+  listRetrievableRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') AND quarantined_at IS NULL");
   getRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE id = ?");
   getAppRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND id = ?");
   listAllRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? ORDER BY at DESC LIMIT ?");
@@ -823,6 +828,7 @@ function rowToRule(row: Record<string, unknown>): LearningRule {
     source: row.source as string,
     status: normalizeRuleStatus(row.status),
     at: row.at as string,
+    quarantinedAt: (row.quarantined_at as string | null | undefined) ?? null,
   };
 }
 
@@ -906,6 +912,8 @@ export function recordRuleOutcome(ruleId: string, score: number, coverageCreditC
   if (!row) return;
   const current = rowToRule(row);
   if (current.status !== "active" && current.status !== "candidate") return;
+  /* A rule an operator set aside accrues nothing, even for a run that retrieved it before the quarantine. */
+  if (current.quarantinedAt) return;
   /*
    * rowToRule already normalized a retired "pending" status to "candidate" (RuleStatus no longer
    * carries it), so the shell LearningRule is structurally assignable to the fold's own
@@ -940,6 +948,29 @@ export function setRuleStatusByHuman(ruleId: string, status: "deprecated" | "act
     .prepare("UPDATE learning_rules SET status = ?, last_verified = ? WHERE id = ?")
     .run(status, new Date().toISOString(), ruleId);
   return info.changes > 0;
+}
+
+/*
+ * Operator quarantine (npm run learning:quarantine): sets the named rules of ONE app aside without deleting them. A
+ * quarantined rule is excluded from every retrieval and live-ledger read above and refused by recordRuleOutcome, so it
+ * is never injected into a prompt and never credited. Only rules not yet quarantined are marked, so the first mark is
+ * kept and a second run of the command changes nothing. Returns how many rules this call newly marked.
+ */
+export function quarantineLearningRules(app: string, ruleIds: readonly string[], at: string): number {
+  ensureDb();
+  const mark = db.prepare("UPDATE learning_rules SET quarantined_at = ? WHERE app = ? AND id = ? AND quarantined_at IS NULL");
+  const markAll = db.transaction((ids: readonly string[]) => {
+    let marked = 0;
+    for (const id of ids) marked += mark.run(at, app, id).changes;
+    return marked;
+  });
+  return markAll(ruleIds);
+}
+
+/* Lifts a quarantine: the rule is in force again. False when the rule is unknown or was not quarantined. */
+export function releaseLearningRuleQuarantine(ruleId: string): boolean {
+  ensureDb();
+  return db.prepare("UPDATE learning_rules SET quarantined_at = NULL WHERE id = ? AND quarantined_at IS NOT NULL").run(ruleId).changes > 0;
 }
 
 /*

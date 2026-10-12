@@ -2,7 +2,7 @@
 import type { LearningRepositoryPort, LearningRule, RuleStatus, ErrorClass, RelevanceBias } from "../application/ports/index.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import { RuleGovernanceService } from "../domain/rule-governance.service.ts";
+import { RuleGovernanceService, type InjectionPolicy } from "../domain/rule-governance.service.ts";
 
 export interface LearningRow {
   id: string;
@@ -19,6 +19,8 @@ export interface LearningRow {
   last_verified: string | null;
   source: string;
   at: string;
+  /** Set when an operator quarantined the rule; null or absent: in force. */
+  quarantined_at?: string | null;
 }
 export interface LearningStore {
   selectRules(app: string): LearningRow[];
@@ -26,6 +28,8 @@ export interface LearningStore {
   recordOutcome(outcome: RunOutcome): void;
   incrementUsage?(ids: readonly string[]): void;
   selectAllRules?(app: string, limit: number): LearningRow[];
+  /** Marks the app's rules by id as quarantined at `at` (those not already) and returns how many it marked. */
+  quarantine?(app: string, ids: readonly string[], at: string): number;
 }
 
 function coerceStatus(raw: string): RuleStatus {
@@ -49,12 +53,20 @@ function rowToRule(row: LearningRow): LearningRule {
     lastVerified: row.last_verified,
     source: row.source,
     at: row.at,
+    quarantinedAt: row.quarantined_at ?? null,
   };
 }
 
 export class SqliteLearningRepository implements LearningRepositoryPort {
   private readonly governance = new RuleGovernanceService();
-  constructor(private readonly store: LearningStore) {}
+  /**
+   * `unproven: false` retrieves only rules that earned their place (active, above low confidence), so no
+   * experiment's output reaches a prompt. Absent: every retrievable rule, as before; the composition root decides.
+   */
+  constructor(
+    private readonly store: LearningStore,
+    private readonly policy: InjectionPolicy = { unproven: true },
+  ) {}
 
   async save(rule: LearningRule): Promise<void> {
     this.store.upsert(rule);
@@ -62,7 +74,7 @@ export class SqliteLearningRepository implements LearningRepositoryPort {
 
   async topRules(app: string, _sha: Sha, limit: number, relevance?: RelevanceBias): Promise<LearningRule[]> {
     const rules = this.store.selectRules(app).map(rowToRule);
-    return this.governance.topRules(rules, limit, relevance);
+    return this.governance.topRules(rules, limit, relevance, this.policy);
   }
 
   async applyOutcome(outcome: RunOutcome): Promise<void> {
@@ -72,6 +84,13 @@ export class SqliteLearningRepository implements LearningRepositoryPort {
   /* Off-path telemetry: increment usage on retrieved rules. A store fake that omits incrementUsage is unaffected. Never gates publish. */
   async incrementUsage(ids: readonly string[]): Promise<void> {
     this.store.incrementUsage?.(ids);
+  }
+
+  /** Sets the rules aside without deleting them: they are never retrieved or folded onto again. Returns how many were newly marked. A store that cannot do it throws, since a quarantine that silently did nothing is worse than none. */
+  async quarantine(app: string, ids: readonly string[], at: string): Promise<number> {
+    if (ids.length === 0) return 0;
+    if (!this.store.quarantine) throw new Error("this learning store cannot quarantine rules");
+    return this.store.quarantine(app, ids, at);
   }
 
   /* Delegates to the injected store's selectAllRules when present; omitted collaborator is a fail-open no-op ([]). Never gates publish. */

@@ -123,9 +123,10 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, resolvePreserveU
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
+import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
+import { resolveReflectorEnabled } from "./reflector-switch";
 import { attributableRules, preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
@@ -356,7 +357,9 @@ export function historyLearningStore(appName: string): LearningStore {
         last_verified: r.lastVerified,
         source: r.source,
         at: r.at,
+        quarantined_at: r.quarantinedAt ?? null,
       })),
+    quarantine: (app, ids, at) => quarantineLearningRules(app, ids, at),
     upsert: (rule) =>
       upsertLearningRule({
         id: rule.id,
@@ -635,6 +638,8 @@ export function buildRewrittenCompositionConfig(
    * composition root reads as "not wired" (a provable no-op), never as a stub that pretends to learn.
    */
   const campaignFrozen = resolveCampaignFreeze(deps.env ?? process.env);
+  /* OFF by default (QA_REFLECTOR_ENABLED, see reflector-switch.ts): no reflection pass, and only proven rules reach a prompt. */
+  const reflectorEnabled = resolveReflectorEnabled(deps.env ?? process.env);
 
   const triggerService =
     run.triggerRepo && run.triggerRepo !== app.repo
@@ -825,7 +830,7 @@ export function buildRewrittenCompositionConfig(
 
 
   /* Built even when frozen (cheap, no I/O): the frozen config simply does not hand it to the engine. */
-  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name));
+  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { unproven: reflectorEnabled });
 
 
   const setupAdapter = buildSetupAdapter();
@@ -1097,7 +1102,7 @@ export function buildRewrittenCompositionConfig(
      * REFLECTOR_TIMEOUT_MS parsed here with Number(process.env.X) || default; unset falls back
      * to the adapter's REFLECT_TIMEOUT_MS (60_000).
      */
-    ...(campaignFrozen ? {} : { reflectorPort: new ReflectorPortAdapter({
+    ...(campaignFrozen || !reflectorEnabled ? {} : { reflectorPort: new ReflectorPortAdapter({
       runtime: runtimeAdapter,
       repo: learningRepo,
 

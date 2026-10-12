@@ -3,6 +3,16 @@ import type { LearningRule } from "../application/ports/index.ts";
 
 const RETRIEVABLE: ReadonlySet<LearningRule["status"]> = new Set(["active", "candidate"]);
 
+/** Which rules may be injected into a prompt. `unproven: false` keeps out everything an experiment authored: a candidate, and an active rule whose confidence has fallen to low. */
+export interface InjectionPolicy {
+  unproven: boolean;
+}
+const INJECT_EVERYTHING: InjectionPolicy = { unproven: true };
+
+function isProven(rule: LearningRule): boolean {
+  return rule.status === "active" && rule.confidence !== "low";
+}
+
 export interface RelevanceBias {
   errorClass?: string | null;
   archetypes?: readonly string[];
@@ -45,7 +55,7 @@ export class RuleGovernanceService {
     });
   }
 
-  topRules(rules: readonly LearningRule[], limit: number, relevance?: RelevanceBias): LearningRule[] {
+  topRules(rules: readonly LearningRule[], limit: number, relevance?: RelevanceBias, policy: InjectionPolicy = INJECT_EVERYTHING): LearningRule[] {
     const bias = relevance
       ? (r: LearningRule): number => {
           let s = 0;
@@ -54,7 +64,8 @@ export class RuleGovernanceService {
           return s;
         }
       : undefined;
-    const eligible = rules.filter((r) => RETRIEVABLE.has(r.status));
+    /* A quarantined rule is set aside whatever its status: it is never retrieved, so it cannot be injected or credited. */
+    const eligible = rules.filter((r) => RETRIEVABLE.has(r.status) && !r.quarantinedAt && (policy.unproven || isProven(r)));
     const picked = this.rank(eligible, bias).slice(0, limit);
 
     /*

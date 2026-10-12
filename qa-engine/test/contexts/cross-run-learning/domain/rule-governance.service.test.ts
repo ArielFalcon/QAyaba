@@ -238,3 +238,45 @@ test("rank: among rules tied on status and success rate, the newer one outranks 
   ]);
   assert.deepEqual(ranked.map((r) => r.trigger), ["z-newer", "a-older"]);
 });
+
+/* ── Quarantine and the injection policy ────────────────────────────────────────────────────────── */
+
+const quarantined = (r: LearningRule): LearningRule => ({ ...r, quarantinedAt: "2026-10-01T00:00:00.000Z" });
+const withConfidence = (r: LearningRule, confidence: LearningRule["confidence"]): LearningRule => ({ ...r, confidence });
+
+test("topRules: a quarantined rule is never retrieved, active or candidate, and holds no place a live rule could take", () => {
+  const picked = svc.topRules([quarantined(rule("active", 0.99, "q-active")), quarantined(rule("candidate", 0.9, "q-cand")), rule("candidate", 0.1, "live")], 5);
+  assert.deepEqual(picked.map((r) => r.trigger), ["live"]);
+});
+
+test("topRules: a rule whose quarantine was lifted (null) is retrievable again", () => {
+  const picked = svc.topRules([{ ...rule("active", 0.5, "released"), quarantinedAt: null }], 5);
+  assert.deepEqual(picked.map((r) => r.trigger), ["released"]);
+});
+
+test("topRules with unproven rules held back: only an active rule above low confidence is retrieved", () => {
+  const picked = svc.topRules(
+    [
+      rule("active", 0.9, "proven"),
+      withConfidence(rule("active", 0.4, "active-but-low"), "low"),
+      withConfidence(rule("candidate", 0.9, "candidate-high"), "high"),
+      rule("candidate", 0.2, "candidate"),
+    ],
+    10,
+    undefined,
+    { unproven: false },
+  );
+  assert.deepEqual(picked.map((r) => r.trigger), ["proven"]);
+});
+
+test("topRules with unproven rules held back reserves no exploration slot for a candidate", () => {
+  const actives = Array.from({ length: 6 }, (_, i) => rule("active", 0.9 - i * 0.01, `a${i}`));
+  const picked = svc.topRules([...actives, rule("candidate", 0.1, "fresh", "2026-12-01T00:00:00.000Z")], 4, undefined, { unproven: false });
+  assert.deepEqual(picked.map((r) => r.trigger), ["a0", "a1", "a2", "a3"]);
+});
+
+test("topRules lets unproven rules in by default: the policy is an opt-out, not a change of the ranking", () => {
+  const withDefault = svc.topRules([rule("active", 0.9, "a"), rule("candidate", 0.5, "c")], 5);
+  assert.deepEqual(withDefault.map((r) => r.trigger), ["a", "c"]);
+  assert.deepEqual(svc.topRules([rule("active", 0.9, "a"), rule("candidate", 0.5, "c")], 5, undefined, { unproven: true }).map((r) => r.trigger), ["a", "c"]);
+});

@@ -234,7 +234,19 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: deterministic
   rule fold, rule governance, curriculum, and the `qa-reflector` pass (distils
   `candidate`/`low`-confidence rules only; flaky/infra verdicts excluded). engram holds
-  agent memory across runs.
+  agent memory across runs. **The reflector is OFF by default** (`QA_REFLECTOR_ENABLED=true`
+  turns it back on; `src/server/reflector-switch.ts`): it was handed a fragment of a run without its
+  real error text and invented a cause from a false-positive gate signal, and the resulting rule
+  told a shell-less generator to run `tsc`. With it off, no reflection is asked of an agent, and the
+  composition root builds `SqliteLearningRepository` with `{ unproven: false }`, so only a proven rule
+  (active, confidence above low, earned from measured outcomes) is retrieved into a prompt; no
+  candidate or "experimental" rule is injected or credited. The fold, governance and the process audit
+  stay on. **Quarantine**: `npm run learning:quarantine -- --app <app> --since <ISO date> [--dry-run]`
+  (inside the orchestrator container) marks every in-force rule the app learned at or after the date
+  (`learning_rules.quarantined_at`; `QuarantineLearnedRulesUseCase`). It deletes nothing, is idempotent,
+  and a quarantined rule is excluded from governance retrieval, the live ledger and
+  `recordRuleOutcome`; `ledger-cli show` lists it under QUARANTINED and `ledger-cli release <ruleId>`
+  lifts it.
 
 ### The agent and its prompts
 
