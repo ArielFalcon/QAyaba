@@ -359,6 +359,9 @@ test("isProtectedPath flags what a sidekick may do against DEV and in the workin
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
     "agents/tool/run_spec.ts",
     "agents/lib/run-spec-client.mjs",
+    "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-plan.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts",
   ];
   for (const file of files) {
     assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);

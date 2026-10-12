@@ -40,6 +40,10 @@ export interface SidekickExecuteOpts {
   signal?: AbortSignal;
   timeoutMs?: number;
   feedback?: string;
+  /** The flow of a plan the session is opened for: the run_spec loop and the browser share the flow's own are found by it. */
+  delegationId?: string;
+  /** Tools the session's prompts are denied, whatever the sidekick's configuration allows. */
+  denyTools?: readonly string[];
 }
 
 /* Brace-balanced first-object scan (string/escape aware). lastIndexOf("{") false-fails on valid DelegationResults with nested objects followed by a trailing fence. */
@@ -162,7 +166,13 @@ export class SidekickExecutor {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
       model: opts.model,
-      descriptor: { runId: brief.runId, role, objective: scrub(brief.objective) },
+      descriptor: {
+        runId: brief.runId,
+        role,
+        objective: scrub(brief.objective),
+        ...(opts.delegationId !== undefined ? { delegationId: opts.delegationId } : {}),
+        ...(opts.denyTools?.length ? { denyTools: opts.denyTools } : {}),
+      },
     });
     try {
       const assembled = this.render(brief);

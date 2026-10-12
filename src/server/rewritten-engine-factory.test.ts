@@ -3731,3 +3731,24 @@ test("the run_spec loop and the agent browser take DEV through the same lease, w
   assert.equal(wired.agentBrowser?.lock, wired.closedLoop?.lock);
 });
 
+test("an e2e app composes the lead/sidekick mode over a workspace root beside the mirrors, naming the runtime its sidekick role is on now", async () => {
+  const wired = buildRewrittenCompositionConfig(cfg("deleg-app"), { getAgentDeps: stubAgentDeps, getAgentFacade: agentFacadeFor("opencode"), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
+  assert.equal(wired.delegation?.workspaceRoot, "/mirrors/.qa-delegations");
+  assert.equal(typeof wired.delegation?.sidekickProvider, "function");
+  assert.ok(wired.delegation?.deadline, "the run's deadline, as the agents' turns read it");
+
+  const noFacade = buildRewrittenCompositionConfig(cfg("deleg-nofacade"), { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
+  assert.equal(noFacade.delegation?.sidekickProvider(), undefined, "a host that cannot say which runtime the sidekick uses is not assumed to be OpenCode");
+
+  const code = buildRewrittenCompositionConfig({ ...cfg("deleg-code"), code: true }, { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff", target: "code" });
+  assert.equal(code.delegation, undefined);
+});
+
+test("the sidekick role's runtime is read from the facade as it is now, not as it was when the run was composed", async () => {
+  let provider: "opencode" | "codex" = "opencode";
+  const wired = buildRewrittenCompositionConfig(cfg("deleg-switch"), { getAgentDeps: stubAgentDeps, getAgentFacade: () => agentFacadeFor(provider)(), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
+  assert.equal(wired.delegation?.sidekickProvider(), "opencode");
+  provider = "codex";
+  assert.equal(wired.delegation?.sidekickProvider(), "codex");
+});
+

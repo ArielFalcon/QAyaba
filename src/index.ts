@@ -57,6 +57,9 @@ import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListe
 import { createToolsServer, resolveToolsListenHost, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
+import { FsDelegationWorkspaceAdapter } from "@contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter";
+import { DELEGATIONS_DIR } from "./paths";
+import { workdirRoot } from "./integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
 import { execWorkRoot } from "./server/exec-sandbox-factory";
 
@@ -210,6 +213,11 @@ setAgentBrowserGrantLookup((sessionId) => agentBrowserRegistry.find(sessionId) !
 /* A browser the authenticated agent tools started and a previous process of this container never stopped (it was restarted in place) ends here; a run closes its own browser when it ends. */
 const orphanBrowsers = sweepOrphanAgentBrowsers(execWorkRoot(process.env));
 if (orphanBrowsers > 0) logJson("warn", `stopped ${orphanBrowsers} agent browser process(es) a previous orchestrator process left behind`);
+/* The workspaces of a run's sidekicks that a previous process never removed. */
+void new FsDelegationWorkspaceAdapter({ root: join(workdirRoot(), DELEGATIONS_DIR) }).sweepAll().then(
+  (swept) => { if (swept > 0) logJson("warn", `removed ${swept} sidekick workspace(s) a previous orchestrator process left behind`); },
+  (err: unknown) => logJson("error", `sweeping the sidekick workspaces failed: ${err instanceof Error ? err.message : String(err)}`),
+);
 const toolsPort = resolveToolsPort(process.env);
 const toolsToken = resolveToolsToken(process.env);
 if (toolsToken.generated) logJson("warn", "QA_TOOLS_TOKEN is not set: no run is granted the run_spec or authenticated browser tools until the same value is set on the orchestrator and agents services");

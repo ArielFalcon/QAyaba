@@ -309,6 +309,10 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
   "agents/tool/run_spec.ts",
+  /* What decides which flows a plan admits, where each may write, what each sidekick may author with and when the lead takes a change back: the plan's admission, the coordinator and the choice of tools. */
+  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-plan.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts",
   "agents/lib/run-spec-client.mjs",
   /* 4. build/topology the canary cannot verify (image rebuild only) */
   ".github/",

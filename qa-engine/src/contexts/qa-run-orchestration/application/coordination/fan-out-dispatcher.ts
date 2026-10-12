@@ -24,6 +24,14 @@ export interface TimerPort {
   setTimer(ms: number, fire: () => void): () => void;
 }
 
+/* The system clock. */
+export const systemTimers: TimerPort = {
+  setTimer: (ms, fire) => {
+    const handle = setTimeout(fire, ms);
+    return () => clearTimeout(handle);
+  },
+};
+
 export interface FlowSlot {
   id: string;
   budgetMs: number;

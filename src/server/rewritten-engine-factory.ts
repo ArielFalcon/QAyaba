@@ -5,7 +5,7 @@
  */
 
 import { join } from "node:path";
-import { qayabaDataDir, qayabaRoot } from "../paths";
+import { DELEGATIONS_DIR, qayabaDataDir, qayabaRoot } from "../paths";
 import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
@@ -1130,6 +1130,20 @@ export function buildRewrittenCompositionConfig(
     execScope: execWiring.execScope,
     /* How this app's runs are coordinated: its qa.coordination with every limit it left out defaulted. A run can override the mode. */
     coordinationSettings: resolveCoordinationSettings(app.qa.coordination),
+    /*
+     * The lead/sidekick mode: the workspaces of a run's sidekicks lie beside the mirrors, on the volume the agents' runtime can open
+     * a session in; the runtime of the sidekick role is read as it is now (it is switchable), and a host that cannot say is not
+     * assumed to be OpenCode: only OpenCode can call run_spec and the authenticated browser.
+     */
+    ...(!isCode
+      ? {
+          delegation: {
+            workspaceRoot: join(mirrorRoot, DELEGATIONS_DIR),
+            sidekickProvider: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "sidekick").provider : undefined),
+            deadline: runDeadline,
+          },
+        }
+      : {}),
     /*
      * The run_spec loop: composed for an e2e app whenever the host has a registry; whether a run is granted it is the app's
      * qa.closedLoop (or the run's own choice), decided when the run opens it. The generator's role is read from the agent

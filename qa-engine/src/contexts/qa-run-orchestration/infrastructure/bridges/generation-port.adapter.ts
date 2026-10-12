@@ -98,7 +98,7 @@ export class GenerationPortAdapter implements GenerationPort {
     private readonly collaborators: GenerationPortCollaborators = {},
   ) {}
 
-  async plan(specDir: string, signal: AbortSignal | undefined, diff: string, enrichment: GenerationEnrichment): Promise<PlanOutput> {
+  async plan(specDir: string, signal: AbortSignal | undefined, diff: string | undefined, enrichment: GenerationEnrichment): Promise<PlanOutput> {
     if (!enrichment.planning) throw new Error("GenerationPortAdapter.plan needs enrichment.planning: the limits the plan will be held to");
     const input = await this.buildInput(specDir, diff, enrichment);
     const planned = await this.useCase.plan(input, { ...(signal ? { signal } : {}) });

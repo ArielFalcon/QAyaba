@@ -275,6 +275,25 @@ test("the markdown row shows the browser's calls, blocks and lost sessions when 
   assert.doesNotMatch(without, /Authenticated browser/);
 });
 
+test("a pipeline report carries how the run was coordinated, and nothing when it was not", () => {
+  const signal = { mode: "lead-sidekicks" as const, plan: "fanout", flows: 3, delivered: 2, incomplete: 1, takeover: false, authoring: "authenticated-browser" };
+  const used = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome({ coordination: signal }), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  assert.deepEqual(used.coordination, signal);
+  const without = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome(), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  assert.equal("coordination" in without, false);
+});
+
+test("the markdown names how a coordinated run's plan and flows came out, and a run in the single mode lists none", () => {
+  const delivered = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome({ coordination: { mode: "lead-sidekicks", plan: "fanout", flows: 3, delivered: 2, incomplete: 1, takeover: false, authoring: "run-spec-only" } }), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  const markdown = renderMarkdown([delivered]);
+  assert.match(markdown, /Coordination/);
+  assert.match(markdown, /plan fanout, 2\/3 flows delivered, 1 unfinished/);
+  assert.match(markdown, /authored with run-spec-only/);
+  const handedBack = renderMarkdown([buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome({ coordination: { mode: "lead-sidekicks", flows: 0, delivered: 0, incomplete: 0, takeover: true, downgrade: "no flow finished or decided" } }), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 })]);
+  assert.match(handedBack, /no plan.*the lead took over.*no flow finished or decided/);
+  assert.doesNotMatch(renderMarkdown([buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome(), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 })]), /Coordination/);
+});
+
 /* ── rendering ── */
 
 test("the markdown row names the run and shows every unknown figure as n/a, never 0, and flags partial usage", () => {

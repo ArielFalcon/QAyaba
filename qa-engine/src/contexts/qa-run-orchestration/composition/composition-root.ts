@@ -17,8 +17,11 @@ import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructur
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
-import { createCoordinationPort } from "../application/coordination/create-coordination-port.ts";
 import { SidekickExecutor } from "../application/coordination/sidekick-executor.ts";
+import { LeadSidekicks } from "../application/coordination/lead-sidekicks.ts";
+import { systemTimers } from "../application/coordination/fan-out-dispatcher.ts";
+import { FsDelegationWorkspaceAdapter } from "../infrastructure/delegation-workspace.adapter.ts";
+import { specFileForFlow } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { getSharedCoordinationTelemetry } from "../infrastructure/bridges/coordination-telemetry-port.adapter.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
@@ -83,6 +86,16 @@ export interface ClosedLoopWiring {
   deadline?: RunDeadlineView;
   /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
   redact: (text: string) => string;
+}
+
+/* What the shell hands the root to let a run author its flows with sidekicks. */
+export interface DelegationWiring {
+  /* The absolute directory the sidekicks' workspaces are made under (on the mirrors volume, so the agents' runtime can open a session in it). */
+  workspaceRoot: string;
+  /* The runtime the sidekick role is assigned to now (it is switchable): only OpenCode can call run_spec and the authenticated browser. */
+  sidekickProvider: () => "opencode" | "codex" | undefined;
+  /* The run's deadline, as the agents' turns read it. */
+  deadline?: RunDeadlineView;
 }
 
 /* What the shell hands the root to let a run grant its authoring agents the authenticated browser. Absent: the run never does. */
@@ -277,6 +290,8 @@ export interface CompositionConfig {
   sidekickTimeoutMs?: number;
   /* How the app's runs are coordinated (qa.coordination, limits defaulted). Absent: the single mode, the lead authors alone. */
   coordinationSettings?: CoordinationSettings;
+  /* What the lead/sidekick mode needs from the shell. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.leadSidekicks and a run in that mode is authored by its lead alone. */
+  delegation?: DelegationWiring;
 }
 
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
@@ -576,27 +591,29 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.suiteStore ? { suiteStore: cfg.suiteStore } : {}),
     /* Absent coordination settings are omitted entirely: the run is in the single mode. */
     ...(cfg.coordinationSettings ? { coordinationSettings: cfg.coordinationSettings } : {}),
-    /* Coordination is always wired (no kill-switch). Governing points are listed independently below; the sidekick shares the reviewer's runtime with its own session lifecycle. */
+    /* The lead/sidekick mode: wired for an e2e run whose shell gave it a place for the sidekicks' workspaces; whether a run uses it is the app's coordination mode or the run's own choice. The sidekicks share the reviewer's runtime, each with a session of its own. A run in the single mode (the default) asks it for nothing. */
     ...(() => {
-      /* Process-lifetime store so adaptive thresholds see prior runs (not a fresh empty bag per composition). */
+      /* Process-lifetime store so the ledger of decisions outlives a run (not a fresh empty bag per composition). */
       const coordinationTelemetry = cfg.coordinationTelemetryPath
         ? getSharedCoordinationTelemetry(cfg.coordinationTelemetryPath)
         : getSharedCoordinationTelemetry();
       return {
-        coordination: createCoordinationPort({
-          telemetry: coordinationTelemetry,
-          app: cfg.appName,
-        }),
         coordinationTelemetry,
         ...(cfg.baseUrl ? { sidekickDevBaseUrl: cfg.baseUrl } : {}),
-        /* Bounded delegation wall-clock: hung/slow sidekick sessions fire fail-open instead of eating the run's full agentTimeout. Env-tunable; 420s default covers sensible Playwright MCP bootstrap + navigation. */
-        sidekickTimeoutMs: resolveSidekickTimeoutMs(cfg),
-        ...(cfg.sidekickEscalatedModel
-          ? { sidekickEscalatedModel: cfg.sidekickEscalatedModel }
+        ...(cfg.delegation && !cfg.isCode
+          ? {
+              sidekickProvider: cfg.delegation.sidekickProvider,
+              leadSidekicks: new LeadSidekicks({
+                sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
+                workspaces: new FsDelegationWorkspaceAdapter({ root: cfg.delegation.workspaceRoot }),
+                timers: systemTimers,
+                telemetry: coordinationTelemetry,
+                specFileFor: specFileForFlow,
+                ...(cfg.sidekickEscalatedModel ? { escalatedModel: cfg.sidekickEscalatedModel } : {}),
+                ...(cfg.delegation.deadline ? { deadline: cfg.delegation.deadline } : {}),
+              }),
+            }
           : {}),
-        /* Points listed independently — enabling one does not imply the other. */
-        coordinationEnabledPoints: ["pre-generate", "fix-loop-regen"] as const,
-        sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
       };
     })(),
     config: {

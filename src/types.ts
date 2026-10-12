@@ -312,6 +312,8 @@ export interface RunOutcome {
     closedLoop?: { calls: number; devWrites: number; closed: boolean };
     /* How the authoring agents used the authenticated browser this run; absent when it was not granted. */
     agentBrowser?: { calls: number; blocks: number; invalidations: number; renewals: number };
+    /* How the run was coordinated when it asked for the lead/sidekick mode; absent for a run in the single mode. */
+    coordination?: { mode: "single" | "lead-sidekicks"; plan?: string; downgrade?: string; flows: number; delivered: number; incomplete: number; takeover: boolean; authoring?: string };
 
     structuralSignalBytes?: number;
     serviceLinksCount?: number;

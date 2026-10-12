@@ -15,7 +15,8 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RUN_PURPOSE, type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
-import type { CoordinationMode, CoordinationSettings } from "@kernel/coordination.ts";
+import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, effectiveCoordinationMode, type CoordinationGateSignal, type CoordinationMode, type CoordinationSettings } from "@kernel/coordination.ts";
+import type { CoordinateResult, LeadSidekicks } from "./coordination/lead-sidekicks.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
@@ -410,6 +411,13 @@ export interface RunQaUseCaseDeps {
    * choice (RunQaInput.coordinationMode) overrides the mode.
    */
   coordinationSettings?: CoordinationSettings;
+  /**
+   * Plans a run in the lead/sidekick mode and authors its flows. Absent: the mode asks for nothing and the lead authors alone. A
+   * fault in it costs the run only the coordination, said aloud.
+   */
+  leadSidekicks?: Pick<LeadSidekicks, "coordinate">;
+  /** The runtime the sidekick role is assigned to now (it is switchable); absent: the host cannot say, and no sidekick is used. */
+  sidekickProvider?: () => "opencode" | "codex" | undefined;
   config?: Partial<RunQaConfig>;
 }
 
@@ -512,6 +520,9 @@ class ProbeSweepError extends Error {
 
 export class RunQaUseCase {
   constructor(private readonly deps: RunQaUseCaseDeps) {}
+
+  /* What each run came to in the lead/sidekick mode, read when the run's outcome is built. Keyed by the run's input, which every exit has. */
+  private readonly coordinationOf = new WeakMap<RunQaInput, CoordinationGateSignal>();
 
   async run(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
     /* The run owns the secrets of its test account: whatever learns one registers it into this scope, and the text that reaches a model has them taken out by value (run-secret-redaction.ts). */
@@ -1225,6 +1236,56 @@ export class RunQaUseCase {
     }
 
     /*
+     * The lead/sidekick mode: the lead is asked for a plan and its flows are authored by sidekicks, each in a workspace of its own.
+     * What comes back is a generation like any other: the specs of the flows that delivered, a declared no-op, or an end that
+     * names why nothing was finished. Undefined: the lead authors the change in one turn, as every run did before this mode.
+     * The mode is the app's setting unless the run chose; a code run, a context run and a login still to be written never use it.
+     */
+    const coordinationSettings = this.deps.coordinationSettings ?? DEFAULT_COORDINATION_SETTINGS;
+    const coordinationMode = effectiveCoordinationMode(coordinationSettings, input.coordinationMode);
+    const coordinateFirstPass = async (): Promise<GenerationOutput | undefined> => {
+      if (coordinationMode !== COORDINATION_MODE.LEAD_SIDEKICKS || !this.deps.leadSidekicks) return undefined;
+      if (!generating || cfg.isCode || input.mode === "context" || authSeedUnauthored) return undefined;
+      let result: CoordinateResult;
+      try {
+        result = await this.deps.leadSidekicks.coordinate({
+          runId: input.runId,
+          app: input.app,
+          objective: input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`,
+          mirrorDir: workspace.mirrorDir,
+          specDir: workspace.specDir,
+          specRelDir: relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e",
+          settings: { ...coordinationSettings, mode: coordinationMode },
+          facts: { hasLogin: Boolean(this.deps.authContext?.auth), provider: this.deps.sidekickProvider?.() },
+          ...(closedLoop ? { closedLoop } : {}),
+          ...(agentBrowser ? { agentBrowser } : {}),
+          ...(this.deps.sidekickDevBaseUrl ? { devBaseUrl: this.deps.sidekickDevBaseUrl } : {}),
+          ...(this.deps.generation.plan
+            ? { plan: (planning) => this.deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, planning }) }
+            : {}),
+          ...(signal ? { signal } : {}),
+        });
+      } catch (err) {
+        rethrowIfRunDeadline(err);
+        console.error(`[qa] coordination failed (the lead authors the change alone): ${err instanceof Error ? err.message : String(err)}`);
+        this.coordinationOf.set(input, { mode: COORDINATION_MODE.LEAD_SIDEKICKS, downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
+        return undefined;
+      }
+      this.coordinationOf.set(input, result.signal);
+      if (result.action === "single") return undefined;
+      if (result.action === "noop") {
+        return { specs: [], end: GENERATION_END.DECLARED_NOOP, reviewed: false, approved: true, parsed: true, note: result.reason };
+      }
+      const { aggregated } = result;
+      if (aggregated.end !== GENERATION_END.DELIVERED) {
+        return { specs: [], end: aggregated.end, reviewed: false, approved: true, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) };
+      }
+      const unfinished = aggregated.incompleteFlows.map((f) => `${f.id} (${f.kind})`).join(", ");
+      if (unfinished) this.deps.observer?.onEvent({ type: "log.line", level: "warn", text: `coordination: ${aggregated.incompleteFlows.length} flow(s) did not finish: ${unfinished}` });
+      return await afterGeneration({ specs: aggregated.specs, end: GENERATION_END.DELIVERED, reviewed: false, approved: true, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) });
+    };
+
+    /*
      * Separate from generation enrichment: ReviewEnrichment has no sha/contextPack.
      * domSnapshot is captured per review round on the current specs.
      */
@@ -1348,7 +1409,9 @@ export class RunQaUseCase {
        * prompt builders render the rewrite instruction); the Context Pack stays grounding-only.
        * Sidekick output from the login wall is not the session the suite will run with.
        */
-      const sidekickFirstPass = authSeedUnauthored ? undefined : fromSidekick;
+      const coordinatedFirstPass = await coordinateFirstPass();
+      if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
+      const sidekickFirstPass = coordinatedFirstPass ?? (authSeedUnauthored ? undefined : fromSidekick);
       generated = sidekickFirstPass
         ?? (await afterGeneration(await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
           ...baseEnrichment,
@@ -2699,6 +2762,7 @@ export class RunQaUseCase {
         ...(extra?.confinement !== undefined ? { confinement: extra.confinement } : {}),
         ...(extra?.closedLoop !== undefined ? { closedLoop: extra.closedLoop } : {}),
         ...(extra?.agentBrowser !== undefined ? { agentBrowser: extra.agentBrowser } : {}),
+        ...(this.coordinationOf.has(input) ? { coordination: this.coordinationOf.get(input)! } : {}),
       },
       rulesRetrieved: extra?.rulesRetrieved ?? [],
       ...(extra?.diffArchetypes !== undefined ? { diffArchetypes: extra.diffArchetypes } : {}),
@@ -2973,6 +3037,7 @@ export class RunQaUseCase {
         ...(confinement !== undefined ? { confinement } : {}),
         ...(loopSignal ? { closedLoop: loopSignal } : {}),
         ...(browserSignal ? { agentBrowser: browserSignal } : {}),
+        ...(this.coordinationOf.has(input) ? { coordination: this.coordinationOf.get(input)! } : {}),
       });
       await this.deps.runHistory.save(terminalOutcome);
       /*
@@ -3040,6 +3105,7 @@ export class RunQaUseCase {
         catalogGateFailClosed: skipPersist ? 0 : groundingSignals.catalogGateFailClosed,
         ...(!skipPersist && loopSignal ? { closedLoop: loopSignal } : {}),
         ...(!skipPersist && browserSignal ? { agentBrowser: browserSignal } : {}),
+        ...(!skipPersist && this.coordinationOf.has(input) ? { coordination: this.coordinationOf.get(input)! } : {}),
       },
       cases: [],
       /*

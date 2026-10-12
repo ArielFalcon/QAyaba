@@ -11,6 +11,7 @@ import type { RunEventBody } from "@kernel/contract/events.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
+import type { CoordinationGateSignal } from "@kernel/coordination.ts";
 import { DecideCoverageService, type CoverageStatus } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { isContentReadTool } from "@contexts/generation/domain/call-sequence.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -323,6 +324,8 @@ export interface ProbeReport {
   closedLoop?: ClosedLoopGateSignal;
   /** How the authoring agents used the authenticated browser: calls, requests the guard refused, sessions lost and renewed. Absent when the run did not grant it. */
   agentBrowser?: AgentBrowserGateSignal;
+  /** How the run was coordinated when it asked for the lead/sidekick mode: what became of the plan, the flows delivered and left unfinished, and whether the lead took over. Absent for a run in the single mode. */
+  coordination?: CoordinationGateSignal;
   /** How the run's evidence scores against a hand-written ground truth (`--ground-truth`); absent when none was given. */
   groundTruth?: GroundTruthScore;
   /** What only one arm can say (the plain agent's model, step cap and timeout, its final words, what it wrote outside the suite). Not compared across arms. */
@@ -442,6 +445,7 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
     stitcher,
     ...(outcome?.gateSignals.closedLoop ? { closedLoop: outcome.gateSignals.closedLoop } : {}),
     ...(outcome?.gateSignals.agentBrowser ? { agentBrowser: outcome.gateSignals.agentBrowser } : {}),
+    ...(outcome?.gateSignals.coordination ? { coordination: outcome.gateSignals.coordination } : {}),
     ...(input.groundTruth
       ? { groundTruth: scoreGroundTruth(input.groundTruth, { briefText, filesRead: contentReadsOf(turns), specSources: specSourcesOf(specs, input.specSources) }) }
       : {}),
@@ -812,10 +816,28 @@ export function renderBrowserLines(reports: readonly ProbeReport[]): string[] {
   ];
 }
 
+/** How the runs asked for the lead/sidekick mode were coordinated: what became of each plan and its flows. A run in the single mode lists nothing. */
+export function renderCoordinationLines(reports: readonly ProbeReport[]): string[] {
+  const used = reports.filter((r) => r.coordination !== undefined);
+  if (used.length === 0) return [];
+  return [
+    "",
+    "### Coordination",
+    "",
+    ...used.map((r) => {
+      const c = r.coordination!;
+      const how = c.plan === undefined ? "no plan" : `plan ${c.plan}`;
+      const flows = c.flows > 0 ? `, ${c.delivered}/${c.flows} flows delivered${c.incomplete > 0 ? `, ${c.incomplete} unfinished` : ""}` : "";
+      return `- ${r.id}: ${how}${flows}${c.takeover ? ", the lead took over" : ""}${c.downgrade ? ` (${c.downgrade})` : ""}${c.authoring ? `, authored with ${c.authoring}` : ""}`;
+    }),
+  ];
+}
+
 export function renderMarkdown(reports: readonly ProbeReport[]): string {
   const lines = ["### Runs", "", RUN_TABLE_HEADER, ...reports.map(renderRunRow), "", "### Agent turns", "", TURN_TABLE_HEADER, ...reports.flatMap(renderTurnRows)];
   lines.push(...renderStitcherTables(reports));
   lines.push(...renderBrowserLines(reports));
+  lines.push(...renderCoordinationLines(reports));
   if (reports.some((r) => r.totals.turnsWithPartialUsage > 0)) {
     lines.push("", "`*` tokens and cost of a turn recorded before per-step usage existed: the last assistant message alone, which understates a many-step turn.");
   }

@@ -382,7 +382,7 @@ export interface GenerationPort {
    * The one turn a coordinated run asks the lead for a plan instead of specs. `enrichment.planning` carries the limits the plan
    * will be held to and is required. Absent: this port cannot plan, and a coordinated run authors the change as one piece of work.
    */
-  plan?(specDir: string, signal: AbortSignal | undefined, diff: string, enrichment: GenerationEnrichment): Promise<PlanOutput>;
+  plan?(specDir: string, signal: AbortSignal | undefined, diff: string | undefined, enrichment: GenerationEnrichment): Promise<PlanOutput>;
 }
 /**
  * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: only the orchestrator's admission reads
