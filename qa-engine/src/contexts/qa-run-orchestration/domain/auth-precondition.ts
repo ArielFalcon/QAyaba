@@ -6,15 +6,19 @@
  * log line or a persisted note built from it cannot leak what the login page or the network said.
  */
 
-/* Neutral kinds: each names what was observed, never who is at fault. */
-export const PRECONDITION_KIND = {
+/* Neutral kinds: each names what was observed, never who is at fault. These are the ones the login evidence is classified into (helpers/login-evidence.ts). */
+export const CLASSIFIED_PRECONDITION_KIND = {
   CREDENTIALS_REJECTED: "credentials-rejected",
   LOGIN_DID_NOT_COMPLETE: "login-did-not-complete",
   SECOND_FACTOR_REQUIRED: "second-factor-required",
   CAPTCHA_PRESENT: "captcha-present",
   SSO_ONLY: "sso-only",
   SESSION_NOT_PERSISTABLE: "session-not-persistable",
-  /* The login's child was refused hosts by the egress filter and did not sign in: the network layer, not the account or the app, is the probable cause. */
+} as const;
+
+export const PRECONDITION_KIND = {
+  ...CLASSIFIED_PRECONDITION_KIND,
+  /* The login's child was refused hosts by the egress filter and did not sign in: the network layer, not the account or the app, is the probable cause. Told by the adapter from what the filter did, never classified from the page's evidence. */
   EGRESS_DENIED: "egress-denied",
 } as const;
 
