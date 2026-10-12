@@ -68,6 +68,7 @@ export class DnsFilter {
       socket.once("error", reject);
       socket.bind(0, "127.0.0.1", () => resolve());
     });
+    socket.unref();
     this.socket = socket;
     return socket.address().port;
   }

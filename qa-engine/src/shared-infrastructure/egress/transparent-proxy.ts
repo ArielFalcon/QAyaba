@@ -42,6 +42,8 @@ export class TransparentProxy {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => resolve());
     });
+    /* The listeners never keep a process alive on their own: an operator script that ends must be able to exit. */
+    server.unref();
     const localPort = (server.address() as net.AddressInfo).port;
     this.servers.set(upstream, { server, localPort });
     return localPort;
