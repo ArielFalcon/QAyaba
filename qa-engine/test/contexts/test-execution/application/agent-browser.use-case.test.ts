@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { AgentBrowserCapability, AGENT_BROWSER_REFUSAL } from "@contexts/test-execution/domain/agent-browser-capability.ts";
 import { createRouteGuard } from "@contexts/test-execution/domain/agent-browser-route-guard.ts";
-import { AgentBrowserUseCase, MAX_SNAPSHOT_CHARS, type AgentBrowserRequest } from "@contexts/test-execution/application/agent-browser.use-case.ts";
+import { AgentBrowserUseCase, LOW_CALLS, MAX_REPORTED_BLOCKS, MAX_SNAPSHOT_CHARS, MAX_TYPED_CHARS, MAX_URL_CHARS, type AgentBrowserRequest } from "@contexts/test-execution/application/agent-browser.use-case.ts";
 import { BrowserActionError, type AgentBrowserHostPort, type BrowserAction, type PageState } from "@contexts/test-execution/application/ports/agent-browser.ports.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 
@@ -26,7 +26,7 @@ class FakeHost implements AgentBrowserHostPort {
   async close(): Promise<void> { this.closed += 1; }
 }
 
-function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promise<boolean>) | undefined; limits?: Partial<typeof DEFAULT_AGENT_BROWSER_LIMITS>; leaseWait?: AbortController; denyRoutes?: string[]; now?: () => number; expiresAtMs?: number } = {}) {
+function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promise<boolean>) | undefined; limits?: Partial<typeof DEFAULT_AGENT_BROWSER_LIMITS>; leaseWait?: AbortController; denyRoutes?: string[]; now?: () => number; expiresAtMs?: number; runSignal?: AbortSignal; loginPath?: string } = {}) {
   const host = over.host ?? new FakeHost();
   const capability = new AgentBrowserCapability({ runId: "r1", limits: { ...DEFAULT_AGENT_BROWSER_LIMITS, ...over.limits }, expiresAtMs: over.expiresAtMs ?? 1_000_000, now: over.now ?? (() => 0) });
   capability.bindSession("s1");
@@ -41,6 +41,8 @@ function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promi
     ...(over.renew !== undefined ? { session: { renew: over.renew } } : {}),
     redact: (text) => text.replaceAll("hunter2", "[REDACTED]"),
     leaseWaitSignal: () => over.leaseWait?.signal ?? new AbortController().signal,
+    ...(over.runSignal ? { signal: over.runSignal } : {}),
+    ...(over.loginPath !== undefined ? { loginPath: over.loginPath } : {}),
   });
   return { host, capability, lock, useCase };
 }
@@ -246,4 +248,160 @@ test("everything that leaves is redacted and a long tree is cut with a note", as
     assert.equal(res.page.truncated, true);
     assert.doesNotMatch(res.page.url, /token|#f/, "the address carries no query or fragment");
   }
+});
+
+test("a snapshot asks the browser for the page as it is, with no argument", async () => {
+  const { host, useCase } = setup();
+  const res = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "snapshot" });
+  assert.equal(res.ok, true);
+  assert.deepEqual(host.calls[0]?.action, { kind: "snapshot" });
+});
+
+test("a refs of any length the snapshot gives is accepted, and one that is not an identifier is not", async () => {
+  const { host, useCase } = setup();
+  for (const ref of ["e5", "e123", "f1e12", "E7", `e${"1".repeat(15)}`]) {
+    const res = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "click", ref });
+    assert.equal(res.ok, true, ref);
+  }
+  assert.equal(host.calls.length, 5);
+  for (const ref of [`e${"1".repeat(16)}`, "1e", "e-1", "e 1"]) {
+    const res = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "click", ref });
+    assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST, ref);
+  }
+});
+
+test("typing forwards its text, and submit only when it is true; a submit that is not a boolean is refused", async () => {
+  const { host, useCase } = setup();
+  await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "hi" });
+  await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "hi", submit: false });
+  await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "hi", submit: true });
+  assert.deepEqual(host.calls.map((c) => c.action), [
+    { kind: "type", ref: "e1", text: "hi", submit: false },
+    { kind: "type", ref: "e1", text: "hi", submit: false },
+    { kind: "type", ref: "e1", text: "hi", submit: true },
+  ]);
+  const bad = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "hi", submit: "yes" } as unknown as AgentBrowserRequest);
+  assert.equal(bad.ok === false && bad.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST);
+  const missingText = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1" } as unknown as AgentBrowserRequest);
+  assert.equal(missingText.ok === false && missingText.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST);
+});
+
+test("the text and the address are held to their lengths, exactly", async () => {
+  const { host, useCase } = setup();
+  const atText = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "x".repeat(MAX_TYPED_CHARS) });
+  assert.equal(atText.ok, true);
+  const overText = await useCase.call({ sessionId: "s1", agent: "qa-generator", action: "type", ref: "e1", text: "x".repeat(MAX_TYPED_CHARS + 1) });
+  assert.equal(overText.ok === false && overText.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST);
+  const atUrl = await useCase.call(nav(`/${"a".repeat(MAX_URL_CHARS - 1)}`));
+  assert.equal(atUrl.ok, true);
+  const overUrl = await useCase.call(nav(`/${"a".repeat(MAX_URL_CHARS)}`));
+  assert.equal(overUrl.ok === false && overUrl.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST);
+  assert.equal(host.calls.length, 2);
+});
+
+test("an address is trimmed before it is resolved, a blank one is refused, and one that is not an address is refused", async () => {
+  const { host, useCase } = setup();
+  assert.equal((await useCase.call(nav("  /orders  "))).ok, true);
+  assert.deepEqual(host.calls[0]?.action, { kind: "navigate", url: `${BASE}/orders` });
+  assert.equal((await useCase.call(nav("   "))).ok === false, true);
+  const garbage = await useCase.call(nav("http://["));
+  assert.equal(garbage.ok === false && garbage.code, AGENT_BROWSER_REFUSAL.INVALID_REQUEST);
+  assert.equal(host.calls.length, 1);
+});
+
+test("the page's address is reported whole except for its query and fragment, and an address that is not a URL is cut at them", async () => {
+  const host = new FakeHost();
+  host.next = () => page({ url: `${BASE}/orders/42?token=abc#frag` });
+  const first = await setup({ host }).useCase.call(nav("/orders/42"));
+  assert.equal(first.ok && first.page.url, `${BASE}/orders/42`);
+  const odd = new FakeHost();
+  odd.next = () => page({ url: "not a url?token=abc#frag", requestedPath: "not a url" });
+  const second = await setup({ host: odd }).useCase.call(nav("/orders"));
+  assert.equal(second.ok && second.page.url, "not a url");
+});
+
+test("a tree exactly at the limit is whole, and one character over is cut and said so", async () => {
+  const exact = new FakeHost();
+  exact.next = () => page({ snapshot: "x".repeat(MAX_SNAPSHOT_CHARS) });
+  const whole = await setup({ host: exact }).useCase.call(nav("/orders"));
+  assert.equal(whole.ok && whole.page.truncated, undefined);
+  assert.equal(whole.ok && whole.page.snapshot.length, MAX_SNAPSHOT_CHARS);
+  assert.equal(whole.ok && whole.notes.length, 0);
+  const over = new FakeHost();
+  over.next = () => page({ snapshot: "x".repeat(MAX_SNAPSHOT_CHARS + 1) });
+  const cut = await setup({ host: over }).useCase.call(nav("/orders"));
+  assert.equal(cut.ok && cut.page.truncated, true);
+  assert.equal(cut.ok && cut.page.snapshot.length, MAX_SNAPSHOT_CHARS);
+  assert.equal(cut.ok && cut.notes.length, 1);
+});
+
+test("the agent is told when the run's calls are about to run out, and not before", async () => {
+  const { useCase } = setup({ limits: { maxCalls: LOW_CALLS + 2 } });
+  const first = await useCase.call(nav("/a"));
+  assert.equal(first.ok && first.notes.length, 0, `${LOW_CALLS + 1} left`);
+  const second = await useCase.call(nav("/b"));
+  assert.equal(second.ok && second.notes.length, 1, `${LOW_CALLS} left`);
+  assert.equal(second.ok && second.budget.callsLeft, LOW_CALLS);
+});
+
+test("no more than the allowed number of blocks are listed, though all are counted", async () => {
+  const host = new FakeHost();
+  host.next = () => page({ blocked: Array.from({ length: MAX_REPORTED_BLOCKS + 3 }, (_, i) => ({ reason: "method" as const, detail: `POST /api/${i}` })) });
+  const { useCase, capability } = setup({ host });
+  const res = await useCase.call(nav("/orders"));
+  assert.equal(res.ok && res.blocked.length, MAX_REPORTED_BLOCKS);
+  assert.equal(capability.signal.blocks, MAX_REPORTED_BLOCKS + 3);
+});
+
+test("the app's own login path ends a session too, and the page's status is read", async () => {
+  const host = new FakeHost();
+  host.next = () => page({ url: `${BASE}/entrar` });
+  const withHint = await setup({ host, loginPath: "/entrar" }).useCase.call(nav("/orders"));
+  assert.equal(withHint.ok === false && withHint.code, AGENT_BROWSER_REFUSAL.SESSION_INVALIDATED);
+  const without = await setup({ host }).useCase.call(nav("/orders"));
+  assert.equal(without.ok, true, "without the hint the same page is just a page");
+  const unauthorized = new FakeHost();
+  unauthorized.next = () => page({ documentStatus: 401 });
+  assert.equal((await setup({ host: unauthorized }).useCase.call(nav("/orders"))).ok, false);
+  const password = new FakeHost();
+  password.next = () => page({ url: `${BASE}/welcome`, passwordFieldVisible: true });
+  assert.equal((await setup({ host: password }).useCase.call(nav("/orders"))).ok, false);
+  const sameKeep = new FakeHost();
+  sameKeep.next = () => page({ url: `${BASE}/orders`, passwordFieldVisible: true, requestedPath: "/orders" });
+  assert.equal((await setup({ host: sameKeep }).useCase.call(nav("/orders"))).ok, true);
+});
+
+test("a sign-in that throws counts as one that failed", async () => {
+  const host = new FakeHost();
+  host.next = () => page({ url: `${BASE}/login` });
+  const { useCase, capability } = setup({ host, renew: async () => { throw new Error("login script crashed"); } });
+  const res = await useCase.call(nav("/orders"));
+  assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.SESSION_INVALIDATED);
+  if (!res.ok) assert.match(res.message, /could not be renewed/);
+  assert.equal(host.resets, 0);
+  assert.deepEqual(capability.signal, { calls: 1, blocks: 0, invalidations: 1, renewals: 0 });
+  assert.equal(capability.canRenew(), true, "one failed attempt of two");
+});
+
+test("a call whose session ended while it waited for the account is a cancelled call, not a busy account, and the run's own end cancels it too", async () => {
+  const lock = new AccountLock();
+  let release!: () => void;
+  const held = lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const callAbort = new AbortController();
+  const { useCase } = setup({ lock });
+  const pending = useCase.call(nav("/orders"), callAbort.signal);
+  await new Promise((r) => setImmediate(r));
+  callAbort.abort();
+  const res = await pending;
+  assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.FAILED);
+  if (!res.ok) assert.match(res.message, /cancel/);
+
+  const runAbort = new AbortController();
+  const second = setup({ lock, runSignal: runAbort.signal }).useCase.call(nav("/orders"));
+  await new Promise((r) => setImmediate(r));
+  runAbort.abort();
+  const ended = await second;
+  assert.equal(ended.ok === false && ended.code, AGENT_BROWSER_REFUSAL.FAILED);
+  release();
+  await held;
 });

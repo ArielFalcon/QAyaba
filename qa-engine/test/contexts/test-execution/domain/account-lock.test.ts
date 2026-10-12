@@ -69,3 +69,38 @@ test("a signal that is already aborted never takes the account", async () => {
   controller.abort();
   await assert.rejects(lock.withLock("app/user", async () => "never", controller.signal), /aborted/);
 });
+
+test("a waiter that gives up does not let a later one in while the holder is still running", async () => {
+  const lock = new AccountLock();
+  const gate = deferred();
+  const events: string[] = [];
+  const held = lock.withLock("app/user", async () => { events.push("holder:start"); await gate.promise; events.push("holder:end"); });
+  const controller = new AbortController();
+  const gaveUp = lock.withLock("app/user", async () => { events.push("gave-up:ran"); }, controller.signal);
+  controller.abort();
+  await assert.rejects(gaveUp, /aborted/);
+  const later = lock.withLock("app/user", async () => { events.push("later:start"); });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(events, ["holder:start"], "the later waiter queues behind the holder, not behind the waiter that left");
+  gate.resolve();
+  await Promise.all([held, later]);
+  assert.deepEqual(events, ["holder:start", "holder:end", "later:start"]);
+});
+
+test("a waiter that gives up behind another waiter does not open the account to a third", async () => {
+  const lock = new AccountLock();
+  const gate = deferred();
+  const events: string[] = [];
+  const held = lock.withLock("app/user", async () => { events.push("a:start"); await gate.promise; events.push("a:end"); });
+  const middle = lock.withLock("app/user", async () => { events.push("b:start"); });
+  const controller = new AbortController();
+  const gaveUp = lock.withLock("app/user", async () => { events.push("c:ran"); }, controller.signal);
+  controller.abort();
+  await assert.rejects(gaveUp, /aborted/);
+  const last = lock.withLock("app/user", async () => { events.push("d:start"); });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(events, ["a:start"]);
+  gate.resolve();
+  await Promise.all([held, middle, last]);
+  assert.deepEqual(events, ["a:start", "a:end", "b:start", "d:start"]);
+});

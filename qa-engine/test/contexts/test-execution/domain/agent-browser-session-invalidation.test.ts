@@ -43,3 +43,23 @@ test("the finding names what was seen without the query or fragment of the addre
   assert.doesNotMatch(found.detail, /abc|frag/);
   assert.match(found.detail, /\/login/);
 });
+
+test("a login path with a trailing slash covers the page and what is under it, and nothing that merely starts with its name", () => {
+  const over = (path: string) => detectInvalidation(page({ url: `https://dev.example.com${path}` }), { loginPath: "/entrar/" })?.kind;
+  assert.equal(over("/entrar"), INVALIDATION_KIND.LOGIN_PAGE);
+  assert.equal(over("/entrar/"), INVALIDATION_KIND.LOGIN_PAGE);
+  assert.equal(over("/entrar/paso-2"), INVALIDATION_KIND.LOGIN_PAGE);
+  assert.equal(over("/entrarx"), undefined);
+  assert.equal(detectInvalidation(page({ url: "https://dev.example.com/entrar" }), { loginPath: "entrar" }), undefined, "a login path that is not a path is ignored");
+});
+
+test("an address that is not a URL is judged by its path alone", () => {
+  assert.equal(detectInvalidation(page({ url: "/login?next=%2Forders#top" }), {})?.kind, INVALIDATION_KIND.LOGIN_PAGE);
+  const found = detectInvalidation(page({ url: "/login?token=abc#frag" }), {});
+  assert.doesNotMatch(found?.detail ?? "", /abc|frag/);
+});
+
+test("a 401 and a password field each say what was seen, and the detail names the path", () => {
+  assert.match(detectInvalidation(page({ documentStatus: 401 }), {})?.detail ?? "", /\/orders/);
+  assert.match(detectInvalidation(page({ url: "https://dev.example.com/welcome", passwordFieldVisible: true }), {})?.detail ?? "", /\/welcome/);
+});

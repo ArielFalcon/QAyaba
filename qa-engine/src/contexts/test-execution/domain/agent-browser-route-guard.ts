@@ -67,7 +67,11 @@ function patternToRegExp(pattern: string, flags: string): RegExp {
   const body = deep ? pattern.slice(0, -3) : pattern;
   let source = "";
   for (let i = 0; i < body.length; ) {
-    if (body.startsWith("**", i)) {
+    if (body.startsWith("/**/", i)) {
+      // Segments in between, and also none: a pattern with two stars between slashes covers the path with nothing there.
+      source += "(?:/.*)?/";
+      i += 4;
+    } else if (body.startsWith("**", i)) {
       source += ".*";
       i += 2;
     } else if (body[i] === "*") {

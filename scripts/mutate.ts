@@ -368,14 +368,17 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "agent-browser": {
-    description: "authenticated agent browser: the route guard, the session-invalidation detector, the capability and the call's use case",
+    description: "authenticated agent browser: the route guard, the session-invalidation detector, the capability, the call's use case and the account lock its calls queue on",
     mutate: [
+      `${TE}/domain/account-lock.ts`,
       `${TE}/domain/agent-browser-route-guard.ts`,
       `${TE}/domain/agent-browser-session-invalidation.ts`,
       `${TE}/domain/agent-browser-capability.ts`,
       `${TE}/application/agent-browser.use-case.ts`,
     ],
     tests: [
+      `${TE_TEST}/domain/account-lock.test.ts`,
+      `${TE_TEST}/domain/agent-browser-capability.test.ts`,
       `${TE_TEST}/domain/agent-browser-route-guard.test.ts`,
       `${TE_TEST}/domain/agent-browser-session-invalidation.test.ts`,
       `${TE_TEST}/application/agent-browser.use-case.test.ts`,

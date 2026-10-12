@@ -16,12 +16,21 @@ export class AccountLock {
     const mine = new Promise<void>((resolve) => { release = resolve; });
     const tail = previous.then(() => mine);
     this.tails.set(account, tail);
+    let held = false;
     try {
       await this.turn(previous, account, signal);
+      held = true;
       return await task();
     } finally {
       release();
-      if (this.tails.get(account) === tail) this.tails.delete(account);
+      if (held) {
+        if (this.tails.get(account) === tail) this.tails.delete(account);
+      } else {
+        /* A waiter that left never held the account, so the holders before it may still be running: its place in the chain stays (it resolves as soon as they are done) and goes once it has. */
+        void tail.then(() => {
+          if (this.tails.get(account) === tail) this.tails.delete(account);
+        });
+      }
     }
   }
 

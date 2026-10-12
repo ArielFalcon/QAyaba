@@ -85,9 +85,10 @@ services:
       # with the container's full network and says so (gate signal sandbox.egress "unenforced"). Declare the origins a
       # run may reach with dev.allowedOrigins in the app config and egress.installOrigins for registries.
       QA_EGRESS_MODE: ${QA_EGRESS_MODE:-enforce}
-      # The run_spec tool's internal endpoint (a second listener, NOT published above) and the service token the agents service
-      # authenticates to it with: the SAME value on both services. Unset on the orchestrator, no run is granted the tool; unset on the
-      # agents service only, its calls are refused with a message naming the variable. The generator only gets the tool in a run whose app sets qa.closedLoop.enabled.
+      # The agents' tools' internal endpoint (run_spec and the authenticated browser; a second listener, NOT published above) and the
+      # service token the agents service authenticates to it with: the SAME value on both services. Unset on the orchestrator, no run is
+      # granted either tool; unset on the agents service only, their calls are refused with a message naming the variable. A run gets
+      # run_spec only when its app sets qa.closedLoop.enabled, and the browser only when it sets qa.agentBrowser.enabled.
       QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
       QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
     volumes:
@@ -151,7 +152,7 @@ services:
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
       # Required by `opencode serve` (port 4096 is open to every container on the network); see the orchestrator entry.
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
-      # run_spec tool (agents/tool/run_spec.ts): where the orchestrator's internal endpoint is, and the service token it requires.
+      # run_spec and authbrowser_* tools (agents/tool/): where the orchestrator's internal endpoint is, and the service token it requires.
       QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
       QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
       CODEX_API_KEY: ${CODEX_API_KEY:-}

@@ -89,7 +89,9 @@ test("a wildcard origin covers its subdomains and only those", () => {
 test("a web socket is judged by the origin of the http(s) address it maps to", () => {
   const g = guard();
   assert.equal(g.decide({ method: "GET", url: "wss://dev.example.com/socket" }).allow, true);
-  assert.equal(g.decide({ method: "GET", url: "ws://dev.example.com/socket" }).allow, false, "ws maps to http, which is not declared");
+  const plain = g.decide({ method: "GET", url: "ws://dev.example.com/socket" });
+  assert.equal(plain.allow, false, "ws maps to http, which is not declared");
+  if (!plain.allow) assert.equal(plain.reason, "origin", "it is an origin that is refused, not a kind of address");
   assert.equal(g.decide({ method: "GET", url: "wss://other.example.org/socket" }).allow, false);
 });
 
@@ -125,4 +127,27 @@ test("a route pattern must be an absolute path and a mutating entry an optional 
   assert.notEqual(mutatingEntryError("FETCH /api/x"), undefined);
   assert.notEqual(mutatingEntryError("GET /api/x"), undefined, "a read needs no allowance");
   assert.notEqual(mutatingEntryError("POST api/x"), undefined);
+});
+
+test("a ** in the middle of a pattern crosses segments, and the characters of a pattern that a regular expression would read are read as themselves", () => {
+  const g = guard({ denyRoutes: ["/files/**/secret", "/export.csv", "/a+b", "/q(1)"] });
+  for (const path of ["/files/secret", "/files/a/secret", "/files/a/b/secret", "/export.csv", "/a+b", "/q(1)"]) {
+    const decision = g.decide({ method: "GET", url: `https://dev.example.com${path}` });
+    assert.equal(decision.allow === false && decision.reason, "deny-route", path);
+  }
+  for (const path of ["/files/a/other", "/files/secrets", "/exportXcsv", "/aab", "/q1"]) assert.equal(g.decide({ method: "GET", url: `https://dev.example.com${path}` }).allow, true, path);
+});
+
+test("a pattern is held to its length: one character is the least, and 200 the most", () => {
+  assert.notEqual(routePatternError(""), undefined);
+  assert.equal(routePatternError(`/${"a".repeat(199)}`), undefined);
+  assert.notEqual(routePatternError(`/${"a".repeat(200)}`), undefined);
+  assert.equal(routePatternError("/"), undefined);
+});
+
+test("an allowance names a mutating method from the list and a path, nothing else", () => {
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) assert.equal(mutatingEntryError(`${method} /x`), undefined, method);
+  assert.notEqual(mutatingEntryError("POST"), undefined);
+  assert.notEqual(mutatingEntryError("POST /a b"), undefined, "the path is held to the pattern rules");
+  assert.notEqual(mutatingEntryError(""), undefined);
 });
