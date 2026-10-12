@@ -456,8 +456,11 @@ After each arm-run the harness takes the files the arm delivered and judges them
    recorded as it was). `.qa/` (the pipeline's state) is not part of the set.
 2. **Fake-pass detector** (`scripts/fake-pass-detector.ts`, pure, the same for both arms). A spec is flagged when its name looks like a probe
    (`_explore`, `_register`, `tmp`, `scratch`, `probe`, `playground`, as a whole word of a path segment or a leading underscore), when the file
-   defines no test, when a test body is empty, when an `expect` is on a literal (`expect(true)`, `expect(1 + 1).toBe(2)`), when no `expect` anywhere
-   in the file is on the page, a locator, a request or a value read from them, or when it is `expect(page).toBeTruthy()` and its kin. It reads the
+   defines no test, when a test body is empty, when an `expect` is on a literal (`expect(true)`, `expect(1 + 1).toBe(2)`) or compares a value with
+   itself, when a test has no `expect` on the page, a locator, a request or a value read from them (each test body is judged on its own; an
+   assertion in a hook or helper outside the bodies counts for all), when an `expect` cannot fail on what it is given (a locator or handle
+   `toBeTruthy` / `toBeDefined` / `not.toBeNull`, a count `toBeGreaterThanOrEqual(0)`, `toHaveURL(/.*/)`, `toHaveTitle(/.*/)`, the `body` being
+   visible as a test's only assertion), or when a test or group is skipped or marked fixme without a condition. It reads the
    text only, so a spec that asserts through a helper it cannot see can be flagged; it must not let those patterns through. A flagged spec is never
    valid and is not re-run.
 3. **Re-run.** The remaining specs are executed twice, one after the other, against DEV with the warm login, in a throwaway suite under

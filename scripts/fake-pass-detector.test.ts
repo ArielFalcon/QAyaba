@@ -135,3 +135,100 @@ test("expect.soft and expect.poll on page values count, test.step bodies are sca
     });`;
   assert.deepEqual(detectFakeSpec("s.spec.ts", source), []);
 });
+
+/* ── vacuity the detector must see, whatever the argument and wherever in the file ── */
+
+const wrap = (body: string, extra = ""): string =>
+  `import { test, expect } from "@playwright/test";\n${extra}\ntest("x", async ({ page }) => {\n await page.goto("/");\n${body}\n});`;
+const REAL_EXPECT = ' await expect(page.getByTestId("list")).toBeVisible();';
+
+const VACUOUS_CASES: ReadonlyArray<readonly [string, string, readonly string[]]> = [
+  ["a locator expected truthy", wrap(' expect(page.locator("#app")).toBeTruthy();'), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.VACUOUS]],
+  ["a locator expected defined", wrap(' expect(page.getByRole("button")).toBeDefined();'), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.VACUOUS]],
+  ["a locator expected not null", wrap(' expect(page.locator("li").first()).not.toBeNull();'), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.VACUOUS]],
+  ["a locator held in a variable expected truthy", wrap(' const row = page.locator("tr");\n expect(row).toBeTruthy();'), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.VACUOUS]],
+  ["a count expected at least zero", wrap(' expect(await page.locator("li").count()).toBeGreaterThanOrEqual(0);'), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.VACUOUS]],
+  ["a counted variable expected at least zero", wrap(' const n = await page.locator("li").count();\n expect(n).toBeGreaterThanOrEqual(0);'), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.VACUOUS]],
+  ["any URL", wrap(" await expect(page).toHaveURL(/.*/);"), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.VACUOUS]],
+  ["any title", wrap(" await expect(page).toHaveTitle(/.*/);"), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.VACUOUS]],
+  ["a value equal to itself", wrap(' const title = await page.title();\n expect(title).toBe(title);'), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.TAUTOLOGY]],
+  ["the body expected visible as the only assertion", wrap(' await expect(page.locator("body")).toBeVisible();'), [FAKE_FLAG.VACUOUS]],
+];
+
+for (const [name, source, expected] of VACUOUS_CASES) {
+  test(`${name} is flagged`, () => {
+    assert.deepEqual(kinds(detectFakeSpec("v.spec.ts", source)), [...expected].sort());
+  });
+}
+
+const GENUINE_CASES: ReadonlyArray<readonly [string, string]> = [
+  ["a boolean read from a locator expected truthy", wrap(' expect(await page.locator("#app").isVisible()).toBeTruthy();')],
+  ["a count expected above zero", wrap(' expect(await page.locator("li").count()).toBeGreaterThan(0);')],
+  ["a URL expected to match a path", wrap(" await expect(page).toHaveURL(/\\/orders$/);")],
+  ["a title expected to be a string", wrap(' await expect(page).toHaveTitle("Orders");')],
+  ["a value compared with another value", wrap(' const a = await page.title();\n expect(a).toBe("Orders");')],
+  ["the body visible next to a real assertion", wrap(`${REAL_EXPECT}\n await expect(page.locator("body")).toBeVisible();`)],
+];
+
+for (const [name, source] of GENUINE_CASES) {
+  test(`${name} is not flagged`, () => {
+    assert.deepEqual(detectFakeSpec("g.spec.ts", source), []);
+  });
+}
+
+/* ── each test body is judged on its own ── */
+
+test("a test with no assertion is flagged although another test of the file asserts", () => {
+  const source = `${REAL}\ntest("navigates only", async ({ page }) => { await page.goto("/"); await page.click("a"); });`;
+  assert.deepEqual(kinds(detectFakeSpec("two.spec.ts", source)), [FAKE_FLAG.NO_PAGE_EXPECT]);
+});
+
+test("a tautology in one test does not hide behind a real assertion in another", () => {
+  const source = `${REAL}\ntest("literal", async ({ page }) => { await page.goto("/"); expect(1).toBe(1); });`;
+  assert.deepEqual(kinds(detectFakeSpec("two.spec.ts", source)), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.TAUTOLOGY]);
+});
+
+test("each test that asserts nothing is flagged once", () => {
+  const source = `import { test } from "@playwright/test";\ntest("a", async ({ page }) => { await page.goto("/"); });\ntest("b", async ({ page }) => { await page.goto("/b"); });`;
+  assert.deepEqual(kinds(detectFakeSpec("none.spec.ts", source)), [FAKE_FLAG.NO_PAGE_EXPECT, FAKE_FLAG.NO_PAGE_EXPECT]);
+});
+
+test("a body that is only the body-visible check is flagged in a file where another test asserts for real", () => {
+  const source = `${REAL}\ntest("loads", async ({ page }) => { await page.goto("/"); await expect(page.locator("body")).toBeVisible(); });`;
+  assert.deepEqual(kinds(detectFakeSpec("two.spec.ts", source)), [FAKE_FLAG.VACUOUS]);
+});
+
+test("an assertion in a helper or hook outside the test bodies counts for the tests of the file", () => {
+  const source = `
+    import { test, expect } from "@playwright/test";
+    test.beforeEach(async ({ page }) => { await page.goto("/"); await expect(page.getByTestId("ready")).toBeVisible(); });
+    test("opens", async ({ page }) => { await page.click("a"); });`;
+  assert.deepEqual(detectFakeSpec("hook.spec.ts", source), []);
+});
+
+/* ── tests that do not run ── */
+
+const SKIP_CASES: ReadonlyArray<readonly [string, string]> = [
+  ["a skipped test declaration", `${REAL}\ntest.skip("later", async ({ page }) => { await expect(page.locator("h1")).toBeVisible(); });`],
+  ["a fixme test declaration", `${REAL}\ntest.fixme("broken", async ({ page }) => { await expect(page.locator("h1")).toBeVisible(); });`],
+  ["a skipped describe", `${REAL}\ntest.describe.skip("group", () => { test("in", async ({ page }) => { await expect(page.locator("h1")).toBeVisible(); }); });`],
+  ["an unconditional skip inside a body", wrap(`${REAL_EXPECT}\n test.skip();`)],
+  ["a skip that is always true", wrap(`${REAL_EXPECT}\n test.skip(true, "later");`)],
+  ["an unconditional fixme inside a body", wrap(`${REAL_EXPECT}\n test.fixme();`)],
+];
+
+for (const [name, source] of SKIP_CASES) {
+  test(`${name} is flagged as a test that does not run`, () => {
+    assert.ok(kinds(detectFakeSpec("s.spec.ts", source)).includes(FAKE_FLAG.SKIPPED));
+  });
+}
+
+test("a spec whose only tests are skipped has no test and is skipped", () => {
+  const source = `import { test, expect } from "@playwright/test";\ntest.skip("later", async ({ page }) => { await expect(page.locator("h1")).toBeVisible(); });`;
+  assert.deepEqual(kinds(detectFakeSpec("s.spec.ts", source)), [FAKE_FLAG.NO_TESTS, FAKE_FLAG.SKIPPED]);
+});
+
+test("a skip that depends on a condition is not a skipped test", () => {
+  const source = wrap(`${REAL_EXPECT}\n test.skip(process.env.CI === "1", "flaky on CI");\n test.skip(browserName === "webkit", "no webkit");`);
+  assert.deepEqual(detectFakeSpec("c.spec.ts", source), []);
+});
