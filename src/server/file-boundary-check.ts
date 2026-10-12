@@ -19,7 +19,8 @@
  */
 
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
-import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -56,11 +57,17 @@ export function probeSpawnFor(sandbox: Sandbox, probes: readonly FileBoundaryPro
   };
 }
 
-function writeStatus(path: string, text: string): void {
-  const temporary = join(dirname(path), `.${process.pid}.file-boundary.tmp`);
-  writeFileSync(temporary, text, { mode: 0o644 });
-  chmodSync(temporary, 0o644);
-  renameSync(temporary, path);
+/* Written whole into a new file beside the target and renamed over it. The file is created exclusively (`wx`, which also refuses to follow a link) under a name nobody can predict, so nothing planted in the directory is written through. */
+export function writeStatus(path: string, text: string, uniqueSuffix: () => string = () => randomBytes(8).toString("hex")): void {
+  const temporary = join(dirname(path), `.${uniqueSuffix()}.file-boundary.tmp`);
+  try {
+    writeFileSync(temporary, text, { mode: 0o644, flag: "wx" });
+    chmodSync(temporary, 0o644);
+    renameSync(temporary, path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") rmSync(temporary, { force: true });
+    throw err;
+  }
 }
 
 function check(env: NodeJS.ProcessEnv): FileBoundaryVerdict {

@@ -109,7 +109,8 @@ app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the o
   makes, in a child started as the sandbox uid the way the launcher starts agent code, every attempt that uid must see refused:
   read `/proc/1/environ` and the API token (new and old place), list `data/`, `data/auth`, `config/`, `config/apps`, the code graph
   and the mirrors volume, and write the app root, **every mount under it found in `/proc/self/mountinfo`** (so a bind added later is
-  checked without anyone listing it), the orchestrator's code and config and the status files the service trusts. A write is tried
+  checked without anyone listing it), the orchestrator's code and config, the status files the service trusts and the directory they sit in (`/run`: a status file is
+  absent when the probe runs, so who may create it is who may write there). A write is tried
   by creating a file in a directory (removed again) or by opening a file for writing (no byte changes). The child is the plain
   script `src/server/file-boundary-probe.mjs`, run with the plain node binary, no loader and an environment of `PATH` alone: a
   TypeScript loader's disk cache (`<tmp>/tsx-<uid>`) is writable by the sandbox uid, survives restarts and is loaded unvalidated,

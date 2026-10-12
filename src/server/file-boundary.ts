@@ -1,7 +1,7 @@
 /* The composition root's side of the file boundary (qa-engine/src/shared-infrastructure/process-sandbox/file-boundary.ts): where the boot check leaves its status, what the service makes of it, and what the check tries. The status is read again at every spawn, like the egress filter's, and a missing one never counts as a boundary that holds. */
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseFileBoundaryStatus, type FileBoundaryLayout } from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
 import type { FileBoundaryGate } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { apiTokenPath, legacyApiTokenPath } from "./api-token";
@@ -32,7 +32,7 @@ export function fileBoundaryGateFor(env: NodeJS.ProcessEnv, read: () => string |
   };
 }
 
-/* What the sandbox uid must not be able to do on this host, besides writing any mount under the root (found in the mount table, not listed here): read the service's environment and the API token, list the orchestrator's state, write its code, its config and the status files the service trusts. */
+/* What the sandbox uid must not be able to do on this host, besides writing any mount under the root (found in the mount table, not listed here): read the service's environment and the API token, list the orchestrator's state, write its code, its config, the status files the service trusts and the directories they sit in. */
 export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBoundaryLayout {
   const data = join(root, "data");
   const config = join(root, "config");
@@ -58,6 +58,9 @@ export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBo
       join(root, "package.json"),
       fileBoundaryStatusFile(env),
       egressStatusFile(env),
+      /* A status file is absent when the probe runs (the entrypoint removes it first), so writing it proves nothing: who may create it is who may write the directory it sits in. */
+      dirname(fileBoundaryStatusFile(env)),
+      dirname(egressStatusFile(env)),
     ],
   };
 }
