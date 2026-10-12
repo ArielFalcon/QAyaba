@@ -26,6 +26,7 @@ export type FactId =
   | "step-limit"
   | "closed-loop"
   | "agent-browser"
+  | "lead-plan"
   | "existing-suite"
   | "learned-rules"
   | "exemplars"
@@ -118,6 +119,7 @@ export const HARNESS_FACTS_SECTION_ID = "harness-facts" satisfies FactId;
 export const STEP_LIMIT_SECTION_ID = "step-limit" satisfies FactId;
 export const CLOSED_LOOP_SECTION_ID = "closed-loop" satisfies FactId;
 export const AGENT_BROWSER_SECTION_ID = "agent-browser" satisfies FactId;
+export const LEAD_PLAN_SECTION_ID = "lead-plan" satisfies FactId;
 
 /* Facts that exactly one section may provide: a second copy is a duplicated source of truth. */
 const SINGLE_SOURCE_FACTS: readonly FactId[] = [

@@ -9,6 +9,8 @@ export interface FinalVerdict {
   note?: string;
   /** The reason the generator gave for writing nothing (`noop.reason`); absent unless it declared a no-op with a reason. `approved` is never a no-op signal. */
   noopReason?: string;
+  /** The plan a lead emitted when its turn asked for one: the raw object, untrusted and read by the orchestrator's admission alone. Absent unless the verdict carried a `plan` object. */
+  plan?: Record<string, unknown>;
   /** false when no verdict JSON was found (fail-closed). Distinguishes parse miss from rejection. */
   parsed: boolean;
 }
@@ -64,9 +66,14 @@ export function lastJsonMatching<T = Record<string, unknown>>(text: string, pred
   return undefined;
 }
 
-/* Discriminator: the generator's closing JSON carries a `specs` array, a `noop` decision or a boolean `approved`. */
+/* Discriminator: the generator's closing JSON carries a `specs` array, a `noop` decision, a `plan` or a boolean `approved`. */
 export function isClosingVerdict(o: Record<string, unknown>): boolean {
-  return Array.isArray(o.specs) || "noop" in o || typeof o.approved === "boolean";
+  return Array.isArray(o.specs) || "noop" in o || "plan" in o || typeof o.approved === "boolean";
+}
+
+/* A plan is an object; anything else under the key is no plan. */
+function planOf(raw: unknown): Record<string, unknown> | undefined {
+  return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
 }
 
 /* The trimmed reason of a `noop` decision; undefined for anything that is not an object with a non-blank text `reason`. */
@@ -96,6 +103,7 @@ export function parseVerdict(text: string): FinalVerdict {
       specMetas: parseSpecMetas(o.specMetas),
       note: typeof o.note === "string" ? o.note : undefined,
       noopReason: noopReasonOf(o.noop),
+      ...(planOf(o.plan) ? { plan: planOf(o.plan) } : {}),
       parsed: true,
     };
   }

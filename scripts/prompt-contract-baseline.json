@@ -5,8 +5,8 @@
     "directives": 20
   },
   "staticLayers": {
-    "opencode": 20719,
-    "codex": 35677
+    "opencode": 20839,
+    "codex": 35797
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -349,6 +349,10 @@
       "bytes": 5562,
       "directives": 8
     },
+    "complete/e2e/first/tree-none/brief+pack/planning/limit": {
+      "bytes": 4391,
+      "directives": 6
+    },
     "complete/e2e/first/tree-none/brief/limit": {
       "bytes": 5045,
       "directives": 10
@@ -377,6 +381,10 @@
       "bytes": 5262,
       "directives": 11
     },
+    "complete/e2e/first/tree-none/brief/planning/limit": {
+      "bytes": 4160,
+      "directives": 9
+    },
     "complete/e2e/first/tree-none/none": {
       "bytes": 4282,
       "directives": 8
@@ -391,6 +399,10 @@
     },
     "complete/e2e/first/tree-none/none/loop/limit": {
       "bytes": 2580,
+      "directives": 7
+    },
+    "complete/e2e/first/tree-none/none/planning/limit": {
+      "bytes": 3197,
       "directives": 7
     },
     "complete/e2e/first/tree-none/none/signal": {
@@ -431,6 +443,10 @@
     },
     "complete/e2e/first/tree-none/pack/loop/limit": {
       "bytes": 2890,
+      "directives": 5
+    },
+    "complete/e2e/first/tree-none/pack/planning/limit": {
+      "bytes": 3507,
       "directives": 5
     },
     "complete/e2e/first/tree-none/pack/signal": {
@@ -3869,6 +3885,10 @@
       "bytes": 5388,
       "directives": 7
     },
+    "diff/e2e/first/tree-none/brief+pack/planning/limit": {
+      "bytes": 6171,
+      "directives": 8
+    },
     "diff/e2e/first/tree-none/brief+pack/service": {
       "bytes": 7317,
       "directives": 9
@@ -3961,6 +3981,10 @@
       "bytes": 5157,
       "directives": 10
     },
+    "diff/e2e/first/tree-none/brief/planning/limit": {
+      "bytes": 5940,
+      "directives": 11
+    },
     "diff/e2e/first/tree-none/brief/service": {
       "bytes": 7017,
       "directives": 12
@@ -4008,6 +4032,10 @@
     "diff/e2e/first/tree-none/none/no-suite/limit": {
       "bytes": 4287,
       "directives": 8
+    },
+    "diff/e2e/first/tree-none/none/planning/limit": {
+      "bytes": 5070,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/none/service": {
       "bytes": 6355,
@@ -4112,6 +4140,10 @@
     "diff/e2e/first/tree-none/pack/no-suite/limit": {
       "bytes": 4597,
       "directives": 6
+    },
+    "diff/e2e/first/tree-none/pack/planning/limit": {
+      "bytes": 5380,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/pack/service": {
       "bytes": 6734,
@@ -7941,6 +7973,10 @@
       "bytes": 5699,
       "directives": 8
     },
+    "exhaustive/e2e/first/tree-none/brief+pack/planning/limit": {
+      "bytes": 4528,
+      "directives": 6
+    },
     "exhaustive/e2e/first/tree-none/brief/limit": {
       "bytes": 5182,
       "directives": 10
@@ -7969,6 +8005,10 @@
       "bytes": 5399,
       "directives": 11
     },
+    "exhaustive/e2e/first/tree-none/brief/planning/limit": {
+      "bytes": 4297,
+      "directives": 9
+    },
     "exhaustive/e2e/first/tree-none/none": {
       "bytes": 4419,
       "directives": 8
@@ -7983,6 +8023,10 @@
     },
     "exhaustive/e2e/first/tree-none/none/loop/limit": {
       "bytes": 2717,
+      "directives": 7
+    },
+    "exhaustive/e2e/first/tree-none/none/planning/limit": {
+      "bytes": 3334,
       "directives": 7
     },
     "exhaustive/e2e/first/tree-none/none/signal": {
@@ -8023,6 +8067,10 @@
     },
     "exhaustive/e2e/first/tree-none/pack/loop/limit": {
       "bytes": 3027,
+      "directives": 5
+    },
+    "exhaustive/e2e/first/tree-none/pack/planning/limit": {
+      "bytes": 3644,
       "directives": 5
     },
     "exhaustive/e2e/first/tree-none/pack/signal": {
@@ -11269,6 +11317,10 @@
       "bytes": 3592,
       "directives": 6
     },
+    "manual/e2e/first/tree-none/brief+pack/planning/limit": {
+      "bytes": 4429,
+      "directives": 7
+    },
     "manual/e2e/first/tree-none/brief/limit": {
       "bytes": 5083,
       "directives": 11
@@ -11321,6 +11373,10 @@
       "bytes": 3361,
       "directives": 9
     },
+    "manual/e2e/first/tree-none/brief/planning/limit": {
+      "bytes": 4198,
+      "directives": 10
+    },
     "manual/e2e/first/tree-none/none": {
       "bytes": 4247,
       "directives": 9
@@ -11344,6 +11400,10 @@
     "manual/e2e/first/tree-none/none/no-suite/limit": {
       "bytes": 2398,
       "directives": 7
+    },
+    "manual/e2e/first/tree-none/none/planning/limit": {
+      "bytes": 3235,
+      "directives": 8
     },
     "manual/e2e/first/tree-none/none/signal": {
       "bytes": 4660,
@@ -11400,6 +11460,10 @@
     "manual/e2e/first/tree-none/pack/no-suite/limit": {
       "bytes": 2708,
       "directives": 5
+    },
+    "manual/e2e/first/tree-none/pack/planning/limit": {
+      "bytes": 3545,
+      "directives": 6
     },
     "manual/e2e/first/tree-none/pack/signal": {
       "bytes": 5039,
@@ -14371,7 +14435,7 @@
     }
   },
   "lastIncrease": {
-    "reason": "WU 4a: the generator's static role text names the authenticated browser tools (authbrowser_*) once, as a second conditional exception next to run_spec, and AGENTS.md says they are read-only; the assembled 'Authenticated browser budget' section is a new bucket",
+    "reason": "the lead's plan contract: one conditional section on the first pass of a coordinated run's planning turn, and one line in the generator role telling it to emit only the plan when the prompt asks for one",
     "budgets": [
       "static:opencode",
       "static:codex"

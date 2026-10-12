@@ -64,6 +64,8 @@ export interface AgentPromptOpts {
   timeoutMs?: number;
   /** The agent may answer from the conversation alone: no tool (read, write, shell, MCP) is available to this prompt. For a turn that only restates something already said, such as a verdict's contract repair. A runtime with no per-prompt control over tools ignores it. */
   withoutTools?: boolean;
+  /** The agent may read and look things up but may not write or edit a file in this prompt: for a turn whose only product is its answer (a plan). A runtime with no per-prompt control over tools ignores it. */
+  withoutWrites?: boolean;
 }
 
 export interface AgentSession {

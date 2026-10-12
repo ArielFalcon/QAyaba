@@ -459,6 +459,24 @@ test("createAgentDeps: a prompt that does not ask for it never carries the no-to
   assert.equal(flag, "absent");
 });
 
+test("createAgentDeps: a prompt that may not write reaches the transport as such, on the primary attempt and on the fallback retry, and one that may does not carry the flag", async () => {
+  resetCircuit();
+  const seen: Array<boolean | undefined | "absent"> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-no-writes" }),
+    promptSession: async (args) => {
+      seen.push("withoutWrites" in args ? args.withoutWrites : "absent");
+      if (seen.length === 1) throw new Error("ECONNRESET transient network fault");
+      return { parts: [{ type: "text", text: "planned" }] };
+    },
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => "opencode-go/fallback-model" });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("plan the change", { withoutWrites: true });
+  await session.prompt("write the specs");
+  assert.deepEqual(seen, [true, true, "absent"]);
+});
+
 test("createAgentDeps: retries on the fallback model after a transient (non-infra) primary-model fault", async () => {
   resetCircuit();
   let attempt = 0;

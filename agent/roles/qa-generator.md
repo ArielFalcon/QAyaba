@@ -193,3 +193,4 @@ the reason is what makes an empty list a decision:
   with no reason is not a decision, and `approved` never stands in for one.
 - `note`: any limitation worth surfacing (e.g. "DEV unreachable, wrote tests from code analysis
   only"), otherwise "".
+- When the prompt asks for a plan, write no file and emit only the plan contract it gives, in place of the block above.

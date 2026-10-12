@@ -198,3 +198,18 @@ test("the suite listing looks at no more than the cap of entries it is given, so
     rmSync(specDir, { recursive: true, force: true });
   }
 });
+
+test("parseGenerator forwards a plan the legacy parser read, and carries none when it read none", () => {
+  const plan = { kind: "fanout", flows: [{ id: "a", objective: "x" }] };
+  const withPlan = new VerdictParserAdapter({
+    parseVerdict: () => ({ parsed: true, approved: true, specs: [], plan }),
+    parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
+  } as never);
+  assert.deepEqual(withPlan.parseGenerator("planned").plan, plan);
+  const without = new VerdictParserAdapter({
+    parseVerdict: () => ({ parsed: true, approved: true, specs: ["a.spec.ts"] }),
+    parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never,
+  } as never);
+  assert.equal("plan" in without.parseGenerator("written"), false);
+});
+

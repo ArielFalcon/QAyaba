@@ -487,13 +487,24 @@ export function hidesBrowserTools(agent: string, sessionId: string): boolean {
   return AGENT_BROWSER_AGENTS.has(agent) && !(browserGrant?.(sessionId) ?? false);
 }
 
-/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one of a session the browser was not granted to hides its tools; every other prompt leaves the tools to its agent's configuration. */
-export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; hideBrowserTools?: boolean | undefined }) {
+/*
+ * The tools a prompt that may not write is denied: the file tools of the runtime and the symbol edits of the code-navigation server,
+ * under both the names the runtime gives a server's tools. Reading, searching and the browser stay as the agent's configuration has them.
+ */
+export const NO_WRITE_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
+  ["write", "edit", "patch", "replace_symbol_body", "insert_after_symbol", "insert_before_symbol", "serena_replace_symbol_body", "serena_insert_after_symbol", "serena_insert_before_symbol"].map((name) => [name, false as const]),
+);
+
+/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one that may not write is denied the file tools; one of a session the browser was not granted to hides its tools; every other prompt leaves the tools to its agent's configuration. */
+export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined }) {
+  const tools: Record<string, false> = args.withoutTools
+    ? { ...NO_TOOLS }
+    : { ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}), ...(args.withoutWrites ? NO_WRITE_TOOLS : {}) };
   return {
     agent: args.agent,
     parts: [{ type: "text" as const, text: args.text }],
     ...(args.model ? { model: args.model } : {}),
-    ...(args.withoutTools ? { tools: { ...NO_TOOLS } } : args.hideBrowserTools ? { tools: { "authbrowser*": false as const } } : {}),
+    ...(Object.keys(tools).length > 0 ? { tools } : {}),
   };
 }
 
@@ -522,11 +533,11 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
       if (!id) throw new Error("OpenCode: the session returned no id");
       return { id };
     },
-    promptSession: async ({ id, cwd, agent, text, model, withoutTools }): Promise<RawPromptResult> => {
+    promptSession: async ({ id, cwd, agent, text, model, withoutTools, withoutWrites }): Promise<RawPromptResult> => {
       const res = await client.session.prompt({
         path: { id },
         query: { directory: cwd },
-        body: openCodePromptBody({ agent, text, model, withoutTools, hideBrowserTools: hidesBrowserTools(agent, id) }),
+        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id) }),
       });
       if (res.error) {
         throw new Error(`OpenCode session.prompt failed: ${describeFailure(res.error)}`);

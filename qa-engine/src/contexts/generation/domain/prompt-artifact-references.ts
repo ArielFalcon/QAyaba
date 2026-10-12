@@ -4,7 +4,7 @@
  * the prompt sends the agent to something that does not exist. Patterns carry no `g` flag: they are
  * tested, never iterated.
  */
-import { AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type ArtifactReference } from "./prompt-contract-lint.ts";
+import { AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, type ArtifactReference } from "./prompt-contract-lint.ts";
 import { PACK_HEADINGS, PROMPT_HEADINGS } from "./prompt-headings.ts";
 
 const escape = (words: string): string => words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -43,6 +43,7 @@ export const ARTIFACT_REFERENCES: readonly ArtifactReference[] = [
   { artifact: "step-limit", pattern: /\bstep limit\b/i, provider: { section: STEP_LIMIT_SECTION_ID } },
   { artifact: "closed-loop", pattern: named(PROMPT_HEADINGS.closedLoop), provider: { section: CLOSED_LOOP_SECTION_ID } },
   { artifact: "agent-browser", pattern: named(PROMPT_HEADINGS.agentBrowser), provider: { section: AGENT_BROWSER_SECTION_ID } },
+  { artifact: "lead-plan", pattern: named(PROMPT_HEADINGS.leadPlan), provider: { section: LEAD_PLAN_SECTION_ID } },
   { artifact: "existing-suite", pattern: new RegExp(`\\bsuite (?:listed|listing)\\b|${escape(PROMPT_HEADINGS.existingSuiteManifest)}`, "i"), provider: { facts: ["existing-suite"] } },
   { artifact: "learned-rules", pattern: /\b(?:learned|proven|experimental) rules\b/i, provider: { facts: ["learned-rules"] } },
   { artifact: "exemplars", pattern: /\btest templates\b|\bexemplars?\b/i, provider: { facts: ["exemplars"] } },

@@ -25,6 +25,8 @@ export const PROMPT_HEADINGS = {
   closedLoop: "Run spec budget",
   /* The calls and time a run grants the authoring agents' authenticated browser; a prompt states it only when the run granted the tools. */
   agentBrowser: "Authenticated browser budget",
+  /* The plan a lead is asked for when its run is coordinated; a prompt carries it only on the planning turn. */
+  leadPlan: "Lead plan contract",
 } as const;
 
 /* The lines of the suite listing's groups on a turn that has specs to change. The editable label is the one place a prompt tells the agent to read the specs it is about to change; the new-spec line says a turn that covers changed lines may add a spec of its own; the last label says which specs are left as they are. */
@@ -62,6 +64,7 @@ export const ASSEMBLED_ARTIFACT_NAMES: readonly string[] = [
   PROMPT_HEADINGS.stepLimit,
   PROMPT_HEADINGS.closedLoop,
   PROMPT_HEADINGS.agentBrowser,
+  PROMPT_HEADINGS.leadPlan,
   /* The phrases a directive uses for the brief and for grounding it points back at. */
   "the brief",
   "the grounding above",

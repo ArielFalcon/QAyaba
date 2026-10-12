@@ -12,6 +12,27 @@ export function isCoordinationMode(value: unknown): value is CoordinationMode {
   return value === COORDINATION_MODE.SINGLE || value === COORDINATION_MODE.LEAD_SIDEKICKS;
 }
 
+/* The shapes of the plan a lead emits when it is asked for one. */
+export const LEAD_PLAN_KIND = {
+  /* Nothing is worth a test; the lead says why. */
+  NOOP: "noop",
+  /* The change is one piece of work: the lead authors it itself. */
+  SINGLE: "single",
+  /* The change is several independent flows, each authored by a sidekick. */
+  FANOUT: "fanout",
+} as const;
+export type LeadPlanKind = (typeof LEAD_PLAN_KIND)[keyof typeof LEAD_PLAN_KIND];
+
+/* What the lead's planning turn is told about the plan it may give: the numbers the orchestrator will hold it to. */
+export interface PlanningLimits {
+  /* The most flows the plan may name. */
+  maxFlows: number;
+  /* The most flows that run at once. */
+  maxParallel: number;
+  /* The longest the planning turn may take. */
+  budgetMs: number;
+}
+
 /* The longest one flow may take, by the runtime its sidekick runs on. */
 export interface FlowBudgets {
   opencode: number;

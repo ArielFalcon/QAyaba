@@ -1,7 +1,7 @@
 /* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit (and reviewerStepLimit, when the generation runs its reviewer) come from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. A regeneration turn carries the specs the run delivered so far (deliveredSpecs), the ones a selector contradiction points at (attributedSpecFiles) and the suite's own entries (existingSpecFiles), minus every file the confined reader no longer finds; a first pass carries no delivered or attributed spec, and the suite's entries exactly as the grounding folded them. AbortSignal is forwarded into openSession. */
 
 import type { Objective } from "@kernel/objective.ts";
-import type { GenerationPort, GenerationEnrichment, GenerationOutput, RetrievedRule } from "../../application/ports/index.ts";
+import type { GenerationPort, GenerationEnrichment, GenerationOutput, PlanOutput, RetrievedRule } from "../../application/ports/index.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, StepLimitFor, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/ports/generation-ports.ts";
 import { generationRunsReviewer } from "@contexts/generation/domain/generation-review.ts";
@@ -98,7 +98,48 @@ export class GenerationPortAdapter implements GenerationPort {
     private readonly collaborators: GenerationPortCollaborators = {},
   ) {}
 
+  async plan(specDir: string, signal: AbortSignal | undefined, diff: string, enrichment: GenerationEnrichment): Promise<PlanOutput> {
+    if (!enrichment.planning) throw new Error("GenerationPortAdapter.plan needs enrichment.planning: the limits the plan will be held to");
+    const input = await this.buildInput(specDir, diff, enrichment);
+    const planned = await this.useCase.plan(input, { ...(signal ? { signal } : {}) });
+    return {
+      ...(planned.plan ? { plan: planned.plan } : {}),
+      ...(planned.noopReason ? { noopReason: planned.noopReason } : {}),
+      parsed: planned.parsed,
+      timedOut: planned.timedOut,
+      ...(planned.turn ? { turn: planned.turn } : {}),
+    };
+  }
+
   async generate(_objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput> {
+    const input = await this.buildInput(specDir, diff, enrichment);
+    const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
+
+    const generated = await this.useCase.generate(input, { ...(signal ? { signal } : {}) });
+
+    const result: GenerationOutput = {
+      specs: generated.specs,
+      end: generated.end,
+      reviewed: generated.reviewed,
+      approved: generated.approved,
+      ...(generated.note !== undefined ? { note: generated.note } : {}),
+      ...(generated.parsed !== undefined ? { parsed: generated.parsed } : {}),
+      ...(generated.turn ? { turn: generated.turn } : {}),
+      ...(generated.specMetas?.length
+        ? { specMetas: generated.specMetas.map((m) => ({ flow: m.flow, objective: m.objective })) }
+        : {}),
+      ...(generated.declaredSpecs?.length ? { declaredSpecs: generated.declaredSpecs.map((declared) => ({ ...declared })) } : {}),
+    };
+
+    if (this.collaborators.readSpecSource && generated.specs.length > 0) {
+      result.specSources = generated.specs.map((spec) => this.collaborators.readSpecSource!(root, spec));
+    }
+
+    return result;
+  }
+
+  /* The run input of one turn, from the run's static context and the enrichment the caller hands. */
+  private async buildInput(specDir: string, diff: string | undefined, enrichment: GenerationEnrichment | undefined): Promise<OpencodeRunInput> {
     const reviewerLearnedRules = enrichment?.learnedRules?.length ? renderLearnedRulesForReviewer(enrichment.learnedRules) : "";
     const stepLimit = await this.collaborators.stepLimitFor?.("generator");
     /* The in-generate reviewer's limit travels only with a generation that runs that reviewer's session. */
@@ -164,28 +205,8 @@ export class GenerationPortAdapter implements GenerationPort {
         : {}),
       ...(enrichment?.classificationReason ? { classificationReason: enrichment.classificationReason } : {}),
       ...(enrichment?.contradiction ? { contradiction: true } : {}),
+      ...(enrichment?.planning ? { planning: { ...enrichment.planning } } : {}),
     };
-
-    const generated = await this.useCase.generate(input, { ...(signal ? { signal } : {}) });
-
-    const result: GenerationOutput = {
-      specs: generated.specs,
-      end: generated.end,
-      reviewed: generated.reviewed,
-      approved: generated.approved,
-      ...(generated.note !== undefined ? { note: generated.note } : {}),
-      ...(generated.parsed !== undefined ? { parsed: generated.parsed } : {}),
-      ...(generated.turn ? { turn: generated.turn } : {}),
-      ...(generated.specMetas?.length
-        ? { specMetas: generated.specMetas.map((m) => ({ flow: m.flow, objective: m.objective })) }
-        : {}),
-      ...(generated.declaredSpecs?.length ? { declaredSpecs: generated.declaredSpecs.map((declared) => ({ ...declared })) } : {}),
-    };
-
-    if (this.collaborators.readSpecSource && generated.specs.length > 0) {
-      result.specSources = generated.specs.map((spec) => this.collaborators.readSpecSource!(root, spec));
-    }
-
-    return result;
+    return input;
   }
 }

@@ -33,6 +33,8 @@ interface LegacyVerdict {
   note?: string;
   /* The reason the generator gave for writing nothing; approved is never a no-op signal. */
   noopReason?: string;
+  /* The plan the legacy parser read, forwarded untouched: it is the orchestrator's admission that judges it. */
+  plan?: Record<string, unknown>;
   /* specMetas drives the deterministic disk-reconciled manifest upsert; parsed (above) is the #1 fail-closed invariant. Both REQUIRED here so parseGenerator can forward them — dropping them would make the use-case misclassify a parse miss and lose the manifest-upsert signal. */
   specMetas?: SpecMeta[];
 }
@@ -71,6 +73,7 @@ export class VerdictParserAdapter implements VerdictParserPort {
       ...(v.note ? { note: v.note } : {}),
       ...(noopReason ? { noopReason } : {}),
       ...(outputTail ? { outputTail } : {}),
+      ...(v.plan ? { plan: v.plan } : {}),
       ...(v.specMetas ? { specMetas: v.specMetas.map((meta) => ({ ...meta, file: resolve(meta.file) })) } : {}),
       parsed: v.parsed,
     };

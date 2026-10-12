@@ -66,8 +66,67 @@ export interface GenerateOpts {
   onRepair?: () => void;
 }
 
+/**
+ * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: the orchestrator's admission is its
+ * only reader. `noopReason` is the reason the lead gave for writing nothing when it declared that instead of planning. A turn
+ * that gives neither is `parsed` when its verdict could be read at all. `timedOut` is a turn that ran out of its planning time.
+ */
+export interface PlanResult {
+  plan?: Record<string, unknown>;
+  noopReason?: string;
+  parsed: boolean;
+  timedOut: boolean;
+  /** What the turn measured, when its runtime can measure a turn. */
+  turn?: AgentTurnStats;
+}
+
 export class GenerateTestsUseCase {
   constructor(private readonly ports: GenerationPorts) {}
+
+  /**
+   * The one turn a coordinated run asks its lead for a plan instead of specs. One prompt in one generator session, bounded by the
+   * planning time, in which the agent may read and look things up but not write; no reviewer, no repair, no manifest. A turn that
+   * runs out of its time is reported, not thrown (the run then goes on as one piece of work); any other fault is thrown.
+   */
+  async plan(input: OpencodeRunInput, opts?: GenerateOpts): Promise<PlanResult> {
+    const planning = input.planning;
+    if (!planning) throw new Error("GenerateTestsUseCase.plan needs input.planning: the limits the plan will be held to");
+    const assembled = this.ports.rendering.renderMain(input);
+    const session = await this.ports.runtime.openSession("primary", input.mirrorDir, {
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+      timeoutMs: planning.budgetMs,
+      descriptor: { runId: input.runId, role: "qa-generator" },
+    });
+    let output = "";
+    let turn: AgentTurnStats | undefined;
+    let timedOut = false;
+    try {
+      const result = await session.prompt(assembled.text, {
+        sectionSizes: assembled.sectionSizes,
+        ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
+        ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
+        finalStepOnly: true,
+        withoutWrites: true,
+        timeoutMs: planning.budgetMs,
+        onTurnStats: (stats) => { turn = stats; },
+      });
+      output = result.output;
+    } catch (err) {
+      if (!isAgentTimeoutError(err)) throw err;
+      timedOut = true;
+    } finally {
+      await session.dispose();
+    }
+    if (timedOut) return { parsed: false, timedOut: true, ...(turn ? { turn } : {}) };
+    const deliverable = this.ports.verdicts.parseGenerator(output, `${input.mirrorDir}/${input.e2eRelDir}`);
+    return {
+      ...(deliverable.plan ? { plan: deliverable.plan } : {}),
+      ...(deliverable.noopReason ? { noopReason: deliverable.noopReason } : {}),
+      parsed: deliverable.parsed !== false,
+      timedOut: false,
+      ...(turn ? { turn } : {}),
+    };
+  }
 
   /* Generate E2E tests for a single input. Orchestrates the deterministic shell: 1. Build the generation prompt (via PromptRenderingPort). 2. Open a session and fire the prompt (via AgentRuntimePort). 3. Check generator contract; if invalid, fire ONE bounded repair re-prompt. 4. Parse the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). 6. If the run reviews (needsReview, never in context mode): open a reviewer session, parse the reviewer verdict, fire ONE bounded repair re-prompt on valid:false, apply the fail-closed gate. */
   async generate(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult> {

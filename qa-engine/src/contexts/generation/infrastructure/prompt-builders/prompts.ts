@@ -20,7 +20,8 @@ import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
-import { claim, AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { LEAD_PLAN_KIND, type PlanningLimits } from "@kernel/coordination.ts";
+import { claim, AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
 import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
@@ -60,7 +61,7 @@ function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
   return lines.length > 0 ? [`## ${PROMPT_HEADINGS.harnessFacts}`, ...lines, ``].join("\n") : "";
 }
 
-export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID };
+export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, LEAD_PLAN_SECTION_ID };
 
 /* The authenticated browser a run granted the authoring agents, as facts: how many calls and how long each may take, and what its answers report. Numbers and a description only; how to use the tools is the role prompt's. */
 function renderAgentBrowser(limits: AgentBrowserLimits): string {
@@ -76,6 +77,19 @@ function renderAgentBrowser(limits: AgentBrowserLimits): string {
 function renderClosedLoop(limits: ClosedLoopLimits): string {
   const seconds = Math.round(limits.perCallMs / 1000);
   return [`## ${PROMPT_HEADINGS.closedLoop}`, `run_spec: at most ${limits.maxCalls} calls this run, ${seconds} seconds each, ${limits.maxDevWrites} requests that write to DEV (POST, PUT, PATCH, DELETE) in all.`, ``].join("\n");
+}
+
+/* The plan a lead is asked for on a coordinated run's planning turn: the shapes it may take and the limits the orchestrator holds it to. The orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. */
+function renderLeadPlan(limits: PlanningLimits): string {
+  return [
+    `## ${PROMPT_HEADINGS.leadPlan}`,
+    `This turn asks for a plan, not for specs: write no file. Close with ONLY a JSON object {"plan": ...} of one of these shapes.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing here is worth a test>"}}`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.SINGLE}"}} when the change is one piece of work that you will author yourself.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]}]}} when the change is several independent flows, each of which can be written and run without the others.`,
+    `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
+    ``,
+  ].join("\n");
 }
 
 /* The files whose content the surviving sections render compactly: reading one of them re-fetches what the prompt already carries. A section that was shed contributes nothing. */
@@ -785,6 +799,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const closedLoopContent = isGenerationMode && input.target === "e2e" && input.closedLoop ? renderClosedLoop(input.closedLoop) : "";
   const agentBrowserContent = isGenerationMode && input.target === "e2e" && input.agentBrowser ? renderAgentBrowser(input.agentBrowser) : "";
+  /* Only the first pass is planned: a regeneration repairs specs that exist. */
+  const leadPlanContent = isGenerationMode && input.target === "e2e" && input.planning && !isReGenTurn(input) ? renderLeadPlan(input.planning) : "";
   const stepLimitContent = input.stepLimit !== undefined ? renderStepLimit(input.stepLimit) : "";
   const milestone = input.stepLimit !== undefined ? stepMilestone(input, input.stepLimit) : undefined;
   const stepMilestoneContent = milestone ? renderStepMilestone(milestone) : "";
@@ -820,6 +836,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       section("task", "task", task.text, { priority: 1, claims: task.claims }),
       ...(diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable", claims: [claim.provides("diff")] })] : []),
       /* The cap the runtime enforces for this turn, when the host resolved one: a fact of its own, then, on a turn that writes tests, the step by which it should have written something. Both close the prompt. */
+      ...(leadPlanContent ? [section(LEAD_PLAN_SECTION_ID, "critical-recap", leadPlanContent, { priority: 0, claims: [claim.provides("lead-plan")] })] : []),
       ...(stepLimitContent ? [section(STEP_LIMIT_SECTION_ID, "critical-recap", stepLimitContent, { priority: 1, claims: [claim.provides("step-limit")] })] : []),
       ...(stepMilestoneContent ? [section(STEP_MILESTONE_SECTION_ID, "critical-recap", stepMilestoneContent, { priority: 2 })] : []),
     ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });

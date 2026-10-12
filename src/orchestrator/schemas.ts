@@ -384,9 +384,11 @@ export const GeneratorVerdictSchema = z
     specMetas: z.array(SpecMetaSchema).optional(),
     note: z.string().optional(),
     noop: z.unknown().optional(),
+    /* The plan a lead gives when its turn asks for one; the orchestrator's admission reads it, so only its being an object is checked here. */
+    plan: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((verdict, ctx) => {
-    if (verdict.specs.length > 0 || NoopDecisionSchema.safeParse(verdict.noop).success) return;
+    if (verdict.specs.length > 0 || verdict.plan !== undefined || NoopDecisionSchema.safeParse(verdict.noop).success) return;
     ctx.addIssue({
       code: "custom",
       path: ["noop"],

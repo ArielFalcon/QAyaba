@@ -32,7 +32,7 @@ import {
   setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { AGENT_BROWSER_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { AGENT_BROWSER_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import { PACK_HEADINGS, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
 import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
@@ -85,11 +85,11 @@ test("a code run can be asked to cover a change it already tested, but never to 
 
 test("the matrix holds every valid combination against both static layers", async () => {
   const cells = await matrixOnce();
-  /* A run on the Codex runtime is never granted the run_spec tool, so a combination that states its budget has a cell in the OpenCode layer only. */
-  const granted = allValidSpecs().filter((s) => s.closedLoop).length;
-  assert.ok(granted > 0, "setup: some combinations state the budget");
+  /* A run on the Codex runtime is never granted the run_spec tool and its lead cannot be held from writing on a planning turn, so a combination that states the budget or carries the plan contract has a cell in the OpenCode layer only. */
+  const granted = allValidSpecs().filter((s) => s.closedLoop || s.planning).length;
+  assert.ok(granted > 0, "setup: some combinations state the budget or carry the plan contract");
   assert.equal(cells.length, allValidSpecs().length * 2 - granted);
-  assert.equal(cells.some((c) => c.layer === "codex" && c.spec.closedLoop), false, "no Codex cell states a budget");
+  assert.equal(cells.some((c) => c.layer === "codex" && (c.spec.closedLoop || c.spec.planning)), false, "no Codex cell states a budget or carries the plan contract");
   assert.deepEqual([...new Set(cells.map((c) => c.layer))].sort(), ["codex", "opencode"]);
   for (const layer of ["opencode", "codex"] as const) {
     const sections = loadStaticLayer(layer, ROOT);
@@ -107,7 +107,7 @@ test("an OpenCode cell is assembled with the step limit that runtime enforces, a
   const cells = await matrixOnce();
   const opencode = cells.filter((c) => c.layer === "opencode");
   const codex = cells.filter((c) => c.layer === "codex");
-  assert.ok(opencode.length > 0 && codex.length === opencode.filter((c) => !c.spec.closedLoop).length, "every combination has a cell in each layer, but the ones that state the run_spec budget, which only OpenCode can be granted");
+  assert.ok(opencode.length > 0 && codex.length === opencode.filter((c) => !c.spec.closedLoop && !c.spec.planning).length, "every combination has a cell in each layer, but the ones that state the run_spec budget or carry the plan contract, which only OpenCode can have");
   assert.deepEqual([...new Set(opencode.map((c) => c.stepLimit))], [MATRIX_STEP_LIMIT]);
   assert.deepEqual([...new Set(codex.map((c) => c.stepLimit))], [undefined]);
 });
@@ -388,7 +388,7 @@ test("the budgets of the worst-case listing are above those of every ordinary li
   const baseline = loadBaseline(ROOT);
   const valid = allValidSpecs();
   const budgetOf = (suite: CellSpec["suite"], phase: CellSpec["phase"], target: CellSpec["target"]): number =>
-    Math.max(...valid.filter((s) => s.suite === suite && s.phase === phase && s.target === target && !s.closedLoop).map((s) => baseline.buckets[bucketOf(s)]!.bytes));
+    Math.max(...valid.filter((s) => s.suite === suite && s.phase === phase && s.target === target && !s.closedLoop && !s.planning).map((s) => baseline.buckets[bucketOf(s)]!.bytes));
   for (const [phase, target] of [["regen-coverage", "e2e"], ["regen-coverage", "code"], ["selector-fix", "e2e"]] as const) {
     assert.ok(budgetOf("large", phase, target) > budgetOf("listed", phase, target), `${phase}, ${target}`);
   }
@@ -472,7 +472,7 @@ test("the recorded global size is the reference production prompt size the modul
 test("every combination that can reach the agent has a recorded budget, with a step limit and without, and the baseline names only combinations that can", () => {
   const baseline = loadBaseline(ROOT);
   /* A combination that states the run_spec budget exists only on the runtime that states a step limit. */
-  const reachable = new Set(allValidSpecs().flatMap((spec) => (spec.closedLoop ? [bucketOf(spec, true)] : [bucketOf(spec), bucketOf(spec, true)])));
+  const reachable = new Set(allValidSpecs().flatMap((spec) => (spec.closedLoop || spec.planning ? [bucketOf(spec, true)] : [bucketOf(spec), bucketOf(spec, true)])));
   assert.deepEqual([...reachable].filter((bucket) => baseline.buckets[bucket] === undefined), [], "a reachable combination has no budget");
   assert.deepEqual(Object.keys(baseline.buckets).filter((bucket) => !reachable.has(bucket)), [], "a budget names no reachable combination");
   for (const [bucket, measure] of Object.entries(baseline.buckets)) {
@@ -690,3 +690,13 @@ test("a combination that grants the browser states its budget on top of the run_
   }
   assert.ok(cells.filter((c) => !c.spec.agentBrowser).every((c) => !c.lint.sections.some((s) => s.id === AGENT_BROWSER_SECTION_ID)), "no other cell states it");
 });
+
+test("a combination that is a planning turn carries the plan contract on the first pass of the OpenCode layer alone, apart from the tool budgets", async () => {
+  const cells = await matrixOnce();
+  const planning = cells.filter((c) => c.spec.planning);
+  assert.ok(planning.length > 0, "setup: some combinations are planning turns");
+  assert.ok(planning.every((c) => c.layer === "opencode" && c.spec.phase === "first" && c.spec.target === "e2e" && !c.spec.closedLoop && !c.spec.agentBrowser), "only the first pass of an e2e run, in OpenCode, with no tool budget beside it");
+  for (const cell of planning) assert.ok(cell.lint.sections.some((s) => s.id === LEAD_PLAN_SECTION_ID), `${cell.key}: the plan contract is present`);
+  assert.ok(cells.filter((c) => !c.spec.planning).every((c) => !c.lint.sections.some((s) => s.id === LEAD_PLAN_SECTION_ID)), "no other cell carries it");
+});
+

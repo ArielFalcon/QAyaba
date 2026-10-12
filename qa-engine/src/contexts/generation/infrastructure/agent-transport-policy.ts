@@ -103,6 +103,8 @@ export interface RawAgentTransport {
     model?: { providerID: string; modelID: string };
     /** The prompt may use no tool at all: the transport states that to the runtime in whatever form it takes. */
     withoutTools?: boolean;
+    /** The prompt may not write or edit a file: the transport states that to the runtime in whatever form it takes. */
+    withoutWrites?: boolean;
   }): Promise<RawPromptResult>;
   abortSession(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
@@ -389,7 +391,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               .then((prepared) => {
                 observed = prepared;
                 return countingTransportFailure(() =>
-                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}), ...(promptOpts?.withoutTools ? { withoutTools: true } : {}) }),
+                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}), ...(promptOpts?.withoutTools ? { withoutTools: true } : {}), ...(promptOpts?.withoutWrites ? { withoutWrites: true } : {}) }),
                 );
               })
               .then((res) => {

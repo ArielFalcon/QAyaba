@@ -19,7 +19,7 @@ import type { RunEventBody } from "@kernel/run-event.ts";
 import type { GenerationEndKind } from "@kernel/generation-end.ts";
 import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
-import type { CoordinationMode } from "@kernel/coordination.ts";
+import type { CoordinationMode, PlanningLimits } from "@kernel/coordination.ts";
 import type { AgentBrowserGateSignal, AgentBrowserLimits } from "@kernel/agent-browser.ts";
 
 /**
@@ -235,6 +235,8 @@ export interface GenerationEnrichment {
    * means no key. Advisory only.
    */
   crossRepoImpact?: { impactedLinks: readonly ImpactedLink[] };
+  /** Present only on the planning turn of a coordinated run: the limits the plan will be held to. Absent on every other turn. */
+  planning?: PlanningLimits;
 }
 /**
  * What one generation hands the run. `end` says how it ended: with specs the run continues;
@@ -376,6 +378,23 @@ export interface RunDeadlinePort {
  * Adapter catch produces `${REVIEWER_UNAVAILABLE_MARKER}: <reason>`; the
  * use-case matches on it. One constant so producer and matcher cannot drift.
  */
+  /**
+   * The one turn a coordinated run asks the lead for a plan instead of specs. `enrichment.planning` carries the limits the plan
+   * will be held to and is required. Absent: this port cannot plan, and a coordinated run authors the change as one piece of work.
+   */
+  plan?(specDir: string, signal: AbortSignal | undefined, diff: string, enrichment: GenerationEnrichment): Promise<PlanOutput>;
+}
+/**
+ * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: only the orchestrator's admission reads
+ * it. `noopReason` is the reason the lead gave for writing nothing when it declared that instead of planning. A turn that gives
+ * neither is `parsed` when its verdict could be read at all; `timedOut` is a turn that ran out of its planning time.
+ */
+export interface PlanOutput {
+  plan?: Record<string, unknown>;
+  noopReason?: string;
+  parsed: boolean;
+  timedOut: boolean;
+  turn?: AgentTurnStats;
 export const REVIEWER_UNAVAILABLE_MARKER = "reviewer unavailable";
 
 /**

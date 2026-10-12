@@ -424,3 +424,27 @@ test("repairInstruction: marker lines with surrounding whitespace are also strip
   const closes = msg.split(TAIL_CLOSE).length - 1;
   assert.equal(closes, 1, "a whitespace-padded marker line must also be stripped, not embedded");
 });
+
+test("a plan is a decision for the parser and the validator alike: it needs no specs and no no-op", () => {
+  const text = 'planning done.\n{"plan":{"kind":"fanout","flows":[{"id":"cart","objective":"the total shows the coupon"},{"id":"login","objective":"sign in works"}]}}';
+  const parsed = parseVerdict(text);
+  assert.equal(parsed.parsed, true);
+  assert.deepEqual(parsed.specs, []);
+  assert.deepEqual((parsed.plan as { kind?: string }).kind, "fanout");
+  assert.equal(parsed.noopReason, undefined, "a plan is not a declared no-op");
+  const c = checkGeneratorVerdict(text);
+  assert.equal(c.valid, true, c.issues.join("; "));
+});
+
+test("a plan that is not an object is no plan: the verdict is read as one that decided nothing", () => {
+  for (const plan of ['"single"', "7", "null", "[]"]) {
+    const text = `{"plan":${plan}}`;
+    assert.equal(parseVerdict(text).plan, undefined, plan);
+    assert.equal(checkGeneratorVerdict(text).valid, false, plan);
+  }
+});
+
+test("a verdict with no plan key carries no plan", () => {
+  assert.equal("plan" in parseVerdict('{"specs":["a.spec.ts"]}'), false);
+});
+

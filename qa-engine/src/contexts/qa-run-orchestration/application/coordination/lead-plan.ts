@@ -7,14 +7,10 @@
  * Pure: no clock, no file, no model.
  */
 
+import { LEAD_PLAN_KIND, type LeadPlanKind } from "@kernel/coordination.ts";
 import { scrub } from "./scrub.ts";
 
-export const LEAD_PLAN_KIND = {
-  NOOP: "noop",
-  SINGLE: "single",
-  FANOUT: "fanout",
-} as const;
-export type LeadPlanKind = (typeof LEAD_PLAN_KIND)[keyof typeof LEAD_PLAN_KIND];
+export { LEAD_PLAN_KIND, type LeadPlanKind };
 
 /* Why a plan that asked for a fan-out became one piece of work for the lead. */
 export const PLAN_DOWNGRADE = {

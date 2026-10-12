@@ -1290,6 +1290,21 @@ test("openCodePromptBody: any other prompt leaves the tools to its agent's confi
   assert.equal("tools" in openCodePromptBody({ agent: "a", text: "t", withoutTools: false }), false);
 });
 
+test("openCodePromptBody: a prompt that may not write is denied the file tools and the symbol edits, and keeps every other tool", () => {
+  const body = openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: true }) as { tools?: Record<string, boolean> };
+  for (const tool of ["write", "edit", "patch", "replace_symbol_body", "insert_after_symbol", "insert_before_symbol"]) assert.equal(body.tools?.[tool], false, tool);
+  for (const tool of ["read", "grep", "glob", "serena*", "playwright*", "*"]) assert.equal(tool in (body.tools ?? {}), false, `${tool} stays as configured`);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: false }), false);
+});
+
+test("openCodePromptBody: a prompt may be denied its writes and the browser at once, and a prompt without tools stays without all of them", () => {
+  const both = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutWrites: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal(both["authbrowser*"], false);
+  assert.equal(both.write, false);
+  const none = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutTools: true, withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal(none["*"], false);
+});
+
 test("openCodePromptBody: a prompt of a session the run did not grant the browser hides its tools and changes nothing else", () => {
   const model = { providerID: "p", modelID: "m" };
   const hidden = openCodePromptBody({ agent: "qa-generator", text: "write", model, hideBrowserTools: true });
