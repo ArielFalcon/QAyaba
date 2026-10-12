@@ -4,7 +4,7 @@
  *
  * PURPOSE: proves, on the pinned OpenCode build inside the built `agents` image, that the custom tool agents/tool/run_spec.ts
  *   1. is loaded from the GLOBAL config directory with project configuration disabled (OPENCODE_DISABLE_PROJECT_CONFIG=true),
- *   2. is switched off for every agent but qa-generator (agents/opencode.json),
+ *   2. is switched off for every agent but the authoring roles, qa-generator and qa-sidekick (agents/opencode.json),
  *   3. is called by a real OpenCode session of qa-generator, and the call reaches the orchestrator's endpoint with the service
  *      token, the session id the runtime opened and the agent name it reports (ToolContext), and its answer goes back to the model.
  * It uses a stub model and a stub orchestrator that live in this process, so it needs no API key and touches no DEV.
@@ -122,7 +122,7 @@ try {
 
   const agents = await api("/agent");
   const allowed = agents.filter((a) => a.permission.filter((r) => r.permission === "run_spec").at(-1)?.action === "allow").map((a) => a.name);
-  check(JSON.stringify(allowed) === JSON.stringify(["qa-generator"]), `only qa-generator may call run_spec (allowed: ${JSON.stringify(allowed)})`);
+  check(JSON.stringify([...allowed].sort()) === JSON.stringify(["qa-generator", "qa-sidekick"]), `only the authoring roles (qa-generator, qa-sidekick) may call run_spec (allowed: ${JSON.stringify(allowed)})`);
 
   mkdirSync("/tmp/run-spec-smoke-repo", { recursive: true });
   const session = await api("/session?directory=/tmp/run-spec-smoke-repo", { method: "POST", body: "{}" });
