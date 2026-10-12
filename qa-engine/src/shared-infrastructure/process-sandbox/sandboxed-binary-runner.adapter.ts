@@ -31,11 +31,13 @@ export class SandboxedBinaryRunnerAdapter implements SandboxedBinaryRunner {
 
   run(req: SandboxedRunRequest): Promise<SandboxedRunResult> {
     return new Promise((resolve, reject) => {
-      const child = spawn(req.command, [...req.args], {
-        cwd: req.cwd,
-        env: req.env,
-        detached: true,
-      });
+      const child = this.deps.launch
+        ? this.deps.launch(req)
+        : spawn(req.command, [...req.args], {
+            cwd: req.cwd,
+            env: req.env,
+            detached: true,
+          });
 
       const maxOutputChars = this.deps.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
       const capture = (): OutputCapture => (req.outputKeepChars === undefined ? new BoundedWholeOutput(maxOutputChars) : new NewestOutput(req.outputKeepChars));

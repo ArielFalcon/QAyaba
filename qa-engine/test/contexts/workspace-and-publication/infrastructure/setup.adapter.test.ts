@@ -1116,3 +1116,38 @@ test("the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, e
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/* The install runs agent-editable lifecycle scripts as the sandbox uid: the tree is handed over for it and is the orchestrator's again afterwards, whatever the install did. */
+test("the install tree is opened before the install and sealed after it", async () => {
+  const seq: string[] = [];
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async () => {
+    seq.push("install");
+    return okResult();
+  });
+  const installGuard = { open: (dir: string) => seq.push(`open ${dir}`), seal: (dir: string) => seq.push(`seal ${dir}`) };
+  await new SetupAdapter({ fs, runner, seedDir: "/seed", installGuard }).setup("/mirror/e2e");
+  assert.deepEqual(seq, ["open /mirror/e2e", "install", "seal /mirror/e2e"]);
+});
+
+test("the install tree is sealed when the install fails or is killed", async () => {
+  for (const result of [() => okResult({ exitCode: 1 }), () => Promise.reject(new Error("boom"))] as const) {
+    const sealed: string[] = [];
+    const fs = orchestrationFs({ hasPackageJson: true });
+    const runner = fakeRunner(async () => result());
+    const installGuard = { open: () => {}, seal: (dir: string) => sealed.push(dir) };
+    await assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: "/seed", installGuard }).setup("/mirror/e2e"));
+    assert.deepEqual(sealed, ["/mirror/e2e"]);
+  }
+});
+
+test("the install child is handed no variables of its own: the launcher's install profile decides its environment", async () => {
+  let seen: SandboxedRunRequest | undefined;
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async (req) => {
+    seen = req;
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.deepEqual(seen?.env, {});
+});

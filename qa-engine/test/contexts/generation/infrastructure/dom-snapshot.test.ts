@@ -1,3 +1,4 @@
+import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -1486,7 +1487,7 @@ test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
 });
 
 /* ── authDir is REQUIRED — no silent fallback to e2eDir ──────────────────────────────────────
-   createCaptureDomDeps(authDir) used to accept an OPTIONAL authDir and fall back to e2eDir when
+   createCaptureDomDeps(sharedTestExec()) used to accept an OPTIONAL authDir and fall back to e2eDir when
    omitted — an omitted override at any of the three composition seams (pre-exec/review-dom
    grounding bridges, the context-pack default deps) would silently put auth material back into the
    agent-visible mirror. authDir is now a required parameter: a real (TypeScript) caller that forgets
@@ -1498,21 +1499,21 @@ test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
    instead of silently degrading if it is ever actually invoked.
  */
 
-test("createCaptureDomDeps requires authDir — omitting it throws immediately (fail-closed, no silent e2eDir fallback)", () => {
+test("createCaptureDomDeps requires an execution launcher — omitting it throws immediately (fail-closed, no silent run of the project's package as the orchestrator)", () => {
   assert.throws(
     () =>
-      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      // @ts-expect-error the launcher is required; omitting it must be a compile error for a real (TypeScript) caller too.
       createCaptureDomDeps(),
-    /authDir/i,
-    "createCaptureDomDeps must throw naming the missing authDir, never silently fall back to e2eDir",
+    /execution launcher/i,
+    "createCaptureDomDeps must throw naming the missing launcher",
   );
 });
 
 test("defaultCaptureDomDeps is an inert placeholder — it must never silently capture using e2eDir, it must reject loudly if actually invoked", async () => {
   await assert.rejects(
     () => defaultCaptureDomDeps.render("/some/e2e/dir", "https://dev.example.com", ["/home"]),
-    /authDir/i,
-    "the placeholder must name authDir in its error, never silently fall back to e2eDir",
+    /launcher/i,
+    "the placeholder must name the launcher in its error, never silently capture on its own",
   );
 });
 
@@ -1541,7 +1542,7 @@ test("a DOM capture whose output passes the bound is killed and yields no snapsh
   await withStandInNode(flood, async (root) => {
     const warned = mock.method(console, "warn", () => {});
     try {
-      const deps = createCaptureDomDeps(join(root, "auth"), 20_000);
+      const deps = createCaptureDomDeps(sharedTestExec(), 20_000);
       const snaps = await deps.render(root, "http://localhost", ["/"]);
       assert.deepEqual(snaps, [], "no grounding rather than a snapshot parsed from a truncated document");
       assert.ok(warned.mock.calls.some((c) => /exceed/i.test(String(c.arguments[0]))), "the run says why there is no grounding");
@@ -1554,7 +1555,7 @@ test("a DOM capture whose output passes the bound is killed and yields no snapsh
 test("a DOM capture within the output bound still yields its snapshots", { timeout: 30_000 }, async () => {
   const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \\\"Save\\\"' }]));";
   await withStandInNode(script, async (root) => {
-    const deps = createCaptureDomDeps(join(root, "auth"), 20_000);
+    const deps = createCaptureDomDeps(sharedTestExec(), 20_000);
     const snaps = await deps.render(root, "http://localhost", ["/home"]);
     assert.equal(snaps.length, 1);
     assert.equal(snaps[0]?.route, "/home");
@@ -1717,14 +1718,14 @@ exports.chromium = { launch: async () => ({ newContext: async () => ({ newPage: 
 test("a capture reports the same-origin links of each page it opened", { timeout: 30_000 }, async () => {
   const anchors = ["http://dev.example/shops/madrid/madrid?page=2", "http://dev.example/about#team", "https://elsewhere.example/x", "mailto:a@b.example"];
   await withFakeBrowser(anchors, async (e2eDir, authDir) => {
-    const snaps = await createCaptureDomDeps(authDir).render(e2eDir, "http://dev.example", ["/"]);
+    const snaps = await createCaptureDomDeps(sharedTestExec()).render(e2eDir, "http://dev.example", ["/"]);
     assert.deepEqual(snaps[0]?.links, ["/shops/madrid/madrid", "/about"]);
   });
 });
 
 test("a page that shows no links has none reported", { timeout: 30_000 }, async () => {
   await withFakeBrowser([], async (e2eDir, authDir) => {
-    const snaps = await createCaptureDomDeps(authDir).render(e2eDir, "http://dev.example", ["/"]);
+    const snaps = await createCaptureDomDeps(sharedTestExec()).render(e2eDir, "http://dev.example", ["/"]);
     assert.equal(snaps[0]?.links, undefined);
   });
 });
@@ -1732,7 +1733,7 @@ test("a page that shows no links has none reported", { timeout: 30_000 }, async 
 test("a capture output whose links are not a list of strings yields the page without links", { timeout: 30_000 }, async () => {
   const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \"Save\"', hrefs: 'nope' }, { route: '/b', yaml: '- button \"Save\"', hrefs: [1, null, 'http://localhost/ok'] }]));";
   await withStandInNode(script, async (root) => {
-    const snaps = await createCaptureDomDeps(join(root, "auth")).render(root, "http://localhost", ["/home", "/b"]);
+    const snaps = await createCaptureDomDeps(sharedTestExec()).render(root, "http://localhost", ["/home", "/b"]);
     assert.equal(snaps[0]?.links, undefined);
     assert.deepEqual(snaps[1]?.links, ["/ok"]);
   });
@@ -1743,7 +1744,7 @@ test("one page with huge or foreign links does not stop the capture of the other
   const foreign = Array.from({ length: 2000 }, (_, i) => `https://elsewhere.example/${i}`);
   const anchors = [huge, ...foreign, "http://dev.example/shops/madrid/madrid"];
   await withFakeBrowser(anchors, async (e2eDir, authDir) => {
-    const snaps = await createCaptureDomDeps(authDir, 200_000).render(e2eDir, "http://dev.example", ["/", "/b"]);
+    const snaps = await createCaptureDomDeps(sharedTestExec(), 200_000).render(e2eDir, "http://dev.example", ["/", "/b"]);
     assert.equal(snaps.length, 2, "the output stayed within its bound, so both pages were read");
     assert.deepEqual(snaps[0]?.links, ["/shops/madrid/madrid"]);
   });

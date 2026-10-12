@@ -138,7 +138,7 @@ async function authSetupSpawnEnv(app: AppConfig, actionTimeoutMs: string | undef
     else process.env[AUTH_SETUP_ENV.actionTimeoutMs] = actionTimeoutMs;
     const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
-    await config.authSession.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) });
+    await inRunScope(config, () => config.authSession!.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) }));
     const [testIdAttribute = "", timeout = ""] = readFileSync(join(specDir, "setup-env.txt"), "utf8").split("\n");
     return { testIdAttribute, actionTimeoutMs: timeout };
   } finally {
@@ -171,6 +171,17 @@ test("the composed auth session passes neither name to its setup spawn when the 
    (with a secret of the orchestrator's own in the page text); the fake `npx` records that the seed ran. */
 const ORCHESTRATOR_TOKEN = "tok-abcdef123456";
 
+/* The login runs inside the sandbox scope the run opens: its work dir is where the login child writes its session. */
+async function inRunScope<T>(config: { execScope?: { open(input: { runId: string }): { run<R>(fn: () => R): R; close(): void } } }, fn: () => Promise<T>): Promise<T> {
+  assert.ok(config.execScope, "the composition opens a sandbox scope for each run");
+  const session = config.execScope.open({ runId: "factory-test-run" });
+  try {
+    return await session.run(fn);
+  } finally {
+    session.close();
+  }
+}
+
 async function composedDiscovery(app: AppConfig, contextMap?: object): Promise<{ result: unknown; input: string | undefined; seeded: boolean; authorized: AppConfig["auth"] }> {
   const root = mkdtempSync(join(tmpdir(), "factory-root-"));
   const binDir = mkdtempSync(join(tmpdir(), "factory-bin-"));
@@ -193,7 +204,7 @@ async function composedDiscovery(app: AppConfig, contextMap?: object): Promise<{
     process.env.EXTERNAL_API_TOKEN = ORCHESTRATOR_TOKEN;
     const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
     assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
-    const result = await config.authSession.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(config.auth ? { auth: config.auth } : {}) }).catch((error: unknown) => error);
+    const result = await inRunScope(config, () => config.authSession!.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(config.auth ? { auth: config.auth } : {}) })).catch((error: unknown) => error);
     const inputFile = join(specDir, "login-input.txt");
     return { result, input: existsSync(inputFile) ? readFileSync(inputFile, "utf8") : undefined, seeded: existsSync(join(specDir, "seeded.txt")), authorized: config.auth };
   } finally {
@@ -1275,12 +1286,12 @@ test("the value oracle scores a suite whose Playwright config has no desktop pro
     chmodSync(bin, 0o755);
     const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
 
-    const result = await config.objectiveSignal.oracle.measure(
+    const result = await inRunScope(config, () => config.objectiveSignal.oracle.measure(
       BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]),
       e2eDir,
       "qa-bot-abc1234-run1",
       ["login.spec.ts › shows the dashboard"],
-    );
+    ));
 
     assert.notEqual(result.valueScore, null, `the corrupted re-run must be conclusive, got: ${result.details}`);
     assert.equal(result.killedCount, 1);

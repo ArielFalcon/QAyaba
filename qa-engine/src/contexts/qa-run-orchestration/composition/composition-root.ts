@@ -37,6 +37,7 @@ import { MirrorRegistryAdapter } from "@contexts/service-topology/infrastructure
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/ports/index.ts";
 import { CrossRepoImpactPortAdapter } from "../infrastructure/bridges/cross-repo-impact-port.adapter.ts";
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
+import type { ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
@@ -84,6 +85,8 @@ export interface CompositionConfig {
   openapi?: string | string[];
   /** Wired for e2e apps that have a DEV url. Absent in code mode. */
   authSession?: AuthSessionPort;
+  /** The sandbox scope each run runs agent-influenced code in; absent: none is opened (tests). */
+  execScope?: ExecScopePort;
   auth?: AuthDeclaration;
   testIdAttribute?: string;
 
@@ -458,6 +461,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     workspace,
     deployGate,
     runHistory,
+    ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
     ...(setup ? { setup } : {}),
     ...(cfg.authSession && cfg.baseUrl
       ? {

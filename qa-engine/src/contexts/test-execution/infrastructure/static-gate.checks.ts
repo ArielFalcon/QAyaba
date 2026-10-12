@@ -1,13 +1,13 @@
 /* Never a fifth duplicate copy (process-kill.adapter.ts's own header: "the ONE killTree"). 2. */
 
-import { spawn } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
-import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
+import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
+import type { SandboxProfile } from "../../../shared-infrastructure/process-sandbox/exec-env.ts";
 import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { CheckResult, ValidationResult } from "../application/ports/index.ts";
 import {
@@ -110,15 +110,18 @@ function readSpec(root: SpecRoot, spec: string): { source: string } | { problem:
   }
 }
 
+/* `tsc`, `eslint` and `playwright test --list` import and run the project's config and its specs' top-level code, so they are agent-influenced code like a test run: they start through the launcher in the `offline` profile (no network, no session, no account). A code-target compile runs the repo's own build and uses the `install` profile, which reaches package registries only. */
 export function runCheck(
   cmd: string,
   args: string[],
   e2eDir: string,
   timeoutMs: number = DEFAULT_VALIDATE_CHECK_TIMEOUT_MS,
+  exec: ExecSandboxPort,
+  profile: SandboxProfile = "offline",
 ): Promise<CheckResult> {
   return new Promise((resolve) => {
-    /* `detached: true` makes the child its own process-group leader so killTree can reap grandchildren (npx forks the real tool as a child of the child). */
-    const child = spawn(cmd, args, { cwd: e2eDir, env: scrubEnv(), detached: true });
+    /* The launcher starts the child detached, as the leader of its own process group, so killTree can reap grandchildren (npx forks the real tool as a child of the child). */
+    const child = exec.spawn(cmd, args, { cwd: e2eDir, profile });
     const out = new BoundedOutputTail(CHECK_OUTPUT_KEEP_CHARS);
     let settled = false;
     const settle = (res: CheckResult) => {
@@ -131,33 +134,39 @@ export function runCheck(
       processKill.killTree(child);
       settle({ ok: false, output: `${cmd} ${args.join(" ")} timed out after ${timeoutMs}ms — killed`, infra: true });
     }, timeoutMs);
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (d: string) => out.append(d));
-    child.stderr.on("data", (d: string) => out.append(d));
+    child.stdout!.setEncoding("utf8");
+    child.stderr!.setEncoding("utf8");
+    child.stdout!.on("data", (d: string) => out.append(d));
+    child.stderr!.on("data", (d: string) => out.append(d));
     child.on("error", (e) => settle({ ok: false, output: String(e), infra: true }));
     child.on("close", (code) => settle({ ok: code === 0, output: out.text(), infra: code === null ? true : undefined }));
   });
 }
 
-export const defaultValidateDeps: ValidateDeps = {
-  typecheck: (e2eDir) => runCheck("npx", ["tsc", "--noEmit"], e2eDir),
-  lint: (e2eDir) => runCheck("npx", ["eslint", "."], e2eDir),
-  listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir),
-  checkManifest: async (e2eDir) => {
-    const unreadable = (why: string): CheckResult => ({ ok: false, output: `e2e/.qa/manifest.json unreadable or missing: ${why}` });
-    try {
-      /* What this check reports goes back to the agent as validation feedback, and the manifest is in a directory the agent writes into: it is read strictly, so that a link or a pipe planted there is refused with a reason that names no content, instead of being followed and quoted back in a parse error. */
-      const read = readOwnedSpecFile({ mirrorDir: e2eDir, specDir: e2eDir }, MANIFEST_FILE, MAX_MANIFEST_BYTES);
-      if ("reason" in read) return unreadable(read.reason);
-      if ("absent" in read) return unreadable("it does not exist");
-      const v = validateManifest(JSON.parse(read.bytes.toString("utf8")));
-      return { ok: v.ok, output: v.errors.join("\n") };
-    } catch (e) {
-      return unreadable(String(e));
-    }
-  },
+/* The manifest check reads a file; it starts nothing. */
+const checkManifestFile = async (e2eDir: string): Promise<CheckResult> => {
+  const unreadable = (why: string): CheckResult => ({ ok: false, output: `e2e/.qa/manifest.json unreadable or missing: ${why}` });
+  try {
+    /* What this check reports goes back to the agent as validation feedback, and the manifest is in a directory the agent writes into: it is read strictly, so that a link or a pipe planted there is refused with a reason that names no content, instead of being followed and quoted back in a parse error. */
+    const read = readOwnedSpecFile({ mirrorDir: e2eDir, specDir: e2eDir }, MANIFEST_FILE, MAX_MANIFEST_BYTES);
+    if ("reason" in read) return unreadable(read.reason);
+    if ("absent" in read) return unreadable("it does not exist");
+    const v = validateManifest(JSON.parse(read.bytes.toString("utf8")));
+    return { ok: v.ok, output: v.errors.join("\n") };
+  } catch (e) {
+    return unreadable(String(e));
+  }
 };
+
+/* The static gate's checks over a launcher: there is no default, because every one of them but the manifest check executes agent-influenced code. */
+export function createValidateDeps(exec: ExecSandboxPort): ValidateDeps {
+  return {
+    typecheck: (e2eDir) => runCheck("npx", ["tsc", "--noEmit"], e2eDir, undefined, exec, "offline"),
+    lint: (e2eDir) => runCheck("npx", ["eslint", "."], e2eDir, undefined, exec, "offline"),
+    listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir, undefined, exec, "offline"),
+    checkManifest: checkManifestFile,
+  };
+}
 
 export function validateManifest(raw: unknown): ManifestValidation {
   const shape = validateManifestShape(raw);
@@ -232,15 +241,18 @@ export interface CodeValidateDeps {
   listWrites?(repoDir: string): string[];
 }
 
-export const defaultCodeValidateDeps: CodeValidateDeps = {
-  detect: (repoDir) => detectCodeProject(repoDir),
-  runCheck: (cmd, args, cwd, timeoutMs) => runCheck(cmd, args, cwd, timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS),
-  listWrites: (repoDir) => gitWorkingChanges(repoDir),
-};
+/* A compile of the watched repo runs its own build tooling, which resolves dependencies from registries: the `install` profile. */
+export function createCodeValidateDeps(exec: ExecSandboxPort): CodeValidateDeps {
+  return {
+    detect: (repoDir) => detectCodeProject(repoDir),
+    runCheck: (cmd, args, cwd, timeoutMs) => runCheck(cmd, args, cwd, timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS, exec, "install"),
+    listWrites: (repoDir) => gitWorkingChanges(repoDir),
+  };
+}
 
 export async function validateCodeProject(
   repoDir: string,
-  deps: CodeValidateDeps = defaultCodeValidateDeps,
+  deps: CodeValidateDeps,
   opts: { changedFiles?: string[]; timeoutMs?: number } = {},
 ): Promise<ValidationResult> {
   const project = deps.detect(repoDir);

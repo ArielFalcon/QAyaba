@@ -246,6 +246,17 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/test-execution/infrastructure/code-execution.runner.ts",
   "qa-engine/src/contexts/test-execution/infrastructure/code-setup.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts",
+  /* The execution sandbox: the one launcher every child that runs agent-influenced code starts through (sandbox uid, per-profile environment allowlist, per-run work dir, egress lease), its environment builder, the work-dir and scope modules, the runner that puts it behind the collecting runner, and the composition that wires it. An autonomous fix that widened a profile's environment, dropped the uid or reopened the network would silently undo the isolation without touching any caller. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-env.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner.ts",
+  "src/server/exec-sandbox-factory.ts",
+  /* The container's entrypoint and the egress self-test: the file permissions that keep the sandbox uid out of the API token, the auth material and the provider keys, and the kernel filter that holds its network to the declared origins. */
+  "bin/container-entrypoint.sh",
+  "bin/egress-init.sh",
   /* The single definition of the git hardening (hooks, ownership, config-driven execution, git-dir trust) that repo-mirror.ts re-exports and every qa-engine git call uses. */
   "qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts",
   /* The hardening flags themselves (hooks, fsmonitor, bare repositories): the arch gate lets only the two hardening modules import them, so no engine module can run git with the flags but without the working-copy check. */

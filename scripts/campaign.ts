@@ -423,7 +423,8 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
   const { workdirRoot, realGit } = await import("../src/integrations/repo-mirror.ts");
   const { resolveCampaignFreeze } = await import("../src/server/campaign-freeze.ts");
-  const { buildSetupAdapter } = await import("../src/server/rewritten-engine-factory.ts");
+  const { buildSetupAdapter, resolveCodeSandbox } = await import("../src/server/rewritten-engine-factory.ts");
+  const { buildScriptExec } = await import("../src/server/exec-sandbox-factory.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
   const { writeOwnedSpecFile } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
@@ -433,6 +434,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { prepareHarnessAuth } = await import("./harness-auth.ts");
   const baseline = await import("./baseline-agent.ts");
 
+  const script = buildScriptExec(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv));
   const service = await defaultService(env);
   const mirrorsRoot = workdirRoot();
   const primaryOf = (app: AppFacts): { mirrorDir: string; e2eDir: string } => {
@@ -462,7 +464,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     restoreSuite(snapshot, { mirrorDir: ws, e2eDir });
     const root = { mirrorDir: ws, specDir: e2eDir };
     for (const f of files) writeOwnedSpecFile(root, f.path, f.bytes);
-    await buildSetupAdapter().setup(e2eDir);
+    await script.scoped({ runId: `campaign-setup-${process.pid}-${Date.now()}` }, () => buildSetupAdapter(script.exec, script.sandbox).setup(e2eDir));
     const config = join(e2eDir, CONFIG_FILE);
     if (!existsSync(config)) throw new Error(`the suite has no ${CONFIG_FILE} after setup`);
     writeOwnedSpecFile(root, REPO_CONFIG_COPY, readFileSync(config));
@@ -470,7 +472,8 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     return { e2eDir, authDir };
   };
   const execute = (app: AppFacts, e2eDir: string, authDir: string, namespace: string, specs: string[]) =>
-    runE2E(e2eDir, { baseUrl: app.baseUrl, namespace, specFiles: specs, ...(app.testIdAttribute !== undefined ? { testIdAttribute: app.testIdAttribute } : {}) }, createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), authDir));
+    script.scoped({ runId: `campaign-run-${process.pid}-${Date.now()}`, authDir, devOrigins: [new URL(app.baseUrl).origin] }, () =>
+      runE2E(e2eDir, { baseUrl: app.baseUrl, namespace, specFiles: specs, ...(app.testIdAttribute !== undefined ? { testIdAttribute: app.testIdAttribute } : {}) }, createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), script.exec)));
   const login = (app: AppFacts, e2eDir: string, authDir: string) =>
     prepareHarnessAuth({ appName: app.name, baseUrl: app.baseUrl, ...(app.testIdAttribute !== undefined ? { testIdAttribute: app.testIdAttribute } : {}), specDir: e2eDir, authDir, phase: "pre-execute" });
 
@@ -533,7 +536,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     runCleanup: async ({ app, snapshot, spec, workspace }) => {
       const { e2eDir, authDir } = await prepareWorkspace(workspace, snapshot, []);
       await login(app, e2eDir, authDir);
-      return judgeCleanup(await runE2E(e2eDir, cleanupRunOptions(app, spec), createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), authDir)));
+      return judgeCleanup(await script.scoped({ runId: `campaign-cleanup-${process.pid}-${Date.now()}`, authDir, devOrigins: [new URL(app.baseUrl).origin] }, () => runE2E(e2eDir, cleanupRunOptions(app, spec), createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), script.exec))));
     },
 
     runPipeline: async (req) => {

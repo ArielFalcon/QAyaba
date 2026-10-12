@@ -8,6 +8,8 @@ export interface SandboxReport {
   egress: "enforced" | "unenforced" | "not-applicable";
   /* Hosts a child tried to reach that the run's policy does not declare, without duplicates, in first-seen order. */
   denied: string[];
+  /* Why the launcher refused to start a child in this run, when it did: the run then ends E-SANDBOX whatever path it took to its infra-error. */
+  refusal?: "uid" | "egress";
 }
 
 export interface RunScope {
@@ -35,4 +37,26 @@ export function activeExecScope(): RunScope | undefined {
 
 export function newSandboxReport(): SandboxReport {
   return { egress: "not-applicable", denied: [] };
+}
+
+/* What a run's sandbox did, for the persisted gate signals: absent when no child was ever started or refused. */
+export function sandboxSignal(): { egress: SandboxReport["egress"]; denied: string[] } | undefined {
+  const report = store.getStore()?.report;
+  if (report === undefined || (report.egress === "not-applicable" && report.denied.length === 0)) return undefined;
+  return { egress: report.egress, denied: [...report.denied] };
+}
+
+/* True when the launcher refused a child in the run this call is part of. */
+export function sandboxRefused(): boolean {
+  return store.getStore()?.report.refusal !== undefined;
+}
+
+/* The run's sandbox as the use case sees it: the scope is opened for the run and its work dir is removed when the run ends, however it ends. */
+export interface ExecScopeSession {
+  run<T>(fn: () => T): T;
+  close(): void;
+}
+
+export interface ExecScopePort {
+  open(input: { runId: string }): ExecScopeSession;
 }

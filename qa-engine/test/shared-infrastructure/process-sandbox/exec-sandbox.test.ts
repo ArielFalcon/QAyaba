@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
@@ -198,4 +198,30 @@ test("QA_EXEC_SANDBOX: unset is best-effort, the two names are accepted, anythin
   assert.equal(resolveExecSandboxMode({ QA_EXEC_SANDBOX: "required" }), "required");
   assert.equal(resolveExecSandboxMode({ QA_EXEC_SANDBOX: "best-effort" }), "best-effort");
   assert.throws(() => resolveExecSandboxMode({ QA_EXEC_SANDBOX: "off" }), /QA_EXEC_SANDBOX/);
+});
+
+test("a call's directory is fresh, inside the work dir, and carries the subdirectories asked for", () => {
+  const h = harness();
+  try {
+    const a = h.port.allocDir("pw", ["report", "results"], h.scope);
+    const b = h.port.allocDir("pw", ["report"], h.scope);
+    assert.notEqual(a, b);
+    assert.equal(a.startsWith(h.scope.workDir), true);
+    assert.equal(statSync(join(a, "report")).isDirectory(), true);
+    assert.equal(statSync(join(a, "results")).isDirectory(), true);
+    assert.throws(() => h.port.allocDir("../escape", [], h.scope), /prefix/);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("directories inside the mirror are created for the sandbox on request", () => {
+  const h = harness();
+  try {
+    const target = join(h.root, "mirror", "e2e", ".qa", "coverage");
+    h.port.prepareWritable([target]);
+    assert.equal(statSync(target).isDirectory(), true);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
 });

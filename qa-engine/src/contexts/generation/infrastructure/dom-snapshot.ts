@@ -1,11 +1,7 @@
 /* Canonical DOM-grounding capture for the independent reviewer. The orchestrator (not the generator — independence holds) renders the routes the spec targets once and inlines real roles + accessible names into the reviewer prompt. Fail-open: a failed or empty render never blocks review. */
 
-import { spawn } from "node:child_process";
-import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
-import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
+import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
 import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, DEGRADE_REASON, gatedAppAdvisory, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
@@ -664,33 +660,26 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
 }
 
 /*
- * authDir: the orchestrator-only directory (outside the watched-repo mirror) AuthSessionAdapter
- * wrote auth material to — supplied by the composition-root shell. REQUIRED: a fallback to e2eDir (the
- * agent-visible mirror) would silently put auth material where the (read-only) agent can read it
- * whenever a composition seam omitted the override. There is no safe default, so a caller that forgets it is a TypeScript compile error, and — mirroring
- * the same fail-closed constructor-guard pattern already established for PublicationPortAdapter
- * (publication-port.adapter.test.ts) — a caller that bypasses the type system still gets an
- * immediate, loud throw here, never a silent e2eDir default.
+ * The capture script drives a browser from the e2e project's own `playwright` package, which the agent can install into
+ * (it is agent-influenced code), so it starts through the execution launcher: the `suite` profile, the saved session as a
+ * copy in the run's work dir, no account. REQUIRED, with no default: a capture that could start without the launcher
+ * would run that package as the orchestrator. A caller that bypasses the type system still gets a loud throw here.
  */
-export function createCaptureDomDeps(authDir: string, maxOutputChars: number = MAX_CAPTURE_OUTPUT_CHARS): CaptureDomDeps {
-  if (!authDir) {
-    throw new Error(
-      "[qa] createCaptureDomDeps requires authDir — there is no safe default (omitting it would silently read/write auth material under e2eDir, the agent-visible mirror).",
-    );
+export function createCaptureDomDeps(exec: ExecSandboxPort, maxOutputChars: number = MAX_CAPTURE_OUTPUT_CHARS): CaptureDomDeps {
+  if (!exec) {
+    throw new Error("[qa] createCaptureDomDeps requires an execution launcher — there is no safe default (the capture loads a package from the agent-writable e2e project).");
   }
   return {
     render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid") =>
       new Promise<RouteSnapshot[]>((resolve) => {
-        const work = mkdtempSync(join(tmpdir(), "qa-dom-"));
-        const script = join(work, "capture.cjs");
         /* routes + baseUrl come from AGENT-AUTHORED specs (untrusted in this threat model). They are passed to the child via an ENV var and parsed there, NOT interpolated into the script source — JSON.stringify does not escape U+2028/U+2029, so interpolating untrusted strings into JS source could inject. The require() path is a derived LOCAL path (not agent input), so its interpolation is safe. */
-        writeFileSync(script, buildCaptureScript(join(e2eDir, "node_modules", "playwright")));
+        const script = exec.writeScript("capture.cjs", buildCaptureScript(join(e2eDir, "node_modules", "playwright")));
         const stdout = new BoundedWholeOutput(maxOutputChars);
-        /* detached → own process group so the timeout kill reaps the chromium grandchildren too (a plain child.kill would orphan them). scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds so gated routes snapshot the real page, not the login screen (same env as execute.ts). */
-        const child = spawn("node", [script], {
+        /* The launcher starts the child detached, its own process group, so the timeout kill reaps the chromium grandchildren too (a plain child.kill would orphan them). The suite profile carries the DEV gate's credentials and the saved session, so gated routes snapshot the real page, not the login screen (same environment as a suite run). */
+        const child = exec.spawn("node", [script], {
           cwd: e2eDir,
-          env: authSessionEnv(authDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) }),
-          detached: true,
+          profile: "suite",
+          extraEnv: { PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) },
           /* The result is the JSON on stdout; stderr is never read, and left piped it would block the script once the OS pipe buffer fills. */
           stdio: ["ignore", "pipe", "ignore"],
         });
@@ -700,11 +689,10 @@ export function createCaptureDomDeps(authDir: string, maxOutputChars: number = M
           if (finished) return;
           finished = true;
           clearTimeout(timer);
-          try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
           resolve(snaps);
         };
-        child.stdout.setEncoding("utf8");
-        child.stdout.on("data", (d: string) => {
+        child.stdout!.setEncoding("utf8");
+        child.stdout!.on("data", (d: string) => {
           stdout.append(d);
           if (!stdout.exceeded || finished) return;
           processKill.killTree(child);
@@ -751,15 +739,15 @@ export function createCaptureDomDeps(authDir: string, maxOutputChars: number = M
  * the context-pack default deps) that fall back to this when no captureDomDeps collaborator is
  * configured at all. It never touches the filesystem or spawns a process and never derives
  * credential paths from e2eDir. If it is ever actually invoked
- * (every real production wiring always overrides it with createCaptureDomDeps(authDir) instead — see
+ * (every real production wiring always overrides it with createCaptureDomDeps(exec) instead — see
  * rewritten-engine-factory.ts), it fails loudly (CLAUDE.md: never swallow — surface integration
  * errors loudly) rather than silently degrading to an insecure default.
  */
 export const defaultCaptureDomDeps: CaptureDomDeps = {
   render: async () => {
     throw new Error(
-      "[qa] defaultCaptureDomDeps.render was invoked without a real authDir-backed CaptureDomDeps. " +
-      "Wire createCaptureDomDeps(authDir) explicitly at this seam — there is no safe default.",
+      "[qa] defaultCaptureDomDeps.render was invoked without a real launcher-backed CaptureDomDeps. " +
+      "Wire createCaptureDomDeps(exec) explicitly at this seam — there is no safe default.",
     );
   },
 };

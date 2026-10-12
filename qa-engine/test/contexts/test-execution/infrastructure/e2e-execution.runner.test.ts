@@ -8,7 +8,7 @@
  */
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -31,6 +31,7 @@ import {
   type StreamEvent,
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
+import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
@@ -891,23 +892,23 @@ test("readFailureDumps parses runtimeErrors defensively (garbage/malformed entri
    an immediate, loud throw instead of a silent fallback to `dir`.
  */
 
-test("createDefaultE2eCleanupDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+test("createDefaultE2eCleanupDeps requires an execution launcher — omitting it throws immediately (fail-closed, no silent run of agent code as the orchestrator)", () => {
   assert.throws(
     () =>
-      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      // @ts-expect-error the launcher is required; omitting it must be a compile error for a real (TypeScript) caller too.
       createDefaultE2eCleanupDeps(),
-    /authDir/i,
-    "createDefaultE2eCleanupDeps must throw naming the missing authDir, never silently fall back to the e2e dir",
+    /execution launcher/i,
+    "createDefaultE2eCleanupDeps must throw naming the missing launcher",
   );
 });
 
-test("createDefaultE2eExecuteDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+test("createDefaultE2eExecuteDeps requires an execution launcher — omitting it throws immediately (fail-closed, no silent run of agent code as the orchestrator)", () => {
   assert.throws(
     () =>
-      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      // @ts-expect-error the launcher is required; omitting it must be a compile error for a real (TypeScript) caller too.
       createDefaultE2eExecuteDeps(),
-    /authDir/i,
-    "createDefaultE2eExecuteDeps must throw naming the missing authDir, never silently fall back to the e2e dir",
+    /execution launcher/i,
+    "createDefaultE2eExecuteDeps must throw naming the missing launcher",
   );
 });
 
@@ -932,7 +933,7 @@ async function withStandInPlaywright<T>(script: string, body: (root: string) => 
 test("a Playwright run that writes megabytes to stderr reports only the newest of it", { timeout: 30_000 }, async () => {
   const script = "const l = 'browser log line that repeats\\n'.repeat(1000); let n = 0; (function go() { if (n++ < 300) return process.stderr.write(l, go); process.stderr.write('THE-END\\n'); })();";
   await withStandInPlaywright(script, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, sharedTestExec());
     const out = await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns" });
     assert.match(out.logs, /THE-END/, "the newest stderr is kept");
     assert.ok(out.logs.length < E2E_STDERR_KEEP_CHARS + 500, `the kept stderr stays bounded (was ${out.logs.length} chars)`);
@@ -948,7 +949,7 @@ test("a stream event line longer than any real event is skipped and the events a
   ].join("");
   await withStandInPlaywright(script, async (root) => {
     const events: StreamEvent[] = [];
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, sharedTestExec());
     await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns", onEvent: (ev) => events.push(ev) });
     assert.deepEqual(events.map((e) => e.phase), ["begin", "testend"]);
     const last = events[1];
@@ -961,7 +962,7 @@ test("orphan-data cleanup whose child writes more than a pipe buffer finishes in
   await withStandInPlaywright(script, async (root) => {
     const warned = mock.method(console, "warn", () => {});
     try {
-      const deps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), join(root, "auth"));
+      const deps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), sharedTestExec());
       await deps.runCleanup({ dir: root, baseUrl: "http://localhost", namespace: "ns", timeoutMs: 4_000 });
       assert.equal(warned.mock.calls.some((c) => /timed out/.test(String(c.arguments[0]))), false, "the cleanup ended on its own, not by the timeout kill");
     } finally {
@@ -980,4 +981,39 @@ test("runE2E hands the runner the cleanup-pass flag only when the caller asked f
   await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot" }, deps);
 
   assert.deepEqual(seen, [true, undefined]);
+});
+
+/* What the child is given: asked of a stand-in that writes down its environment and arguments. */
+async function seenByChild(run: (deps: ReturnType<typeof createDefaultE2eExecuteDeps>, root: string) => Promise<void>): Promise<{ env: Record<string, string>; argv: string[] }> {
+  const script = "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'seen.json'), JSON.stringify({ env: process.env, argv: process.argv.slice(2) }));";
+  let seen: { env: Record<string, string>; argv: string[] } | undefined;
+  const saved: Record<string, string | undefined> = { DEV_TEST_PASS: process.env.DEV_TEST_PASS, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.DEV_TEST_PASS = "orchestrator-account-pass";
+  process.env.GITHUB_TOKEN = "ghp_orchestrator";
+  try {
+    await withStandInPlaywright(script, async (root) => {
+      await run(createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, sharedTestExec()), root);
+      seen = JSON.parse(readFileSync(join(root, "seen.json"), "utf8"));
+    });
+  } finally {
+    for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+  return seen!;
+}
+
+test("a Playwright suite child gets neither the test account nor an orchestrator secret, and the run's data prefix", async () => {
+  const { env } = await seenByChild((deps, root) => deps.runSuite({ dir: root, baseUrl: "https://dev.example", namespace: "ns-1" }).then(() => undefined));
+  assert.equal(env.DEV_TEST_PASS, undefined);
+  assert.equal(env.GITHUB_TOKEN, undefined);
+  assert.equal(env.PW_NAMESPACE, "ns-1");
+  assert.equal(env.PW_BASE_URL, "https://dev.example");
+});
+
+test("a Playwright suite child writes its output, report and failure dumps outside the mirror it runs in", async () => {
+  const { env, argv } = await seenByChild((deps, root) => deps.runSuite({ dir: root, baseUrl: "https://dev.example", namespace: "ns-1", failureCaptureDir: join(sharedTestExec().workDir(), "failures-x") }).then(() => undefined));
+  const workDir = sharedTestExec().workDir();
+  const output = argv.find((arg) => arg.startsWith("--output="))?.slice("--output=".length);
+  assert.ok(output !== undefined && output.startsWith(workDir), `playwright output goes to ${output}, expected below ${workDir}`);
+  assert.ok(env.PLAYWRIGHT_JSON_OUTPUT_NAME?.startsWith(workDir), "the JSON report goes to the work dir");
+  assert.ok(env.QA_FAILURE_CAPTURE_DIR?.startsWith(workDir), "the failure dumps go to the work dir");
 });

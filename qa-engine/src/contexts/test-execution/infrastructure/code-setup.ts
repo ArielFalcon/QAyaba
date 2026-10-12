@@ -1,13 +1,12 @@
 /* Code-mode setup: install the watched repo's dependencies under the injected sandbox. Never reads process.env. */
 
-import { spawn } from "node:child_process";
 import { join } from "node:path";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
-import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
-import { sandboxSpawnOptions, prepareSandboxWorkdir, type Sandbox } from "../../../shared-infrastructure/process-sandbox/sandbox.ts";
+import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
+import { prepareSandboxWorkdir, type Sandbox } from "../../../shared-infrastructure/process-sandbox/sandbox.ts";
 import { codeTimeoutMs, detectCodeProject, realCodeTimers, TIMEOUT_BACKSTOP_GRACE_MS, type CodeProject, type CodeTimers } from "./code-execution.runner.ts";
 
 /* Bound on the install-failure output folded into the thrown error: enough to carry the real
@@ -57,9 +56,10 @@ export async function setupCodeProject(
   }
 }
 
-/** The REAL, spawning CodeSetupDeps — a FACTORY (not a plain constant), matching createDefaultCodeExecuteDeps's own sandbox-injection pattern (code-execution.runner.ts's header explains why `resolveSandbox()` cannot be called internally here). */
+/** The REAL, spawning CodeSetupDeps — a FACTORY (not a plain constant), matching createDefaultCodeExecuteDeps's own injection pattern (code-execution.runner.ts's header explains why `resolveSandbox()` cannot be called internally here). `sandbox` hands the working copy to the sandbox uid; `exec` starts every child. */
 export function createDefaultCodeSetupDeps(
   sandbox: Sandbox | null,
+  exec: ExecSandboxPort,
   processKill: ProcessKillPort = new ProcessKillAdapter(),
   timers: CodeTimers = realCodeTimers,
 ): CodeSetupDeps {
@@ -70,7 +70,8 @@ export function createDefaultCodeSetupDeps(
     install: (project, repoDir, opts) =>
       new Promise((resolve, reject) => {
         const { cmd, args } = project.install!;
-        const child = spawn(cmd, args, { cwd: repoDir, detached: true, ...sandboxSpawnOptions(scrubEnv(), sandbox) });
+        /* The repo's own install runs its lifecycle scripts: the sandbox's `install` profile, which reaches package registries only. */
+        const child = exec.spawn(cmd, args, { cwd: repoDir, profile: "install" });
         /* Drain both pipes as they arrive: an install that writes more than the OS pipe buffer
            (npm's own verbose/warning output easily does) would otherwise block the child on
            write() forever if nobody reads — a stall, not just a discarded log. Only a bounded

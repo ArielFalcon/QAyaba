@@ -17,6 +17,7 @@ export const ERROR_CLASSES = [
   "E-PRECONDITION",
   "E-TIME-BUDGET",
   "E-REVIEWER-UNAVAILABLE",
+  "E-SANDBOX",
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
@@ -143,8 +144,15 @@ const PRECONDITION_GLOSS: Readonly<Record<string, string>> = {
 const COLLABORATOR_GLOSS: Readonly<Record<string, string>> = {
   "E-REVIEWER-UNAVAILABLE": "the reviewer could not be reached or returned nothing, so the passing tests were never judged — a reviewer-runtime problem, not a rejection and not a fault of the app",
 };
+/*
+ * A run that could not execute agent-influenced code safely (no sandbox uid under QA_EXEC_SANDBOX=required, or the egress filter
+ * down under QA_EGRESS_MODE=enforce) is a condition of the deployment: worded apart, with no fault assigned to the app.
+ */
+const SANDBOX_GLOSS: Readonly<Record<string, string>> = {
+  "E-SANDBOX": "the execution sandbox was unavailable, so the tests were not run (no sandbox uid, or the egress filter is down) — a deployment condition, not a fault of the app",
+};
 const NEUTRAL_INFRA_GLOSS = "the run could not reach a verdict — infrastructure, not a code fault";
 
 export function infraErrorGloss(errorClass: string | null | undefined): string {
-  return (errorClass ? (ENGINE_SIDE_GLOSS[errorClass] ?? PRECONDITION_GLOSS[errorClass] ?? COLLABORATOR_GLOSS[errorClass]) : undefined) ?? NEUTRAL_INFRA_GLOSS;
+  return (errorClass ? (ENGINE_SIDE_GLOSS[errorClass] ?? PRECONDITION_GLOSS[errorClass] ?? COLLABORATOR_GLOSS[errorClass] ?? SANDBOX_GLOSS[errorClass]) : undefined) ?? NEUTRAL_INFRA_GLOSS;
 }

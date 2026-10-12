@@ -11,13 +11,14 @@ import {
   type ValidateDeps,
   runCheck,
   CHECK_OUTPUT_KEEP_CHARS,
-  defaultValidateDeps,
+  createValidateDeps,
   validateManifest,
   compileCommand,
   isToolchainFailure,
   validateCodeProject,
   type CodeValidateDeps,
 } from "@contexts/test-execution/infrastructure/static-gate.checks.ts";
+import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 import type { CheckResult } from "@contexts/test-execution/application/ports/index.ts";
 import type { CodeProject } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 
@@ -92,21 +93,21 @@ test("invalid metadata makes the run invalid", async () => {
 });
 
 test("runCheck kills a hung check on timeout and classifies it as INFRA", async () => {
-  const res = await runCheck(process.execPath, ["-e", "setInterval(() => {}, 1000)"], process.cwd(), 100);
+  const res = await runCheck(process.execPath, ["-e", "setInterval(() => {}, 1000)"], process.cwd(), 100, sharedTestExec());
   assert.equal(res.ok, false);
   assert.equal(res.infra, true); /* a wedged child is infrastructure, not a code defect */
   assert.match(res.output, /timed out after 100ms — killed/);
 });
 
 test("runCheck resolves ok on a clean exit and captures output", async () => {
-  const res = await runCheck(process.execPath, ["-e", "console.log('all good')"], process.cwd());
+  const res = await runCheck(process.execPath, ["-e", "console.log('all good')"], process.cwd(), undefined, sharedTestExec());
   assert.equal(res.ok, true);
   assert.match(res.output, /all good/);
   assert.equal(res.infra, undefined);
 });
 
 test("runCheck flags a non-zero exit as a CODE failure, not infra", async () => {
-  const res = await runCheck(process.execPath, ["-e", "console.error('TS2322'); process.exit(2)"], process.cwd());
+  const res = await runCheck(process.execPath, ["-e", "console.error('TS2322'); process.exit(2)"], process.cwd(), undefined, sharedTestExec());
   assert.equal(res.ok, false);
   assert.equal(res.infra, undefined); /* the tool ran and judged the code */
   assert.match(res.output, /TS2322/);
@@ -117,7 +118,7 @@ test("runCheck keeps only the newest output of a check that writes megabytes, an
   const script =
     "const line = 'check output line that repeats\\n'.repeat(1000); let n = 0;" +
     "(function go() { if (n++ < 300) return process.stdout.write(line, go); process.stderr.write('THE-END\\n'); process.exitCode = 2; })();";
-  const res = await runCheck(process.execPath, ["-e", script], process.cwd());
+  const res = await runCheck(process.execPath, ["-e", script], process.cwd(), undefined, sharedTestExec());
   assert.equal(res.ok, false, "the exit status is still judged");
   assert.equal(res.infra, undefined);
   assert.match(res.output, /THE-END/, "the newest output is kept");
@@ -125,7 +126,7 @@ test("runCheck keeps only the newest output of a check that writes megabytes, an
 });
 
 test("runCheck flags a missing binary (ENOENT) as INFRA", async () => {
-  const res = await runCheck("/definitely/not/a/binary-qa-xyz", [], process.cwd(), 5_000);
+  const res = await runCheck("/definitely/not/a/binary-qa-xyz", [], process.cwd(), 5_000, sharedTestExec());
   assert.equal(res.ok, false);
   assert.equal(res.infra, true);
 });
@@ -254,12 +255,12 @@ test("a zero-assertion GENERATED spec under flows/ IS flagged", async () => {
 });
 
 /* generation's manifest-fs.ts::readManifest (fail-open-to-[]). This pins the byte-matching strict-
-   read behavior against the REAL defaultValidateDeps implementation (not a stub), with real fs
+   read behavior against the REAL createValidateDeps(sharedTestExec()) implementation (not a stub), with real fs
  */
-test("defaultValidateDeps.checkManifest: a MISSING manifest.json is ok:false (never a fail-open pass)", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a MISSING manifest.json is ok:false (never a fail-open pass)", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-checkmanifest-missing-"));
   try {
-    const res = await defaultValidateDeps.checkManifest(dir);
+    const res = await createValidateDeps(sharedTestExec()).checkManifest(dir);
     assert.equal(res.ok, false);
     assert.match(res.output, /unreadable or missing/);
   } finally {
@@ -267,19 +268,19 @@ test("defaultValidateDeps.checkManifest: a MISSING manifest.json is ok:false (ne
   }
 });
 
-test("defaultValidateDeps.checkManifest: a CORRUPT (non-JSON) manifest.json is ok:false", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a CORRUPT (non-JSON) manifest.json is ok:false", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-checkmanifest-corrupt-"));
   try {
     _mkdirSync(_join(dir, ".qa"));
     _writeFileSync(_join(dir, ".qa", "manifest.json"), "{ not valid json ][");
-    const res = await defaultValidateDeps.checkManifest(dir);
+    const res = await createValidateDeps(sharedTestExec()).checkManifest(dir);
     assert.equal(res.ok, false);
   } finally {
     _rmSync(dir, { recursive: true });
   }
 });
 
-test("defaultValidateDeps.checkManifest: a well-formed manifest.json is ok:true (byte-matching today)", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a well-formed manifest.json is ok:true (byte-matching today)", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-checkmanifest-ok-"));
   try {
     _mkdirSync(_join(dir, ".qa"));
@@ -288,14 +289,14 @@ test("defaultValidateDeps.checkManifest: a well-formed manifest.json is ok:true 
       targets: ["CheckoutService.pay"], changeRef: { sha: "s", type: "feat" },
     };
     _writeFileSync(_join(dir, ".qa", "manifest.json"), JSON.stringify([entry]));
-    const res = await defaultValidateDeps.checkManifest(dir);
+    const res = await createValidateDeps(sharedTestExec()).checkManifest(dir);
     assert.equal(res.ok, true);
   } finally {
     _rmSync(dir, { recursive: true });
   }
 });
 
-test("defaultValidateDeps.checkManifest: an entry with criticality:\"urgent\" (not in the enum) is ok:false — write-time and read-time now share the SAME canonical validator", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: an entry with criticality:\"urgent\" (not in the enum) is ok:false — write-time and read-time now share the SAME canonical validator", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-checkmanifest-enum-"));
   try {
     _mkdirSync(_join(dir, ".qa"));
@@ -305,7 +306,7 @@ test("defaultValidateDeps.checkManifest: an entry with criticality:\"urgent\" (n
       criticality: "urgent",
     };
     _writeFileSync(_join(dir, ".qa", "manifest.json"), JSON.stringify([entry]));
-    const res = await defaultValidateDeps.checkManifest(dir);
+    const res = await createValidateDeps(sharedTestExec()).checkManifest(dir);
     assert.equal(res.ok, false);
   } finally {
     _rmSync(dir, { recursive: true });
@@ -337,12 +338,12 @@ function withManifestDir(run: (dir: string, outside: string) => Promise<void>): 
   return run(dir, outside).finally(() => _rmSync(tmp, { recursive: true, force: true }));
 }
 
-test("defaultValidateDeps.checkManifest: a manifest.json that is a symlink is ok:false and its output never carries what the link points at, whatever that is", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a manifest.json that is a symlink is ok:false and its output never carries what the link points at, whatever that is", async () => {
   await withManifestDir(async (dir, outside) => {
     _mkdirSync(_join(dir, ".qa"));
     for (const target of ["secret.env", "valid.json"]) {
       _symlinkSync(_join(outside, target), _join(dir, ".qa", "manifest.json"));
-      const res = await defaultValidateDeps.checkManifest(dir);
+      const res = await createValidateDeps(sharedTestExec()).checkManifest(dir);
       assert.equal(res.ok, false, `${target}: even a valid manifest behind a link is not read`);
       assert.doesNotMatch(res.output, /API_KEY|hunter2/, `${target}: nothing of the target in the output`);
       assert.match(res.output, REASONED);
@@ -351,26 +352,26 @@ test("defaultValidateDeps.checkManifest: a manifest.json that is a symlink is ok
   });
 });
 
-test("defaultValidateDeps.checkManifest: a .qa directory that is a symlink is ok:false, though the manifest behind it is valid", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a .qa directory that is a symlink is ok:false, though the manifest behind it is valid", async () => {
   await withManifestDir(async (dir, outside) => {
     _mkdirSync(_join(outside, "qa"));
     _writeFileSync(_join(outside, "qa", "manifest.json"), VALID_MANIFEST);
     _symlinkSync(_join(outside, "qa"), _join(dir, ".qa"));
 
-    const res = await defaultValidateDeps.checkManifest(dir);
+    const res = await createValidateDeps(sharedTestExec()).checkManifest(dir);
 
     assert.equal(res.ok, false);
     assert.match(res.output, REASONED);
   });
 });
 
-test("defaultValidateDeps.checkManifest: a manifest.json that is a directory, or a .qa that is a regular file, is ok:false and says why", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a manifest.json that is a directory, or a .qa that is a regular file, is ok:false and says why", async () => {
   await withManifestDir(async (dir) => {
     _mkdirSync(_join(dir, ".qa", "manifest.json"), { recursive: true });
-    const asDirectory = await defaultValidateDeps.checkManifest(dir);
+    const asDirectory = await createValidateDeps(sharedTestExec()).checkManifest(dir);
     _rmSync(_join(dir, ".qa"), { recursive: true });
     _writeFileSync(_join(dir, ".qa"), "not a directory");
-    const asFile = await defaultValidateDeps.checkManifest(dir);
+    const asFile = await createValidateDeps(sharedTestExec()).checkManifest(dir);
 
     for (const res of [asDirectory, asFile]) {
       assert.equal(res.ok, false);
@@ -380,7 +381,7 @@ test("defaultValidateDeps.checkManifest: a manifest.json that is a directory, or
 });
 
 /* The pipe is watched: a check that opened it would wait for a writer for ever, and a test cannot time out a thread that is stuck, so the watch releases it and the test fails there instead. */
-test("defaultValidateDeps.checkManifest: a manifest.json that is a named pipe is ok:false, and the check does not wait on it", async (t) => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a manifest.json that is a named pipe is ok:false, and the check does not wait on it", async (t) => {
   const probe = _mkdtempSync(_join(_tmpdir(), "qa-validate-fifo-probe-"));
   try {
     _execFileSync("mkfifo", [_join(probe, "p")]);
@@ -394,14 +395,14 @@ test("defaultValidateDeps.checkManifest: a manifest.json that is a named pipe is
     _mkdirSync(_join(dir, ".qa"));
     _execFileSync("mkfifo", [_join(dir, ".qa", "manifest.json")]);
 
-    const res = await _withoutWaitingOnNamedPipe(_join(dir, ".qa", "manifest.json"), () => defaultValidateDeps.checkManifest(dir));
+    const res = await _withoutWaitingOnNamedPipe(_join(dir, ".qa", "manifest.json"), () => createValidateDeps(sharedTestExec()).checkManifest(dir));
 
     assert.equal(res.ok, false);
     assert.match(res.output, REASONED);
   });
 });
 
-test("defaultValidateDeps.checkManifest: a manifest larger than the cap is ok:false, and one of exactly the cap is read", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a manifest larger than the cap is ok:false, and one of exactly the cap is read", async () => {
   await withManifestDir(async (dir) => {
     _mkdirSync(_join(dir, ".qa"));
     const entry = { id: "checkout", objective: "o", flow: "checkout", targets: ["CheckoutService.pay"], changeRef: { sha: "s", type: "feat" }, owner: "" };
@@ -409,15 +410,15 @@ test("defaultValidateDeps.checkManifest: a manifest larger than the cap is ok:fa
     const padded = (bytes: number): string => text.replace('"owner":""', `"owner":"${"x".repeat(bytes - text.length)}"`);
 
     _writeFileSync(_join(dir, ".qa", "manifest.json"), padded(_MAX_MANIFEST_BYTES + 1));
-    assert.equal((await defaultValidateDeps.checkManifest(dir)).ok, false, "one byte over");
+    assert.equal((await createValidateDeps(sharedTestExec()).checkManifest(dir)).ok, false, "one byte over");
     _writeFileSync(_join(dir, ".qa", "manifest.json"), padded(_MAX_MANIFEST_BYTES));
-    assert.equal((await defaultValidateDeps.checkManifest(dir)).ok, true, "exactly the cap");
+    assert.equal((await createValidateDeps(sharedTestExec()).checkManifest(dir)).ok, true, "exactly the cap");
   });
 });
 
-test("defaultValidateDeps.checkManifest: a missing .qa directory is ok:false with no content in the output, and nothing is created", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a missing .qa directory is ok:false with no content in the output, and nothing is created", async () => {
   await withManifestDir(async (dir) => {
-    const res = await defaultValidateDeps.checkManifest(dir);
+    const res = await createValidateDeps(sharedTestExec()).checkManifest(dir);
 
     assert.equal(res.ok, false);
     assert.match(res.output, REASONED);
@@ -425,13 +426,13 @@ test("defaultValidateDeps.checkManifest: a missing .qa directory is ok:false wit
   });
 });
 
-test("defaultValidateDeps.checkManifest: a manifest with several violations reports each on a line of its own", async () => {
+test("createValidateDeps(sharedTestExec()).checkManifest: a manifest with several violations reports each on a line of its own", async () => {
   await withManifestDir(async (dir) => {
     _mkdirSync(_join(dir, ".qa"));
     const entry = { id: "checkout", objective: "o", flow: "checkout", targets: ["CheckoutService.pay"], changeRef: { sha: "s", type: "feat" } };
     _writeFileSync(_join(dir, ".qa", "manifest.json"), JSON.stringify([{ ...entry, objective: "" }, { ...entry, id: "other", flow: "" }]));
 
-    const res = await defaultValidateDeps.checkManifest(dir);
+    const res = await createValidateDeps(sharedTestExec()).checkManifest(dir);
 
     assert.equal(res.ok, false);
     assert.equal(res.output.split("\n").length, 2, "one violation per line");

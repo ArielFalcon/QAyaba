@@ -65,6 +65,22 @@ module.exports = {
       to: { path: "^qa-engine/src/shared-infrastructure/process-sandbox/git-hardening-flags\\.ts$" },
     },
     {
+      name: "no-child-process-outside-launchers",
+      severity: "error",
+      comment: "Every child process that runs code an agent influenced (a spec, a login script, the e2e project's tsc/eslint/--list and installs, the watched repo's own test command) starts through the execution launcher, which owns the sandbox uid, the profile's environment, the work directory and the egress lease. A module that imports child_process can start a child as the orchestrator, with its environment and its network, so the allowlist is the launcher, the generic runner for trusted binaries (git, the code graph), the git hardening, and the privilege-drop module (chown). Type-only imports (ChildProcess) are not a way to start anything.",
+      from: {
+        path: "^qa-engine/src/",
+        pathNot: [
+          "^qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox\\.ts$",
+          "^qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner\\.adapter\\.ts$",
+          "^qa-engine/src/shared-infrastructure/process-sandbox/git-hardening\\.ts$",
+          "^qa-engine/src/shared-infrastructure/process-sandbox/sandbox\\.ts$",
+          "^qa-engine/src/contexts/test-execution/infrastructure/code-execution\\.runner\\.ts$",
+        ],
+      },
+      to: { path: "^(node:)?child_process$", dependencyTypes: ["core"], dependencyTypesNot: ["type-only"] },
+    },
+    {
       // migration-tier-1-2, Slice 5 (corrected judgment-day round-1: the prior comment's "ONLY
       // sanctioned src<->qa-engine bridge" framing was stale/inaccurate). The direction actually
       // enforced here is ONE-WAY: qa-engine/src/ may never import src/ (below). The OPPOSITE

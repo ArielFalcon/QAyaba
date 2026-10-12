@@ -92,3 +92,59 @@ test("sandboxSpawnOptions drops npm lifecycle/invocation vars that describe the 
     assert.equal(key in opts.env, false, `${key} must not leak into the sandboxed child`);
   }
 });
+
+/* ── the install tree: handed to the sandbox for `npm ci`, then sealed ── */
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, lstatSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openInstallTree, sealInstallTree } from "../../../src/shared-infrastructure/process-sandbox/sandbox.ts";
+
+const SB = { uid: 1002, gid: 1002, home: "/home/sandbox" };
+
+test("opening the install tree hands only node_modules, the project entry and the lock to the sandbox", () => {
+  const dir = mkdtempSync(join(tmpdir(), "install-tree-"));
+  try {
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    const calls: string[][] = [];
+    openInstallTree(dir, SB, (args) => calls.push([...args]));
+    assert.deepEqual(calls, [["-R", "1002:1002", join(dir, "node_modules")], ["1002:1002", dir], ["1002:1002", join(dir, "package-lock.json")]]);
+    assert.equal(lstatSync(join(dir, "node_modules")).isDirectory(), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a node_modules that is a link is removed, never chowned through", () => {
+  const dir = mkdtempSync(join(tmpdir(), "install-tree-"));
+  const elsewhere = mkdtempSync(join(tmpdir(), "elsewhere-"));
+  try {
+    symlinkSync(elsewhere, join(dir, "node_modules"));
+    const calls: string[][] = [];
+    openInstallTree(dir, SB, (args) => calls.push([...args]));
+    assert.equal(lstatSync(join(dir, "node_modules")).isSymbolicLink(), false);
+    assert.equal(calls.some((args) => args.includes(elsewhere)), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("sealing the install tree returns node_modules, the project entry and the lock to root", () => {
+  const dir = mkdtempSync(join(tmpdir(), "install-tree-"));
+  try {
+    mkdirSync(join(dir, "node_modules"));
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    const calls: string[][] = [];
+    sealInstallTree(dir, SB, (args) => calls.push([...args]));
+    assert.deepEqual(calls, [["-R", "0:0", join(dir, "node_modules")], ["0:0", dir], ["0:0", join(dir, "package-lock.json")]]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("without a sandbox the install tree is left alone", () => {
+  const calls: string[][] = [];
+  openInstallTree("/nonexistent", null, (args) => calls.push([...args]));
+  sealInstallTree("/nonexistent", null, (args) => calls.push([...args]));
+  assert.deepEqual(calls, []);
+});

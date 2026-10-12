@@ -4,6 +4,7 @@
  * arm (scripts/baseline-agent.ts) and the campaign's validity re-runs (scripts/campaign.ts), so both log in as the pipeline does.
  * An I/O boundary, imported lazily so a test that injects its own never loads the engine.
  */
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 export interface HarnessAuthInput {
@@ -20,28 +21,40 @@ export interface HarnessAuthInput {
 export async function prepareHarnessAuth(input: HarnessAuthInput): Promise<{ unauthored: boolean }> {
   const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
-  const { SandboxedBinaryRunnerAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.ts");
+  const { createExecBinaryRunner } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner.ts");
+  const { buildScriptExec } = await import("../src/server/exec-sandbox-factory.ts");
+  const { resolveCodeSandbox } = await import("../src/server/rewritten-engine-factory.ts");
   const { AuthSessionAdapter } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts");
   const { createDiscoverLogin } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts");
   const { loadContextMapFromDisk } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts");
   const { RedactionPortAdapter } = await import("../src/orchestrator/sanitizer.ts");
   const redaction = new RedactionPortAdapter();
-  const runner = new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() });
+  const script = buildScriptExec(process.env, resolveCodeSandbox(process.env));
+  const exec = script.exec;
+  const runner = createExecBinaryRunner({ exec, profile: "login", processKill: new ProcessKillAdapter() });
   const adapter = new AuthSessionAdapter({
     env: process.env,
     authDir: input.authDir,
     ...(input.testIdAttribute !== undefined ? { testIdAttribute: input.testIdAttribute } : {}),
     /* The login the pipeline's harness gives its own runs, discovery included: authentication is infrastructure and every arm gets the same. */
-    discovery: { discoverLogin: createDiscoverLogin({ runner }), redact: (text: string) => redaction.redact(text), loadContextMap: loadContextMapFromDisk },
+    discovery: { discoverLogin: createDiscoverLogin({ runner, writeScript: (name, content) => exec.writeScript(name, content) }), redact: (text: string) => redaction.redact(text), loadContextMap: loadContextMapFromDisk },
+    loginStaging: () => ({ dir: join(exec.workDir(), "login"), root: exec.workDir() }),
     spawnSetup: async (specDir, childEnv, signal) => {
-      const result = await runner.run({ command: "npx", args: ["playwright", "test", "--project=setup"], cwd: specDir, env: childEnv, timeoutMs: 120_000, ...(signal ? { signal } : {}) });
-      const logs = `${result.stdout}\n${result.stderr}`;
-      return { exitCode: result.timedOut ? 1 : (result.exitCode ?? 1), logs: result.timedOut ? `auth setup timed out\n${logs}` : logs };
+      const callDir = exec.allocDir("auth-setup", ["results"]);
+      try {
+        const result = await runner.run({ command: "npx", args: ["playwright", "test", "--project=setup", `--output=${join(callDir, "results")}`], cwd: specDir, env: childEnv, timeoutMs: 120_000, ...(signal ? { signal } : {}) });
+        const logs = `${result.stdout}\n${result.stderr}`;
+        return { exitCode: result.timedOut ? 1 : (result.exitCode ?? 1), logs: result.timedOut ? `auth setup timed out\n${logs}` : logs };
+      } finally {
+        rmSync(callDir, { recursive: true, force: true });
+      }
     },
   });
   const loaded = loadAppConfig(input.appName);
-  const session = await adapter.prepare({ specDir: input.specDir, baseUrl: input.baseUrl, ...(loaded.auth ? { auth: loaded.auth } : {}), phase: input.phase });
-  return { unauthored: session.unauthored };
+  const prepared = await script.scoped({ runId: `harness-auth-${process.pid}-${Date.now()}`, authDir: input.authDir, devOrigins: [new URL(input.baseUrl).origin] }, () =>
+    adapter.prepare({ specDir: input.specDir, baseUrl: input.baseUrl, ...(loaded.auth ? { auth: loaded.auth } : {}), phase: input.phase }),
+  );
+  return { unauthored: prepared.unauthored };
 }
 
 export const authDirBeside = (workspace: string): string => join(`${workspace}.auth`);

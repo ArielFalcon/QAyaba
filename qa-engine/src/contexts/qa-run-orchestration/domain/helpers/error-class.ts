@@ -18,6 +18,7 @@ export const ERROR_CLASSES = [
   "E-PRECONDITION",
   "E-TIME-BUDGET",
   "E-REVIEWER-UNAVAILABLE",
+  "E-SANDBOX",
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
@@ -31,6 +32,7 @@ export const ERROR_CLASS = {
   PRECONDITION: "E-PRECONDITION",
   TIME_BUDGET: "E-TIME-BUDGET",
   REVIEWER_UNAVAILABLE: "E-REVIEWER-UNAVAILABLE",
+  SANDBOX: "E-SANDBOX",
 } as const satisfies Record<string, ErrorClass>;
 
 /* Reviewer anti-pattern keywords. */
@@ -108,6 +110,8 @@ export interface ResolveErrorClassInput {
   preconditionFailed?: boolean;
   /** The run ended because its reviewer could not be reached or returned nothing: the tests were never judged, which is not a rejection. */
   reviewerUnavailable?: boolean;
+  /** The run ended because agent-influenced code could not be run safely (no sandbox uid, or the egress filter is down under enforce): nothing about the app or the tests. */
+  sandboxUnavailable?: boolean;
 }
 
 /* A generation end that ended the run names its class before anything the verdict implies, and a failed precondition follows it; then verdict-derived structural classes short-circuit, then reviewer corrections, then E-COVERAGE-GAP, then E-VALUE-SURVIVED (green + good coverage but mutants survive). */
@@ -117,6 +121,7 @@ export function resolveErrorClass(input: ResolveErrorClassInput): ErrorClass | n
   if (input.generationEnd === GENERATION_END.UNDECIDED_EMPTY) return ERROR_CLASS.NO_DECISION;
   if (input.preconditionFailed) return ERROR_CLASS.PRECONDITION;
   if (input.reviewerUnavailable) return ERROR_CLASS.REVIEWER_UNAVAILABLE;
+  if (input.sandboxUnavailable) return ERROR_CLASS.SANDBOX;
 
   const fromVerdict = errorClassFromVerdict(input.verdict, input.coverageRatio, input.minCoverageRatio);
 

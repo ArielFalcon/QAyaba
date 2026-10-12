@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "../paths";
 import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
@@ -110,12 +110,14 @@ import {
 
 import {
   validateSpecs,
-  defaultValidateDeps,
+  createValidateDeps,
   validateCodeProject,
-  defaultCodeValidateDeps,
+  createCodeValidateDeps,
 } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks";
-import { scrubEnv } from "../../qa-engine/src/shared-infrastructure/process-sandbox/scrub-env";
-import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
+import { buildExecWiring } from "./exec-sandbox-factory";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import { requireEnv } from "../util/env";
@@ -296,11 +298,26 @@ export function githubHttpDeps(fetchFn: typeof fetch = fetch): GitHubHttpDeps {
 }
 
 
-export function buildSetupAdapter(): SetupAdapter {
+/* The origin of a declared URL, or none: a malformed one is the config schema's to refuse, not this wiring's. */
+function originOf(url: string | undefined): string[] {
+  if (!url) return [];
+  try {
+    return [new URL(url).origin];
+  } catch {
+    return [];
+  }
+}
+
+/*
+ * The e2e project's `npm ci` runs the project's own lifecycle scripts, which the agent can edit: it runs as the sandbox
+ * uid through the launcher's `install` profile, and the tree it writes is handed over before and sealed after.
+ */
+export function buildSetupAdapter(exec: ExecSandboxPort, sandbox: Sandbox | null): SetupAdapter {
   return new SetupAdapter({
     fs: nodeFsDeps,
-    runner: new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() }),
+    runner: createExecBinaryRunner({ exec, profile: "install", processKill: new ProcessKillAdapter() }),
     seedDir: join(qayabaRoot(), "config", "e2e"),
+    installGuard: { open: (dir) => openInstallTree(dir, sandbox), seal: (dir) => sealInstallTree(dir, sandbox) },
   });
 }
 
@@ -610,7 +627,7 @@ export function buildRewrittenCompositionConfig(
   const e2eDefaultTimeoutMs = e2eTimeoutMs(process.env);
   const pwActionTimeoutMs = process.env.PW_ACTION_TIMEOUT_MS;
 
-  const codeSandbox = resolveCodeSandbox(process.env);
+  const codeSandbox = resolveCodeSandbox(deps.env ?? process.env);
 
   const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
   const sidekickTimeoutMs = resolveSidekickTimeoutMsFromEnv();
@@ -639,6 +656,18 @@ export function buildRewrittenCompositionConfig(
   const root = qayabaRoot();
   const dataDir = qayabaDataDir();
   const authDir = appAuthDir(root, app.name);
+  /*
+   * The execution sandbox: every child that runs code an agent influenced (specs, the project's own tsc/eslint/--list and
+   * installs, a login script, the watched repo's test command) starts through `exec`, and each run opens its scope
+   * (work dir, auth copies, egress policy) in `execScope`.
+   */
+  const execWiring = buildExecWiring({
+    env: deps.env ?? process.env,
+    sandbox: codeSandbox,
+    authDir,
+    egressOrigins: { dev: originOf(app.dev?.baseUrl), install: [] },
+  });
+  const exec = execWiring.exec;
 
 
   /*
@@ -690,6 +719,7 @@ export function buildRewrittenCompositionConfig(
   const branch = namespace;
 
   const runner = new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() });
+  const loginRunner = createExecBinaryRunner({ exec, profile: "login", processKill: new ProcessKillAdapter() });
   /*
    * Cross-repo composition (bug fix): the diff/classify SOURCE is the SERVICE mirror at the event
    * sha for a cross-repo run — never the primary. Same dir formula as mirrorDir above
@@ -750,25 +780,26 @@ export function buildRewrittenCompositionConfig(
   });
 
 
+  const validateDeps = createValidateDeps(exec);
   const staticGate = new StaticGateAdapter({
-    typecheck: defaultValidateDeps.typecheck,
-    lint: defaultValidateDeps.lint,
-    listTests: defaultValidateDeps.listTests,
-    checkManifest: defaultValidateDeps.checkManifest,
-    validateAll: (specDir) => validateSpecs(specDir, defaultValidateDeps),
+    typecheck: validateDeps.typecheck,
+    lint: validateDeps.lint,
+    listTests: validateDeps.listTests,
+    checkManifest: validateDeps.checkManifest,
+    validateAll: (specDir) => validateSpecs(specDir, validateDeps),
   });
   /* Code-target Filter B: compile-feedback before execution. */
-  const codeValidate = new CodeValidationStrategy((repoDir, opts) => validateCodeProject(repoDir, defaultCodeValidateDeps, opts));
+  const codeValidate = new CodeValidationStrategy((repoDir, opts) => validateCodeProject(repoDir, createCodeValidateDeps(exec), opts));
 
 
-  const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, authDir, pwActionTimeoutMs), recordAudit };
-  const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), authDir);
-  /* One authDir-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
-  const captureDomDeps = createCaptureDomDeps(authDir);
+  const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs), recordAudit };
+  const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), exec);
+  /* One launcher-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
+  const captureDomDeps = createCaptureDomDeps(exec);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
-  const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(codeSandbox), recordAudit };
-  const codeSetupDeps = createDefaultCodeSetupDeps(codeSandbox);
+  const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(exec), recordAudit };
+  const codeSetupDeps = createDefaultCodeSetupDeps(codeSandbox, exec);
   const code = new CodeExecutionStrategy((repoDir, opts) => runCodeTests(repoDir, opts, codeExecuteDeps));
 
   /*
@@ -781,7 +812,7 @@ export function buildRewrittenCompositionConfig(
   const collector: typeof rawCollector = isCode
     ? {
         collect: async (specDir, namespace, changedFiles) => {
-          await runCodeCoverage(mirrorDir, codeSandbox).catch(() => {});
+          await runCodeCoverage(mirrorDir, exec).catch(() => {});
           return rawCollector.collect(specDir, namespace, changedFiles);
         },
       }
@@ -794,7 +825,7 @@ export function buildRewrittenCompositionConfig(
      */
     runE2E(dir, { baseUrl, namespace, faultInject: true }, e2eExecuteDeps);
 
-  const mutationOracleDeps = { spawn, detectCodeProject, scrubEnv, processKill: new ProcessKillAdapter() };
+  const mutationOracleDeps = { spawn: (cmd: string, args: string[], o: { cwd: string }) => exec.spawn(cmd, args, { cwd: o.cwd, profile: "install" }), detectCodeProject, processKill: new ProcessKillAdapter() };
 
   /*
    * Honor YAML qa.valueOracle (and the shadow-aware default the CLI already reports).
@@ -835,7 +866,7 @@ export function buildRewrittenCompositionConfig(
   const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { unproven: reflectorEnabled });
 
 
-  const setupAdapter = buildSetupAdapter();
+  const setupAdapter = buildSetupAdapter(exec, codeSandbox);
   /*
    * `??`, not `||`: app.qa.explorer is a tri-state (true/false/unconfigured). An explicit
    * `explorer: false` must win over the services-length auto-detect, never be swallowed by it —
@@ -992,6 +1023,7 @@ export function buildRewrittenCompositionConfig(
       ? { crossRepoImpact: { mirrorRoot, codebaseMemory: new CodebaseMemoryClient(runner), runner } }
       : {}),
 
+    execScope: execWiring.execScope,
     ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
     ...(!isCode && app.dev?.baseUrl
       ? {
@@ -1007,24 +1039,31 @@ export function buildRewrittenCompositionConfig(
              * Its note passes through the same redaction every other text leaving the system does.
              */
             discovery: {
-              discoverLogin: createDiscoverLogin({ runner }),
+              discoverLogin: createDiscoverLogin({ runner: loginRunner, writeScript: (name, content) => exec.writeScript(name, content) }),
               redact: (text: string) => redactionPort.redact(text),
               loadContextMap: loadContextMapFromDisk,
             },
+            /* The login child is the one process that carries the account: the launcher's `login` profile. It writes the session in the run's own `login` folder, and the adapter brings a confirmed one into the auth directory. */
+            loginStaging: () => ({ dir: join(exec.workDir(), "login"), root: exec.workDir() }),
             spawnSetup: async (specDir, env, signal) => {
-              const result = await runner.run({
-                command: "npx",
-                args: ["playwright", "test", "--project=setup"],
-                cwd: specDir,
-                env,
-                timeoutMs: 120_000,
-                ...(signal ? { signal } : {}),
-              });
-              const logs = `${result.stdout}\n${result.stderr}`;
-              return {
-                exitCode: result.timedOut ? 1 : (result.exitCode ?? 1),
-                logs: result.timedOut ? `auth setup timed out\n${logs}` : logs,
-              };
+              const callDir = exec.allocDir("auth-setup", ["results"]);
+              try {
+                const result = await loginRunner.run({
+                  command: "npx",
+                  args: ["playwright", "test", "--project=setup", `--output=${join(callDir, "results")}`],
+                  cwd: specDir,
+                  env,
+                  timeoutMs: 120_000,
+                  ...(signal ? { signal } : {}),
+                });
+                const logs = `${result.stdout}\n${result.stderr}`;
+                return {
+                  exitCode: result.timedOut ? 1 : (result.exitCode ?? 1),
+                  logs: result.timedOut ? `auth setup timed out\n${logs}` : logs,
+                };
+              } finally {
+                rmSync(callDir, { recursive: true, force: true });
+              }
             },
           }),
           ...(app.auth ? { auth: app.auth } : {}),

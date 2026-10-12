@@ -1,6 +1,7 @@
 /* The per-run directory the sandboxed children write into, and the private copies of the session they read. The sandbox uid owns this directory and nothing else in the container: Playwright's output, its report, the failure dumps, the login's session file and the temp dir all live here, and the orchestrator reads them back through the strict readers because the child can plant a link, a pipe or an oversized file under any name. The orchestrator's own auth directory is never opened to the child: a suite sees a fresh copy, restored for every spawn, so a spec that rewrites its session cannot change the one the next spawn starts from. */
 
-import { chownSync, chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chownSync, chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { readOwnedSpecFile } from "../spec-path-confinement.ts";
 import { AUTH_MATERIAL_FILES } from "./auth-session-env.ts";
@@ -80,4 +81,35 @@ export function stageAuthMaterial(authDir: string | undefined, workDir: string, 
     if (pass) staged.certPass = pass.toString("utf8");
   }
   return staged;
+}
+
+/* A fresh directory inside the work dir for one call (one Playwright run, one capture), with the subdirectories the call writes into, all owned by the sandbox. Each call gets its own so that what an earlier call left, a failure dump or a report, is never read as this call's. */
+export function allocWorkSubdir(workDir: string, prefix: string, subdirs: readonly string[], sandbox: Sandbox | null): string {
+  if (!/^[a-z][a-z0-9-]{0,31}$/.test(prefix)) throw new Error(`invalid work subdirectory prefix ${JSON.stringify(prefix)}`);
+  const dir = mkdtempSync(join(workDir, `${prefix}-`));
+  chmodSync(dir, 0o700);
+  chownTo(dir, sandbox);
+  for (const sub of subdirs) {
+    const path = join(dir, sub);
+    mkdirSync(path, { mode: 0o700 });
+    chownTo(path, sandbox);
+  }
+  return dir;
+}
+
+/* Directories inside the mirror that a child writes into and nowhere else (the coverage and fault-injection dumps of a suite run): created when absent and handed to the sandbox, non-recursively, so the rest of the mirror stays read-only to it. */
+export function prepareWritableDirs(dirs: readonly string[], sandbox: Sandbox | null): void {
+  for (const dir of dirs) {
+    mkdirSync(dir, { recursive: true, mode: 0o755 });
+    chownTo(dir, sandbox);
+  }
+}
+
+/* A script authored by the orchestrator (a reporter, a login or capture script), written where the sandbox can read it and cannot change it: the file is root-owned and read-only, in the work dir's `scripts` folder. */
+export function writeWorkScript(workDir: string, name: string, content: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) throw new Error(`invalid script name ${JSON.stringify(name)}`);
+  const path = join(workDir, "scripts", `${randomBytes(6).toString("hex")}-${name}`);
+  writeFileSync(path, content, { mode: 0o444 });
+  chmodSync(path, 0o444);
+  return path;
 }

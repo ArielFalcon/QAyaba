@@ -9,12 +9,11 @@
 
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
-import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { ConfinedPathError, MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
-import { activeRunSecretScope, registerSessionSecretsFromStorageState } from "../../../shared-infrastructure/run-secret-redaction.ts";
+import { MAX_STORAGE_STATE_BYTES, activeRunSecretScope, registerSessionSecretsFromStorageState } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
 import { AuthPreconditionError } from "../domain/auth-precondition.ts";
@@ -60,7 +59,14 @@ export interface AuthSessionAdapterDeps {
   actionTimeoutMs?: string;
   /** Absent: the login is the stock seed alone, as it was before discovery existed. */
   discovery?: AuthDiscoveryDeps;
+  /** The child's variables (PW_*, and the account for the launcher to hand to the login profile): never a full environment. */
   spawnSetup(specDir: string, env: Record<string, string>, signal?: AbortSignal): Promise<AuthSessionSpawnResult>;
+  /**
+   * Where a login child writes the session it produces: a directory the sandbox uid can write in, and the root the
+   * strict reader walks from. The orchestrator copies a confirmed session from there into `authDir`, which no child
+   * can open. Absent: the child writes straight into `authDir`, as a login run as the orchestrator did.
+   */
+  loginStaging?(): { dir: string; root: string };
 }
 
 /* The env names the seed playwright.config.ts reads for the test-id attribute and the action auto-wait bound; the execute and DOM-capture spawns pass the same pair. */
@@ -145,16 +151,14 @@ export class AuthSessionAdapter implements AuthSessionPort {
     const stock = setup.stock;
     mkdirSync(this.deps.authDir, { recursive: true, mode: 0o700 });
     const storageStatePath = join(this.deps.authDir, AUTH_MATERIAL_FILES.storageState);
-    /* The account and the dev gate's credentials, on top of the few DEV_ names a child may keep. */
-    const accountEnv: Record<string, string> = {
-      ...scrubEnv({ extraAllowed: /^DEV_/ }),
-      DEV_TEST_USER: user,
-      DEV_TEST_PASS: pass,
-      ...(this.deps.env.DEV_ENV_USER ? { DEV_ENV_USER: this.deps.env.DEV_ENV_USER, DEV_ENV_PASS: this.deps.env.DEV_ENV_PASS ?? "" } : {}),
-    };
+    /* Where the child writes the session: its own staging directory when there is one. */
+    const staging = this.deps.loginStaging?.();
+    const childStatePath = staging ? join(staging.dir, AUTH_MATERIAL_FILES.storageState) : storageStatePath;
+    /* The account alone: the launcher adds the DEV gate's credentials from the run's scope and every other variable from the login profile's allowlist. */
+    const accountEnv: Record<string, string> = { DEV_TEST_USER: user, DEV_TEST_PASS: pass };
     /* Discovery is for the stock seed only: an app's own login script is its own recipe. */
     if (stock && this.deps.discovery) {
-      const found = await this.discover(req, user, pass, accountEnv, storageStatePath, this.deps.discovery, signal);
+      const found = await this.discover(req, user, pass, accountEnv, storageStatePath, childStatePath, staging?.root, this.deps.discovery, signal);
       if ("session" in found) return found.session;
       /* A submit already went out: the seed must not send another. */
       if (found.attempted) {
@@ -167,7 +171,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
       PW_BASE_URL: req.baseUrl,
       /* Tells the setup project (auth.setup.ts) to write storageState here — outside the mirror —
          instead of its relative, mirror-local ".auth/user.json" fallback. */
-      PW_STORAGE_STATE: storageStatePath,
+      PW_STORAGE_STATE: childStatePath,
       /* The seed config defines its setup project only for this login run; a suite run passes no
          --project and must not execute the login as a case. */
       PW_AUTH_SETUP: "1",
@@ -176,9 +180,8 @@ export class AuthSessionAdapter implements AuthSessionPort {
     if (this.deps.actionTimeoutMs) childEnv[AUTH_SETUP_ENV.actionTimeoutMs] = this.deps.actionTimeoutMs;
 
     const result = await this.deps.spawnSetup(req.specDir, childEnv, signal);
-    const wrote = existsSync(storageStatePath);
+    const wrote = this.takeSession(childStatePath, storageStatePath, staging?.root);
     if (result.exitCode === 0 && wrote) {
-      chmodSync(storageStatePath, 0o600);
       return { storageStatePath, unauthored: false, ...(setup.sha256 !== undefined && !stock ? { setupSha256: setup.sha256 } : {}) };
     }
     if (stock && req.phase === "pre-generate") {
@@ -199,6 +202,8 @@ export class AuthSessionAdapter implements AuthSessionPort {
     pass: string,
     env: Record<string, string>,
     storageStatePath: string,
+    childStatePath: string,
+    stagingRoot: string | undefined,
     discovery: AuthDiscoveryDeps,
     signal?: AbortSignal,
   ): Promise<{ session: AuthSession } | { attempted: boolean }> {
@@ -210,7 +215,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
         specDir: req.specDir,
         baseUrl: req.baseUrl,
         routes: this.gatedRoutes(req.specDir, discovery),
-        storageStatePath,
+        storageStatePath: childStatePath,
         env,
         ...(req.auth?.loginPath ? { loginPath: req.auth.loginPath } : {}),
         ...(Number.isFinite(actionTimeoutMs) && actionTimeoutMs > 0 ? { actionTimeoutMs } : {}),
@@ -218,11 +223,11 @@ export class AuthSessionAdapter implements AuthSessionPort {
       signal,
     );
     const outcome: LoginOutcome = "crashed" in result ? { status: LOGIN_STATUS.INCONCLUSIVE, attempted: result.attempted } : classifyLoginEvidence(result);
-    if (outcome.status === LOGIN_STATUS.AUTHENTICATED && existsSync(storageStatePath)) {
-      chmodSync(storageStatePath, 0o600);
+    if (outcome.status === LOGIN_STATUS.AUTHENTICATED && this.takeSession(childStatePath, storageStatePath, stagingRoot)) {
       return { session: { storageStatePath, unauthored: false, resolution: { method: AUTH_RESOLUTION_METHOD.DISCOVERY, ms: now() - started } } };
     }
     rmSync(storageStatePath, { force: true });
+    rmSync(childStatePath, { force: true });
     if (outcome.status === LOGIN_STATUS.FAILED && !("crashed" in result)) {
       throw new AuthPreconditionError(outcome.kind, discovery.redact(renderLoginEvidence(outcome.kind, result, [user, pass])), now() - started);
     }
@@ -234,6 +239,27 @@ export class AuthSessionAdapter implements AuthSessionPort {
   private gatedRoutes(specDir: string, discovery: AuthDiscoveryDeps): string[] {
     const paths = discovery.loadContextMap?.(specDir)?.routes.map((route) => route.path) ?? [];
     return partitionRoutes(paths).capturable;
+  }
+
+  /* Whether the login left a session, now at `storageStatePath` with mode 0600. A session the child wrote into its own staging directory is read strictly (no link, a regular file, under a cap: the child chose what is there), copied into the auth directory and removed from staging; one written straight into the auth directory is only locked down. */
+  private takeSession(childStatePath: string, storageStatePath: string, stagingRoot: string | undefined): boolean {
+    if (childStatePath === storageStatePath) {
+      if (!existsSync(storageStatePath)) return false;
+      chmodSync(storageStatePath, 0o600);
+      return true;
+    }
+    if (stagingRoot === undefined) return false;
+    let read;
+    try {
+      read = readOwnedSpecFile({ mirrorDir: stagingRoot, specDir: stagingRoot }, relative(stagingRoot, childStatePath), MAX_STORAGE_STATE_BYTES);
+    } catch {
+      return false;
+    }
+    rmSync(childStatePath, { force: true });
+    if (!("bytes" in read)) return false;
+    writeFileSync(storageStatePath, read.bytes, { mode: 0o600 });
+    chmodSync(storageStatePath, 0o600);
+    return true;
   }
 
   private clearMaterial(): void {

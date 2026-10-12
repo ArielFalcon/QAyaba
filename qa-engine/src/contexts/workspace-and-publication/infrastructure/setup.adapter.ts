@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
-import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import {
   ConfinedPathError,
@@ -287,10 +286,17 @@ const SYSTEM_OWNED_DIRECTORIES = [".qa/coverage", ".qa/fault-injection"] as cons
 const SYSTEM_OWNED_FILES = [".qa/measured.json"] as const;
 const MAX_MEASURED_FILE_BYTES = 1024 * 1024;
 
+/* The install runs the project's own package.json lifecycle scripts, which the agent can edit, so it is run by the sandbox uid (the `runner` is a launcher-backed one in production) and the tree it writes is handed over before and taken back after. */
+export interface InstallGuard {
+  open(projectDir: string): void;
+  seal(projectDir: string): void;
+}
+
 export interface SetupAdapterDeps {
   fs: SetupAdapterFsDeps;
   runner: SandboxedBinaryRunner;
   seedDir: string;
+  installGuard?: InstallGuard;
 }
 
 export class SetupAdapter {
@@ -523,20 +529,27 @@ export class SetupAdapter {
     this.writeProject(e2eDir, INSTALL_MARKER_FILE, hash);
   }
 
-  /* `npm ci` when there is a lockfile; otherwise `npm install`. scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds while dropping the orchestrator's own secrets. A hung install must not block the sequential queue: the runner times out with timedOut:true (never rejects), so this method throws on that signal. */
+  /* `npm ci` when there is a lockfile; otherwise `npm install`. The child is the sandbox's `install` profile: package-manager variables only, no account, registries as its only network. A hung install must not block the sequential queue: the runner times out with timedOut:true (never rejects), so this method throws on that signal. */
   private async install(e2eDir: string, opts?: SetupOptions): Promise<void> {
     /* The lock is read here (strictly) and not probed, so that an install is never started over a lock that setup could not vouch for: a runner handed a named pipe for it would wait on it until its own timeout. */
     const useCi = this.getLockHash(e2eDir) !== null;
     const timeoutMs = opts?.timeoutMs ?? DEFAULT_E2E_INSTALL_TIMEOUT_MS;
-    const result = await this.deps.runner.run({
-      command: "npm",
-      args: [useCi ? "ci" : "install"],
-      cwd: e2eDir,
-      env: scrubEnv({ extraAllowed: /^DEV_/ }),
-      timeoutMs,
-      outputKeepChars: E2E_INSTALL_OUTPUT_KEEP_CHARS,
-      ...(opts?.signal ? { signal: opts.signal } : {}),
-    });
+    this.deps.installGuard?.open(e2eDir);
+    let result;
+    try {
+      result = await this.deps.runner.run({
+        command: "npm",
+        args: [useCi ? "ci" : "install"],
+        cwd: e2eDir,
+        env: {},
+        timeoutMs,
+        outputKeepChars: E2E_INSTALL_OUTPUT_KEEP_CHARS,
+        ...(opts?.signal ? { signal: opts.signal } : {}),
+      });
+    } finally {
+      /* Sealed whether the install finished, failed or was killed: the tree is never left to the sandbox uid. */
+      this.deps.installGuard?.seal(e2eDir);
+    }
     if (result.timedOut) {
       /* timedOut:true covers both the runner's timeout and an operator abort. Disambiguate via the signal: there is no await between the runner promise settling and this check, so an abort cannot interleave as a genuine timeout. */
       if (opts?.signal?.aborted) {

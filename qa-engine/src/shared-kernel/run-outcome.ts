@@ -36,6 +36,8 @@ export interface RunOutcome {
     catalogGateInWindow?: number;
     catalogGateAdvisory?: number;
     catalogGateFailClosed?: number;
+    /* What the execution sandbox did for the run: whether the egress filter held ("unenforced" is the operator-allowed warn mode) and the hosts a child tried to reach that the run does not declare. Absent when no child was started. Persist-only. */
+    sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
     /* Undefined = the signal never ran — never a fabricated 0 (that would be indistinguishable from "ran and found zero"). Persist-only; never read by decide/verdict/gate/publish. */
     structuralSignalBytes?: number;
     serviceLinksCount?: number;

@@ -306,6 +306,8 @@ export interface RunOutcome {
     catalogGateInWindow?: number;
     catalogGateAdvisory?: number;
     catalogGateFailClosed?: number;
+    /* What the execution sandbox did for the run (egress filter state, hosts denied); absent when no child was started. */
+    sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
 
     structuralSignalBytes?: number;
     serviceLinksCount?: number;

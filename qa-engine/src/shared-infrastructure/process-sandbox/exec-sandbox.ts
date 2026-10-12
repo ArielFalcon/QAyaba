@@ -5,7 +5,7 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { buildExecEnv, type SandboxProfile } from "./exec-env.ts";
 import { activeExecScope, type RunScope } from "./exec-scope.ts";
-import { stageAuthMaterial } from "./exec-workdir.ts";
+import { allocWorkSubdir, prepareWritableDirs, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";
 
 export type ExecSandboxMode = "required" | "best-effort";
@@ -59,6 +59,14 @@ export interface ExecSandboxPort {
   spawn(cmd: string, args: readonly string[], options: ExecSpawnOptions): ChildProcess;
   /* Whether children run as the sandbox uid (false: best-effort without it). */
   readonly isolated: boolean;
+  /* The work dir of the run the call is part of. The strict readers are rooted here, so that a link planted on the way to a result is refused. */
+  workDir(scope?: RunScope): string;
+  /* A fresh directory inside the run's work dir for one call, with the named subdirectories, owned by the sandbox. */
+  allocDir(prefix: string, subdirs?: readonly string[], scope?: RunScope): string;
+  /* Hands directories inside the mirror to the sandbox for writing, and nothing else. */
+  prepareWritable(dirs: readonly string[]): void;
+  /* Writes a script the orchestrator authored into the run's work dir, readable and not writable by the sandbox, and returns its path. */
+  writeScript(name: string, content: string): string;
 }
 
 export interface ExecSandboxDeps {
@@ -83,11 +91,30 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
 
   return {
     isolated: deps.sandbox !== null,
+    workDir(scope) {
+      const active = scope ?? activeExecScope();
+      if (!active) throw new SandboxUnavailableError("scope", "no run scope is active, so there is no work directory");
+      return active.workDir;
+    },
+    allocDir(prefix, subdirs = [], scope) {
+      const active = scope ?? activeExecScope();
+      if (!active) throw new SandboxUnavailableError("scope", "no run scope is active, so there is no work directory to allocate in");
+      return allocWorkSubdir(active.workDir, prefix, subdirs, deps.sandbox);
+    },
+    prepareWritable(dirs) {
+      prepareWritableDirs(dirs, deps.sandbox);
+    },
+    writeScript(name, content) {
+      const active = activeExecScope();
+      if (!active) throw new SandboxUnavailableError("scope", "no run scope is active, so there is no work directory for a script");
+      return writeWorkScript(active.workDir, name, content);
+    },
     spawn(cmd, args, options) {
       const scope = options.scope ?? activeExecScope();
       if (!scope) throw new SandboxUnavailableError("scope", `refusing to spawn ${cmd}: no run scope is active, so there is no work directory or policy for it`);
       if (deps.sandbox === null) {
         if (deps.mode === "required") {
+          scope.report.refusal = "uid";
           throw new SandboxUnavailableError("uid", `refusing to spawn ${cmd}: QA_EXEC_SANDBOX=required but no sandbox uid is available (not root on Linux, the image lacks the sandbox user, or CODE_SANDBOX=off)`);
         }
         if (!warnedNoUid) {
@@ -100,6 +127,7 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
       if (deps.egress) {
         if (!deps.egress.available()) {
           if (deps.egress.mode === "enforce") {
+            scope.report.refusal = "egress";
             throw new SandboxUnavailableError("egress", `refusing to spawn ${cmd}: QA_EGRESS_MODE=enforce but the egress filter is not active (see the startup self-test)`);
           }
           if (!warnedNoEgress) {

@@ -18,6 +18,8 @@ import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
+import { isSandboxUnavailable, type SandboxUnavailableError } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
+import { sandboxRefused, sandboxSignal, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { AuthSession, AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
@@ -223,6 +225,11 @@ export interface RunQaUseCaseDeps {
   /** Absent for static sites and the code target. */
   deployGate?: DeployGatePort;
   runHistory: RunHistoryPort;
+  /**
+   * Absent: no sandbox scope is opened (a unit test, a run with nothing to execute). Present: the run owns a scope in
+   * which every child that executes agent-influenced code is started, and its work directory is removed when the run ends.
+   */
+  execScope?: ExecScopePort;
   /** Absent: setup is skipped. A throw from setup() is infra-error, never a code verdict. */
   setup?: SetupPort;
   /**
@@ -437,7 +444,12 @@ export class RunQaUseCase {
 
   async run(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
     /* The run owns the secrets of its test account: whatever learns one registers it into this scope, and the text that reaches a model has them taken out by value (run-secret-redaction.ts). */
-    return withRunSecretScope(createRunSecretScope(), () => this.runInScope(input, signal));
+    const sandbox = this.deps.execScope?.open({ runId: input.runId });
+    try {
+      return await withRunSecretScope(createRunSecretScope(), () => (sandbox ? sandbox.run(() => this.runInScope(input, signal)) : this.runInScope(input, signal)));
+    } finally {
+      sandbox?.close();
+    }
   }
 
   private async runInScope(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
@@ -445,9 +457,28 @@ export class RunQaUseCase {
     try {
       return await this.execute(input, signal, trail);
     } catch (err) {
+      if (isSandboxUnavailable(err) && err.reason !== "scope") return await this.sandboxUnavailableResult(input, err, trail);
       if (!isRunDeadlineError(err)) throw err;
       return await this.deadlineResult(input, err, trail);
     }
+  }
+
+  /**
+   * The run could not execute agent-influenced code safely (no sandbox uid under QA_EXEC_SANDBOX=required, or the egress
+   * filter is down under QA_EGRESS_MODE=enforce). It ends as a persisted infra-error of its own class, E-SANDBOX: nothing
+   * is learned from it and no Issue is opened, since it says nothing about the app or the tests, and the operator sees
+   * why on the record.
+   */
+  private async sandboxUnavailableResult(input: RunQaInput, err: SandboxUnavailableError, trail: RunTrail): Promise<RunQaResult> {
+    const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
+    const note = `The run could not execute the tests safely and ended without running them (${ERROR_CLASS.SANDBOX}): ${err.message}`;
+    console.error(`[qa] ${note}`);
+    this.deps.observer?.onEvent({ type: "agent.error", detail: note });
+    return await this.terminalResult("infra-error", cfg, input, { generating: true, static: false }, {
+      note,
+      ...(trail.rulesRetrieved ? { rulesRetrieved: trail.rulesRetrieved } : {}),
+      ...(trail.mirrorDir ? { mirrorDir: trail.mirrorDir } : {}),
+    });
   }
 
   /**
@@ -2275,6 +2306,8 @@ export class RunQaUseCase {
     reviewerCorrections: string[] = [],
     ends: { generationEnd?: GenerationEndKind | undefined; preconditionFailed?: boolean | undefined; reviewerUnavailable?: boolean | undefined } = {},
   ): string | null {
+    /* Whatever path took the run to its infra-error, a launcher that refused to start agent code in it is the reason. */
+    const sandboxUnavailable = verdict === "infra-error" && sandboxRefused();
     return resolveErrorClass({
       verdict,
       coverageRatio,
@@ -2284,6 +2317,7 @@ export class RunQaUseCase {
       ...(ends.generationEnd ? { generationEnd: ends.generationEnd } : {}),
       ...(ends.preconditionFailed ? { preconditionFailed: true } : {}),
       ...(ends.reviewerUnavailable ? { reviewerUnavailable: true } : {}),
+      ...(sandboxUnavailable ? { sandboxUnavailable: true } : {}),
     });
   }
 
@@ -2391,6 +2425,8 @@ export class RunQaUseCase {
         catalogGateInWindow: extra?.catalogGateInWindow ?? 0,
         catalogGateAdvisory: extra?.catalogGateAdvisory ?? 0,
         catalogGateFailClosed: extra?.catalogGateFailClosed ?? 0,
+        /* What the sandbox did for this run; absent when no child was started or refused. */
+        ...(sandboxSignal() ? { sandbox: sandboxSignal()! } : {}),
         /*
          * Conditional-spread, not `?? 0`: "never ran" stays distinguishable from
          * "ran and found zero".

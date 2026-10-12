@@ -1,4 +1,5 @@
 /* Behavioral tests over the REAL spawning code-mode execution (createDefaultCodeExecuteDeps), the actual process boundary: process.execPath stands in for the repo's test command so no real package manager is needed. The repo under test is untrusted code, so its output is untrusted too. */
+import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -30,7 +31,7 @@ function nodeTest(script: string): CodeProject {
 const FLOOD_LINE = "test flood-" + "line still running\\n";
 
 test("a test run that floods output until the timeout is reported as a timeout with its newest output", { timeout: 30_000 }, async () => {
-  const deps = createDefaultCodeExecuteDeps(null);
+  const deps = createDefaultCodeExecuteDeps(sharedTestExec());
   const script =
     `const chunk = '${FLOOD_LINE}'.repeat(2000);` +
     "process.stdout.write('first-' + 'output-marker\\n');" +
@@ -44,7 +45,7 @@ test("a test run that floods output until the timeout is reported as a timeout w
 });
 
 test("a failing test run that wrote more than the bound keeps its exit code and its last lines", { timeout: 30_000 }, async () => {
-  const deps = createDefaultCodeExecuteDeps(null);
+  const deps = createDefaultCodeExecuteDeps(sharedTestExec());
   const script =
     "process.stdout.write('first-' + 'output-marker\\n');" +
     `const chunk = '${FLOOD_LINE}'.repeat(2000);` +
@@ -61,7 +62,7 @@ test("a failing test run that wrote more than the bound keeps its exit code and 
 });
 
 test("multi-byte characters split across pipe reads are decoded intact", { timeout: 30_000 }, async () => {
-  const deps = createDefaultCodeExecuteDeps(null);
+  const deps = createDefaultCodeExecuteDeps(sharedTestExec());
   /* 3-byte characters in one large write: the pipe hands them over in fixed-size reads that cut through characters. */
   const script = "process.stdout.write('\\u20ac'.repeat(150000));";
   const out = await deps.runTests(nodeTest(script), tmpdir());
@@ -75,7 +76,7 @@ test("coverage of a suite that writes far more than a pipe buffer still finishes
     /* The suite writes ~1 MB, many pipe buffers' worth of output that nobody reads unless the runner drains it. */
     writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { test: "node noisy-suite.js" } }));
     writeFileSync(join(repo, "noisy-suite.js"), "process.stdout.write('coverage noise line\\n'.repeat(50000));");
-    await runCodeCoverage(repo, null, { timeoutMs: 15_000 });
+    await runCodeCoverage(repo, sharedTestExec(), { timeoutMs: 15_000 });
     assert.ok(existsSync(join(repo, "coverage", "lcov.info")), "the run finished and its coverage report was written, instead of being killed at the timeout");
   } finally {
     rmSync(repo, { recursive: true, force: true });
@@ -99,7 +100,7 @@ const BEYOND_TIMER_LIMIT_MS = MAX_TIMER_DELAY_MS + 1_000;
 
 test("a test run with a timeout beyond what a timer can hold never asks the clock for more than it can hold", async () => {
   const { timers, delays } = recordingTimers();
-  const out = await createDefaultCodeExecuteDeps(null, undefined, timers).runTests(nodeTest("process.exitCode = 0;"), tmpdir(), { timeoutMs: BEYOND_TIMER_LIMIT_MS });
+  const out = await createDefaultCodeExecuteDeps(sharedTestExec(), undefined, timers).runTests(nodeTest("process.exitCode = 0;"), tmpdir(), { timeoutMs: BEYOND_TIMER_LIMIT_MS });
   assert.equal(out.exitCode, 0);
   assert.ok(delays.length > 0, "the run armed the clock");
   assert.ok(delays.every((ms) => ms > 0 && ms <= MAX_TIMER_DELAY_MS), `a delay above the limit would fire at once (asked for ${JSON.stringify(delays)})`);
@@ -111,7 +112,7 @@ test("a coverage run with a timeout beyond what a timer can hold never asks the 
     writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { test: "node quick-suite.js" } }));
     writeFileSync(join(repo, "quick-suite.js"), "process.exitCode = 0;");
     const { timers, delays } = recordingTimers();
-    await runCodeCoverage(repo, null, { timeoutMs: BEYOND_TIMER_LIMIT_MS }, undefined, timers);
+    await runCodeCoverage(repo, sharedTestExec(), { timeoutMs: BEYOND_TIMER_LIMIT_MS }, undefined, timers);
     assert.ok(delays.length > 0, "the run armed the clock");
     assert.ok(delays.every((ms) => ms > 0 && ms <= MAX_TIMER_DELAY_MS), `a delay above the limit would fire at once (asked for ${JSON.stringify(delays)})`);
   } finally {
@@ -209,7 +210,7 @@ function scriptCuttingThroughSecret(keep: number, secret: string, cutOffset: num
 test("a secret cut through by the kept-output bound never reaches the reported logs or the failure detail", { timeout: 30_000 }, async () => {
   const secret = "ghp_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"; /* 40 chars */
   const leakedHalf = secret.slice(-20);
-  const deps = { ...createDefaultCodeExecuteDeps(null), detect: () => nodeTest(scriptCuttingThroughSecret(CODE_TEST_OUTPUT_KEEP_CHARS, secret, 20)), listWrites: () => [] };
+  const deps = { ...createDefaultCodeExecuteDeps(sharedTestExec()), detect: () => nodeTest(scriptCuttingThroughSecret(CODE_TEST_OUTPUT_KEEP_CHARS, secret, 20)), listWrites: () => [] };
 
   const result = await runCodeTests(tmpdir(), { namespace: "run-1" }, deps);
 
@@ -238,7 +239,7 @@ for (const { ecosystem, evidence, filler } of NOISY_TAILS) {
       "let written = 0;" +
       "(function go() { if (written++ < 30) return process.stdout.write(chunk, go); process.stdout.write('done\\n'); })();";
     const project: CodeProject = { ecosystem, install: null, test: { cmd: process.execPath, args: ["-e", script] } };
-    const deps = { ...createDefaultCodeExecuteDeps(null), detect: () => project, listWrites: () => [] };
+    const deps = { ...createDefaultCodeExecuteDeps(sharedTestExec()), detect: () => project, listWrites: () => [] };
 
     const result = await runCodeTests(tmpdir(), { namespace: "run-1" }, deps);
 
