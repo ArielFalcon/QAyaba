@@ -15,18 +15,20 @@ function page(over: Partial<PageState> = {}): PageState {
 
 class FakeHost implements AgentBrowserHostPort {
   readonly calls: { sessionId: string; action: BrowserAction }[] = [];
+  readonly timeouts: number[] = [];
   resets = 0;
   closed = 0;
   next: () => Promise<PageState> | PageState = () => page();
-  async perform(sessionId: string, action: BrowserAction): Promise<PageState> {
+  async perform(sessionId: string, action: BrowserAction, opts?: { timeoutMs: number }): Promise<PageState> {
     this.calls.push({ sessionId, action });
+    if (opts) this.timeouts.push(opts.timeoutMs);
     return this.next();
   }
   async reset(): Promise<void> { this.resets += 1; }
   async close(): Promise<void> { this.closed += 1; }
 }
 
-function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promise<boolean>) | undefined; limits?: Partial<typeof DEFAULT_AGENT_BROWSER_LIMITS>; leaseWait?: AbortController; denyRoutes?: string[]; now?: () => number; expiresAtMs?: number; runSignal?: AbortSignal; loginPath?: string } = {}) {
+function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promise<boolean>) | undefined; limits?: Partial<typeof DEFAULT_AGENT_BROWSER_LIMITS>; leaseWait?: AbortController; denyRoutes?: string[]; now?: () => number; expiresAtMs?: number; runSignal?: AbortSignal; loginPath?: string; deadline?: { remainingMs: () => number | undefined } } = {}) {
   const host = over.host ?? new FakeHost();
   const capability = new AgentBrowserCapability({ runId: "r1", limits: { ...DEFAULT_AGENT_BROWSER_LIMITS, ...over.limits }, expiresAtMs: over.expiresAtMs ?? 1_000_000, now: over.now ?? (() => 0) });
   capability.bindSession("s1");
@@ -40,6 +42,7 @@ function setup(over: { host?: FakeHost; lock?: AccountLock; renew?: (() => Promi
     lock,
     ...(over.renew !== undefined ? { session: { renew: over.renew } } : {}),
     redact: (text) => text.replaceAll("hunter2", "[REDACTED]"),
+    ...(over.deadline ? { deadline: { ...over.deadline, describe: () => undefined } } : {}),
     leaseWaitSignal: () => over.leaseWait?.signal ?? new AbortController().signal,
     ...(over.runSignal ? { signal: over.runSignal } : {}),
     ...(over.loginPath !== undefined ? { loginPath: over.loginPath } : {}),
@@ -151,9 +154,75 @@ test("a call that cannot get the account in time answers that DEV is busy and sp
   const res = await call;
   assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.BUSY);
   assert.equal(host.calls.length, 0);
-  assert.equal(capability.signal.calls, 1, "the call was started and counted");
+  assert.equal(capability.signal.calls, 0, "a call that never began is not spent");
   release();
   await held;
+});
+
+test("a call that gave up waiting for the account does not use a call of its flow's share either", async () => {
+  const lock = new AccountLock();
+  const { useCase, capability } = setup({ lock });
+  capability.bindSession("flow-session", "flow-a");
+  capability.setShare("flow-a", 1);
+  const flowCall = { ...nav("/orders"), sessionId: "flow-session", agent: "qa-sidekick" };
+  let release!: () => void;
+  const held = lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const ended = new AbortController();
+  const waiting = useCase.call(flowCall, ended.signal);
+  await new Promise((r) => setImmediate(r));
+  ended.abort();
+  await waiting;
+  release();
+  await held;
+  const again = await useCase.call(flowCall);
+  assert.equal(again.ok, true, "the flow's one call is still there");
+});
+
+test("a call whose session ends while it waits for the account is not spent", async () => {
+  const lock = new AccountLock();
+  const { useCase, capability } = setup({ lock });
+  let release!: () => void;
+  const held = lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const ended = new AbortController();
+  const waiting = useCase.call(nav("/orders"), ended.signal);
+  await new Promise((r) => setImmediate(r));
+  ended.abort();
+  await waiting;
+  assert.equal(capability.signal.calls, 0);
+  release();
+  await held;
+});
+
+test("a call that waited for the account is bounded by the time the run has left when it gets it", async () => {
+  let left: number | undefined = 600_000;
+  const lock = new AccountLock();
+  const { host, useCase } = setup({ lock, deadline: { remainingMs: () => left } });
+  let release!: () => void;
+  const held = lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const waiting = useCase.call(nav("/orders"));
+  await new Promise((r) => setImmediate(r));
+  left = 3_000;
+  release();
+  await held;
+  assert.equal((await waiting).ok, true);
+  assert.equal(host.timeouts[0], 3_000);
+});
+
+test("a call that waited for the account while the capability ran out of time is refused without touching the browser", async () => {
+  let clock = 0;
+  const lock = new AccountLock();
+  const { host, useCase, capability } = setup({ lock, now: () => clock, expiresAtMs: 100 });
+  let release!: () => void;
+  const held = lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const waiting = useCase.call(nav("/orders"));
+  await new Promise((r) => setImmediate(r));
+  clock = 100;
+  release();
+  await held;
+  const res = await waiting;
+  assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.EXPIRED);
+  assert.equal(host.calls.length, 0);
+  assert.equal(capability.signal.calls, 0);
 });
 
 test("the lease is released when the browser throws", async () => {

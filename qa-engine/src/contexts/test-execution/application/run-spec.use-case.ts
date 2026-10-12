@@ -149,6 +149,8 @@ export class RunSpecUseCase {
     if (!reservation.ok) return this.refusal(reservation.code, reservation.message);
 
     const started = Date.now();
+    /* Whether the call got the account and began: one that did not is given back, not spent. */
+    let began = false;
     let status: RunSpecStatus = RUN_SPEC_STATUS.ERROR;
     let tests: RunSpecTestReport[] = [];
     let passedTests = 0;
@@ -156,7 +158,18 @@ export class RunSpecUseCase {
     let note: string | undefined;
     let sessionLost = false;
     try {
-      const outcome = await this.deps.lock.withLock(this.deps.account, () => this.executeAndClean(rel, grep, reservation.namespace, reservation.timeoutMs, stop), stop);
+      const outcome = await this.deps.lock.withLock(
+        this.deps.account,
+        async () => {
+          /* The time the run has left is read when the call gets the account, not when it asked for it. */
+          const timeoutMs = capability.timeoutFor(deadline?.remainingMs());
+          if (typeof timeoutMs !== "number") return timeoutMs;
+          began = true;
+          return this.executeAndClean(rel, grep, reservation.namespace, timeoutMs, stop);
+        },
+        stop,
+      );
+      if ("ok" in outcome) return this.refusal(outcome.code, outcome.message);
       status = outcome.status;
       tests = outcome.tests;
       passedTests = outcome.passedTests;
@@ -172,7 +185,8 @@ export class RunSpecUseCase {
       console.error(`[qa] run_spec call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
       note = "the call could not be completed by the harness; nothing was reported by the spec";
     } finally {
-      capability.settle({ path: rel, sha256, status, ms: Date.now() - started, devWrites });
+      if (began) capability.settle({ path: rel, sha256, status, ms: Date.now() - started, devWrites });
+      else capability.cancel();
     }
     return { ok: true, report: { status, tests, passedTests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
   }

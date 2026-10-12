@@ -165,12 +165,25 @@ export class RunSpecCapability {
     if (this.inFlight) return refuse(CLOSED_LOOP_REFUSAL.BUSY, "another run_spec call is still running");
     if (this.calls_ >= this.init.limits.maxCalls) return refuse(CLOSED_LOOP_REFUSAL.NO_CALLS, `the ${this.init.limits.maxCalls} run_spec calls of this run are spent`);
     if (this.devWrites_ >= this.init.limits.maxDevWrites) return refuse(CLOSED_LOOP_REFUSAL.NO_WRITES, `the executed specs already sent ${this.devWrites_} write request(s) to DEV, the run's cap`);
-    const timeoutMs = deadlineLeftMs === undefined ? this.init.limits.perCallMs : Math.min(this.init.limits.perCallMs, deadlineLeftMs - CLEANUP_RESERVE_MS);
-    if (timeoutMs < MIN_CALL_MS) return refuse(CLOSED_LOOP_REFUSAL.NO_TIME, "the run has too little time left to execute a spec");
+    const timeoutMs = this.timeoutFor(deadlineLeftMs);
+    if (typeof timeoutMs !== "number") return timeoutMs;
     this.calls_ += 1;
     const namespace = `${this.init.runId}-rs${this.calls_}`;
     this.inFlight = { namespace };
     return { ok: true, callNumber: this.calls_, namespace, timeoutMs };
+  }
+
+  /* The time a call that starts now may take given what the run's deadline has left, or why it may not start. A call that waited for the account asks again when it gets it: what it was told when it reserved is stale by then. */
+  timeoutFor(deadlineLeftMs: number | undefined): number | ClosedLoopRefusal {
+    const timeoutMs = deadlineLeftMs === undefined ? this.init.limits.perCallMs : Math.min(this.init.limits.perCallMs, deadlineLeftMs - CLEANUP_RESERVE_MS);
+    return timeoutMs < MIN_CALL_MS ? refuse(CLOSED_LOOP_REFUSAL.NO_TIME, "the run has too little time left to execute a spec") : timeoutMs;
+  }
+
+  /* Gives back the call in flight when it never started (it was refused its turn, or its wait ended): nothing ran, so nothing is spent. */
+  cancel(): void {
+    if (!this.inFlight) throw new Error("run_spec cancel: no call is in flight");
+    this.calls_ -= 1;
+    this.inFlight = undefined;
   }
 
   /* Records how the reserved call ended. */

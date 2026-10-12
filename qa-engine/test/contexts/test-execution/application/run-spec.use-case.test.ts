@@ -357,6 +357,38 @@ test("a call waits for the account when something else holds it, and does not de
   assert.ok((await pending).ok);
 });
 
+test("a call that waited for the account runs for what the run has left when it gets it, not what it had left when it asked", async (t) => {
+  let left = 60_000;
+  const h = harness(t, { deadline: { remainingMs: () => left, describe: () => undefined } });
+  let release!: () => void;
+  const held = h.deps.lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const pending = call(h, "flows/a.spec.ts");
+  await new Promise((r) => setImmediate(r));
+  left = 40_000;
+  release();
+  await held;
+  assert.ok((await pending).ok);
+  assert.equal(h.executed[0]!.timeoutMs, 25_000);
+});
+
+test("a call that waited for the account until the run had no time left is refused and not spent", async (t) => {
+  let left = 60_000;
+  const h = harness(t, { deadline: { remainingMs: () => left, describe: () => undefined } });
+  let release!: () => void;
+  const held = h.deps.lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const pending = call(h, "flows/a.spec.ts");
+  await new Promise((r) => setImmediate(r));
+  left = 5_000;
+  release();
+  await held;
+  const response = await pending;
+  assert.ok(!response.ok && response.code === CLOSED_LOOP_REFUSAL.NO_TIME);
+  assert.equal(h.executed.length, 0);
+  assert.equal(h.capability.calls, 0);
+  assert.equal(h.capability.pendingNamespace, undefined);
+  assert.ok((await call(h, "flows/a.spec.ts")).ok === false, "the run still has no time, and the refusal is not a stuck call");
+});
+
 test("two calls at once from the same run: the second is told to wait, not queued behind the first", async (t) => {
   const h = harness(t);
   let finish!: () => void;
@@ -404,6 +436,21 @@ test("a call that waits for the account when its session ends leaves the queue w
   const response = await pending;
   assert.ok(response.ok && response.report.status === "error");
   assert.equal(h.executed.length, 0);
+  release();
+  await held;
+});
+
+test("a call that gave up waiting for the account is not spent", async (t) => {
+  const h = harness(t);
+  let release!: () => void;
+  const held = h.deps.lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const controller = new AbortController();
+  const pending = new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_AGENT, path: "flows/a.spec.ts" }, controller.signal);
+  await new Promise((r) => setImmediate(r));
+  controller.abort();
+  await pending;
+  assert.equal(h.capability.calls, 0);
+  assert.equal(h.capability.pendingNamespace, undefined);
   release();
   await held;
 });

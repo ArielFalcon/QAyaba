@@ -111,13 +111,27 @@ export class AgentBrowserUseCase {
     if (!reservation.ok) return this.refusal(reservation.code, reservation.message);
 
     const waitSignal = AbortSignal.any([...(stop ? [stop] : []), (this.deps.leaseWaitSignal ?? AbortSignal.timeout.bind(AbortSignal))(capability.limits.leaseWaitMs)]);
+    /* Whether the call got the account and began: one that did not is given back, not spent. */
+    let began = false;
     try {
-      return await this.deps.lock.withLock(this.deps.account, () => this.perform(request.sessionId, action, stop), waitSignal);
+      return await this.deps.lock.withLock(
+        this.deps.account,
+        async () => {
+          /* What was true when the call asked may not be true when it gets the account: the run may have ended or run out of time. */
+          const gone = capability.authorize(request.sessionId, request.agent);
+          if (gone) return this.refusal(gone.code, gone.message);
+          began = true;
+          return this.perform(request.sessionId, action, stop);
+        },
+        waitSignal,
+      );
     } catch (err) {
       if (stop?.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the call was cancelled");
       if (waitSignal.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.BUSY, "DEV busy: the test account is in use by another step of this run; try again in a moment");
       console.error(`[qa] authenticated browser call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
       return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call");
+    } finally {
+      if (!began) capability.refund(request.sessionId);
     }
   }
 

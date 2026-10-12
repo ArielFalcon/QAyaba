@@ -114,6 +114,14 @@ export class AgentBrowserCapability {
     return { ok: true, callNumber: this.calls_ };
   }
 
+  /* Gives back a call `reserve` took when it never began (it timed out waiting for the account, or its session ended first): nothing ran, so the run's calls and its flow's share are not spent. */
+  refund(sessionId?: string): void {
+    const flow = sessionId === undefined ? undefined : this.flowOfSession.get(sessionId);
+    const share = flow === undefined ? undefined : this.shares.get(flow);
+    if (share && share.used > 0) share.used -= 1;
+    if (this.calls_ > 0) this.calls_ -= 1;
+  }
+
   recordBlocks(count: number): void {
     this.blocks_ += count;
   }
