@@ -79,6 +79,7 @@ current user and the launcher warns, loudly, once per process; use it only on a 
 | Path | Mode | Why |
 |---|---|---|
 | `/app/data` | `0700` | run history, `auth/<app>/` (session, client certificate), the suite store, learning state |
+| `/app/.codebase-memory` (`CBM_CACHE_DIR`) | `0700` | the code graph of every indexed repo: the structure of repos the sandbox uid must not read |
 | `/app/config`, `config/.api_token` | `0750`, `0600` | app configs and the API token. A rw bind mount: **only the mode changes, never the owner**, so a Linux host's own user keeps its access |
 | mirrors volume | `0711` | traversable, not listable |
 | each mirror | `0750 root:root` | closed to the sandbox uid |

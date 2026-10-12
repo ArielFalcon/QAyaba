@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -78,5 +78,44 @@ test("the per-run work root is created traversable and unlistable, and the comma
     assert.equal(mode(join(root, "exec")), 0o711);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the code-graph volume (every indexed repo's structure) is closed at boot like the data directory", () => {
+  const root = mkdtempSync(join(tmpdir(), "entrypoint-"));
+  try {
+    mkdirSync(join(root, "data"));
+    mkdirSync(join(root, "config"));
+    mkdirSync(join(root, ".codebase-memory"), { mode: 0o755 });
+    chmodSync(join(root, ".codebase-memory"), 0o755);
+    boot(root);
+    assert.equal(mode(join(root, ".codebase-memory")), 0o700);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the code-graph directory is found where CBM_CACHE_DIR says, a link is not followed, and a missing one is not an error", () => {
+  const root = mkdtempSync(join(tmpdir(), "entrypoint-"));
+  const elsewhere = mkdtempSync(join(tmpdir(), "entrypoint-elsewhere-"));
+  try {
+    mkdirSync(join(root, "data"));
+    mkdirSync(join(root, "config"));
+    mkdirSync(join(root, "graphs"), { mode: 0o755 });
+    chmodSync(join(root, "graphs"), 0o755);
+    execFileSync("/bin/sh", [SCRIPT, "true"], {
+      env: { PATH: process.env.PATH ?? "", QA_APP_ROOT: root, MIRROR_DIR: join(root, ".mirrors"), QA_EXEC_ROOT: join(root, "exec"), CBM_CACHE_DIR: join(root, "graphs") },
+      stdio: "ignore",
+    });
+    assert.equal(mode(join(root, "graphs")), 0o700);
+    chmodSync(elsewhere, 0o755);
+    symlinkSync(elsewhere, join(root, ".codebase-memory"));
+    boot(root);
+    assert.equal(mode(elsewhere), 0o755, "the target of the link is untouched");
+    unlinkSync(join(root, ".codebase-memory"));
+    assert.doesNotThrow(() => boot(root));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
   }
 });

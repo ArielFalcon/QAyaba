@@ -7,6 +7,8 @@
 #   /app/data    0700  run history, auth material (session, client certificate), suite store, learning state
 #   /app/config  0750  app configs and the API token (config/.api_token, 0600). A rw bind mount: only the mode changes,
 #                      never the owner, so a Linux host's own user keeps its access.
+#   /app/.codebase-memory (CBM_CACHE_DIR)  0700  the code graph of every indexed repo: the structure of repos the sandbox uid
+#                      must not read (the volume is root-owned, but a volume's root is created 0755)
 #   mirrors      0711 root; each mirror 0750 root:root. The run opens the one mirror it executes in to the sandbox group
 #                      for its length (mirror-access.ts) and closes it again.
 # /proc/1/environ is root-only (0400) and so unreadable once a child has dropped to the sandbox uid; the smoke test
@@ -26,6 +28,10 @@ harden() {
 harden 0700 "$APP/data"
 harden 0750 "$APP/config"
 harden 0600 "$APP/config/.api_token"
+# Every volume the orchestrator mounts: qa-data (/app/data, above), the mirrors (below), the code graph (here), and the bind-mounted
+# config (above). The dev override's bind mounts (src, qa-engine, scripts, web) hold the orchestrator's own code, which is no secret
+# and is protected from writing by ownership.
+harden 0700 "${CBM_CACHE_DIR:-$APP/.codebase-memory}"
 
 mkdir -p "$MIRRORS" 2>/dev/null || true
 if [ -d "$MIRRORS" ] && [ ! -L "$MIRRORS" ]; then

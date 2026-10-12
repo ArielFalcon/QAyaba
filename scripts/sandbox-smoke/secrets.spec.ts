@@ -28,6 +28,10 @@ test("the API token is unreadable", () => {
   expect(codeOf(() => readFileSync("/app/config/.api_token"))).toMatch(/^(EACCES|EPERM)$/);
 });
 
+test("the code graph of the indexed repos cannot be listed", () => {
+  expect(codeOf(() => readdirSync("/app/.codebase-memory"))).toMatch(/^(EACCES|EPERM)$/);
+});
+
 test("the config directory (app configs) cannot be listed", () => {
   expect(codeOf(() => readdirSync("/app/config"))).toMatch(/^(EACCES|EPERM)$/);
 });
