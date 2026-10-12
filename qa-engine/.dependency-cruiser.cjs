@@ -82,6 +82,20 @@ module.exports = {
       to: { path: "^(node:)?child_process$", dependencyTypes: ["core"], dependencyTypesNot: ["type-only"] },
     },
     {
+      name: "no-fs-in-agent-browser",
+      severity: "error",
+      comment: "The authenticated agent browser holds the run's saved session in memory only: the cookies are handed to the browser as data and nothing it refreshes is saved. The module that hosts the browser and the one that starts it import no file API, so a refreshed cookie, a download or a profile written by the host cannot exist; what they hold arrives through their dependencies.",
+      from: { path: "^qa-engine/src/contexts/test-execution/infrastructure/agent-browser/" },
+      to: { path: "^(node:)?(fs|fs/promises)$", dependencyTypes: ["core"] },
+    },
+    {
+      name: "playwright-core-only-in-agent-browser-loader",
+      severity: "error",
+      comment: "The orchestrator process drives a browser only through the agent-browser loader, which hands the host the few methods it uses. A second import of playwright-core would be a second way to open a page in the orchestrator, with its credentials and network, outside the route guard.",
+      from: { path: "^qa-engine/src/", pathNot: "^qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core\\.loader\\.ts$" },
+      to: { path: "(^|/)playwright-core($|/)" },
+    },
+    {
       // migration-tier-1-2, Slice 5 (corrected judgment-day round-1: the prior comment's "ONLY
       // sanctioned src<->qa-engine bridge" framing was stale/inaccurate). The direction actually
       // enforced here is ONE-WAY: qa-engine/src/ may never import src/ (below). The OPPOSITE
