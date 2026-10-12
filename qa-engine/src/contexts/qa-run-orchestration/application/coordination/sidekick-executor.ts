@@ -176,20 +176,18 @@ export class SidekickExecutor {
     });
     try {
       const assembled = this.render(brief);
-      const first = await session.prompt(assembled.text, { sectionSizes: assembled.sectionSizes });
-      let output = first.output;
-      if (opts.feedback) {
-        const second = await session.prompt(
-          [
+      /* A retry's session is a fresh one that has seen nothing, so its one prompt carries the brief and the feedback together: answering the brief on its own first would spend the flow's budget on work that is then thrown away. */
+      const text = opts.feedback
+        ? [
+            assembled.text,
+            ``,
             `## Feedback from lead`,
             scrub(opts.feedback),
             ``,
             `Respond with the SAME JSON output contract for delegationId=${brief.delegationId} runId=${brief.runId}.`,
-          ].join("\n"),
-          { isRepair: true },
-        );
-        output = second.output;
-      }
+          ].join("\n")
+        : assembled.text;
+      const { output } = await session.prompt(text, { sectionSizes: assembled.sectionSizes });
       const parsed = parseDelegationResult(extractJsonObject(output), brief);
       if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult");
       if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {

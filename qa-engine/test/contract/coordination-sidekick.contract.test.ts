@@ -175,7 +175,7 @@ test("SidekickExecutor redacts secrets in DelegationResult summary, concerns, an
   assert.match(result.summary, /\[REDACTED\]/);
 });
 
-test("SidekickExecutor can send feedback on the same session before dispose", async () => {
+test("a retry with feedback is one prompt that carries the brief and the feedback, since its session is a fresh one", async () => {
   const prompts: string[] = [];
   const session: AgentSession = {
     async prompt(text) {
@@ -209,8 +209,9 @@ test("SidekickExecutor can send feedback on the same session before dispose", as
     capability: "sidekick-standard",
     feedback: "selectors must use getByRole",
   });
-  assert.equal(prompts.length, 2);
-  assert.match(prompts[1]!, /getByRole/);
+  assert.equal(prompts.length, 1, "the brief is not sent on its own first, only to be answered and then corrected");
+  assert.match(prompts[0]!, /getByRole/);
+  assert.match(prompts[0]!, new RegExp(brief().delegationId), "the brief the sidekick is grounded in is in the same prompt");
   assert.equal(result.status, "completed-with-concerns");
 });
 
