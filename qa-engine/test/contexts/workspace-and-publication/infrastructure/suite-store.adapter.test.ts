@@ -455,6 +455,31 @@ test("a seeded store restores to exactly the snapshot, and the snapshot's login 
   assert.equal(r.read(AUTH_SETUP_PATH), APP_LOGIN);
 });
 
+test("a seeded file at a path git tracks is restored over git's content: both arms of a campaign start from the whole snapshot", async (t) => {
+  const r = rig(t);
+  await r.store().seed(files({ "flows/a.spec.ts": "warm snapshot a", "package.json": "{}" }), { label: "w5" });
+  r.tracked.set("flows/a.spec.ts", { oid: gitBlobOid(Buffer.from("what git has at this commit"), 40) });
+
+  r.clean();
+  const restored = await r.store().restore(root(r));
+
+  assert.deepEqual({ restored: restored.restored, trackedWins: restored.trackedWins, overlaid: restored.overlaid }, { restored: 1, trackedWins: 0, overlaid: 1 });
+  assert.equal(r.read("flows/a.spec.ts"), "warm snapshot a");
+});
+
+test("a seeded file git tracks is kept by the capture of a run that did not touch it", async (t) => {
+  const r = rig(t);
+  await r.store().seed(files({ "flows/a.spec.ts": "warm snapshot a" }), { label: "w5" });
+  r.tracked.set("flows/a.spec.ts", { oid: gitBlobOid(Buffer.from("what git has at this commit"), 40) });
+  r.clean();
+  await r.store().restore(root(r));
+
+  const result = await r.capture({ runId: "run-2", executedGreen: [] });
+
+  assert.equal(result.dropped, 0);
+  assert.deepEqual(r.manifest().entries.map((e) => e.path), ["flows/a.spec.ts"]);
+});
+
 test("seeding replaces what the store held: an earlier run's entries and blobs are gone", async (t) => {
   const r = rig(t);
   r.put("flows/old.spec.ts", "old");

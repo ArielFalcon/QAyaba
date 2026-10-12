@@ -55,6 +55,8 @@ export interface SuiteEntry {
   admittedBy: SuiteEntryAdmission;
   /** The git blob the path had when the entry was admitted, when git tracked it: the store overlays the entry only while git still has that blob. */
   gitBaseBlob?: string;
+  /** Set by a seed: the operator declared this file part of the warm suite, so a restore puts it back over whatever git tracks at the path. */
+  pinned?: boolean;
 }
 
 export interface SuiteAuthRecord {
@@ -173,7 +175,8 @@ function parseManifest(text: string): SuiteManifest {
   const kinds: ReadonlySet<string> = new Set(Object.values(SUITE_ENTRY_KIND));
   for (const entry of raw.entries as unknown[]) {
     if (!isRecord(entry) || typeof entry.path !== "string" || typeof entry.sha256 !== "string" || !BLOB_ID.test(entry.sha256)
-      || typeof entry.bytes !== "number" || typeof entry.kind !== "string" || !kinds.has(entry.kind) || !isRecord(entry.admittedBy)) {
+      || typeof entry.bytes !== "number" || typeof entry.kind !== "string" || !kinds.has(entry.kind) || !isRecord(entry.admittedBy)
+      || (entry.pinned !== undefined && typeof entry.pinned !== "boolean")) {
       throw new Error("the suite store's manifest holds a malformed entry");
     }
     assertSafeRelative(entry.path);
@@ -211,7 +214,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     for (const entry of manifest.entries) {
       if (entry.kind === SUITE_ENTRY_KIND.AUTH_SETUP && manifest.auth?.status !== AUTH_STATUS.VERIFIED) continue;
       const trackedFile = tracked.get(entry.path);
-      if (trackedFile !== undefined && entry.gitBaseBlob !== trackedFile.oid) {
+      if (trackedFile !== undefined && entry.gitBaseBlob !== trackedFile.oid && entry.pinned !== true) {
         result.trackedWins += 1;
         continue;
       }
@@ -313,7 +316,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
       const decision = decisions.get(path);
       /* Kept only while the file is still in the working copy and git has not taken the path over with other content. */
       const trackedFile = tracked.get(path);
-      const gitWins = trackedFile !== undefined && entry.gitBaseBlob !== trackedFile.oid;
+      const gitWins = trackedFile !== undefined && entry.gitBaseBlob !== trackedFile.oid && entry.pinned !== true;
       if (decision?.action === "keep" && !gitWins) next.set(path, entry);
       else dropped += 1;
     }
@@ -381,7 +384,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
       const kind = suiteEntryKind(path);
       if (kind === SUITE_ENTRY_KIND.AUTH_SETUP && isStockAuthSetup(bytes.toString("utf8"))) continue;
       const sha256 = sha256Of(bytes);
-      entries.push({ path, sha256, bytes: bytes.length, kind, admittedBy });
+      entries.push({ path, sha256, bytes: bytes.length, kind, admittedBy, pinned: true });
       fresh.set(sha256, bytes);
     }
     this.assertWithinLimits(entries);
