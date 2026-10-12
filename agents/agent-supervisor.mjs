@@ -60,7 +60,7 @@ export function codexExecEnv(env = process.env) {
 export function redactForResponse(msg) {
   if (typeof msg !== "string") return msg;
   let out = msg;
-  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "OPENCODE_SERVER_PASSWORD"]) {
+  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "OPENCODE_SERVER_PASSWORD", "QA_TOOLS_TOKEN"]) {
     const value = process.env[name];
     if (value && value.length >= 6 && out.includes(value)) out = out.split(value).join("[REDACTED_CREDENTIAL]");
   }
@@ -108,6 +108,20 @@ export function openCodeServerEnv(env = process.env, { warn = console.warn } = {
   return { ...env, OPENCODE_SERVER_PASSWORD: generatedServerPassword };
 }
 
+// The service token of the run_spec tool (agents/tool/run_spec.ts), which the orchestrator checks on its internal endpoint: the same
+// value on both services (compose). Unset, a random one is generated for this process (kept across respawns), so the tool never
+// runs with a token the orchestrator could mistake for its own; its calls are then refused, with a message that names the variable.
+let generatedToolsToken;
+export function qaToolsEnv(env = process.env, { warn = console.warn } = {}) {
+  const configured = env.QA_TOOLS_TOKEN?.trim();
+  if (configured) return { ...env, QA_TOOLS_TOKEN: configured };
+  if (!generatedToolsToken) {
+    generatedToolsToken = randomBytes(32).toString("hex");
+    warn("[supervisor] QA_TOOLS_TOKEN is not set: generated a random one for this boot. The orchestrator will refuse the run_spec tool; set the same QA_TOOLS_TOKEN on the orchestrator and agents services (see .env.example).");
+  }
+  return { ...env, QA_TOOLS_TOKEN: generatedToolsToken };
+}
+
 // OpenCode merges the opencode.json and .opencode/ (agents, plugins, MCP servers, permission overrides) of a
 // session's directory over its own configuration. A session directory is a watched repo's working copy, so
 // the server ignores project configuration altogether. The baseline experiment (scripts/baseline-agent.ts)
@@ -124,7 +138,7 @@ export function commandFor(provider, env = process.env) {
     return {
       cmd: "opencode",
       args: ["serve", "--hostname", env.OPENCODE_SERVE_HOSTNAME || "0.0.0.0", "--port", "4096"],
-      env: projectConfigEnv(openCodeServerEnv(env)),
+      env: projectConfigEnv(qaToolsEnv(openCodeServerEnv(env))),
     };
   }
   return undefined;

@@ -85,6 +85,11 @@ services:
       # with the container's full network and says so (gate signal sandbox.egress "unenforced"). Declare the origins a
       # run may reach with dev.allowedOrigins in the app config and egress.installOrigins for registries.
       QA_EGRESS_MODE: ${QA_EGRESS_MODE:-enforce}
+      # The run_spec tool's internal endpoint (a second listener, NOT published above) and the service token the agents service
+      # authenticates to it with: the SAME value on both services. Unset, each service generates its own and the tool is refused
+      # with a message naming the variable. The generator only gets the tool in a run whose app sets qa.closedLoop.enabled.
+      QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
+      QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
     volumes:
       - ./config:/app/config # app configs + the config/e2e seed (read-mostly; not hot-swapped)
       # NOTE: src/ and package files are NOT bind-mounted here on purpose — the hot-swap must be
@@ -122,7 +127,7 @@ services:
       - 1.1.1.1
       - 8.8.8.8
     # SECURITY: the agent container does NOT get the full .env. It receives ONLY the
-    # model-provider keys, the shared OpenCode server password and DEV_ENV_* (the HTTP Basic gate
+    # model-provider keys, the shared OpenCode server password, the run_spec service token and DEV_ENV_* (the HTTP Basic gate
     # of DEV, read by the baseline arm's Playwright config and a Codex shell) — NEVER the test
     # account (DEV_TEST_*: the app login is the orchestrator's and the agent only gets the saved
     # session) nor GITHUB_TOKEN / WEBHOOK_SECRET / QA_API_TOKEN. Git writes are the orchestrator's
@@ -146,6 +151,9 @@ services:
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
       # Required by `opencode serve` (port 4096 is open to every container on the network); see the orchestrator entry.
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+      # run_spec tool (agents/tool/run_spec.ts): where the orchestrator's internal endpoint is, and the service token it requires.
+      QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
+      QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
       CODEX_API_KEY: ${CODEX_API_KEY:-}
       DEV_ENV_USER: ${DEV_ENV_USER:-}
       DEV_ENV_PASS: ${DEV_ENV_PASS:-}

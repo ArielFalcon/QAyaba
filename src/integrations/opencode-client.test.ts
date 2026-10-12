@@ -1494,7 +1494,7 @@ test("openCodePromptBody: a prompt that asks for no tools carries a deny map cov
   assert.deepEqual(body.parts, [{ type: "text", text: "restate" }]);
   const tools = (body as { tools?: Record<string, boolean> }).tools;
   assert.ok(tools, "the deny map is sent");
-  for (const name of ["bash", "read", "write", "edit", "glob", "grep", "serena*", "engram*", "playwright*"]) assert.equal(tools[name], false, name);
+  for (const name of ["bash", "read", "write", "edit", "glob", "grep", "run_spec", "serena*", "engram*", "playwright*"]) assert.equal(tools[name], false, name);
   assert.ok(Object.values(tools).every((allowed) => allowed === false), "nothing is switched on by this map");
 });
 

@@ -7,6 +7,9 @@
     "port": 4096,
     "hostname": "0.0.0.0"
   },
+  "tools": {
+    "run_spec": false
+  },
   "permission": {
     "doom_loop": "deny",
     "external_directory": {
@@ -24,6 +27,7 @@
         "write": true,
         "edit": true,
         "read": true,
+        "run_spec": true,
         "webfetch": false,
         "engram_mem_judge": false,
         "engram_mem_compare": false,

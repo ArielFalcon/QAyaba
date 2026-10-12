@@ -39,6 +39,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Serena (`uv tool install`) and uv both land in /root/.local/bin → on PATH at run time.
 ENV PATH="/root/.local/bin:${PATH}"
 
+# The run_spec tool (tool/run_spec.ts) imports @opencode-ai/plugin. The config directory is a read-only bind mount of ./agents
+# (docker-compose.yml), whose node_modules is a host folder the repo does not ship, so the package is installed here:
+# OpenCode resolves it by walking up from the tool file to /root/node_modules. The versions are those of package-lock.json.
+COPY package.json package-lock.json /root/
+RUN cd /root && npm ci --omit=dev
+
 COPY agent-supervisor.mjs /usr/local/bin/agent-supervisor.mjs
 RUN chmod +x /usr/local/bin/agent-supervisor.mjs
 

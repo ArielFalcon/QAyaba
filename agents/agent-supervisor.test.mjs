@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig, openCodeServerEnv, commandFor, redactForResponse, codexExecEnv } from "./agent-supervisor.mjs";
+import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig, openCodeServerEnv, qaToolsEnv, commandFor, redactForResponse, codexExecEnv } from "./agent-supervisor.mjs";
 
 // Importing agent-supervisor.mjs must NOT start the HTTP server (it is main-guarded). If it did, the
 // listening socket would keep this process alive and node:test would hang instead of exiting — so
@@ -247,6 +247,39 @@ test("openCodeServerEnv generates a strong password when none is set, and the sa
   assert.equal(second.OPENCODE_SERVER_PASSWORD, first.OPENCODE_SERVER_PASSWORD, "a respawned server keeps the password of the first");
   assert.ok(warnings.length >= 1 && warnings.every((line) => !line.includes(first.OPENCODE_SERVER_PASSWORD)), "the warning never carries the value");
   assert.ok(warnings.some((line) => line.includes("OPENCODE_SERVER_PASSWORD")), "the warning says which variable the orchestrator needs");
+});
+
+// ─── the run_spec tool authenticates to the orchestrator with a service token ───
+test("qaToolsEnv keeps the token compose provides and passes the rest of the environment through", () => {
+  const out = qaToolsEnv({ PATH: "/bin", QA_TOOLS_TOKEN: " from-compose " });
+  assert.equal(out.QA_TOOLS_TOKEN, "from-compose");
+  assert.equal(out.PATH, "/bin");
+});
+
+test("qaToolsEnv generates a strong token when none is set, the same one for every respawn, and never prints it", () => {
+  const warnings = [];
+  const first = qaToolsEnv({}, { warn: (line) => warnings.push(line) });
+  const second = qaToolsEnv({ QA_TOOLS_TOKEN: "  " }, { warn: (line) => warnings.push(line) });
+  assert.ok(first.QA_TOOLS_TOKEN.length >= 32);
+  assert.equal(second.QA_TOOLS_TOKEN, first.QA_TOOLS_TOKEN);
+  assert.ok(warnings.length >= 1 && warnings.every((line) => !line.includes(first.QA_TOOLS_TOKEN)));
+  assert.ok(warnings.some((line) => line.includes("QA_TOOLS_TOKEN")));
+});
+
+test("the OpenCode server command carries the tools token, and Codex's exec environment never does", () => {
+  assert.ok(commandFor("opencode", { PATH: "/bin" }).env.QA_TOOLS_TOKEN);
+  assert.equal("QA_TOOLS_TOKEN" in codexExecEnv({ PATH: "/bin", QA_TOOLS_TOKEN: "secret", CODEX_API_KEY: "k" }), false);
+});
+
+test("redactForResponse masks the tools token", () => {
+  const previous = process.env.QA_TOOLS_TOKEN;
+  process.env.QA_TOOLS_TOKEN = "tools-token-value";
+  try {
+    assert.doesNotMatch(redactForResponse("rejected tools-token-value"), /tools-token-value/);
+  } finally {
+    if (previous === undefined) delete process.env.QA_TOOLS_TOKEN;
+    else process.env.QA_TOOLS_TOKEN = previous;
+  }
 });
 
 test("the OpenCode server command always runs with a password in its environment", () => {
