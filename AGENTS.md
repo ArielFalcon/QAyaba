@@ -245,7 +245,10 @@ threat-model header first) and a canary-before-promote hot-swap.
   errors into an empty result. Throw and log.
 - **Sanitize data leaving the system** — logs → Issue via `src/orchestrator/sanitizer.ts`
   (`RedactionPortAdapter`); diff/commit text → prompts via
-  `qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts`.
+  `qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts`. The run's own account
+  secrets (login, DEV gate, certificate passphrase, session cookie and storage values) are
+  also redacted **by value** (`shared-infrastructure/run-secret-redaction.ts`: one scope per run,
+  applied in both sanitizers and at both agent transports before the patterns look).
 - **Everything in English**; comments describe the final state, not the process.
 
 ## Conventions & gotchas

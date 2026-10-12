@@ -24,6 +24,7 @@ import {
   type CodexTransportStartInput,
 } from "./codex-strategy";
 import type { AgentModelInfo, AgentProviderHealth } from "./types";
+import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 
 /* Builds a fake child process that:
    - never exits on its own (simulates a hung process)
@@ -255,6 +256,30 @@ describe("CodexRuntimeStrategy.openSession textOnly forwarding", () => {
     const session = await strategy.openSession("primary", "/tmp", {});
     await session.prompt("say hello", { finalStepOnly: true, onTurnStats: () => { called = true; } });
     assert.equal(called, false);
+    await session.dispose();
+  });
+});
+
+describe("CodexRuntimeStrategy.openSession run secrets", () => {
+  it("a prompt sent inside a run reaches codex without the run's secrets, and one sent outside a run is sent as it is", async () => {
+    const sent: string[] = [];
+    const transport: CodexHeadlessTransport = {
+      async start(): Promise<CodexTransportSession> {
+        return { id: "s", prompt: async (text: string) => { sent.push(text); return "ok"; }, dispose: async () => {} };
+      },
+      async health(): Promise<AgentProviderHealth> { return { provider: "codex", status: "healthy", configured: true }; },
+      async listModels(): Promise<AgentModelInfo[]> { return []; },
+    };
+    const strategy = new CodexRuntimeStrategy({ transport, promptRoot: "/nonexistent/prompts", env: { CODEX_API_KEY: "test-key" } });
+    const session = await strategy.openSession("primary", "/tmp", {});
+    const scope = createRunSecretScope();
+    scope.addAccountSecrets(["plain-pass-9981"]);
+
+    await withRunSecretScope(scope, () => session.prompt("the DOM said plain-pass-9981"));
+    await session.prompt("the DOM said plain-pass-9981");
+
+    assert.ok(!sent[0]!.includes("plain-pass-9981") && sent[0]!.includes("[REDACTED]"));
+    assert.ok(sent[1]!.includes("plain-pass-9981"));
     await session.dispose();
   });
 });

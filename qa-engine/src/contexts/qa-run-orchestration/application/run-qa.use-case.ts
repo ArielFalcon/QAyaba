@@ -17,6 +17,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import type { AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
@@ -425,6 +426,11 @@ export class RunQaUseCase {
   constructor(private readonly deps: RunQaUseCaseDeps) {}
 
   async run(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
+    /* The run owns the secrets of its test account: whatever learns one registers it into this scope, and the text that reaches a model has them taken out by value (run-secret-redaction.ts). */
+    return withRunSecretScope(createRunSecretScope(), () => this.runInScope(input, signal));
+  }
+
+  private async runInScope(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
     const trail: RunTrail = {};
     try {
       return await this.execute(input, signal, trail);

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { capabilitiesForRole } from "./types";
 import { AgentTimeoutError, AgentUnavailableError } from "../errors";
 import { sanitizeText } from "../orchestrator/sanitizer";
+import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import { saveAgentTurnEvent } from "../server/history";
 import {
   checkCodexCircuit,
@@ -281,7 +282,9 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
        * here (AgentTurnRecord documents nulls as acceptable). outputText is sanitized BEFORE the
        * event fires (same as OpenCode), so any DEV-environment data is redacted before storage.
        */
-      prompt: async (text, promptOpts) => {
+      prompt: async (unredacted, promptOpts) => {
+        /* The last seam before the model, as in the OpenCode funnel: the run's own secrets are taken out by value from whatever text got here. */
+        const text = redactByValue(unredacted);
         const thisRound = round++;
         /*
          * Circuit breaker guard — the Codex counterpart of the checkCircuit() gate the OpenCode

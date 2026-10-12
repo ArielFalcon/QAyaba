@@ -13,8 +13,9 @@ import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-s
 import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { ConfinedPathError, MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { activeRunSecretScope, registerSessionSecretsFromStorageState } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
-import { AUTH_RESOLUTION_METHOD, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
+import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
 import { AuthPreconditionError } from "../domain/auth-precondition.ts";
 import { LOGIN_STATUS, classifyLoginEvidence, renderLoginEvidence, type LoginOutcome } from "../domain/helpers/login-evidence.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "./login-discovery/login-discovery.runner.ts";
@@ -67,6 +68,9 @@ export const AUTH_SETUP_ENV = {
   actionTimeoutMs: "PW_ACTION_TIMEOUT_MS",
 } as const;
 
+/* The env names of the DEV gate's HTTP Basic credentials and of the client certificate's passphrase: the contract of the DOM capture and the login (dom-snapshot.ts, auth-session-env.ts), not an app's. */
+const DEV_GATE_ENV_NAMES = ["DEV_ENV_USER", "DEV_ENV_PASS", "DEV_CLIENT_CERT_PASS"] as const;
+
 const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /* The login the stock seed ships as, in the spec directory. */
@@ -86,9 +90,18 @@ export class AuthSessionAdapter implements AuthSessionPort {
      * reads as the failure it is, not as yesterday's session.
      */
     this.clearMaterial();
+    this.registerAccountSecrets(req.auth);
     if (!req.auth) return { unauthored: false };
-    if (req.auth.kind === "mtls") return this.materializeCert(req);
-    return this.runFormSetup(req, signal);
+    const session = req.auth.kind === "mtls" ? this.materializeCert(req) : await this.runFormSetup(req, signal);
+    /* The session the login produced is known only now: its cookie and storage values are secrets of the run from here on. */
+    if (session.storageStatePath) registerSessionSecretsFromStorageState(this.deps.authDir, AUTH_MATERIAL_FILES.storageState);
+    return session;
+  }
+
+  /* The secrets of the account, by value, into the run this prepare is part of (a no-op outside a run): the login's, the DEV gate's and the certificate's passphrase. Registered before anything can fail, so a login that throws has still named them. */
+  private registerAccountSecrets(auth: AuthDeclaration | undefined): void {
+    const declared = [auth?.usernameEnv, auth?.passwordEnv, auth?.certPassEnv, ...DEV_GATE_ENV_NAMES];
+    activeRunSecretScope()?.addAccountSecrets(declared.map((name) => (name === undefined ? undefined : this.deps.env[name])));
   }
 
   private materializeCert(req: AuthSessionRequest): AuthSession {

@@ -4,6 +4,7 @@ import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watc
 import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
 import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { sanitizeText } from "./sanitize-text.ts";
+import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";
 import { finalStepText } from "../domain/step-exhaustion.ts";
 import type { TurnEnd } from "@kernel/turn-end.ts";
@@ -309,7 +310,9 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
 
       return {
         id,
-        prompt: (text, promptOpts) => {
+        prompt: (unredacted, promptOpts) => {
+          /* The last seam before the model: the run's own secrets are taken out by value from whatever text got here, and the turn recorded below holds the text that was sent. */
+          const text = redactByValue(unredacted);
           checkCircuit(TRANSPORT_BREAKER_KEY);
           checkCircuit(breakerRole);
           const thisRound = _round++;

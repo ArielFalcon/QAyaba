@@ -1,6 +1,7 @@
 /* these two copies must stay byte-compatible; engine cannot import src/ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-infrastructure/run-secret-redaction.ts";
 
 import {
   sanitizeText as ported,
@@ -124,4 +125,15 @@ test("PARITY: a prose keyword false-match does not let an escaped-quote secret s
 test("PARITY: a balanced-quote name holding a keyword (Token: refresh) is handled identically", () => {
   const input = "role:name 'button' with name \"Token: refresh\" is NOT in the captured tree";
   assert.deepEqual(ported(input), legacy(input));
+});
+
+test("PARITY: the run's own secrets are taken out by value identically in both twins, in every mode", () => {
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets(["plain-pass-9981"]);
+  scope.addSessionValues(["c00kie-value-abcdef"]);
+  withRunSecretScope(scope, () => {
+    for (const input of ['<input value="plain-pass-9981">', "Expected: plain-pass-9981 cookie=c00kie-value-abcdef token=sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaa"]) {
+      for (const mode of ["issue", "model"] as const) assert.deepEqual(ported(input, mode), legacy(input, mode));
+    }
+  });
 });
