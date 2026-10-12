@@ -116,14 +116,16 @@ The filter holds the **sandbox uid's** network (the orchestrator itself is untou
    carry data out. An AAAA question for a declared name gets an empty answer.
 4. The **transparent proxy** reads the TLS server name or the HTTP `Host` header of each redirected connection (it never
    decrypts), checks it against the leases the running children hold, and opens its own connection to that **name resolved
-   afresh**, not to the address the client had. No name, an unreadable handshake, or an undeclared name: reset. A declared
-   name that re-resolves to loopback is refused unless the rule names loopback itself (DNS rebinding toward the API).
+   afresh**, not to the address the client had. No name, an unreadable handshake, or an undeclared name: reset. The
+   address the name resolves to is judged before the proxy connects (`address-class.ts`): loopback only when the rule names loopback itself (DNS rebinding toward the API); this container's own interface addresses never; and any other non-public address (RFC1918, which holds the docker networks and the host gateway, link-local including the cloud metadata address, carrier-grade NAT, multicast, IPv6 unique-local, the reserved blocks) only when the app declares **that exact IP literal** on that port in `dev.allowedOrigins` (for example `http://10.1.2.3:8443`, which also authorizes a TLS name that leads there). There is no CIDR form: a network is never declared, an address is. A DEV site on the host through `host.docker.internal` therefore needs the gateway address declared.
 5. A child holds a **lease** on its profile's origins for as long as it lives; with no lease held nothing is allowed.
 
 ### Declaring origins
 
 Origins are data, in config, never in code. An origin is `scheme://host[:port]`, or `scheme://*.suffix[:port]` (subdomains
-only, at least two labels, never the bare domain); no path, query or credentials; an IP literal only over plain `http`.
+only, at least two labels, never the bare domain, and never a public suffix: a small bundled list of country second-level
+registries and multi-tenant hosting domains such as `co.uk`, `github.io`, `herokuapp.com`, not the full Public Suffix List, so
+declare wildcards only below names you own); no path, query or credentials; an IP literal only over plain `http`.
 
 | Where | What it widens |
 |---|---|

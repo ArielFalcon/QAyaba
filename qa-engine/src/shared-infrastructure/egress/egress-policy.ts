@@ -19,11 +19,23 @@ export interface EgressPolicy {
   readonly ports: ReadonlySet<number>;
   allows(host: string, port: number): boolean;
   allowsName(host: string): boolean;
+  /* Whether a rule declares exactly this IP literal on this port: the only thing that lets a name lead to a private, link-local or otherwise internal address (see address-class.ts). A name is never an address. */
+  declaresAddress(address: string, port: number): boolean;
 }
 
 const DEFAULT_PORT: Record<string, number> = { "http:": 80, "https:": 443 };
 const LABEL = /^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?$/;
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+/* Suffixes under which anyone can register a name, so a wildcard over one would be every tenant of it. A small list of the ones an app is likely to name (country second-level registries, hosting platforms), not the Public Suffix List: a wildcard should be a suffix the operator owns, and a plain host on a public suffix (acme.github.io) is fine. */
+export const PUBLIC_SUFFIXES: ReadonlySet<string> = new Set([
+  "co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk", "ltd.uk", "plc.uk", "net.uk",
+  "com.au", "net.au", "org.au", "edu.au", "gov.au", "co.nz", "org.nz", "net.nz", "co.jp", "or.jp", "ne.jp", "co.kr", "co.in", "net.in", "org.in", "co.za", "org.za",
+  "com.br", "net.br", "org.br", "com.ar", "com.mx", "com.co", "com.pe", "com.ve", "com.cn", "net.cn", "org.cn", "com.hk", "com.tw", "com.sg", "com.my", "com.tr", "com.ua", "com.pl", "com.es", "com.pt", "co.il", "co.id", "co.th",
+  "github.io", "gitlab.io", "bitbucket.io", "herokuapp.com", "herokussl.com", "appspot.com", "web.app", "firebaseapp.com", "vercel.app", "now.sh", "netlify.app", "netlify.com", "pages.dev", "workers.dev", "onrender.com", "fly.dev", "railway.app", "up.railway.app",
+  "azurewebsites.net", "azurestaticapps.net", "cloudapp.net", "cloudapp.azure.com", "blob.core.windows.net", "trafficmanager.net", "cloudfront.net", "amazonaws.com", "s3.amazonaws.com", "elasticbeanstalk.com", "execute-api.amazonaws.com",
+  "ngrok.io", "ngrok-free.app", "ngrok.app", "trycloudflare.com", "loca.lt", "localtunnel.me", "surge.sh", "glitch.me", "repl.co", "replit.app", "blogspot.com", "wordpress.com", "myshopify.com", "wixsite.com", "weebly.com", "squarespace.com", "tumblr.com", "000webhostapp.com", "dynu.net", "duckdns.org", "no-ip.org", "ddns.net", "hopto.org", "zapto.org", "dyndns.org",
+]);
 
 const normalize = (host: string): string => (host.endsWith(".") ? host.slice(0, -1) : host).toLowerCase();
 
@@ -47,6 +59,7 @@ function compileOrigin(origin: string): EgressRule {
   if (wildcard) {
     if (host.split(".").length < 2) throw new EgressPolicyError(origin, "a wildcard needs a suffix of at least two labels");
     if (!isDnsName(host) || IPV4.test(host)) throw new EgressPolicyError(origin, "the wildcard suffix is not a DNS name");
+    if (PUBLIC_SUFFIXES.has(host)) throw new EgressPolicyError(origin, `${host} is a public suffix: a wildcard over it would allow every tenant of it; declare the hosts you use, or a wildcard below a name you own`);
     return { host, wildcard: true, port };
   }
   if (IPV4.test(host)) {
@@ -74,6 +87,7 @@ function build(rules: readonly EgressRule[]): EgressPolicy {
       const name = normalize(host);
       return rules.some((rule) => matches(rule, name));
     },
+    declaresAddress: (address, port) => rules.some((rule) => !rule.wildcard && rule.port === port && IPV4.test(rule.host) && rule.host === address),
   };
 }
 

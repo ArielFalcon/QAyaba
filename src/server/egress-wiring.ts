@@ -88,7 +88,7 @@ export function egressGateFor(env: NodeJS.ProcessEnv, sandbox: Sandbox | null): 
         return undefined;
       }
     },
-    createProxy: (hooks) => new TransparentProxy({ allows: hooks.allows, onDenied: (host, port) => hooks.onDenied(host, port) }),
+    createProxy: (hooks) => new TransparentProxy({ allows: hooks.allows, declaresAddress: hooks.declaresAddress, onDenied: (host, port) => hooks.onDenied(host, port) }),
     createDns: (hooks) => new DnsFilter({ allowsName: hooks.allowsName, onDenied: (name) => hooks.onDenied(name), forward: (query) => forwardDnsQuery(query) }),
     iptables: createIptablesApplier(),
     warn: (line) => console.warn(line),

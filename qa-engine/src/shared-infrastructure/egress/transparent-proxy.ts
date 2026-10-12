@@ -3,6 +3,8 @@
 
 import dns from "node:dns";
 import net from "node:net";
+import os from "node:os";
+import { classifyAddress } from "./address-class.ts";
 import { MAX_SNIFF_BYTES, sniffDestination } from "./destination-sniffer.ts";
 
 export interface TransparentProxyDeps {
@@ -10,6 +12,12 @@ export interface TransparentProxyDeps {
   allows(host: string, port: number): boolean;
   /* A connection was refused. `host` is the name it asked for, when it asked for one. */
   onDenied(host: string | undefined, port: number): void;
+  /* Whether a rule declares exactly this IP literal on this port. Only such an address lets a name lead to a private, link-local or otherwise internal address; absent: none does. */
+  declaresAddress?(address: string, port: number): boolean;
+  /* The addresses of this machine's own interfaces, which a name must never lead to (the API listens there). Defaults to the interfaces of the host. */
+  localAddresses?(): ReadonlySet<string>;
+  /* Opens the upstream connection. A test seam. */
+  connect?(address: string, port: number): net.Socket;
   /* The address of `host`, looked up for this connection. */
   resolve?(host: string): Promise<string>;
   /* The upstream port a listener stands for. Defaults to the port it was created for. */
@@ -53,6 +61,13 @@ export class TransparentProxy {
     for (const socket of this.sockets) socket.destroy();
     await Promise.all([...this.servers.values()].map(({ server }) => new Promise<void>((resolve) => server.close(() => resolve()))));
     this.servers.clear();
+  }
+
+  /* Whether the address a declared name resolved to is somewhere the sandbox must not be taken. Loopback (the API on 127.0.0.1) only when the rule names loopback itself; this machine's own interface addresses never; any other non-public address (private, which holds the docker networks, link-local, carrier-grade NAT, multicast, unique-local, reserved) only when the app declared that very address as an IP literal. */
+  private refusesAddress(host: string, address: string, port: number): boolean {
+    if (isLoopbackAddress(address)) return !LOOPBACK_HOSTS.has(host);
+    if ((this.deps.localAddresses ?? ownAddresses)().has(address)) return true;
+    return classifyAddress(address) !== "public" && !(this.deps.declaresAddress?.(address, port) ?? false);
   }
 
   private handle(client: net.Socket, listenerFor: number): void {
@@ -112,13 +127,13 @@ export class TransparentProxy {
         this.deps.onDenied(host, upstreamPort);
         return;
       }
-      if (isLoopbackAddress(address) && !LOOPBACK_HOSTS.has(host)) {
+      if (this.refusesAddress(host, address, upstreamPort)) {
         client.destroy();
         this.deps.onDenied(host, upstreamPort);
         return;
       }
       if (client.destroyed) return;
-      const upstream = net.connect({ host: address, port: upstreamPort });
+      const upstream = this.deps.connect ? this.deps.connect(address, upstreamPort) : net.connect({ host: address, port: upstreamPort });
       this.sockets.add(upstream);
       upstream.on("close", () => this.sockets.delete(upstream));
       const idle = this.deps.idleTimeoutMs ?? 300_000;
@@ -141,4 +156,10 @@ export class TransparentProxy {
 async function defaultResolve(host: string): Promise<string> {
   const result = await dns.promises.lookup(host, { family: 4 });
   return result.address;
+}
+
+function ownAddresses(): ReadonlySet<string> {
+  const own = new Set<string>();
+  for (const entries of Object.values(os.networkInterfaces())) for (const entry of entries ?? []) own.add(entry.address);
+  return own;
 }

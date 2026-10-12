@@ -36,12 +36,15 @@ function talk(port: number, payload: Buffer): Promise<{ data: Buffer; ended: "en
   });
 }
 
-function proxyFor(policyOrigins: string[], upstream: { port: number }, over: { resolve?: (host: string) => Promise<string> } = {}): { proxy: TransparentProxy; denied: string[]; resolved: string[] } {
+function proxyFor(policyOrigins: string[], upstream: { port: number }, over: { resolve?: (host: string) => Promise<string>; localAddresses?: () => ReadonlySet<string>; connect?: (address: string, port: number) => net.Socket } = {}): { proxy: TransparentProxy; denied: string[]; resolved: string[] } {
   const policy = compileEgressPolicy(policyOrigins);
   const denied: string[] = [];
   const resolved: string[] = [];
   const proxy = new TransparentProxy({
     allows: (host, port) => policy.allows(host, port),
+    declaresAddress: (address, port) => policy.declaresAddress(address, port),
+    ...(over.localAddresses ? { localAddresses: over.localAddresses } : {}),
+    ...(over.connect ? { connect: over.connect } : {}),
     onDenied: (host) => denied.push(host ?? "(no name)"),
     resolve: over.resolve ?? (async (host) => { resolved.push(host); return "127.0.0.1"; }),
     upstreamPort: () => upstream.port,
@@ -160,6 +163,75 @@ test("listening twice for the same upstream port gives the same local port", asy
   const { proxy } = proxyFor([], upstream);
   try {
     assert.equal(await proxy.listen(443), await proxy.listen(443));
+  } finally {
+    await proxy.close();
+    await upstream.close();
+  }
+});
+
+
+/* The address a name resolves to is judged before the proxy connects: a name an operator declared (or a wildcard's subdomain whose DNS an attacker controls) must not lead the sandbox to the internal network. */
+for (const [address, kind] of [["10.0.0.5", "a private network"], ["192.168.65.254", "the docker network"], ["172.17.0.1", "the docker bridge"], ["169.254.169.254", "the cloud metadata address"], ["100.64.1.1", "carrier-grade NAT"], ["224.0.0.251", "a multicast group"]] as const) {
+  test(`a declared name that resolves to ${kind} (${address}) is refused`, async () => {
+    const upstream = await echoServer();
+    const connected: string[] = [];
+    const { proxy, denied } = proxyFor([`https://dev.example.com:${upstream.port}`], upstream, { resolve: async () => address, connect: (a) => { connected.push(a); return net.connect(upstream.port, "127.0.0.1"); } });
+    try {
+      const local = await proxy.listen(upstream.port);
+      const out = await talk(local, helloFor("dev.example.com"));
+      assert.equal(out.ended, "reset");
+      assert.deepEqual(connected, [], "no connection was opened");
+      assert.deepEqual(denied, ["dev.example.com"]);
+    } finally {
+      await proxy.close();
+      await upstream.close();
+    }
+  });
+}
+
+test("a private address the app declares as an IP literal is reachable, by the name that leads there and by the literal", async () => {
+  const upstream = await echoServer();
+  const connected: string[] = [];
+  const { proxy, denied } = proxyFor([`https://dev.example.com:${upstream.port}`, `http://10.0.0.5:${upstream.port}`], upstream, { resolve: async () => "10.0.0.5", connect: (a) => { connected.push(a); return net.connect(upstream.port, "127.0.0.1"); } });
+  try {
+    const local = await proxy.listen(upstream.port);
+    const out = await talk(local, helloFor("dev.example.com"));
+    assert.equal(out.data.subarray(0, 5).toString(), "echo:");
+    assert.deepEqual(connected, ["10.0.0.5"]);
+    assert.deepEqual(denied, []);
+  } finally {
+    await proxy.close();
+    await upstream.close();
+  }
+});
+
+test("an address of the container itself is refused even when a rule names it", async () => {
+  const upstream = await echoServer();
+  const connected: string[] = [];
+  const own = new Set(["172.18.0.3"]);
+  const { proxy, denied } = proxyFor([`https://dev.example.com:${upstream.port}`, `http://172.18.0.3:${upstream.port}`], upstream, { resolve: async () => "172.18.0.3", localAddresses: () => own, connect: (a) => { connected.push(a); return net.connect(upstream.port, "127.0.0.1"); } });
+  try {
+    const local = await proxy.listen(upstream.port);
+    const out = await talk(local, helloFor("dev.example.com"));
+    assert.equal(out.ended, "reset");
+    assert.deepEqual(connected, []);
+    assert.deepEqual(denied, ["dev.example.com"]);
+  } finally {
+    await proxy.close();
+    await upstream.close();
+  }
+});
+
+test("a public address is connected to as before", async () => {
+  const upstream = await echoServer();
+  const connected: string[] = [];
+  const { proxy, denied } = proxyFor([`https://dev.example.com:${upstream.port}`], upstream, { resolve: async () => "93.184.216.34", connect: (a) => { connected.push(a); return net.connect(upstream.port, "127.0.0.1"); } });
+  try {
+    const local = await proxy.listen(upstream.port);
+    const out = await talk(local, helloFor("dev.example.com"));
+    assert.equal(out.data.subarray(0, 5).toString(), "echo:");
+    assert.deepEqual(connected, ["93.184.216.34"]);
+    assert.deepEqual(denied, []);
   } finally {
     await proxy.close();
     await upstream.close();

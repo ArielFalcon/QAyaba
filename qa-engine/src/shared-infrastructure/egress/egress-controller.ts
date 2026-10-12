@@ -19,6 +19,7 @@ export interface DnsPort {
 export interface EgressHooks {
   allows(host: string, port: number): boolean;
   allowsName(name: string): boolean;
+  declaresAddress(address: string, port: number): boolean;
   onDenied(host: string | undefined, port?: number): void;
 }
 
@@ -55,6 +56,7 @@ export class EgressController implements EgressGate {
     const hooks: EgressHooks = {
       allows: (host, port) => this.allows(host, port),
       allowsName: (name) => this.allowsName(name),
+      declaresAddress: (address, port) => this.declaresAddress(address, port),
       onDenied: (host) => this.noteDenied(host),
     };
     this.proxy = deps.createProxy(hooks);
@@ -102,6 +104,11 @@ export class EgressController implements EgressGate {
 
   allowsName(name: string): boolean {
     for (const held of this.leases) if (held.policy.allowsName(name)) return true;
+    return false;
+  }
+
+  declaresAddress(address: string, port: number): boolean {
+    for (const held of this.leases) if (held.policy.declaresAddress(address, port)) return true;
     return false;
   }
 

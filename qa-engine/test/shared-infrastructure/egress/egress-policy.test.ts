@@ -76,3 +76,21 @@ test("originOf reduces a URL to its origin and refuses what is not one", () => {
   assert.equal(originOf("http://dev.example.com:8080/x"), "http://dev.example.com:8080");
   assert.equal(originOf("not a url"), undefined);
 });
+
+test("a wildcard over a public suffix is refused: every tenant of it would be reachable", () => {
+  for (const origin of ["https://*.co.uk", "https://*.github.io", "https://*.herokuapp.com", "https://*.vercel.app", "https://*.s3.amazonaws.com:443", "https://*.com.au"]) {
+    assert.throws(() => compileEgressPolicy([origin]), (err: unknown) => err instanceof EgressPolicyError && /public suffix/.test(err.message), origin);
+  }
+});
+
+test("a wildcard one label below a public suffix, and a plain host on one, are still fine", () => {
+  assert.doesNotThrow(() => compileEgressPolicy(["https://*.example.co.uk", "https://*.acme.github.io", "https://acme.github.io", "https://*.example.com"]));
+});
+
+test("an address is declared only by a rule that is that IP literal, on that port", () => {
+  const policy = compileEgressPolicy(["http://10.1.2.3:8080", "https://dev.example.com", "https://*.example.org"]);
+  assert.equal(policy.declaresAddress("10.1.2.3", 8080), true);
+  assert.equal(policy.declaresAddress("10.1.2.3", 80), false);
+  assert.equal(policy.declaresAddress("10.1.2.4", 8080), false);
+  assert.equal(policy.declaresAddress("dev.example.com", 443), false, "a name is not an address");
+});
