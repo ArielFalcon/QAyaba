@@ -1,7 +1,7 @@
 /* Package store handles the control-plane API token: it persists a working token in the OS
    secret store (macOS Keychain / Linux Secret Service / Windows Credential Manager) via
    go-keyring, keyed by host, and it DISCOVERS the orchestrator's token automatically (the
-   QA_API_TOKEN env var or the config/.api_token file the server writes) so the operator
+   QA_API_TOKEN env var or the data/.api_token file the server writes) so the operator
    rarely has to type it. All persistence is best-effort: a missing or locked keyring is
    never fatal — the client falls back to typing the token. */
 package store
@@ -79,11 +79,14 @@ func LoadLastHost() string {
 }
 
 /* DiscoverToken finds the orchestrator's API token WITHOUT the operator typing it, mirroring
-   how the server resolves it (index.ts): the QA_API_TOKEN env var first; else the
-   config/.api_token file the server auto-generates on first boot, located by walking UP from
+   how the server resolves it (src/server/api-token.ts): the QA_API_TOKEN env var first; else the
+   data/.api_token file the server auto-generates on first boot (or config/.api_token, where an
+   earlier version kept it), located by walking UP from
    the working directory to the qayaba repo (so the console works when launched from a
-   subdirectory). Returns the token plus a short source label ("$QA_API_TOKEN" or
-   "config/.api_token"), or ("","") when nothing is found.
+   subdirectory). Returns the token plus a short source label ("$QA_API_TOKEN", "data/.api_token"
+   or "config/.api_token"), or ("","") when nothing is found. A server in a container keeps the
+   file in its data volume, out of the host's reach: there the console uses the saved token, or
+   QA_API_TOKEN.
 
    Trust model: QAYABA_ROOT is operator-set and trusted as-is. Directories found by
    walking up are trusted ONLY when they have the repo's shape (both a config/apps AND a
@@ -94,17 +97,30 @@ func DiscoverToken() (token, source string) {
 		return t, "$QA_API_TOKEN"
 	}
 	if r := strings.TrimSpace(os.Getenv("QAYABA_ROOT")); r != "" {
-		if t := readTrimmed(filepath.Join(r, "config", ".api_token")); t != "" {
-			return t, "config/.api_token"
+		if t, src := tokenUnder(r); t != "" {
+			return t, src
 		}
 	}
 	if cwd, err := os.Getwd(); err == nil {
 		for _, dir := range ancestors(cwd) {
 			if isRepoRoot(dir) {
-				if t := readTrimmed(filepath.Join(dir, "config", ".api_token")); t != "" {
-					return t, "config/.api_token"
+				if t, src := tokenUnder(dir); t != "" {
+					return t, src
 				}
 			}
+		}
+	}
+	return "", ""
+}
+
+/* tokenFiles are where the server keeps its token, newest location first: data/ (since the
+   token moved out of the config folder) and config/ (an earlier version's). */
+var tokenFiles = []string{"data/.api_token", "config/.api_token"}
+
+func tokenUnder(root string) (token, source string) {
+	for _, rel := range tokenFiles {
+		if t := readTrimmed(filepath.Join(root, filepath.FromSlash(rel))); t != "" {
+			return t, rel
 		}
 	}
 	return "", ""

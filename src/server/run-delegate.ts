@@ -90,7 +90,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
       continue;
     }
     if (res.status === 401 || res.status === 403) {
-      throw new Error("the service rejected the token (401/403) — set QA_API_TOKEN or config/.api_token");
+      throw new Error("the service rejected the token (401/403) — set QA_API_TOKEN, or check data/.api_token (inside the container: /app/data/.api_token)");
     }
     if (res.ok) {
       const rec = (await res.json().catch(() => null)) as Record<string, unknown> | null;

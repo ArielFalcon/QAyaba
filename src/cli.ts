@@ -21,6 +21,7 @@ import { qayabaRoot } from "./paths";
 import { enqueueTrackedRun } from "./server/runner";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./server/run-delegate";
+import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getRecord, getRunOutcome, listRunOutcomes, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadCurriculum } from "./server/history";
@@ -69,17 +70,11 @@ async function localServiceIsRunning(): Promise<boolean> {
 
 /*
  * The control-plane token, discovered the same way the server resolves it (env wins, then the
- * persisted config/.api_token file) so delegation authenticates without the operator typing it.
+ * persisted data/.api_token, then an earlier version's config/.api_token) so delegation
+ * authenticates without the operator typing it.
  */
-function discoverApiToken(): string | undefined {
-  if (process.env.QA_API_TOKEN) return process.env.QA_API_TOKEN;
-  try {
-    const root = qayabaRoot();
-    const token = readFileSync(join(root, "config", ".api_token"), "utf8").trim();
-    return token || undefined;
-  } catch {
-    return undefined;
-  }
+function cliApiToken(): string | undefined {
+  return discoverApiToken(process.env, qayabaRoot());
 }
 
 /*
@@ -122,7 +117,7 @@ async function runViaService(args: { app: string; sha: string; baseSha?: string;
       {
         fetch,
         baseUrl,
-        token: discoverApiToken(),
+        token: cliApiToken(),
         onUpdate: (r) => process.stdout.write(`\r[qa] ${r.status}${r.step ? " · " + r.step : ""}                    `),
       },
     );

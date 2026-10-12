@@ -35,7 +35,7 @@ type backMsg struct{}
 type errMsg struct{ err error }
 
 /* savedLoadedMsg carries the connection the screen should start from: the host plus a token
-   resolved from the keyring or auto-discovered (env / config/.api_token), with a short source
+   resolved from the keyring or auto-discovered (env / data/.api_token), with a short source
    label for the UI. Any field may be empty. */
 type savedLoadedMsg struct{ host, token, source string }
 

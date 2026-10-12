@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { qayabaRoot } from "./paths";
 import type { CoordinationMode } from "@kernel/coordination";
 import { randomBytes } from "node:crypto";
-import { writeFileSync, readFileSync, chmodSync, rmSync, unlinkSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "./server/queue";
 import { handleWebhook } from "./server/webhook";
 import { loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
@@ -62,10 +62,10 @@ import { DELEGATIONS_DIR } from "./paths";
 import { workdirRoot } from "./integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
 import { execWorkRoot } from "./server/exec-sandbox-factory";
+import { loadOrCreateApiToken } from "./server/api-token";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = qayabaRoot();
-const TOKEN_FILE = join(ROOT, "config", ".api_token");
 
 const appCatalog = new YamlAppConfigAdapter({ load: loadAppConfig, list: listAppConfigs });
 
@@ -88,24 +88,10 @@ const MAX_BODY = 1_000_000;
 const secret = process.env.WEBHOOK_SECRET;
 
 /*
- * API token: env var wins. If absent, reuse the persisted file so the TUI
- * can discover it across restarts. Only generate a new one if neither exists.
+ * API token: env var wins. If absent, reuse the persisted file (data/.api_token, src/server/api-token.ts) so the
+ * TUI can discover it across restarts. Only generate a new one if neither exists.
  */
-let apiToken: string;
-if (process.env.QA_API_TOKEN) {
-  apiToken = process.env.QA_API_TOKEN;
-} else {
-  try {
-    apiToken = readFileSync(TOKEN_FILE, "utf8").trim();
-    if (!apiToken) throw new Error("empty token file");
-    chmodSync(TOKEN_FILE, 0o600);  /* enforce restrictive perms even on a pre-existing file */
-  } catch {
-    apiToken = randomBytes(32).toString("hex");
-    writeFileSync(TOKEN_FILE, apiToken, { mode: 0o600 });
-    chmodSync(TOKEN_FILE, 0o600);
-    console.log(`[qa] auto-generated QA_API_TOKEN → ${TOKEN_FILE}`);
-  }
-}
+const apiToken: string = process.env.QA_API_TOKEN ? process.env.QA_API_TOKEN : loadOrCreateApiToken(ROOT);
 
 /*
  * Session signing secret for GitHub-user logins. Reuses QA_API_TOKEN by default (one secret

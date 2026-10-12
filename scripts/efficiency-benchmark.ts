@@ -26,6 +26,7 @@ import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/gener
 import { DIFF_TIER_NAMES, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
 import { CALL_BUCKETS } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
+import { discoverApiToken } from "../src/server/api-token.ts";
 import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 
@@ -653,18 +654,13 @@ export interface MainOptions {
   env?: Record<string, string | undefined>;
 }
 
-function discoverApiToken(env: Record<string, string | undefined>): string | undefined {
-  if (env.QA_API_TOKEN) return env.QA_API_TOKEN;
-  try {
-    return readFileSync(join(ROOT, "config", ".api_token"), "utf8").trim() || undefined;
-  } catch {
-    return undefined;
-  }
+function serviceApiToken(env: Record<string, string | undefined>): string | undefined {
+  return discoverApiToken(env, ROOT);
 }
 
 export async function defaultService(env: Record<string, string | undefined>): Promise<BenchmarkService> {
   const { resolvePort } = await import("../src/server/port.ts");
-  const token = discoverApiToken(env);
+  const token = serviceApiToken(env);
   return { fetch, baseUrl: `http://localhost:${resolvePort(env)}`, ...(token ? { token } : {}) };
 }
 

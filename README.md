@@ -285,7 +285,7 @@ The coordination sidekick runs on its own role (`sidekick`) with the same base m
 | MCP servers (Serena, Engram, Playwright) | `agents/opencode.json` and agent container | Code navigation + persistent memory |
 | Multi-agent coordination | `qa.coordination` in the app YAML (default `single`) | The lead/sidekick mode (`qa-sidekick`), durable telemetry at `data/coordination-events.jsonl`, per-flow time budgets. Opt in per app or per run. |
 | Docker images | `Dockerfile`, `agents/Dockerfile` | Both services build from these |
-| Control-plane API token | `config/.api_token` (auto-generated on first boot) | The machine credential — protects the API (`Bearer` auth on every non-public route). On the same machine the `qayaba` console auto-loads it from `$QA_API_TOKEN` or this file; people sign in with GitHub instead (see below). Set `QA_API_TOKEN` to pin your own. |
+| Control-plane API token | `data/.api_token` (auto-generated on first boot; in the container, `/app/data/.api_token` in the `qa-data` volume, never in the host's `config/`, which the sandboxed agent code must not reach) | The machine credential — protects the API (`Bearer` auth on every non-public route). On the same machine the `qayaba` console auto-loads it from `$QA_API_TOKEN`, or from this file when the service runs on the host; people sign in with GitHub instead (see below). Set `QA_API_TOKEN` to pin your own. An earlier version's `config/.api_token` is moved there at the next start. |
 
 </details>
 
@@ -294,7 +294,7 @@ The coordination sidekick runs on its own role (`sidekick`) with the same base m
 The `qayaba` console reaches the orchestrator over its HTTP control plane, which is `Bearer`-authenticated. There are two ways to authenticate, for two different callers:
 
 - **People → "Log in with GitHub" (default).** On the connect screen, press <kbd>enter</kbd>. The console runs GitHub's OAuth **device flow**: it shows a short code, opens `github.com/login/device`, and you approve *this terminal* with your own GitHub account — nothing to copy or paste. The orchestrator checks that you are a **collaborator with push access on a watched repo**, then issues a short-lived session. No shared secret ever touches a person's machine.
-- **Machines / CI → a static token.** Press <kbd>^T</kbd> on the connect screen to paste the control-plane token, or export `QA_API_TOKEN`. On the orchestrator's own host the console auto-discovers `config/.api_token`, so a local operator never types anything.
+- **Machines / CI → a static token.** Press <kbd>^T</kbd> on the connect screen to paste the control-plane token, or export `QA_API_TOKEN`. On the orchestrator's own host the console auto-discovers `data/.api_token` when the service runs on the host; against the container it uses the token it saved after the first connect, or `$QA_API_TOKEN` (`docker compose exec orchestrator cat /app/data/.api_token` prints it).
 
 <details>
 <summary>Enabling GitHub login (one-time, on the server)</summary>
