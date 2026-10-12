@@ -2,6 +2,7 @@
 
 import { join } from "node:path";
 import { newSandboxReport, withExecScope, type ExecScopePort, type RunScope } from "./exec-scope.ts";
+import type { EgressGate } from "./exec-sandbox.ts";
 import { openRunWorkDir, removeRunWorkDir } from "./exec-workdir.ts";
 import { closeMirror, type MirrorFsOps } from "./mirror-access.ts";
 import type { Sandbox } from "./sandbox.ts";
@@ -15,11 +16,14 @@ export interface ExecScopeProviderDeps {
   gateCreds?: { user: string; pass: string };
   egress: { dev: readonly string[]; install: readonly string[] };
   mirrorOps?: MirrorFsOps;
+  /* The egress filter, prepared for the run's origins before its first child. */
+  egressGate?: EgressGate;
 }
 
 export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopePort {
   return {
-    open({ runId }) {
+    async open({ runId }) {
+      await deps.egressGate?.prepare?.([...deps.egress.dev, ...deps.egress.install]);
       const workDir = openRunWorkDir(deps.workRoot, runId, deps.sandbox);
       const scope: RunScope = {
         runId,

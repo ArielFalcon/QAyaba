@@ -47,6 +47,7 @@ export function buildExecWiring(input: ExecWiringInput): ExecWiring {
     authDir: input.authDir,
     ...(gateCreds ? { gateCreds } : {}),
     egress: input.egressOrigins,
+    ...(input.egress ? { egressGate: input.egress } : {}),
   });
   return { exec, execScope, sandbox: input.sandbox, mode };
 }
@@ -66,12 +67,13 @@ export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null,
     exec,
     sandbox,
     async scoped(scope, fn) {
-      const session = createExecScopeProvider({
+      const session = await createExecScopeProvider({
         workRoot: execWorkRoot(env),
         sandbox,
         ...(scope.authDir ? { authDir: scope.authDir } : {}),
         ...(gateCreds ? { gateCreds } : {}),
         egress: { dev: scope.devOrigins ?? [], install: scope.installOrigins ?? [] },
+        ...(egress ? { egressGate: egress } : {}),
       }).open({ runId: scope.runId });
       try {
         return await session.run(fn);

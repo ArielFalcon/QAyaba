@@ -890,12 +890,13 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { workdirRoot, realGit, getCommitMessage, getCommitDiff, listChangedSpecs, defaultMirrorDeps } = await import("../src/integrations/repo-mirror.ts");
   const { buildSetupAdapter, resolveCodeSandbox } = await import("../src/server/rewritten-engine-factory.ts");
   const { buildScriptExec } = await import("../src/server/exec-sandbox-factory.ts");
+  const { egressGateFor, scriptOriginsFor, scriptRegistryOrigins } = await import("../src/server/egress-wiring.ts");
   const { readConfinedSpecFile, readConfinedSpecBytes } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
   const { installHttpDispatcher } = await import("../src/util/net.ts");
 
-  const script = buildScriptExec(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv));
+  const script = buildScriptExec(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv), egressGateFor(env as NodeJS.ProcessEnv, resolveCodeSandbox(env as NodeJS.ProcessEnv)));
   const service = await defaultService(env);
   const mirrorsRoot = workdirRoot();
   const git = defaultMirrorDeps;
@@ -986,7 +987,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
         /* A warm start: the suite directory is the snapshot's, exactly (whatever the commit tracked there goes), so setup finds a login written for the app and leaves it. */
         if (plan.warm) restoreSuite(plan.warm, { mirrorDir: plan.copyDir, e2eDir });
         /* The suite's seed and dependency install are the pipeline's own setup step. */
-        await script.scoped({ runId: `baseline-setup-${process.pid}-${Date.now()}` }, () => buildSetupAdapter(script.exec, script.sandbox).setup(e2eDir));
+        await script.scoped({ runId: `baseline-setup-${process.pid}-${Date.now()}`, ...scriptRegistryOrigins() }, () => buildSetupAdapter(script.exec, script.sandbox).setup(e2eDir));
 
         const repoConfig = join(e2eDir, WRAPPER_CONFIG);
         if (!existsSync(repoConfig)) throw new Error(`the suite has no ${WRAPPER_CONFIG} after setup`);
@@ -1108,7 +1109,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     specSources: readSpecs,
     runSuite: async ({ copyDir, authDir, app, namespace, specs }) => {
       const started = Date.now();
-      const result = await script.scoped({ runId: `baseline-run-${process.pid}-${Date.now()}`, authDir, devOrigins: [new URL(app.baseUrl).origin] }, () =>
+      const result = await script.scoped({ runId: `baseline-run-${process.pid}-${Date.now()}`, authDir, ...scriptOriginsFor(app.name) }, () =>
         runE2E(
           join(copyDir, SUITE_DIR),
           { baseUrl: app.baseUrl, namespace, specFiles: [...specs], ...(app.testIdAttribute !== undefined ? { testIdAttribute: app.testIdAttribute } : {}) },

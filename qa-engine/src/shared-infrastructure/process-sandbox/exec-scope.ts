@@ -60,5 +60,6 @@ export interface ExecScopeSession {
 }
 
 export interface ExecScopePort {
-  open(input: { runId: string }): ExecScopeSession;
+  /* Async because bringing the egress filter up for a run's origins is. */
+  open(input: { runId: string }): ExecScopeSession | Promise<ExecScopeSession>;
 }

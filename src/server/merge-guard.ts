@@ -256,6 +256,12 @@ export const PROTECTED_PATHS: string[] = [
   /* Which mirror the sandbox group may traverse, and when it is closed again. */
   "qa-engine/src/shared-infrastructure/process-sandbox/mirror-access.ts",
   "src/server/exec-sandbox-factory.ts",
+  /* The egress filter: the policy compiler, the transparent proxy that decides on the name a connection asks for, the DNS filter, the iptables rules and their applier, the controller that holds the leases, and the wiring that reads the declared origins; plus the registries file, which is the list of package registries every install may reach. Widening any of them hands agent code a network. */
+  "qa-engine/src/shared-infrastructure/egress/",
+  "src/server/egress-wiring.ts",
+  "src/server/dns-forward.ts",
+  "src/server/sandbox-health.ts",
+  "config/egress/",
   /* The container's entrypoint and the egress self-test: the file permissions that keep the sandbox uid out of the API token, the auth material and the provider keys, and the kernel filter that holds its network to the declared origins. */
   "bin/container-entrypoint.sh",
   "bin/egress-init.sh",
@@ -324,6 +330,7 @@ export function isProtectedPath(file: string): boolean {
 export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/contexts/workspace-and-publication/",
   "qa-engine/src/shared-infrastructure/process-sandbox/",
+  "qa-engine/src/shared-infrastructure/egress/",
   "qa-engine/src/contexts/generation/infrastructure/",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/",

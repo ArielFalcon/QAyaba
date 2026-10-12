@@ -4,7 +4,7 @@
 
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { buildExecEnv, type SandboxProfile } from "./exec-env.ts";
-import { activeExecScope, type RunScope } from "./exec-scope.ts";
+import { activeExecScope, type RunScope, type SandboxReport } from "./exec-scope.ts";
 import { mirrorTopDir, openMirrorForSandbox, type MirrorFsOps } from "./mirror-access.ts";
 import { allocWorkSubdir, prepareWritableDirs, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";
@@ -40,9 +40,12 @@ export interface EgressLease {
 export interface EgressGate {
   /* "enforce": a missing filter ends the run. "warn": the child runs unfiltered and the run says so. */
   readonly mode: "enforce" | "warn";
-  /* Whether the kernel filter and the proxy are up. */
+  /* Whether the kernel filter and the proxy are up for the origins prepared. */
   available(): boolean;
-  lease(origins: readonly string[]): EgressLease;
+  /* Brings the filter up for these origins (listeners, kernel rules) before a run's first child. Never throws: a failure makes `available()` false, and `mode` decides what that means. */
+  prepare?(origins: readonly string[]): Promise<void>;
+  /* Holds the right to reach `origins` until released. `report` is the run's: hosts the filter refuses while the lease is held are noted in it. */
+  lease(origins: readonly string[], report?: SandboxReport): EgressLease;
 }
 
 export interface ExecSpawnOptions {
@@ -140,7 +143,7 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
           }
           scope.report.egress = "unenforced";
         } else {
-          lease = deps.egress.lease(originsFor(options.profile, scope));
+          lease = deps.egress.lease(originsFor(options.profile, scope), scope.report);
           if (scope.report.egress !== "unenforced") scope.report.egress = "enforced";
         }
       } else if (scope.report.egress === "not-applicable") {

@@ -21,6 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
   && apt-get install -y --no-install-recommends nodejs \
   && rm -rf /var/lib/apt/lists/*
 
+# iptables + util-linux's setpriv: the egress filter (bin/egress-init.sh) holds the sandbox uid's network to the
+# origins a run declares, and proves it at boot by connecting as that uid. Needs CAP_NET_ADMIN (docker-compose.yml).
+RUN apt-get update && apt-get install -y --no-install-recommends iptables \
+  && rm -rf /var/lib/apt/lists/*
+
 # git: to clone/check out the working copies of the watched repos.
 # Code-mode runtimes: the orchestrator runs the watched repo's own test suite
 # (Python/pytest, Go, Rust/Cargo, Maven, Gradle) for code-mode apps. These run
@@ -132,6 +137,6 @@ ENV LISTEN_HOST=0.0.0.0
 
 # Root-only boot steps first (file permissions the sandbox uid depends on, the egress filter), then the
 # service: webhook + sequential queue.
-RUN chmod +x /app/bin/container-entrypoint.sh
+RUN chmod +x /app/bin/container-entrypoint.sh /app/bin/egress-init.sh
 ENTRYPOINT ["/app/bin/container-entrypoint.sh"]
 CMD ["npm", "run", "start"]

@@ -24,12 +24,14 @@ export async function prepareHarnessAuth(input: HarnessAuthInput): Promise<{ una
   const { createExecBinaryRunner } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner.ts");
   const { buildScriptExec } = await import("../src/server/exec-sandbox-factory.ts");
   const { resolveCodeSandbox } = await import("../src/server/rewritten-engine-factory.ts");
+  const { egressGateFor, scriptOriginsFor } = await import("../src/server/egress-wiring.ts");
   const { AuthSessionAdapter } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts");
   const { createDiscoverLogin } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts");
   const { loadContextMapFromDisk } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts");
   const { RedactionPortAdapter } = await import("../src/orchestrator/sanitizer.ts");
   const redaction = new RedactionPortAdapter();
-  const script = buildScriptExec(process.env, resolveCodeSandbox(process.env));
+  const sandbox = resolveCodeSandbox(process.env);
+  const script = buildScriptExec(process.env, sandbox, egressGateFor(process.env, sandbox));
   const exec = script.exec;
   const runner = createExecBinaryRunner({ exec, profile: "login", processKill: new ProcessKillAdapter() });
   const adapter = new AuthSessionAdapter({
@@ -51,7 +53,7 @@ export async function prepareHarnessAuth(input: HarnessAuthInput): Promise<{ una
     },
   });
   const loaded = loadAppConfig(input.appName);
-  const prepared = await script.scoped({ runId: `harness-auth-${process.pid}-${Date.now()}`, authDir: input.authDir, devOrigins: [new URL(input.baseUrl).origin] }, () =>
+  const prepared = await script.scoped({ runId: `harness-auth-${process.pid}-${Date.now()}`, authDir: input.authDir, ...scriptOriginsFor(input.appName) }, () =>
     adapter.prepare({ specDir: input.specDir, baseUrl: input.baseUrl, ...(loaded.auth ? { auth: loaded.auth } : {}), phase: input.phase }),
   );
   return { unauthored: prepared.unauthored };

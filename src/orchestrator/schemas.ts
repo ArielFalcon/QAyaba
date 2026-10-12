@@ -1,5 +1,21 @@
 import { z } from "zod";
 import { LoginPathSchema } from "../../qa-engine/src/shared-kernel/login-path";
+import { compileEgressPolicy, EgressPolicyError } from "../../qa-engine/src/shared-infrastructure/egress/egress-policy";
+
+/*
+ * A list of origins the execution sandbox may reach (`scheme://host[:port]`, or `scheme://*.suffix[:port]`). Each is compiled
+ * here, so an origin the egress filter would refuse is refused when the config is loaded, not when the first run starts.
+ */
+const OriginListSchema = z.array(z.string().min(1)).superRefine((origins, ctx) => {
+  origins.forEach((origin, index) => {
+    try {
+      compileEgressPolicy([origin]);
+    } catch (err) {
+      if (!(err instanceof EgressPolicyError)) throw err;
+      ctx.addIssue({ code: "custom", message: err.message, path: [index] });
+    }
+  });
+});
 
 /*
  * ── boundaries[] schema (Stitcher → Generation seam) ──────────────────────────
@@ -91,8 +107,19 @@ export const AppConfigSchema = z
         versionUrl: z.url().optional(),
         pollIntervalMs: z.number().int().positive().optional(),
         deployTimeoutMs: z.number().int().positive().optional(),
+        /*
+         * Origins the agent-written specs may reach besides baseUrl's own (an identity provider, an API host, a CDN the app's
+         * pages load from). Everything else is refused by the execution sandbox's egress filter and listed in the run's
+         * gate signals, so an app that loads a third-party host declares it here once.
+         */
+        allowedOrigins: OriginListSchema.optional(),
       })
       .optional(),
+    /*
+     * Extra origins for the package-manager and toolchain children (the e2e project's `npm ci`, a code-mode app's
+     * install and test command), on top of the registries in config/egress/registries.yaml: a private registry or mirror.
+     */
+    egress: z.object({ installOrigins: OriginListSchema.optional() }).optional(),
     qa: z.object({
       needsReview: z.boolean(),
       testDataPrefix: z.string().min(1, { error: "qa.testDataPrefix is required" }),

@@ -74,11 +74,17 @@ async function withOracleRun(plant: string, run: (measure: () => Promise<{ value
     writeFileSync(bin, fakePlaywright(plant.replaceAll("OUTSIDE", JSON.stringify(outside))));
     chmodSync(bin, 0o755);
     const config = buildRewrittenCompositionConfig(app(), { getAgentDeps: stubAgentDeps }, NAMESPACE, { mode: "diff" });
-    await run(
-      () => config.objectiveSignal.oracle.measure(BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]), e2eDir, NAMESPACE, [BASELINE_CASE]),
-      join(e2eDir, ".qa", "fault-injection", `${NAMESPACE}-fi`),
-      outside,
-    );
+    /* The oracle's re-run is a child of the run's sandbox: it needs the scope a run opens. */
+    const session = await config.execScope!.open({ runId: "fault-injection-test" });
+    try {
+      await run(
+        () => session.run(() => config.objectiveSignal.oracle.measure(BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]), e2eDir, NAMESPACE, [BASELINE_CASE])),
+        join(e2eDir, ".qa", "fault-injection", `${NAMESPACE}-fi`),
+        outside,
+      );
+    } finally {
+      session.close();
+    }
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

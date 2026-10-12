@@ -118,6 +118,7 @@ import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "
 import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
 import { buildExecWiring } from "./exec-sandbox-factory";
+import { egressGateFor, loadRegistryGroups, resolveRunOrigins } from "./egress-wiring";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import { requireEnv } from "../util/env";
@@ -297,16 +298,6 @@ export function githubHttpDeps(fetchFn: typeof fetch = fetch): GitHubHttpDeps {
   };
 }
 
-
-/* The origin of a declared URL, or none: a malformed one is the config schema's to refuse, not this wiring's. */
-function originOf(url: string | undefined): string[] {
-  if (!url) return [];
-  try {
-    return [new URL(url).origin];
-  } catch {
-    return [];
-  }
-}
 
 /*
  * The e2e project's `npm ci` runs the project's own lifecycle scripts, which the agent can edit: it runs as the sandbox
@@ -661,12 +652,14 @@ export function buildRewrittenCompositionConfig(
    * installs, a login script, the watched repo's test command) starts through `exec`, and each run opens its scope
    * (work dir, auth copies, egress policy) in `execScope`.
    */
+  const egressGate = egressGateFor(deps.env ?? process.env, codeSandbox);
   const execWiring = buildExecWiring({
     env: deps.env ?? process.env,
     sandbox: codeSandbox,
     authDir,
     mirrorRoot,
-    egressOrigins: { dev: originOf(app.dev?.baseUrl), install: [] },
+    egressOrigins: resolveRunOrigins(app, target, loadRegistryGroups(root)),
+    ...(egressGate ? { egress: egressGate } : {}),
   });
   const exec = execWiring.exec;
 

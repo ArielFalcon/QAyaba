@@ -33,6 +33,11 @@ services:
     # sandbox uid's network to the origins the app declares.
     security_opt:
       - no-new-privileges:true
+    # The egress filter (bin/egress-init.sh) is an iptables chain on this container's own network namespace. NET_ADMIN is
+    # the capability to write it; the sandbox uid, which runs the untrusted code, does not have it (a dropped uid keeps
+    # no capabilities) and cannot undo the chain.
+    cap_add:
+      - NET_ADMIN
     # The graceful-shutdown drain (src/index.ts) needs up to 25s to close the in-flight run;
     # Docker's default 10s grace would SIGKILL it mid-drain on every `docker stop`/redeploy.
     stop_grace_period: 35s
@@ -76,6 +81,10 @@ services:
       # `best-effort` (the engine's default outside this file) runs as the current user with a loud warning, for a
       # host without the uid.
       QA_EXEC_SANDBOX: ${QA_EXEC_SANDBOX:-required}
+      # `enforce` (default): a run that would execute agent code without the egress filter ends E-SANDBOX. `warn`: it runs
+      # with the container's full network and says so (gate signal sandbox.egress "unenforced"). Declare the origins a
+      # run may reach with dev.allowedOrigins in the app config and egress.installOrigins for registries.
+      QA_EGRESS_MODE: ${QA_EGRESS_MODE:-enforce}
     volumes:
       - ./config:/app/config # app configs + the config/e2e seed (read-mostly; not hot-swapped)
       # NOTE: src/ and package files are NOT bind-mounted here on purpose — the hot-swap must be

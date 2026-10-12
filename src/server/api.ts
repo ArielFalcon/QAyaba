@@ -6,6 +6,7 @@
  * the routing + validation logic is unit-tested with stubs — no fs or network.
  */
 
+import { describeSandboxHealth } from "./sandbox-health";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { RUN_MODES, RunMode, TestTarget, RunRecord, engineStatus } from "../types";
@@ -339,7 +340,9 @@ export async function handleApi(
   }
 
   if (req.method === "GET" && path === "/api/health") {
-    json(res, 200, { ok: true, openSessions: getOpenSessionCount() });
+    /* Still 200 when the sandbox is degraded: the container stays up for the operator to read why. */
+    const sandbox = describeSandboxHealth(process.env);
+    json(res, 200, { ok: true, openSessions: getOpenSessionCount(), sandbox });
     return true;
   }
 

@@ -444,7 +444,7 @@ export class RunQaUseCase {
 
   async run(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
     /* The run owns the secrets of its test account: whatever learns one registers it into this scope, and the text that reaches a model has them taken out by value (run-secret-redaction.ts). */
-    const sandbox = this.deps.execScope?.open({ runId: input.runId });
+    const sandbox = await this.deps.execScope?.open({ runId: input.runId });
     try {
       return await withRunSecretScope(createRunSecretScope(), () => (sandbox ? sandbox.run(() => this.runInScope(input, signal)) : this.runInScope(input, signal)));
     } finally {

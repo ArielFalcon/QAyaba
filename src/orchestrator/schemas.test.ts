@@ -304,3 +304,26 @@ test("resolveValueOraclePolicy: omitted valueOracle is off while shadowing, sign
   assert.equal(resolveValueOraclePolicy({ shadow: false }), "signal");
   assert.equal(resolveValueOraclePolicy({}), "signal");
 });
+
+test("dev.allowedOrigins and egress.installOrigins accept origins and wildcard origins", () => {
+  const cfg = AppConfigSchema.parse({
+    ...base,
+    dev: { baseUrl: "https://dev.shop.io", allowedOrigins: ["https://idp.shop.io", "https://*.cdn.shop.io", "http://host.docker.internal:8080"] },
+    egress: { installOrigins: ["https://npm.internal.shop.io"] },
+  });
+  assert.deepEqual(cfg.dev?.allowedOrigins, ["https://idp.shop.io", "https://*.cdn.shop.io", "http://host.docker.internal:8080"]);
+  assert.deepEqual(cfg.egress?.installOrigins, ["https://npm.internal.shop.io"]);
+});
+
+test("an origin the egress filter would refuse is refused when the config is loaded, naming the origin", () => {
+  for (const bad of ["idp.shop.io", "https://idp.shop.io/path", "https://*.io", "https://user@idp.shop.io"]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", allowedOrigins: [bad] } }), (err: unknown) => String(err).includes(bad), `dev.allowedOrigins ${bad}`);
+    assert.throws(() => AppConfigSchema.parse({ ...base, egress: { installOrigins: [bad] } }), (err: unknown) => String(err).includes(bad), `egress.installOrigins ${bad}`);
+  }
+});
+
+test("an app that declares no extra origins loads as before", () => {
+  const cfg = AppConfigSchema.parse(base);
+  assert.equal(cfg.dev?.allowedOrigins, undefined);
+  assert.equal(cfg.egress, undefined);
+});

@@ -172,9 +172,9 @@ test("the composed auth session passes neither name to its setup spawn when the 
 const ORCHESTRATOR_TOKEN = "tok-abcdef123456";
 
 /* The login runs inside the sandbox scope the run opens: its work dir is where the login child writes its session. */
-async function inRunScope<T>(config: { execScope?: { open(input: { runId: string }): { run<R>(fn: () => R): R; close(): void } } }, fn: () => Promise<T>): Promise<T> {
+async function inRunScope<T>(config: { execScope?: { open(input: { runId: string }): { run<R>(fn: () => R): R; close(): void } | Promise<{ run<R>(fn: () => R): R; close(): void }> } }, fn: () => Promise<T>): Promise<T> {
   assert.ok(config.execScope, "the composition opens a sandbox scope for each run");
-  const session = config.execScope.open({ runId: "factory-test-run" });
+  const session = await config.execScope.open({ runId: "factory-test-run" });
   try {
     return await session.run(fn);
   } finally {
