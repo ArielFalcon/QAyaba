@@ -11,9 +11,18 @@ import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { FakeFlag } from "./fake-pass-detector.ts";
 import { assertFileName } from "./probe-report.ts";
 
-export const ARM = { PLAIN_AGENT: "A", PIPELINE: "B" } as const;
+/* A: the plain agent, whose own two runs are not believed (the campaign re-runs what it delivered). A': the same agent, whose delivery goes through the acceptance the pipeline's output is judged by, so a delivery counts only when the pipeline would have kept it. B: the pipeline. */
+export const ARM = { PLAIN_AGENT: "A", PLAIN_AGENT_ACCEPTED: "A'", PIPELINE: "B" } as const;
 export type Arm = (typeof ARM)[keyof typeof ARM];
 const ARM_VALUES: readonly string[] = Object.values(ARM);
+/* The arms of a campaign that names none: the two the experiment has always compared. */
+const DEFAULT_ARMS: readonly Arm[] = [ARM.PLAIN_AGENT, ARM.PIPELINE];
+
+/** Whether the arm is the plain agent, with or without the acceptance. */
+export const isPlainAgentArm = (arm: Arm): boolean => arm === ARM.PLAIN_AGENT || arm === ARM.PLAIN_AGENT_ACCEPTED;
+
+/** The arm as a file name and a label can carry it: A' has no apostrophe there. */
+export const armToken = (arm: Arm): string => (arm === ARM.PLAIN_AGENT_ACCEPTED ? "Ap" : arm);
 
 export const CASE_KIND = { DIFF: "diff", CROSS_REPO: "cross-repo" } as const;
 export type CaseKind = (typeof CASE_KIND)[keyof typeof CASE_KIND];
@@ -142,6 +151,8 @@ export interface CampaignArguments {
   engramIsolated: boolean;
   /** Check everything and print the plan; start nothing and spend nothing. */
   dryRun: boolean;
+  /** The pipeline arm's own choice about the run_spec loop (an A/B), overriding the app's setting. Absent: the app's setting decides. */
+  closedLoop?: boolean;
 }
 
 export type ParsedArguments = { ok: true; args: CampaignArguments } | { ok: false; problem: string };
@@ -149,7 +160,7 @@ export type ParsedArguments = { ok: true; args: CampaignArguments } | { ok: fals
 export function parseArguments(argv: readonly string[]): ParsedArguments {
   const values: Record<string, string> = {};
   const flags = new Set<string>();
-  const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm"]);
+  const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm", "--closed-loop"]);
   const boolean = new Set(["--allow-non-shadow", "--skip-env-checks", "--engram-isolated", "--dry-run"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -163,10 +174,11 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
   for (const required of ["--cases", "--replicas", "--label", "--warm"]) if (!values[required]) return { ok: false, problem: `error: ${required} is required` };
   const replicas = Number(values["--replicas"]);
   if (!Number.isInteger(replicas) || replicas < 1 || replicas > MAX_REPLICAS) return { ok: false, problem: `error: --replicas needs a whole number from 1 to ${MAX_REPLICAS}` };
-  const arms = (values["--arms"] ?? ARM_VALUES.join(",")).split(",");
+  const arms = (values["--arms"] ?? DEFAULT_ARMS.join(",")).split(",");
   if (arms.some((a) => !ARM_VALUES.includes(a)) || new Set(arms).size !== arms.length) return { ok: false, problem: `error: --arms is a comma-separated, non-repeating list of ${ARM_VALUES.join(", ")}` };
   const wallCapMin = values["--wall-cap-min"] === undefined ? DEFAULT_WALL_CAP_MIN : Number(values["--wall-cap-min"]);
   if (!Number.isFinite(wallCapMin) || wallCapMin <= 0) return { ok: false, problem: "error: --wall-cap-min needs a positive number of minutes" };
+  if (values["--closed-loop"] !== undefined && values["--closed-loop"] !== "on" && values["--closed-loop"] !== "off") return { ok: false, problem: 'error: --closed-loop takes "on" or "off"' };
   try {
     assertFileName(values["--label"]!, "label");
     assertFileName(values["--warm"]!, "warm snapshot label");
@@ -178,6 +190,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
     args: {
       casesPath: values["--cases"]!, replicas, label: values["--label"]!, arms: arms as Arm[], wallCapMin, warm: values["--warm"]!,
       allowNonShadow: flags.has("--allow-non-shadow"), skipEnvChecks: flags.has("--skip-env-checks"), engramIsolated: flags.has("--engram-isolated"), dryRun: flags.has("--dry-run"),
+      ...(values["--closed-loop"] !== undefined ? { closedLoop: values["--closed-loop"] === "on" } : {}),
     },
   };
 }

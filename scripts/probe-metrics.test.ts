@@ -252,6 +252,13 @@ test("a run whose records are gone still reports what its outcome kept, with unk
   assert.equal(report.execution, null);
 });
 
+test("a pipeline report carries how the generator used run_spec and whether the loop ended closed, and nothing when the run did not grant it", () => {
+  const withLoop = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome({ closedLoop: { calls: 3, devWrites: 2, closed: true } }), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  assert.deepEqual(withLoop.closedLoop, { calls: 3, devWrites: 2, closed: true });
+  const without = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome(), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  assert.equal("closedLoop" in without, false);
+});
+
 /* ── rendering ── */
 
 test("the markdown row names the run and shows every unknown figure as n/a, never 0, and flags partial usage", () => {

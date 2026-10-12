@@ -4,7 +4,7 @@
  *
  *   npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run]
  *                             [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>]
- *                             [--ground-truth <file>] [--keep-specs <dir>]
+ *                             [--ground-truth <file>] [--keep-specs <dir>] [--accept [--accept-review]]
  *   npm run baseline-agent -- --app <app> --service <owner/repo> --service-sha <sha> --timeout-min <n> --label <l> [...]
  *
  * It gives one agent (`qa-baseline`) what a developer with a coding agent would have: the whole repository at
@@ -21,6 +21,10 @@
  * the metrics are collected in the SAME shape `probe-report` emits, by replaying the session through the
  * same call tracker, the specs it wrote are run twice with the repo's Playwright runner, and the report is
  * written to config/benchmarks/probe-results/<label>.json.
+ *
+ * `--accept` replaces the arm's own two runs with the acceptance the pipeline's output is judged by (scripts/campaign.ts arm A'): the delivered specs go
+ * through the static gate, two runs with no retry and the change-coverage policy of the app (and, with `--accept-review`, the independent reviewer), and the
+ * same decide()/isAccepted() say whether the suite would have been kept. The result is `detail.acceptance` of the report.
  *
  * `--warm <label>` starts the copy from a snapshot of the suite (scripts/warm-suite.ts) instead of the stock
  * seed: the same `e2e/` the pipeline arm is restored to, with a login already written for the app. The agent
@@ -54,6 +58,7 @@ import { saveSuiteFiles, specsOf, suiteDelta } from "./campaign-suite.ts";
 import { prepareHarnessAuth } from "./harness-auth.ts";
 import { loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
 import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
+import type { AcceptanceReport } from "@contexts/qa-run-orchestration/application/accept-delivered-specs.use-case.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -489,6 +494,10 @@ export interface BaselineArguments {
   warm: string | null;
   /** A directory to put every file the agent added or changed in the suite directory into, before the copy is removed; null keeps nothing. */
   keepSpecsDir: string | null;
+  /** Judge the delivered specs by the acceptance every arm of the experiment is judged by (validate, two runs with no retry, coverage), in place of the arm's own two runs. */
+  accept: boolean;
+  /** The acceptance also asks the independent reviewer, as the pipeline does for an app that requires a review. Needs `accept`. */
+  acceptReview: boolean;
 }
 
 const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
@@ -498,7 +507,7 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
   const values: Record<string, string> = {};
   const flags = new Set<string>();
   const valued = new Set(["--app", "--sha", "--timeout-min", "--label", "--warm", "--service", "--service-sha", "--ground-truth", "--keep-specs"]);
-  const boolean = new Set(["--dry-run", "--check-auth", "--keep-copy", "--keep-session"]);
+  const boolean = new Set(["--dry-run", "--check-auth", "--keep-copy", "--keep-session", "--accept", "--accept-review"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (valued.has(a)) {
@@ -524,6 +533,7 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
     if (!Number.isFinite(timeoutMin) || timeoutMin <= 0) return { ok: false, problem: "error: --timeout-min needs a positive number of minutes" };
   }
   if (timeoutMin === null && !flags.has("--dry-run")) return { ok: false, problem: "error: --timeout-min is required (the wall-clock limit of the agent session)" };
+  if (flags.has("--accept-review") && !flags.has("--accept")) return { ok: false, problem: "error: --accept-review needs --accept: the review is part of the acceptance" };
   if (values["--keep-specs"] !== undefined && values["--warm"] === undefined) return { ok: false, problem: "error: --keep-specs needs --warm: what the agent delivered is what differs from the snapshot its suite started from" };
   try {
     assertFileName(values["--label"]!, "label");
@@ -538,6 +548,7 @@ export function parseArguments(argv: readonly string[]): { ok: true; args: Basel
       app: values["--app"]!, sha: values["--sha"]!, service: serviceRepo !== undefined ? { repo: serviceRepo } : null, groundTruthPath: values["--ground-truth"] ?? null, timeoutMin, label: values["--label"]!,
       dryRun: flags.has("--dry-run"), checkAuth: flags.has("--check-auth"), keepCopy: flags.has("--keep-copy"), keepSession: flags.has("--keep-session"),
       warm: values["--warm"] ?? null, keepSpecsDir: values["--keep-specs"] ?? null,
+      accept: flags.has("--accept"), acceptReview: flags.has("--accept-review"),
     },
   };
 }
@@ -642,6 +653,11 @@ export interface BaselineDeps {
   /** The source of each spec, for the routes it navigates to; a spec that cannot be read is null. */
   specSources(copyDir: string, specs: readonly string[]): Map<string, string | null>;
   runSuite(input: { copyDir: string; authDir: string; app: AppInfo; namespace: string; specs: readonly string[] }): Promise<SuiteRun>;
+  /**
+   * The acceptance of the delivered specs (accept-delivered-specs.use-case.ts), over the pipeline's own gate, runner, coverage policy and reviewer, run in the
+   * copy once the login is made. Absent when the process cannot make it; a run asked to accept without it is refused before anything is prepared.
+   */
+  acceptSpecs?(input: { copyDir: string; authDir: string; app: AppInfo; namespace: string; specs: readonly string[]; material: CommitMaterial; sha: string; review: boolean }): Promise<AcceptanceReport>;
   writeReport(label: string, report: ProbeReport): string;
   now(): number;
   out(line: string): void;
@@ -665,6 +681,10 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
     return 2;
   }
   const args = parsed.args;
+  if (args.accept && !deps.acceptSpecs) {
+    out("error: --accept needs the acceptance harness, which this process was not given");
+    return 1;
+  }
   let plan: CopyPlan | undefined;
   try {
     if (args.dryRun) out(`[baseline] queue: ${await deps.queueState()} (a dry run does not refuse; a real run does when it is busy)`);
@@ -765,6 +785,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
     await assertIdle(deps);
     const executeStarted = deps.now();
     const runs: SuiteRun[] = [];
+    let acceptanceReport: AcceptanceReport | undefined;
     let loginError: string | null = null;
     if (specs.length > 0) {
       /* As before the pipeline's execute phase: log in again with whatever login the agent left; one that cannot log in is fatal. */
@@ -774,15 +795,22 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
         loginError = err instanceof Error ? err.message : String(err);
         out(`[baseline] the login failed before the suite could run: ${loginError.slice(0, 300)}`);
       }
-      if (loginError === null) {
-        out(`[baseline] running the ${specs.length} spec(s) twice with the repo's Playwright runner`);
-        for (let i = 0; i < 2; i++) runs.push(await deps.runSuite({ copyDir, authDir, app, namespace, specs }));
-      }
+    }
+    if (loginError === null && args.accept) {
+      /* With nothing delivered the acceptance touches nothing (no login, no DEV): it records that nothing was accepted. */
+      out(`[baseline] accepting the ${specs.length} delivered spec(s): the static gate, two runs with no retry, change-coverage${args.acceptReview ? " and the reviewer" : ""}`);
+      acceptanceReport = await deps.acceptSpecs!({ copyDir, authDir, app, namespace, specs, material, sha: args.sha, review: args.acceptReview });
+      runs.push(...acceptanceReport.runs.map((r): SuiteRun => ({ verdict: r.verdict, passed: r.passed, failed: r.failed, flaky: r.flaky, ms: r.ms })));
+    } else if (loginError === null && specs.length > 0) {
+      out(`[baseline] running the ${specs.length} spec(s) twice with the repo's Playwright runner`);
+      for (let i = 0; i < 2; i++) runs.push(await deps.runSuite({ copyDir, authDir, app, namespace, specs }));
     }
     const executeMs = deps.now() - executeStarted;
     const classification = loginError !== null
       ? { verdict: "infra-error" as const, errorClass: "E-PRECONDITION", note: `${specs.length} spec(s) written, but the login could not be completed before execution` }
-      : classifyBaseline({ specs: specs.length, noop: declaresNoop(finalText), ended, runs, timeoutMin: args.timeoutMin as number });
+      : acceptanceReport !== undefined && !acceptanceReport.validate.ok
+        ? { verdict: acceptanceReport.verdict, errorClass: acceptanceReport.verdict === "invalid" ? "E-STATIC" : "E-INFRA", note: `${specs.length} spec(s) written, but the static gate did not pass: ${acceptanceReport.validate.errors.slice(0, 2).join(" | ").slice(0, 300)}` }
+        : classifyBaseline({ specs: specs.length, noop: declaresNoop(finalText), ended, runs, timeoutMin: args.timeoutMin as number });
 
     const reading: ReadingContext = { changedFiles: material.changedFiles, briefText: null, suiteDir: DEFAULT_SUITE_DIR };
     const turn = turnFromCallMetrics(
@@ -825,6 +853,7 @@ export async function main(argv: string[], deps: BaselineDeps): Promise<number> 
         groundTruthFile: args.groundTruthPath,
         model: generator.model, stepCap: generator.steps, timeoutMin: args.timeoutMin, warmSnapshot: warm?.label ?? null, sessionId: run.sessionId, sessionError: run.error ?? null,
         suiteRuns: runs, declaredNoop: declaresNoop(finalText), changedOutsideSuite: changed.outsideSuite,
+        ...(acceptanceReport ? { acceptance: acceptanceReport } : {}),
         finalText: redact(finalText).slice(0, 4_000), namespace, copyDir: args.keepCopy ? copyDir : null, keptSpecsDir: args.keepSpecsDir,
       },
     };
@@ -861,7 +890,7 @@ function lastAssistantParts(messages: readonly SessionMessage[]): Array<{ type: 
 }
 
 const USAGE = [
-  "usage: npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run] [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>] [--ground-truth <file>] [--keep-specs <dir>]",
+  "usage: npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> [--dry-run] [--check-auth] [--keep-copy] [--keep-session] [--warm <snapshot-label>] [--ground-truth <file>] [--keep-specs <dir>] [--accept [--accept-review]]",
   "       npm run baseline-agent -- --app <app> --service <owner/repo> --service-sha <sha> --timeout-min <n> --label <l> [...the same options]",
   "  EXPERIMENT ONLY. Runs one plain agent (no pipeline stages) on a throwaway copy of the app at the commit, then runs its specs twice,",
   "  and writes config/benchmarks/probe-results/<label>.json in the shape probe-report emits.",
@@ -874,6 +903,9 @@ const USAGE = [
   "                  (as its mirror holds it: nothing is fetched, so run the pipeline arm first), the prompt carries the service commit and says it is deployed on DEV, and the",
   "                  service's source at that commit is read-only under services/<repo>/. Replaces --sha.",
   "  --keep-specs <dir>  copy every file the agent added or changed in e2e/ (needs --warm) to <dir> before the copy is removed",
+  "  --accept        judge the delivered specs by the acceptance every arm is judged by (accept-delivered-specs.use-case.ts): the static gate, two runs with no retry, change-coverage under the app's policy,",
+  "                  and the pipeline's own decide()/isAccepted(); it replaces the arm's own two runs and is written to detail.acceptance",
+  "  --accept-review also ask the independent reviewer, as the pipeline does for an app that requires a review (needs --accept)",
   "  --ground-truth <file>  score what the agent read and the routes its specs navigate to against a ground truth (config/benchmarks/ground-truth/)",
   "run inside the orchestrator container, with the queue idle.",
 ].join("\n");
@@ -1118,6 +1150,30 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       );
       const count = (status: string): number => result.cases.filter((c) => c.status === status).length;
       return { verdict: result.verdict, passed: count("pass"), failed: count("fail"), flaky: count("flaky"), ms: Date.now() - started };
+    },
+    acceptSpecs: async ({ copyDir, authDir, app, namespace, specs, material, sha, review }) => {
+      const { buildAcceptanceHarness } = await import("../src/server/rewritten-engine-factory.ts");
+      const { AcceptDeliveredSpecsUseCase } = await import("@contexts/qa-run-orchestration/application/accept-delivered-specs.use-case.ts");
+      const { Sha } = await import("@kernel/sha.ts");
+      const { defaultAgentDeps } = await import("../src/integrations/opencode-client.ts");
+      const full = loadAppConfig(app.name);
+      /* The reviewer's sessions are the host's OpenCode sessions, opened only when a review is asked for. */
+      const agentDeps = review ? await defaultAgentDeps() : undefined;
+      const harness = buildAcceptanceHarness({ app: full, copyDir, exec: script.exec, ...(agentDeps ? { getAgentDeps: () => agentDeps } : {}) });
+      const useCase = new AcceptDeliveredSpecsUseCase({ ...harness });
+      return script.scoped({ runId: `baseline-accept-${process.pid}-${Date.now()}`, authDir, ...scriptOriginsFor(app.name) }, () =>
+        useCase.accept({
+          specDir: join(copyDir, SUITE_DIR),
+          specs: [...specs],
+          diff: material.diff,
+          changedFiles: material.changedFiles,
+          sha: Sha.of(sha),
+          namespace,
+          reviewRequired: review,
+          shadow: full.qa.shadow ?? false,
+          onFailure: full.report.onFailure,
+        }),
+      );
     },
     writeReport: (label, report) => {
       const path = join(defaultProbeResultsDir(), `${label}.json`);

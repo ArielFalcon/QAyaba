@@ -450,3 +450,85 @@ test("a cleanup that failed is not ok and its note carries the verdict", () => {
   assert.equal(outcome.ok, false);
   assert.match(outcome.note, /fail/);
 });
+
+/* ── arm A': the plain agent, its delivery judged by the acceptance ── */
+
+const accepted = (over: Record<string, unknown> = {}) => ({ validate: { ok: true, infra: false, errors: [] }, runs: [], verdict: "pass", coverage: null, reviewer: null, decision: { verdict: "pass", sideEffect: "pr" }, accepted: true, ...over });
+const baselineReportWith = (acceptance?: unknown): ProbeReport => report("baseline", "pass", acceptance === undefined ? {} : { detail: { acceptance } });
+const armsAAprimeB = (...extra: string[]): string[] => ["--cases", "cases.json", "--replicas", "1", "--label", "camp", "--warm", "warm-1", "--arms", "A,A',B", ...extra];
+
+test("--arms takes A' beside A and B, and by default the campaign still runs A and B only", async () => {
+  const withPrime = harness();
+  assert.equal(await runCampaign(armsAAprimeB(), withPrime.deps), 0);
+  assert.deepEqual(recordOf(withPrime).args.arms, ["A", "A'", "B"]);
+
+  const byDefault = harness();
+  assert.equal(await runCampaign(["--cases", "cases.json", "--replicas", "1", "--label", "camp", "--warm", "warm-1"], byDefault.deps), 0);
+  assert.deepEqual(recordOf(byDefault).args.arms, ["A", "B"]);
+});
+
+test("A' runs the plain agent asked to accept, with a label and a directory that can name a path, and A does not", async () => {
+  const h = harness();
+  await runCampaign(armsAAprimeB(), h.deps);
+  const [plain, prime] = h.baselineRequests;
+  assert.equal(plain!.accept, undefined, "arm A is unchanged");
+  assert.equal(prime!.accept, true);
+  assert.match(prime!.label, /^camp-dup-[A-Za-z0-9]+1$/);
+  assert.doesNotMatch(prime!.label, /'/);
+  assert.notEqual(plain!.label, prime!.label);
+  assert.ok([...h.saved.keys()].some((dir) => dir.includes("dup/Ap-1") || dir.includes("Ap-1")), "its files are kept under a directory of their own");
+});
+
+test("A' asks for the reviewer's judgment exactly when the app requires one of the pipeline", async () => {
+  const requires = harness({}, { app: { needsReview: true } });
+  await runCampaign(armsAAprimeB(), requires.deps);
+  assert.equal(requires.baselineRequests.find((r) => r.accept)!.acceptReview, true);
+  const doesNot = harness({}, { app: { needsReview: false } });
+  await runCampaign(armsAAprimeB(), doesNot.deps);
+  assert.equal(doesNot.baselineRequests.find((r) => r.accept)!.acceptReview, undefined);
+});
+
+test("A' counts a delivery only when its acceptance accepted it, like the pipeline's run: otherwise the files are kept apart and never validated", async () => {
+  const rejected = harness({
+    runBaseline: async (req): Promise<ArmOutcome> => ({ report: baselineReportWith(accepted({ accepted: false, verdict: "flaky", decision: { verdict: "flaky", sideEffect: "quarantine" } })), runId: null, capped: false, lost: false, wallMs: 1, ...(req.accept ? {} : {}) }),
+  });
+  await runCampaign(["--cases", "cases.json", "--replicas", "1", "--label", "camp", "--warm", "warm-1", "--arms", "A'"], rejected.deps);
+  assert.equal(rejected.validations.length, 0);
+  const result = recordOf(rejected).results[0]!;
+  assert.deepEqual(result.delivered, []);
+  assert.equal(result.valid, false);
+  assert.ok([...rejected.saved.keys()].some((dir) => dir.endsWith("/rejected")), "what was delivered is kept apart");
+});
+
+test("A' with an accepting acceptance is judged like any other arm: its files are re-run and, if green twice, valid", async () => {
+  const h = harness({
+    runBaseline: async (): Promise<ArmOutcome> => ({ report: baselineReportWith(accepted()), runId: null, capped: false, lost: false, wallMs: 1 }),
+  });
+  await runCampaign(["--cases", "cases.json", "--replicas", "1", "--label", "camp", "--warm", "warm-1", "--arms", "A'"], h.deps);
+  assert.equal(h.validations.length, 1);
+  assert.equal(recordOf(h).results[0]!.valid, true);
+});
+
+test("A' with a report that carries no acceptance is not accepted: an arm asked to accept that did not is a failed arm-run", async () => {
+  const h = harness({
+    runBaseline: async (): Promise<ArmOutcome> => ({ report: baselineReportWith(undefined), runId: null, capped: false, lost: false, wallMs: 1 }),
+  });
+  await runCampaign(["--cases", "cases.json", "--replicas", "1", "--label", "camp", "--warm", "warm-1", "--arms", "A'"], h.deps);
+  assert.equal(h.validations.length, 0);
+  assert.equal(recordOf(h).results[0]!.valid, false);
+});
+
+test("--closed-loop on|off is the pipeline arm's own choice about the run_spec loop and is recorded; absent, the app's setting decides", async () => {
+  const on = harness();
+  await runCampaign(argv("--closed-loop", "on"), on.deps);
+  assert.equal(on.pipelineRequests[0]!.closedLoop, true);
+  assert.equal(recordOf(on).args.closedLoop, true);
+  const off = harness();
+  await runCampaign(argv("--closed-loop", "off"), off.deps);
+  assert.equal(off.pipelineRequests[0]!.closedLoop, false);
+  const none = harness();
+  await runCampaign(argv(), none.deps);
+  assert.equal("closedLoop" in none.pipelineRequests[0]!, false);
+  const bad = harness();
+  assert.equal(await runCampaign(argv("--closed-loop", "maybe"), bad.deps), 2);
+});

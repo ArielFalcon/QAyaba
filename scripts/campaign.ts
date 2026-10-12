@@ -30,7 +30,7 @@ import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { detectFakeSpec } from "./fake-pass-detector.ts";
 import {
-  ARM, CASE_KIND, armOrder, assessSpecs, classifyOutcome, invalidReplicateReasons, matchesExpected, parseArguments, parseCases,
+  ARM, CASE_KIND, armOrder, armToken, assessSpecs, isPlainAgentArm, classifyOutcome, invalidReplicateReasons, matchesExpected, parseArguments, parseCases,
   type Arm, type CampaignArguments, type CampaignCase, type ValidationRunSummary,
 } from "./campaign-model.ts";
 import { renderMarkdown, renderRubricCsv, type ArmRunResult, type CampaignRecord } from "./campaign-report.ts";
@@ -90,6 +90,8 @@ export interface AppFacts {
   shadow: boolean;
   /** `qa.changeCoverage.mode` of its config; absent is `signal`, the engine's default. */
   coverageMode?: "off" | "signal" | "enforce";
+  /** `qa.needsReview` of its config: the pipeline keeps a suite only when an independent reviewer approved it. */
+  needsReview?: boolean;
   /** The repos of the backend services it declares. */
   services: string[];
   testIdAttribute?: string;
@@ -104,6 +106,8 @@ export interface PipelineRequest {
   shadow: true;
   capMs: number;
   groundTruthPath?: string;
+  /** The run's own choice about the run_spec loop (an A/B), overriding the app's setting; absent: the app's setting decides. */
+  closedLoop?: boolean;
 }
 
 export interface BaselineRequest {
@@ -117,6 +121,10 @@ export interface BaselineRequest {
   /** Where the plain agent copies the files it delivered, before its throwaway copy is removed. */
   keepSpecsDir: string;
   groundTruthPath?: string;
+  /** Arm A': the delivery is judged by the acceptance (validate, two runs with no retry, coverage), in place of the agent's own two runs. */
+  accept?: boolean;
+  /** With `accept`: the independent reviewer is asked too, as for an app that requires a review. */
+  acceptReview?: boolean;
 }
 
 /** What an arm-run left: the arm's own report (null when it could not be made) and how the run ended. */
@@ -187,12 +195,14 @@ export interface CampaignDeps {
 /* ── the run ───────────────────────────────────────────────────────────────────────── */
 
 const USAGE = [
-  "usage: npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label> [--arms A,B] [--wall-cap-min <m>]",
+  "usage: npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label> [--arms A,B] [--wall-cap-min <m>] [--closed-loop on|off]",
   "                           [--allow-non-shadow] [--skip-env-checks] [--engram-isolated] [--dry-run]",
   "  EXPERIMENT ONLY. Runs every case --replicas times per arm (A: the plain agent, B: the pipeline), one run at a time against DEV, the arms",
   "  alternating order by replicate. Before each arm-run: idle queue, the case's cleanup, the warm snapshot seeded into the suite store. Delivered files are saved and",
   "  re-run twice without retry; fake-looking specs are never valid. Writes config/benchmarks/campaigns/<label>/{campaign.json,campaign.md,rubric.csv}.",
-  "  --wall-cap-min       wall cap per arm-run, equal for both arms (default 30)",
+  "  --arms               a comma-separated list of A (the plain agent), A' (the plain agent, its delivery judged by the pipeline's acceptance) and B (the pipeline); default A,B",
+  "  --wall-cap-min       wall cap per arm-run, equal for every arm (default 30)",
+  "  --closed-loop        the pipeline arm's own choice about the run_spec loop, for an A/B of the loop (a diff case only: a cross-repo case enters through the webhook, which cannot carry it)",
   "  --allow-non-shadow   run the pipeline on an app whose config is not shadow (a webhook cannot ask for shadow)",
   "  --skip-env-checks    do not require QA_CAMPAIGN_FREEZE in this process (the server was started with it another way)",
   "  --engram-isolated    attest that the agents' engram data is isolated for this campaign (recorded; the runner cannot do it)",
@@ -216,6 +226,12 @@ function pipelineAccepted(report: ProbeReport | null, app: AppFacts): boolean {
   if (report?.reviewer?.approved === false) return false;
   const coverage = report?.coverage;
   return !(coverage && new DecideCoverageService().blocks(coverage.status, { mode: app.coverageMode ?? "signal", minRatio: coverage.minRatio }));
+}
+
+/** Whether the plain agent's acceptance (baseline-agent --accept, `detail.acceptance`) accepted its delivery; a report without one did not. */
+function acceptanceAccepted(report: ProbeReport | null): boolean {
+  const acceptance = report?.detail?.acceptance as { accepted?: unknown } | undefined;
+  return acceptance?.accepted === true;
 }
 
 interface Plan {
@@ -246,7 +262,7 @@ async function preflight(args: CampaignArguments, plan: Omit<Plan, "args" | "dir
       problems.push(`case '${c.id}': ${c.serviceRepo} is not a declared service of app '${app.name}' (declared: ${app.services.join(", ") || "none"})`);
     }
     if (c.cleanup && !snapshot.files.has(c.cleanup.spec)) problems.push(`case '${c.id}': cleanup spec ${c.cleanup.spec} is not in warm snapshot '${snapshot.label}'`);
-    if (args.arms.includes(ARM.PLAIN_AGENT)) {
+    if (args.arms.some(isPlainAgentArm)) {
       const missing = await deps.commitsAvailable(app, c);
       if (missing !== null) problems.push(`case '${c.id}': ${missing} (the plain agent never fetches: run the pipeline arm once on the case first, e.g. --arms B --replicas 1)`);
     }
@@ -290,7 +306,7 @@ export async function runCampaign(argv: string[], deps: CampaignDeps): Promise<n
 
     record = {
       schema: 1, label: args.label, app: app.name, startedAt: deps.nowIso(), finishedAt: null, complete: false,
-      args: { replicas: args.replicas, arms: args.arms, wallCapMin: args.wallCapMin, warm: args.warm, casesPath: args.casesPath },
+      args: { replicas: args.replicas, arms: args.arms, wallCapMin: args.wallCapMin, warm: args.warm, casesPath: args.casesPath, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}) },
       environment: {
         campaignFreeze: deps.envFlags().campaignFreeze, engramIsolated: args.engramIsolated,
         appShadow: app.shadow, forcedShadow: args.arms.includes(ARM.PIPELINE),
@@ -341,8 +357,8 @@ function writeOutputs(deps: CampaignDeps, dir: string, record: CampaignRecord): 
 
 async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm, replicate: number, position: number): Promise<ArmRunResult> {
   const { args, app, snapshot } = plan;
-  const label = `${args.label}-${c.id}-${arm}${replicate}`;
-  const rel = `${c.id}/${arm}-${replicate}`;
+  const label = `${args.label}-${c.id}-${armToken(arm)}${replicate}`;
+  const rel = `${c.id}/${armToken(arm)}-${replicate}`;
   const armDir = join(plan.dir, rel);
   const filesDir = join(armDir, "files");
   deps.out(`[campaign] ${label}: starting`);
@@ -364,14 +380,18 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
   let rejected: DeltaFile[] = [];
   try {
     if (arm === ARM.PIPELINE) {
-      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth });
+      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}) });
       /* Read right after the run and before anything restores the mirror: the files are the only evidence of what the pipeline accepted. */
       const delta = await deps.pipelineDelta(app, snapshot);
       if (pipelineAccepted(outcome.report, app) && !outcome.capped && !outcome.lost) files = delta.files;
       else rejected = delta.files;
     } else {
-      outcome = await deps.runBaseline({ app: app.name, kind: c.kind, sha: c.sha, ...service, label, timeoutMin: args.wallCapMin, warm: args.warm, keepSpecsDir: filesDir, ...groundTruth });
-      files = await deps.readSavedFiles(filesDir);
+      const accepting = arm === ARM.PLAIN_AGENT_ACCEPTED;
+      outcome = await deps.runBaseline({ app: app.name, kind: c.kind, sha: c.sha, ...service, label, timeoutMin: args.wallCapMin, warm: args.warm, keepSpecsDir: filesDir, ...groundTruth, ...(accepting ? { accept: true, ...(app.needsReview ? { acceptReview: true } : {}) } : {}) });
+      const delivered = await deps.readSavedFiles(filesDir);
+      /* A': a delivery counts only when its acceptance accepted it, as the pipeline's files count only when its run was accepted. A report with no acceptance is no acceptance. */
+      if (!accepting || (acceptanceAccepted(outcome.report) && !outcome.capped && !outcome.lost)) files = delivered;
+      else rejected = delivered;
     }
   } catch (err) {
     outcome = { report: null, runId: null, capped: false, lost: true, error: err instanceof Error ? err.message : String(err), wallMs: null };
@@ -380,8 +400,8 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
 
   if (arm === ARM.PIPELINE) {
     if (files.length > 0) deps.saveFiles(filesDir, files);
-    if (rejected.length > 0) deps.saveFiles(join(armDir, "rejected"), rejected);
   }
+  if (rejected.length > 0) deps.saveFiles(join(armDir, "rejected"), rejected);
   if (outcome.report) deps.writeJson(join(armDir, "report.json"), outcome.report);
 
   /* The same judgment for both arms, outside both: detect fakes, then re-run what is left twice without retry. */
@@ -521,6 +541,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       return {
         name: app.name, repo: app.repo, baseUrl: app.dev.baseUrl, testDataPrefix: app.qa.testDataPrefix, shadow: app.qa.shadow === true, services: (app.services ?? []).map((s) => s.repo),
         ...(app.qa.changeCoverage?.mode !== undefined ? { coverageMode: app.qa.changeCoverage.mode } : {}),
+        needsReview: app.qa.needsReview,
         ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
       };
     },
@@ -560,7 +581,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       let runId: string | null = null;
       try {
         if (req.kind === CASE_KIND.DIFF) {
-          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true }) });
+          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true, ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}) }) });
           const body = await json(res);
           if (!res.ok || typeof body.id !== "string") throw new Error(`the service rejected the run: ${typeof body.error === "string" ? body.error : `HTTP ${res.status}`}`);
           runId = body.id;
@@ -607,6 +628,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
         ...(req.kind === CASE_KIND.DIFF ? ["--sha", req.sha] : ["--service", req.serviceRepo!, "--service-sha", req.sha]),
         "--timeout-min", String(req.timeoutMin), "--label", req.label, "--warm", req.warm, "--keep-specs", req.keepSpecsDir,
         ...(req.groundTruthPath !== undefined ? ["--ground-truth", req.groundTruthPath] : []),
+        ...(req.accept ? ["--accept", ...(req.acceptReview ? ["--accept-review"] : [])] : []),
       ];
       const log: string[] = [];
       try {

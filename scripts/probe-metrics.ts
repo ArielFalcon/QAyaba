@@ -9,6 +9,7 @@
  */
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
+import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import { DecideCoverageService, type CoverageStatus } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { isContentReadTool } from "@contexts/generation/domain/call-sequence.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -317,6 +318,8 @@ export interface ProbeReport {
   reviewer: { approved: boolean | null; reasons: string[] } | null;
   /** What the cross-repo stitcher supplied and what the generator's prompt carried of it. Absent in a report made before the figures existed. */
   stitcher?: StitcherMetrics;
+  /** How the generator used the run_spec tool and whether the loop ended closed (every delivered spec seen passing in its final bytes). Absent when the run did not grant the tool. */
+  closedLoop?: ClosedLoopGateSignal;
   /** How the run's evidence scores against a hand-written ground truth (`--ground-truth`); absent when none was given. */
   groundTruth?: GroundTruthScore;
   /** What only one arm can say (the plain agent's model, step cap and timeout, its final words, what it wrote outside the suite). Not compared across arms. */
@@ -434,6 +437,7 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
       ? { approved: verdictEvent.approved, reasons: verdictEvent.reasons }
       : reviewerApproved === null ? null : { approved: reviewerApproved, reasons: outcome?.gateSignals.reviewerCorrections ?? [] },
     stitcher,
+    ...(outcome?.gateSignals.closedLoop ? { closedLoop: outcome.gateSignals.closedLoop } : {}),
     ...(input.groundTruth
       ? { groundTruth: scoreGroundTruth(input.groundTruth, { briefText, filesRead: contentReadsOf(turns), specSources: specSourcesOf(specs, input.specSources) }) }
       : {}),

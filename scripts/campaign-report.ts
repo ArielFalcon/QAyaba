@@ -70,7 +70,7 @@ export interface CampaignRecord {
   finishedAt: string | null;
   /** False when the campaign stopped before its last arm-run. */
   complete: boolean;
-  args: { replicas: number; arms: Arm[]; wallCapMin: number; warm: string; casesPath: string };
+  args: { replicas: number; arms: Arm[]; wallCapMin: number; warm: string; casesPath: string; closedLoop?: boolean };
   environment: CampaignEnvironment;
   snapshot: { label: string; createdAt: string; warm: boolean };
   cases: CampaignCaseRecord[];

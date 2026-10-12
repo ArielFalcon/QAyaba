@@ -659,3 +659,82 @@ test("files that cannot be kept fail the run loudly and leave the copy where it 
   assert.ok(h.lines.some((l) => l.includes("disk full")));
   assert.equal(h.calls.includes("remove"), false, "the copy still holds the only copy of the agent's work");
 });
+
+/* ── the acceptance the plain agent's files are judged by (--accept) ── */
+
+import type { AcceptanceReport } from "@contexts/qa-run-orchestration/application/accept-delivered-specs.use-case.ts";
+
+const acceptance = (over: Partial<AcceptanceReport> = {}): AcceptanceReport => ({
+  validate: { ok: true, infra: false, errors: [] },
+  runs: [{ verdict: "pass", passed: 1, failed: 0, flaky: 0, ms: 500 }, { verdict: "pass", passed: 1, failed: 0, flaky: 0, ms: 600 }],
+  verdict: "pass",
+  coverage: { status: "pass", ratio: 0.9, blocks: false },
+  reviewer: null,
+  decision: { verdict: "pass", sideEffect: "pr" },
+  accepted: true,
+  ...over,
+});
+
+test("--accept and --accept-review are arguments, and a review is only asked for with an acceptance", () => {
+  const plain = parseArguments(argv());
+  assert.ok(plain.ok);
+  assert.deepEqual(plain.ok && [plain.args.accept, plain.args.acceptReview], [false, false]);
+  const accept = parseArguments(argv("--accept"));
+  assert.deepEqual(accept.ok && [accept.args.accept, accept.args.acceptReview], [true, false]);
+  const review = parseArguments(argv("--accept", "--accept-review"));
+  assert.deepEqual(review.ok && [review.args.accept, review.args.acceptReview], [true, true]);
+  const lone = parseArguments(argv("--accept-review"));
+  assert.equal(lone.ok, false);
+  assert.match(lone.ok ? "" : lone.problem, /--accept-review needs --accept/);
+});
+
+test("an acceptance asked for without a way to make it stops the run before anything is prepared", async () => {
+  const h = harness();
+  assert.equal(await main(argv("--accept"), h.deps), 1);
+  assert.deepEqual(h.calls, []);
+  assert.ok(h.lines.some((l) => l.includes("--accept")));
+});
+
+test("--accept judges the delivered specs once, after the login, with the acceptance instead of the arm's own two runs, and the report carries it", async () => {
+  const inputs: Array<{ specs: readonly string[]; review: boolean; namespace: string; diff: string; changedFiles: readonly string[] }> = [];
+  const h = harness();
+  h.deps.acceptSpecs = async (input) => { h.calls.push("accept"); inputs.push({ specs: input.specs, review: input.review, namespace: input.namespace, diff: input.material.diff, changedFiles: input.material.changedFiles }); return acceptance(); };
+  assert.equal(await main(argv("--accept", "--accept-review"), h.deps), 0);
+  assert.deepEqual(h.calls, ["queue", "prepare", "auth:pre-generate", "agent", "queue", "auth:pre-execute", "accept", "remove"]);
+  assert.equal(inputs.length, 1);
+  assert.deepEqual(inputs[0]!.specs, ["flows/cart.spec.ts"]);
+  assert.equal(inputs[0]!.review, true);
+  assert.ok(inputs[0]!.namespace.endsWith("arm-a-1"));
+  assert.ok(inputs[0]!.diff.includes("src/cart.ts"));
+  assert.deepEqual(inputs[0]!.changedFiles, ["src/cart.ts"]);
+  const report = h.reports[0]!;
+  assert.deepEqual((report.detail as { acceptance: AcceptanceReport }).acceptance, acceptance());
+  assert.equal(report.verdict, "pass");
+  assert.deepEqual(report.execution, { passed: 1, failed: 0, flaky: 0 }, "the report's runs are the acceptance's");
+  assert.equal(((report.detail as { suiteRuns: unknown[] }).suiteRuns).length, 2);
+});
+
+test("a delivery the acceptance does not accept says so in the report, with its verdict and the decision it would have had", async () => {
+  const h = harness();
+  h.deps.acceptSpecs = async () => acceptance({ verdict: "flaky", accepted: false, decision: { verdict: "flaky", sideEffect: "quarantine" }, runs: [{ verdict: "pass", passed: 1, failed: 0, flaky: 0, ms: 1 }, { verdict: "fail", passed: 0, failed: 1, flaky: 0, ms: 1 }] });
+  await main(argv("--accept"), h.deps);
+  const report = h.reports[0]!;
+  assert.equal(report.verdict, "flaky");
+  assert.equal((report.detail as { acceptance: AcceptanceReport }).acceptance.accepted, false);
+});
+
+test("a static gate that fails in the acceptance is an invalid delivery, not a failed run", async () => {
+  const h = harness();
+  h.deps.acceptSpecs = async () => acceptance({ validate: { ok: false, infra: false, errors: ["[lint] no-wait-for-timeout"] }, runs: [], verdict: "invalid", accepted: false, coverage: null, decision: { verdict: "invalid", sideEffect: "issue" } });
+  await main(argv("--accept"), h.deps);
+  const report = h.reports[0]!;
+  assert.deepEqual([report.verdict, report.errorClass], ["invalid", "E-STATIC"]);
+  assert.equal(report.execution, null);
+});
+
+test("without --accept the arm runs its own two runs as before and the report carries no acceptance", async () => {
+  const h = harness();
+  await main(argv(), h.deps);
+  assert.equal(h.calls.filter((c) => c === "suite").length, 2);
+  assert.equal("acceptance" in ((h.reports[0]!.detail ?? {}) as object), false);
+});

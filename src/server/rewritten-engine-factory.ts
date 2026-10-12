@@ -36,6 +36,12 @@ import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
+import { ValidationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/validation-port.adapter";
+import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter";
+import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/objective-signal-port.adapter";
+import { ReviewPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter";
+import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service";
+import type { ExecutionPort, ObjectiveSignalPort, ReviewPort, ValidationPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
 
@@ -602,6 +608,80 @@ export function resolveCodeSandbox(env: NodeJS.ProcessEnv, resolve: (env: NodeJS
   const sandbox = resolve(env);
   setSandboxGroup(sandbox?.gid);
   return sandbox;
+}
+
+export interface AcceptanceHarnessInput {
+  app: AppConfig;
+  /* The throwaway working copy an experiment arm delivered its specs in: the suite lives at <copyDir>/e2e. */
+  copyDir: string;
+  /* The launcher the specs run through; its run scope is the caller's (a script opens one, as the pipeline's run does). */
+  exec: ExecSandboxPort;
+  /* The host's agent sessions, for the reviewer. Absent: no reviewer is composed. */
+  getAgentDeps?: () => AgentDeps;
+}
+
+export interface AcceptanceHarness {
+  validation: ValidationPort;
+  execution: ExecutionPort;
+  objectiveSignal: ObjectiveSignalPort;
+  review?: ReviewPort;
+}
+
+/*
+ * The acceptance an experiment judges every arm by (accept-delivered-specs.use-case.ts), over the same parts the pipeline's own run uses: the
+ * static gate, the Playwright runner, the change-coverage collector under the app's coverage policy (the value oracle off: it doubles a DEV
+ * run and decides nothing here) and the independent reviewer. It is built over a copy of the working copy, never over a mirror.
+ */
+export function buildAcceptanceHarness(input: AcceptanceHarnessInput): AcceptanceHarness {
+  const { app, copyDir, exec } = input;
+  if (!app.dev?.baseUrl) throw new Error(`App "${app.name}" has no dev.baseUrl: its specs cannot be accepted without a DEV site`);
+  const e2eRelDir = "e2e";
+  const e2eDir = join(copyDir, e2eRelDir);
+  const baseUrl = app.dev.baseUrl;
+  const env = process.env;
+
+  const validateDeps = createValidateDeps(exec);
+  const staticGate = new StaticGateAdapter({
+    typecheck: validateDeps.typecheck,
+    lint: validateDeps.lint,
+    listTests: validateDeps.listTests,
+    checkManifest: validateDeps.checkManifest,
+    validateAll: (specDir) => validateSpecs(specDir, validateDeps),
+  });
+  const refuseCode = (): never => {
+    throw new Error("the acceptance harness has no code target");
+  };
+  const validation = new ValidationPortAdapter({ e2e: staticGate, code: { validate: async () => refuseCode() } as never }, { target: "e2e" });
+
+  const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), exec, env.PW_ACTION_TIMEOUT_MS), recordAudit };
+  const execution = new ExecutionPortAdapter(
+    { e2e: new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps)), code: { run: async () => refuseCode() } as never },
+    { target: "e2e", namespace: `${app.qa.testDataPrefix}-acceptance`, baseUrl, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}) },
+  );
+
+  const policy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
+  const objectiveSignal = new ObjectiveSignalPortAdapter(
+    {
+      collector: makeTargetCoverageCollector({ target: "e2e", repoDir: copyDir, e2eDir, changedFiles: [] }),
+      decide: new DecideCoverageService(),
+      oracle: new NullValueOracleAdapter(),
+    },
+    { policy, repoDir: copyDir, namespace: `${app.qa.testDataPrefix}-acceptance`, assembleChangeCoverage },
+  );
+
+  const getAgentDeps = input.getAgentDeps;
+  const review = getAgentDeps
+    ? new ReviewPortAdapter(
+        {
+          runtime: new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => getAgentDeps().open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.model ? { model: opts.model } : {}), ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}) }) }, roleToAgentName),
+          rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow }),
+          verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }),
+        },
+        { diff: "", mirrorDir: copyDir, e2eRelDir, appName: app.name, mode: "diff", target: "e2e", baseUrl, timeoutMs: REVIEWER_TIMEOUT_MS },
+      )
+    : undefined;
+
+  return { validation, execution, objectiveSignal, ...(review ? { review } : {}) };
 }
 
 export function buildRewrittenCompositionConfig(
