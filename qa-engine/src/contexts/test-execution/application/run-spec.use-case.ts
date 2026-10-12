@@ -7,6 +7,7 @@
 
 import { createHash } from "node:crypto";
 import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { importsTestFromFixtures } from "../../../shared-infrastructure/spec-fixtures-import.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
@@ -26,13 +27,11 @@ export const MAX_ERROR_CHARS = 2_000;
 export const MAX_FAILURE_DOM_CHARS = 8_000;
 export const MAX_TITLE_CHARS = 300;
 export const MAX_REPORTED_TESTS = 30;
-export const UNCOUNTED_WRITE_CHARGE = 1;
 
 /* The same shape the Playwright runner insists on for a spec file it is handed (e2e-execution.runner.ts SPEC_FILE_RE); a test keeps the two equal. */
 export const SPEC_PATH_PATTERN = /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\.spec\.ts$/;
 
 const FORBIDDEN_SEGMENTS: ReadonlySet<string> = new Set(["node_modules", ".auth", ".qa", ".git", "test-results"]);
-const FIXTURES_IMPORT = /\bfrom\s+["'](?:\.{1,2}\/)+fixtures(?:\.js|\.ts)?["']/;
 const ANSI = /\u001b\[[0-9;]*[A-Za-z]/g;
 
 export const RUN_SPEC_INVALID = {
@@ -127,7 +126,7 @@ export class RunSpecUseCase {
     if ("absent" in read) return this.refusal(RUN_SPEC_INVALID.NOT_FOUND, `spec not found: ${rel}. Write it under the e2e directory first.`);
     if ("reason" in read) return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, `${rel} cannot be used: ${read.reason}`);
     const source = read.bytes.toString("utf8");
-    if (!FIXTURES_IMPORT.test(source)) {
+    if (!importsTestFromFixtures(source)) {
       return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, `${rel} must import test from the suite's fixtures file (for example: import { test, expect } from "./fixtures"), so that its requests to DEV can be counted.`);
     }
     const sha256 = createHash("sha256").update(read.bytes).digest("hex");
@@ -194,9 +193,9 @@ export class RunSpecUseCase {
         notes.push("session lost: the saved session ended on the login page and cannot be renewed from here, since the app's login script is not run while you author; these results say nothing about the spec, and the run's own login phase renews the session");
       }
     }
-    /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled) is charged one, so the cap still shrinks with the calls. */
-    if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; one write was charged");
-    return { status, tests, devWrites: result.devWrites ?? UNCOUNTED_WRITE_CHARGE, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
+    /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled or never left, a run that was stopped) is charged the whole budget that was left: the count comes from the suite's own fixtures, which is code the agent can edit, so an absent or unbelievable count is never read as "none". */
+    if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; the whole write budget that was left was charged");
+    return { status, tests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
   }
 
   /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */

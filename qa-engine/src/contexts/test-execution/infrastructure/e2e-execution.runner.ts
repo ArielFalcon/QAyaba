@@ -261,9 +261,10 @@ export async function runE2E(
     if (onAbort) opts.signal?.removeEventListener("abort", onAbort);
   }
   const { report, logs, ran } = out;
-  /* Counted before any early return: a run that timed out has still sent the writes of the specs that finished. */
-  const devWrites = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot) : undefined;
-  const counted = (result: E2eRunResult): E2eRunResult => (devWrites === undefined ? result : { ...result, devWrites });
+  /* The ledger is read before any early return, but only believed for a run that finished and whose report says how many tests ran: a stopped run has no ledger for the test it was running, and a ledger short of the tests that ran has lost some, so the writes of either are unknown and the caller charges the whole cap (see readDevWrites). */
+  const ledger = opts.countWrites ? readDevWrites(failureCaptureDir, failureCaptureRoot) : undefined;
+  const counted = (result: E2eRunResult, executed?: number): E2eRunResult =>
+    ledger === undefined || executed === undefined || ledger.files < executed ? result : { ...result, devWrites: ledger.writes };
 
   /* Single sanitizeText pass: a separate containsSecrets() pre-check is redundant with this SAME detection result (mirrors code-execution.runner.ts's own AMENDMENT-1 simplification) — the warn fires under the exact same condition as before, just derived from one call instead of two. */
   const sanitized = sanitizeText(logs);
@@ -292,7 +293,7 @@ export async function runE2E(
       passed: false,
       cases: parsed.cases,
       logs: sanitized.text || "the E2E suite ran but executed zero tests (no tests matched, or all were skipped)",
-    });
+    }, parsed.executed);
   }
 
   /* The report is written by the test process, so a report that says every test passed cannot be told from a forged one by what it holds. How the child ended can: Playwright exits with a failure status when a test failed, and a child that a signal ended never finished reporting. A pass that the child did not exit 0 for is a run that cannot be trusted: infrastructure, and none of its cases is handed on. A failure stays a failure whatever the status; the status only takes a pass away. */
@@ -305,7 +306,7 @@ export async function runE2E(
       cases: [],
       logs: `${sanitized.text}\n[qa] ${distrust}`.trim(),
       note: distrust,
-    });
+    }, parsed.executed);
   }
 
   if (parsed.verdict === "fail" && allFailuresAreRunnerInfra(parsed.cases)) {
@@ -316,7 +317,7 @@ export async function runE2E(
       cases: parsed.cases,
       logs: sanitized.text,
       note: "Playwright could not launch the browser — runner infrastructure fault, not a test failure. Check the browser install / PLAYWRIGHT_BROWSERS_PATH.",
-    });
+    }, parsed.executed);
   }
 
   /* Post-run harvest: for each failed case, read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom. The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md). Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the failureDom we set here because the runtime objects are identical. */
@@ -351,7 +352,7 @@ export async function runE2E(
     passed: parsed.passed,
     cases: qaCases,
     logs: sanitized.text,
-  });
+  }, parsed.executed);
   } finally {
     if (disposeFailureDir) disposeFailureDir();
     else if (failureCaptureDir) {
@@ -360,12 +361,12 @@ export async function runE2E(
   }
 }
 
-/* The writes to DEV the specs of a run sent, from the ledger files the fixtures left in the failure-capture directory. The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a missing, forged, oversized or unreadable file makes the whole count unknown (undefined) and never a smaller one. */
+/* The writes to DEV the specs of a run sent, from the ledger files the fixtures left in the failure-capture directory, and how many files that was (one per test that ran). The directory is the child's, so it is read strictly (see readRunOutputDir) and all or nothing: a missing, forged, oversized or unreadable file makes the whole count unknown (undefined) and never a smaller one. The counter itself runs inside the suite's own fixtures, which is agent-editable code, so a ledger is evidence of what the spec did only against an honest spec; the hard bound on what a call can do to DEV is the call cap times the per-call time, and the egress filter. */
 const LEDGER_FILE_RE = /^ledger-[A-Za-z0-9_-]+\.json$/;
 const LEDGER_LIMITS: RunOutputLimits = { maxFileBytes: 4_096, maxTotalBytes: 1024 * 1024, maxFiles: 4_096 };
 const MAX_LEDGER_WRITES = 1_000_000;
 
-function readDevWrites(dir: string | undefined, root: string | undefined): number | undefined {
+function readDevWrites(dir: string | undefined, root: string | undefined): { writes: number; files: number } | undefined {
   if (dir === undefined) return undefined;
   const base = root ?? dir;
   const files = readRunOutputDir({ mirrorDir: base, specDir: base }, relative(base, dir) || ".", (name) => LEDGER_FILE_RE.test(name), (_name, bytes) => {
@@ -373,7 +374,7 @@ function readDevWrites(dir: string | undefined, root: string | undefined): numbe
     if (typeof writes !== "number" || !Number.isInteger(writes) || writes < 0 || writes > MAX_LEDGER_WRITES) throw new Error("not a count");
     return writes;
   }, LEDGER_LIMITS);
-  return files === undefined || files.length === 0 ? undefined : files.reduce((sum, n) => sum + n, 0);
+  return files === undefined || files.length === 0 ? undefined : { writes: files.reduce((sum, n) => sum + n, 0), files: files.length };
 }
 
 function redactCaseByValue(c: QaCase): void {

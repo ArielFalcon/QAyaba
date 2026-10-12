@@ -1054,14 +1054,34 @@ test("runE2E reports the writes to DEV the fixtures counted, summed over the tes
   }
 });
 
-test("runE2E reports the writes of a run that timed out as well, since the specs that ran before were counted", async () => {
+test("runE2E gives no count for a run that did not finish: the test that was running when it was stopped left no ledger", async () => {
   const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":4}' });
   try {
     const deps = ledger.deps();
     deps.runSuite = async () => ({ report: {}, logs: "playwright runner timed out after 10ms — killed", ran: false });
     const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, deps);
     assert.equal(run.verdict, "infra-error");
-    assert.equal(run.devWrites, 4);
+    assert.equal(run.devWrites, undefined);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E gives no count when fewer tests left a ledger than the report says ran", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":0}' });
+  try {
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps({ stats: { expected: 3 }, suites: [] }));
+    assert.equal(run.devWrites, undefined);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E counts when every test that ran left a ledger", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":1}', "ledger-0-2.json": '{"writes":0}', "ledger-1-3.json": '{"writes":2}' });
+  try {
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps({ stats: { expected: 3 }, suites: [] }));
+    assert.equal(run.devWrites, 3);
   } finally {
     ledger.cleanup();
   }

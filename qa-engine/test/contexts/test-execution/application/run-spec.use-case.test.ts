@@ -34,7 +34,7 @@ function harness(t: TestContext, overrides: Partial<RunSpecDeps> = {}): Harness 
   capability.bindSession("ses-1");
   const h: Harness = {
     capability, mirrorDir, specDir, executed: [], cleaned: [], renewals: 0,
-    next: { result: { verdict: "pass", cases: [{ name: "flows/a.spec.ts › loads", status: "pass", durationMs: 12 }], logs: "RAW STDOUT MUST NOT LEAK" } },
+    next: { result: { verdict: "pass", cases: [{ name: "flows/a.spec.ts › loads", status: "pass", durationMs: 12 }], logs: "RAW STDOUT MUST NOT LEAK", devWrites: 0 } },
     write: (rel, text) => { mkdirSync(join(specDir, rel, ".."), { recursive: true }); writeFileSync(join(specDir, rel), text); },
     deps: undefined as unknown as RunSpecDeps,
   };
@@ -66,7 +66,7 @@ test("a spec that passes is run once in its own namespace and reported without r
   assert.deepEqual(response.report.tests, [{ title: "flows/a.spec.ts › loads", status: "passed", durationMs: 12 }]);
   assert.deepEqual(h.executed.map((r) => [r.specFile, r.namespace, r.timeoutMs]), [["flows/a.spec.ts", "run-1-rs1", 60_000]]);
   assert.doesNotMatch(JSON.stringify(response), /RAW STDOUT/);
-  assert.deepEqual(response.report.budget, { callsLeft: 2, msLeft: undefined, devWritesLeft: 4 });
+  assert.deepEqual(response.report.budget, { callsLeft: 2, msLeft: undefined, devWritesLeft: 5 });
 });
 
 test("the path may carry the e2e prefix, a leading dot-slash, or none", async (t) => {
@@ -186,10 +186,10 @@ test("a failing test is reported with its error, the page it ended on and its tr
 
 test("a run that timed out is a timeout, one that never produced a verdict is an error, and both are counted", async (t) => {
   const h = harness(t);
-  h.next.result = { verdict: "infra-error", cases: [], logs: "playwright runner timed out after 60000ms — killed" };
+  h.next.result = { verdict: "infra-error", cases: [], logs: "playwright runner timed out after 60000ms — killed", devWrites: 0 };
   const timedOut = await call(h, "flows/a.spec.ts");
   assert.ok(timedOut.ok && timedOut.report.status === "timedOut");
-  h.next.result = { verdict: "infra-error", cases: [], logs: "browser failed to launch" };
+  h.next.result = { verdict: "infra-error", cases: [], logs: "browser failed to launch", devWrites: 0 };
   const errored = await call(h, "flows/a.spec.ts");
   assert.ok(errored.ok && errored.report.status === "error");
   assert.equal(h.capability.calls, 2);
@@ -257,12 +257,34 @@ test("a spec removed while the call ran is not recorded as a pass either", async
   assert.notEqual(h.capability.ledger[0]!.status, "passed");
 });
 
-test("a call whose writes could not be counted is charged one, and says so", async (t) => {
+test("a call whose writes could not be counted is charged the whole write budget that was left, and says so", async (t) => {
   const h = harness(t);
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "" };
   const response = await call(h, "flows/a.spec.ts");
   assert.ok(response.ok);
-  assert.equal(h.capability.ledger[0]!.devWrites, 1);
+  assert.equal(h.capability.ledger[0]!.devWrites, 5);
+  assert.equal(response.report.budget.devWritesLeft, 0);
   assert.match(response.report.note ?? "", /could not be counted/);
+  const next = await call(h, "flows/a.spec.ts");
+  assert.ok(!next.ok && next.code === CLOSED_LOOP_REFUSAL.NO_WRITES, "the cap is spent, so the next call is refused");
+});
+
+test("a count that could not be made charges what was left after the writes already counted", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 2 };
+  assert.ok((await call(h, "flows/a.spec.ts")).ok);
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "" };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(h.capability.ledger[1]!.devWrites, 3);
+});
+
+test("a spec whose import of the fixtures is only in a comment is refused, since its writes could not be counted", async (t) => {
+  const h = harness(t);
+  h.write("flows/sneaky.spec.ts", '// import { test } from "../fixtures";\nimport { test } from "@playwright/test";\ntest("x", async () => {});\n');
+  const response = await call(h, "flows/sneaky.spec.ts");
+  assert.equal(response.ok, false);
+  assert.equal(h.executed.length, 0);
 });
 
 test("once the writes cap is spent the next call is refused, and says so", async (t) => {
