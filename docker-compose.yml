@@ -86,8 +86,8 @@ services:
       # run may reach with dev.allowedOrigins in the app config and egress.installOrigins for registries.
       QA_EGRESS_MODE: ${QA_EGRESS_MODE:-enforce}
       # The run_spec tool's internal endpoint (a second listener, NOT published above) and the service token the agents service
-      # authenticates to it with: the SAME value on both services. Unset, each service generates its own and the tool is refused
-      # with a message naming the variable. The generator only gets the tool in a run whose app sets qa.closedLoop.enabled.
+      # authenticates to it with: the SAME value on both services. Unset on the orchestrator, no run is granted the tool; unset on the
+      # agents service only, its calls are refused with a message naming the variable. The generator only gets the tool in a run whose app sets qa.closedLoop.enabled.
       QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
       QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
     volumes:
