@@ -25,9 +25,20 @@ export function isSandboxUnavailable(err: unknown): err is SandboxUnavailableErr
   return err instanceof SandboxUnavailableError;
 }
 
-export function resolveExecSandboxMode(env: NodeJS.ProcessEnv): ExecSandboxMode {
+/* Said once per process, not per launcher: a composition builds several. */
+let warnedNoUid = false;
+let warnedNoEgress = false;
+
+/* For tests: the warnings are said again. */
+export function resetExecSandboxWarnings(): void {
+  warnedNoUid = false;
+  warnedNoEgress = false;
+}
+
+/* Unset means `required` wherever the sandbox uid can exist (root on Linux, which is every container): a deployment that forgot the variable must refuse to run agent code as the orchestrator, not run it with a warning. Elsewhere (a developer's laptop, or a non-root user) there is no uid to drop to and the default is best-effort. An explicit value is always the operator's. */
+export function resolveExecSandboxMode(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform, getuid: () => number = () => process.getuid?.() ?? -1): ExecSandboxMode {
   const raw = env.QA_EXEC_SANDBOX;
-  if (raw === undefined || raw === "") return "best-effort";
+  if (raw === undefined || raw === "") return platform === "linux" && getuid() === 0 ? "required" : "best-effort";
   if (raw === "required" || raw === "best-effort") return raw;
   throw new Error(`QA_EXEC_SANDBOX must be "required" or "best-effort", got ${JSON.stringify(raw)}`);
 }
@@ -81,6 +92,8 @@ export interface ExecSandboxDeps {
   /* The mirrors volume: a child whose cwd is in one of its mirrors gets that mirror's group opened to the sandbox for the run (mirror-access.ts). */
   mirrorRoot?: string;
   mirrorOps?: MirrorFsOps;
+  /* QA_EGRESS_MODE as the composition root resolved it. With `enforce` and no sandbox uid there is no filter to hold a child (it matches on that uid), so the spawn is refused instead of quietly running unfiltered. Absent: the egress gate alone decides. */
+  egressMode?: "enforce" | "warn";
   /* Ends what an earlier child left running as the sandbox uid (sandbox-reaper.ts): before each spawn and when the last live child exits. Absent: nothing is reaped (no sandbox uid, or not Linux). */
   reaper?: SandboxReaper;
   /* The spawn primitive; a test passes a fake. */
@@ -91,8 +104,6 @@ export interface ExecSandboxDeps {
 export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
   const spawnFn = deps.spawnFn ?? nodeSpawn;
   const warn = deps.warn ?? ((line: string): void => console.warn(line));
-  let warnedNoUid = false;
-  let warnedNoEgress = false;
 
   const originsFor = (profile: SandboxProfile, scope: RunScope): readonly string[] =>
     profile === "offline" ? [] : profile === "install" ? scope.egress.install : scope.egress.dev;
@@ -155,8 +166,15 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
           lease = deps.egress.lease(originsFor(options.profile, scope), scope.report);
           if (scope.report.egress !== "unenforced") scope.report.egress = "enforced";
         }
+      } else if (deps.sandbox === null && deps.egressMode === "enforce") {
+        scope.report.refusal = "egress";
+        throw new SandboxUnavailableError("egress", `refusing to spawn ${cmd}: QA_EGRESS_MODE=enforce but there is no sandbox uid, and the egress filter holds a uid's network, so nothing would hold this child (set QA_EGRESS_MODE=warn only on a host you do not care about)`);
       } else if (scope.report.egress === "not-applicable") {
         scope.report.egress = "unenforced";
+        if (deps.sandbox === null && deps.egressMode === "warn" && !warnedNoEgress) {
+          warnedNoEgress = true;
+          warn("[qa] WARNING: QA_EGRESS_MODE=warn and there is no sandbox uid, so no egress filter: agent-influenced code can reach any host this machine can.");
+        }
       }
 
       if (deps.mirrorRoot && deps.sandbox) {

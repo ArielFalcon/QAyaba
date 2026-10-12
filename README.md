@@ -442,8 +442,8 @@ Everything that runs code an agent influenced (the generated specs, the e2e proj
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `QA_EXEC_SANDBOX` | `required` in compose (`best-effort` outside it) | `required`: a run that cannot drop to the sandbox user refuses to execute agent code and ends `infra-error E-SANDBOX`. `best-effort`: it runs as the current user with a loud warning (a laptop without the user). |
-| `QA_EGRESS_MODE` | `enforce` | `enforce`: a run whose egress filter is not active ends `E-SANDBOX`. `warn`: it runs with the container's full network and records `gateSignals.sandbox.egress = "unenforced"`. |
+| `QA_EXEC_SANDBOX` | `required` when unset and running as root on Linux (every container), `best-effort` elsewhere | `required`: a run that cannot drop to the sandbox user refuses to execute agent code and ends `infra-error E-SANDBOX`. `best-effort`: it runs as the current user with a loud warning (a laptop without the user). |
+| `QA_EGRESS_MODE` | `enforce` | `enforce`: a run whose egress filter is not active ends `E-SANDBOX`. `warn`: it runs with the container's full network and records `gateSignals.sandbox.egress = "unenforced"`. With no sandbox uid (a laptop) there is no filter, so `enforce` refuses to run agent code: set `QA_EGRESS_MODE=warn` there. |
 
 `GET /api/health` reports a degraded sandbox (still HTTP 200). After a deploy, `docker compose exec orchestrator npm run sandbox:smoke` proves the boundary in the running container. Details: [docs/execution-sandbox.md](docs/execution-sandbox.md).
 

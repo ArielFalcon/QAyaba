@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { createExecSandbox, isSandboxUnavailable, resolveExecSandboxMode, SandboxUnavailableError, type EgressGate, type ExecSandboxDeps } from "../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
+import { createExecSandbox, isSandboxUnavailable, resetExecSandboxWarnings, resolveExecSandboxMode, SandboxUnavailableError, type EgressGate, type ExecSandboxDeps } from "../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { SANDBOX_PROFILES } from "../../../src/shared-infrastructure/process-sandbox/exec-env.ts";
 import { newSandboxReport, withExecScope, type RunScope } from "../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import { SandboxResidueError } from "../../../src/shared-infrastructure/process-sandbox/sandbox-reaper.ts";
@@ -19,6 +19,7 @@ const BASE: NodeJS.ProcessEnv = { PATH: "/usr/bin", HOME: "/root", GITHUB_TOKEN:
 interface Spawned { cmd: string; args: string[]; options: SpawnOptions; child: ChildProcess & EventEmitter }
 
 function harness(overrides: Partial<ExecSandboxDeps> = {}): { port: ReturnType<typeof createExecSandbox>; calls: Spawned[]; warnings: string[]; root: string; authDir: string; scope: RunScope } {
+  resetExecSandboxWarnings();
   const root = mkdtempSync(join(tmpdir(), "exec-sandbox-"));
   const authDir = join(root, "auth");
   const calls: Spawned[] = [];
@@ -194,11 +195,55 @@ test("a lease is given back when the spawn itself throws", () => {
   }
 });
 
-test("QA_EXEC_SANDBOX: unset is best-effort, the two names are accepted, anything else is a configuration error", () => {
-  assert.equal(resolveExecSandboxMode({}), "best-effort");
-  assert.equal(resolveExecSandboxMode({ QA_EXEC_SANDBOX: "required" }), "required");
-  assert.equal(resolveExecSandboxMode({ QA_EXEC_SANDBOX: "best-effort" }), "best-effort");
+test("QA_EXEC_SANDBOX: unset is required where the sandbox can exist (root on Linux) and best-effort elsewhere; the two names are accepted; anything else is a configuration error", () => {
+  const asRoot = () => 0;
+  const asUser = () => 1000;
+  assert.equal(resolveExecSandboxMode({}, "linux", asRoot), "required", "a container running as root must not silently run agent code as root");
+  assert.equal(resolveExecSandboxMode({ QA_EXEC_SANDBOX: "" }, "linux", asRoot), "required");
+  assert.equal(resolveExecSandboxMode({}, "linux", asUser), "best-effort");
+  assert.equal(resolveExecSandboxMode({}, "darwin", asRoot), "best-effort");
+  assert.equal(resolveExecSandboxMode({ QA_EXEC_SANDBOX: "required" }, "darwin", asUser), "required");
+  assert.equal(resolveExecSandboxMode({ QA_EXEC_SANDBOX: "best-effort" }, "linux", asRoot), "best-effort", "an explicit choice is the operator's");
   assert.throws(() => resolveExecSandboxMode({ QA_EXEC_SANDBOX: "off" }), /QA_EXEC_SANDBOX/);
+});
+
+test("the warning that agent code runs unisolated is said once per process, however many launchers there are", () => {
+  const first = harness({ sandbox: null, mode: "best-effort" });
+  const second = createExecSandbox({ sandbox: null, mode: "best-effort", baseEnv: BASE, spawnFn: (() => new EventEmitter()) as never, warn: (line) => first.warnings.push(line) });
+  try {
+    first.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: first.scope });
+    second.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: first.scope });
+    assert.equal(first.warnings.filter((w) => /best-effort/.test(w)).length, 1);
+  } finally {
+    rmSync(first.root, { recursive: true, force: true });
+  }
+});
+
+test("egress enforce without a sandbox uid refuses to spawn: the filter matches on that uid, so nothing would hold the child", () => {
+  const h = harness({ sandbox: null, mode: "best-effort", egressMode: "enforce" });
+  try {
+    assert.throws(
+      () => h.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "suite", scope: h.scope }),
+      (err: unknown) => isSandboxUnavailable(err) && err.reason === "egress",
+    );
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.scope.report.refusal, "egress");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("egress warn without a sandbox uid runs the child unfiltered, says so once, and records it", () => {
+  const h = harness({ sandbox: null, mode: "best-effort", egressMode: "warn" });
+  try {
+    h.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "suite", scope: h.scope });
+    h.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "suite", scope: h.scope });
+    assert.equal(h.calls.length, 2);
+    assert.equal(h.scope.report.egress, "unenforced");
+    assert.equal(h.warnings.filter((w) => /egress/i.test(w)).length, 1);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
 });
 
 test("a call's directory is fresh, inside the work dir, and carries the subdirectories asked for", () => {

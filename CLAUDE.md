@@ -391,12 +391,14 @@ threat-model header first) and a canary-before-promote hot-swap.
   (a suite gets it only for an app that sets `e2e.specCredentials: account`); a suite gets a per-spawn copy of the saved
   session and never the auth dir. A new module that
   imports `child_process` is a build failure (`npm run arch:check`, rule `no-child-process-outside-launchers`); add a
-  spawn site by adding a profile call, not an exception. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
-  without the sandbox uid (`infra-error E-SANDBOX`, never learned from, no Issue).
+  spawn site by adding a profile call, not an exception. `QA_EXEC_SANDBOX=required` (compose, and the default for root on Linux) refuses to run agent code
+  without the sandbox uid (`infra-error E-SANDBOX`, never learned from, no Issue). Whatever a child leaves running is killed by uid
+  (`sandbox-reaper.ts`) and nothing a child writes lands in the mirror the agent reads (the dump folders go through
+  `run-dump-bridge.ts`).
 - **The sandbox uid's network is closed by default.** An iptables chain matched on that uid redirects its DNS and TCP to a
   DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, the app's own
   origin, `egress.installOrigins`, `config/egress/registries.yaml`); everything else, IPv6 and the other loopback ports
-  included, is rejected. `QA_EGRESS_MODE=enforce` (default) ends a run `E-SANDBOX` when the filter is not active. Origins are
+  included, is rejected. `QA_EGRESS_MODE=enforce` (default) ends a run `E-SANDBOX` when the filter is not active, and also when there is no sandbox uid to filter. Origins are
   data: never add a host in code. Denied hosts land in `gateSignals.sandbox.denied`.
 - **File permissions are the boundary for secrets.** `bin/container-entrypoint.sh` closes `/app/data` (0700), `/app/config`
   (0750) and the mirrors at every boot; the sandbox uid reads one mirror at a time (the run opens it to its group and seals

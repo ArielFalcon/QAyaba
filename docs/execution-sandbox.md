@@ -67,7 +67,7 @@ it again during a run.
 
 ### Modes
 
-`QA_EXEC_SANDBOX=required|best-effort` (compose: `required`; the engine's own default: `best-effort`). With `required` and no
+`QA_EXEC_SANDBOX=required|best-effort` (unset: `required` for root on Linux, so a container that forgot the variable refuses instead of running agent code as root; `best-effort` elsewhere, where there is no uid to drop to; compose sets `required`). With `required` and no
 sandbox uid (not root on Linux, the image lacks the user, `CODE_SANDBOX=off`), the launcher refuses to spawn and the run
 ends `infra-error` with class `E-SANDBOX` (persisted, never learned from, no Issue). With `best-effort` the child runs as the
 current user and the launcher warns, loudly, once per process; use it only on a host you do not care about.
@@ -136,7 +136,7 @@ is recorded in `gateSignals.sandbox.denied` (at most 64 per run), which is how t
 
 ### Modes
 
-`QA_EGRESS_MODE=enforce|warn` (default `enforce`). When the filter is not active (the boot self-test did not pass, the jumps
+`QA_EGRESS_MODE=enforce|warn` (default `enforce`). With no sandbox uid there is no filter (it matches on that uid), so under `enforce` the launcher refuses to spawn (`E-SANDBOX`, reason `egress`) instead of quietly running the child unfiltered; a host without the uid sets `warn` explicitly. The "agent code runs unisolated / unfiltered" warnings are said once per process. When the filter is not active (the boot self-test did not pass, the jumps
 are gone, the rules could not be applied) and the mode is `enforce`, a run that would execute agent code ends `E-SANDBOX`;
 `/api/health` answers 200 with `sandbox.degraded: true` and the reason. With `warn` the child runs with the container's full
 network and the run records `gateSignals.sandbox.egress = "unenforced"`.

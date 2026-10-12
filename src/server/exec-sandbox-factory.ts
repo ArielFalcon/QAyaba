@@ -6,6 +6,7 @@ import { createExecSandbox, resolveExecSandboxMode, type EgressGate, type ExecSa
 import type { ExecScopePort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { createExecScopeProvider } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider";
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { resolveEgressMode } from "./egress-wiring";
 import { processReaper } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox-reaper";
 
 export interface ExecWiring {
@@ -43,7 +44,7 @@ export function gateCredsFrom(env: NodeJS.ProcessEnv): { user: string; pass: str
 export function buildExecWiring(input: ExecWiringInput): ExecWiring {
   const mode = resolveExecSandboxMode(input.env);
   const reaper = processReaper(input.sandbox);
-  const exec = createExecSandbox({ sandbox: input.sandbox, mode, baseEnv: input.env, ...(input.egress ? { egress: input.egress } : {}), ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}), ...(reaper ? { reaper } : {}) });
+  const exec = createExecSandbox({ sandbox: input.sandbox, mode, egressMode: resolveEgressMode(input.env), baseEnv: input.env, ...(input.egress ? { egress: input.egress } : {}), ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}), ...(reaper ? { reaper } : {}) });
   const gateCreds = gateCredsFrom(input.env);
   const execScope = createExecScopeProvider({
     workRoot: input.workRoot ?? execWorkRoot(input.env),
@@ -69,7 +70,7 @@ export interface ScriptExec {
 export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null, egress?: EgressGate): ScriptExec {
   const mode = resolveExecSandboxMode(env);
   const reaper = processReaper(sandbox);
-  const exec = createExecSandbox({ sandbox, mode, baseEnv: env, ...(egress ? { egress } : {}), ...(reaper ? { reaper } : {}) });
+  const exec = createExecSandbox({ sandbox, mode, egressMode: resolveEgressMode(env), baseEnv: env, ...(egress ? { egress } : {}), ...(reaper ? { reaper } : {}) });
   const gateCreds = gateCredsFrom(env);
   return {
     exec,
