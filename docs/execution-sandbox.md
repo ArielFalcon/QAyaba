@@ -14,7 +14,7 @@ It replaces `docs/code-mode-sandbox.md`, which covered only the code target and 
 | Boundary | What it stops | Where it lives |
 |---|---|---|
 | **Identity and environment** | Agent code running as root, or seeing the orchestrator's secrets | the launcher: `qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, `exec-env.ts` |
-| **Files** | Reading the API token, the auth material, another repo's mirror; writing the mirror it runs in | `bin/container-entrypoint.sh`, `mirror-access.ts`, `exec-workdir.ts` |
+| **Files** | Reading the API token, the auth material, the app configs, another repo's mirror; writing the orchestrator's code and config or the mirror it runs in | `bin/container-entrypoint.sh`, the boot check (`src/server/file-boundary-check.ts`, `process-sandbox/file-boundary.ts`), `mirror-access.ts`, `exec-workdir.ts` |
 | **Network** | Exfiltrating over the network, reaching the control-plane API or other containers | `qa-engine/src/shared-infrastructure/egress/`, `bin/egress-init.sh` |
 
 A new spawn site cannot bypass the first: `npm run arch:check` fails on any `qa-engine/src` module that imports
@@ -68,8 +68,9 @@ it again during a run.
 ### Modes
 
 `QA_EXEC_SANDBOX=required|best-effort` (unset: `required` for root on Linux, so a container that forgot the variable refuses instead of running agent code as root; `best-effort` elsewhere, where there is no uid to drop to; compose sets `required`). With `required` and no
-sandbox uid (not root on Linux, the image lacks the user, `CODE_SANDBOX=off`), the launcher refuses to spawn and the run
-ends `infra-error` with class `E-SANDBOX` (persisted, never learned from, no Issue). With `best-effort` the child runs as the
+sandbox uid (not root on Linux, the image lacks the user, `CODE_SANDBOX=off`), or with a file boundary the boot check did not find
+holding (below), the launcher refuses to spawn and the run ends `infra-error` with class `E-SANDBOX` (persisted, never learned
+from, no Issue). With `best-effort` the child runs as the
 current user and the launcher warns, loudly, once per process; use it only on a host you do not care about.
 
 ## Files
@@ -78,12 +79,42 @@ current user and the launcher warns, loudly, once per process; use it only on a 
 
 | Path | Mode | Why |
 |---|---|---|
-| `/app/data` | `0700` | run history, `auth/<app>/` (session, client certificate), the suite store, learning state |
+| `/app/data` | `0700` | run history, the API token (`data/.api_token`, `0600`), `auth/<app>/` (session, client certificate), the suite store, learning state |
 | `/app/.codebase-memory` (`CBM_CACHE_DIR`) | `0700` | the code graph of every indexed repo: the structure of repos the sandbox uid must not read |
-| `/app/config`, `config/.api_token` | `0750`, `0600` | app configs and the API token. A rw bind mount: **only the mode changes, never the owner**, so a Linux host's own user keeps its access |
+| `/app/.host` | `0700` | the parent of the host's config folder (below) |
+| `/app/config` → `.host/config` | `0750` | app configs. A rw bind mount: **only the mode changes, never the owner**, so a Linux host's own user keeps its access |
 | mirrors volume | `0711` | traversable, not listable |
 | each mirror | `0750 root:root` | closed to the sandbox uid |
 | `/tmp/qa-exec` | `0711` | per-run work dirs |
+
+**A mode is only a boundary where the filesystem enforces it.** A host bind mount of Docker Desktop's file sharing (`fakeowner`
+in `/proc/self/mountinfo`) grants every uid what it asks: there the sandbox uid could read a token kept in `config/`, rewrite an
+app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the orchestrator's code through a code mount. So:
+
+- **The API token lives in `data/`**, a named volume, never in a host folder. The service moves a token an earlier version left
+  in `config/.api_token` there at its start (`src/server/api-token.ts`) and leaves no copy; clients read `data/.api_token` first
+  and the old file only as a fallback.
+- **The host's config folder is mounted at `/app/.host/config`** and `/app/config` is a link to it (Dockerfile, compose). The lookup
+  of a path is checked by the filesystem of each directory on the way, and `/app/.host` (`0700 root`) is on the image's own
+  filesystem: the sandbox uid cannot reach the configs whatever the host folder's filesystem does, and the orchestrator (root)
+  reads and writes them as before. Nothing the sandbox runs reads `config/`: the `config/e2e` seed is copied into the mirror by
+  the orchestrator.
+- **Code is mounted read-only** in the dev override (`src`, `qa-engine`, `scripts`, `web`, `tsconfig.json`, the package files): a
+  read-only mount is refused by the kernel for every uid. The orchestrator writes none of them at runtime; the maintainer hot-swap
+  stays a no-op in dev (it fails with `EROFS` before it removes anything, where a rw `fakeowner` mount would have let it empty the
+  host's `src/` before failing).
+- **The boundary is proven at every boot.** After setting the modes the entrypoint runs `src/server/file-boundary-check.ts`, which
+  makes, in a child started as the sandbox uid the way the launcher starts agent code, every attempt that uid must see refused:
+  read `/proc/1/environ` and the API token (new and old place), list `data/`, `data/auth`, `config/`, `config/apps`, the code graph
+  and the mirrors volume, and write the app root, **every mount under it found in `/proc/self/mountinfo`** (so a bind added later is
+  checked without anyone listing it), the orchestrator's code and config and the status files the service trusts. A write is tried
+  by creating a file in a directory (removed again) or by opening a file for writing (no byte changes). The orchestrator judges
+  the child's report and leaves `ok` or `breach: <what>` in `QA_FILE_BOUNDARY_STATUS_FILE` (default
+  `/run/qa-file-boundary.status`; a stale one is removed before the check). An attempt with no result, an error that proves
+  nothing, or a missing status is a breach. The launcher reads the status before every spawn: under `QA_EXEC_SANDBOX=required` a
+  breach refuses agent code (`E-SANDBOX`, reason `files`), under `best-effort` it runs and says so once; `/api/health` reports
+  `sandbox.files: "exposed"`, `degraded: true` and the reason. A container started without the entrypoint has no status and
+  refuses agent code.
 
 The mirror a run executes in is opened to the sandbox *group* (`root:<sandbox gid>`, `0750`) when its first child starts; every
 mirror is sealed again when the run's scope opens and when it ends. Files in a mirror stay root-owned and world-readable, so
@@ -216,17 +247,23 @@ docker compose exec orchestrator npm run sandbox:smoke
 
 It seeds a throwaway project under the mirrors volume, installs it as the sandbox uid, and runs `scripts/sandbox-smoke/*.spec.ts`
 through the real runner with canary secrets planted in the service's environment. Every spec passes only when the isolation
-holds: `/proc/1/environ`, `/app/data`, `/app/config/.api_token` are `EACCES`; the mirror it runs in and another one cannot be
-written or listed; an undeclared host, raw TCP/UDP to a public address, IPv6 and the API on loopback all fail; no secret is in
+holds: `/proc/1/environ`, `/app/data`, the API token (`/app/data/.api_token`, and the old `/app/config/.api_token`) and
+`/app/config` are `EACCES`; an app config cannot be written; no mount under `/app` can be written; the mirror it runs in and
+another one cannot be written or listed; an undeclared host, raw TCP/UDP to a public address, IPv6 and the API on loopback all fail; no secret is in
 `process.env`; and the one declared origin (`QA_SMOKE_ORIGIN`, default `https://example.com`) loads in a real browser. Exit 0
 only if every expected case ran and passed. `QA_SMOKE_UNDECLARED` (default `https://example.org`) is the host that must stay
 unreachable.
 
-Docker Desktop: the LinuxKit kernel carries `xt_owner` and the nft backend and the self-test and smoke pass there; on any other
-host the self-test decides, never an assumption.
+Docker Desktop: the LinuxKit kernel carries `xt_owner` and the nft backend, so the egress self-test passes there; its file sharing
+does not enforce permissions on bind mounts, which is why the token is in a volume, the configs sit behind `/app/.host` and code is
+mounted read-only. With the shipped compose files the boot check and the smoke pass there; on any other host the checks decide,
+never an assumption. A spawn the launcher refused because of the files names what was exposed.
 
 ## Residual gaps
 
+- **The boot check plans its attempts at the mount roots.** A filesystem that does not enforce permissions fails them all, so one
+  write per mount detects it; a single world-writable directory deeper inside an enforcing mount is a mode the entrypoint did not
+  set, and is not looked for. It runs at boot: a mount cannot change under a running container, a mode changed later by hand can.
 - **Domain fronting.** The proxy trusts the TLS server name. A declared host that is a shared CDN can front for another tenant of
   the same CDN. Declare narrow hosts.
 - **`DEV_ENV_USER/PASS` are visible to the specs** (the DEV HTTP-Basic gate is a suite input); they can only be sent to declared origins.

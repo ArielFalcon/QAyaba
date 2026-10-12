@@ -412,16 +412,22 @@ threat-model header first) and a canary-before-promote hot-swap.
   session and never the auth dir. A new module that
   imports `child_process` is a build failure (`npm run arch:check`, rule `no-child-process-outside-launchers`); add a
   spawn site by adding a profile call, not an exception. `QA_EXEC_SANDBOX=required` (compose) refuses to run agent code
-  without the sandbox uid (`infra-error E-SANDBOX`, never learned from, no Issue).
+  without the sandbox uid, or with a file boundary the boot check did not prove (`infra-error E-SANDBOX`, never learned from, no Issue).
 - **The sandbox uid's network is closed by default.** An iptables chain matched on that uid redirects its DNS and TCP to a
   DNS filter and a transparent proxy that allow only the origins declared in config (`dev.allowedOrigins`, the app's own
   origin, `egress.installOrigins`, `config/egress/registries.yaml`); everything else, IPv6 and the other loopback ports
   included, is rejected. `QA_EGRESS_MODE=enforce` (default) ends a run `E-SANDBOX` when the filter is not active. Origins are
   data: never add a host in code. Denied hosts land in `gateSignals.sandbox.denied`.
-- **File permissions are the boundary for secrets.** `bin/container-entrypoint.sh` closes `/app/data` (0700), `/app/config`
-  (0750) and the mirrors at every boot; the sandbox uid reads one mirror at a time (the run opens it to its group and seals
-  it again) and writes none of it. Do not give the sandbox uid, or a path it can write, a way to the API token, `/app/data`
-  or another mirror.
+- **File permissions are the boundary for secrets, and they are proven, not assumed.** `bin/container-entrypoint.sh` closes
+  `/app/data` (0700, which holds the API token `data/.api_token`), `/app/.host` (0700, the root-only parent of the host's config
+  folder; `/app/config` is a link to `.host/config`) and the mirrors at every boot; the sandbox uid reads one mirror at a time
+  (the run opens it to its group and seals it again) and writes none of it. A host bind mount may not enforce permissions
+  (Docker Desktop's `fakeowner`), so secrets never live in one the sandbox uid can reach and code is mounted read-only. Then
+  `src/server/file-boundary-check.ts` tries, as the sandbox uid, to read the token and `/proc/1/environ`, list the closed
+  directories and write the app root, every mount under it (from `/proc/self/mountinfo`) and the orchestrator's code and config;
+  any success, or no result, is a breach: `/api/health` reports the sandbox degraded and `QA_EXEC_SANDBOX=required` refuses agent
+  code (`infra-error E-SANDBOX`). Do not give the sandbox uid, or a path it can write, a way to the API token, `/app/data`, the
+  app configs or another mirror, and never add a rw bind mount under `/app` the sandbox uid can write.
 - **What the agent writes or reports is untrusted input.** Orchestrator code that reads, lists
   or writes a path the agent can influence (a reported spec path, the manifest, the context
   map, files setup replaces, what a test run leaves) goes through the confined reader,
