@@ -1429,6 +1429,28 @@ test("enforce mode — the regen's generate() throws — KEEPS the first measure
   );
 });
 
+test("enforce mode — the run deadline is spent during the coverage regeneration — the first measurement stands: no time-budget end, the PR stays held", async () => {
+  let measureCallCount = 0;
+  const { ports } = stubPorts({
+    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+    measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }; },
+    blocks: (status) => status === "fail",
+  });
+  let genCallCount = 0;
+  ports.generation.generate = async () => {
+    genCallCount++;
+    if (genCallCount === 1) return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    throw new RunDeadlineExceededError(600_000, "diff", "primary", "before-turn");
+  };
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" } });
+
+  const out = await useCase.run({ ...baseInput, runId: "enforce-regen-deadline" });
+
+  assert.equal(out.decision.verdict, "pass", "the green run is not turned into a time-budget infra-error");
+  assert.equal(out.decision.sideEffect, "issue", "the first measurement's block holds");
+  assert.equal(measureCallCount, 1);
+});
+
 test("enforce mode — the regen produces ZERO specs — KEEPS the first measurement's blocksPublish, only ONE measure() call", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
@@ -7949,21 +7971,6 @@ test("the deadline stopping the reviewer ends the run as a time-budget infra-err
   assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
   assert.match(run.savedOutcomes[0]!.note ?? "", /reviewer turn in progress was stopped/);
   assert.equal(run.published(), 0);
-});
-
-test("the deadline stopping the enforce-mode coverage regeneration ends the run the same way, after exactly the one regeneration", async () => {
-  let generated = 0;
-  const run = await runEndedByDeadline(
-    {
-      generate: async () => { generated++; if (generated > 1) throw deadlineExceeded("primary"); return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
-      measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }),
-      blocks: (status) => status === "fail",
-    },
-    { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  );
-  assert.equal(generated, 2);
-  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
-  assert.equal(run.out.decision.verdict, "infra-error");
 });
 
 test("the deadline reaching the pre-generation grounding (the explorer's turn) ends the run: it is not ungrounded generation", async () => {

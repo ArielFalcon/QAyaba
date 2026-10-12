@@ -1875,39 +1875,45 @@ export class RunQaUseCase {
        * blocksPublish (never fabricated).
        */
       if (blocksPublish && input.mode === "diff" && !input.triggerRepo) {
-        const gap = renderCoverageGap(signal.uncovered ?? []);
-        /*
-         * The method's AbortSignal parameter is shadowed here by the measure() result
-         * `signal`. This generate() omits it rather than rename every `signal.*` read.
-         */
-        const regen = await regenerate(undefined, { coverageGap: gap });
-        await enforceConfinement();
-        if (regen.specs.length > 0) {
-          const regenValidation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles);
-          if (regenValidation.ok) {
-            const regenNamespace = `${input.runId}-coverage-regen`;
-            const regenRun = await this.deps.execution.execute(workspace.specDir, {
-              ...liveExecutionOpts,
-              namespace: regenNamespace,
-            });
-            if (regenRun.verdict === "pass") {
-              const regenBaselineCases = regenRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
-              /*
-               * Re-measure MUST read the regen's own dumps under regenNamespace — never the
-               * first run's composition-time namespace.
-               */
-              const signal2 = await this.deps.objectiveSignal.measure(
-                runBlastRadius,
-                workspace.specDir,
-                classificationDiff,
-                regenBaselineCases,
-                { namespace: regenNamespace },
-              );
-              coverageRatio = signal2.ratio;
-              coverageStatus = signal2.status;
-              blocksPublish = this.deps.objectiveSignal.blocks(signal2.status);
+        try {
+          const gap = renderCoverageGap(signal.uncovered ?? []);
+          /*
+           * The method's AbortSignal parameter is shadowed here by the measure() result
+           * `signal`. This generate() omits it rather than rename every `signal.*` read.
+           */
+          const regen = await regenerate(undefined, { coverageGap: gap });
+          await enforceConfinement();
+          if (regen.specs.length > 0) {
+            const regenValidation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles);
+            if (regenValidation.ok) {
+              const regenNamespace = `${input.runId}-coverage-regen`;
+              const regenRun = await this.deps.execution.execute(workspace.specDir, {
+                ...liveExecutionOpts,
+                namespace: regenNamespace,
+              });
+              if (regenRun.verdict === "pass") {
+                const regenBaselineCases = regenRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
+                /*
+                 * Re-measure MUST read the regen's own dumps under regenNamespace — never the
+                 * first run's composition-time namespace.
+                 */
+                const signal2 = await this.deps.objectiveSignal.measure(
+                  runBlastRadius,
+                  workspace.specDir,
+                  classificationDiff,
+                  regenBaselineCases,
+                  { namespace: regenNamespace },
+                );
+                coverageRatio = signal2.ratio;
+                coverageStatus = signal2.status;
+                blocksPublish = this.deps.objectiveSignal.blocks(signal2.status);
+              }
             }
           }
+        } catch (regenErr) {
+          /* The run's time is spent: the first measurement stands, as for any regeneration that cannot finish. Any other fault still propagates. */
+          if (!isRunDeadlineError(regenErr)) throw regenErr;
+          console.warn(`[qa] the run deadline was spent during the coverage regeneration; the first measurement stands (${regenErr.message})`);
         }
       }
     }
