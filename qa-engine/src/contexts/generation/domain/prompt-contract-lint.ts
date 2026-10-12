@@ -24,6 +24,7 @@ export type FactId =
   | "service-links"
   | "harness-facts"
   | "step-limit"
+  | "closed-loop"
   | "existing-suite"
   | "learned-rules"
   | "exemplars"
@@ -114,6 +115,7 @@ export interface LintFinding {
 export const APP_LOGIN_SECTION_ID = "app-login";
 export const HARNESS_FACTS_SECTION_ID = "harness-facts" satisfies FactId;
 export const STEP_LIMIT_SECTION_ID = "step-limit" satisfies FactId;
+export const CLOSED_LOOP_SECTION_ID = "closed-loop" satisfies FactId;
 
 /* Facts that exactly one section may provide: a second copy is a duplicated source of truth. */
 const SINGLE_SOURCE_FACTS: readonly FactId[] = [
@@ -123,6 +125,7 @@ const SINGLE_SOURCE_FACTS: readonly FactId[] = [
   "dom-live",
   "api-operations",
   "step-limit",
+  "closed-loop",
   "existing-suite",
   "learned-rules",
   "exemplars",

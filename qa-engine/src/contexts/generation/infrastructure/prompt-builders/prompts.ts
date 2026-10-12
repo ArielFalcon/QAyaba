@@ -19,7 +19,8 @@ import { diffStat, diffTier, type DiffStat, type DiffTier } from "@contexts/gene
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
-import { claim, APP_LOGIN_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import { claim, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
 import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
@@ -57,6 +58,14 @@ function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
     lines.push(`fixtures: ${s(`${e2eRelDir}/${facts.fixtures.file}`)} exports ${facts.fixtures.exports.map(s).join(", ")}`);
   }
   return lines.length > 0 ? [`## ${PROMPT_HEADINGS.harnessFacts}`, ...lines, ``].join("\n") : "";
+}
+
+export { CLOSED_LOOP_SECTION_ID };
+
+/* The run_spec tool a run granted the generator, as facts: how many calls, how long each may run, how many requests that write to DEV the executed specs may send in all. Numbers only; how to use the tool is the role prompt's. */
+function renderClosedLoop(limits: ClosedLoopLimits): string {
+  const seconds = Math.round(limits.perCallMs / 1000);
+  return [`## ${PROMPT_HEADINGS.closedLoop}`, `run_spec: at most ${limits.maxCalls} calls this run, ${seconds} seconds each, ${limits.maxDevWrites} requests that write to DEV (POST, PUT, PATCH, DELETE) in all.`, ``].join("\n");
 }
 
 /* The files whose content the surviving sections render compactly: reading one of them re-fetches what the prompt already carries. A section that was shed contributes nothing. */
@@ -896,6 +905,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     return renderExemplarsForPrompt(deduped);
   })();
 
+  const closedLoopContent = isGenerationMode && input.target === "e2e" && input.closedLoop ? renderClosedLoop(input.closedLoop) : "";
   const stepLimitContent = input.stepLimit !== undefined ? renderStepLimit(input.stepLimit) : "";
   const milestone = input.stepLimit !== undefined ? stepMilestone(input, input.stepLimit) : undefined;
   const stepMilestoneContent = milestone ? renderStepMilestone(milestone) : "";
@@ -911,6 +921,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
       ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
       ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
+      ...(closedLoopContent ? [section(CLOSED_LOOP_SECTION_ID, "semi-stable", closedLoopContent, { priority: 0, claims: [claim.provides("closed-loop")] })] : []),
       ...(suiteIsListed ? [section(SUITE_LISTING_SECTION_ID, "semi-stable", listingContent, { priority: 2, claims: [claim.provides("existing-suite")], ...(editableListed ? { overflow: "summarize" as const } : {}) })] : []),
       ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
       ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),

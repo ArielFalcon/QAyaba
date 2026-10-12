@@ -85,7 +85,11 @@ test("a code run can be asked to cover a change it already tested, but never to 
 
 test("the matrix holds every valid combination against both static layers", async () => {
   const cells = await matrixOnce();
-  assert.equal(cells.length, allValidSpecs().length * 2);
+  /* A run on the Codex runtime is never granted the run_spec tool, so a combination that states its budget has a cell in the OpenCode layer only. */
+  const granted = allValidSpecs().filter((s) => s.closedLoop).length;
+  assert.ok(granted > 0, "setup: some combinations state the budget");
+  assert.equal(cells.length, allValidSpecs().length * 2 - granted);
+  assert.equal(cells.some((c) => c.layer === "codex" && c.spec.closedLoop), false, "no Codex cell states a budget");
   assert.deepEqual([...new Set(cells.map((c) => c.layer))].sort(), ["codex", "opencode"]);
   for (const layer of ["opencode", "codex"] as const) {
     const sections = loadStaticLayer(layer, ROOT);
@@ -103,7 +107,7 @@ test("an OpenCode cell is assembled with the step limit that runtime enforces, a
   const cells = await matrixOnce();
   const opencode = cells.filter((c) => c.layer === "opencode");
   const codex = cells.filter((c) => c.layer === "codex");
-  assert.ok(opencode.length > 0 && codex.length === opencode.length, "every combination has a cell in each layer");
+  assert.ok(opencode.length > 0 && codex.length === opencode.filter((c) => !c.spec.closedLoop).length, "every combination has a cell in each layer, but the ones that state the run_spec budget, which only OpenCode can be granted");
   assert.deepEqual([...new Set(opencode.map((c) => c.stepLimit))], [MATRIX_STEP_LIMIT]);
   assert.deepEqual([...new Set(codex.map((c) => c.stepLimit))], [undefined]);
 });
@@ -384,7 +388,7 @@ test("the budgets of the worst-case listing are above those of every ordinary li
   const baseline = loadBaseline(ROOT);
   const valid = allValidSpecs();
   const budgetOf = (suite: CellSpec["suite"], phase: CellSpec["phase"], target: CellSpec["target"]): number =>
-    Math.max(...valid.filter((s) => s.suite === suite && s.phase === phase && s.target === target).map((s) => baseline.buckets[bucketOf(s)]!.bytes));
+    Math.max(...valid.filter((s) => s.suite === suite && s.phase === phase && s.target === target && !s.closedLoop).map((s) => baseline.buckets[bucketOf(s)]!.bytes));
   for (const [phase, target] of [["regen-coverage", "e2e"], ["regen-coverage", "code"], ["selector-fix", "e2e"]] as const) {
     assert.ok(budgetOf("large", phase, target) > budgetOf("listed", phase, target), `${phase}, ${target}`);
   }
@@ -467,7 +471,8 @@ test("the recorded global size is the reference production prompt size the modul
 
 test("every combination that can reach the agent has a recorded budget, with a step limit and without, and the baseline names only combinations that can", () => {
   const baseline = loadBaseline(ROOT);
-  const reachable = new Set(allValidSpecs().flatMap((spec) => [bucketOf(spec), bucketOf(spec, true)]));
+  /* A combination that states the run_spec budget exists only on the runtime that states a step limit. */
+  const reachable = new Set(allValidSpecs().flatMap((spec) => (spec.closedLoop ? [bucketOf(spec, true)] : [bucketOf(spec), bucketOf(spec, true)])));
   assert.deepEqual([...reachable].filter((bucket) => baseline.buckets[bucket] === undefined), [], "a reachable combination has no budget");
   assert.deepEqual(Object.keys(baseline.buckets).filter((bucket) => !reachable.has(bucket)), [], "a budget names no reachable combination");
   for (const [bucket, measure] of Object.entries(baseline.buckets)) {

@@ -148,6 +148,7 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(enrichment?.contextMap ? { contextMap: enrichment.contextMap } : {}),
       ...(enrichment?.contextBrief ? { contextBrief: enrichment.contextBrief } : {}),
       ...(enrichment?.harnessFacts ? { harnessFacts: enrichment.harnessFacts } : {}),
+      ...(enrichment?.closedLoop ? { closedLoop: enrichment.closedLoop } : {}),
       /* Structural-blast-radius advisory, with the flag that says it names symbols. Absent → omitted; the flag never travels without its signal. */
       ...(enrichment?.staticSignal
         ? { staticSignal: enrichment.staticSignal, ...(enrichment.staticSignalHasSymbols ? { staticSignalHasSymbols: true } : {}) }

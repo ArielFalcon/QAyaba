@@ -33,6 +33,7 @@ import { hasSymbolBlocks, renderBlastRadiusSignal } from "@contexts/qa-run-orche
 import {
   countDirectives,
   findingKey,
+  CLOSED_LOOP_SECTION_ID,
   HARNESS_FACTS_SECTION_ID,
   STEP_LIMIT_SECTION_ID,
   lintCell,
@@ -45,6 +46,7 @@ import type {
   ExplorationBrief,
   OpencodeRunInput,
 } from "@contexts/generation/application/ports/generation-ports.ts";
+import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
 import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
 import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
@@ -81,6 +83,8 @@ export const DIMENSIONS = {
   service: [false, true],
   /* Whether the run lists any spec: the suite as the grounding folded it, on a diff or a manual run, and on a regeneration the specs the run has delivered. `large` is the worst case of a listing: a diff or manual run that delivered more specs than the listing shows of the ones it can say nothing of, over a suite that has more than it shows of the ones to leave alone, and then could not say which spec to change. */
   suite: ["listed", "none", "large"],
+  /* Whether the run granted the generator the run_spec tool, so its prompt states the budget. Only the OpenCode layer can have it (the Codex runtime cannot call a custom tool), and only an e2e run that writes tests. */
+  closedLoop: [false, true],
 } as const;
 
 export type CellSpec = { -readonly [K in keyof typeof DIMENSIONS]: (typeof DIMENSIONS)[K][number] };
@@ -130,6 +134,11 @@ export function isValidSpec(spec: CellSpec): boolean {
     if (!cannotSayWhich || !listsItsSuite || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
     if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom) return false;
   }
+  /* The budget is one small block that bears on no other decision: it meets every phase, tree and grounding of an e2e run that writes tests, with the plain signals and none of the optional blocks. */
+  if (spec.closedLoop) {
+    if (isContext || isCode || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
+    if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom || spec.suite !== "listed") return false;
+  }
   /* The service block belongs to the diff-shaped first pass and to every regeneration of an e2e run. */
   if (spec.service && (isContext || (spec.mode !== "diff" && spec.phase === "first"))) return false;
   return true;
@@ -167,6 +176,7 @@ export function cellName(spec: CellSpec): string {
     spec.service ? "service" : "",
     spec.suite === "none" ? "nosuite" : "",
     spec.suite === "large" ? "largesuite" : "",
+    spec.closedLoop ? "loop" : "",
   ].filter(Boolean);
   return [
     spec.mode,
@@ -350,6 +360,9 @@ function deliveredSpecsFor(spec: CellSpec): DeliveredSpec[] | undefined {
 /* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap; the Codex runtime has no step cap to report (the `stepLimits` asymmetry documented in src/agent-runtime/contract-parity.test.ts), so a Codex prompt is built with none. */
 export const MATRIX_STEP_LIMIT = 40;
 
+/* The run_spec budget a granted cell is assembled with: the shipped defaults. */
+export const MATRIX_CLOSED_LOOP = DEFAULT_CLOSED_LOOP_LIMITS;
+
 /* The run input of a combination; `stepLimit` is the cap the runtime resolved for the generator, absent when it states none. */
 export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<OpencodeRunInput> {
   const isCode = spec.target === "code";
@@ -379,6 +392,7 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
     ...(suiteLines ? { existingSpecFiles: suiteLines } : {}),
     ...(deliveredSpecs ? { deliveredSpecs } : {}),
     ...(stepLimit !== undefined ? { stepLimit } : {}),
+    ...(spec.closedLoop ? { closedLoop: MATRIX_CLOSED_LOOP } : {}),
   };
 
   if (spec.grounding === "brief" || spec.grounding === "brief+pack") input.contextBrief = briefFor(spec);
@@ -469,7 +483,7 @@ export function assembledLintSections(assembled: AssembledPrompt): LintSection[]
     text,
     claims: assembled.claims[id] ?? [],
     ...(VERBATIM_SECTION_IDS.has(id) ? { verbatim: true } : {}),
-    ...(id === HARNESS_FACTS_SECTION_ID || id === STEP_LIMIT_SECTION_ID ? { factsOnly: true } : {}),
+    ...(id === HARNESS_FACTS_SECTION_ID || id === STEP_LIMIT_SECTION_ID || id === CLOSED_LOOP_SECTION_ID ? { factsOnly: true } : {}),
   }));
 }
 
@@ -506,6 +520,7 @@ function combinationBucket(spec: CellSpec): string {
     ...(spec.service ? ["service"] : []),
     ...(spec.suite === "none" ? ["no-suite"] : []),
     ...(spec.suite === "large" ? ["large-suite"] : []),
+    ...(spec.closedLoop ? ["loop"] : []),
   ].join("/");
 }
 
@@ -546,6 +561,8 @@ export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[
   const cells: MatrixCell[] = [];
   for (const spec of specs) {
     for (const layer of layers) {
+      /* The Codex runtime cannot call the tool, so a run on it is never granted it: no cell of that layer states a budget. */
+      if (spec.closedLoop && layer === "codex") continue;
       /* A layer's cell is assembled from the input its own runtime hands the prompt, and records the limit that input carries. */
       const input = await buildInput(spec, STEP_LIMIT_BY_LAYER[layer]);
       /* Budget 0 disables shedding: the matrix measures the full prompt, independent of the model window catalog. */

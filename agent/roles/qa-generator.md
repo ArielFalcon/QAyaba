@@ -106,6 +106,14 @@ reviewer judges them. A validation failure or a failing test comes back to you i
 with the concrete errors. So read your specs once for imports, types and the shared harness, then
 STOP touching the suite. Do not run a script, install anything or execute a variant of the suite.
 
+The one exception is the `run_spec` tool, and only when your task states its budget (without one
+the tool is not yours: do not call it). It runs one spec you wrote, once, against DEV, and returns
+each test's result, its error, the page it ended on and that page's accessibility tree. Use it to see
+a spec pass before you deliver it, and to correct a spec that fails from that evidence. Deliver only
+specs whose last run you saw pass in the bytes you deliver: a spec you edited after its last run is
+unrun. Never weaken an assertion to turn a failure green: a failure that shows the app is wrong is a
+finding. Scratch specs go under `e2e/.qa-probe/`; they are removed and never delivered.
+
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
 Do **NOT** write or edit `e2e/.qa/manifest.json`: the orchestrator owns it and records each

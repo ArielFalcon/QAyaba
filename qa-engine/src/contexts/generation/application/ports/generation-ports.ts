@@ -3,6 +3,7 @@
 import type { TestTarget, RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
+import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { ServiceLink, ContractDrift } from "@contexts/service-topology/domain/index.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 
@@ -142,6 +143,8 @@ export interface OpencodeRunInput {
   contextPack?: string;
   /* Facts about the suite's harness (test-id attribute, fixtures exports), rendered as data only. Absent = no section. */
   harnessFacts?: HarnessFacts;
+  /* The limits of the run_spec tool this run granted the generator (calls, time per call, DEV writes), stated as facts. Present only when the run granted it, which only an e2e run on the OpenCode runtime does; absent = no section. */
+  closedLoop?: ClosedLoopLimits;
   /* App login is declared but <e2eRelDir>/auth.setup.ts is still the stock seed and did not sign in: the generator must rewrite it before writing specs. Absent = nothing to rewrite. */
   authSeedUnauthored?: boolean;
   /* Static signal: deterministic pre-computed analysis rendered as a prompt section. Empty string or absent = no section added. Signal-only, fail-open. */
