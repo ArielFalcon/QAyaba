@@ -23,6 +23,8 @@ export interface ExecWiringInput {
   egressOrigins: { dev: readonly string[]; install: readonly string[] };
   egress?: EgressGate;
   workRoot?: string;
+  /* The mirrors volume, so that the mirror a child runs in is opened to the sandbox group for the run. */
+  mirrorRoot?: string;
 }
 
 /* Where the per-run work directories live: `/tmp/qa-exec` in the container. */
@@ -37,7 +39,7 @@ export function gateCredsFrom(env: NodeJS.ProcessEnv): { user: string; pass: str
 
 export function buildExecWiring(input: ExecWiringInput): ExecWiring {
   const mode = resolveExecSandboxMode(input.env);
-  const exec = createExecSandbox({ sandbox: input.sandbox, mode, baseEnv: input.env, ...(input.egress ? { egress: input.egress } : {}) });
+  const exec = createExecSandbox({ sandbox: input.sandbox, mode, baseEnv: input.env, ...(input.egress ? { egress: input.egress } : {}), ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}) });
   const gateCreds = gateCredsFrom(input.env);
   const execScope = createExecScopeProvider({
     workRoot: input.workRoot ?? execWorkRoot(input.env),

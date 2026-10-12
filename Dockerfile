@@ -100,12 +100,14 @@ RUN ARCH="$(dpkg --print-architecture)" \
   && curl -fsSL "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.8.1/codebase-memory-mcp-linux-${GOARCH}.tar.gz" \
   | tar -C /usr/local/bin -xz codebase-memory-mcp
 
-# Unprivileged user for executing UNTRUSTED code-mode commands (the watched repo's own
-# install/test/coverage). The orchestrator runs as root and DROPS to this user for those spawns
-# (src/qa/code-runner.ts → resolveSandbox), so untrusted code cannot read the root-owned API token
-# (config/.api_token, 0600), tamper with the orchestrator's files (/app/src, node_modules), or write
-# sibling repos under /app/.mirrors. The user owns a writable home for toolchain caches (~/.m2,
-# ~/.gradle, ~/.cache, ~/.cargo). NOBLE drift: Ubuntu 24.04 ships a default `ubuntu` user at uid 1000,
+# Unprivileged user for executing UNTRUSTED code: the agent-written Playwright specs, the e2e project's
+# own tsc/eslint/install, a login script, and the watched repo's own install/test/coverage. The
+# orchestrator runs as root and DROPS to this user for every one of those spawns (the execution
+# launcher, qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts), so untrusted code
+# cannot read the root-owned API token (config/.api_token), the auth material under /app/data, or
+# another watched repo under /app/.mirrors (bin/container-entrypoint.sh closes them at every boot),
+# tamper with the orchestrator's files (/app/src, node_modules), or write the mirror it runs in.
+# The user owns a writable home for toolchain caches (~/.m2, ~/.gradle, ~/.cache, ~/.cargo). NOBLE drift: Ubuntu 24.04 ships a default `ubuntu` user at uid 1000,
 # which pushed the Playwright image's `pwuser` to uid 1001 (it was 1000 on jammy). So `sandbox` uses
 # uid 1002 (the next free id) — docker-compose sets CODE_SANDBOX_UID=1002 so code-runner.ts matches.
 RUN useradd --create-home --uid 1002 --shell /usr/sbin/nologin sandbox
@@ -128,5 +130,8 @@ COPY . .
 # publish address (-p / BIND_ADDR). A bare `npm run start` outside the image stays on loopback.
 ENV LISTEN_HOST=0.0.0.0
 
-# Service entry point: webhook + sequential queue.
+# Root-only boot steps first (file permissions the sandbox uid depends on, the egress filter), then the
+# service: webhook + sequential queue.
+RUN chmod +x /app/bin/container-entrypoint.sh
+ENTRYPOINT ["/app/bin/container-entrypoint.sh"]
 CMD ["npm", "run", "start"]

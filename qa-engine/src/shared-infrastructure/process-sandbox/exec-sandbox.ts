@@ -5,6 +5,7 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { buildExecEnv, type SandboxProfile } from "./exec-env.ts";
 import { activeExecScope, type RunScope } from "./exec-scope.ts";
+import { mirrorTopDir, openMirrorForSandbox, type MirrorFsOps } from "./mirror-access.ts";
 import { allocWorkSubdir, prepareWritableDirs, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";
 
@@ -75,6 +76,9 @@ export interface ExecSandboxDeps {
   /* The orchestrator's environment, the base the profiles allowlist from. */
   baseEnv: NodeJS.ProcessEnv;
   egress?: EgressGate;
+  /* The mirrors volume: a child whose cwd is in one of its mirrors gets that mirror's group opened to the sandbox for the run (mirror-access.ts). */
+  mirrorRoot?: string;
+  mirrorOps?: MirrorFsOps;
   /* The spawn primitive; a test passes a fake. */
   spawnFn?: typeof nodeSpawn;
   warn?: (line: string) => void;
@@ -141,6 +145,12 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
         }
       } else if (scope.report.egress === "not-applicable") {
         scope.report.egress = "unenforced";
+      }
+
+      if (deps.mirrorRoot && deps.sandbox) {
+        const top = mirrorTopDir(deps.mirrorRoot, options.cwd);
+        const opened = (scope.openedMirrors ??= new Set<string>());
+        if (top !== undefined && !opened.has(top) && openMirrorForSandbox(top, deps.sandbox, deps.mirrorOps)) opened.add(top);
       }
 
       const staged = options.profile === "suite" || options.profile === "login" ? stageAuthMaterial(scope.authDir, scope.workDir, deps.sandbox) : {};

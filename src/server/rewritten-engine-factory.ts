@@ -665,6 +665,7 @@ export function buildRewrittenCompositionConfig(
     env: deps.env ?? process.env,
     sandbox: codeSandbox,
     authDir,
+    mirrorRoot,
     egressOrigins: { dev: originOf(app.dev?.baseUrl), install: [] },
   });
   const exec = execWiring.exec;

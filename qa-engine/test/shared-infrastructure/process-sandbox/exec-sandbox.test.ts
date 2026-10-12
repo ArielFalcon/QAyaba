@@ -225,3 +225,23 @@ test("directories inside the mirror are created for the sandbox on request", () 
     rmSync(h.root, { recursive: true, force: true });
   }
 });
+
+test("a child that runs in a mirror gets that mirror opened to the sandbox group, once per run, and the scope hands it back", () => {
+  const opened: string[] = [];
+  const ops = {
+    lstat: () => ({ isDirectory: () => true, uid: 0 }),
+    readdir: () => [],
+    chown: (path: string, uid: number, gid: number) => { opened.push(`chown ${path} ${uid}:${gid}`); },
+    chmod: () => {},
+  };
+  const h = harness({ mirrorRoot: "/app/.mirrors", mirrorOps: ops });
+  try {
+    h.port.spawn("npx", [], { cwd: "/app/.mirrors/org__app/e2e", profile: "suite", scope: h.scope });
+    h.port.spawn("npx", [], { cwd: "/app/.mirrors/org__app/e2e", profile: "offline", scope: h.scope });
+    h.port.spawn("npx", [], { cwd: "/tmp/elsewhere", profile: "offline", scope: h.scope });
+    assert.deepEqual(opened, [`chown /app/.mirrors/org__app 0:${SANDBOX.gid}`]);
+    assert.deepEqual([...(h.scope.openedMirrors ?? [])], ["/app/.mirrors/org__app"]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});

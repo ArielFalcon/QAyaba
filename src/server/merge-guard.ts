@@ -253,6 +253,8 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner.ts",
+  /* Which mirror the sandbox group may traverse, and when it is closed again. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/mirror-access.ts",
   "src/server/exec-sandbox-factory.ts",
   /* The container's entrypoint and the egress self-test: the file permissions that keep the sandbox uid out of the API token, the auth material and the provider keys, and the kernel filter that holds its network to the declared origins. */
   "bin/container-entrypoint.sh",
