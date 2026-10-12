@@ -1,0 +1,216 @@
+/*
+ * One `authbrowser_*` call: an authoring agent asks the orchestrator's browser, which holds the run's saved session, to open
+ * a page, read it, click or type. Nothing the agent controls decides a limit: whether the session may call, how many calls
+ * the run has, what the browser may request and when the session counts as lost are all decided here and in the guard, and the
+ * agent never sees a cookie. Each call holds the test account for its duration, so it never interleaves with a spec the
+ * run_spec tool or the suite is executing as the same account.
+ */
+
+import type { RunDeadlineView } from "@kernel/run-deadline.ts";
+import type { AccountLock } from "../domain/account-lock.ts";
+import { AGENT_BROWSER_REFUSAL, type AgentBrowserCapability, type AgentBrowserRefusalCode } from "../domain/agent-browser-capability.ts";
+import type { RouteGuard } from "../domain/agent-browser-route-guard.ts";
+import { detectInvalidation } from "../domain/agent-browser-session-invalidation.ts";
+import type { AgentBrowserHostPort, BlockedRequest, BrowserAction, PageState } from "./ports/agent-browser.ports.ts";
+import { BrowserActionError } from "./ports/agent-browser.ports.ts";
+import type { SessionRenewalPort } from "./ports/run-spec.ports.ts";
+
+export const MAX_SNAPSHOT_CHARS = 12_000;
+export const MAX_URL_CHARS = 2_000;
+export const MAX_TYPED_CHARS = 2_000;
+export const MAX_REPORTED_BLOCKS = 5;
+/* Said to the agent when the run's calls are about to run out. */
+export const LOW_CALLS = 10;
+const REF = /^[A-Za-z][A-Za-z0-9]{0,15}$/;
+
+export type AgentBrowserRequest = { sessionId: string; agent: string } & (
+  | { action: "navigate"; url: string }
+  | { action: "snapshot" }
+  | { action: "click"; ref: string }
+  | { action: "type"; ref: string; text: string; submit?: boolean }
+);
+
+export interface AgentBrowserBudget {
+  callsLeft: number;
+}
+
+export interface AgentBrowserPageReport {
+  url: string;
+  title: string;
+  snapshot: string;
+  truncated?: true;
+}
+
+export type AgentBrowserResponse =
+  | { ok: true; page: AgentBrowserPageReport; blocked: BlockedRequest[]; notes: string[]; budget: AgentBrowserBudget }
+  | { ok: false; code: AgentBrowserRefusalCode; message: string; budget: AgentBrowserBudget };
+
+export interface AgentBrowserDeps {
+  capability: AgentBrowserCapability;
+  host: AgentBrowserHostPort;
+  /* The app's address: a path is resolved against it. */
+  baseUrl: string;
+  guard: RouteGuard;
+  /* The key two users of one test account contend on. */
+  account: string;
+  lock: AccountLock;
+  /* Absent: a lost session is only reported. */
+  session?: SessionRenewalPort;
+  /* The app's login path, when it declares one. */
+  loginPath?: string;
+  deadline?: RunDeadlineView;
+  /* Takes the run's secrets out of any text that leaves; the run's own scope must be active when it is called. */
+  redact: (text: string) => string;
+  /* A signal that fires once a call has waited this long for the account. Defaults to a timer. */
+  leaseWaitSignal?: (ms: number) => AbortSignal;
+  signal?: AbortSignal;
+}
+
+function cut(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(0, max);
+}
+
+function withoutQuery(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return cut(url.split(/[?#]/)[0] ?? "", 500);
+  }
+}
+
+function pathOf(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+export class AgentBrowserUseCase {
+  constructor(private readonly deps: AgentBrowserDeps) {}
+
+  /* `callSignal` is this call's own cancellation (its session ended); the run's cancellation stops it too. */
+  async call(request: AgentBrowserRequest, callSignal?: AbortSignal): Promise<AgentBrowserResponse> {
+    const { capability } = this.deps;
+    const stop = callSignal && this.deps.signal ? AbortSignal.any([callSignal, this.deps.signal]) : (callSignal ?? this.deps.signal);
+    const refused = capability.authorize(request.sessionId, request.agent);
+    if (refused) return this.refusal(refused.code, refused.message);
+
+    const action = this.actionOf(request);
+    if ("message" in action) return this.refusal(AGENT_BROWSER_REFUSAL.INVALID_REQUEST, action.message);
+    if (action.kind === "navigate") {
+      const decision = this.deps.guard.decide({ method: "GET", url: action.url });
+      if (!decision.allow) {
+        capability.recordBlocks(1);
+        return this.refusal(AGENT_BROWSER_REFUSAL.BLOCKED, `${decision.detail}; the browser does not open it`);
+      }
+    }
+
+    const reservation = capability.reserve();
+    if (!reservation.ok) return this.refusal(reservation.code, reservation.message);
+
+    const waitSignal = AbortSignal.any([...(stop ? [stop] : []), (this.deps.leaseWaitSignal ?? AbortSignal.timeout.bind(AbortSignal))(capability.limits.leaseWaitMs)]);
+    try {
+      return await this.deps.lock.withLock(this.deps.account, () => this.perform(request.sessionId, action, stop), waitSignal);
+    } catch (err) {
+      if (stop?.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the call was cancelled");
+      if (waitSignal.aborted) return this.refusal(AGENT_BROWSER_REFUSAL.BUSY, "DEV busy: the test account is in use by another step of this run; try again in a moment");
+      console.error(`[qa] authenticated browser call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
+      return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call");
+    }
+  }
+
+  private async perform(sessionId: string, action: BrowserAction, stop: AbortSignal | undefined): Promise<AgentBrowserResponse> {
+    const { capability, host } = this.deps;
+    const timeoutMs = Math.min(capability.limits.perCallMs, this.deps.deadline?.remainingMs() ?? Number.POSITIVE_INFINITY);
+    const signal = AbortSignal.any([...(stop ? [stop] : []), AbortSignal.timeout(Math.max(1, timeoutMs))]);
+    let state: PageState;
+    try {
+      state = await host.perform(sessionId, action, { signal, timeoutMs });
+    } catch (err) {
+      if (err instanceof BrowserActionError) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, err.message);
+      console.error(`[qa] authenticated browser action failed: ${err instanceof Error ? err.message : String(err)}`);
+      return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call");
+    }
+
+    capability.recordBlocks(state.blocked.length);
+    const lost = detectInvalidation(
+      { url: state.url, requestedPath: state.requestedPath, passwordFieldVisible: state.passwordFieldVisible, ...(state.documentStatus !== undefined ? { documentStatus: state.documentStatus } : {}) },
+      { ...(this.deps.loginPath !== undefined ? { loginPath: this.deps.loginPath } : {}) },
+    );
+    if (lost) return this.invalidated(lost.detail, signal);
+    return this.report(state);
+  }
+
+  private async invalidated(detail: string, signal: AbortSignal): Promise<AgentBrowserResponse> {
+    const { capability, host, session } = this.deps;
+    let renewed: boolean | undefined;
+    if (session && capability.canRenew()) {
+      try {
+        renewed = await session.renew(signal);
+      } catch (err) {
+        console.error(`[qa] authenticated browser session renewal failed: ${err instanceof Error ? err.message : String(err)}`);
+        renewed = false;
+      }
+      if (renewed) await host.reset();
+    }
+    capability.recordInvalidation(renewed);
+    const next = renewed
+      ? "The session was renewed; navigate again to continue."
+      : "The session could not be renewed; do not rely on this browser for the rest of the run and use what the task supplies.";
+    return this.refusal(AGENT_BROWSER_REFUSAL.SESSION_INVALIDATED, `session invalidated: ${this.deps.redact(detail)}. ${next}`);
+  }
+
+  private report(state: PageState): AgentBrowserResponse {
+    const { redact, capability } = this.deps;
+    const truncated = state.snapshot.length > MAX_SNAPSHOT_CHARS;
+    const notes = [...state.notes.map(redact)];
+    if (truncated) notes.push(`the page tree was cut at ${MAX_SNAPSHOT_CHARS} characters`);
+    const left = capability.callsLeft();
+    if (left <= LOW_CALLS) notes.push(`${left} authenticated browser call(s) left in this run`);
+    return {
+      ok: true,
+      page: {
+        url: redact(withoutQuery(state.url)),
+        title: redact(cut(state.title, 300)),
+        snapshot: redact(cut(state.snapshot, MAX_SNAPSHOT_CHARS)),
+        ...(truncated ? { truncated: true as const } : {}),
+      },
+      blocked: state.blocked.slice(0, MAX_REPORTED_BLOCKS).map((b) => ({ reason: b.reason, detail: redact(b.detail) })),
+      notes,
+      budget: { callsLeft: left },
+    };
+  }
+
+  private refusal(code: AgentBrowserRefusalCode, message: string): AgentBrowserResponse {
+    return { ok: false, code, message: this.deps.redact(message), budget: { callsLeft: this.deps.capability.callsLeft() } };
+  }
+
+  /* The browser action a request names, or why it is not one. A navigation's address is resolved against the app's base. */
+  private actionOf(request: AgentBrowserRequest): BrowserAction | { message: string } {
+    const r = request as { action?: unknown; url?: unknown; ref?: unknown; text?: unknown; submit?: unknown };
+    switch (r.action) {
+      case "snapshot":
+        return { kind: "snapshot" };
+      case "navigate": {
+        if (typeof r.url !== "string" || r.url.trim() === "" || r.url.length > MAX_URL_CHARS) return { message: `url must be a path or address of at most ${MAX_URL_CHARS} characters` };
+        try {
+          return { kind: "navigate", url: new URL(r.url.trim(), this.deps.baseUrl).toString() };
+        } catch {
+          return { message: "url could not be read as an address" };
+        }
+      }
+      case "click":
+        if (typeof r.ref !== "string" || !REF.test(r.ref)) return { message: "ref must be one of the [ref=...] values of the last snapshot" };
+        return { kind: "click", ref: r.ref };
+      case "type":
+        if (typeof r.ref !== "string" || !REF.test(r.ref)) return { message: "ref must be one of the [ref=...] values of the last snapshot" };
+        if (typeof r.text !== "string" || r.text.length > MAX_TYPED_CHARS) return { message: `text must be a string of at most ${MAX_TYPED_CHARS} characters` };
+        if (r.submit !== undefined && typeof r.submit !== "boolean") return { message: "submit must be a boolean" };
+        return { kind: "type", ref: r.ref, text: r.text, submit: r.submit === true };
+      default:
+        return { message: "action must be navigate, snapshot, click or type" };
+    }
+  }
+}
