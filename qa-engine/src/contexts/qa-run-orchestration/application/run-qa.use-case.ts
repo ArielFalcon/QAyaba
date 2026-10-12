@@ -368,6 +368,8 @@ export interface RunQaUseCaseDeps {
   leadSidekicks?: Pick<LeadSidekicks, "coordinate">;
   /** The runtime the sidekick role is assigned to now (it is switchable); absent: the host cannot say, and no sidekick is used. */
   sidekickProvider?: () => "opencode" | "codex" | undefined;
+  /** The runtime the lead plans on now: only one that can deny the write tools per prompt may hold the planning turn to read-only. Absent: the host cannot say, and the lead authors alone. */
+  plannerProvider?: () => "opencode" | "codex" | undefined;
   config?: Partial<RunQaConfig>;
 }
 
@@ -1088,7 +1090,7 @@ export class RunQaUseCase {
           specDir: workspace.specDir,
           specRelDir: relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e",
           settings: { ...coordinationSettings, mode: coordinationMode },
-          facts: { hasLogin: Boolean(this.deps.authContext?.auth), provider: this.deps.sidekickProvider?.() },
+          facts: { hasLogin: Boolean(this.deps.authContext?.auth), provider: this.deps.sidekickProvider?.(), plannerProvider: this.deps.plannerProvider?.() },
           ...(closedLoop ? { closedLoop } : {}),
           ...(agentBrowser ? { agentBrowser } : {}),
           ...(this.deps.sidekickDevBaseUrl ? { devBaseUrl: this.deps.sidekickDevBaseUrl } : {}),

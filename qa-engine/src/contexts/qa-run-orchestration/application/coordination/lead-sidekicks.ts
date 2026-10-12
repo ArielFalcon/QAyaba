@@ -59,8 +59,8 @@ export interface CoordinateInput {
   specDir: string;
   specRelDir: string;
   settings: CoordinationSettings;
-  /* What the sidekicks would author with: whether the app has a login, and the runtime the sidekick role is assigned to. */
-  facts: { hasLogin: boolean; provider: "opencode" | "codex" | undefined };
+  /* What the sidekicks would author with: whether the app has a login, and the runtime the sidekick role is assigned to; and the runtime the lead plans on, since only some runtimes can hold a planning turn to read-only. */
+  facts: { hasLogin: boolean; provider: "opencode" | "codex" | undefined; plannerProvider: "opencode" | "codex" | undefined };
   closedLoop?: ClosedLoopHandle;
   agentBrowser?: AgentBrowserHandle;
   devBaseUrl?: string;
@@ -118,6 +118,10 @@ export class LeadSidekicks {
     };
 
     if (!input.plan) return single("the generation cannot plan");
+    /* A plan is a read-only turn, and what keeps it so is a per-prompt tool denial that not every runtime has: on one that has none the lead would plan with its hands free in the run's working copy. */
+    if (input.facts.plannerProvider !== "opencode") {
+      return single(`the lead plans on ${input.facts.plannerProvider ?? "a runtime the host cannot name"}, which cannot hold the planning turn to read-only; only OpenCode denies the write tools per prompt`);
+    }
     const authoring = sidekickAuthoring({
       hasLogin: input.facts.hasLogin,
       provider: input.facts.provider,

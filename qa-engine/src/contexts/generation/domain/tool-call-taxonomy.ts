@@ -44,8 +44,19 @@ const SUBAGENT_TOOLS = /^(task|agent|subtask|dispatch)$/i;
 /* Serena's tools that change the working tree (whole-file, symbol, line and regex edits, renames) and
    its shell tool. Like every MCP tool they may arrive as `<server>_<tool>`, so the server prefix is
    tolerated. Serena's memory tools (write_memory, …) are not here: they never touch the tree. */
-const SERENA_WRITE_TOOLS =
-  /(^|_)(create_text_file|replace_symbol_body|insert_after_symbol|insert_before_symbol|replace_content|replace_regex|replace_lines|delete_lines|insert_at_line|rename_symbol)$/i;
+export const SERENA_WRITE_TOOL_NAMES: readonly string[] = [
+  "create_text_file",
+  "replace_symbol_body",
+  "insert_after_symbol",
+  "insert_before_symbol",
+  "replace_content",
+  "replace_regex",
+  "replace_lines",
+  "delete_lines",
+  "insert_at_line",
+  "rename_symbol",
+];
+const SERENA_WRITE_TOOLS = new RegExp(`(^|_)(${SERENA_WRITE_TOOL_NAMES.join("|")})$`, "i");
 const SERENA_SHELL_TOOLS = /(^|_)execute_shell_command$/i;
 
 export function isWriteTool(tool: string): boolean {

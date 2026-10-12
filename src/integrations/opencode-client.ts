@@ -11,6 +11,7 @@ import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
 import { RunMode } from "../types";
 import { parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief } from "../qa/exploration-brief";
 import { saveAgentTurnEvent } from "../server/history";
+import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/domain/tool-call-taxonomy";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
@@ -488,11 +489,12 @@ export function hidesBrowserTools(agent: string, sessionId: string): boolean {
 }
 
 /*
- * The tools a prompt that may not write is denied: the file tools of the runtime and the symbol edits of the code-navigation server,
- * under both the names the runtime gives a server's tools. Reading, searching and the browser stay as the agent's configuration has them.
+ * The tools a prompt that may not write is denied: the file tools of the runtime and every editing tool of the code-navigation server
+ * (the list the call taxonomy classifies as writes), under both the names the runtime gives a server's tools. Reading, searching and the
+ * browser stay as the agent's configuration has them.
  */
 export const NO_WRITE_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
-  ["write", "edit", "patch", "replace_symbol_body", "insert_after_symbol", "insert_before_symbol", "serena_replace_symbol_body", "serena_insert_after_symbol", "serena_insert_before_symbol"].map((name) => [name, false as const]),
+  ["write", "edit", "patch", ...SERENA_WRITE_TOOL_NAMES, ...SERENA_WRITE_TOOL_NAMES.map((name) => `serena_${name}`)].map((name) => [name, false as const]),
 );
 
 /*

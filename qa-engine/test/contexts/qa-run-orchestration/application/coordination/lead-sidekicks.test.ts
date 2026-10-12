@@ -150,7 +150,7 @@ function input(r: Rig, over: Partial<CoordinateInput> = {}): CoordinateInput {
   return {
     runId: "run-1", app: "shop", objective: "the cart", mirrorDir: "/m", specDir: "/m/e2e", specRelDir: "e2e",
     settings: { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS },
-    facts: { hasLogin: true, provider: "opencode" },
+    facts: { hasLogin: true, provider: "opencode", plannerProvider: "opencode" },
     closedLoop: r.closedLoop,
     agentBrowser: r.agentBrowser,
     plan: async () => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false }),
@@ -166,7 +166,7 @@ test("a generation that cannot plan, a sidekick that cannot author and a run wit
   const noPlan = await r.coordinator.coordinate(input(r, { plan: undefined }));
   assert.equal(noPlan.action, "single");
 
-  const codex = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: "codex" } }));
+  const codex = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: "codex", plannerProvider: "opencode" } }));
   assert.equal(codex.action, "single");
   assert.equal(codex.signal.authoring, "excluded");
 
@@ -177,6 +177,19 @@ test("a generation that cannot plan, a sidekick that cannot author and a run wit
   assert.equal(hurried.action, "single");
   assert.equal(asked, 0, "none of them paid for a planning turn");
   assert.equal(r.executed.length, 0);
+  assert.equal(r.created.length, 0);
+});
+
+test("a lead on a runtime that cannot hold the planning turn to read-only, or one the host cannot name, is not asked for a plan", async () => {
+  const r = rig();
+  let asked = 0;
+  const plan = async (): Promise<PlanOutput> => { asked += 1; return { plan: FANOUT_PLAN, parsed: true, timedOut: false }; };
+  for (const plannerProvider of ["codex", undefined] as const) {
+    const outcome = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: "opencode", plannerProvider } }));
+    assert.equal(outcome.action, "single", String(plannerProvider));
+    assert.ok(outcome.signal.downgrade && /read-only/.test(outcome.signal.downgrade), "the downgrade says why");
+  }
+  assert.equal(asked, 0, "no planning turn was paid for");
   assert.equal(r.created.length, 0);
 });
 
@@ -278,7 +291,7 @@ test("an app with no login is authored one flow at a time, with the plain browse
   const gate = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1));
   const execute = r.deps.sidekick.execute;
   r.deps.sidekick.execute = async (brief, opts) => { running += 1; peak = Math.max(peak, running); await gate(); try { return await execute(brief, opts); } finally { running -= 1; } };
-  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { facts: { hasLogin: false, provider: "opencode" }, agentBrowser: undefined }));
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { facts: { hasLogin: false, provider: "opencode", plannerProvider: "opencode" }, agentBrowser: undefined }));
   assert.equal(outcome.action, "fanout");
   assert.equal(peak, 1);
   assert.ok(r.executed.every(({ opts }) => !opts.denyTools?.includes("playwright*")));

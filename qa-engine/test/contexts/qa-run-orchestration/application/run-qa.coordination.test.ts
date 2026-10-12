@@ -70,6 +70,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
     agentBrowser: { open: async () => agentBrowser },
     leadSidekicks: { coordinate: async (input) => { calls.push("coordinate"); r.coordinated.push(input); return result(); } },
     sidekickProvider: () => "opencode",
+    plannerProvider: () => "opencode",
     authContext: { baseUrl: "https://dev", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } },
     config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
     ...over,
@@ -112,7 +113,7 @@ test("a coordinated run hands the coordinator what the run knows: its identity, 
   assert.equal(input!.mirrorDir, WORKSPACE.mirrorDir);
   assert.equal(input!.specDir, WORKSPACE.specDir);
   assert.equal(input!.specRelDir, "e2e");
-  assert.deepEqual(input!.facts, { hasLogin: true, provider: "opencode" });
+  assert.deepEqual(input!.facts, { hasLogin: true, provider: "opencode", plannerProvider: "opencode" });
   assert.ok(input!.closedLoop && input!.agentBrowser, "both grants");
   assert.equal(input!.settings.mode, COORDINATION_MODE.LEAD_SIDEKICKS);
   /* The planning closure asks the generation port, with the run's enrichment and the limits. */

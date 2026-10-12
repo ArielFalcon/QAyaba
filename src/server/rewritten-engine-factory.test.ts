@@ -3696,10 +3696,12 @@ test("an e2e app composes the lead/sidekick mode over a workspace root beside th
   const wired = buildRewrittenCompositionConfig(cfg("deleg-app"), { getAgentDeps: stubAgentDeps, getAgentFacade: agentFacadeFor("opencode"), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
   assert.equal(wired.delegation?.workspaceRoot, "/mirrors/.qa-delegations");
   assert.equal(typeof wired.delegation?.sidekickProvider, "function");
+  assert.equal(wired.delegation?.plannerProvider(), "opencode");
   assert.ok(wired.delegation?.deadline, "the run's deadline, as the agents' turns read it");
 
   const noFacade = buildRewrittenCompositionConfig(cfg("deleg-nofacade"), { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
   assert.equal(noFacade.delegation?.sidekickProvider(), undefined, "a host that cannot say which runtime the sidekick uses is not assumed to be OpenCode");
+  assert.equal(noFacade.delegation?.plannerProvider(), undefined, "nor the one the lead plans on");
 
   const code = buildRewrittenCompositionConfig({ ...cfg("deleg-code"), code: true }, { getAgentDeps: stubAgentDeps, mirrorRoot: "/mirrors" }, "ns", { mode: "diff", target: "code" });
   assert.equal(code.delegation, undefined);
@@ -3711,5 +3713,6 @@ test("the sidekick role's runtime is read from the facade as it is now, not as i
   assert.equal(wired.delegation?.sidekickProvider(), "opencode");
   provider = "codex";
   assert.equal(wired.delegation?.sidekickProvider(), "codex");
+  assert.equal(wired.delegation?.plannerProvider(), "codex");
 });
 

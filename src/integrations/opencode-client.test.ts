@@ -29,6 +29,7 @@ import {
 import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/domain/tool-call-taxonomy";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { ANTI_WEAKENING_RULE, OBJECTIVE_QUESTION } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 
@@ -1297,6 +1298,14 @@ test("openCodePromptBody: a prompt that may not write is denied the file tools a
   for (const tool of ["write", "edit", "patch", "replace_symbol_body", "insert_after_symbol", "insert_before_symbol"]) assert.equal(body.tools?.[tool], false, tool);
   for (const tool of ["read", "grep", "glob", "serena*", "playwright*", "*"]) assert.equal(tool in (body.tools ?? {}), false, `${tool} stays as configured`);
   assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: false }), false);
+});
+
+test("openCodePromptBody: a prompt that may not write is denied every editing tool of the code-navigation server, bare and prefixed", () => {
+  const tools = (openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  for (const name of SERENA_WRITE_TOOL_NAMES) {
+    assert.equal(tools[name], false, name);
+    assert.equal(tools[`serena_${name}`], false, `serena_${name}`);
+  }
 });
 
 test("openCodePromptBody: a prompt may be denied its writes and the browser at once, and a prompt without tools stays without all of them", () => {

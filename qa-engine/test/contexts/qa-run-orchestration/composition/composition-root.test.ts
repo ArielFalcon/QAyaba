@@ -1625,7 +1625,7 @@ test("wireBridges hands the use case the app's coordination settings, and omits 
 });
 
 test("wireBridges wires the lead/sidekick mode only for an e2e run whose shell named a place for the workspaces, and never the file-count proposer", () => {
-  const delegation = { workspaceRoot: "/mirrors/.qa-delegations", sidekickProvider: () => "opencode" as const };
+  const delegation = { workspaceRoot: "/mirrors/.qa-delegations", sidekickProvider: () => "opencode" as const, plannerProvider: () => "opencode" as const };
   const none = wireBridges(fakeConfig());
   assert.equal("leadSidekicks" in none, false);
   assert.equal("sidekickProvider" in none, false);
@@ -1633,6 +1633,7 @@ test("wireBridges wires the lead/sidekick mode only for an e2e run whose shell n
   const wired = wireBridges(fakeConfig({ delegation }));
   assert.equal(typeof wired.leadSidekicks?.coordinate, "function");
   assert.equal(wired.sidekickProvider?.(), "opencode");
+  assert.equal(wired.plannerProvider?.(), "opencode");
 
   const code = wireBridges(fakeConfig({ delegation, isCode: true }));
   assert.equal("leadSidekicks" in code, false);

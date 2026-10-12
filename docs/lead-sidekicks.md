@@ -33,7 +33,10 @@ signed-in app (see below); without either, they stay out and the lead authors al
 ## What a run does
 
 1. **Plan.** The lead is asked for a plan (a read-only turn): `single`, `noop` with a reason, or `fanout` with
-   flows. A flow is an id, an objective, acceptance items and the routes it touches.
+   flows. A flow is an id, an objective, acceptance items and the routes it touches. The turn is held to
+   read-only by a per-prompt tool denial (the runtime's file tools and every editing tool of the code-navigation
+   server); a lead on a runtime that has no such denial is not asked for a plan and the change stays with it as one
+   piece of work, with the reason recorded.
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
    duplicates and more than `maxFlows`. A plan that cannot be admitted, or that names one flow, hands the change

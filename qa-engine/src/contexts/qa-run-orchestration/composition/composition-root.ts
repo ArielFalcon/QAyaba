@@ -94,6 +94,8 @@ export interface DelegationWiring {
   workspaceRoot: string;
   /* The runtime the sidekick role is assigned to now (it is switchable): only OpenCode can call run_spec and the authenticated browser. */
   sidekickProvider: () => "opencode" | "codex" | undefined;
+  /* The runtime the lead (the primary role) plans on now: only OpenCode can hold the planning turn to read-only. */
+  plannerProvider: () => "opencode" | "codex" | undefined;
   /* The run's deadline, as the agents' turns read it. */
   deadline?: RunDeadlineView;
 }
@@ -590,6 +592,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
         ...(cfg.delegation && !cfg.isCode
           ? {
               sidekickProvider: cfg.delegation.sidekickProvider,
+              plannerProvider: cfg.delegation.plannerProvider,
               leadSidekicks: new LeadSidekicks({
                 sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
                 workspaces: new FsDelegationWorkspaceAdapter({ root: cfg.delegation.workspaceRoot }),
