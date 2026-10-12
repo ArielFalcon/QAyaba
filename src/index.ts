@@ -200,11 +200,14 @@ const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
  */
 const closedLoopRegistry = new ClosedLoopRegistry();
 const toolsPort = resolveToolsPort(process.env);
-const toolsServer = createToolsServer({ token: resolveToolsToken(process.env).token, registry: closedLoopRegistry });
+const toolsToken = resolveToolsToken(process.env);
+if (toolsToken.generated) logJson("warn", "QA_TOOLS_TOKEN is not set: no run is granted the run_spec tool until the same value is set on the orchestrator and agents services");
+const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry });
 toolsServer.on("error", (err: Error & { code?: string }) => logJson("error", `the run_spec tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the generator's run_spec calls will fail`));
 
 engineFactory = createRewrittenEngineFactory({
-  closedLoopRegistry,
+  /* A token this process made up cannot match the agents service's, so a tool the generator is told about would only be refused: no run is granted it. */
+  ...(toolsToken.generated ? {} : { closedLoopRegistry }),
   getAgentDeps: currentAgentDeps,
   /* The facade is read per run, from the same manager the deps above come from: the runtime is switchable. */
   getAgentFacade: () => agentRuntime.facade(),
