@@ -260,7 +260,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:147-147`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:180-180`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:248-248`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:249-249`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
       `${ORCH}/domain/helpers/selector-check.ts:401-405`,
       `${ORCH}/domain/pre-exec-grounding.service.ts:73-73`,
@@ -288,8 +288,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/application/run-qa.use-case.ts:1728-1728`,
       `${ORCH}/application/run-qa.use-case.ts:1734-1736`,
       `${ORCH}/application/run-qa.use-case.ts:1748-1748`,
-      `${ORCH}/application/run-qa.use-case.ts:1865-1865`,
-      `${ORCH}/application/run-qa.use-case.ts:2003-2003`,
+      `${ORCH}/application/run-qa.use-case.ts:1884-1884`,
+      `${ORCH}/application/run-qa.use-case.ts:2027-2027`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/spec-path.test.ts",
@@ -345,7 +345,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/harness-facts.ts`,
       `${GEN}/domain/step-limit.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:153-202`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:154-203`,
     ],
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
@@ -431,7 +431,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:72-112",
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:149-161",
       /* The context map: a strict read, and warnings that say nothing of what the file holds. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:88-148`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:89-149`,
       /* Setup: the caps, the strict copy of the seed (the mark of a project last) and the wiring of the real strict calls, the entries of .qa that are removed when they are not ordinary, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
       `${PUB_INFRA}/setup.adapter.ts:24-26`,
       `${PUB_INFRA}/setup.adapter.ts:222-274`,
