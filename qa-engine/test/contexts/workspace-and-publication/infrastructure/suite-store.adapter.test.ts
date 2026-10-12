@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  AUTH_SETUP_PATH, SuiteStoreAdapter, deleteSuiteStoreDir, gitBlobOid, gitListTracked, parseStagedListing, suiteEntryKind,
+  AUTH_SETUP_PATH, SuiteStoreAdapter, deleteSuiteStoreDir, suiteStoreHoldsVerifiedLogin, gitBlobOid, gitListTracked, parseStagedListing, suiteEntryKind,
   type SuiteManifest, type SuiteStoreLimits, type TrackedFile,
 } from "../../../../src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 import type { SuiteCaptureInput } from "../../../../src/shared-kernel/ports/suite-store.port.ts";
@@ -617,4 +617,27 @@ test("a read-only store restores, but a capture writes nothing and a demotion on
 
   assert.equal(r.has(AUTH_SETUP_PATH), false);
   assert.equal(readFileSync(join(r.storeDir, "manifest.json"), "utf8"), before, "the manifest is exactly as the seed left it");
+});
+
+test("a store holds a verified login only after a login signed in, and not when none was stored, it was demoted, or only specs are kept", async (t) => {
+  const r = rig(t);
+  assert.equal(suiteStoreHoldsVerifiedLogin(r.storeDir), false, "no store at all");
+
+  r.put("flows/a.spec.ts", "a");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+  assert.equal(suiteStoreHoldsVerifiedLogin(r.storeDir), false, "specs alone are not a login");
+
+  r.put(AUTH_SETUP_PATH, APP_LOGIN);
+  await r.capture({ runId: "run-2", executedGreen: ["flows/a.spec.ts"], authVerifiedSha256: sha(APP_LOGIN) });
+  assert.equal(suiteStoreHoldsVerifiedLogin(r.storeDir), true);
+
+  await r.store().demoteAuth(root(r), "the restored login failed");
+  assert.equal(suiteStoreHoldsVerifiedLogin(r.storeDir), false, "a demoted login is not verified");
+});
+
+test("a manifest that cannot be read is an error, not an answer", (t) => {
+  const r = rig(t);
+  mkdirSync(r.storeDir, { recursive: true });
+  writeFileSync(join(r.storeDir, "manifest.json"), "not json");
+  assert.throws(() => suiteStoreHoldsVerifiedLogin(r.storeDir), /manifest/);
 });

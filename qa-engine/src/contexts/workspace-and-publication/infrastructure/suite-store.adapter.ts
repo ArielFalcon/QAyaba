@@ -203,6 +203,28 @@ function writeAtomically(path: string, bytes: string | Uint8Array): void {
   }
 }
 
+/** The manifest in `storeDir`, or undefined when the store does not exist yet. */
+function readManifestFile(storeDir: string): SuiteManifest | undefined {
+  const path = join(storeDir, MANIFEST_FILE);
+  let stats;
+  try {
+    stats = lstatSync(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
+  if (!stats.isFile() || stats.size > MAX_MANIFEST_BYTES) throw new Error(`the suite store's manifest ${path} is not an ordinary file within ${MAX_MANIFEST_BYTES} bytes`);
+  return parseManifest(readFileSync(path, "utf8"));
+}
+
+const holdsVerifiedLogin = (manifest: SuiteManifest | undefined): boolean =>
+  manifest?.auth?.status === AUTH_STATUS.VERIFIED && manifest.entries.some((entry) => entry.kind === SUITE_ENTRY_KIND.AUTH_SETUP);
+
+/** Whether the app's store at `storeDir` holds a login a run proved: the manifest names it verified and its file is among the entries. A store that does not exist holds none; one whose manifest cannot be read throws. */
+export function suiteStoreHoldsVerifiedLogin(storeDir: string): boolean {
+  return holdsVerifiedLogin(readManifestFile(storeDir));
+}
+
 type Decision = { action: "admit"; entry: SuiteEntry; bytes: Buffer } | { action: "keep" } | { action: "drop" };
 
 export class SuiteStoreAdapter implements SuiteStorePort {
@@ -433,16 +455,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
   }
 
   private load(): SuiteManifest {
-    const path = join(this.deps.storeDir, MANIFEST_FILE);
-    let stats;
-    try {
-      stats = lstatSync(path);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return emptyManifest(this.deps);
-      throw err;
-    }
-    if (!stats.isFile() || stats.size > MAX_MANIFEST_BYTES) throw new Error(`the suite store's manifest ${path} is not an ordinary file within ${MAX_MANIFEST_BYTES} bytes`);
-    return parseManifest(readFileSync(path, "utf8"));
+    return readManifestFile(this.deps.storeDir) ?? emptyManifest(this.deps);
   }
 
   private readBlob(entry: SuiteEntry): Buffer | undefined {

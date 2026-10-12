@@ -77,6 +77,13 @@ export interface RunnerDeps {
 
   isOnboardingActive?: () => boolean;
   /*
+   * Whether the app's suite store holds a login a run proved. Present: a run for an e2e app that declares a login and whose store
+   * holds none is preceded by that app's login bootstrap (once per app and process, see enqueueTrackedRun). Absent: no run queues
+   * one on its own, which is how a campaign (QA_CAMPAIGN_FREEZE) keeps control of the suite's warmth. May throw: the question then
+   * costs the requested run nothing but the bootstrap.
+   */
+  suiteHoldsVerifiedLogin?: (app: string) => boolean;
+  /*
    * Test/ops seam: override the poll granularity and defensive upper bound (module defaults
    * ONBOARDING_POLL_MS / ONBOARDING_WAIT_MAX_MS above). Production never overrides these.
    */
@@ -228,11 +235,43 @@ export const LOGIN_BOOTSTRAP_GUIDANCE = [
 ].join(" ");
 
 /*
+ * The apps whose login bootstrap this process has queued, by anyone: an operator, onboarding, or the automatic one below. It is the
+ * whole of "once": a bootstrap that is pending or running is in it, and so is one that finished or failed. A failed bootstrap
+ * therefore never triggers another on the next run (that would repeat the same failure on every run, each time ahead of the
+ * run that was asked for); it is retried by a restart or by asking for it (POST /api/apps/{name}/login-bootstrap), and a bootstrap
+ * that worked leaves a login in the store, so the question is not asked again anyway. Memory only, on purpose: nothing persistent
+ * can wedge an app off a warm start.
+ */
+const loginBootstrapAsked = new Set<string>();
+
+/*
+ * An app onboarded before the suite store has no verified login, so its first runs start cold and author the login while they
+ * do something else. When a run is enqueued for an e2e app that declares a login and the store holds none, the app's bootstrap
+ * is queued first and the run follows it on the same sequential queue. Not for a run that is itself a bootstrap, a code run, a
+ * context-map run (onboarding queues its own bootstrap after it), a cross-repo run (its sha belongs to the service repo) or a
+ * continuation. Best effort: a question that cannot be answered says so and the run goes on.
+ */
+function enqueueLoginBootstrapFirst(queue: JobQueue, req: RunRequest, deps: RunnerDeps): void {
+  const holds = deps.suiteHoldsVerifiedLogin;
+  if (!holds || req.target !== "e2e" || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
+  if (loginBootstrapAsked.has(req.app)) return;
+  try {
+    const app = (deps.loadApp ?? loadAppConfig)(req.app);
+    if (app.code === true || app.auth === undefined || holds(req.app)) return;
+    const id = enqueueLoginBootstrapRun(queue, req.app, req.sha, deps);
+    console.log(`[qa] login bootstrap: ${req.app} declares a login and its suite store holds no verified one; queued ${id} ahead of this ${req.mode} run at ${req.sha.slice(0, 7)} (once per process; ask POST /api/apps/${req.app}/login-bootstrap to repeat it)`);
+  } catch (err) {
+    console.warn(`[qa] login bootstrap for ${req.app} not queued (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/*
  * A login-bootstrap run: a manual e2e generation whose purpose is the app's login. It is accepted like any run (green, reviewed, not
  * held back by coverage), and an accepted run keeps the login and its smoke spec in the suite store, which is what makes the login a
  * verified step of onboarding. Under the app's own qa.shadow; never given a triggerRepo.
  */
 export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps): string {
+  loginBootstrapAsked.add(app);
   return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "manual", source: "manual", guidance: LOGIN_BOOTSTRAP_GUIDANCE, purpose: RUN_PURPOSE.LOGIN_BOOTSTRAP }, deps);
 }
 
@@ -242,6 +281,7 @@ export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: stri
  */
 export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: RunnerDeps = {}): string {
   const loadApp = deps.loadApp ?? loadAppConfig;
+  enqueueLoginBootstrapFirst(queue, req, deps);
 
   /*
    * Orphan-data cleanup runs through the SINGLE funnel so EVERY trigger (webhook, CLI,

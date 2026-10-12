@@ -63,6 +63,7 @@ import { workdirRoot } from "./integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
 import { execWorkRoot } from "./server/exec-sandbox-factory";
 import { resolveApiToken } from "./server/api-token";
+import { suiteHoldsVerifiedLoginFor } from "./server/login-bootstrap-wiring";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = qayabaRoot();
@@ -168,13 +169,16 @@ function currentAgentDeps(): AgentDeps {
  */
 let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
 
+/* The question behind the automatic login bootstrap; absent under QA_CAMPAIGN_FREEZE (a mistyped value throws here, at boot, like the engine's own read of it). */
+const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(process.env, ROOT);
+
 /*
  * The runner deps every enqueue path shares — the event store, the engine factory and the
  * onboarding mirror-race guard — so no path can skip parking while onboarding provisions mirrors.
  * Built at call time: engineFactory and onboardingJob are assigned later in this module.
  */
 function runnerDeps(): RunnerDeps {
-  return { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() };
+  return { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
 }
 
 /*

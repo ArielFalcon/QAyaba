@@ -177,6 +177,109 @@ test("a login-bootstrap run is an e2e manual run for the login purpose, guided t
   assert.match(run?.guidance ?? "", /one smoke spec/);
 });
 
+/* An app onboarded before the suite store has no verified login to start from: the queue authors it first, once, ahead of the run
+   that asked, and never again on its own. The decision reads the app's own declaration and the store through an injected question. */
+const withLogin = (name: string): AppConfig => ({ ...cfg(name), auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } });
+
+function bootstrapRig(over: { holds?: (app: string) => boolean; load?: (name: string) => AppConfig; withoutQuestion?: boolean } = {}) {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const deps = {
+    loadApp: over.load ?? withLogin,
+    engineFactory: () => port,
+    ...(over.withoutQuestion ? {} : { suiteHoldsVerifiedLogin: over.holds ?? (() => false) }),
+  };
+  const run = (app: string, extra: Partial<Parameters<typeof enqueueTrackedRun>[1]> = {}): string =>
+    enqueueTrackedRun(queue, { app, sha: "abc1234", target: "e2e", mode: "diff", source: "webhook", ...extra }, deps);
+  return { queue, calls, run, deps };
+}
+
+test("a run for an app that declares a login and has none verified is preceded by the app's login bootstrap, on the same sha, in queue order", async () => {
+  const r = bootstrapRig();
+  r.run("runner-boot-first");
+  await r.queue.drain();
+  assert.deepEqual(r.calls.map((c) => c.purpose ?? c.mode), ["login-bootstrap", "diff"]);
+  assert.equal(r.calls[0]?.sha.value, "abc1234");
+  assert.equal(r.calls[0]?.mode, "manual");
+});
+
+test("the bootstrap is asked for once per app and process: a later run does not queue another, whether or not the first worked", async () => {
+  const r = bootstrapRig();
+  r.run("runner-boot-once");
+  r.run("runner-boot-once");
+  await r.queue.drain();
+  r.run("runner-boot-once");
+  await r.queue.drain();
+  assert.equal(r.calls.filter((c) => c.purpose === "login-bootstrap").length, 1);
+  assert.equal(r.calls.filter((c) => c.purpose === undefined).length, 3);
+});
+
+test("a bootstrap an operator already asked for is not asked for again by the next run", async () => {
+  const r = bootstrapRig();
+  enqueueLoginBootstrapRun(r.queue, "runner-boot-explicit", "c0ffee1", r.deps);
+  r.run("runner-boot-explicit");
+  await r.queue.drain();
+  assert.equal(r.calls.filter((c) => c.purpose === "login-bootstrap").length, 1);
+});
+
+test("no bootstrap is queued for a public app, an app that already holds a verified login, a run that cannot use one, or when the question is not wired", async () => {
+  const none = (r: ReturnType<typeof bootstrapRig>): number => r.calls.filter((c) => c.purpose === "login-bootstrap").length;
+
+  const pub = bootstrapRig({ load: cfg });
+  pub.run("runner-boot-public");
+  await pub.queue.drain();
+  assert.equal(none(pub), 0, "a public app has no login to author");
+
+  const warm = bootstrapRig({ holds: () => true });
+  warm.run("runner-boot-warm");
+  await warm.queue.drain();
+  assert.equal(none(warm), 0, "the store already holds a verified login");
+
+  const frozen = bootstrapRig({ withoutQuestion: true });
+  frozen.run("runner-boot-frozen");
+  await frozen.queue.drain();
+  assert.equal(none(frozen), 0, "a campaign controls warmth itself");
+
+  const other = bootstrapRig();
+  other.run("runner-boot-code", { target: "code" });
+  other.run("runner-boot-context", { mode: "context" });
+  other.run("runner-boot-service", { triggerRepo: "org/service" });
+  other.run("runner-boot-continue", { parentRunId: "run-earlier" });
+  other.run("runner-boot-purpose", { purpose: "login-bootstrap" });
+  await other.queue.drain();
+  assert.equal(none(other), 1, "only the run that was itself the bootstrap");
+});
+
+test("a store that cannot be asked, or an app that cannot be loaded for the question, never keeps the requested run from running", async () => {
+  const broken = bootstrapRig({ holds: () => { throw new Error("manifest unreadable"); } });
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(" "));
+  try {
+    broken.run("runner-boot-broken");
+    await broken.queue.drain();
+  } finally {
+    console.warn = original;
+  }
+  assert.deepEqual(broken.calls.map((c) => c.purpose ?? c.mode), ["diff"]);
+  assert.ok(warnings.some((w) => w.includes("runner-boot-broken") && w.includes("manifest unreadable")), "the operator is told why no bootstrap was queued");
+});
+
+test("a bootstrap queued ahead of a run is announced in the log with the app and the reason", async () => {
+  const r = bootstrapRig();
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => void lines.push(args.map(String).join(" "));
+  try {
+    r.run("runner-boot-log");
+    await r.queue.drain();
+  } finally {
+    console.log = original;
+  }
+  const said = lines.find((l) => l.includes("login bootstrap"));
+  assert.ok(said?.includes("runner-boot-log"));
+});
+
 test("PIPELINE_ENGINE=legacy (stale operator setting) — still routes through the rewritten engineFactory (accepted-but-ignored)", async () => {
   const prev = process.env.PIPELINE_ENGINE;
   process.env.PIPELINE_ENGINE = "legacy";
