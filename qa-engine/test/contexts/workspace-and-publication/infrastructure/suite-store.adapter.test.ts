@@ -25,7 +25,7 @@ interface Rig {
   read(rel: string): string;
   has(rel: string): boolean;
   clean(): void;
-  store(limits?: SuiteStoreLimits): SuiteStoreAdapter;
+  store(limits?: SuiteStoreLimits, readOnly?: boolean): SuiteStoreAdapter;
   manifest(): SuiteManifest;
   blobs(): string[];
   capture(over?: Partial<SuiteCaptureInput>): ReturnType<SuiteStoreAdapter["capture"]>;
@@ -42,13 +42,14 @@ function rig(t: TestContext): Rig {
   const tracked = new Map<string, TrackedFile>();
   const warnings: string[] = [];
   let tick = 0;
-  const store = (limits?: SuiteStoreLimits): SuiteStoreAdapter =>
+  const store = (limits?: SuiteStoreLimits, readOnly?: boolean): SuiteStoreAdapter =>
     new SuiteStoreAdapter({
       storeDir, app: "demo", repo: "org/app", specRelDir: "e2e",
       listTracked: async () => tracked,
       now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++)),
       warn: (m) => warnings.push(m),
       ...(limits ? { limits } : {}),
+      ...(readOnly ? { readOnly } : {}),
     });
   const put = (rel: string, text: string | Buffer): void => {
     mkdirSync(dirname(join(specDir, rel)), { recursive: true });
@@ -376,4 +377,74 @@ test("a purge refuses what is not a directory rather than deleting it", (t) => {
   writeFileSync(r.storeDir, "not a directory");
   assert.throws(() => deleteSuiteStoreDir(r.storeDir), /not a directory/);
   assert.equal(readFileSync(r.storeDir, "utf8"), "not a directory");
+});
+
+/* ── seeding: the harness's warm start loads a snapshot into the store, replacing whatever it held ── */
+
+const files = (entries: Record<string, string>): Map<string, Buffer> => new Map(Object.entries(entries).map(([path, text]) => [path, Buffer.from(text)]));
+
+test("a seeded store restores to exactly the snapshot, and the snapshot's login is the verified one", async (t) => {
+  const r = rig(t);
+  const result = await r.store().seed(files({ "package.json": "{}", "flows/a.spec.ts": "a", [AUTH_SETUP_PATH]: APP_LOGIN }), { label: "w1" });
+  assert.equal(result.entries, 3);
+  assert.equal(r.manifest().auth?.status, "verified");
+  assert.equal(r.manifest().auth?.verifiedBy.runId, "seed:w1");
+
+  r.clean();
+  const restored = await r.store().restore(root(r));
+  assert.deepEqual(restored, { restored: 3, trackedWins: 0, overlaid: 0, authRestored: true });
+  assert.equal(r.read(AUTH_SETUP_PATH), APP_LOGIN);
+});
+
+test("seeding replaces what the store held: an earlier run's entries and blobs are gone", async (t) => {
+  const r = rig(t);
+  r.put("flows/old.spec.ts", "old");
+  r.put(AUTH_SETUP_PATH, APP_LOGIN);
+  await r.capture({ executedGreen: ["flows/old.spec.ts"], authVerifiedSha256: sha(APP_LOGIN) });
+  await r.store().seed(files({ "package.json": "{}", "flows/new.spec.ts": "new" }), { label: "w2" });
+
+  assert.deepEqual(r.manifest().entries.map((e) => e.path), ["flows/new.spec.ts", "package.json"]);
+  assert.equal(r.manifest().auth, undefined, "a snapshot without a login leaves no login record");
+  assert.deepEqual(r.blobs(), [sha("new"), sha("{}")].sort());
+});
+
+test("seeding leaves out the stock login, credentials and sessions, as a capture does", async (t) => {
+  const r = rig(t);
+  await r.store().seed(files({ [AUTH_SETUP_PATH]: STOCK_SEED, ".env": "S=1", ".auth/user.json": "{}", "state.json": '{"cookies":[],"origins":[]}', "flows/a.spec.ts": "a" }), { label: "w3" });
+  assert.deepEqual(r.manifest().entries.map((e) => e.path), ["flows/a.spec.ts"]);
+});
+
+test("a snapshot over the store's limits is refused and the store is untouched", async (t) => {
+  const r = rig(t);
+  r.put("flows/keep.spec.ts", "keep");
+  await r.capture({ executedGreen: ["flows/keep.spec.ts"] });
+  await assert.rejects(() => r.store({ maxFileBytes: 8, maxTotalBytes: 4, maxEntries: 10 }).seed(files({ "flows/a.spec.ts": "aaaa", "flows/b.spec.ts": "bbbb" }), { label: "big" }), /over the store's limit/);
+  assert.deepEqual(r.manifest().entries.map((e) => e.path), ["flows/keep.spec.ts"]);
+});
+
+test("a seed repairs a store whose manifest is corrupt", async (t) => {
+  const r = rig(t);
+  mkdirSync(r.storeDir, { recursive: true });
+  writeFileSync(join(r.storeDir, "manifest.json"), "{not json");
+  await r.store().seed(files({ "flows/a.spec.ts": "a" }), { label: "repair" });
+  assert.deepEqual(r.manifest().entries.map((e) => e.path), ["flows/a.spec.ts"]);
+});
+
+/* ── read-only: a campaign's runs read the store and never write it ── */
+
+test("a read-only store restores, but a capture writes nothing and a demotion only takes the login out of the working copy", async (t) => {
+  const r = rig(t);
+  await r.store().seed(files({ "package.json": "{}", [AUTH_SETUP_PATH]: APP_LOGIN, "flows/a.spec.ts": "a" }), { label: "w4" });
+  const before = readFileSync(join(r.storeDir, "manifest.json"), "utf8");
+  const frozen = r.store(undefined, true);
+
+  r.clean();
+  assert.equal((await frozen.restore(root(r))).restored, 3);
+  r.put("flows/b.spec.ts", "b");
+  const captured = await frozen.capture({ ...root(r), runId: "r", sha: "s", executedGreen: ["flows/a.spec.ts", "flows/b.spec.ts"] });
+  assert.deepEqual({ admitted: captured.admitted, dropped: captured.dropped }, { admitted: 0, dropped: 0 });
+  await frozen.demoteAuth(root(r), "x");
+
+  assert.equal(r.has(AUTH_SETUP_PATH), false);
+  assert.equal(readFileSync(join(r.storeDir, "manifest.json"), "utf8"), before, "the manifest is exactly as the seed left it");
 });

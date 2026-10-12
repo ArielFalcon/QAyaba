@@ -8,6 +8,7 @@
  *   npm run warm-suite -- snapshot --app <app> --label <l>
  *   npm run warm-suite -- restore  --app <app> --label <l> [--dry-run]
  *   npm run warm-suite -- verify   --app <app> --label <l>
+ *   npm run warm-suite -- seed-store --app <app> --label <l>
  *
  * `snapshot` copies the app's primary mirror `e2e/` to <mirrors>/.warm/<app>/<label>/e2e and records a manifest
  * (every file with its sha256, and what was left out and why). It leaves out install and run output
@@ -16,6 +17,10 @@
  * agents container, so nothing in a snapshot may be a secret. `restore` makes the mirror's `e2e/` equal to a
  * snapshot, node_modules kept so no dependency install is repeated. Both refuse unless the service's queue is
  * idle: the mirror belongs to the run that is using it. `verify` says whether the snapshot's login is warm.
+ * `seed-store` loads a snapshot into the app's suite store (data/suites/<app>/, the durable copy a pipeline run restores
+ * after its checkout), replacing whatever the store held, so the pipeline's next run starts from the same suite as the
+ * plain agent's throwaway copy. It is how a campaign gives the pipeline arm its warm start; restoring the mirror does
+ * nothing for a run, whose checkout wipes the untracked suite.
  * The baseline arm applies the same snapshot to its throwaway copy (`baseline-agent --warm <label>`).
  *
  * Everything under `e2e/` is untrusted (the agent writes there): it is walked without following a link, read
@@ -324,7 +329,7 @@ export function specsTouchedSinceSnapshot(touched: readonly string[], manifest: 
 
 /* ── command line ──────────────────────────────────────────────────────────────────── */
 
-const SUBCOMMANDS = ["snapshot", "restore", "verify"] as const;
+const SUBCOMMANDS = ["snapshot", "restore", "verify", "seed-store"] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
 
 export interface WarmDeps {
@@ -336,6 +341,8 @@ export interface WarmDeps {
   primaryMirror(app: string): { repo: string; mirrorDir: string; e2eDir: string };
   now(): Date;
   out(line: string): void;
+  /** Replaces the app's suite store with these files (relative paths, as the snapshot holds them); `label` names the snapshot they came from. */
+  seedStore(app: string, files: ReadonlyMap<string, Buffer>, label: string): Promise<{ entries: number; bytes: number }>;
 }
 
 type Parsed = { ok: true; command: Subcommand; app: string; label: string; dryRun: boolean } | { ok: false; problem: string };
@@ -368,9 +375,11 @@ const USAGE = [
   "usage: npm run warm-suite -- snapshot --app <app> --label <l>",
   "       npm run warm-suite -- restore  --app <app> --label <l> [--dry-run]",
   "       npm run warm-suite -- verify   --app <app> --label <l>",
+  "       npm run warm-suite -- seed-store --app <app> --label <l>",
   "  EXPERIMENT ONLY. Snapshots the app's primary mirror e2e/ (without node_modules, run output, login sessions or credentials) to",
-  "  <mirrors>/.warm/<app>/<l>/, restores a mirror's e2e/ to a snapshot, and checks that the snapshot's auth.setup.ts is no longer the stock seed.",
-  "  snapshot and restore refuse unless the queue is idle. Run inside the orchestrator container.",
+  "  <mirrors>/.warm/<app>/<l>/, restores a mirror's e2e/ to a snapshot, checks that the snapshot's auth.setup.ts is no longer the stock seed,",
+  "  and loads a snapshot into the app's suite store (what a pipeline run restores after its checkout).",
+  "  snapshot, restore and seed-store refuse unless the queue is idle. Run inside the orchestrator container.",
 ].join("\n");
 
 const LISTED = 40;
@@ -402,6 +411,16 @@ export async function main(argv: string[], deps: WarmDeps): Promise<number> {
       return status.warm ? 0 : 1;
     }
 
+    if (command === "seed-store") {
+      await deps.assertQueueIdle();
+      const snapshot = loadSnapshot(labelDir, label);
+      const seeded = await deps.seedStore(app, snapshot.files, label);
+      out(`[warm] seeded the suite store of ${app} with ${app}/${label}: ${seeded.entries} files, ${seeded.bytes} bytes (what the store held is replaced)`);
+      const status = warmStatus(snapshot);
+      out(`[warm] login: ${status.warm ? "WARM" : "COLD"}: ${status.note}`);
+      return 0;
+    }
+
     if (!dryRun) await deps.assertQueueIdle();
     const mirror = deps.primaryMirror(app);
     if (command === "snapshot") {
@@ -429,6 +448,23 @@ export async function main(argv: string[], deps: WarmDeps): Promise<number> {
 
 /* ── the real collaborators ────────────────────────────────────────────────────────── */
 
+/** Loads a snapshot's files into an app's suite store (data/suites/<app>/), replacing what it held. The engine's own adapter does it, so the store is exactly what a run would have captured. */
+export async function seedSuiteStore(app: string, files: ReadonlyMap<string, Buffer>, label: string): Promise<{ entries: number; bytes: number }> {
+  const { SuiteStoreAdapter } = await import("../qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts");
+  const { appSuiteStoreDir } = await import("../src/server/rewritten-engine-factory.ts");
+  const { qayabaRoot } = await import("../src/paths.ts");
+  const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
+  const store = new SuiteStoreAdapter({
+    storeDir: appSuiteStoreDir(qayabaRoot(), app),
+    app,
+    repo: loadAppConfig(app).repo,
+    specRelDir: DEFAULT_SUITE_DIR,
+    listTracked: async () => new Map(),
+    now: () => new Date(),
+  });
+  return store.seed(files, { label });
+}
+
 /** The queue, the app configs and the mirrors of the orchestrator container, imported lazily so a test that injects its own never opens them. */
 export async function defaultDeps(env: Record<string, string | undefined> = process.env): Promise<WarmDeps> {
   const { assertQueueIdle, defaultService } = await import("./efficiency-benchmark.ts");
@@ -445,6 +481,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     },
     now: () => new Date(),
     out: (line) => console.log(line),
+    seedStore: (app, files, label) => seedSuiteStore(app, files, label),
   };
 }
 

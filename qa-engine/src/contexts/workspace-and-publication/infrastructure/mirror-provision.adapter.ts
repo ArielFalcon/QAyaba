@@ -18,25 +18,6 @@ function assertHexSha(sha: string): void {
   if (!HEX_SHA.test(sha)) throw new Error(`invalid commit sha (must be 7–40 hex chars): ${JSON.stringify(sha)}`);
 }
 
-/* One path segment of a directory kept out of the clean: plain name characters only, so the exclude pattern built from it can never be a glob, a negation or an option. */
-const KEPT_SEGMENT_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
-function assertKeptPath(path: string): void {
-  const segments = path.split("/");
-  if (!segments.every((segment) => KEPT_SEGMENT_RE.test(segment) && segment !== "..")) {
-    throw new Error(`invalid keepUntracked path (plain relative directory names only): ${JSON.stringify(path)}`);
-  }
-}
-
-export interface MirrorProvisionOptions {
-  /**
-   * Directories (relative to the repository root) the per-run `git clean -fd` must leave alone: the app's spec directory,
-   * when an operator wants an untracked suite (shadow mode never publishes one) to survive from run to run. Only the
-   * clean is changed. `git checkout -f` leaves untracked files alone but overwrites one that collides with a path the
-   * checked-out revision tracks, and that stays git's decision.
-   */
-  keepUntracked?: readonly string[];
-}
-
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 function assertBranchName(branch: string): void {
   if (!BRANCH_RE.test(branch) || branch.includes("..")) {
@@ -47,14 +28,14 @@ function assertBranchName(branch: string): void {
 export class MirrorProvisionAdapter {
   constructor(private readonly deps: MirrorProvisionDeps) {}
 
-  async ensureMirror(repo: string, sha: string, options: MirrorProvisionOptions = {}): Promise<string> {
+  async ensureMirror(repo: string, sha: string): Promise<string> {
     assertHexSha(sha);
-    return this.provision(repo, sha, options);
+    return this.provision(repo, sha);
   }
 
-  async ensureMirrorAtBranch(repo: string, branch: string, options: MirrorProvisionOptions = {}): Promise<string> {
+  async ensureMirrorAtBranch(repo: string, branch: string): Promise<string> {
     assertBranchName(branch);
-    return this.provision(repo, `origin/${branch}`, options);
+    return this.provision(repo, `origin/${branch}`);
   }
 
   private mirrorDir(repo: string): string {
@@ -67,26 +48,24 @@ export class MirrorProvisionAdapter {
    * never run inside such a tree to repair it: it is deleted, and the mirror cloned afresh, once. A refusal that
    * survives the fresh clone is real and propagates.
    */
-  private async provision(repo: string, rev: string, options: MirrorProvisionOptions): Promise<string> {
-    const keep = options.keepUntracked ?? [];
-    keep.forEach(assertKeptPath);
+  private async provision(repo: string, rev: string): Promise<string> {
     const dir = this.mirrorDir(repo);
     const existed = this.deps.exists(dir);
     try {
-      return await this.syncAndCheckout(repo, rev, keep);
+      return await this.syncAndCheckout(repo, rev);
     } catch (err) {
       if (!(err instanceof UntrustedGitTreeError) || !existed || !this.deps.removeTree || !this.isDirectChildOfRoot(dir)) throw err;
       console.error(`[qa] mirror ${dir} is not usable (${err.message}); it is a regenerable cache, so it is deleted and cloned afresh`);
       this.deps.removeTree(dir);
-      return this.syncAndCheckout(repo, rev, keep);
+      return this.syncAndCheckout(repo, rev);
     }
   }
 
-  private async syncAndCheckout(repo: string, rev: string, keep: readonly string[]): Promise<string> {
+  private async syncAndCheckout(repo: string, rev: string): Promise<string> {
     const dir = await this.syncMirror(repo);
     await this.deps.git(["checkout", "-f", rev], dir);
-    /* A leading slash anchors the pattern at the repository root, so only that directory is kept, never a same-named one below another path. */
-    await this.deps.git(["clean", "-fd", "-e", "node_modules", ...keep.flatMap((path) => ["-e", `/${path}/`])], dir);
+    /* The clean takes every untracked file: a suite that git does not hold lives in the suite store and is restored after the checkout. */
+    await this.deps.git(["clean", "-fd", "-e", "node_modules"], dir);
     return dir;
   }
 

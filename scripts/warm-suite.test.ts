@@ -270,7 +270,12 @@ test("the specs a snapshot already held are not a case's own unless their conten
 
 function harness(s: Sandbox, over: Partial<WarmDeps> = {}) {
   const lines: string[] = [];
+  const seeded: Array<{ app: string; label: string; files: Map<string, Buffer> }> = [];
   const deps: WarmDeps = {
+    seedStore: async (app, files, label) => {
+      seeded.push({ app, label, files: new Map(files) });
+      return { entries: files.size, bytes: [...files.values()].reduce((n, b) => n + b.length, 0) };
+    },
     assertQueueIdle: async () => {},
     warmRoot: () => s.warmRoot,
     primaryMirror: () => ({ repo: "org/app", mirrorDir: s.mirrorDir, e2eDir: s.e2eDir }),
@@ -278,7 +283,7 @@ function harness(s: Sandbox, over: Partial<WarmDeps> = {}) {
     out: (line) => lines.push(line),
     ...over,
   };
-  return { deps, lines, text: () => lines.join("\n") };
+  return { deps, lines, seeded, text: () => lines.join("\n") };
 }
 const busy = async (): Promise<void> => { throw new Error("the queue is busy"); };
 
@@ -328,7 +333,51 @@ test("verify exits nonzero while the snapshot's login is still the stock seed, a
   assert.equal(await main(["verify", "--app", "demo", "--label", "nope"], h.deps), 1);
 });
 
+test("seed-store loads every file of the snapshot into the app's suite store and says so, and the queue must be idle", async (t) => {
+  const s = sandbox(t);
+  s.put(AUTH_SETUP_FILE, APP_LOGIN);
+  s.put("flows/a.spec.ts", "a\n");
+  const h = harness(s);
+  await main(["snapshot", "--app", "demo", "--label", "w1"], h.deps);
+
+  assert.equal(await main(["seed-store", "--app", "demo", "--label", "w1"], h.deps), 0);
+  assert.equal(h.seeded.length, 1);
+  assert.equal(h.seeded[0]?.app, "demo");
+  assert.equal(h.seeded[0]?.label, "w1");
+  assert.deepEqual([...h.seeded[0]!.files.keys()].sort(), [AUTH_SETUP_FILE, "flows/a.spec.ts"]);
+  assert.equal(h.seeded[0]!.files.get("flows/a.spec.ts")?.toString(), "a\n");
+  assert.ok(h.text().includes("[warm] seeded the suite store of demo"), "the operator is told what was loaded");
+  assert.ok(h.text().includes("WARM"), "and whether the login it carries is the app's own");
+
+  const b = harness(s, { assertQueueIdle: busy });
+  assert.equal(await main(["seed-store", "--app", "demo", "--label", "w1"], b.deps), 1);
+  assert.deepEqual(b.seeded, [], "a busy queue means the store belongs to the run using it: nothing was loaded");
+});
+
+test("seed-store of a snapshot that does not exist, or whose copy no longer matches its manifest, loads nothing", async (t) => {
+  const s = sandbox(t);
+  s.put("flows/a.spec.ts", "a\n");
+  const h = harness(s);
+  await main(["snapshot", "--app", "demo", "--label", "w1"], h.deps);
+  assert.equal(await main(["seed-store", "--app", "demo", "--label", "nope"], h.deps), 1);
+  writeFileSync(join(warmSnapshotDir(s.warmRoot, "demo", "w1"), "e2e", "flows", "a.spec.ts"), "tampered\n");
+  assert.equal(await main(["seed-store", "--app", "demo", "--label", "w1"], h.deps), 1);
+  assert.deepEqual(h.seeded, []);
+});
+
+test("seed-store reports a cold snapshot as cold but still loads it: a cold arm is a legitimate start", async (t) => {
+  const s = sandbox(t);
+  s.put(AUTH_SETUP_FILE, STOCK_SEED);
+  const h = harness(s);
+  await main(["snapshot", "--app", "demo", "--label", "cold"], h.deps);
+  assert.equal(await main(["seed-store", "--app", "demo", "--label", "cold"], h.deps), 0);
+  assert.ok(h.text().includes("COLD"));
+  assert.equal(h.seeded.length, 1);
+});
+
 test("arguments are validated: a known subcommand, an app and a label that cannot name a path, and --dry-run only for restore", () => {
+  assert.equal(parseArguments(["seed-store", "--app", "demo", "--label", "w1"]).ok, true);
+  assert.equal(parseArguments(["seed-store", "--app", "demo", "--label", "w1", "--dry-run"]).ok, false);
   assert.equal(parseArguments(["restore", "--app", "demo", "--label", "w1", "--dry-run"]).ok, true);
   for (const bad of [[], ["frobnicate"], ["snapshot", "--app", "demo"], ["snapshot", "--label", "w1"], ["snapshot", "--app", "../x", "--label", "w1"], ["verify", "--app", "demo", "--label", "a/b"], ["snapshot", "--app", "demo", "--label", "w1", "--dry-run"], ["verify", "--app", "demo", "--label", "w1", "--nope"]]) {
     assert.equal(parseArguments(bad).ok, false, bad.join(" "));

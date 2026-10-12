@@ -55,8 +55,6 @@ export interface CampaignCaseRecord {
 export interface CampaignEnvironment {
   /** QA_CAMPAIGN_FREEZE as this process saw it. */
   campaignFreeze: boolean;
-  /** QA_PRESERVE_UNTRACKED_SUITE as this process saw it. */
-  preserveUntrackedSuite: boolean;
   /** The operator attested that the agents' engram data was isolated. */
   engramIsolated: boolean;
   appShadow: boolean;
@@ -152,7 +150,7 @@ export function renderMarkdown(record: CampaignRecord): string {
   lines.push("", "## Conditions", "");
   const e = record.environment;
   lines.push(`- learning frozen (\`QA_CAMPAIGN_FREEZE\`): ${yesNo(e.campaignFreeze)}`);
-  lines.push(`- warm suite kept through the pipeline's clean (\`QA_PRESERVE_UNTRACKED_SUITE\`): ${yesNo(e.preserveUntrackedSuite)}`);
+  lines.push(`- warm start: the snapshot is seeded into the suite store before each arm-run (the pipeline restores it after its checkout; the plain agent applies it to its throwaway copy)`);
   lines.push(`- app in shadow mode: ${yesNo(e.appShadow)}; pipeline arm asked for shadow in its request: ${yesNo(e.forcedShadow)}`);
   lines.push(`- agents' engram memory isolated for this campaign: ${e.engramIsolated ? "yes (attested by the operator)" : "NO. The generator's and the explorer's engram memory carries over between replicates; this campaign does not neutralize it"}`);
 

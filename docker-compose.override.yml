@@ -63,9 +63,6 @@ services:
       QA_RUN_TIME_BUDGET_MS_COMPLETE: ${QA_RUN_TIME_BUDGET_MS_COMPLETE:-}
       QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE: ${QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE:-}
       QA_RUN_TIME_BUDGET_MS_CONTEXT: ${QA_RUN_TIME_BUDGET_MS_CONTEXT:-}
-      # Keeps the primary repo's spec directory out of the per-run `git clean -fd`, so a suite that was never
-      # published (shadow mode) survives to the next run. Empty is off (docs/efficiency-benchmark.md).
-      QA_PRESERVE_UNTRACKED_SUITE: ${QA_PRESERVE_UNTRACKED_SUITE:-}
       # Stops a run from reading or writing cross-run learning state (rule fold and retrieval, curriculum,
       # reflector, process audit with its incidents and context-stale flag), so the replicates of an A/B
       # campaign start from the same ground. Empty is off (docs/efficiency-benchmark.md, "Campaigns").

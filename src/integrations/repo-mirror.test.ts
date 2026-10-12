@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { hardenGitArgs as engineHardenGitArgs, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { hardenDetachedGitArgs as engineHardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
 import { closeGitDir, GIT_ENV, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
-import { defaultMirrorDeps, realGit, ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps, resolvePreserveUntrackedSuite, PRESERVE_UNTRACKED_SUITE_ENV } from "./repo-mirror";
+import { defaultMirrorDeps, realGit, ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps } from "./repo-mirror";
 
 /* authHeaderArgs() depends on GITHUB_TOKEN and the remote URL on GIT_REMOTE_BASE;
    clear both to isolate the logic (token-bearing tests set GITHUB_TOKEN per-test).
@@ -94,54 +94,6 @@ test("existing mirror: scrubs origin URL, fetches, force-checks out and cleans",
   assert.deepEqual(d.calls[1], ["fetch", "--no-recurse-submodules", "origin"]);
   assert.deepEqual(d.calls[2], ["checkout", "-f", "abc1234"]);
   assert.deepEqual(d.calls[3], ["clean", "-fd", "-e", "node_modules"]);
-});
-
-test("ensureMirror hands the kept directories to the clean, and ensureMirrorAtBranch does too", async () => {
-  const d = recorder(false);
-  await ensureMirror("org/app", "abc1234", d, { keepUntracked: ["e2e"] });
-  await ensureMirrorAtBranch("org/app", "main", d, { keepUntracked: ["e2e"] });
-  const cleans = d.calls.filter((args) => args[0] === "clean");
-  assert.deepEqual(cleans, [
-    ["clean", "-fd", "-e", "node_modules", "-e", "/e2e/"],
-    ["clean", "-fd", "-e", "node_modules", "-e", "/e2e/"],
-  ]);
-});
-
-test("an untracked directory that is kept survives the checkout and the clean, and everything else untracked goes", () => {
-  const repo = mkdtempSync(join(tmpdir(), "keep-untracked-"));
-  try {
-    const git = (...args: string[]): string => execFileSync("git", args, { cwd: repo, env: { ...process.env, ...GIT_ENV }, encoding: "utf8" });
-    git("init", "-q", ".");
-    writeFileSync(join(repo, "tracked.txt"), "a");
-    git("add", ".");
-    git("commit", "-qm", "init");
-    execFileSync("mkdir", ["-p", join(repo, "e2e/flows"), join(repo, "other/e2e"), join(repo, "scratch")]);
-    writeFileSync(join(repo, "e2e/auth.setup.ts"), "login");
-    writeFileSync(join(repo, "e2e/flows/a.spec.ts"), "spec");
-    writeFileSync(join(repo, "other/e2e/nested.txt"), "n");
-    writeFileSync(join(repo, "scratch/junk"), "j");
-    git("checkout", "-f", "HEAD");
-    git("clean", "-fd", "-e", "node_modules", "-e", "/e2e/");
-    assert.equal(readFileSync(join(repo, "e2e/auth.setup.ts"), "utf8"), "login");
-    assert.equal(readFileSync(join(repo, "e2e/flows/a.spec.ts"), "utf8"), "spec");
-    assert.equal(existsSync(join(repo, "scratch")), false, "the rest is still cleaned");
-    assert.equal(existsSync(join(repo, "other")), false, "a same-named directory elsewhere is not the spec directory");
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-test("the suite is preserved only when the operator switch is on", () => {
-  assert.equal(resolvePreserveUntrackedSuite({}), false);
-  assert.equal(resolvePreserveUntrackedSuite({ [PRESERVE_UNTRACKED_SUITE_ENV]: "" }), false);
-  assert.equal(resolvePreserveUntrackedSuite({ [PRESERVE_UNTRACKED_SUITE_ENV]: "0" }), false);
-  assert.equal(resolvePreserveUntrackedSuite({ [PRESERVE_UNTRACKED_SUITE_ENV]: "false" }), false);
-  assert.equal(resolvePreserveUntrackedSuite({ [PRESERVE_UNTRACKED_SUITE_ENV]: "1" }), true);
-  assert.equal(resolvePreserveUntrackedSuite({ [PRESERVE_UNTRACKED_SUITE_ENV]: "true" }), true);
-});
-
-test("a mistyped switch value is refused instead of silently reading as off", () => {
-  assert.throws(() => resolvePreserveUntrackedSuite({ [PRESERVE_UNTRACKED_SUITE_ENV]: "yes" }), new RegExp(PRESERVE_UNTRACKED_SUITE_ENV));
 });
 
 /* ── Security: the push token must never be persisted into the mirror ─────────

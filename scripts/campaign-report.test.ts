@@ -17,7 +17,7 @@ function record(results: ArmRunResult[]): CampaignRecord {
   return {
     schema: 1, label: "camp", app: "demo", startedAt: "2026-10-12T10:00:00.000Z", finishedAt: "2026-10-12T12:00:00.000Z", complete: true,
     args: { replicas: 2, arms: ["A", "B"], wallCapMin: 30, warm: "warm-1", casesPath: "cases.json" },
-    environment: { campaignFreeze: true, preserveUntrackedSuite: true, engramIsolated: false, appShadow: true, forcedShadow: true },
+    environment: { campaignFreeze: true, engramIsolated: false, appShadow: true, forcedShadow: true },
     snapshot: { label: "warm-1", createdAt: "2026-10-11T10:00:00.000Z", warm: true },
     cases: [{ id: "dup-address", kind: "diff", sha: "abc1234", expected: { outcome: "spec", mustVerify: "a duplicate address shows the refusal" } }],
     results,

@@ -103,6 +103,8 @@ export interface SuiteStoreDeps {
   now(): Date;
   limits?: SuiteStoreLimits;
   warn?(message: string): void;
+  /** A store the run only reads: a capture writes nothing, and a demotion only takes the login out of the working copy. For a run that must leave no cross-run state (a campaign's). */
+  readOnly?: boolean;
 }
 
 const sha256Of = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
@@ -224,6 +226,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
   }
 
   async capture(input: SuiteCaptureInput): Promise<SuiteCaptureResult> {
+    if (this.deps.readOnly) return { entries: this.load().entries.length, admitted: 0, dropped: 0, skipped: [] };
     const manifest = this.load();
     const tracked = await this.deps.listTracked(input.mirrorDir, this.deps.specRelDir);
     const green = new Set(input.executedGreen.map(normalizeSpecPath));
@@ -309,7 +312,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
   async demoteAuth(root: SuiteRoot, reason: string): Promise<void> {
     const manifest = this.load();
     const entry = manifest.entries.find((candidate) => candidate.path === AUTH_SETUP_PATH);
-    if (entry !== undefined || manifest.auth?.status === AUTH_STATUS.VERIFIED) {
+    if (!this.deps.readOnly && (entry !== undefined || manifest.auth?.status === AUTH_STATUS.VERIFIED)) {
       const auth: SuiteAuthRecord = {
         sha256: manifest.auth?.sha256 ?? entry?.sha256 ?? "",
         verifiedBy: manifest.auth?.verifiedBy ?? { runId: entry?.admittedBy.runId ?? "", at: entry?.admittedBy.at ?? "" },
@@ -331,6 +334,40 @@ export class SuiteStoreAdapter implements SuiteStorePort {
       entries,
       ...(auth ? { auth } : {}),
     };
+  }
+
+  /**
+   * Replaces the whole store with a snapshot's files: the experiment harness's warm start, so that two arms begin from the same suite.
+   * The snapshot goes through the same rules a capture applies (nothing that holds a credential or a session, the stock login never
+   * as the app's own); a snapshot's login is taken as verified, by the operator who declared the snapshot warm. A store whose manifest
+   * cannot be read is replaced too: a seed is how it is repaired.
+   */
+  async seed(snapshot: ReadonlyMap<string, Buffer>, origin: { label: string }): Promise<{ entries: number; bytes: number }> {
+    let previous: SuiteManifest;
+    try {
+      previous = this.load();
+    } catch {
+      previous = emptyManifest(this.deps);
+    }
+    const at = this.deps.now().toISOString();
+    const admittedBy: SuiteEntryAdmission = { runId: `seed:${origin.label}`, sha: "seed", at };
+    const entries: SuiteEntry[] = [];
+    const fresh = new Map<string, Buffer>();
+    for (const [path, bytes] of [...snapshot].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      assertSafeRelative(path);
+      if (exclusionReason(path, false) !== undefined || storeExclusion(path) !== undefined || looksLikeSessionState(path, bytes)) continue;
+      if (bytes.length > this.limits.maxFileBytes) throw new Error(`${path} is over the store's per-file limit of ${this.limits.maxFileBytes} bytes: nothing was stored`);
+      const kind = suiteEntryKind(path);
+      if (kind === SUITE_ENTRY_KIND.AUTH_SETUP && isStockAuthSetup(bytes.toString("utf8"))) continue;
+      const sha256 = sha256Of(bytes);
+      entries.push({ path, sha256, bytes: bytes.length, kind, admittedBy });
+      fresh.set(sha256, bytes);
+    }
+    this.assertWithinLimits(entries);
+    const login = entries.find((entry) => entry.kind === SUITE_ENTRY_KIND.AUTH_SETUP);
+    const auth: SuiteAuthRecord | undefined = login ? { sha256: login.sha256, verifiedBy: { runId: admittedBy.runId, at }, status: AUTH_STATUS.VERIFIED } : undefined;
+    this.writeStore(this.nextManifest(previous, entries, auth), fresh);
+    return { entries: entries.length, bytes: entries.reduce((sum, entry) => sum + entry.bytes, 0) };
   }
 
   /* The login a verified run signed in with becomes the record; a demoted record stays until a login is verified again. */

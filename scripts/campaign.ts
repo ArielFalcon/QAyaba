@@ -8,7 +8,8 @@
  * Arm A is the plain agent (scripts/baseline-agent.ts), arm B the pipeline (the service's API, or its webhook for a
  * cross-repo case). The campaign runs every case of the cases file `--replicas` times for each arm, ONE run at a time against
  * DEV, the arms alternating order by replicate (AB, BA, ...). Before EACH arm-run it waits for an idle queue, runs the case's
- * cleanup (when declared) and restores the warm snapshot (scripts/warm-suite.ts); both arms get the same wall cap.
+ * cleanup (when declared) and seeds the warm snapshot into the app's suite store (scripts/warm-suite.ts seed-store), which the
+ * pipeline restores after its checkout; the plain agent applies the same snapshot to its throwaway copy. Both arms get the same wall cap.
  *
  * What an arm "passed" is not taken from the arm. The files it delivered are saved under
  * config/benchmarks/campaigns/<label>/<case>/<arm>-<n>/ and re-run here twice with no retry against DEV, with the warm login;
@@ -158,15 +159,15 @@ export interface CampaignDeps {
   /** The warm snapshot, whole and checked; throws when there is none. */
   loadWarmSnapshot(app: string, label: string): LoadedSnapshot;
   /** What this process sees of the switches the pipeline arm depends on. */
-  envFlags(): { campaignFreeze: boolean; preserveUntrackedSuite: boolean };
+  envFlags(): { campaignFreeze: boolean };
   campaignDir(label: string): string;
   campaignExists(label: string): boolean;
   /** A problem text when the plain agent could not read the case's commits from the mirrors, null when it can. */
   commitsAvailable(app: AppFacts, c: CampaignCase): Promise<string | null>;
   /** Waits for the queue to be idle (nothing running, nothing pending); throws when it is not by then. */
   waitForIdleQueue(timeoutMs: number): Promise<void>;
-  /** Makes the app's mirror `e2e/` equal to the snapshot. */
-  restoreSuite(app: AppFacts, snapshot: LoadedSnapshot): Promise<void>;
+  /** Loads the snapshot into the app's suite store, replacing what it held: the pipeline's next run restores it after its checkout. */
+  seedStore(app: AppFacts, snapshot: LoadedSnapshot): Promise<void>;
   runCleanup(input: { app: AppFacts; snapshot: LoadedSnapshot; spec: string; workspace: string }): Promise<{ ok: boolean; note: string }>;
   runPipeline(req: PipelineRequest): Promise<ArmOutcome>;
   runBaseline(req: BaselineRequest): Promise<ArmOutcome>;
@@ -186,11 +187,11 @@ const USAGE = [
   "usage: npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label> [--arms A,B] [--wall-cap-min <m>]",
   "                           [--allow-non-shadow] [--skip-env-checks] [--engram-isolated] [--dry-run]",
   "  EXPERIMENT ONLY. Runs every case --replicas times per arm (A: the plain agent, B: the pipeline), one run at a time against DEV, the arms",
-  "  alternating order by replicate. Before each arm-run: idle queue, the case's cleanup, the warm snapshot restored. Delivered files are saved and",
+  "  alternating order by replicate. Before each arm-run: idle queue, the case's cleanup, the warm snapshot seeded into the suite store. Delivered files are saved and",
   "  re-run twice without retry; fake-looking specs are never valid. Writes config/benchmarks/campaigns/<label>/{campaign.json,campaign.md,rubric.csv}.",
   "  --wall-cap-min       wall cap per arm-run, equal for both arms (default 30)",
   "  --allow-non-shadow   run the pipeline on an app whose config is not shadow (a webhook cannot ask for shadow)",
-  "  --skip-env-checks    do not require QA_CAMPAIGN_FREEZE and QA_PRESERVE_UNTRACKED_SUITE in this process (the server was started with them another way)",
+  "  --skip-env-checks    do not require QA_CAMPAIGN_FREEZE in this process (the server was started with it another way)",
   "  --engram-isolated    attest that the agents' engram data is isolated for this campaign (recorded; the runner cannot do it)",
   "  --dry-run            check everything and print the plan; run nothing",
   "run inside the orchestrator container.",
@@ -223,7 +224,6 @@ async function preflight(args: CampaignArguments, plan: Omit<Plan, "args" | "dir
   if (args.arms.includes(ARM.PIPELINE) && !args.skipEnvChecks) {
     const flags = deps.envFlags();
     if (!flags.campaignFreeze) problems.push("QA_CAMPAIGN_FREEZE is not on in this process: the pipeline would learn from each replicate. Set it on the orchestrator and restart it (or pass --skip-env-checks if the server has it by another route).");
-    if (!flags.preserveUntrackedSuite) problems.push("QA_PRESERVE_UNTRACKED_SUITE is not on in this process: the pipeline's per-run clean would delete the restored warm snapshot. Set it on the orchestrator and restart it (or pass --skip-env-checks).");
   }
   const status = warmStatus(snapshot);
   if (!status.warm) problems.push(`warm snapshot '${snapshot.label}' is not warm: ${status.note}`);
@@ -278,7 +278,7 @@ export async function runCampaign(argv: string[], deps: CampaignDeps): Promise<n
       schema: 1, label: args.label, app: app.name, startedAt: deps.nowIso(), finishedAt: null, complete: false,
       args: { replicas: args.replicas, arms: args.arms, wallCapMin: args.wallCapMin, warm: args.warm, casesPath: args.casesPath },
       environment: {
-        campaignFreeze: deps.envFlags().campaignFreeze, preserveUntrackedSuite: deps.envFlags().preserveUntrackedSuite, engramIsolated: args.engramIsolated,
+        campaignFreeze: deps.envFlags().campaignFreeze, engramIsolated: args.engramIsolated,
         appShadow: app.shadow, forcedShadow: args.arms.includes(ARM.PIPELINE),
       },
       snapshot: { label: snapshot.label, createdAt: snapshot.manifest.createdAt, warm: true },
@@ -340,7 +340,7 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
     cleanupFailed = !cleanup.ok;
     if (cleanupFailed) deps.out(`[campaign] ${label}: the cleanup did not succeed (${cleanup.note}); the replicate is marked invalid`);
   }
-  await deps.restoreSuite(app, snapshot);
+  await deps.seedStore(app, snapshot);
 
   const capMs = Math.round(args.wallCapMin * 60_000);
   const groundTruth = c.groundTruth !== undefined ? { groundTruthPath: c.groundTruth } : {};
@@ -421,14 +421,14 @@ const DISCOVER_RUN_MS = 2 * 60_000;
 export async function defaultDeps(env: Record<string, string | undefined> = process.env): Promise<CampaignDeps> {
   const { assertQueueIdle, defaultService } = await import("./efficiency-benchmark.ts");
   const { loadAppConfig } = await import("../src/orchestrator/config-loader.ts");
-  const { workdirRoot, realGit, resolvePreserveUntrackedSuite } = await import("../src/integrations/repo-mirror.ts");
+  const { workdirRoot, realGit } = await import("../src/integrations/repo-mirror.ts");
   const { resolveCampaignFreeze } = await import("../src/server/campaign-freeze.ts");
   const { buildSetupAdapter } = await import("../src/server/rewritten-engine-factory.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
   const { writeOwnedSpecFile } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
   const { collectReport, defaultReportDeps, defaultProbeResultsDir, readGroundTruthFile, writeJsonAtomically } = await import("./probe-report.ts");
-  const { loadSnapshot, restoreSuite, warmSnapshotDir } = await import("./warm-suite.ts");
+  const { loadSnapshot, restoreSuite, seedSuiteStore, warmSnapshotDir } = await import("./warm-suite.ts");
   const { suiteDelta } = await import("./campaign-suite.ts");
   const { prepareHarnessAuth } = await import("./harness-auth.ts");
   const baseline = await import("./baseline-agent.ts");
@@ -506,7 +506,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       };
     },
     loadWarmSnapshot: (appName, label) => loadSnapshot(warmSnapshotDir(join(mirrorsRoot, WARM_SNAPSHOTS_DIR), appName, label), label),
-    envFlags: () => ({ campaignFreeze: resolveCampaignFreeze(env), preserveUntrackedSuite: resolvePreserveUntrackedSuite(env) }),
+    envFlags: () => ({ campaignFreeze: resolveCampaignFreeze(env) }),
     campaignDir: (label) => join(defaultCampaignsDir(), label),
     campaignExists: (label) => existsSync(join(defaultCampaignsDir(), label)),
     commitsAvailable: async (app, c) => {
@@ -527,8 +527,8 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
         }
       }
     },
-    restoreSuite: async (app, snapshot) => {
-      restoreSuite(snapshot, primaryOf(app));
+    seedStore: async (app, snapshot) => {
+      await seedSuiteStore(app.name, snapshot.files, snapshot.label);
     },
     runCleanup: async ({ app, snapshot, spec, workspace }) => {
       const { e2eDir, authDir } = await prepareWorkspace(workspace, snapshot, []);

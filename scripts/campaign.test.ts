@@ -66,12 +66,12 @@ function harness(over: Partial<CampaignDeps> = {}, opts: { cases?: unknown; app?
     readCases: () => opts.cases ?? casesFile(),
     loadApp: (name) => ({ name, repo: "org/demo", baseUrl: "https://dev.example.test", testDataPrefix: "qa-bot", shadow: true, services: ["org/users-service"], ...opts.app }),
     loadWarmSnapshot: () => snapshot(),
-    envFlags: () => ({ campaignFreeze: true, preserveUntrackedSuite: true }),
+    envFlags: () => ({ campaignFreeze: true }),
     campaignDir: (label) => `/campaigns/${label}`,
     campaignExists: () => false,
     commitsAvailable: async () => null,
     waitForIdleQueue: async () => { calls.push("idle"); },
-    restoreSuite: async () => { calls.push("restore"); },
+    seedStore: async () => { calls.push("seed"); },
     runCleanup: async () => { calls.push("cleanup"); return { ok: true, note: "pass" }; },
     runPipeline: async (req): Promise<ArmOutcome> => {
       calls.push("run:B");
@@ -109,18 +109,17 @@ test("an app that is not in shadow mode stops the campaign before any arm runs, 
   assert.equal(await runCampaign(argv("--allow-non-shadow"), allowed.deps), 0);
 });
 
-test("the pipeline arm is refused when learning is not frozen or the warm suite would be cleaned away, unless the operator vouches for the server", async () => {
-  for (const flags of [{ campaignFreeze: false, preserveUntrackedSuite: true }, { campaignFreeze: true, preserveUntrackedSuite: false }]) {
-    const h = harness({ envFlags: () => flags });
-    assert.equal(await runCampaign(argv(), h.deps), 1, JSON.stringify(flags));
-    assert.deepEqual(h.calls, []);
-  }
-  const vouched = harness({ envFlags: () => ({ campaignFreeze: false, preserveUntrackedSuite: false }) });
+test("the pipeline arm is refused when learning is not frozen, unless the operator vouches for the server", async () => {
+  const h = harness({ envFlags: () => ({ campaignFreeze: false }) });
+  assert.equal(await runCampaign(argv(), h.deps), 1);
+  assert.deepEqual(h.calls, []);
+  assert.ok(h.lines.some((l) => l.includes("QA_CAMPAIGN_FREEZE")));
+  const vouched = harness({ envFlags: () => ({ campaignFreeze: false }) });
   assert.equal(await runCampaign(argv("--skip-env-checks"), vouched.deps), 0);
 });
 
 test("the plain agent alone does not need the pipeline's switches", async () => {
-  const h = harness({ envFlags: () => ({ campaignFreeze: false, preserveUntrackedSuite: false }) });
+  const h = harness({ envFlags: () => ({ campaignFreeze: false }) });
   assert.equal(await runCampaign(argv("--arms", "A"), h.deps), 0);
   assert.deepEqual(h.pipelineRequests, []);
 });
@@ -178,13 +177,13 @@ test("the arms alternate by replicate, and everything is sequential", async () =
   assert.deepEqual(h.calls.filter((c) => c.startsWith("run:")), ["run:A", "run:B", "run:B", "run:A", "run:A", "run:B"]);
 });
 
-test("each arm-run waits for an idle queue, runs the case's cleanup, then restores the warm snapshot, before the arm starts", async () => {
+test("each arm-run waits for an idle queue, runs the case's cleanup, then seeds the warm snapshot into the suite store, before the arm starts", async () => {
   const h = harness({ loadWarmSnapshot: () => snapshot(undefined, ["cleanup-addresses.spec.ts"]) }, { cases: casesFile({ cleanup: { spec: "cleanup-addresses.spec.ts" } }) });
   assert.equal(await runCampaign(argv("--arms", "A,B"), h.deps), 0);
   const firstRun = h.calls.indexOf("run:A");
-  assert.deepEqual(h.calls.slice(0, firstRun + 1), ["idle", "cleanup", "restore", "run:A"]);
+  assert.deepEqual(h.calls.slice(0, firstRun + 1), ["idle", "cleanup", "seed", "run:A"]);
   const second = h.calls.slice(firstRun + 1);
-  assert.deepEqual(second.slice(second.indexOf("idle"), second.indexOf("run:B") + 1), ["idle", "cleanup", "restore", "run:B"]);
+  assert.deepEqual(second.slice(second.indexOf("idle"), second.indexOf("run:B") + 1), ["idle", "cleanup", "seed", "run:B"]);
 });
 
 test("a case with no cleanup runs none", async () => {

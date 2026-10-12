@@ -244,7 +244,7 @@ permissions the server resolved, and starts no session; `--check-auth` also make
 A watched app's suite starts every run from the stock seed, so every run first has to author the app's login.
 To compare the arms on the change itself, both start each case from the same snapshot of `e2e/` that holds a
 working `auth.setup.ts`, and no case sees the specs a previous one left. `warm-suite` (run in the orchestrator
-container; `snapshot` and `restore` refuse unless the queue is idle) manages the snapshots under
+container; `snapshot`, `restore` and `seed-store` refuse unless the queue is idle) manages the snapshots under
 `<mirrors>/.warm/<app>/<label>/` (`e2e/` plus `manifest.json`, which lists every file with its sha256 and what
 was left out):
 
@@ -262,7 +262,7 @@ secret. `restore` makes the mirror's `e2e/` equal to the snapshot (extra specs, 
 run output are removed; `node_modules` is kept so nothing is reinstalled) and prints what it added, replaced
 and removed. `verify` is warm when the snapshot's `auth.setup.ts` exists and no longer carries the
 `qa-auth-setup-seed` marker. Take the snapshot after the app's login has been authored and before any case
-spec exists, restore it before every pipeline case, and pass the same label to the baseline arm:
+spec exists, seed it into the store before every pipeline case (`seed-store`), and pass the same label to the baseline arm:
 
 ```bash
 docker compose exec orchestrator npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> --warm <snapshot-label>
@@ -274,16 +274,23 @@ not counted as the agent's. A cold or missing snapshot, or a warm login that can
 `--keep-specs <dir>` (it needs `--warm`) copies every file the agent added or changed in `e2e/` since the snapshot to `<dir>` before the
 throwaway copy is removed, so the specs outlive the copy; a copy that cannot be kept stops the case and leaves the copy where it is.
 
-Shadow mode starts cold every run: it never opens a PR, so `e2e/` is never tracked, and the per-run
-`git clean -fd` on the mirror deletes it (the stock `auth.setup.ts` is seeded again and the generator
-authors the login again). To let a suite accumulate across pipeline runs, or to keep a restored snapshot
-through the next run, set `QA_PRESERVE_UNTRACKED_SUITE=1` on the orchestrator (`.env` or Doppler; it is passed
-through `docker-compose.override.yml`) and restart it. The clean then leaves the primary repo's spec directory
-alone (`git clean -fd -e node_modules -e /e2e/`) and cleans everything else as before. Unset, blank, `0` and
-`false` keep today's behavior, and any other value stops the composition with an error naming the variable.
-It is not a cache of what a published suite holds: `git checkout -f` still overwrites a file that collides
-with a path the checked-out commit tracks (git's own rule, untouched), and a tracked suite also keeps the
-untracked files an earlier run left in `e2e/`. A service repo's mirror and code-target runs are cleaned as usual.
+A pipeline run no longer starts cold in shadow mode: an accepted run keeps its suite in the **suite store**
+(`data/suites/<app>/` in the qa-data volume, not mounted into the agents container) and the next run restores it
+after its checkout, before the project setup (CLAUDE.md, "Persistence & onboarding"). So a restored mirror does
+nothing for a pipeline case: the checkout's `git clean -fd` removes the untracked suite, and the store brings
+back whatever it holds. `seed-store` is how the experiment gives the pipeline arm the same warm start as the
+plain agent's copy: it replaces the app's store with the snapshot (every file of the snapshot, the app's own
+`auth.setup.ts` as the verified login; queue idle required):
+
+```bash
+docker compose exec orchestrator npm run warm-suite -- seed-store --app <app> --label <l>
+```
+
+Under `QA_CAMPAIGN_FREEZE=1` the store is read-only (a run restores from it and captures nothing), so a campaign's
+runs leave no suite behind; the campaign seeds the store before every arm-run itself. Git stays the source of truth:
+a path the checked-out commit tracks with other content than the stored one belongs to git (the stored file is left
+out), and an unpublished change over an unchanged tracked file is put back over it. A service repo's mirror and
+code-target runs have no store.
 
 Differences between the arms that the numbers do not hide:
 
@@ -309,8 +316,8 @@ backend diff points at it?** One case is fixed beforehand: service `joomeco/ms-n
 files (`address.api.ts`, `address.store.ts`, `address-form.page.ts`), the affected route (`/user/address/new`) and
 the read-only consumers that must not be credited (`order-delivery`, `location-picker`, `user.page`).
 
-**Before either arm** (both need DEV to themselves): the queue is idle, the warm snapshot is restored (see
-[Warm start](#warm-start); `QA_PRESERVE_UNTRACKED_SUITE=1` keeps it through the pipeline's clean), and the app
+**Before either arm** (both need DEV to themselves): the queue is idle, the warm snapshot is seeded into the suite store (see
+[Warm start](#warm-start); the campaign does it before every arm-run), and the app
 is in shadow mode (a webhook cannot set it; `GET /api/apps` shows `shadow` and `services`). At the time of writing
 `name-webapp` is `shadow: true`, declares `joomeco/ms-name-users` (the only app that does) and has no
 `versionUrl` anywhere, so the deploy gate is skipped.
@@ -395,7 +402,7 @@ Three things make a single run of each arm a poor comparison, and the campaign r
 ### Workflow
 
 ```bash
-# once: the warm snapshot (see Warm start), with QA_PRESERVE_UNTRACKED_SUITE=1 and QA_CAMPAIGN_FREEZE=1 on the orchestrator
+# once: the warm snapshot (see Warm start), with QA_CAMPAIGN_FREEZE=1 on the orchestrator
 cp config/benchmarks/campaign-cases.example.json config/benchmarks/campaign-cases.json   # gitignored: it names real commits
 docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> --dry-run
 docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> [--arms A,B] [--wall-cap-min 30]
@@ -419,18 +426,18 @@ login before every arm-run of the case, because a case that writes data (an addr
 | Aspect | How |
 |---|---|
 | Order | replicate by replicate, case by case, one arm-run at a time; the arms alternate order by replicate (AB, BA, AB, ...) so neither is always first against DEV |
-| Before each arm-run | wait for an idle queue (up to 5 min; then the campaign stops, keeping what finished), run the case's cleanup, restore the warm snapshot into the app's mirror |
+| Before each arm-run | wait for an idle queue (up to 5 min; then the campaign stops, keeping what finished), run the case's cleanup, seed the warm snapshot into the app's suite store (`warm-suite seed-store`; the pipeline restores it after its checkout, the plain agent applies it to its own copy) |
 | Arm B | `diff`: `POST /api/v1/runs` with `shadow: true` (always). `cross-repo`: the webhook, signed with `WEBHOOK_SECRET` when set; a webhook cannot ask for shadow, so the app must be in shadow mode. The run is found by the app and the trigger repo, waited for, and read with `probe-report`'s collector right after it ends. If other apps declare the same service the webhook starts their runs too: the campaign waits for the queue before its next step |
 | Arm A | `baseline-agent` in-process, with `--warm`, `--timeout-min` = the wall cap and `--keep-specs <campaign>/<case>/A-<n>/files` (it copies every file it added or changed in `e2e/` since the snapshot before its throwaway copy is removed; it needs `--warm`) |
 | Wall cap | `--wall-cap-min` (default 30) for each arm-run. B is cancelled with `DELETE /api/v1/runs/<id>` when it outlives the cap (the replicate is flagged invalid); A's cap is the agent session, as `--timeout-min` is (its setup and its own suite runs are outside it, B's cap covers the whole run, so A may exceed it by those) |
-| Refusals before anything runs | app not in shadow mode (unless `--allow-non-shadow`); for arm B, `QA_CAMPAIGN_FREEZE` or `QA_PRESERVE_UNTRACKED_SUITE` not on in this process (unless `--skip-env-checks`, for a server started with them by another route); snapshot not warm; a cleanup spec the snapshot lacks; a service the app does not declare; for arm A, a commit missing from the mirrors (the plain agent never fetches: run the pipeline arm once on the case first, `--arms B --replicas 1`); a campaign label that exists |
+| Refusals before anything runs | app not in shadow mode (unless `--allow-non-shadow`); for arm B, `QA_CAMPAIGN_FREEZE` not on in this process (unless `--skip-env-checks`, for a server started with it by another route); snapshot not warm; a cleanup spec the snapshot lacks; a service the app does not declare; for arm A, a commit missing from the mirrors (the plain agent never fetches: run the pipeline arm once on the case first, `--arms B --replicas 1`); a campaign label that exists |
 | Dry run | `--dry-run` runs all of those checks and prints the plan; it starts no run |
 
 Output, in `config/benchmarks/campaigns/<label>/` (gitignored), rewritten after every arm-run so a stopped campaign keeps what finished:
 
 | File | Holds |
 |---|---|
-| `campaign.json` | the record: conditions (freeze, preserve, shadow, engram attestation), the snapshot, and one entry per case x arm x replicate |
+| `campaign.json` | the record: conditions (freeze, shadow, engram attestation), the snapshot, and one entry per case x arm x replicate |
 | `campaign.md` | the per arm-run table (verdict, whether the outcome was the expected one, valid, valid / delivered specs, fake-pass flags, USD, wall, wall without the change-coverage phase (where the value oracle runs), steps, cold/warm, whether the replicate is invalid and why) and a per case x arm summary with medians over comparable replicates and the figures that were measured |
 | `rubric.csv` | one row per **valid, comparable** arm-run, with what the case says the spec must verify and where the files are, and an empty `score_0_3` column for the owner |
 | `<case>/<arm>-<n>/files/` | every file the arm delivered (specs and helpers). For B, only when its run was accepted; a rejected run's files are in `rejected/` |
@@ -444,7 +451,7 @@ results), or the re-run could not execute against DEV.
 
 After each arm-run the harness takes the files the arm delivered and judges them itself:
 
-1. **Delivered.** B: the files that differ from the restored snapshot in the app's mirror, and only when the run's verdict is `pass` or `flaky`
+1. **Delivered.** B: the files that differ from the seeded snapshot in the app's mirror (the run restored it from the suite store), and only when the run's verdict is `pass` or `flaky`
    (never those of an `invalid`, `fail` or cut run). A: everything the agent added or changed (it has no acceptance gate; its own verdict is
    recorded as it was). `.qa/` (the pipeline's state) is not part of the set.
 2. **Fake-pass detector** (`scripts/fake-pass-detector.ts`, pure, the same for both arms). A spec is flagged when its name looks like a probe
@@ -469,6 +476,7 @@ and restart it. It is read once, in the composition root (`src/server/campaign-f
 | the curriculum select and fold | the archetypes offered to the generator would drift |
 | the reflector pass | it only feeds the rule ledger |
 | the process audit (no incident, hence the maintainer is never triggered; no rule is deprecated; the context map is not marked stale) | an audit finding from a campaign run must not change the system under test |
+| the suite store's writes (it stays readable: the campaign seeds it before every arm-run) | the suite a replicate was accepted with would start the next one; a read-only store restores and captures nothing |
 | the context-map rebuild a stale flag requests | it would put a run that is not part of the campaign on the queue. A flag armed before the campaign is still read (the stored map is not used), the same for every replicate: clear it first by running `mode: context` once |
 
 Unset, blank, `0` and `false` keep today's behavior; any other value stops the composition with an error naming the

@@ -294,7 +294,9 @@ threat-model header first) and a canary-before-promote hot-swap.
   the entry was admitted: unpublished change overlaid; tracked and different: git wins). A restored
   login that fails to sign in is demoted and the stock seed takes its place. Store faults are off-path
   (logged, never a verdict). Context-map, session state, credentials and `.qa-probe/` never enter it.
-  `deleteApp` with purge removes it (`suite:<name>`); a plain delete keeps it, like the mirror.
+  `deleteApp` with purge removes it (`suite:<name>`); a plain delete keeps it, like the mirror. Under
+  `QA_CAMPAIGN_FREEZE` it is read-only; `warm-suite seed-store` loads an experiment snapshot into it
+  (`docs/efficiency-benchmark.md`).
 
 ## Invariants — do not break these
 

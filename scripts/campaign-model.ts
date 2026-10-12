@@ -132,11 +132,11 @@ export interface CampaignArguments {
   label: string;
   arms: Arm[];
   wallCapMin: number;
-  /** The warm-suite snapshot restored before every arm-run. */
+  /** The warm-suite snapshot seeded into the suite store (the pipeline) and applied to the throwaway copy (the plain agent) before every arm-run. */
   warm: string;
   /** Run the pipeline arm on an app whose config is not shadow (a cross-repo case cannot be forced to shadow). */
   allowNonShadow: boolean;
-  /** Skip the check that this process sees QA_CAMPAIGN_FREEZE and QA_PRESERVE_UNTRACKED_SUITE on (for a server started with them by other means). */
+  /** Skip the check that this process sees QA_CAMPAIGN_FREEZE on (for a server started with it by other means). */
   skipEnvChecks: boolean;
   /** The operator attests that the agents' engram data is isolated for the campaign (docs/efficiency-benchmark.md). */
   engramIsolated: boolean;
