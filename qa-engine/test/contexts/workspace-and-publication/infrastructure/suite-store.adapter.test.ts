@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  AUTH_SETUP_PATH, SuiteStoreAdapter, gitBlobOid, gitListTracked, parseStagedListing, suiteEntryKind,
+  AUTH_SETUP_PATH, SuiteStoreAdapter, deleteSuiteStoreDir, gitBlobOid, gitListTracked, parseStagedListing, suiteEntryKind,
   type SuiteManifest, type SuiteStoreLimits, type TrackedFile,
 } from "../../../../src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 import type { SuiteCaptureInput } from "../../../../src/shared-kernel/ports/suite-store.port.ts";
@@ -357,4 +357,23 @@ test("the git listing runs hardened and a failed or timed out git is thrown, nev
 test("git blob ids follow git's own hashing, for both object formats", () => {
   assert.equal(gitBlobOid(Buffer.from("hello\n"), 40), "ce013625030ba8dba906f756967f9e9ca394464a");
   assert.equal(gitBlobOid(Buffer.from("hello\n"), 64).length, 64);
+});
+
+test("a purge removes the whole store, and a store that was never made is a store removed", async (t) => {
+  const r = rig(t);
+  r.put("flows/a.spec.ts", "a");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+  assert.equal(existsSync(r.storeDir), true);
+  deleteSuiteStoreDir(r.storeDir);
+  assert.equal(existsSync(r.storeDir), false);
+  assert.doesNotThrow(() => deleteSuiteStoreDir(r.storeDir));
+  assert.equal(existsSync(join(r.base, "data", "suites")), true, "only the app's own directory goes");
+});
+
+test("a purge refuses what is not a directory rather than deleting it", (t) => {
+  const r = rig(t);
+  mkdirSync(dirname(r.storeDir), { recursive: true });
+  writeFileSync(r.storeDir, "not a directory");
+  assert.throws(() => deleteSuiteStoreDir(r.storeDir), /not a directory/);
+  assert.equal(readFileSync(r.storeDir, "utf8"), "not a directory");
 });
