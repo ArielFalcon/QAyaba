@@ -40,7 +40,7 @@ harden 0600 "$APP/data/.api_token"
 harden 0700 "$APP/.host"
 harden 0750 "$APP/.host/config"
 harden 0750 "$APP/config"
-# An earlier version kept the API token here; the service moves it to data/ at its start.
+# An earlier version kept the API token here; the service removes it at its start (its value is retired, not moved).
 harden 0600 "$APP/config/.api_token"
 # Every volume the orchestrator mounts: qa-data (/app/data, above), the mirrors (below), the code graph (here), and the bind-mounted
 # config (above). The dev override's bind mounts (src, qa-engine, scripts, web, the package files) hold the orchestrator's own code,

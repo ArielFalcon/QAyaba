@@ -91,9 +91,11 @@ current user and the launcher warns, loudly, once per process; use it only on a 
 in `/proc/self/mountinfo`) grants every uid what it asks: there the sandbox uid could read a token kept in `config/`, rewrite an
 app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the orchestrator's code through a code mount. So:
 
-- **The API token lives in `data/`**, a named volume, never in a host folder. The service moves a token an earlier version left
-  in `config/.api_token` there at its start (`src/server/api-token.ts`) and leaves no copy; clients read `data/.api_token` first
-  and the old file only as a fallback.
+- **The API token lives in `data/`**, a named volume, never in a host folder. A token an earlier version left in
+  `config/.api_token` may have been readable by the sandbox uid, so the service does not reuse it: at its start
+  (`src/server/api-token.ts`, also when `QA_API_TOKEN` pins one) it removes the file, generates a new token and logs a notice (file
+  names only) telling operators to discover the token again. A file that cannot be removed stops the start, as a misconfigured
+  setting does; clients read `data/.api_token` first and the old file only as a fallback.
 - **The host's config folder is mounted at `/app/.host/config`** and `/app/config` is a link to it (Dockerfile, compose). The lookup
   of a path is checked by the filesystem of each directory on the way, and `/app/.host` (`0700 root`) is on the image's own
   filesystem: the sandbox uid cannot reach the configs whatever the host folder's filesystem does, and the orchestrator (root)

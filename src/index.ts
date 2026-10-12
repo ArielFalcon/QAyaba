@@ -62,7 +62,7 @@ import { DELEGATIONS_DIR } from "./paths";
 import { workdirRoot } from "./integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
 import { execWorkRoot } from "./server/exec-sandbox-factory";
-import { loadOrCreateApiToken } from "./server/api-token";
+import { resolveApiToken } from "./server/api-token";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = qayabaRoot();
@@ -89,9 +89,10 @@ const secret = process.env.WEBHOOK_SECRET;
 
 /*
  * API token: env var wins. If absent, reuse the persisted file (data/.api_token, src/server/api-token.ts) so the
- * TUI can discover it across restarts. Only generate a new one if neither exists.
+ * TUI can discover it across restarts. Only generate a new one if neither exists. The file an earlier version kept in
+ * config/ is removed either way, and a copy that cannot be removed stops the start.
  */
-const apiToken: string = process.env.QA_API_TOKEN ? process.env.QA_API_TOKEN : loadOrCreateApiToken(ROOT);
+const apiToken: string = resolveApiToken(process.env, ROOT);
 
 /*
  * Session signing secret for GitHub-user logins. Reuses QA_API_TOKEN by default (one secret
