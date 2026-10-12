@@ -24,6 +24,7 @@ const CLASS_LEARNS: Record<ErrorClass, boolean> = {
   "E-NO-DECISION": false,
   "E-PRECONDITION": false,
   "E-TIME-BUDGET": false,
+  "E-REVIEWER-UNAVAILABLE": false,
 };
 
 const VERDICTS: readonly RunVerdict[] = ["pass", "fail", "flaky", "invalid", "infra-error", "skipped"];
@@ -127,14 +128,16 @@ test("the classes whose recurrence is observed are all classes that teach nothin
   for (const cls of OBSERVED_OPERATING) assert.ok(NON_LEARNING.has(cls), cls);
 });
 
-test("a run that ended on its time budget reaches the audit's operating signal alone: no fold, no reflection", () => {
-  assert.equal(observesOperatingSignal({ mode: "diff", errorClass: ERROR_CLASS.TIME_BUDGET }), true);
-  assert.deepEqual(learningGates({ stage: "terminal", verdict: "infra-error", errorClass: ERROR_CLASS.TIME_BUDGET, ...OPEN }), { fold: false, reflect: false });
+test("a run that ended on its time budget, or with its reviewer unavailable, reaches the audit's operating signal alone: no fold, no reflection", () => {
+  for (const errorClass of [ERROR_CLASS.TIME_BUDGET, ERROR_CLASS.REVIEWER_UNAVAILABLE]) {
+    assert.equal(observesOperatingSignal({ mode: "diff", errorClass }), true, errorClass);
+    assert.deepEqual(learningGates({ stage: "terminal", verdict: "infra-error", errorClass, ...OPEN }), { fold: false, reflect: false }, errorClass);
+  }
 });
 
 test("every other class, and a run with none, has no operating signal to observe", () => {
   for (const cls of ERROR_CLASSES) {
-    if (cls === ERROR_CLASS.TIME_BUDGET) continue;
+    if (OBSERVED_OPERATING.has(cls)) continue;
     assert.equal(observesOperatingSignal({ mode: "diff", errorClass: cls }), false, cls);
   }
   assert.equal(observesOperatingSignal({ mode: "diff", errorClass: null }), false);

@@ -53,6 +53,13 @@ describe("infraErrorGloss", () => {
     assert.doesNotMatch(gloss, /engine/i);
   });
 
+  it("says the reviewer-unavailable class is a reviewer that could not be reached and judged nothing, neither a rejection nor the app's fault", () => {
+    const gloss = infraErrorGloss("E-REVIEWER-UNAVAILABLE");
+    assert.match(gloss, /reviewer/i);
+    assert.match(gloss, /not a rejection/i);
+    assert.doesNotMatch(gloss, /engine/i);
+  });
+
   it("never blames the DEV environment, whatever the class or its absence", () => {
     for (const errorClass of [...ERROR_CLASSES, null, undefined, "E-FUTURE-CLASS"]) {
       assert.doesNotMatch(infraErrorGloss(errorClass), /\bDEV\b/, String(errorClass));
@@ -60,8 +67,8 @@ describe("infraErrorGloss", () => {
   });
 
   it("gives each engine-side class its own wording, apart from the neutral one", () => {
-    const wordings = new Set([infraErrorGloss("E-STEP-BUDGET"), infraErrorGloss("E-NO-DECISION"), infraErrorGloss("E-PRECONDITION"), infraErrorGloss("E-TIME-BUDGET"), infraErrorGloss("E-INFRA")]);
-    assert.equal(wordings.size, 5);
+    const wordings = new Set([infraErrorGloss("E-STEP-BUDGET"), infraErrorGloss("E-NO-DECISION"), infraErrorGloss("E-PRECONDITION"), infraErrorGloss("E-TIME-BUDGET"), infraErrorGloss("E-REVIEWER-UNAVAILABLE"), infraErrorGloss("E-INFRA")]);
+    assert.equal(wordings.size, 6);
     assert.equal(infraErrorGloss(null), infraErrorGloss("E-INFRA"));
     assert.equal(infraErrorGloss("E-FUTURE-CLASS"), infraErrorGloss("E-INFRA"));
   });

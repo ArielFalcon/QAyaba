@@ -29,6 +29,9 @@ const PRECONDITION_CLASS: ErrorClass = "E-PRECONDITION";
 /* Runs that keep ending on their time budget (a generator turn cut off by its tier, or a whole run stopped by its deadline) are an operating condition to watch (a slow DEV, a budget too tight for the changes it meets), never an engine defect to patch or an app-behavior gap a learned rule could close: they are observed and nothing more, and they must never wake the maintainer. */
 const TIME_BUDGET_CLASS: ErrorClass = "E-TIME-BUDGET";
 
+/* A reviewer that keeps being unreachable (a model the provider rejects, a runtime that returns nothing) leaves every green run unjudged and unpublished. It is a collaborator's condition to fix, never an engine defect to patch or a rule to learn: it is observed and nothing more, and it must never wake the maintainer. */
+const REVIEWER_UNAVAILABLE_CLASS: ErrorClass = "E-REVIEWER-UNAVAILABLE";
+
 /** A minimal view of a learning rule — only the fields the audit reasons about. Narrowing here would be a silent behavioral risk (a real row failing to structurally satisfy this type), not a simplification. */
 export interface RuleView {
   id: string;
@@ -86,6 +89,14 @@ export function auditProcess(input: AuditInput): ProcessFinding[] {
         disposition: "observe",
         severity: "warn",
         summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the runs keep ending on their time budget (a generator turn or the whole run's deadline); visibility only, never an engine fix or a learned rule.`,
+        evidence,
+      });
+    } else if (recurringCls === REVIEWER_UNAVAILABLE_CLASS) {
+      findings.push({
+        kind: "recurring-reviewer-unavailable",
+        disposition: "observe",
+        severity: "warn",
+        summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the reviewer keeps being unreachable or returning nothing, so no green run is judged or published; visibility only, never an engine fix or a learned rule.`,
         evidence,
       });
     } else if (recurringCls === PRECONDITION_CLASS) {

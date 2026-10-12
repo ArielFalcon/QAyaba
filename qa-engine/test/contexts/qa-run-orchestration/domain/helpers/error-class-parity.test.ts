@@ -19,6 +19,11 @@ test("PARITY: both copies list the same error classes in the same order", () => 
   assert.deepEqual([...ERROR_CLASSES], [...LEGACY_ERROR_CLASSES]);
 });
 
+test("PARITY: both copies list the reviewer-unavailable class", () => {
+  assert.ok((ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.REVIEWER_UNAVAILABLE));
+  assert.ok((LEGACY_ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.REVIEWER_UNAVAILABLE));
+});
+
 test("PARITY: both copies list the precondition class", () => {
   assert.ok((ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.PRECONDITION));
   assert.ok((LEGACY_ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.PRECONDITION));

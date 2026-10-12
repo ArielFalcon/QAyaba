@@ -83,6 +83,23 @@ test("a recurring time-budget end is only observed, worded as the generator runn
   assert.doesNotMatch(findings[0]!.summary, /rule promotion|app-behavior/i);
 });
 
+test("a recurring unavailable reviewer is only observed: it never wakes the maintainer and is not read as an app-behavior gap", () => {
+  const unavailable = (sha: string) => outcome({ errorClass: "E-REVIEWER-UNAVAILABLE", verdict: "infra-error", sha });
+  const o = unavailable("a");
+  const findings = auditProcess({ outcome: o, recent: [o, unavailable("b"), unavailable("c")], rules: [] });
+  assert.equal(findings.length, 1, "one finding: the streak itself");
+  assert.equal(findings[0]!.kind, "recurring-reviewer-unavailable");
+  assert.equal(findings[0]!.disposition, "observe");
+  assert.match(findings[0]!.summary, /reviewer/i);
+  assert.doesNotMatch(findings[0]!.summary, /rule promotion|app-behavior/i);
+});
+
+test("two unavailable-reviewer runs in a row are not yet a streak", () => {
+  const unavailable = (sha: string) => outcome({ errorClass: "E-REVIEWER-UNAVAILABLE", verdict: "infra-error", sha });
+  const o = unavailable("a");
+  assert.deepEqual(auditProcess({ outcome: o, recent: [o, unavailable("b"), outcome({ errorClass: "E-EXEC-FAIL", sha: "c" })], rules: [] }), []);
+});
+
 test("a recurring precondition failure is only observed, and is not read as an app-behavior gap", () => {
   const precondition = (sha: string) => outcome({ errorClass: "E-PRECONDITION", verdict: "infra-error", sha });
   const o = precondition("a");

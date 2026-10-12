@@ -343,3 +343,12 @@ test("the time-budget ends stay out of the window of any other class's audit, as
   await adapter.audit(current);
   assert.equal(incidents.length, 1, "the engine-defect streak of E-STATIC is not broken by a run that decided nothing");
 });
+
+test("three unavailable-reviewer runs in a row are made visible as an observe-only finding, and never wake the maintainer", async () => {
+  const unavailable = (sha: string) => outcome({ errorClass: "E-REVIEWER-UNAVAILABLE", verdict: "infra-error", sha });
+  const current = unavailable("a");
+  const { adapter, logs, incidents } = auditing([current, unavailable("b"), unavailable("c")]);
+  await adapter.audit(current);
+  assert.equal(logs.filter((l) => l.includes("[audit] observe (recurring-reviewer-unavailable)")).length, 1);
+  assert.equal(incidents.length, 0);
+});

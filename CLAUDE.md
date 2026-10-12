@@ -117,7 +117,11 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
    flaky → quarantine). DEV down → `infra-error`.
 8. **Change-coverage** — did the green run exercise the diff's changed lines? (below)
 9. **Decide** — green + approved + coverage not blocking → PR. Rejected/`fail`/`invalid`
-   → Issue. `shadow: true` replaces every PR/Issue with a log line.
+   → Issue. A reviewer that could not be reached (its session failed, or it returned nothing) judged
+   nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
+   (the reviewer's reason on the run record and in the log, no PR and no Issue, nothing learned; three in
+   a row log an observe-only audit finding). A reviewer that answered unreadably is still a fail-closed
+   parse miss. `shadow: true` replaces every PR/Issue with a log line.
 
 Verdicts: `pass | fail | flaky | invalid | infra-error | skipped`
 (`qa-engine/src/shared-kernel/run-verdict.ts`). `E-PRECONDITION` = login could not be

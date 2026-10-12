@@ -313,6 +313,12 @@ export interface ReviewPort {
     rationale?: string;
     blockingCount?: number;
     parsed?: boolean;
+    /**
+     * True when no judgment was possible because the reviewer's runtime failed or returned nothing: an
+     * integration fault, which is neither an approval nor a rejection. Absent on every review that
+     * reached a reviewer's answer, including an unreadable one (a parse miss).
+     */
+    unavailable?: boolean;
   }>;
 }
 export interface ValidationPort {

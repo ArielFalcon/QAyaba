@@ -58,7 +58,7 @@ import type {
   HarnessFacts,
   RelevanceBias,
 } from "./ports/index.ts";
-import { REVIEWER_UNAVAILABLE_MARKER, reviewerApprovalOf, type RunDeadlinePort } from "./ports/index.ts";
+import { reviewerApprovalOf, type RunDeadlinePort } from "./ports/index.ts";
 
 /* What stands in for a generation when none ran (a regression run): it has no end, which no generation's result can have. */
 type RegressionStandIn = Omit<GenerationOutput, "end"> & { end: null };
@@ -97,6 +97,10 @@ interface TerminalOptions {
   generationEnd?: GenerationEndKind | undefined;
   /** The run ended on a positively evidenced login failure: it names the run's error class. */
   preconditionFailed?: boolean | undefined;
+  /** The run ended because its reviewer was unavailable (its session failed or returned nothing): it names the run's error class. */
+  reviewerUnavailable?: boolean | undefined;
+  /** What the reviewer's runtime reported when it was unavailable, persisted on the run record. */
+  reviewerRationale?: string | undefined;
 }
 
 /** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */
@@ -1823,11 +1827,6 @@ export class RunQaUseCase {
     /* Stays [] when the review loop never runs — never fabricated. */
     let finalReviewerCorrections: string[] = [];
     /*
-     * Populated only when rationale matches REVIEWER_UNAVAILABLE_MARKER — not on
-     * parsed===false alone, and never on a genuine rejection.
-     */
-    let finalReviewerRationale: string | undefined;
-    /*
      * Also gated on generating: a regression run never invokes the reviewer
      * (nothing new to judge; decide()'s !generating branch already wins).
      */
@@ -1876,16 +1875,25 @@ export class RunQaUseCase {
           ...(previousRoundCorrections ? { priorCorrections: previousRoundCorrections } : {}),
           ...(reviewDomSnapshot ? { domSnapshot: reviewDomSnapshot } : {}),
         });
+        /*
+         * A reviewer that could not be reached judged nothing: that is not a rejection, so it must not open an
+         * Issue on a green run. The run ends as a persisted infra-error under its own class, with no PR and no Issue.
+         */
+        if (reviewResult.unavailable) {
+          return await this.reviewerUnavailableResult(cfg, input, reviewResult.rationale, run.cases.length, {
+            static: validation.ok,
+            retries,
+            rulesRetrieved: retrievedRuleIds,
+            diffArchetypes,
+            archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
+            confinement: confinementAcc,
+            tested: resolveTested(),
+            mirrorDir: workspace.mirrorDir,
+          });
+        }
         /* parsed:false fails closed immediately, without burning a regeneration round. */
         if (reviewResult.parsed === false) {
           reviewerApproved = false;
-          /*
-           * Match the unavailable marker, not parsed===false alone. Verdict path is
-           * unchanged (still fail-closed via reviewerApproved=false).
-           */
-          if (reviewResult.rationale?.includes(REVIEWER_UNAVAILABLE_MARKER)) {
-            finalReviewerRationale = reviewResult.rationale;
-          }
           break;
         }
         /*
@@ -2016,8 +2024,6 @@ export class RunQaUseCase {
         ...(input.triggerRepo ? { issueRepo: input.triggerRepo } : {}),
         /* Adjudication is absent when FixLoop never engaged — never fabricated. */
         ...(lastAdjudicatorVerdict ? { adjudication: lastAdjudicatorVerdict } : {}),
-        /* Reviewer-unavailable note is marker-scoped — never fabricated. */
-        ...(finalReviewerRationale ? { reviewerNote: finalReviewerRationale } : {}),
         /* Real per-run mirrorDir + sha for the "pr" git-write. This is the only pr-capable call site. */
         mirrorDir: workspace.mirrorDir,
         sha: input.sha.toString(),
@@ -2067,8 +2073,6 @@ export class RunQaUseCase {
         mutantCount,
         killedCount,
         reviewerCorrections: finalReviewerCorrections,
-        /* Persist reviewer-unavailable rationale only when the marker matched — never fabricated. */
-        ...(finalReviewerRationale ? { reviewerRationale: finalReviewerRationale } : {}),
         /* Publish outcome string — never fabricated when publish() was not called. */
         ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
         /* Rule ids on the mainline persist only. Other exits omit them. */
@@ -2202,7 +2206,7 @@ export class RunQaUseCase {
     coverageRatio: number | null,
     valueScore: number | null,
     reviewerCorrections: string[] = [],
-    ends: { generationEnd?: GenerationEndKind | undefined; preconditionFailed?: boolean | undefined } = {},
+    ends: { generationEnd?: GenerationEndKind | undefined; preconditionFailed?: boolean | undefined; reviewerUnavailable?: boolean | undefined } = {},
   ): string | null {
     return resolveErrorClass({
       verdict,
@@ -2212,6 +2216,7 @@ export class RunQaUseCase {
       valueScore,
       ...(ends.generationEnd ? { generationEnd: ends.generationEnd } : {}),
       ...(ends.preconditionFailed ? { preconditionFailed: true } : {}),
+      ...(ends.reviewerUnavailable ? { reviewerUnavailable: true } : {}),
     });
   }
 
@@ -2466,6 +2471,35 @@ export class RunQaUseCase {
     }
   }
 
+  /*
+   * The run's reviewer could not be reached, after the suite ran green: the tests were never judged, which is neither an
+   * approval nor a rejection. Ends the run as a persisted infra-error (its own class, nothing learned, no PR and no
+   * Issue), logged loudly, with the reviewer's reason on the record. Fail-closed: nothing the reviewer was to judge is published.
+   */
+  private async reviewerUnavailableResult(
+    cfg: RunQaConfig,
+    input: RunQaInput,
+    reason: string | undefined,
+    passedCases: number,
+    exit: Omit<TerminalOptions, "note" | "reviewerUnavailable" | "reviewerRationale"> & { static: boolean },
+  ): Promise<RunQaResult> {
+    const note = `The reviewer was unavailable (${reason ?? "no reason reported"}), so the suite (${passedCases} case(s), green) was never judged. Nothing was published: no PR, and no Issue, since this is not a rejection.`;
+    console.error(`[qa] ${note}`);
+    this.deps.observer?.onEvent({ type: "agent.error", detail: note });
+    this.deps.observer?.onEvent({
+      type: "log.line",
+      level: "error",
+      text: `[qa] the run ended with its reviewer unavailable (${ERROR_CLASS.REVIEWER_UNAVAILABLE}): an integration fault, not a rejection of the tests`,
+    });
+    const { static: staticOk, ...terminalExit } = exit;
+    return await this.terminalResult("infra-error", cfg, input, { generating: true, static: staticOk }, {
+      ...terminalExit,
+      note,
+      reviewerUnavailable: true,
+      ...(reason !== undefined ? { reviewerRationale: reason } : {}),
+    });
+  }
+
   /* Both terminals persist. Only "invalid" also folds; "infra-error" does not. */
   private async terminalResult(
     verdict: "invalid" | "infra-error",
@@ -2488,6 +2522,8 @@ export class RunQaUseCase {
       mirrorDir,
       generationEnd,
       preconditionFailed,
+      reviewerUnavailable,
+      reviewerRationale,
     } = opts;
     const decision = decide({
       verdict,
@@ -2499,7 +2535,7 @@ export class RunQaUseCase {
       onFailure: cfg.onFailure,
     });
     /* invalid → E-STATIC, infra-error → E-INFRA, unless a generation end or a failed precondition that ended the run names its own class. */
-    const errorClass = this.deriveErrorClass(verdict, null, null, [], { generationEnd, preconditionFailed });
+    const errorClass = this.deriveErrorClass(verdict, null, null, [], { generationEnd, preconditionFailed, reviewerUnavailable });
     /*
      * Dispatch the same publish() as the mainline. infra-error resolves to
      * sideEffect "none" via decide() — no Issue.
@@ -2531,6 +2567,7 @@ export class RunQaUseCase {
         staticOk: ev.static,
         reviewerApproved: reviewerApprovedForOutcome,
         note: combinedNote,
+        ...(reviewerRationale !== undefined ? { reviewerRationale } : {}),
         ...groundingSignals,
         /* Empty retrieved ids omit the override; non-empty reach persist so the terminal fold can attribute. */
         ...(rulesRetrieved.length ? { rulesRetrieved } : {}),

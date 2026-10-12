@@ -16,6 +16,7 @@ export const ERROR_CLASSES = [
   "E-NO-DECISION",
   "E-PRECONDITION",
   "E-TIME-BUDGET",
+  "E-REVIEWER-UNAVAILABLE",
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
@@ -135,8 +136,15 @@ const ENGINE_SIDE_GLOSS: Readonly<Record<string, string>> = {
 const PRECONDITION_GLOSS: Readonly<Record<string, string>> = {
   "E-PRECONDITION": "the app's login could not be completed before testing began — a precondition of the run, not a fault in the code under test",
 };
+/*
+ * An unavailable reviewer is a collaborator the run could not reach: the tests passed but were never judged. It is neither the
+ * engine's own condition nor a rejection, so it is worded apart and with no fault assigned to the app.
+ */
+const COLLABORATOR_GLOSS: Readonly<Record<string, string>> = {
+  "E-REVIEWER-UNAVAILABLE": "the reviewer could not be reached or returned nothing, so the passing tests were never judged — a reviewer-runtime problem, not a rejection and not a fault of the app",
+};
 const NEUTRAL_INFRA_GLOSS = "the run could not reach a verdict — infrastructure, not a code fault";
 
 export function infraErrorGloss(errorClass: string | null | undefined): string {
-  return (errorClass ? (ENGINE_SIDE_GLOSS[errorClass] ?? PRECONDITION_GLOSS[errorClass]) : undefined) ?? NEUTRAL_INFRA_GLOSS;
+  return (errorClass ? (ENGINE_SIDE_GLOSS[errorClass] ?? PRECONDITION_GLOSS[errorClass] ?? COLLABORATOR_GLOSS[errorClass]) : undefined) ?? NEUTRAL_INFRA_GLOSS;
 }

@@ -1,4 +1,4 @@
-/* ReviewPort: standalone reviewer session. Fail-closed on parse miss or session fault (approved:false, parsed:false). */
+/* ReviewPort: standalone reviewer session. Fail-closed on parse miss or session fault (approved:false, parsed:false). A session fault, or a reviewer that returned nothing, is also marked `unavailable`: no judgment was made, which the run must not mistake for a rejection. */
 
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ReviewPort, ReviewEnrichment } from "../../application/ports/index.ts";
@@ -47,6 +47,7 @@ export class ReviewPortAdapter implements ReviewPort {
     rationale?: string;
     blockingCount?: number;
     parsed?: boolean;
+    unavailable?: boolean;
   }> {
     const { runtime, rendering, verdicts } = this.deps;
 
@@ -73,7 +74,7 @@ export class ReviewPortAdapter implements ReviewPort {
     };
     const assembled = rendering.renderReviewer(reviewInput);
 
-    /* Reviewer session is loud-but-non-fatal: log the fault, return parsed:false / approved:false so the run still decides from execution evidence (fail-closed, no regen round). */
+    /* Reviewer session is loud-but-non-fatal: log the fault and return it as unavailable (parsed:false / approved:false, fail-closed, no regen round); the run ends on it as an infra-error and never reads it as a rejection. */
     try {
       const session = await runtime.openSession("reviewer", this.ctx.mirrorDir, {
         descriptor: { runId: enrichment?.runId, role: "qa-reviewer" },
@@ -87,6 +88,8 @@ export class ReviewPortAdapter implements ReviewPort {
       } finally {
         await session.dispose();
       }
+      /* A reviewer that answered with nothing judged nothing: an errored session (provider refusal, quota, outage) that the transport let through, not a verdict of any kind. */
+      if (output.trim() === "") return this.unavailable("the reviewer returned no output");
 
       const judgment = verdicts.parseReview(output);
 
@@ -103,14 +106,18 @@ export class ReviewPortAdapter implements ReviewPort {
     } catch (err) {
       /* The run's time is spent: that ends the run, it is not a reviewer fault to fail closed on. */
       rethrowIfRunDeadline(err);
-      const reason = err instanceof Error ? err.message : String(err);
-      console.error(`[qa] reviewer session failed (${reason}) — reviewer unavailable, failing closed without burning a regeneration round.`);
-      return {
-        approved: false,
-        corrections: [],
-        rationale: `${REVIEWER_UNAVAILABLE_MARKER}: ${reason}`,
-        parsed: false,
-      };
+      return this.unavailable(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  private unavailable(reason: string): { approved: false; corrections: string[]; rationale: string; parsed: false; unavailable: true } {
+    console.error(`[qa] reviewer unavailable (${reason}) — failing closed without burning a regeneration round; the run ends as an infra-error, not a rejection.`);
+    return {
+      approved: false,
+      corrections: [],
+      rationale: `${REVIEWER_UNAVAILABLE_MARKER}: ${reason}`,
+      parsed: false,
+      unavailable: true,
+    };
   }
 }

@@ -423,3 +423,41 @@ test("review() lets the run's deadline through: a reviewer turn the run's time r
   const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
   await assert.rejects(adapter.review("/mirrors/org/app/e2e", cases), (err: unknown) => err instanceof RunDeadlineExceededError);
 });
+
+/* An unavailable reviewer is told apart from a rejection, and from a reviewer that answered unreadably. */
+
+const REVIEW_CTX = { diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff" as const };
+
+test("review() marks a reviewer whose session failed as unavailable, in either place it can fail", async () => {
+  const failAtOpen: AgentRuntimePort = { openSession: async () => { throw new Error("HTTP 400: model not supported"); } };
+  const failAtPrompt: AgentRuntimePort = { openSession: async () => ({ prompt: async () => { throw new Error("stalled: no activity"); }, dispose: async () => {} }) };
+  for (const runtime of [failAtOpen, failAtPrompt]) {
+    const result = await new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+    assert.equal(result.unavailable, true);
+    assert.equal(result.approved, false);
+    assert.equal(result.parsed, false);
+  }
+});
+
+test("review() marks a reviewer that returned nothing as unavailable: an empty answer judged nothing", async () => {
+  for (const output of ["", "  \n "]) {
+    const result = await new ReviewPortAdapter({ runtime: fakeRuntime(output), rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+    assert.equal(result.unavailable, true, JSON.stringify(output));
+    assert.match(result.rationale ?? "", /reviewer unavailable: the reviewer returned no output/);
+  }
+});
+
+test("review() does not mark a real rejection as unavailable, and keeps it exactly as it was", async () => {
+  const rejecting = fakeVerdicts({ approved: false, corrections: ["[false-positive] asserts nothing"], blockingCount: 1, parsed: true, valid: true, issues: [], rationale: "asserts nothing real" });
+  const result = await new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts: rejecting }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+  assert.equal("unavailable" in result, false);
+  assert.deepEqual([result.approved, result.parsed, result.blockingCount, result.corrections], [false, true, 1, ["[false-positive] asserts nothing"]]);
+});
+
+test("review() does not mark an answer it could not read as unavailable: the reviewer was reached, only its verdict is a parse miss", async () => {
+  const unreadable = fakeVerdicts({ approved: false, corrections: [], parsed: false, valid: false, issues: ["no verdict JSON found"] });
+  const result = await new ReviewPortAdapter({ runtime: fakeRuntime("I think the tests look fine"), rendering: fakeRendering(), verdicts: unreadable }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+  assert.equal("unavailable" in result, false);
+  assert.equal(result.parsed, false);
+  assert.equal(result.approved, false);
+});
