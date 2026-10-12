@@ -703,6 +703,7 @@ export interface components {
             guidance?: string;
             shadow?: boolean;
             commits?: number;
+            closedLoop?: boolean;
         };
         CreateRunResult: {
             id: string;

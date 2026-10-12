@@ -141,3 +141,9 @@ test("delegateRun hands the run id to onEnqueued as soon as the service accepts 
 
   assert.deepEqual(events, ["enqueued run-7", "poll"]);
 });
+
+test("delegateRun sends the run's own choice about the run_spec loop, and nothing when it makes none", async () => {
+  assert.equal((await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff", closedLoop: false })).closedLoop, false);
+  assert.equal((await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff", closedLoop: true })).closedLoop, true);
+  assert.equal("closedLoop" in (await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff" })), false);
+});

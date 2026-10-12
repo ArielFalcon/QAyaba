@@ -53,6 +53,8 @@ import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrast
 import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
 import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListener } from "./server/port";
+import { createToolsServer, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
+import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = qayabaRoot();
@@ -192,7 +194,17 @@ const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
   return enqueueContextMapRun(queue, app, sha, runnerDeps());
 };
 
+/*
+ * The run_spec tool's side of the orchestrator: where the generator's sessions find the run's loop, and the internal listener the
+ * tool calls (a second port, not published by compose, behind a service token). Listening starts with the control plane's.
+ */
+const closedLoopRegistry = new ClosedLoopRegistry();
+const toolsPort = resolveToolsPort(process.env);
+const toolsServer = createToolsServer({ token: resolveToolsToken(process.env).token, registry: closedLoopRegistry });
+toolsServer.on("error", (err: Error & { code?: string }) => logJson("error", `the run_spec tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the generator's run_spec calls will fail`));
+
 engineFactory = createRewrittenEngineFactory({
+  closedLoopRegistry,
   getAgentDeps: currentAgentDeps,
   /* The facade is read per run, from the same manager the deps above come from: the runtime is switchable. */
   getAgentFacade: () => agentRuntime.facade(),
@@ -265,13 +277,13 @@ process.on("unhandledRejection", (reason) => {
   recordIncident({ source: "qa-generator", severity: "error", summary: `unhandled rejection: ${msg}` });
 });
 
-function enqueueApiRun(app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string): string {
+function enqueueApiRun(app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean): string {
   if (shuttingDown) {
     console.warn(`[qa] rejecting run ${app}@${sha} — shutting down`);
     return "";
   }
 
-  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha }, runnerDeps());
+  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}) }, runnerDeps());
 }
 
 /*
@@ -854,6 +866,8 @@ server.on(
     redact: (err) => redactionPort.redactError(err),
   }),
 );
+
+toolsServer.listen(toolsPort, listenHost, () => logJson("info", `run_spec tools endpoint listening on ${describeListenAddress(toolsServer.address())}`));
 
 server.listen(port, listenHost, () => {
   logJson("info", `qayaba listening on ${describeListenAddress(server.address())}${apiToken ? " (API auth on)" : ""}`);

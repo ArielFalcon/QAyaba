@@ -590,9 +590,12 @@ export function withSessionRegistration(
   collaborators: {
     register: (sessionId: string, runId: string, cwd: string) => void;
     unregister: (sessionId: string) => void;
+    /* Told which agent opened which session for which run, whatever its live-observation choice: the run_spec loop gives its right to the generator's sessions through this. Absent: nothing is told. */
+    bind?: (session: { sessionId: string; runId: string; agent: string }) => void;
+    unbind?: (sessionId: string) => void;
   },
 ): AgentDeps {
-  const { register, unregister } = collaborators;
+  const { register, unregister, bind, unbind } = collaborators;
 
   return {
     ...baseDeps,
@@ -603,11 +606,14 @@ export function withSessionRegistration(
          start feeding the stall watchdog and change its liveness window. */
       const runId = opts?.descriptor?.liveObservation === false ? undefined : opts?.descriptor?.runId;
       if (runId) register(inner.id, runId, cwd);
+      const boundRunId = opts?.descriptor?.runId;
+      if (boundRunId) bind?.({ sessionId: inner.id, runId: boundRunId, agent });
 
       return {
         ...inner,
         dispose: async () => {
           if (runId) unregister(inner.id);
+          if (boundRunId) unbind?.(inner.id);
           await inner.dispose();
         },
       };

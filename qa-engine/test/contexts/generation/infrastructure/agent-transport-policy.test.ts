@@ -1598,3 +1598,30 @@ test("createAgentDeps: a turn ends completed, or exhausted when it hit its step 
   const unknown = await promptWithCollaborators("done", {});
   assert.equal(unknown.ended, "completed", "no step budget to say otherwise");
 });
+
+test("withSessionRegistration tells the binder which agent opened which session for which run, and unbinds it on dispose", async () => {
+  const { deps: base } = fakeBaseDeps("sess-gen");
+  const bound: Array<{ sessionId: string; runId: string; agent: string }> = [];
+  const unbound: string[] = [];
+  const wrapped = withSessionRegistration(base, {
+    register: () => {},
+    unregister: () => {},
+    bind: (session) => bound.push(session),
+    unbind: (sessionId) => unbound.push(sessionId),
+  });
+
+  const session = await wrapped.open("qa-generator", "/mirrors/org/app", { descriptor: { runId: "run-7", role: "qa-generator" } });
+  assert.deepEqual(bound, [{ sessionId: "sess-gen", runId: "run-7", agent: "qa-generator" }]);
+  assert.deepEqual(unbound, []);
+  await session.dispose();
+  assert.deepEqual(unbound, ["sess-gen"]);
+});
+
+test("withSessionRegistration binds a session even when it opts out of live observation, and none without a run", async () => {
+  const { deps: base } = fakeBaseDeps("sess-x");
+  const bound: string[] = [];
+  const wrapped = withSessionRegistration(base, { register: () => {}, unregister: () => {}, bind: (s) => bound.push(s.sessionId), unbind: () => {} });
+  await wrapped.open("qa-explorer", "/m", { descriptor: { runId: "run-7", role: "qa-explorer", liveObservation: false } });
+  await wrapped.open("qa-generator", "/m");
+  assert.deepEqual(bound, ["sess-x"]);
+});

@@ -14,6 +14,8 @@ export interface DelegateRunInput {
   target?: TestTarget;
   mode: RunMode;
   guidance?: string;
+  /** The run's own choice about the run_spec loop (an A/B arm), overriding the app's setting. */
+  closedLoop?: boolean;
 }
 
 export interface DelegateRunDeps {
@@ -55,6 +57,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
       ...(input.target ? { target: input.target } : {}),
       mode: input.mode,
       ...(input.guidance ? { guidance: input.guidance } : {}),
+      ...(input.closedLoop !== undefined ? { closedLoop: input.closedLoop } : {}),
     }),
   });
   const createBody = (await createRes.json().catch(() => ({}))) as Record<string, unknown>;

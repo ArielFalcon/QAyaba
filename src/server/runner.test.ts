@@ -1832,3 +1832,20 @@ test("multi-run FIFO during onboarding: several runs enqueued while onboarding i
     assert.equal(getRecord(id)!.verdict, "pass");
   }
 });
+
+test("the runner hands the run's own choice about the run_spec loop to the engine, and invents none", async () => {
+  const prev = process.env.PIPELINE_ENGINE;
+  process.env.PIPELINE_ENGINE = "rewritten";
+  try {
+    const queue = new JobQueue();
+    const { port, calls } = fakePort({ verdict: "pass" });
+    enqueueTrackedRun(queue, { app: "runner-loop-on", sha: "def5678", target: "e2e", mode: "diff", source: "manual", closedLoop: true }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-loop-off", sha: "def5678", target: "e2e", mode: "diff", source: "manual", closedLoop: false }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-loop-none", sha: "def5678", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+    await queue.drain();
+    assert.deepEqual(calls.map((c) => c.closedLoop), [true, false, undefined]);
+  } finally {
+    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
+    else process.env.PIPELINE_ENGINE = prev;
+  }
+});

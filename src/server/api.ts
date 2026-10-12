@@ -85,7 +85,7 @@ export type LoginOutcome =
 
 export interface ApiDeps {
   queue: { readonly size: number };
-  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string): string;
+  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean): string;
   loadApp(name: string): AppConfig;  /* throws if the app is not configured */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
@@ -459,9 +459,15 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
     baseSha = body.baseSha;
   }
 
+  if (body.closedLoop !== undefined && typeof body.closedLoop !== "boolean") {
+    json(res, 400, { error: "'closedLoop' must be a boolean" });
+    return true;
+  }
+  const closedLoop = typeof body.closedLoop === "boolean" ? body.closedLoop : undefined;
+
   let id: string;
   try {
-    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha);
+    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop);
   } catch (err) {
     json(res, 500, { error: `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}` });
     return true;

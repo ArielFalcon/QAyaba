@@ -1284,10 +1284,12 @@ export class RunQaUseCase {
         }
       } else if (terminal.action === "skip") {
         const skipped = this.skippedResult({ note: generated.note, reviewerApproved: reviewerApprovalOf(generated) });
+        const skipLoopSignal = await closedLoopSignal();
         const skippedOutcome = this.toRunOutcome(input, skipped.decision, [], 0, null, skipped.errorClass, {
           reviewerApproved: skipped.gateSignals.reviewerApproved,
           ...(skipped.note !== undefined ? { note: skipped.note } : {}),
           ...(confinementAcc !== undefined ? { confinement: confinementAcc } : {}),
+          ...(skipLoopSignal ? { closedLoop: skipLoopSignal } : {}),
         });
         await this.deps.runHistory.save(skippedOutcome);
         await this.pruneMirrorIfWired(workspace.mirrorDir);

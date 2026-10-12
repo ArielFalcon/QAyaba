@@ -95,6 +95,8 @@ export interface RunInput {
   parentRunId?: string;
   /** Why the run was started, when it is not a change to test (see RUN_PURPOSE). Recorded on the persisted note; never read by a verdict. */
   purpose?: RunPurpose;
+  /** The run's own choice about the run_spec loop (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
+  closedLoop?: boolean;
 }
 export interface RunPipelinePort {
   /**

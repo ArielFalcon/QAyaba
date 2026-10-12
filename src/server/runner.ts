@@ -55,6 +55,7 @@ export interface RunRequest {
   commits?: number;  /* diff mode: how many commits ending at the SHA the diff spans (default 1) */
   baseSha?: string;  /* PR/push range: when set, diff spans baseSha..sha (range diff) */
   purpose?: RunPurpose;  /* why the run was started, when it is not a change to test (login bootstrap) */
+  closedLoop?: boolean;  /* the run's own choice about the run_spec loop (an A/B arm), overriding the app's setting */
 }
 
 /* Side-effecting collaborators, injected so the funnel is unit-testable with stubs. */
@@ -174,6 +175,7 @@ async function runViaRewrittenEngine(
 
     ...(req.parentRunId ? { parentRunId: req.parentRunId } : {}),
     ...(req.purpose ? { purpose: req.purpose } : {}),
+    ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}),
   };
   const outcome = await port.run(input, signal);
 

@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appSuiteStoreDir, createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
+import { appSuiteStoreDir, createRewrittenEngineFactory, engineAgentDeps, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
@@ -3515,4 +3515,62 @@ test("with the campaign freeze on, a stale-flagged app requests no context rebui
   await flushMicrotasks();
   assert.deepEqual(requested, [], "a frozen campaign never adds a run to the queue");
   assert.equal(isContextStale(app.name), true, "the flag is left as the campaign found it");
+});
+
+/* ── The run_spec loop ─────────────────────────────────────────────────────────────────────────── */
+
+function agentFacadeFor(provider: "opencode" | "codex") {
+  const assignment = { provider, model: "m" };
+  return () => ({ config: { mode: "single", assignments: { primary: assignment, reviewer: assignment, chat: assignment } } }) as never;
+}
+
+test("an e2e app composes the run_spec loop only when the host has a registry, defaulting what the app leaves out", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const app: AppConfig = { ...cfg("loop-app"), qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true, maxCalls: 3 } }, auth: { kind: "form", usernameEnv: "LOOP_USER", passwordEnv: "LOOP_PASS" } };
+
+  const without = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
+  assert.equal(without.closedLoop, undefined);
+
+  const registry = new ClosedLoopRegistry();
+  const withLoop = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  assert.equal(withLoop.closedLoop?.registry, registry);
+  assert.deepEqual(withLoop.closedLoop?.setting, { enabled: true, limits: { maxCalls: 3, perCallMs: 120_000, maxDevWrites: 20 } });
+  assert.equal(withLoop.closedLoop?.account, "loop-app/LOOP_USER");
+  assert.equal(withLoop.closedLoop?.generatorRuntimeCanCall(), true);
+});
+
+test("the loop is off for an app that does not turn it on, and never composed for a code app", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const registry = new ClosedLoopRegistry();
+  const off = buildRewrittenCompositionConfig(cfg("loop-off"), { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  assert.equal(off.closedLoop?.setting.enabled, false);
+
+  const code: AppConfig = { name: "loop-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true } }, report: { onFailure: "github-issue" } };
+  const composed = buildRewrittenCompositionConfig(code, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff", target: "code" });
+  assert.equal(composed.closedLoop, undefined);
+});
+
+test("only an OpenCode generator, as the facade assigns it now, can call the tool", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const app: AppConfig = { ...cfg("loop-runtime"), qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true } } };
+  const registry = new ClosedLoopRegistry();
+  const codex = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("codex") }, "ns", { mode: "diff" });
+  assert.equal(codex.closedLoop?.generatorRuntimeCanCall(), false);
+  const noFacade = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry }, "ns", { mode: "diff" });
+  assert.equal(noFacade.closedLoop?.generatorRuntimeCanCall(), false, "a host that cannot say which runtime the generator uses is not assumed to be OpenCode");
+});
+
+test("the factory tells the registry about the generator's sessions through the transport", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const { RunSpecCapability } = await import("@contexts/test-execution/domain/run-spec-capability");
+  const registry = new ClosedLoopRegistry();
+  const capability = new RunSpecCapability({ runId: "run-loop", limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
+  registry.register({ runId: "run-loop", capability, call: async () => { throw new Error("not called"); } });
+  const deps: AgentDeps = { open: async () => ({ id: "ses-77", prompt: async () => "", dispose: async () => {} }) as never };
+  /* The factory's own wrapping is what the engine opens sessions through. */
+  const opened = engineAgentDeps({ getAgentDeps: () => deps, closedLoopRegistry: registry });
+  const session = await opened.open("qa-generator", "/m", { descriptor: { runId: "run-loop", role: "qa-generator" } });
+  assert.equal(capability.authorize("ses-77", "qa-generator"), undefined);
+  await session.dispose();
+  assert.equal(capability.authorize("ses-77", "qa-generator")?.code, "unknown-session");
 });

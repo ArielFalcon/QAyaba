@@ -3,7 +3,7 @@
  * manual run is queued, recorded in history and addressable. It then drains the queue and
  * exits with the run's verdict.
  * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
- * [--target e2e|code] [--guidance "..."]
+ * [--target e2e|code] [--guidance "..."] [--closed-loop on|off]
  * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
  * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
@@ -87,7 +87,7 @@ function discoverApiToken(): string | undefined {
  */
 /** The run handed to the service. Carries --base-sha so the delegated run's diff spans the same range the standalone CLI and the webhook use. */
 export function delegateRunInput(
-  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string },
+  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean },
   target: TestTarget,
 ): DelegateRunInput {
   return {
@@ -97,10 +97,11 @@ export function delegateRunInput(
     target,
     mode: args.mode,
     guidance: args.guidance,
+    ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
   };
 }
 
-async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string }): Promise<void> {
+async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean }): Promise<void> {
   const port = resolvePort(process.env);
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
@@ -180,6 +181,7 @@ async function main(): Promise<void> {
     mode: args.mode,
     guidance: args.guidance,
     source: "manual",
+    ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
   }, { runEvents, engineFactory: cliEngineFactory });
   await queue.drain();
   const record = getRecord(id);
@@ -238,7 +240,7 @@ function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: Retur
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; learning: boolean } {
+export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; learning: boolean } {
   const out: Record<string, string> = {};
   let learning = false;
   for (let i = 0; i < argv.length; i++) {
@@ -249,7 +251,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
   }
   if (!learning && (!out.app || !out.sha)) {
     console.error(
-      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."]`,
+      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--closed-loop on|off]`,
     );
     console.error('       npm run qa -- --app <app> --learning');
     process.exit(2);
@@ -261,7 +263,13 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
   const mode = (RUN_MODES as readonly string[]).includes(out.mode ?? "") ? (out.mode as RunMode) : "diff";
   /* Undefined when not passed → the caller derives it from the app config (code vs e2e). */
   const target = (TARGETS as string[]).includes(out.target ?? "") ? (out.target as TestTarget) : undefined;
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, learning };
+  /* The run's own choice about the run_spec loop; absent unless given, so the app's setting decides. */
+  const closedLoop = out["closed-loop"] === "on" ? true : out["closed-loop"] === "off" ? false : undefined;
+  if (out["closed-loop"] !== undefined && closedLoop === undefined) {
+    console.error('--closed-loop takes "on" or "off"');
+    process.exit(2);
+  }
+  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), learning };
 }
 
 function showLearning(app: string): void {

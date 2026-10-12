@@ -121,6 +121,8 @@ export const CreateRunInputSchema = z.object({
   shadow: z.boolean().optional(),
   /* diff mode only: how many commits ending at the run's SHA the diff spans (default 1). Lets a run analyze a short series as one blast radius, not just the tip commit. */
   commits: z.number().int().min(1).max(20).optional(),
+  /* The run's own choice about the run_spec loop (an A/B arm), overriding the app's qa.closedLoop.enabled. Absent: the app's setting decides. */
+  closedLoop: z.boolean().optional(),
 });
 
 export const CreateRunResultSchema = z.object({

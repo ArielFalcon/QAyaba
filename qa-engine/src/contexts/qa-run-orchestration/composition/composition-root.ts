@@ -4,6 +4,11 @@ buildShadow always uses this engine with shadow-log publication and in-memory hi
 import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort } from "../application/ports/index.ts";
+import type { RunDeadlineView } from "@kernel/run-deadline.ts";
+import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import { ClosedLoopPortAdapter } from "../infrastructure/bridges/closed-loop-port.adapter.ts";
+import type { ClosedLoopRegistry } from "../infrastructure/closed-loop-registry.ts";
+import type { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
@@ -58,6 +63,23 @@ import type { VcsReadPort } from "@contexts/change-analysis/application/ports/in
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts";
 
+/* What the shell hands the root to let a run grant its generator the run_spec tool. Absent: the run never does. */
+export interface ClosedLoopWiring {
+  /* Where the generator's session finds the run's loop (shared with the tools endpoint and the session transport). */
+  registry: ClosedLoopRegistry;
+  /* The app's own setting, with the limits already defaulted. */
+  setting: { enabled: boolean; limits: ClosedLoopLimits };
+  /* Whether the generator role is assigned to a runtime that can call the tool (OpenCode). */
+  generatorRuntimeCanCall: () => boolean;
+  /* The key two users of the test account contend on, and the process-wide lock they contend through. */
+  account: string;
+  lock: AccountLock;
+  /* The run's deadline, as the calls read it. */
+  deadline?: RunDeadlineView;
+  /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
+  redact: (text: string) => string;
+}
+
 export interface CompositionConfig {
   /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */
   repo: string;
@@ -85,6 +107,8 @@ export interface CompositionConfig {
   openapi?: string | string[];
   /** Wired for e2e apps that have a DEV url. Absent in code mode. */
   authSession?: AuthSessionPort;
+  /** The run_spec loop. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.closedLoop and no run grants the tool. */
+  closedLoop?: ClosedLoopWiring;
   /** The sandbox scope each run runs agent-influenced code in; absent: none is opened (tests). */
   execScope?: ExecScopePort;
   auth?: AuthDeclaration;
@@ -314,6 +338,17 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ? new CleanupPortAdapter(cfg.cleanupCollaborators, { baseUrl: cfg.baseUrl, testIdAttribute: cfg.testIdAttribute })
     : undefined;
 
+  /* The loop executes through the run's own execution and cleanup ports, so a spec it runs is run exactly as the suite's are. */
+  const closedLoop = cfg.closedLoop && !cfg.isCode
+    ? new ClosedLoopPortAdapter({
+        ...cfg.closedLoop,
+        execution,
+        ...(cleanup ? { cleanup } : {}),
+        ...(cfg.authSession && cfg.baseUrl ? { authSession: cfg.authSession, authContext: { baseUrl: cfg.baseUrl, ...(cfg.auth ? { auth: cfg.auth } : {}) } } : {}),
+        specRelDir: cfg.e2eRelDir,
+      })
+    : undefined;
+
   const preGenerationGrounding = !cfg.isCode
     ? new PreGenerationGroundingPortAdapter(
         {
@@ -462,6 +497,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     deployGate,
     runHistory,
     ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
+    ...(closedLoop ? { closedLoop } : {}),
     ...(setup ? { setup } : {}),
     ...(cfg.authSession && cfg.baseUrl
       ? {

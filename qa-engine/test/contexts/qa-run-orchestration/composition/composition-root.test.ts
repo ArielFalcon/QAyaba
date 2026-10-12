@@ -1573,3 +1573,38 @@ test("resolveSidekickTimeoutMs never reads process.env — only cfg.sidekickTime
     else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
   }
 });
+
+/* The run_spec loop is wired only when the shell hands the root its registry; the adapter it builds executes through the run's own execution and cleanup ports. */
+test("wireBridges builds the run_spec loop port from cfg.closedLoop and omits it when the config has none", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts");
+  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
+  const without = wireBridges(fakeConfig());
+  assert.equal("closedLoop" in without, false);
+
+  const registry = new ClosedLoopRegistry();
+  const wired = wireBridges(fakeConfig({
+    closedLoop: {
+      registry,
+      setting: { enabled: true, limits: { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 } },
+      generatorRuntimeCanCall: () => true,
+      account: "app/user",
+      lock: new AccountLock(),
+      redact: (text) => text,
+    },
+  }));
+  const handle = await wired.closedLoop!.open({ runId: "r1", app: "app", mode: "diff", mirrorDir: "/mirrors/org/app", specDir: "/mirrors/org/app/e2e" });
+  assert.deepEqual(handle?.limits, { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 });
+  assert.equal(registry.size, 1);
+  await handle?.close();
+});
+
+test("a code-target composition never gets the run_spec loop, whatever the config says", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts");
+  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
+  const wired = wireBridges(fakeConfig({
+    isCode: true,
+    target: "code",
+    closedLoop: { registry: new ClosedLoopRegistry(), setting: { enabled: true, limits: { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 } }, generatorRuntimeCanCall: () => true, account: "a", lock: new AccountLock(), redact: (t) => t },
+  }));
+  assert.equal("closedLoop" in wired, false);
+});

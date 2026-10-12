@@ -12,7 +12,7 @@ import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, withTimeout } from "../integrations/opencode-client";
-import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent-runtime/types";
+import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 
 import {
@@ -32,6 +32,10 @@ import { defaultContextPackDeps } from "@contexts/generation/infrastructure/cont
 import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
 import { Sha, shaMatches } from "@kernel/sha";
+import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
+import { AccountLock } from "@contexts/test-execution/domain/account-lock";
+import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
+import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
 
@@ -442,6 +446,9 @@ export function historyLearningStore(appName: string): LearningStore {
   };
 }
 
+/* Two uses of one test account never interleave, whichever run they belong to. */
+const PROCESS_ACCOUNT_LOCK = new AccountLock();
+
 /* The host's already-built real collaborators this factory reuses instead of re-assembling. */
 export interface RewrittenEngineFactoryDeps {
   /*
@@ -460,6 +467,11 @@ export interface RewrittenEngineFactoryDeps {
   env?: Record<string, string | undefined>;
   /* Test seam: the clock the run-level deadline counts down on. Absent: the system clock. */
   now?: () => number;
+  /*
+   * Where the generator's sessions find the run's run_spec loop. One per process, shared with the tools endpoint that serves the
+   * tool's calls. Absent: no run is ever granted the tool.
+   */
+  closedLoopRegistry?: ClosedLoopRegistry;
   mirrorRoot?: string;
   /* Test seam: inject spies for the two mirror primitives instead of real git/disk. */
   mirror?: {
@@ -1020,6 +1032,32 @@ export function buildRewrittenCompositionConfig(
       : {}),
 
     execScope: execWiring.execScope,
+    /*
+     * The run_spec loop: composed for an e2e app whenever the host has a registry; whether a run is granted it is the app's
+     * qa.closedLoop (or the run's own choice), decided when the run opens it. The generator's role is read from the agent
+     * facade as it is now (the runtime is switchable): only OpenCode can call a custom tool, and a host that cannot say is
+     * not assumed to be. The account lock is the process's, since the key is the app's login and the processes share nothing else.
+     */
+    ...(deps.closedLoopRegistry && !isCode && app.dev?.baseUrl
+      ? {
+          closedLoop: {
+            registry: deps.closedLoopRegistry,
+            setting: {
+              enabled: app.qa.closedLoop?.enabled === true,
+              limits: {
+                maxCalls: app.qa.closedLoop?.maxCalls ?? DEFAULT_CLOSED_LOOP_LIMITS.maxCalls,
+                perCallMs: app.qa.closedLoop?.perCallMs ?? DEFAULT_CLOSED_LOOP_LIMITS.perCallMs,
+                maxDevWrites: app.qa.closedLoop?.maxDevWrites ?? DEFAULT_CLOSED_LOOP_LIMITS.maxDevWrites,
+              },
+            },
+            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
+            account: `${app.name}/${app.auth?.usernameEnv ?? "public"}`,
+            lock: PROCESS_ACCOUNT_LOCK,
+            deadline: runDeadline,
+            redact: (text: string) => redactionPort.redact(redactByValue(text)),
+          },
+        }
+      : {}),
     ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
     ...(!isCode && app.dev?.baseUrl
       ? {
@@ -1206,19 +1244,28 @@ export function buildRewrittenCompositionConfig(
 }
 
 
+/* The agent transport the engine opens its sessions through: the host's, with live observation, the stall watchdog and usage, and the run_spec registry told which sessions the generator opens for which run. */
+export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry">): AgentDeps {
+  const registry = deps.closedLoopRegistry;
+  return withUsageSink(
+    withStallWatchdog(
+      withSessionRegistration(deps.getAgentDeps(), {
+        register: registerRunSession,
+        unregister: unregisterRunSession,
+        ...(registry ? { bind: (session) => registry.bindSession(session), unbind: (sessionId) => registry.unbindSession(sessionId) } : {}),
+      }),
+      { stallMs: stallMs() },
+    ),
+  );
+}
+
 export function createRewrittenEngineFactory(
   deps: RewrittenEngineFactoryDeps,
 ): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
   const env = deps.env ?? process.env;
   const wrappedDeps: RewrittenEngineFactoryDeps = {
     ...deps,
-    getAgentDeps: () =>
-      withUsageSink(
-        withStallWatchdog(
-          withSessionRegistration(deps.getAgentDeps(), { register: registerRunSession, unregister: unregisterRunSession }),
-          { stallMs: stallMs() },
-        ),
-      ),
+    getAgentDeps: () => engineAgentDeps(deps),
   };
   return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string }, observer?: ObserverPort): RunPipelinePort => {
     const cfg = buildRewrittenCompositionConfig(appConfig, wrappedDeps, namespace, run, observer);

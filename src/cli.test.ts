@@ -39,3 +39,14 @@ describe("parseArgs", () => {
     );
   });
 });
+
+describe("--closed-loop", () => {
+  it("is the run's own choice about the run_spec loop and reaches the service, and is absent unless given", () => {
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--closed-loop", "on"]).closedLoop, true);
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--closed-loop", "off"]).closedLoop, false);
+    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
+    assert.equal("closedLoop" in plain, false);
+    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--closed-loop", "off"]), "e2e").closedLoop, false);
+    assert.equal("closedLoop" in delegateRunInput(plain, "e2e"), false);
+  });
+});

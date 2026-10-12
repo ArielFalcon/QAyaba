@@ -2063,6 +2063,9 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 20
+          },
+          "closedLoop": {
+            "type": "boolean"
           }
         },
         "required": [
