@@ -2,7 +2,7 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -150,7 +150,7 @@ test("a namespace directory that is a link, a regular file, or below a link leav
     symlinkSync(join(r.outside, "counters"), counterDirOf(r.e2e));
     const linked = capturing(() => countInjectedResponses(r.e2e, NS));
 
-    rmSync(counterDirOf(r.e2e));
+    unlinkSync(counterDirOf(r.e2e));
     writeFileSync(counterDirOf(r.e2e), "not a directory");
     const file = capturing(() => countInjectedResponses(r.e2e, NS));
 
