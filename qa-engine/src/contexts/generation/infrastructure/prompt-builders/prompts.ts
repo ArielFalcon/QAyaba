@@ -20,7 +20,8 @@ import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
-import { claim, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
+import { claim, AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
 import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
@@ -60,7 +61,17 @@ function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
   return lines.length > 0 ? [`## ${PROMPT_HEADINGS.harnessFacts}`, ...lines, ``].join("\n") : "";
 }
 
-export { CLOSED_LOOP_SECTION_ID };
+export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID };
+
+/* The authenticated browser a run granted the authoring agents, as facts: how many calls and how long each may take, and what its answers report. Numbers and a description only; how to use the tools is the role prompt's. */
+function renderAgentBrowser(limits: AgentBrowserLimits): string {
+  const seconds = Math.round(limits.perCallMs / 1000);
+  return [
+    `## ${PROMPT_HEADINGS.agentBrowser}`,
+    `authbrowser_navigate, authbrowser_snapshot, authbrowser_click and authbrowser_type: at most ${limits.maxCalls} calls this run, ${seconds} seconds each. They read DEV as the test account; a request that writes to DEV, a route this app closes and an address outside its origins are blocked and listed in the answer.`,
+    ``,
+  ].join("\n");
+}
 
 /* The run_spec tool a run granted the generator, as facts: how many calls, how long each may run, how many requests that write to DEV the executed specs may send in all. Numbers only; how to use the tool is the role prompt's. */
 function renderClosedLoop(limits: ClosedLoopLimits): string {
@@ -906,6 +917,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   })();
 
   const closedLoopContent = isGenerationMode && input.target === "e2e" && input.closedLoop ? renderClosedLoop(input.closedLoop) : "";
+  const agentBrowserContent = isGenerationMode && input.target === "e2e" && input.agentBrowser ? renderAgentBrowser(input.agentBrowser) : "";
   const stepLimitContent = input.stepLimit !== undefined ? renderStepLimit(input.stepLimit) : "";
   const milestone = input.stepLimit !== undefined ? stepMilestone(input, input.stepLimit) : undefined;
   const stepMilestoneContent = milestone ? renderStepMilestone(milestone) : "";
@@ -922,6 +934,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
       ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
       ...(closedLoopContent ? [section(CLOSED_LOOP_SECTION_ID, "semi-stable", closedLoopContent, { priority: 0, claims: [claim.provides("closed-loop")] })] : []),
+      ...(agentBrowserContent ? [section(AGENT_BROWSER_SECTION_ID, "semi-stable", agentBrowserContent, { priority: 0, claims: [claim.provides("agent-browser")] })] : []),
       ...(suiteIsListed ? [section(SUITE_LISTING_SECTION_ID, "semi-stable", listingContent, { priority: 2, claims: [claim.provides("existing-suite")], ...(editableListed ? { overflow: "summarize" as const } : {}) })] : []),
       ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
       ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),

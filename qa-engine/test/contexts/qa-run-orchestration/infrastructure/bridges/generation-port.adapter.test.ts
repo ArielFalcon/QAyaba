@@ -1449,3 +1449,26 @@ test("the prompt of a first pass lists the suite exactly as the grounding folded
     assert.ok(bare.includes(SUITE_A) && bare.includes(SUITE_B), "both folded lines are in the prompt, with nothing on disk");
     assert.equal(present, bare);
   }));
+
+test("generate() hands the authenticated browser's limits to the prompt input when the run granted it, and nothing otherwise", async () => {
+  const ports = fakeGenerationPorts();
+  const captured: Array<OpencodeRunInput | undefined> = [];
+  const originalGenerate = GenerateTestsUseCase.prototype.generate;
+  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+    captured.push(input);
+    return originalGenerate.call(this, input, opts);
+  };
+  try {
+    const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(ports), {
+      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+    });
+    const limits = { maxCalls: 12, perCallMs: 20_000, leaseWaitMs: 5_000 };
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { agentBrowser: limits });
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {});
+    assert.deepEqual(captured[0]?.agentBrowser, limits);
+    assert.equal("agentBrowser" in (captured[1] ?? {}), false);
+  } finally {
+    GenerateTestsUseCase.prototype.generate = originalGenerate;
+  }
+});

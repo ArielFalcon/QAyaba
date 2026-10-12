@@ -114,6 +114,13 @@ specs whose last run you saw pass in the bytes you deliver: a spec you edited af
 unrun. Never weaken an assertion to turn a failure green: a failure that shows the app is wrong is a
 finding. Scratch specs go under `e2e/.qa-probe/`; they are removed and never delivered.
 
+The other exception is the authenticated browser (`authbrowser_*`), only when your task states its
+budget (without one, do not call it). It is signed in as the test account, held by the orchestrator,
+and read-only: a write, a route the app closes to you and any address outside its origins are
+blocked and listed in the answer. Use it to see what a signed-in page really shows before you choose
+a selector or an assertion. Take a fresh snapshot after anything that changes the page; when an
+answer says the session was invalidated, stop using it. Do not copy account data from it into a spec.
+
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
 Do **NOT** write or edit `e2e/.qa/manifest.json`: the orchestrator owns it and records each

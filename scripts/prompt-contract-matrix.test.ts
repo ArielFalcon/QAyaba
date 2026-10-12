@@ -32,7 +32,7 @@ import {
   setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { AGENT_BROWSER_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import { PACK_HEADINGS, SUITE_LISTING_LABELS } from "@contexts/generation/domain/prompt-headings.ts";
 import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
@@ -677,4 +677,16 @@ test("a limited bucket is new, not raised, when its twin is not recorded either"
   const recorded = recordBaseline(resized(cells, limited, { bytes: 7 }), committed);
   assert.equal(recorded.buckets[limited]!.bytes, measured.buckets[limited]!.bytes + 7);
   assert.equal(recorded.lastIncrease, undefined);
+});
+
+test("a combination that grants the browser states its budget on top of the run_spec one, in the OpenCode layer alone, and the section is facts-only", async () => {
+  const cells = await matrixOnce();
+  const browser = cells.filter((c) => c.spec.agentBrowser);
+  assert.ok(browser.length > 0, "setup: some combinations grant the browser");
+  assert.ok(browser.every((c) => c.layer === "opencode" && c.spec.closedLoop), "only OpenCode, and always with the run_spec budget it sits next to");
+  for (const cell of browser) {
+    const section = cell.lint.sections.find((s) => s.id === AGENT_BROWSER_SECTION_ID);
+    assert.ok(section?.factsOnly, `${cell.key}: the browser section is present and marked facts-only`);
+  }
+  assert.ok(cells.filter((c) => !c.spec.agentBrowser).every((c) => !c.lint.sections.some((s) => s.id === AGENT_BROWSER_SECTION_ID)), "no other cell states it");
 });

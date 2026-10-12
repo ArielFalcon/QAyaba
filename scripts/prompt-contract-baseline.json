@@ -5,8 +5,8 @@
     "directives": 20
   },
   "staticLayers": {
-    "opencode": 19946,
-    "codex": 34904
+    "opencode": 20720,
+    "codex": 35678
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -309,6 +309,10 @@
       "bytes": 5345,
       "directives": 7
     },
+    "complete/e2e/first/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 4097,
+      "directives": 6
+    },
     "complete/e2e/first/tree-none/brief+pack/loop/limit": {
       "bytes": 3774,
       "directives": 6
@@ -349,6 +353,10 @@
       "bytes": 5045,
       "directives": 10
     },
+    "complete/e2e/first/tree-none/brief/loop/browser/limit": {
+      "bytes": 3866,
+      "directives": 9
+    },
     "complete/e2e/first/tree-none/brief/loop/limit": {
       "bytes": 3543,
       "directives": 9
@@ -376,6 +384,10 @@
     "complete/e2e/first/tree-none/none/limit": {
       "bytes": 4328,
       "directives": 8
+    },
+    "complete/e2e/first/tree-none/none/loop/browser/limit": {
+      "bytes": 2903,
+      "directives": 7
     },
     "complete/e2e/first/tree-none/none/loop/limit": {
       "bytes": 2580,
@@ -412,6 +424,10 @@
     "complete/e2e/first/tree-none/pack/limit": {
       "bytes": 4707,
       "directives": 6
+    },
+    "complete/e2e/first/tree-none/pack/loop/browser/limit": {
+      "bytes": 3213,
+      "directives": 5
     },
     "complete/e2e/first/tree-none/pack/loop/limit": {
       "bytes": 2890,
@@ -452,6 +468,10 @@
     "complete/e2e/regen-coverage/tree-none/brief+pack/limit": {
       "bytes": 6556,
       "directives": 15
+    },
+    "complete/e2e/regen-coverage/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5308,
+      "directives": 14
     },
     "complete/e2e/regen-coverage/tree-none/brief+pack/loop/limit": {
       "bytes": 4985,
@@ -557,6 +577,10 @@
       "bytes": 5965,
       "directives": 14
     },
+    "complete/e2e/regen-coverage/tree-none/brief/loop/browser/limit": {
+      "bytes": 4786,
+      "directives": 13
+    },
     "complete/e2e/regen-coverage/tree-none/brief/loop/limit": {
       "bytes": 4463,
       "directives": 13
@@ -632,6 +656,10 @@
     "complete/e2e/regen-coverage/tree-none/none/limit": {
       "bytes": 5138,
       "directives": 12
+    },
+    "complete/e2e/regen-coverage/tree-none/none/loop/browser/limit": {
+      "bytes": 3713,
+      "directives": 11
     },
     "complete/e2e/regen-coverage/tree-none/none/loop/limit": {
       "bytes": 3390,
@@ -717,6 +745,10 @@
       "bytes": 5808,
       "directives": 14
     },
+    "complete/e2e/regen-coverage/tree-none/pack/loop/browser/limit": {
+      "bytes": 4314,
+      "directives": 13
+    },
     "complete/e2e/regen-coverage/tree-none/pack/loop/limit": {
       "bytes": 3991,
       "directives": 13
@@ -788,6 +820,10 @@
     "complete/e2e/regen-fix/tree-failure/brief+pack/limit": {
       "bytes": 7697,
       "directives": 19
+    },
+    "complete/e2e/regen-fix/tree-failure/brief+pack/loop/browser/limit": {
+      "bytes": 6449,
+      "directives": 18
     },
     "complete/e2e/regen-fix/tree-failure/brief+pack/loop/limit": {
       "bytes": 6126,
@@ -893,6 +929,10 @@
       "bytes": 6901,
       "directives": 19
     },
+    "complete/e2e/regen-fix/tree-failure/brief/loop/browser/limit": {
+      "bytes": 5722,
+      "directives": 18
+    },
     "complete/e2e/regen-fix/tree-failure/brief/loop/limit": {
       "bytes": 5399,
       "directives": 18
@@ -968,6 +1008,10 @@
     "complete/e2e/regen-fix/tree-failure/none/limit": {
       "bytes": 6153,
       "directives": 18
+    },
+    "complete/e2e/regen-fix/tree-failure/none/loop/browser/limit": {
+      "bytes": 4728,
+      "directives": 17
     },
     "complete/e2e/regen-fix/tree-failure/none/loop/limit": {
       "bytes": 4405,
@@ -1053,6 +1097,10 @@
       "bytes": 6949,
       "directives": 18
     },
+    "complete/e2e/regen-fix/tree-failure/pack/loop/browser/limit": {
+      "bytes": 5455,
+      "directives": 17
+    },
     "complete/e2e/regen-fix/tree-failure/pack/loop/limit": {
       "bytes": 5132,
       "directives": 17
@@ -1124,6 +1172,10 @@
     "complete/e2e/regen-fix/tree-live/brief+pack/limit": {
       "bytes": 6960,
       "directives": 17
+    },
+    "complete/e2e/regen-fix/tree-live/brief+pack/loop/browser/limit": {
+      "bytes": 5530,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief+pack/loop/limit": {
       "bytes": 5207,
@@ -1229,6 +1281,10 @@
       "bytes": 6709,
       "directives": 17
     },
+    "complete/e2e/regen-fix/tree-live/brief/loop/browser/limit": {
+      "bytes": 5530,
+      "directives": 16
+    },
     "complete/e2e/regen-fix/tree-live/brief/loop/limit": {
       "bytes": 5207,
       "directives": 16
@@ -1304,6 +1360,10 @@
     "complete/e2e/regen-fix/tree-live/none/limit": {
       "bytes": 5961,
       "directives": 16
+    },
+    "complete/e2e/regen-fix/tree-live/none/loop/browser/limit": {
+      "bytes": 4536,
+      "directives": 15
     },
     "complete/e2e/regen-fix/tree-live/none/loop/limit": {
       "bytes": 4213,
@@ -1389,6 +1449,10 @@
       "bytes": 6212,
       "directives": 16
     },
+    "complete/e2e/regen-fix/tree-live/pack/loop/browser/limit": {
+      "bytes": 4536,
+      "directives": 15
+    },
     "complete/e2e/regen-fix/tree-live/pack/loop/limit": {
       "bytes": 4213,
       "directives": 15
@@ -1460,6 +1524,10 @@
     "complete/e2e/regen-fix/tree-none/brief+pack/limit": {
       "bytes": 6624,
       "directives": 16
+    },
+    "complete/e2e/regen-fix/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5376,
+      "directives": 15
     },
     "complete/e2e/regen-fix/tree-none/brief+pack/loop/limit": {
       "bytes": 5053,
@@ -1565,6 +1633,10 @@
       "bytes": 6133,
       "directives": 17
     },
+    "complete/e2e/regen-fix/tree-none/brief/loop/browser/limit": {
+      "bytes": 4954,
+      "directives": 16
+    },
     "complete/e2e/regen-fix/tree-none/brief/loop/limit": {
       "bytes": 4631,
       "directives": 16
@@ -1640,6 +1712,10 @@
     "complete/e2e/regen-fix/tree-none/none/limit": {
       "bytes": 5306,
       "directives": 15
+    },
+    "complete/e2e/regen-fix/tree-none/none/loop/browser/limit": {
+      "bytes": 3881,
+      "directives": 14
     },
     "complete/e2e/regen-fix/tree-none/none/loop/limit": {
       "bytes": 3558,
@@ -1725,6 +1801,10 @@
       "bytes": 5876,
       "directives": 15
     },
+    "complete/e2e/regen-fix/tree-none/pack/loop/browser/limit": {
+      "bytes": 4382,
+      "directives": 14
+    },
     "complete/e2e/regen-fix/tree-none/pack/loop/limit": {
       "bytes": 4059,
       "directives": 14
@@ -1796,6 +1876,10 @@
     "complete/e2e/regen-review/tree-none/brief+pack/limit": {
       "bytes": 6066,
       "directives": 17
+    },
+    "complete/e2e/regen-review/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 4818,
+      "directives": 16
     },
     "complete/e2e/regen-review/tree-none/brief+pack/loop/limit": {
       "bytes": 4495,
@@ -1901,6 +1985,10 @@
       "bytes": 5582,
       "directives": 16
     },
+    "complete/e2e/regen-review/tree-none/brief/loop/browser/limit": {
+      "bytes": 4403,
+      "directives": 15
+    },
     "complete/e2e/regen-review/tree-none/brief/loop/limit": {
       "bytes": 4080,
       "directives": 15
@@ -1976,6 +2064,10 @@
     "complete/e2e/regen-review/tree-none/none/limit": {
       "bytes": 4755,
       "directives": 14
+    },
+    "complete/e2e/regen-review/tree-none/none/loop/browser/limit": {
+      "bytes": 3330,
+      "directives": 13
     },
     "complete/e2e/regen-review/tree-none/none/loop/limit": {
       "bytes": 3007,
@@ -2061,6 +2153,10 @@
       "bytes": 5318,
       "directives": 16
     },
+    "complete/e2e/regen-review/tree-none/pack/loop/browser/limit": {
+      "bytes": 3824,
+      "directives": 15
+    },
     "complete/e2e/regen-review/tree-none/pack/loop/limit": {
       "bytes": 3501,
       "directives": 15
@@ -2132,6 +2228,10 @@
     "complete/e2e/selector-fix/tree-failure/brief+pack/limit": {
       "bytes": 7557,
       "directives": 15
+    },
+    "complete/e2e/selector-fix/tree-failure/brief+pack/loop/browser/limit": {
+      "bytes": 6309,
+      "directives": 14
     },
     "complete/e2e/selector-fix/tree-failure/brief+pack/loop/limit": {
       "bytes": 5986,
@@ -2237,6 +2337,10 @@
       "bytes": 6761,
       "directives": 15
     },
+    "complete/e2e/selector-fix/tree-failure/brief/loop/browser/limit": {
+      "bytes": 5582,
+      "directives": 14
+    },
     "complete/e2e/selector-fix/tree-failure/brief/loop/limit": {
       "bytes": 5259,
       "directives": 14
@@ -2312,6 +2416,10 @@
     "complete/e2e/selector-fix/tree-failure/none/limit": {
       "bytes": 6013,
       "directives": 14
+    },
+    "complete/e2e/selector-fix/tree-failure/none/loop/browser/limit": {
+      "bytes": 4588,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-failure/none/loop/limit": {
       "bytes": 4265,
@@ -2397,6 +2505,10 @@
       "bytes": 6809,
       "directives": 14
     },
+    "complete/e2e/selector-fix/tree-failure/pack/loop/browser/limit": {
+      "bytes": 5315,
+      "directives": 13
+    },
     "complete/e2e/selector-fix/tree-failure/pack/loop/limit": {
       "bytes": 4992,
       "directives": 13
@@ -2468,6 +2580,10 @@
     "complete/e2e/selector-fix/tree-live/brief+pack/limit": {
       "bytes": 6791,
       "directives": 13
+    },
+    "complete/e2e/selector-fix/tree-live/brief+pack/loop/browser/limit": {
+      "bytes": 5361,
+      "directives": 12
     },
     "complete/e2e/selector-fix/tree-live/brief+pack/loop/limit": {
       "bytes": 5038,
@@ -2573,6 +2689,10 @@
       "bytes": 6540,
       "directives": 13
     },
+    "complete/e2e/selector-fix/tree-live/brief/loop/browser/limit": {
+      "bytes": 5361,
+      "directives": 12
+    },
     "complete/e2e/selector-fix/tree-live/brief/loop/limit": {
       "bytes": 5038,
       "directives": 12
@@ -2648,6 +2768,10 @@
     "complete/e2e/selector-fix/tree-live/none/limit": {
       "bytes": 5792,
       "directives": 12
+    },
+    "complete/e2e/selector-fix/tree-live/none/loop/browser/limit": {
+      "bytes": 4367,
+      "directives": 11
     },
     "complete/e2e/selector-fix/tree-live/none/loop/limit": {
       "bytes": 4044,
@@ -2733,6 +2857,10 @@
       "bytes": 6043,
       "directives": 12
     },
+    "complete/e2e/selector-fix/tree-live/pack/loop/browser/limit": {
+      "bytes": 4367,
+      "directives": 11
+    },
     "complete/e2e/selector-fix/tree-live/pack/loop/limit": {
       "bytes": 4044,
       "directives": 11
@@ -2804,6 +2932,10 @@
     "complete/e2e/selector-fix/tree-none/brief+pack/limit": {
       "bytes": 6461,
       "directives": 12
+    },
+    "complete/e2e/selector-fix/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5213,
+      "directives": 11
     },
     "complete/e2e/selector-fix/tree-none/brief+pack/loop/limit": {
       "bytes": 4890,
@@ -2909,6 +3041,10 @@
       "bytes": 6157,
       "directives": 15
     },
+    "complete/e2e/selector-fix/tree-none/brief/loop/browser/limit": {
+      "bytes": 4978,
+      "directives": 14
+    },
     "complete/e2e/selector-fix/tree-none/brief/loop/limit": {
       "bytes": 4655,
       "directives": 14
@@ -2984,6 +3120,10 @@
     "complete/e2e/selector-fix/tree-none/none/limit": {
       "bytes": 5330,
       "directives": 13
+    },
+    "complete/e2e/selector-fix/tree-none/none/loop/browser/limit": {
+      "bytes": 3905,
+      "directives": 12
     },
     "complete/e2e/selector-fix/tree-none/none/loop/limit": {
       "bytes": 3582,
@@ -3068,6 +3208,10 @@
     "complete/e2e/selector-fix/tree-none/pack/limit": {
       "bytes": 5713,
       "directives": 11
+    },
+    "complete/e2e/selector-fix/tree-none/pack/loop/browser/limit": {
+      "bytes": 4219,
+      "directives": 10
     },
     "complete/e2e/selector-fix/tree-none/pack/loop/limit": {
       "bytes": 3896,
@@ -3613,6 +3757,10 @@
       "bytes": 6748,
       "directives": 9
     },
+    "diff/e2e/first/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5877,
+      "directives": 8
+    },
     "diff/e2e/first/tree-none/brief+pack/loop/limit": {
       "bytes": 5554,
       "directives": 8
@@ -3733,6 +3881,10 @@
       "bytes": 6448,
       "directives": 12
     },
+    "diff/e2e/first/tree-none/brief/loop/browser/limit": {
+      "bytes": 5646,
+      "directives": 11
+    },
     "diff/e2e/first/tree-none/brief/loop/limit": {
       "bytes": 5323,
       "directives": 11
@@ -3841,6 +3993,10 @@
       "bytes": 5786,
       "directives": 10
     },
+    "diff/e2e/first/tree-none/none/loop/browser/limit": {
+      "bytes": 4776,
+      "directives": 9
+    },
     "diff/e2e/first/tree-none/none/loop/limit": {
       "bytes": 4453,
       "directives": 9
@@ -3941,6 +4097,10 @@
       "bytes": 6165,
       "directives": 8
     },
+    "diff/e2e/first/tree-none/pack/loop/browser/limit": {
+      "bytes": 5086,
+      "directives": 7
+    },
     "diff/e2e/first/tree-none/pack/loop/limit": {
       "bytes": 4763,
       "directives": 7
@@ -4020,6 +4180,10 @@
     "diff/e2e/regen-coverage/tree-none/brief+pack/limit": {
       "bytes": 6854,
       "directives": 15
+    },
+    "diff/e2e/regen-coverage/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5606,
+      "directives": 14
     },
     "diff/e2e/regen-coverage/tree-none/brief+pack/loop/limit": {
       "bytes": 5283,
@@ -4149,6 +4313,10 @@
       "bytes": 6263,
       "directives": 14
     },
+    "diff/e2e/regen-coverage/tree-none/brief/loop/browser/limit": {
+      "bytes": 5084,
+      "directives": 13
+    },
     "diff/e2e/regen-coverage/tree-none/brief/loop/limit": {
       "bytes": 4761,
       "directives": 13
@@ -4265,6 +4433,10 @@
       "bytes": 5398,
       "directives": 12
     },
+    "diff/e2e/regen-coverage/tree-none/none/loop/browser/limit": {
+      "bytes": 4011,
+      "directives": 11
+    },
     "diff/e2e/regen-coverage/tree-none/none/loop/limit": {
       "bytes": 3688,
       "directives": 11
@@ -4373,6 +4545,10 @@
       "bytes": 6068,
       "directives": 14
     },
+    "diff/e2e/regen-coverage/tree-none/pack/loop/browser/limit": {
+      "bytes": 4612,
+      "directives": 13
+    },
     "diff/e2e/regen-coverage/tree-none/pack/loop/limit": {
       "bytes": 4289,
       "directives": 13
@@ -4444,6 +4620,10 @@
     "diff/e2e/regen-fix/tree-failure/brief+pack/limit": {
       "bytes": 7995,
       "directives": 19
+    },
+    "diff/e2e/regen-fix/tree-failure/brief+pack/loop/browser/limit": {
+      "bytes": 6747,
+      "directives": 18
     },
     "diff/e2e/regen-fix/tree-failure/brief+pack/loop/limit": {
       "bytes": 6424,
@@ -4565,6 +4745,10 @@
       "bytes": 7199,
       "directives": 19
     },
+    "diff/e2e/regen-fix/tree-failure/brief/loop/browser/limit": {
+      "bytes": 6020,
+      "directives": 18
+    },
     "diff/e2e/regen-fix/tree-failure/brief/loop/limit": {
       "bytes": 5697,
       "directives": 18
@@ -4673,6 +4857,10 @@
       "bytes": 6413,
       "directives": 18
     },
+    "diff/e2e/regen-fix/tree-failure/none/loop/browser/limit": {
+      "bytes": 5026,
+      "directives": 17
+    },
     "diff/e2e/regen-fix/tree-failure/none/loop/limit": {
       "bytes": 4703,
       "directives": 17
@@ -4773,6 +4961,10 @@
       "bytes": 7209,
       "directives": 18
     },
+    "diff/e2e/regen-fix/tree-failure/pack/loop/browser/limit": {
+      "bytes": 5753,
+      "directives": 17
+    },
     "diff/e2e/regen-fix/tree-failure/pack/loop/limit": {
       "bytes": 5430,
       "directives": 17
@@ -4844,6 +5036,10 @@
     "diff/e2e/regen-fix/tree-live/brief+pack/limit": {
       "bytes": 7258,
       "directives": 17
+    },
+    "diff/e2e/regen-fix/tree-live/brief+pack/loop/browser/limit": {
+      "bytes": 5828,
+      "directives": 16
     },
     "diff/e2e/regen-fix/tree-live/brief+pack/loop/limit": {
       "bytes": 5505,
@@ -4965,6 +5161,10 @@
       "bytes": 7007,
       "directives": 17
     },
+    "diff/e2e/regen-fix/tree-live/brief/loop/browser/limit": {
+      "bytes": 5828,
+      "directives": 16
+    },
     "diff/e2e/regen-fix/tree-live/brief/loop/limit": {
       "bytes": 5505,
       "directives": 16
@@ -5073,6 +5273,10 @@
       "bytes": 6221,
       "directives": 16
     },
+    "diff/e2e/regen-fix/tree-live/none/loop/browser/limit": {
+      "bytes": 4834,
+      "directives": 15
+    },
     "diff/e2e/regen-fix/tree-live/none/loop/limit": {
       "bytes": 4511,
       "directives": 15
@@ -5173,6 +5377,10 @@
       "bytes": 6472,
       "directives": 16
     },
+    "diff/e2e/regen-fix/tree-live/pack/loop/browser/limit": {
+      "bytes": 4834,
+      "directives": 15
+    },
     "diff/e2e/regen-fix/tree-live/pack/loop/limit": {
       "bytes": 4511,
       "directives": 15
@@ -5244,6 +5452,10 @@
     "diff/e2e/regen-fix/tree-none/brief+pack/limit": {
       "bytes": 6922,
       "directives": 16
+    },
+    "diff/e2e/regen-fix/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5674,
+      "directives": 15
     },
     "diff/e2e/regen-fix/tree-none/brief+pack/loop/limit": {
       "bytes": 5351,
@@ -5365,6 +5577,10 @@
       "bytes": 6431,
       "directives": 17
     },
+    "diff/e2e/regen-fix/tree-none/brief/loop/browser/limit": {
+      "bytes": 5252,
+      "directives": 16
+    },
     "diff/e2e/regen-fix/tree-none/brief/loop/limit": {
       "bytes": 4929,
       "directives": 16
@@ -5473,6 +5689,10 @@
       "bytes": 5566,
       "directives": 15
     },
+    "diff/e2e/regen-fix/tree-none/none/loop/browser/limit": {
+      "bytes": 4179,
+      "directives": 14
+    },
     "diff/e2e/regen-fix/tree-none/none/loop/limit": {
       "bytes": 3856,
       "directives": 14
@@ -5573,6 +5793,10 @@
       "bytes": 6136,
       "directives": 15
     },
+    "diff/e2e/regen-fix/tree-none/pack/loop/browser/limit": {
+      "bytes": 4680,
+      "directives": 14
+    },
     "diff/e2e/regen-fix/tree-none/pack/loop/limit": {
       "bytes": 4357,
       "directives": 14
@@ -5644,6 +5868,10 @@
     "diff/e2e/regen-review/tree-none/brief+pack/limit": {
       "bytes": 6364,
       "directives": 17
+    },
+    "diff/e2e/regen-review/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5116,
+      "directives": 16
     },
     "diff/e2e/regen-review/tree-none/brief+pack/loop/limit": {
       "bytes": 4793,
@@ -5765,6 +5993,10 @@
       "bytes": 5880,
       "directives": 16
     },
+    "diff/e2e/regen-review/tree-none/brief/loop/browser/limit": {
+      "bytes": 4701,
+      "directives": 15
+    },
     "diff/e2e/regen-review/tree-none/brief/loop/limit": {
       "bytes": 4378,
       "directives": 15
@@ -5873,6 +6105,10 @@
       "bytes": 5015,
       "directives": 14
     },
+    "diff/e2e/regen-review/tree-none/none/loop/browser/limit": {
+      "bytes": 3628,
+      "directives": 13
+    },
     "diff/e2e/regen-review/tree-none/none/loop/limit": {
       "bytes": 3305,
       "directives": 13
@@ -5973,6 +6209,10 @@
       "bytes": 5578,
       "directives": 16
     },
+    "diff/e2e/regen-review/tree-none/pack/loop/browser/limit": {
+      "bytes": 4122,
+      "directives": 15
+    },
     "diff/e2e/regen-review/tree-none/pack/loop/limit": {
       "bytes": 3799,
       "directives": 15
@@ -6052,6 +6292,10 @@
     "diff/e2e/selector-fix/tree-failure/brief+pack/limit": {
       "bytes": 7855,
       "directives": 15
+    },
+    "diff/e2e/selector-fix/tree-failure/brief+pack/loop/browser/limit": {
+      "bytes": 6607,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-failure/brief+pack/loop/limit": {
       "bytes": 6284,
@@ -6181,6 +6425,10 @@
       "bytes": 7059,
       "directives": 15
     },
+    "diff/e2e/selector-fix/tree-failure/brief/loop/browser/limit": {
+      "bytes": 5880,
+      "directives": 14
+    },
     "diff/e2e/selector-fix/tree-failure/brief/loop/limit": {
       "bytes": 5557,
       "directives": 14
@@ -6297,6 +6545,10 @@
       "bytes": 6273,
       "directives": 14
     },
+    "diff/e2e/selector-fix/tree-failure/none/loop/browser/limit": {
+      "bytes": 4886,
+      "directives": 13
+    },
     "diff/e2e/selector-fix/tree-failure/none/loop/limit": {
       "bytes": 4563,
       "directives": 13
@@ -6405,6 +6657,10 @@
       "bytes": 7069,
       "directives": 14
     },
+    "diff/e2e/selector-fix/tree-failure/pack/loop/browser/limit": {
+      "bytes": 5613,
+      "directives": 13
+    },
     "diff/e2e/selector-fix/tree-failure/pack/loop/limit": {
       "bytes": 5290,
       "directives": 13
@@ -6484,6 +6740,10 @@
     "diff/e2e/selector-fix/tree-live/brief+pack/limit": {
       "bytes": 7089,
       "directives": 13
+    },
+    "diff/e2e/selector-fix/tree-live/brief+pack/loop/browser/limit": {
+      "bytes": 5659,
+      "directives": 12
     },
     "diff/e2e/selector-fix/tree-live/brief+pack/loop/limit": {
       "bytes": 5336,
@@ -6613,6 +6873,10 @@
       "bytes": 6838,
       "directives": 13
     },
+    "diff/e2e/selector-fix/tree-live/brief/loop/browser/limit": {
+      "bytes": 5659,
+      "directives": 12
+    },
     "diff/e2e/selector-fix/tree-live/brief/loop/limit": {
       "bytes": 5336,
       "directives": 12
@@ -6729,6 +6993,10 @@
       "bytes": 6052,
       "directives": 12
     },
+    "diff/e2e/selector-fix/tree-live/none/loop/browser/limit": {
+      "bytes": 4665,
+      "directives": 11
+    },
     "diff/e2e/selector-fix/tree-live/none/loop/limit": {
       "bytes": 4342,
       "directives": 11
@@ -6837,6 +7105,10 @@
       "bytes": 6303,
       "directives": 12
     },
+    "diff/e2e/selector-fix/tree-live/pack/loop/browser/limit": {
+      "bytes": 4665,
+      "directives": 11
+    },
     "diff/e2e/selector-fix/tree-live/pack/loop/limit": {
       "bytes": 4342,
       "directives": 11
@@ -6916,6 +7188,10 @@
     "diff/e2e/selector-fix/tree-none/brief+pack/limit": {
       "bytes": 6759,
       "directives": 12
+    },
+    "diff/e2e/selector-fix/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5511,
+      "directives": 11
     },
     "diff/e2e/selector-fix/tree-none/brief+pack/loop/limit": {
       "bytes": 5188,
@@ -7045,6 +7321,10 @@
       "bytes": 6455,
       "directives": 15
     },
+    "diff/e2e/selector-fix/tree-none/brief/loop/browser/limit": {
+      "bytes": 5276,
+      "directives": 14
+    },
     "diff/e2e/selector-fix/tree-none/brief/loop/limit": {
       "bytes": 4953,
       "directives": 14
@@ -7161,6 +7441,10 @@
       "bytes": 5590,
       "directives": 13
     },
+    "diff/e2e/selector-fix/tree-none/none/loop/browser/limit": {
+      "bytes": 4203,
+      "directives": 12
+    },
     "diff/e2e/selector-fix/tree-none/none/loop/limit": {
       "bytes": 3880,
       "directives": 12
@@ -7268,6 +7552,10 @@
     "diff/e2e/selector-fix/tree-none/pack/limit": {
       "bytes": 5973,
       "directives": 11
+    },
+    "diff/e2e/selector-fix/tree-none/pack/loop/browser/limit": {
+      "bytes": 4517,
+      "directives": 10
     },
     "diff/e2e/selector-fix/tree-none/pack/loop/limit": {
       "bytes": 4194,
@@ -7613,6 +7901,10 @@
       "bytes": 5482,
       "directives": 7
     },
+    "exhaustive/e2e/first/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 4234,
+      "directives": 6
+    },
     "exhaustive/e2e/first/tree-none/brief+pack/loop/limit": {
       "bytes": 3911,
       "directives": 6
@@ -7653,6 +7945,10 @@
       "bytes": 5182,
       "directives": 10
     },
+    "exhaustive/e2e/first/tree-none/brief/loop/browser/limit": {
+      "bytes": 4003,
+      "directives": 9
+    },
     "exhaustive/e2e/first/tree-none/brief/loop/limit": {
       "bytes": 3680,
       "directives": 9
@@ -7680,6 +7976,10 @@
     "exhaustive/e2e/first/tree-none/none/limit": {
       "bytes": 4465,
       "directives": 8
+    },
+    "exhaustive/e2e/first/tree-none/none/loop/browser/limit": {
+      "bytes": 3040,
+      "directives": 7
     },
     "exhaustive/e2e/first/tree-none/none/loop/limit": {
       "bytes": 2717,
@@ -7716,6 +8016,10 @@
     "exhaustive/e2e/first/tree-none/pack/limit": {
       "bytes": 4844,
       "directives": 6
+    },
+    "exhaustive/e2e/first/tree-none/pack/loop/browser/limit": {
+      "bytes": 3350,
+      "directives": 5
     },
     "exhaustive/e2e/first/tree-none/pack/loop/limit": {
       "bytes": 3027,
@@ -7756,6 +8060,10 @@
     "exhaustive/e2e/regen-coverage/tree-none/brief+pack/limit": {
       "bytes": 7270,
       "directives": 15
+    },
+    "exhaustive/e2e/regen-coverage/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 6022,
+      "directives": 14
     },
     "exhaustive/e2e/regen-coverage/tree-none/brief+pack/loop/limit": {
       "bytes": 5699,
@@ -7861,6 +8169,10 @@
       "bytes": 6679,
       "directives": 14
     },
+    "exhaustive/e2e/regen-coverage/tree-none/brief/loop/browser/limit": {
+      "bytes": 5500,
+      "directives": 13
+    },
     "exhaustive/e2e/regen-coverage/tree-none/brief/loop/limit": {
       "bytes": 5177,
       "directives": 13
@@ -7936,6 +8248,10 @@
     "exhaustive/e2e/regen-coverage/tree-none/none/limit": {
       "bytes": 5852,
       "directives": 12
+    },
+    "exhaustive/e2e/regen-coverage/tree-none/none/loop/browser/limit": {
+      "bytes": 4427,
+      "directives": 11
     },
     "exhaustive/e2e/regen-coverage/tree-none/none/loop/limit": {
       "bytes": 4104,
@@ -8021,6 +8337,10 @@
       "bytes": 6522,
       "directives": 14
     },
+    "exhaustive/e2e/regen-coverage/tree-none/pack/loop/browser/limit": {
+      "bytes": 5028,
+      "directives": 13
+    },
     "exhaustive/e2e/regen-coverage/tree-none/pack/loop/limit": {
       "bytes": 4705,
       "directives": 13
@@ -8092,6 +8412,10 @@
     "exhaustive/e2e/regen-fix/tree-failure/brief+pack/limit": {
       "bytes": 8435,
       "directives": 19
+    },
+    "exhaustive/e2e/regen-fix/tree-failure/brief+pack/loop/browser/limit": {
+      "bytes": 7187,
+      "directives": 18
     },
     "exhaustive/e2e/regen-fix/tree-failure/brief+pack/loop/limit": {
       "bytes": 6864,
@@ -8197,6 +8521,10 @@
       "bytes": 7639,
       "directives": 19
     },
+    "exhaustive/e2e/regen-fix/tree-failure/brief/loop/browser/limit": {
+      "bytes": 6460,
+      "directives": 18
+    },
     "exhaustive/e2e/regen-fix/tree-failure/brief/loop/limit": {
       "bytes": 6137,
       "directives": 18
@@ -8272,6 +8600,10 @@
     "exhaustive/e2e/regen-fix/tree-failure/none/limit": {
       "bytes": 6891,
       "directives": 18
+    },
+    "exhaustive/e2e/regen-fix/tree-failure/none/loop/browser/limit": {
+      "bytes": 5466,
+      "directives": 17
     },
     "exhaustive/e2e/regen-fix/tree-failure/none/loop/limit": {
       "bytes": 5143,
@@ -8357,6 +8689,10 @@
       "bytes": 7687,
       "directives": 18
     },
+    "exhaustive/e2e/regen-fix/tree-failure/pack/loop/browser/limit": {
+      "bytes": 6193,
+      "directives": 17
+    },
     "exhaustive/e2e/regen-fix/tree-failure/pack/loop/limit": {
       "bytes": 5870,
       "directives": 17
@@ -8428,6 +8764,10 @@
     "exhaustive/e2e/regen-fix/tree-live/brief+pack/limit": {
       "bytes": 7698,
       "directives": 17
+    },
+    "exhaustive/e2e/regen-fix/tree-live/brief+pack/loop/browser/limit": {
+      "bytes": 6268,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief+pack/loop/limit": {
       "bytes": 5945,
@@ -8533,6 +8873,10 @@
       "bytes": 7447,
       "directives": 17
     },
+    "exhaustive/e2e/regen-fix/tree-live/brief/loop/browser/limit": {
+      "bytes": 6268,
+      "directives": 16
+    },
     "exhaustive/e2e/regen-fix/tree-live/brief/loop/limit": {
       "bytes": 5945,
       "directives": 16
@@ -8608,6 +8952,10 @@
     "exhaustive/e2e/regen-fix/tree-live/none/limit": {
       "bytes": 6699,
       "directives": 16
+    },
+    "exhaustive/e2e/regen-fix/tree-live/none/loop/browser/limit": {
+      "bytes": 5274,
+      "directives": 15
     },
     "exhaustive/e2e/regen-fix/tree-live/none/loop/limit": {
       "bytes": 4951,
@@ -8693,6 +9041,10 @@
       "bytes": 6950,
       "directives": 16
     },
+    "exhaustive/e2e/regen-fix/tree-live/pack/loop/browser/limit": {
+      "bytes": 5274,
+      "directives": 15
+    },
     "exhaustive/e2e/regen-fix/tree-live/pack/loop/limit": {
       "bytes": 4951,
       "directives": 15
@@ -8764,6 +9116,10 @@
     "exhaustive/e2e/regen-fix/tree-none/brief+pack/limit": {
       "bytes": 7362,
       "directives": 16
+    },
+    "exhaustive/e2e/regen-fix/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 6114,
+      "directives": 15
     },
     "exhaustive/e2e/regen-fix/tree-none/brief+pack/loop/limit": {
       "bytes": 5791,
@@ -8869,6 +9225,10 @@
       "bytes": 6871,
       "directives": 17
     },
+    "exhaustive/e2e/regen-fix/tree-none/brief/loop/browser/limit": {
+      "bytes": 5692,
+      "directives": 16
+    },
     "exhaustive/e2e/regen-fix/tree-none/brief/loop/limit": {
       "bytes": 5369,
       "directives": 16
@@ -8944,6 +9304,10 @@
     "exhaustive/e2e/regen-fix/tree-none/none/limit": {
       "bytes": 6044,
       "directives": 15
+    },
+    "exhaustive/e2e/regen-fix/tree-none/none/loop/browser/limit": {
+      "bytes": 4619,
+      "directives": 14
     },
     "exhaustive/e2e/regen-fix/tree-none/none/loop/limit": {
       "bytes": 4296,
@@ -9029,6 +9393,10 @@
       "bytes": 6614,
       "directives": 15
     },
+    "exhaustive/e2e/regen-fix/tree-none/pack/loop/browser/limit": {
+      "bytes": 5120,
+      "directives": 14
+    },
     "exhaustive/e2e/regen-fix/tree-none/pack/loop/limit": {
       "bytes": 4797,
       "directives": 14
@@ -9100,6 +9468,10 @@
     "exhaustive/e2e/regen-review/tree-none/brief+pack/limit": {
       "bytes": 6804,
       "directives": 17
+    },
+    "exhaustive/e2e/regen-review/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5556,
+      "directives": 16
     },
     "exhaustive/e2e/regen-review/tree-none/brief+pack/loop/limit": {
       "bytes": 5233,
@@ -9205,6 +9577,10 @@
       "bytes": 6320,
       "directives": 16
     },
+    "exhaustive/e2e/regen-review/tree-none/brief/loop/browser/limit": {
+      "bytes": 5141,
+      "directives": 15
+    },
     "exhaustive/e2e/regen-review/tree-none/brief/loop/limit": {
       "bytes": 4818,
       "directives": 15
@@ -9280,6 +9656,10 @@
     "exhaustive/e2e/regen-review/tree-none/none/limit": {
       "bytes": 5493,
       "directives": 14
+    },
+    "exhaustive/e2e/regen-review/tree-none/none/loop/browser/limit": {
+      "bytes": 4068,
+      "directives": 13
     },
     "exhaustive/e2e/regen-review/tree-none/none/loop/limit": {
       "bytes": 3745,
@@ -9365,6 +9745,10 @@
       "bytes": 6056,
       "directives": 16
     },
+    "exhaustive/e2e/regen-review/tree-none/pack/loop/browser/limit": {
+      "bytes": 4562,
+      "directives": 15
+    },
     "exhaustive/e2e/regen-review/tree-none/pack/loop/limit": {
       "bytes": 4239,
       "directives": 15
@@ -9436,6 +9820,10 @@
     "exhaustive/e2e/selector-fix/tree-failure/brief+pack/limit": {
       "bytes": 8271,
       "directives": 15
+    },
+    "exhaustive/e2e/selector-fix/tree-failure/brief+pack/loop/browser/limit": {
+      "bytes": 7023,
+      "directives": 14
     },
     "exhaustive/e2e/selector-fix/tree-failure/brief+pack/loop/limit": {
       "bytes": 6700,
@@ -9541,6 +9929,10 @@
       "bytes": 7475,
       "directives": 15
     },
+    "exhaustive/e2e/selector-fix/tree-failure/brief/loop/browser/limit": {
+      "bytes": 6296,
+      "directives": 14
+    },
     "exhaustive/e2e/selector-fix/tree-failure/brief/loop/limit": {
       "bytes": 5973,
       "directives": 14
@@ -9616,6 +10008,10 @@
     "exhaustive/e2e/selector-fix/tree-failure/none/limit": {
       "bytes": 6727,
       "directives": 14
+    },
+    "exhaustive/e2e/selector-fix/tree-failure/none/loop/browser/limit": {
+      "bytes": 5302,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-failure/none/loop/limit": {
       "bytes": 4979,
@@ -9701,6 +10097,10 @@
       "bytes": 7523,
       "directives": 14
     },
+    "exhaustive/e2e/selector-fix/tree-failure/pack/loop/browser/limit": {
+      "bytes": 6029,
+      "directives": 13
+    },
     "exhaustive/e2e/selector-fix/tree-failure/pack/loop/limit": {
       "bytes": 5706,
       "directives": 13
@@ -9772,6 +10172,10 @@
     "exhaustive/e2e/selector-fix/tree-live/brief+pack/limit": {
       "bytes": 7505,
       "directives": 13
+    },
+    "exhaustive/e2e/selector-fix/tree-live/brief+pack/loop/browser/limit": {
+      "bytes": 6075,
+      "directives": 12
     },
     "exhaustive/e2e/selector-fix/tree-live/brief+pack/loop/limit": {
       "bytes": 5752,
@@ -9877,6 +10281,10 @@
       "bytes": 7254,
       "directives": 13
     },
+    "exhaustive/e2e/selector-fix/tree-live/brief/loop/browser/limit": {
+      "bytes": 6075,
+      "directives": 12
+    },
     "exhaustive/e2e/selector-fix/tree-live/brief/loop/limit": {
       "bytes": 5752,
       "directives": 12
@@ -9952,6 +10360,10 @@
     "exhaustive/e2e/selector-fix/tree-live/none/limit": {
       "bytes": 6506,
       "directives": 12
+    },
+    "exhaustive/e2e/selector-fix/tree-live/none/loop/browser/limit": {
+      "bytes": 5081,
+      "directives": 11
     },
     "exhaustive/e2e/selector-fix/tree-live/none/loop/limit": {
       "bytes": 4758,
@@ -10037,6 +10449,10 @@
       "bytes": 6757,
       "directives": 12
     },
+    "exhaustive/e2e/selector-fix/tree-live/pack/loop/browser/limit": {
+      "bytes": 5081,
+      "directives": 11
+    },
     "exhaustive/e2e/selector-fix/tree-live/pack/loop/limit": {
       "bytes": 4758,
       "directives": 11
@@ -10108,6 +10524,10 @@
     "exhaustive/e2e/selector-fix/tree-none/brief+pack/limit": {
       "bytes": 7175,
       "directives": 12
+    },
+    "exhaustive/e2e/selector-fix/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5927,
+      "directives": 11
     },
     "exhaustive/e2e/selector-fix/tree-none/brief+pack/loop/limit": {
       "bytes": 5604,
@@ -10213,6 +10633,10 @@
       "bytes": 6871,
       "directives": 15
     },
+    "exhaustive/e2e/selector-fix/tree-none/brief/loop/browser/limit": {
+      "bytes": 5692,
+      "directives": 14
+    },
     "exhaustive/e2e/selector-fix/tree-none/brief/loop/limit": {
       "bytes": 5369,
       "directives": 14
@@ -10288,6 +10712,10 @@
     "exhaustive/e2e/selector-fix/tree-none/none/limit": {
       "bytes": 6044,
       "directives": 13
+    },
+    "exhaustive/e2e/selector-fix/tree-none/none/loop/browser/limit": {
+      "bytes": 4619,
+      "directives": 12
     },
     "exhaustive/e2e/selector-fix/tree-none/none/loop/limit": {
       "bytes": 4296,
@@ -10372,6 +10800,10 @@
     "exhaustive/e2e/selector-fix/tree-none/pack/limit": {
       "bytes": 6427,
       "directives": 11
+    },
+    "exhaustive/e2e/selector-fix/tree-none/pack/loop/browser/limit": {
+      "bytes": 4933,
+      "directives": 10
     },
     "exhaustive/e2e/selector-fix/tree-none/pack/loop/limit": {
       "bytes": 4610,
@@ -10773,6 +11205,10 @@
       "bytes": 5383,
       "directives": 8
     },
+    "manual/e2e/first/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 4135,
+      "directives": 7
+    },
     "manual/e2e/first/tree-none/brief+pack/loop/limit": {
       "bytes": 3812,
       "directives": 7
@@ -10837,6 +11273,10 @@
       "bytes": 5083,
       "directives": 11
     },
+    "manual/e2e/first/tree-none/brief/loop/browser/limit": {
+      "bytes": 3904,
+      "directives": 10
+    },
     "manual/e2e/first/tree-none/brief/loop/limit": {
       "bytes": 3581,
       "directives": 10
@@ -10889,6 +11329,10 @@
       "bytes": 4366,
       "directives": 9
     },
+    "manual/e2e/first/tree-none/none/loop/browser/limit": {
+      "bytes": 2941,
+      "directives": 8
+    },
     "manual/e2e/first/tree-none/none/loop/limit": {
       "bytes": 2618,
       "directives": 8
@@ -10940,6 +11384,10 @@
     "manual/e2e/first/tree-none/pack/limit": {
       "bytes": 4745,
       "directives": 7
+    },
+    "manual/e2e/first/tree-none/pack/loop/browser/limit": {
+      "bytes": 3251,
+      "directives": 6
     },
     "manual/e2e/first/tree-none/pack/loop/limit": {
       "bytes": 2928,
@@ -11004,6 +11452,10 @@
     "manual/e2e/regen-coverage/tree-none/brief+pack/limit": {
       "bytes": 6618,
       "directives": 15
+    },
+    "manual/e2e/regen-coverage/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5370,
+      "directives": 14
     },
     "manual/e2e/regen-coverage/tree-none/brief+pack/loop/limit": {
       "bytes": 5047,
@@ -11117,6 +11569,10 @@
       "bytes": 6027,
       "directives": 14
     },
+    "manual/e2e/regen-coverage/tree-none/brief/loop/browser/limit": {
+      "bytes": 4848,
+      "directives": 13
+    },
     "manual/e2e/regen-coverage/tree-none/brief/loop/limit": {
       "bytes": 4525,
       "directives": 13
@@ -11200,6 +11656,10 @@
     "manual/e2e/regen-coverage/tree-none/none/limit": {
       "bytes": 5200,
       "directives": 12
+    },
+    "manual/e2e/regen-coverage/tree-none/none/loop/browser/limit": {
+      "bytes": 3775,
+      "directives": 11
     },
     "manual/e2e/regen-coverage/tree-none/none/loop/limit": {
       "bytes": 3452,
@@ -11293,6 +11753,10 @@
       "bytes": 5870,
       "directives": 14
     },
+    "manual/e2e/regen-coverage/tree-none/pack/loop/browser/limit": {
+      "bytes": 4376,
+      "directives": 13
+    },
     "manual/e2e/regen-coverage/tree-none/pack/loop/limit": {
       "bytes": 4053,
       "directives": 13
@@ -11364,6 +11828,10 @@
     "manual/e2e/regen-fix/tree-failure/brief+pack/limit": {
       "bytes": 7759,
       "directives": 19
+    },
+    "manual/e2e/regen-fix/tree-failure/brief+pack/loop/browser/limit": {
+      "bytes": 6511,
+      "directives": 18
     },
     "manual/e2e/regen-fix/tree-failure/brief+pack/loop/limit": {
       "bytes": 6188,
@@ -11469,6 +11937,10 @@
       "bytes": 6963,
       "directives": 19
     },
+    "manual/e2e/regen-fix/tree-failure/brief/loop/browser/limit": {
+      "bytes": 5784,
+      "directives": 18
+    },
     "manual/e2e/regen-fix/tree-failure/brief/loop/limit": {
       "bytes": 5461,
       "directives": 18
@@ -11544,6 +12016,10 @@
     "manual/e2e/regen-fix/tree-failure/none/limit": {
       "bytes": 6215,
       "directives": 18
+    },
+    "manual/e2e/regen-fix/tree-failure/none/loop/browser/limit": {
+      "bytes": 4790,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-failure/none/loop/limit": {
       "bytes": 4467,
@@ -11629,6 +12105,10 @@
       "bytes": 7011,
       "directives": 18
     },
+    "manual/e2e/regen-fix/tree-failure/pack/loop/browser/limit": {
+      "bytes": 5517,
+      "directives": 17
+    },
     "manual/e2e/regen-fix/tree-failure/pack/loop/limit": {
       "bytes": 5194,
       "directives": 17
@@ -11700,6 +12180,10 @@
     "manual/e2e/regen-fix/tree-live/brief+pack/limit": {
       "bytes": 7022,
       "directives": 17
+    },
+    "manual/e2e/regen-fix/tree-live/brief+pack/loop/browser/limit": {
+      "bytes": 5592,
+      "directives": 16
     },
     "manual/e2e/regen-fix/tree-live/brief+pack/loop/limit": {
       "bytes": 5269,
@@ -11805,6 +12289,10 @@
       "bytes": 6771,
       "directives": 17
     },
+    "manual/e2e/regen-fix/tree-live/brief/loop/browser/limit": {
+      "bytes": 5592,
+      "directives": 16
+    },
     "manual/e2e/regen-fix/tree-live/brief/loop/limit": {
       "bytes": 5269,
       "directives": 16
@@ -11880,6 +12368,10 @@
     "manual/e2e/regen-fix/tree-live/none/limit": {
       "bytes": 6023,
       "directives": 16
+    },
+    "manual/e2e/regen-fix/tree-live/none/loop/browser/limit": {
+      "bytes": 4598,
+      "directives": 15
     },
     "manual/e2e/regen-fix/tree-live/none/loop/limit": {
       "bytes": 4275,
@@ -11965,6 +12457,10 @@
       "bytes": 6274,
       "directives": 16
     },
+    "manual/e2e/regen-fix/tree-live/pack/loop/browser/limit": {
+      "bytes": 4598,
+      "directives": 15
+    },
     "manual/e2e/regen-fix/tree-live/pack/loop/limit": {
       "bytes": 4275,
       "directives": 15
@@ -12036,6 +12532,10 @@
     "manual/e2e/regen-fix/tree-none/brief+pack/limit": {
       "bytes": 6686,
       "directives": 16
+    },
+    "manual/e2e/regen-fix/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5438,
+      "directives": 15
     },
     "manual/e2e/regen-fix/tree-none/brief+pack/loop/limit": {
       "bytes": 5115,
@@ -12141,6 +12641,10 @@
       "bytes": 6195,
       "directives": 17
     },
+    "manual/e2e/regen-fix/tree-none/brief/loop/browser/limit": {
+      "bytes": 5016,
+      "directives": 16
+    },
     "manual/e2e/regen-fix/tree-none/brief/loop/limit": {
       "bytes": 4693,
       "directives": 16
@@ -12216,6 +12720,10 @@
     "manual/e2e/regen-fix/tree-none/none/limit": {
       "bytes": 5368,
       "directives": 15
+    },
+    "manual/e2e/regen-fix/tree-none/none/loop/browser/limit": {
+      "bytes": 3943,
+      "directives": 14
     },
     "manual/e2e/regen-fix/tree-none/none/loop/limit": {
       "bytes": 3620,
@@ -12301,6 +12809,10 @@
       "bytes": 5938,
       "directives": 15
     },
+    "manual/e2e/regen-fix/tree-none/pack/loop/browser/limit": {
+      "bytes": 4444,
+      "directives": 14
+    },
     "manual/e2e/regen-fix/tree-none/pack/loop/limit": {
       "bytes": 4121,
       "directives": 14
@@ -12372,6 +12884,10 @@
     "manual/e2e/regen-review/tree-none/brief+pack/limit": {
       "bytes": 6128,
       "directives": 17
+    },
+    "manual/e2e/regen-review/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 4880,
+      "directives": 16
     },
     "manual/e2e/regen-review/tree-none/brief+pack/loop/limit": {
       "bytes": 4557,
@@ -12477,6 +12993,10 @@
       "bytes": 5644,
       "directives": 16
     },
+    "manual/e2e/regen-review/tree-none/brief/loop/browser/limit": {
+      "bytes": 4465,
+      "directives": 15
+    },
     "manual/e2e/regen-review/tree-none/brief/loop/limit": {
       "bytes": 4142,
       "directives": 15
@@ -12552,6 +13072,10 @@
     "manual/e2e/regen-review/tree-none/none/limit": {
       "bytes": 4817,
       "directives": 14
+    },
+    "manual/e2e/regen-review/tree-none/none/loop/browser/limit": {
+      "bytes": 3392,
+      "directives": 13
     },
     "manual/e2e/regen-review/tree-none/none/loop/limit": {
       "bytes": 3069,
@@ -12637,6 +13161,10 @@
       "bytes": 5380,
       "directives": 16
     },
+    "manual/e2e/regen-review/tree-none/pack/loop/browser/limit": {
+      "bytes": 3886,
+      "directives": 15
+    },
     "manual/e2e/regen-review/tree-none/pack/loop/limit": {
       "bytes": 3563,
       "directives": 15
@@ -12716,6 +13244,10 @@
     "manual/e2e/selector-fix/tree-failure/brief+pack/limit": {
       "bytes": 7619,
       "directives": 15
+    },
+    "manual/e2e/selector-fix/tree-failure/brief+pack/loop/browser/limit": {
+      "bytes": 6371,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-failure/brief+pack/loop/limit": {
       "bytes": 6048,
@@ -12829,6 +13361,10 @@
       "bytes": 6823,
       "directives": 15
     },
+    "manual/e2e/selector-fix/tree-failure/brief/loop/browser/limit": {
+      "bytes": 5644,
+      "directives": 14
+    },
     "manual/e2e/selector-fix/tree-failure/brief/loop/limit": {
       "bytes": 5321,
       "directives": 14
@@ -12912,6 +13448,10 @@
     "manual/e2e/selector-fix/tree-failure/none/limit": {
       "bytes": 6075,
       "directives": 14
+    },
+    "manual/e2e/selector-fix/tree-failure/none/loop/browser/limit": {
+      "bytes": 4650,
+      "directives": 13
     },
     "manual/e2e/selector-fix/tree-failure/none/loop/limit": {
       "bytes": 4327,
@@ -13005,6 +13545,10 @@
       "bytes": 6871,
       "directives": 14
     },
+    "manual/e2e/selector-fix/tree-failure/pack/loop/browser/limit": {
+      "bytes": 5377,
+      "directives": 13
+    },
     "manual/e2e/selector-fix/tree-failure/pack/loop/limit": {
       "bytes": 5054,
       "directives": 13
@@ -13084,6 +13628,10 @@
     "manual/e2e/selector-fix/tree-live/brief+pack/limit": {
       "bytes": 6853,
       "directives": 13
+    },
+    "manual/e2e/selector-fix/tree-live/brief+pack/loop/browser/limit": {
+      "bytes": 5423,
+      "directives": 12
     },
     "manual/e2e/selector-fix/tree-live/brief+pack/loop/limit": {
       "bytes": 5100,
@@ -13197,6 +13745,10 @@
       "bytes": 6602,
       "directives": 13
     },
+    "manual/e2e/selector-fix/tree-live/brief/loop/browser/limit": {
+      "bytes": 5423,
+      "directives": 12
+    },
     "manual/e2e/selector-fix/tree-live/brief/loop/limit": {
       "bytes": 5100,
       "directives": 12
@@ -13280,6 +13832,10 @@
     "manual/e2e/selector-fix/tree-live/none/limit": {
       "bytes": 5854,
       "directives": 12
+    },
+    "manual/e2e/selector-fix/tree-live/none/loop/browser/limit": {
+      "bytes": 4429,
+      "directives": 11
     },
     "manual/e2e/selector-fix/tree-live/none/loop/limit": {
       "bytes": 4106,
@@ -13373,6 +13929,10 @@
       "bytes": 6105,
       "directives": 12
     },
+    "manual/e2e/selector-fix/tree-live/pack/loop/browser/limit": {
+      "bytes": 4429,
+      "directives": 11
+    },
     "manual/e2e/selector-fix/tree-live/pack/loop/limit": {
       "bytes": 4106,
       "directives": 11
@@ -13452,6 +14012,10 @@
     "manual/e2e/selector-fix/tree-none/brief+pack/limit": {
       "bytes": 6523,
       "directives": 12
+    },
+    "manual/e2e/selector-fix/tree-none/brief+pack/loop/browser/limit": {
+      "bytes": 5275,
+      "directives": 11
     },
     "manual/e2e/selector-fix/tree-none/brief+pack/loop/limit": {
       "bytes": 4952,
@@ -13565,6 +14129,10 @@
       "bytes": 6219,
       "directives": 15
     },
+    "manual/e2e/selector-fix/tree-none/brief/loop/browser/limit": {
+      "bytes": 5040,
+      "directives": 14
+    },
     "manual/e2e/selector-fix/tree-none/brief/loop/limit": {
       "bytes": 4717,
       "directives": 14
@@ -13648,6 +14216,10 @@
     "manual/e2e/selector-fix/tree-none/none/limit": {
       "bytes": 5392,
       "directives": 13
+    },
+    "manual/e2e/selector-fix/tree-none/none/loop/browser/limit": {
+      "bytes": 3967,
+      "directives": 12
     },
     "manual/e2e/selector-fix/tree-none/none/loop/limit": {
       "bytes": 3644,
@@ -13741,6 +14313,10 @@
       "bytes": 5775,
       "directives": 11
     },
+    "manual/e2e/selector-fix/tree-none/pack/loop/browser/limit": {
+      "bytes": 4281,
+      "directives": 10
+    },
     "manual/e2e/selector-fix/tree-none/pack/loop/limit": {
       "bytes": 3958,
       "directives": 10
@@ -13795,7 +14371,7 @@
     }
   },
   "lastIncrease": {
-    "reason": "WU 3 run_spec: qa-generator.md section 4 and AGENTS.md state the one exception to 'run no command' (the run_spec tool, only when the task states its budget), in both mirrors; the new Run spec budget section is a new bucket family (OpenCode only)",
+    "reason": "WU 4a: the generator's static role text names the authenticated browser tools (authbrowser_*) once, as a second conditional exception next to run_spec, and AGENTS.md says they are read-only; the assembled 'Authenticated browser budget' section is a new bucket",
     "budgets": [
       "static:opencode",
       "static:codex"

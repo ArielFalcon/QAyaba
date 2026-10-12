@@ -33,6 +33,7 @@ import { hasSymbolBlocks, renderBlastRadiusSignal } from "@contexts/qa-run-orche
 import {
   countDirectives,
   findingKey,
+  AGENT_BROWSER_SECTION_ID,
   CLOSED_LOOP_SECTION_ID,
   HARNESS_FACTS_SECTION_ID,
   STEP_LIMIT_SECTION_ID,
@@ -47,6 +48,7 @@ import type {
   OpencodeRunInput,
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
+import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
 import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
@@ -85,6 +87,8 @@ export const DIMENSIONS = {
   suite: ["listed", "none", "large"],
   /* Whether the run granted the generator the run_spec tool, so its prompt states the budget. Only the OpenCode layer can have it (the Codex runtime cannot call a custom tool), and only an e2e run that writes tests. */
   closedLoop: [false, true],
+  /* Whether the run also granted the authoring agents the authenticated browser, so its prompt states that budget as well. Like the run_spec budget, only the OpenCode layer can have it; the combinations that carry it are the granted ones of the run_spec budget, since its block is as small and as independent of every other. */
+  agentBrowser: [false, true],
 } as const;
 
 export type CellSpec = { -readonly [K in keyof typeof DIMENSIONS]: (typeof DIMENSIONS)[K][number] };
@@ -139,6 +143,8 @@ export function isValidSpec(spec: CellSpec): boolean {
     if (isContext || isCode || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
     if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom || spec.suite !== "listed") return false;
   }
+  /* The browser's budget meets exactly the shapes the run_spec budget does, and is granted on top of it. */
+  if (spec.agentBrowser && !spec.closedLoop) return false;
   /* The service block belongs to the diff-shaped first pass and to every regeneration of an e2e run. */
   if (spec.service && (isContext || (spec.mode !== "diff" && spec.phase === "first"))) return false;
   return true;
@@ -177,6 +183,7 @@ export function cellName(spec: CellSpec): string {
     spec.suite === "none" ? "nosuite" : "",
     spec.suite === "large" ? "largesuite" : "",
     spec.closedLoop ? "loop" : "",
+    spec.agentBrowser ? "browser" : "",
   ].filter(Boolean);
   return [
     spec.mode,
@@ -363,6 +370,9 @@ export const MATRIX_STEP_LIMIT = 40;
 /* The run_spec budget a granted cell is assembled with: the shipped defaults. */
 export const MATRIX_CLOSED_LOOP = DEFAULT_CLOSED_LOOP_LIMITS;
 
+/* The browser budget a granted cell is assembled with: the shipped defaults. */
+export const MATRIX_AGENT_BROWSER = DEFAULT_AGENT_BROWSER_LIMITS;
+
 /* The run input of a combination; `stepLimit` is the cap the runtime resolved for the generator, absent when it states none. */
 export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<OpencodeRunInput> {
   const isCode = spec.target === "code";
@@ -393,6 +403,7 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
     ...(deliveredSpecs ? { deliveredSpecs } : {}),
     ...(stepLimit !== undefined ? { stepLimit } : {}),
     ...(spec.closedLoop ? { closedLoop: MATRIX_CLOSED_LOOP } : {}),
+    ...(spec.agentBrowser ? { agentBrowser: MATRIX_AGENT_BROWSER } : {}),
   };
 
   if (spec.grounding === "brief" || spec.grounding === "brief+pack") input.contextBrief = briefFor(spec);
@@ -483,7 +494,7 @@ export function assembledLintSections(assembled: AssembledPrompt): LintSection[]
     text,
     claims: assembled.claims[id] ?? [],
     ...(VERBATIM_SECTION_IDS.has(id) ? { verbatim: true } : {}),
-    ...(id === HARNESS_FACTS_SECTION_ID || id === STEP_LIMIT_SECTION_ID || id === CLOSED_LOOP_SECTION_ID ? { factsOnly: true } : {}),
+    ...(id === HARNESS_FACTS_SECTION_ID || id === STEP_LIMIT_SECTION_ID || id === CLOSED_LOOP_SECTION_ID || id === AGENT_BROWSER_SECTION_ID ? { factsOnly: true } : {}),
   }));
 }
 
@@ -521,6 +532,7 @@ function combinationBucket(spec: CellSpec): string {
     ...(spec.suite === "none" ? ["no-suite"] : []),
     ...(spec.suite === "large" ? ["large-suite"] : []),
     ...(spec.closedLoop ? ["loop"] : []),
+    ...(spec.agentBrowser ? ["browser"] : []),
   ].join("/");
 }
 
@@ -562,7 +574,7 @@ export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[
   for (const spec of specs) {
     for (const layer of layers) {
       /* The Codex runtime cannot call the tool, so a run on it is never granted it: no cell of that layer states a budget. */
-      if (spec.closedLoop && layer === "codex") continue;
+      if ((spec.closedLoop || spec.agentBrowser) && layer === "codex") continue;
       /* A layer's cell is assembled from the input its own runtime hands the prompt, and records the limit that input carries. */
       const input = await buildInput(spec, STEP_LIMIT_BY_LAYER[layer]);
       /* Budget 0 disables shedding: the matrix measures the full prompt, independent of the model window catalog. */

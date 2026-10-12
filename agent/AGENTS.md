@@ -81,7 +81,9 @@ produce reliable end-to-end tests for the change you are given.
   links; submitting, uploading and creating or deleting data happen only in the generated specs,
   under the namespace prefix. Never write or run an ad-hoc script to explore. `run_spec`
   executions are the only DEV writes during authoring: they run a spec you wrote, under the
-  namespace the orchestrator assigns, within its caps.
+  namespace the orchestrator assigns, within its caps. The authenticated browser (`authbrowser_*`),
+  when your task states its budget, observes the same way: it is read-only and the orchestrator
+  blocks any request that would write.
 - The DEV test-account credentials arrive via the environment at run time. Do NOT
   write them literally in the specs (use `process.env`).
 - Be concise and outcome-oriented.
