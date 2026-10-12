@@ -21,6 +21,7 @@ import {
   streamStatusToCase,
   allFailuresAreRunnerInfra,
   playwrightArgs,
+  specListContent,
   e2eTimeoutMs,
   DEFAULT_E2E_TIMEOUT_MS,
   matchFailureDumps,
@@ -395,7 +396,7 @@ async function suiteArgv(opts: { project?: string }): Promise<string[]> {
   let argv: string[] = [];
   const deps: E2eExecuteDeps = {
     runSuite: async (args) => {
-      argv = playwrightArgs("/tmp/rep.cjs", args.project, args.specFiles);
+      argv = playwrightArgs("/tmp/rep.cjs", args.project);
       return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
     },
   };
@@ -650,49 +651,31 @@ test("matchFailureDumps: single-project case name (file leads) still matches the
   assert.equal(matchFailureDumps(fileFirst, dumps)!.yaml, "- button \"Submit\"");
 });
 
-test("playwrightArgs: appends valid spec file basenames as positional args", () => {
-  const args = playwrightArgs("reporter.cjs", undefined, ["login.spec.ts", "checkout.spec.ts"]);
-  assert.ok(args.includes("login.spec.ts"), `expected login.spec.ts in args: ${args.join(" ")}`);
-  assert.ok(args.includes("checkout.spec.ts"), `expected checkout.spec.ts in args: ${args.join(" ")}`);
-  /* The core args must still be present */
-  assert.ok(args.includes("playwright"), "must include 'playwright'");
-  assert.ok(args.includes("test"), "must include 'test'");
-  assert.ok(args.some((a) => a.startsWith("--reporter=")), "must include --reporter arg");
+test("playwrightArgs: a test list is handed over as the one option that selects exact files, never as a positional pattern", () => {
+  const args = playwrightArgs("reporter.cjs", undefined, "/work/scripts/abc-spec-list.txt");
+  assert.ok(args.includes("--test-list=/work/scripts/abc-spec-list.txt"), `expected the list option in args: ${args.join(" ")}`);
+  /* Playwright reads a bare argument as an unanchored, case-insensitive regular expression over the file's whole path. */
+  assert.deepEqual(args.filter((a) => !a.startsWith("--")), ["playwright", "test"]);
 });
 
-test("playwrightArgs: empty specFiles has the same output as no specFiles (full suite)", () => {
-  const noSpec = playwrightArgs("reporter.cjs");
-  const emptySpec = playwrightArgs("reporter.cjs", undefined, []);
-  assert.deepEqual(noSpec, emptySpec, "empty specFiles must not append any extra args");
+test("playwrightArgs: no test list has the same output as a full-suite run", () => {
+  assert.deepEqual(playwrightArgs("reporter.cjs"), playwrightArgs("reporter.cjs", undefined, undefined));
+  assert.equal(playwrightArgs("reporter.cjs").some((a) => a.startsWith("--test-list")), false);
 });
 
-test("playwrightArgs: rejects a specFile with path traversal (../)", () => {
-  assert.throws(
-    () => playwrightArgs("reporter.cjs", undefined, ["../../../etc/passwd.spec.ts"]),
-    /invalid|spec file|path/i,
-    "path traversal in spec file name must throw",
-  );
+test("playwrightArgs: a test list path that could pass for an option is refused", () => {
+  assert.throws(() => playwrightArgs("reporter.cjs", undefined, "--workers=99"), /invalid test list/);
 });
 
-test("playwrightArgs: rejects a specFile with a leading dash", () => {
-  assert.throws(
-    () => playwrightArgs("reporter.cjs", undefined, ["-delete-everything.spec.ts"]),
-    /invalid|spec file/i,
-    "leading dash in spec file name must throw",
-  );
+test("specListContent: names each spec on a line of its own, whole and relative to the suite", () => {
+  assert.equal(specListContent(["flows/login.spec.ts", "a.spec.ts"]), "flows/login.spec.ts\na.spec.ts\n");
+  assert.equal(specListContent([".qa-probe/try.spec.ts"]), ".qa-probe/try.spec.ts\n");
 });
 
-test("playwrightArgs: rejects a specFile that does not end with .spec.ts", () => {
-  assert.throws(
-    () => playwrightArgs("reporter.cjs", undefined, ["login.spec.js"]),
-    /invalid|spec file/i,
-    "non-.spec.ts extension must throw",
-  );
-});
-
-test("playwrightArgs: accepts spec files with subdirectory paths (flows/login.spec.ts)", () => {
-  const args = playwrightArgs("reporter.cjs", undefined, ["flows/login.spec.ts"]);
-  assert.ok(args.includes("flows/login.spec.ts"), `subdirectory spec should be allowed: ${args.join(" ")}`);
+test("specListContent: refuses a path that is not one plain relative spec file", () => {
+  for (const bad of ["../../../etc/passwd.spec.ts", "flows/../x.spec.ts", "-delete-everything.spec.ts", "login.spec.js", "..spec.ts", ".spec.ts", "flows/..spec.ts", "./a.spec.ts", "a//b.spec.ts", "/abs/a.spec.ts", "a b.spec.ts", "a\nb.spec.ts", "a>b.spec.ts", "a:12.spec.ts", "", "flows/./a.spec.ts"]) {
+    assert.throws(() => specListContent([bad]), /invalid spec file/, JSON.stringify(bad));
+  }
 });
 
 /* ── Harvest fold — finalUrl + httpStatus onto QaCase ─────────────────
@@ -1020,9 +1003,9 @@ test("a Playwright suite child writes its output, report and failure dumps outsi
   assert.ok(env.QA_FAILURE_CAPTURE_DIR?.startsWith(workDir), "the failure dumps go to the work dir");
 });
 
-test("playwrightArgs: a single-attempt run and a title filter are options before the spec files", () => {
-  const args = playwrightArgs("reporter.cjs", undefined, ["flows/a.spec.ts"], "/work/results", { retries: 0, grep: "adds \\(one\\) item" });
-  assert.deepEqual(args, ["playwright", "test", "--reporter=reporter.cjs,json", "--output=/work/results", "--retries=0", "--grep=adds \\(one\\) item", "flows/a.spec.ts"]);
+test("playwrightArgs: a single-attempt run, a title filter and the test list are all options", () => {
+  const args = playwrightArgs("reporter.cjs", undefined, "/work/scripts/x-spec-list.txt", "/work/results", { retries: 0, grep: "adds \\(one\\) item" });
+  assert.deepEqual(args, ["playwright", "test", "--reporter=reporter.cjs,json", "--output=/work/results", "--retries=0", "--grep=adds \\(one\\) item", "--test-list=/work/scripts/x-spec-list.txt"]);
 });
 
 test("playwrightArgs: retries must be a small non-negative integer and the grep a bounded string", () => {
@@ -1111,6 +1094,7 @@ test("runE2E reports no count when the fixtures left none or left something it c
 test("the default runner starts the child with the narrowing options and the write counter only when asked", async () => {
   const workRoot = mkdtempSync(join(tmpdir(), "qa-fake-exec-"));
   const spawned: Array<{ args: readonly string[]; extraEnv: Record<string, string> | undefined }> = [];
+  const written: Array<{ name: string; content: string; path: string }> = [];
   const exec = {
     isolated: false,
     workDir: () => workRoot,
@@ -1120,7 +1104,12 @@ test("the default runner starts the child with the narrowing options and the wri
       return dir;
     },
     prepareWritable: () => {},
-    writeScript: () => "",
+    writeScript: (name: string, content: string) => {
+      const path = join(workRoot, `written-${written.length}-${name}`);
+      writeFileSync(path, content);
+      written.push({ name, content, path });
+      return path;
+    },
     spawn: (_cmd: string, args: readonly string[], options: { extraEnv?: Record<string, string> }) => {
       spawned.push({ args, extraEnv: options.extraEnv });
       const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
@@ -1139,6 +1128,11 @@ test("the default runner starts the child with the narrowing options and the wri
   }
   assert.ok(spawned[0]!.args.includes("--retries=0"));
   assert.ok(spawned[0]!.args.includes("--grep=x"));
+  assert.equal(written.length, 1, "only the run that names spec files writes a list");
+  assert.equal(written[0]!.content, "a.spec.ts\n");
+  assert.ok(spawned[0]!.args.includes(`--test-list=${written[0]!.path}`), "the spec is selected by the exact list, not by a pattern");
+  assert.equal(spawned[0]!.args.includes("a.spec.ts"), false, "no bare argument: Playwright reads it as an unanchored pattern over the whole path");
+  assert.equal(spawned[1]!.args.some((a) => a.startsWith("--test-list")), false);
   assert.equal(spawned[0]!.extraEnv?.PW_COUNT_DEV_WRITES, "1");
   assert.equal(spawned[0]!.extraEnv?.PW_COVERAGE, "0", "a spec the generator is trying is not measured for change-coverage");
   assert.equal(spawned[1]!.args.some((a) => a.startsWith("--retries") || a.startsWith("--grep")), false);

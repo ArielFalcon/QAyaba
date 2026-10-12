@@ -91,7 +91,7 @@ test("what is not a spec of this suite is refused before a call is spent", async
   h.write("auth.setup.ts", SPEC);
   h.write("flows/notes.txt", SPEC);
   h.write("node_modules/pkg/x.spec.ts", SPEC);
-  for (const path of ["/etc/passwd", "../outside.spec.ts", "flows/../../x.spec.ts", "auth.setup.ts", "flows/notes.txt", "-flows/a.spec.ts", "node_modules/pkg/x.spec.ts", ".auth/user.spec.ts", "", "flows/a b.spec.ts"]) {
+  for (const path of ["/etc/passwd", "../outside.spec.ts", "flows/../../x.spec.ts", "auth.setup.ts", "flows/notes.txt", "-flows/a.spec.ts", "node_modules/pkg/x.spec.ts", ".auth/user.spec.ts", "", "flows/a b.spec.ts", "..spec.ts", "flows/..spec.ts", ".spec.ts"]) {
     const response = await call(h, path);
     assert.equal(response.ok, false, path);
   }

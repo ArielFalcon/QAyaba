@@ -19,6 +19,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { QaCase } from "../qa-engine/src/shared-kernel/qa-case.ts";
+import { SMOKE_CHECKS } from "./sandbox-smoke-checks.ts";
 
 export const SMOKE_SPEC_DIR = join(import.meta.dirname, "sandbox-smoke");
 
@@ -105,6 +106,21 @@ async function main(): Promise<number> {
         return 1;
       }
       console.log(`sandbox:smoke: ${run.cases.length} isolation checks passed`);
+      const problems: string[] = [];
+      for (const check of SMOKE_CHECKS) {
+        const found = await check.run({
+          e2eDir,
+          checksDir: join(SMOKE_SPEC_DIR, "checks"),
+          runSpecs: (files) => runE2E(e2eDir, { baseUrl: origin, namespace: "sandbox-smoke-check", specFiles: [...files] }, deps),
+        });
+        console.log(`  ${found.length === 0 ? "ok  " : "FAIL"} ${check.name}${found.length === 0 ? "" : ` — ${found.join("; ")}`}`);
+        problems.push(...found.map((p) => `${check.name}: ${p}`));
+      }
+      if (problems.length > 0) {
+        console.error("sandbox:smoke: the sandbox does NOT hold on this host. Do not run agent code here until this is fixed.");
+        return 1;
+      }
+      console.log(`sandbox:smoke: ${SMOKE_CHECKS.length} harness checks passed`);
       return 0;
     });
   } finally {

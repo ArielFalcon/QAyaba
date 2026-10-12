@@ -36,20 +36,27 @@ export function e2eTimeoutMs(env: NodeJS.ProcessEnv): number {
 
 export const PW_PROJECT_RE = /^[A-Za-z0-9_-]+$/;
 
-export const SPEC_FILE_RE = /^[A-Za-z0-9._/-]+\.spec\.ts$/;
+/* One plain relative spec file: directory segments of letters, digits, dots, dashes and underscores (never `.` or `..`, never empty), and a file name that starts with a letter, digit, dash or underscore, so `..spec.ts` and `.spec.ts` are not names. A segment may begin with a dot (the probe directory `.qa-probe`). */
+export const SPEC_FILE_RE = /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\.spec\.ts$/;
 
 function assertSpecFiles(specFiles: string[]): void {
   for (const f of specFiles) {
     if (f.startsWith("-")) {
       throw new Error(`invalid spec file ${JSON.stringify(f)}: must not start with "-"`);
     }
-    if (f.includes("../")) {
+    if (f.split("/").some((segment) => segment === "." || segment === "..")) {
       throw new Error(`invalid spec file ${JSON.stringify(f)}: path traversal not allowed`);
     }
     if (!SPEC_FILE_RE.test(f)) {
       throw new Error(`invalid spec file ${JSON.stringify(f)}: must match ${String(SPEC_FILE_RE)}`);
     }
   }
+}
+
+/* The content of the test list that selects exactly these spec files: one path per line, relative to the suite. Playwright reads a bare argument as an unanchored, case-insensitive regular expression over the file's whole path (`a.spec.ts` also selects `schema.spec.ts`), so a spec is never named that way; `--test-list` compares each line to a file's path whole. Throws on a path that is not one plain relative spec file, so no line can carry a second path, a project prefix or a title. */
+export function specListContent(specFiles: string[]): string {
+  assertSpecFiles(specFiles);
+  return specFiles.map((f) => `${f}\n`).join("");
 }
 
 export interface E2eExecuteOptions {
@@ -568,7 +575,7 @@ module.exports = QaStreamReporter;
 const MAX_RETRIES = 10;
 const MAX_GREP_CHARS = 200;
 
-export function playwrightArgs(reporterPath: string, project?: string, specFiles?: string[], outputDir?: string, narrow: { retries?: number | undefined; grep?: string | undefined } = {}): string[] {
+export function playwrightArgs(reporterPath: string, project?: string, testListPath?: string, outputDir?: string, narrow: { retries?: number | undefined; grep?: string | undefined } = {}): string[] {
   const args = ["playwright", "test", `--reporter=${reporterPath},json`];
   /* Where Playwright writes traces, screenshots and videos: the run's work dir, because the mirror is read-only to the sandbox uid. */
   if (outputDir !== undefined) args.push(`--output=${outputDir}`);
@@ -586,9 +593,9 @@ export function playwrightArgs(reporterPath: string, project?: string, specFiles
     if (typeof narrow.grep !== "string" || narrow.grep === "" || narrow.grep.length > MAX_GREP_CHARS) throw new Error(`invalid grep: must be a non-empty string of at most ${MAX_GREP_CHARS} characters`);
     args.push(`--grep=${narrow.grep}`);
   }
-  if (specFiles !== undefined && specFiles.length > 0) {
-    assertSpecFiles(specFiles);
-    args.push(...specFiles);
+  if (testListPath !== undefined) {
+    if (testListPath === "" || testListPath.startsWith("-")) throw new Error(`invalid test list path ${JSON.stringify(testListPath)}`);
+    args.push(`--test-list=${testListPath}`);
   }
   return args;
 }
@@ -613,6 +620,8 @@ export function createDefaultE2eExecuteDeps(
     },
     runSuite: ({ dir, baseUrl, namespace, testIdAttribute, faultInject, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
       new Promise((resolve, reject) => {
+        /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
+        const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
         const work = exec.allocDir("pw", ["report", "results"]);
         const workRoot = exec.workDir();
         const reporterPath = join(work, "qa-stream-reporter.cjs");
@@ -622,7 +631,7 @@ export function createDefaultE2eExecuteDeps(
         exec.prepareWritable([join(dir, ".qa", "coverage"), join(dir, ".qa", "fault-injection")]);
 
         /* QA_FAILURE_CAPTURE_DIR: the qa-failure-capture afterEach fixture writes per-case aria snapshot dumps here on failure; the orchestrator harvests them post-run to populate QaCase.failureDom for the fix-loop grounding prompt. PW_TEST_ID_ATTRIBUTE: threads the configured testIdAttribute into the runner so playwright.config.ts resolves getByTestId correctly for the app's convention. PW_ACTION_TIMEOUT_MS: optional per-target override of the seed's action auto-wait bound (default 8000) so a slower DEV can widen it without editing the seed config — injected from the composition root (env-read confinement, this file's header). */
-        const child = exec.spawn("npx", playwrightArgs(reporterPath, project, specFiles, join(work, "results"), { retries, grep }), {
+        const child = exec.spawn("npx", playwrightArgs(reporterPath, project, testListPath, join(work, "results"), { retries, grep }), {
           cwd: dir,
           profile: "suite",
           extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) },

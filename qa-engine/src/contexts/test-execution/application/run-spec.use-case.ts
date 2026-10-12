@@ -29,7 +29,7 @@ export const MAX_REPORTED_TESTS = 30;
 export const UNCOUNTED_WRITE_CHARGE = 1;
 
 /* The same shape the Playwright runner insists on for a spec file it is handed (e2e-execution.runner.ts SPEC_FILE_RE); a test keeps the two equal. */
-export const SPEC_PATH_PATTERN = /^[A-Za-z0-9._/-]+\.spec\.ts$/;
+export const SPEC_PATH_PATTERN = /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\.spec\.ts$/;
 
 const FORBIDDEN_SEGMENTS: ReadonlySet<string> = new Set(["node_modules", ".auth", ".qa", ".git", "test-results"]);
 const FIXTURES_IMPORT = /\bfrom\s+["'](?:\.{1,2}\/)+fixtures(?:\.js|\.ts)?["']/;
