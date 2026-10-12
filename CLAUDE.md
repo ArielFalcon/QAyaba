@@ -316,6 +316,10 @@ threat-model header first) and a canary-before-promote hot-swap.
   orchestrator's clients (`src/integrations/opencode-server-auth.ts`) send it as Basic auth, refuse to be built
   without it and throw on a 401. The value is never logged, is scrubbed from untrusted spawns and from supervisor
   responses, and must be identical on both services.
+- **The agents container never holds the test account.** `DEV_TEST_USER`/`DEV_TEST_PASS` are not in its compose
+  environment and the Codex exec env (`CODEX_EXEC_ENV_PREFIX`, in the supervisor and `codex-strategy.ts`) does not
+  forward them: the app login is the orchestrator's (`AuthSessionAdapter`) and the agent only gets the saved session.
+  `DEV_ENV_*` (the DEV HTTP Basic gate) stays, for the baseline arm's Playwright config and a Codex shell.
 - **What the agent writes or reports is untrusted input.** Orchestrator code that reads, lists
   or writes a path the agent can influence (a reported spec path, the manifest, the context
   map, files setup replaces, what a test run leaves) goes through the confined reader,

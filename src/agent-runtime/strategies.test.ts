@@ -300,6 +300,7 @@ test("codexExecEnv passes only Codex/runtime-safe env vars to the headless agent
     OPENAI_API_KEY: "openai-secret",
     DEV_TEST_USER: "tester",
     DEV_TEST_PASS: "dev-pass",
+    DEV_ENV_USER: "gate",
     AGENT_PROMPT_DIR: "/prompts",
     AGENT_RUNTIME_MODE: "single",
     HTTPS_PROXY: "http://proxy",
@@ -309,8 +310,9 @@ test("codexExecEnv passes only Codex/runtime-safe env vars to the headless agent
   assert.equal(env.HOME, "/home/qayaba");
   assert.equal(env.CODEX_API_KEY, "codex-secret");
   assert.equal(env.OPENAI_API_KEY, "openai-secret");
-  assert.equal(env.DEV_TEST_USER, "tester");
-  assert.equal(env.DEV_TEST_PASS, "dev-pass");
+  assert.equal(env.DEV_TEST_USER, undefined, "the test account is the orchestrator's, never a headless agent's");
+  assert.equal(env.DEV_TEST_PASS, undefined);
+  assert.equal(env.DEV_ENV_USER, "gate", "the HTTP Basic gate of DEV is still forwarded");
   assert.equal(env.AGENT_PROMPT_DIR, "/prompts");
   assert.equal(env.HTTPS_PROXY, "http://proxy");
   assert.equal(env.GITHUB_TOKEN, undefined);

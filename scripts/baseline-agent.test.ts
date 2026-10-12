@@ -372,8 +372,9 @@ test("a full run starts the agent, measures it, runs its specs twice, writes a r
 test("a login that does not work before the agent starts is told to the agent, as the pipeline's generator is told, and does not stop the run", async () => {
   const h = harness({ prepareAuth: async (_a, _p, phase) => { h.calls.push(`auth:${phase}`); return { unauthored: phase === "pre-generate" }; } });
   assert.equal(await main(argv(), h.deps), 0);
-  assert.ok(h.prompts[0]!.includes("--project=setup"));
+  assert.ok(h.prompts[0]!.includes("auth.setup.ts"), "it is told which file holds the login");
   assert.ok(h.prompts[0]!.includes("did not work"));
+  assert.equal(h.prompts[0]!.includes("--project=setup"), false, "it is not sent to run a login whose password is not in its environment");
 });
 
 test("a login that cannot be completed before the suite runs is an E-PRECONDITION and the suite is not run", async () => {

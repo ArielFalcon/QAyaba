@@ -108,8 +108,10 @@ services:
       - 1.1.1.1
       - 8.8.8.8
     # SECURITY: the agent container does NOT get the full .env. It receives ONLY the
-    # model-provider keys and the DEV credentials it needs for Playwright login — NEVER
-    # GITHUB_TOKEN / WEBHOOK_SECRET / QA_API_TOKEN. Git writes are the orchestrator's
+    # model-provider keys, the shared OpenCode server password and DEV_ENV_* (the HTTP Basic gate
+    # of DEV, read by the baseline arm's Playwright config and a Codex shell) — NEVER the test
+    # account (DEV_TEST_*: the app login is the orchestrator's and the agent only gets the saved
+    # session) nor GITHUB_TOKEN / WEBHOOK_SECRET / QA_API_TOKEN. Git writes are the orchestrator's
     # job, so the agent has no push credential to exfiltrate. (docker compose reads
     # ./.env for ${VAR} interpolation, so this works locally and under Doppler.)
     environment:
@@ -133,8 +135,6 @@ services:
       CODEX_API_KEY: ${CODEX_API_KEY:-}
       DEV_ENV_USER: ${DEV_ENV_USER:-}
       DEV_ENV_PASS: ${DEV_ENV_PASS:-}
-      DEV_TEST_USER: ${DEV_TEST_USER:-}
-      DEV_TEST_PASS: ${DEV_TEST_PASS:-}
     volumes:
       - ./agents:/root/.config/opencode:ro # opencode.json + agents + AGENTS.md + skills (read-only: agents must NOT rewrite their own prompts)
       - ./agent:/root/.config/agent:ro # provider-neutral prompts/skills for Codex and future OpenCode config

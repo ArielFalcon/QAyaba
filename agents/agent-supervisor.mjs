@@ -31,7 +31,9 @@ const CODEX_EXEC_ENV_EXACT = new Set([
   "CI", "NO_COLOR", "FORCE_COLOR", "DEBUG", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
   "https_proxy", "http_proxy", "no_proxy", "CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_HOME", "CODEX_BIN",
 ]);
-const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_|AGENT_)/;
+// DEV_ENV_* (the HTTP Basic gate of DEV) reaches the agent; DEV_TEST_* (the app's test account) never does:
+// the login is the orchestrator's, and the agent only ever gets the session it saves.
+const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_(?!TEST_)|AGENT_)/;
 const MAX_PROMPT_BYTES = 2 * 1024 * 1024;
 
 // When codex has a stored login (auth.json — e.g. a ChatGPT subscription created by `codex login`),
@@ -42,7 +44,7 @@ function codexHasStoredAuth(env = process.env) {
   return existsSync(`${home}/auth.json`);
 }
 
-function codexExecEnv(env = process.env) {
+export function codexExecEnv(env = process.env) {
   const storedAuth = codexHasStoredAuth(env);
   const out = {};
   for (const [key, value] of Object.entries(env)) {

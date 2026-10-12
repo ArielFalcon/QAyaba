@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig, openCodeServerEnv, commandFor, redactForResponse } from "./agent-supervisor.mjs";
+import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig, openCodeServerEnv, commandFor, redactForResponse, codexExecEnv } from "./agent-supervisor.mjs";
 
 // Importing agent-supervisor.mjs must NOT start the HTTP server (it is main-guarded). If it did, the
 // listening socket would keep this process alive and node:test would hang instead of exiting — so
@@ -265,4 +265,12 @@ test("redactForResponse masks the OpenCode server password wherever a CLI echoes
     if (previous === undefined) delete process.env.OPENCODE_SERVER_PASSWORD;
     else process.env.OPENCODE_SERVER_PASSWORD = previous;
   }
+});
+
+test("codexExecEnv forwards the DEV gate to a headless agent but never the test account", () => {
+  const env = codexExecEnv({ PATH: "/bin", DEV_ENV_USER: "gate", DEV_ENV_PASS: "gate-pass", DEV_TEST_USER: "tester", DEV_TEST_PASS: "dev-pass", AGENT_RUNTIME_MODE: "single", GITHUB_TOKEN: "ghp_x" });
+  assert.equal(env.DEV_ENV_USER, "gate");
+  assert.equal(env.DEV_TEST_USER, undefined);
+  assert.equal(env.DEV_TEST_PASS, undefined);
+  assert.equal(env.GITHUB_TOKEN, undefined);
 });

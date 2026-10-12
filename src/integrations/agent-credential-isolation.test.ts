@@ -119,3 +119,12 @@ test("the orchestrator and the agents service are given the same OpenCode server
   assert.equal(valueOf("orchestrator"), agents, "both services must read the same variable, so that the orchestrator authenticates with the password the server started with");
   assert.match(agents, /\$\{OPENCODE_SERVER_PASSWORD/, "the value comes from the environment, never a literal in the compose file");
 });
+
+test("the agents service holds no test-account credentials: the app login is the orchestrator's, the agent gets only the session", () => {
+  const agents = getService(loadCompose(), "agents");
+  assert.ok(agents, "missing `agents` service");
+  for (const [key, value] of envEntries(agents.environment)) {
+    assert.ok(!/^DEV_TEST_/.test(key), `SECURITY: the agents service receives ${key}: the test account's password would be readable by every role that can run a command`);
+    assert.ok(!/DEV_TEST_/.test(value), `SECURITY: services.agents.environment.${key} aliases a DEV_TEST_* variable`);
+  }
+});

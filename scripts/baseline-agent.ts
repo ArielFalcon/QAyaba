@@ -253,7 +253,7 @@ export function baselineInstructions(input: Pick<PromptInput, "baseUrl" | "testD
     ...(input.loginUnavailable
       ? [
           "The automatic login did not work for this app: e2e/auth.setup.ts is the stock login. Fix it for this app if needed;",
-          "`npx playwright test --project=setup` runs it and saves the session that your other tests use.",
+          "it reads DEV_TEST_USER and DEV_TEST_PASS, which are not in your environment, so you cannot run it: it runs for you, and saves the session your tests use, after you finish.",
         ]
       : ["Authentication is handled for you (the session is injected into Playwright): do not write your own login."]),
     "Run your tests with `npx playwright test` in e2e/ (bash workdir: e2e) and iterate until they pass,",
@@ -305,7 +305,7 @@ export const WRAPPER_CONFIG = "playwright.config.ts";
 /**
  * Two files that go in the suite directory beside the repo's own Playwright config (renamed
  * `playwright.repo.config.ts`). The first sets the few non-secret variables the orchestrator would inject for
- * a pipeline run (the secrets, DEV_*, are already in the environment of both containers). The second is the
+ * a pipeline run (the login's secrets, DEV_TEST_*, stay in the orchestrator; the DEV gate, DEV_ENV_*, is also in the agents container). The second is the
  * config the agent's `npx playwright test` finds: the repo's config, plus a browser path when this
  * environment does not hold the browser build the project's Playwright wants (the agents container carries the
  * browsers of the MCP server's Playwright, the orchestrator those of the project's). Neither changes what a test does.
