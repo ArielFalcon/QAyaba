@@ -15,24 +15,35 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const realOps = {
-  readFile: (path) => closeSync(openSync(path, "r")),
-  list: (path) => {
-    readdirSync(path);
-  },
-  kind: (path) => {
-    const st = statSync(path);
-    return st.isDirectory() ? "dir" : st.isFile() ? "file" : "other";
-  },
-  /* Creates a file of its own in the directory and removes it again. */
-  createIn: (dir) => {
-    const path = join(dir, `.qa-file-boundary-probe-${process.pid}-${randomBytes(6).toString("hex")}`);
-    closeSync(openSync(path, "wx", 0o600));
-    unlinkSync(path);
-  },
-  /* Opens an existing file for writing and closes it: no byte of it changes. */
-  openForWrite: (path) => closeSync(openSync(path, "r+")),
-};
+const realFs = { closeSync, openSync, readdirSync, statSync, unlinkSync };
+
+/* The filesystem calls a probe makes, as the uid it runs as; each throws the call's error. `fs` is only for a test to take a call away. */
+export function createProbeOps(fs = realFs) {
+  return {
+    readFile: (path) => fs.closeSync(fs.openSync(path, "r")),
+    list: (path) => {
+      fs.readdirSync(path);
+    },
+    kind: (path) => {
+      const st = fs.statSync(path);
+      return st.isDirectory() ? "dir" : st.isFile() ? "file" : "other";
+    },
+    /* Creates a file of its own in the directory and tries to remove it again. The create is the write: it worked, so the directory is writable whether or not the cleanup does. */
+    createIn: (dir) => {
+      const path = join(dir, `.qa-file-boundary-probe-${process.pid}-${randomBytes(6).toString("hex")}`);
+      fs.closeSync(fs.openSync(path, "wx", 0o600));
+      try {
+        fs.unlinkSync(path);
+      } catch {
+        /* the boundary is already breached; the leftover file is the lesser matter */
+      }
+    },
+    /* Opens an existing file for writing and closes it: no byte of it changes. */
+    openForWrite: (path) => fs.closeSync(fs.openSync(path, "r+")),
+  };
+}
+
+export const realOps = createProbeOps();
 
 function codeOf(action) {
   try {

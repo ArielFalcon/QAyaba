@@ -2,10 +2,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import * as realFs from "node:fs";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { observeProbe, observeProbes, type ProbeOps } from "./file-boundary-probe.mjs";
+import { createProbeOps, observeProbe, observeProbes, type ProbeOps } from "./file-boundary-probe.mjs";
 
 const SCRIPT = join(import.meta.dirname, "file-boundary-probe.mjs");
 
@@ -59,6 +60,19 @@ test("a write to a path that cannot be examined reports that failure and no kind
     throw Object.assign(new Error("read-only"), { code: "EROFS" });
   };
   assert.deepEqual(observeProbe({ kind: "write", path: "/ro" }, ro), { kind: "dir", code: "EROFS" });
+});
+
+test("a file created in a directory is a successful write whether or not it could be removed afterwards", () => {
+  const dir = mkdtempSync(join(tmpdir(), "boundary-probe-"));
+  try {
+    const stuck = createProbeOps({ ...realFs, unlinkSync: () => { throw Object.assign(new Error("not permitted"), { code: "EPERM" }); } });
+    assert.deepEqual(observeProbe({ kind: "write", path: dir }, stuck), { kind: "dir", code: null });
+    assert.equal(readdirSync(dir).length, 1, "the file it created is still there, which the write already proved possible");
+    const refused = createProbeOps({ ...realFs, openSync: () => { throw Object.assign(new Error("read-only"), { code: "EROFS" }); } });
+    assert.deepEqual(observeProbe({ kind: "write", path: dir }, refused), { kind: "dir", code: "EROFS" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 function run(stdin: string): { status: number | null; stdout: string } {
