@@ -10,6 +10,8 @@ export interface SandboxReport {
   denied: string[];
   /* Why the launcher refused to start a child in this run, when it did: the run then ends E-SANDBOX whatever path it took to its infra-error. */
   refusal?: "uid" | "files" | "egress" | "residue";
+  /* Told every refusal while a window is open (openDeniedWindow), a host the run was already refused included: `denied` keeps each host once, which cannot say whether a given child met it. */
+  watchers?: Set<(host: string) => void>;
 }
 
 export interface RunScope {
@@ -54,6 +56,24 @@ export function sandboxSignal(): { egress: SandboxReport["egress"]; denied: stri
   if (report === undefined || (report.egress === "not-applicable" && report.denied.length === 0)) return undefined;
   return { egress: report.egress, denied: [...report.denied] };
 }
+
+/* A stretch of a run in which the hosts the egress filter refused are collected on their own, apart from the run's list (which keeps each host once, from its first sighting): a caller that must know whether the children it started were refused something asks for one before it starts them. Outside a run it hears nothing. */
+export function openDeniedWindow(): { hosts(): string[]; close(): void } {
+  const report = store.getStore()?.report;
+  const heard: string[] = [];
+  const watcher = (host: string): void => {
+    if (heard.length < MAX_WINDOW_HOSTS && !heard.includes(host)) heard.push(host);
+  };
+  if (report) (report.watchers ??= new Set()).add(watcher);
+  return {
+    hosts: () => [...heard],
+    close: () => {
+      report?.watchers?.delete(watcher);
+    },
+  };
+}
+
+const MAX_WINDOW_HOSTS = 64;
 
 /* True when the launcher refused a child in the run this call is part of. */
 export function sandboxRefused(): boolean {

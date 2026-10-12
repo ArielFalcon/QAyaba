@@ -115,8 +115,10 @@ export class EgressController implements EgressGate {
   noteDenied(host: string | undefined): void {
     if (host === undefined) return;
     for (const held of this.leases) {
-      const denied = held.report?.denied;
-      if (denied && denied.length < MAX_DENIED_PER_RUN && !denied.includes(host)) denied.push(host);
+      const report = held.report;
+      if (!report) continue;
+      if (report.denied.length < MAX_DENIED_PER_RUN && !report.denied.includes(host)) report.denied.push(host);
+      for (const watcher of report.watchers ?? []) watcher(host);
     }
   }
 

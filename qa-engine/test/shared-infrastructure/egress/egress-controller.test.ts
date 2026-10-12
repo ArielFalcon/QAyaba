@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EgressController, type EgressControllerDeps } from "../../../src/shared-infrastructure/egress/egress-controller.ts";
-import { newSandboxReport } from "../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
+import { newSandboxReport, openDeniedWindow, withExecScope, type RunScope } from "../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { RulesetInput } from "../../../src/shared-infrastructure/egress/iptables-ruleset.ts";
 
 interface Harness {
@@ -138,4 +138,32 @@ test("closing stops the proxy and the DNS filter", async () => {
   await h.controller.close();
   assert.deepEqual(h.closed.sort(), ["dns", "proxy"]);
   assert.equal(h.controller.available(), false);
+});
+
+function scopeWith(report = newSandboxReport()): RunScope {
+  return { runId: "r", workDir: "/tmp/r", egress: { dev: [], install: [] }, report };
+}
+
+test("a window opened on the run's sandbox hears every refusal while it is open, including a host the run was already refused", async () => {
+  const h = harness();
+  await h.controller.prepare(["https://a.example.com"]);
+  const report = newSandboxReport();
+  h.controller.lease(["https://a.example.com"], report);
+  h.controller.noteDenied("before.example.net");
+  await withExecScope(scopeWith(report), async () => {
+    const window = openDeniedWindow();
+    h.controller.noteDenied("before.example.net");
+    h.controller.noteDenied("idp.example.net");
+    h.controller.noteDenied("idp.example.net");
+    window.close();
+    h.controller.noteDenied("after.example.net");
+    assert.deepEqual(window.hosts(), ["before.example.net", "idp.example.net"]);
+  });
+  assert.deepEqual(report.denied, ["before.example.net", "idp.example.net", "after.example.net"], "the run's own list is unchanged by the window");
+});
+
+test("a window opened outside a run's sandbox hears nothing and costs nothing", () => {
+  const window = openDeniedWindow();
+  window.close();
+  assert.deepEqual(window.hosts(), []);
 });
