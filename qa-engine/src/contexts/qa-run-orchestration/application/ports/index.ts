@@ -19,6 +19,7 @@ import type { RunEventBody } from "@kernel/run-event.ts";
 import type { GenerationEndKind } from "@kernel/generation-end.ts";
 import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import type { AgentBrowserGateSignal, AgentBrowserLimits } from "@kernel/agent-browser.ts";
 
 /**
  * Port-local CommitIntent. Generation's type is structurally assignable;
@@ -97,6 +98,8 @@ export interface RunInput {
   purpose?: RunPurpose;
   /** The run's own choice about the run_spec loop (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
   closedLoop?: boolean;
+  /** The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
+  agentBrowser?: boolean;
 }
 export interface RunPipelinePort {
   /**
@@ -129,6 +132,8 @@ export interface GenerationEnrichment {
   coverageGap?: string;
   /** Present only when the run granted the generator the run_spec tool: the limits its prompt states. */
   closedLoop?: ClosedLoopLimits;
+  /** Present only when the run granted the authoring agents the authenticated browser: the limits its prompt states. */
+  agentBrowser?: AgentBrowserLimits;
   /**
    * Every spec this run has delivered so far, refreshed for each regeneration turn: the lead's
    * declared flow and objective where it declared them, a sidekick's specs by path alone.
@@ -295,6 +300,35 @@ export interface ClosedLoopHandle {
 export interface ClosedLoopPort {
   /** Resolves undefined when this run is not granted the loop (disabled, another runtime, nothing to run it with). */
   open(input: ClosedLoopOpenInput): Promise<ClosedLoopHandle | undefined>;
+}
+
+/**
+ * The authenticated browser of one run, as the use case sees it: the right of the authoring agents to read DEV through the
+ * session the run signed in with, without ever holding it. The run opens it after the login and closes it when it ends,
+ * however it ends.
+ */
+export interface AgentBrowserOpenInput {
+  runId: string;
+  app: string;
+  mode: RunMode;
+  purpose?: RunPurpose;
+  /** The suite directory of the run's working copy: where a renewed login is prepared for. */
+  specDir: string;
+  /** The run's own choice, when it makes one (an A/B arm): overrides the app's setting. */
+  enabled?: boolean;
+  /** The run's cancellation: a call in flight when it fires is stopped. */
+  signal?: AbortSignal;
+}
+export interface AgentBrowserHandle {
+  /** What the generator's prompt states about the tools. */
+  limits: AgentBrowserLimits;
+  signals(): AgentBrowserGateSignal;
+  /** Revokes the right, stops the browser. Never throws. */
+  close(): Promise<void>;
+}
+export interface AgentBrowserPort {
+  /** Resolves undefined when this run is not granted the browser (disabled, another runtime, no saved session to use). */
+  open(input: AgentBrowserOpenInput): Promise<AgentBrowserHandle | undefined>;
 }
 
 export interface GenerationPort {

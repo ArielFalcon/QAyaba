@@ -1608,3 +1608,26 @@ test("a code-target composition never gets the run_spec loop, whatever the confi
   }));
   assert.equal("closedLoop" in wired, false);
 });
+
+/* The authenticated agent browser is wired only when the shell hands the root its registry, and only for an e2e app with a DEV url. */
+test("wireBridges builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
+  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts");
+  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
+  const without = wireBridges(fakeConfig({ baseUrl: "https://dev.example.com" }));
+  assert.equal("agentBrowser" in without, false);
+
+  const wiring = {
+    registry: new AgentBrowserRegistry(),
+    setting: { enabled: true, denyRoutes: [], allowMutating: [] },
+    generatorRuntimeCanCall: () => false,
+    launcher: { launch: async () => { throw new Error("unused"); } },
+    account: "app/user",
+    lock: new AccountLock(),
+    redact: (text: string) => text,
+  };
+  const wired = wireBridges(fakeConfig({ baseUrl: "https://dev.example.com", agentBrowser: wiring }));
+  assert.equal(await wired.agentBrowser!.open({ runId: "r1", app: "app", mode: "diff", specDir: "/m/e2e" }), undefined, "the port is there and applies its own conditions");
+
+  assert.equal("agentBrowser" in wireBridges(fakeConfig({ agentBrowser: wiring })), false, "an app with no DEV url has nothing to browse");
+  assert.equal("agentBrowser" in wireBridges(fakeConfig({ isCode: true, target: "code", baseUrl: "https://dev.example.com", agentBrowser: wiring })), false, "a code target never gets it");
+});

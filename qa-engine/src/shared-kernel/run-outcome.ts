@@ -4,6 +4,7 @@ import type { RunMode, TestTarget } from "./run-mode.ts";
 import type { RunVerdict } from "./run-verdict.ts";
 import type { QaCase } from "./qa-case.ts";
 import type { ClosedLoopGateSignal } from "./closed-loop.ts";
+import type { AgentBrowserGateSignal } from "./agent-browser.ts";
 
 export type ErrorClass = string | null;
 
@@ -41,6 +42,8 @@ export interface RunOutcome {
     sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
     /* How the generator used run_spec this run, and whether the loop ended closed. Absent when the run did not grant the tool. Persist-only: it reads nothing back into a verdict. */
     closedLoop?: ClosedLoopGateSignal;
+    /* How the authoring agents used the authenticated browser this run: calls, requests the guard refused, sessions lost and renewed. Absent when the run did not grant it. Persist-only: it reads nothing back into a verdict. */
+    agentBrowser?: AgentBrowserGateSignal;
     /* Undefined = the signal never ran — never a fabricated 0 (that would be indistinguishable from "ran and found zero"). Persist-only; never read by decide/verdict/gate/publish. */
     structuralSignalBytes?: number;
     serviceLinksCount?: number;

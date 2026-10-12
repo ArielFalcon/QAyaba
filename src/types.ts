@@ -310,6 +310,8 @@ export interface RunOutcome {
     sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
     /* How the generator used run_spec this run and whether the loop ended closed; absent when the tool was not granted. */
     closedLoop?: { calls: number; devWrites: number; closed: boolean };
+    /* How the authoring agents used the authenticated browser this run; absent when it was not granted. */
+    agentBrowser?: { calls: number; blocks: number; invalidations: number; renewals: number };
 
     structuralSignalBytes?: number;
     serviceLinksCount?: number;

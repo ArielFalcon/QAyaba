@@ -9,6 +9,10 @@ import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import { ClosedLoopPortAdapter } from "../infrastructure/bridges/closed-loop-port.adapter.ts";
 import type { ClosedLoopRegistry } from "../infrastructure/closed-loop-registry.ts";
 import type { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
+import { AgentBrowserPortAdapter } from "../infrastructure/bridges/agent-browser-port.adapter.ts";
+import { readAgentBrowserSession } from "../infrastructure/bridges/agent-browser-session-material.ts";
+import type { AgentBrowserRegistry } from "../infrastructure/agent-browser-registry.ts";
+import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
@@ -80,6 +84,26 @@ export interface ClosedLoopWiring {
   redact: (text: string) => string;
 }
 
+/* What the shell hands the root to let a run grant its authoring agents the authenticated browser. Absent: the run never does. */
+export interface AgentBrowserWiring {
+  /* Where the authoring agents' sessions find the run's browser (shared with the tools endpoint and the session transport). */
+  registry: AgentBrowserRegistry;
+  /* The app's own setting (qa.agentBrowser). */
+  setting: { enabled: boolean; denyRoutes: readonly string[]; allowMutating: readonly string[] };
+  /* Whether the generator role is assigned to a runtime that can call a custom tool (OpenCode). */
+  generatorRuntimeCanCall: () => boolean;
+  /* Starts the browser in the execution sandbox. */
+  launcher: BrowserLauncherPort;
+  /* The key two users of the test account contend on, and the process-wide lock they contend through. */
+  account: string;
+  lock: AccountLock;
+  /* The app's login path (auth.loginPath), when it declares one. */
+  loginPath?: string;
+  deadline?: RunDeadlineView;
+  /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
+  redact: (text: string) => string;
+}
+
 export interface CompositionConfig {
   /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */
   repo: string;
@@ -109,6 +133,8 @@ export interface CompositionConfig {
   authSession?: AuthSessionPort;
   /** The run_spec loop. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.closedLoop and no run grants the tool. */
   closedLoop?: ClosedLoopWiring;
+  /** The authenticated agent browser. Optional, no stub: absent (or a code target, or an app with no DEV url) omits RunQaUseCaseDeps.agentBrowser and no run grants the tools. */
+  agentBrowser?: AgentBrowserWiring;
   /** The sandbox scope each run runs agent-influenced code in; absent: none is opened (tests). */
   execScope?: ExecScopePort;
   auth?: AuthDeclaration;
@@ -349,6 +375,16 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       })
     : undefined;
 
+  /* The browser reads DEV through the run's own session and origins; a spec is never run by it. */
+  const agentBrowser = cfg.agentBrowser && !cfg.isCode && cfg.baseUrl
+    ? new AgentBrowserPortAdapter({
+        ...cfg.agentBrowser,
+        baseUrl: cfg.baseUrl,
+        material: () => readAgentBrowserSession(cfg.baseUrl!),
+        ...(cfg.authSession ? { authSession: cfg.authSession, authContext: { baseUrl: cfg.baseUrl, ...(cfg.auth ? { auth: cfg.auth } : {}) } } : {}),
+      })
+    : undefined;
+
   const preGenerationGrounding = !cfg.isCode
     ? new PreGenerationGroundingPortAdapter(
         {
@@ -498,6 +534,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     runHistory,
     ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
     ...(closedLoop ? { closedLoop } : {}),
+    ...(agentBrowser ? { agentBrowser } : {}),
     ...(setup ? { setup } : {}),
     ...(cfg.authSession && cfg.baseUrl
       ? {

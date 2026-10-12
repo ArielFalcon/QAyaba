@@ -14,6 +14,7 @@ import { relative } from "node:path";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RUN_PURPOSE, type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
+import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
@@ -58,6 +59,8 @@ import type {
   ConfinementPort,
   ClosedLoopHandle,
   ClosedLoopPort,
+  AgentBrowserHandle,
+  AgentBrowserPort,
   MirrorGcPort,
   CurriculumPort,
   ContextMapCapturePort,
@@ -112,6 +115,8 @@ interface TerminalOptions {
   reviewerRationale?: string | undefined;
   /** How the run_spec loop was used up to this exit; absent when the run did not grant it. */
   closedLoop?: ClosedLoopGateSignal | undefined;
+  /** How the authenticated agent browser was used up to this exit; absent when the run did not grant it. */
+  agentBrowser?: AgentBrowserGateSignal | undefined;
 }
 
 /** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */
@@ -349,6 +354,13 @@ export interface RunQaUseCaseDeps {
    */
   closedLoop?: ClosedLoopPort;
   /**
+   * The right of the authoring agents to read DEV through the run's saved session without holding it (the `authbrowser_*`
+   * tools). Opened for the same runs the run_spec loop is, after the login and before the first generation, and closed when the
+   * run ends, however it ends. Absent, or resolving undefined: the run is what it was without the tools. A fault opening it costs
+   * the run only the browser, said aloud. It decides nothing: no verdict, gate or retirement reads it.
+   */
+  agentBrowser?: AgentBrowserPort;
+  /**
    * Once, after pre-publish confinement and publish have both resolved, so gc
    * never races this run's git write. The sequential queue already prevents other
    * runs overlapping. A thrown prune() is caught here and never alters the verdict.
@@ -418,6 +430,8 @@ export interface RunQaInput {
   purpose?: RunPurpose;
   /** The run's own choice about the run_spec loop (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
   closedLoop?: boolean;
+  /** The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
+  agentBrowser?: boolean;
 }
 
 export interface RunQaResult {
@@ -446,6 +460,8 @@ export interface RunQaResult {
     catalogGateFailClosed: number;
     /** Present only when the run granted the run_spec tool. */
     closedLoop?: ClosedLoopGateSignal;
+    /** Present only when the run granted the authenticated agent browser. */
+    agentBrowser?: AgentBrowserGateSignal;
   };
   cases: QaCase[];
   /** One-shot post-execution string. Absent on early exits that never reached execute(). */
@@ -474,6 +490,8 @@ interface RunTrail {
   rulesRetrieved?: string[];
   /** The run_spec loop, once opened: closed by runInScope however the run ends. */
   closedLoop?: ClosedLoopHandle;
+  /** The authenticated agent browser, once opened: closed by runInScope however the run ends. */
+  agentBrowser?: AgentBrowserHandle;
 }
 
 export class RunQaUseCase {
@@ -499,6 +517,19 @@ export class RunQaUseCase {
       return await this.deadlineResult(input, err, trail);
     } finally {
       await this.closeClosedLoop(trail);
+      await this.closeAgentBrowser(trail);
+    }
+  }
+
+  /* Revokes the browser's right and stops it. A fault is said and never changes how the run ended. */
+  private async closeAgentBrowser(trail: RunTrail): Promise<void> {
+    const browser = trail.agentBrowser;
+    if (!browser) return;
+    trail.agentBrowser = undefined;
+    try {
+      await browser.close();
+    } catch (err) {
+      console.error(`[qa] closing the agent browser failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -809,6 +840,34 @@ export class RunQaUseCase {
       trail.closedLoop = closedLoop;
     }
 
+    /* The authenticated agent browser: the same runs, the same moment. A fault opening it costs the run only the browser. */
+    let agentBrowser: AgentBrowserHandle | undefined;
+    if (
+      this.deps.agentBrowser &&
+      generating &&
+      !cfg.isCode &&
+      input.mode !== "context" &&
+      input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP &&
+      !authSeedUnauthored
+    ) {
+      try {
+        agentBrowser = await this.deps.agentBrowser.open({
+          runId: input.runId,
+          app: input.app,
+          mode: input.mode,
+          specDir: workspace.specDir,
+          ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
+          ...(input.agentBrowser !== undefined ? { enabled: input.agentBrowser } : {}),
+          ...(signal ? { signal } : {}),
+        });
+      } catch (err) {
+        rethrowIfRunDeadline(err);
+        console.error(`[qa] the agent browser could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      trail.agentBrowser = agentBrowser;
+    }
+    const agentBrowserSignal = (): AgentBrowserGateSignal | undefined => agentBrowser?.signals();
+
     /*
      * sha is always present so manifest changeRef.sha is never empty.
      * retrieve() is enrichment, not a requirement: failure is caught and generation
@@ -965,6 +1024,7 @@ export class RunQaUseCase {
         : {}),
       ...(selectedExemplars.length ? { skillExemplars: selectedExemplars } : {}),
       ...(closedLoop ? { closedLoop: closedLoop.limits } : {}),
+      ...(agentBrowser ? { agentBrowser: agentBrowser.limits } : {}),
       ...(resolvedServiceLinks.length ? { serviceLinks: resolvedServiceLinks } : {}),
       ...(resolvedContractDrift.length ? { contractDrift: resolvedContractDrift } : {}),
       ...(crossRepoImpact?.impactedLinks.length ? { crossRepoImpact: { impactedLinks: crossRepoImpact.impactedLinks } } : {}),
@@ -1290,6 +1350,7 @@ export class RunQaUseCase {
           ...(skipped.note !== undefined ? { note: skipped.note } : {}),
           ...(confinementAcc !== undefined ? { confinement: confinementAcc } : {}),
           ...(skipLoopSignal ? { closedLoop: skipLoopSignal } : {}),
+          ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
         });
         await this.deps.runHistory.save(skippedOutcome);
         await this.pruneMirrorIfWired(workspace.mirrorDir);
@@ -1313,6 +1374,7 @@ export class RunQaUseCase {
           confinement: confinementAcc,
           mirrorDir: workspace.mirrorDir,
           closedLoop: await closedLoopSignal(),
+          agentBrowser: agentBrowserSignal(),
         });
       } else {
         const emptyNote =
@@ -1461,6 +1523,7 @@ export class RunQaUseCase {
           tested: resolveTested(),
           mirrorDir: workspace.mirrorDir,
           closedLoop: await closedLoopSignal(),
+          agentBrowser: agentBrowserSignal(),
         },
       );
     }
@@ -1509,6 +1572,7 @@ export class RunQaUseCase {
           tested: resolveTested(),
           mirrorDir: workspace.mirrorDir,
           closedLoop: await closedLoopSignal(),
+          agentBrowser: agentBrowserSignal(),
         },
       );
     };
@@ -2117,6 +2181,7 @@ export class RunQaUseCase {
             tested: resolveTested(),
             mirrorDir: workspace.mirrorDir,
             closedLoop: await closedLoopSignal(),
+          agentBrowser: agentBrowserSignal(),
           });
         }
         /* parsed:false fails closed immediately, without burning a regeneration round. */
@@ -2352,6 +2417,7 @@ export class RunQaUseCase {
         /* Merged confinement across every enforce() this run made. Omitted when never wired. */
         ...(confinementAcc !== undefined ? { confinement: confinementAcc } : {}),
         ...(loopSignal ? { closedLoop: loopSignal } : {}),
+        ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
       });
       await this.deps.runHistory.save(mainlineOutcome);
 
@@ -2442,6 +2508,7 @@ export class RunQaUseCase {
         catalogGateAdvisory,
         catalogGateFailClosed,
         ...(loopSignal ? { closedLoop: loopSignal } : {}),
+        ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
       },
       cases: run.cases,
       logs: run.logs,
@@ -2549,6 +2616,8 @@ export class RunQaUseCase {
       confinement?: { strays: number; dangerous: number; reverted: string[] };
       /* Absent when the run did not grant the run_spec tool. */
       closedLoop?: ClosedLoopGateSignal;
+      /* Absent when the run did not grant the authenticated agent browser. */
+      agentBrowser?: AgentBrowserGateSignal;
     },
   ) {
     const gateCoverageRatio = coverageRatio;
@@ -2592,6 +2661,7 @@ export class RunQaUseCase {
         ...(extra?.crossRepoImpactedCount !== undefined ? { crossRepoImpactedCount: extra.crossRepoImpactedCount } : {}),
         ...(extra?.confinement !== undefined ? { confinement: extra.confinement } : {}),
         ...(extra?.closedLoop !== undefined ? { closedLoop: extra.closedLoop } : {}),
+        ...(extra?.agentBrowser !== undefined ? { agentBrowser: extra.agentBrowser } : {}),
       },
       rulesRetrieved: extra?.rulesRetrieved ?? [],
       ...(extra?.diffArchetypes !== undefined ? { diffArchetypes: extra.diffArchetypes } : {}),
@@ -2814,6 +2884,7 @@ export class RunQaUseCase {
       reviewerUnavailable,
       reviewerRationale,
       closedLoop: loopSignal,
+      agentBrowser: browserSignal,
     } = opts;
     const decision = decide({
       verdict,
@@ -2864,6 +2935,7 @@ export class RunQaUseCase {
         ...(diffArchetypes ? { diffArchetypes } : {}),
         ...(confinement !== undefined ? { confinement } : {}),
         ...(loopSignal ? { closedLoop: loopSignal } : {}),
+        ...(browserSignal ? { agentBrowser: browserSignal } : {}),
       });
       await this.deps.runHistory.save(terminalOutcome);
       /*
@@ -2930,6 +3002,7 @@ export class RunQaUseCase {
         catalogGateAdvisory: skipPersist ? 0 : groundingSignals.catalogGateAdvisory,
         catalogGateFailClosed: skipPersist ? 0 : groundingSignals.catalogGateFailClosed,
         ...(!skipPersist && loopSignal ? { closedLoop: loopSignal } : {}),
+        ...(!skipPersist && browserSignal ? { agentBrowser: browserSignal } : {}),
       },
       cases: [],
       /*

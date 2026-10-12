@@ -51,6 +51,7 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
       ...(outcome.gateSignals.catalogGateFailClosed !== undefined ? { catalogGateFailClosed: outcome.gateSignals.catalogGateFailClosed } : {}),
       ...(outcome.gateSignals.sandbox !== undefined ? { sandbox: outcome.gateSignals.sandbox } : {}),
       ...(outcome.gateSignals.closedLoop !== undefined ? { closedLoop: outcome.gateSignals.closedLoop } : {}),
+      ...(outcome.gateSignals.agentBrowser !== undefined ? { agentBrowser: outcome.gateSignals.agentBrowser } : {}),
 
       ...(outcome.gateSignals.structuralSignalBytes !== undefined ? { structuralSignalBytes: outcome.gateSignals.structuralSignalBytes } : {}),
       ...(outcome.gateSignals.serviceLinksCount !== undefined ? { serviceLinksCount: outcome.gateSignals.serviceLinksCount } : {}),
