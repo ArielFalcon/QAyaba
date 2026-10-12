@@ -347,6 +347,25 @@ test("isProtectedPath flags the authenticated agent browser: its guard, host, la
   }
 });
 
+test("isProtectedPath flags what a sidekick may do against DEV and in the working copy: the DEV lease, run_spec's capability and use case, the loop registry and adapter, the workspace and its tool", () => {
+  const files = [
+    "qa-engine/src/contexts/test-execution/domain/dev-lease.ts",
+    "qa-engine/src/contexts/test-execution/domain/account-lock.ts",
+    "qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts",
+    "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
+    "agents/tool/run_spec.ts",
+    "agents/lib/run-spec-client.mjs",
+  ];
+  for (const file of files) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, file);
+  }
+});
+
 test("every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {
   const unclassified = unclassifiedUnder(repoRoot, SECURITY_SENSITIVE_SURFACE_ROOTS);
   assert.deepEqual(unclassified, [], `unclassified security-sensitive file(s) — add each to PROTECTED_PATHS or NOT_SECURITY_SENSITIVE: ${JSON.stringify(unclassified)}`);

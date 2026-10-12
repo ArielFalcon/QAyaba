@@ -221,7 +221,7 @@ const BUILTIN_TOOL_KEYS = new Set([
   "apply_patch",
 ]);
 
-/* Tools the repo ships itself (agents/tool/*.ts) rather than OpenCode or an MCP server: run_spec lets the generator ask the orchestrator to run a spec it wrote. */
+/* Tools the repo ships itself (agents/tool/*.ts) rather than OpenCode or an MCP server: run_spec lets an authoring role ask the orchestrator to run a spec it wrote. */
 const CUSTOM_TOOL_KEYS = new Set<string>(["run_spec", ...AGENT_BROWSER_TOOLS]);
 
 function loadRawConfig(): Record<string, unknown> {
@@ -905,14 +905,14 @@ test("known built-in tool keys are recognized (sanity check for the BUILTIN_TOOL
   }
 });
 
-test("run_spec is off for every agent by the global tools map and on for qa-generator alone", () => {
+test("run_spec is off for every agent by the global tools map and on for the two authoring roles alone", () => {
   const raw = loadRawConfig();
   assert.deepEqual((raw.tools as Record<string, unknown> | undefined)?.run_spec, false, "the global default switches the tool off");
   const { agents } = loadAgentConfig();
   const on = Object.entries(agents).filter(([, agent]) => agentTools(agent).run_spec === true).map(([name]) => name);
-  assert.deepEqual(on, ["qa-generator"]);
+  assert.deepEqual(on.sort(), ["qa-generator", "qa-sidekick"]);
   for (const [name, agent] of Object.entries(agents)) {
-    if (name !== "qa-generator") assert.notEqual(agentTools(agent).run_spec, true, `${name} must not call run_spec`);
+    if (name !== "qa-generator" && name !== "qa-sidekick") assert.notEqual(agentTools(agent).run_spec, true, `${name} must not call run_spec`);
   }
 });
 

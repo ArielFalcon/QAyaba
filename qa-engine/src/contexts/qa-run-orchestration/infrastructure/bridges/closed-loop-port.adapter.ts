@@ -16,12 +16,12 @@ import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import { removeTreeBounded } from "../../../../shared-infrastructure/bounded-tree-removal.ts";
 import { MAX_SPEC_SOURCE_BYTES, purgeRefusedDirectory, readOwnedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
-import { PROBE_REL_DIR, RunSpecCapability, loopClosed } from "@contexts/test-execution/domain/run-spec-capability.ts";
+import { PROBE_REL_DIR, RUN_SPEC_FLOW_AGENT, RunSpecCapability, loopClosed } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { RunSpecUseCase } from "@contexts/test-execution/application/run-spec.use-case.ts";
 import type { SpecCleanupPort, SpecExecutorPort } from "@contexts/test-execution/application/ports/run-spec.ports.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { AuthSessionContext, AuthSessionPort } from "../../application/ports/auth-session.port.ts";
-import type { CleanupPort, ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopPort, ExecutionPort } from "../../application/ports/index.ts";
+import type { CleanupPort, ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopPort, ExecutionPort, FlowLoopHandle, FlowLoopOpenInput } from "../../application/ports/index.ts";
 import type { ClosedLoopRegistry } from "../closed-loop-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
 
@@ -73,6 +73,8 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       now,
     });
     const root: SpecRoot = { mirrorDir: input.mirrorDir, specDir: input.specDir };
+    /* One renewal allowance for the whole run: the generator's loop and every flow's draw on the same one. */
+    const session = this.deps.authSession && this.deps.authContext ? trustedSessionRenewal(this.deps.authSession, this.deps.authContext, input.specDir, MAX_RUN_SPEC_RENEWALS) : undefined;
     const useCase = new RunSpecUseCase({
       capability,
       specRoot: root,
@@ -81,7 +83,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       lock: this.deps.lock,
       executor: this.executor(input),
       cleanup: this.cleaner(input),
-      ...(this.deps.authSession && this.deps.authContext ? { session: trustedSessionRenewal(this.deps.authSession, this.deps.authContext, input.specDir, MAX_RUN_SPEC_RENEWALS) } : {}),
+      ...(session ? { session } : {}),
       ...(this.deps.deadline ? { deadline: this.deps.deadline } : {}),
       redact: this.deps.redact,
       ...(input.signal ? { signal: input.signal } : {}),
@@ -109,32 +111,129 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
         for (const controller of running.get(sessionId) ?? []) controller.abort();
       },
     });
-    return this.handle(input, capability, root, inRunContext);
+    return this.handle(input, capability, root, inRunContext, session);
   }
 
-  private handle(input: ClosedLoopOpenInput, capability: RunSpecCapability, root: SpecRoot, inRunContext: <R>(fn: () => R) => R): ClosedLoopHandle {
+  private handle(input: ClosedLoopOpenInput, capability: RunSpecCapability, root: SpecRoot, inRunContext: <R>(fn: () => R) => R, session: ReturnType<typeof trustedSessionRenewal> | undefined): ClosedLoopHandle {
     let closed = false;
+    /* The capability of every flow opened, those closed included: what a flow's calls did stays in the run's counts and ledger. */
+    const flows = new Map<string, RunSpecCapability>();
     return {
       limits: capability.limits,
+      openFlow: (flow) => {
+        if (closed) return undefined;
+        if (flows.has(flow.delegationId)) throw new Error(`the run_spec loop of flow ${flow.delegationId} is already open`);
+        const opened = this.openFlowLoop(input, flow, inRunContext, session);
+        flows.set(flow.delegationId, opened.capability);
+        return opened.handle;
+      },
       sweepProbes: async () => sweepProbeDir(root),
       isClosed: async (delivered) => {
         const current = new Map<string, string | undefined>();
         for (const file of delivered) current.set(normalizeSpecPath(file), currentSha256(root, normalizeSpecPath(file)));
-        return loopClosed(capability.ledger, current);
+        return loopClosed([...capability.ledger, ...[...flows.values()].flatMap((c) => c.ledger)], current);
       },
-      signals: () => ({ calls: capability.calls, devWrites: capability.devWrites }),
+      signals: () => ({
+        calls: capability.calls + [...flows.values()].reduce((sum, c) => sum + c.calls, 0),
+        devWrites: capability.devWrites + [...flows.values()].reduce((sum, c) => sum + c.devWrites, 0),
+      }),
       close: async () => {
         if (closed) return;
         closed = true;
-        const pending = capability.pendingNamespace;
+        const pending = [capability, ...flows.values()].flatMap((c) => (c.pendingNamespace !== undefined ? [c.pendingNamespace] : []));
         capability.revoke();
+        for (const c of flows.values()) c.revoke();
         this.deps.registry.unregister(input.runId);
         try {
           sweepProbeDir(root);
         } catch (err) {
           console.error(`[qa] removing the run_spec probes failed: ${err instanceof Error ? err.message : String(err)}`);
         }
+        for (const namespace of pending) await inRunContext(() => this.cleaner(input).cleanup(namespace));
+      },
+    };
+  }
+
+  /*
+   * The loop of one flow of a plan: a capability of its own (its share of the calls and of the writes to DEV, its namespace, its
+   * sidekick's sessions), a use case that reads the spec from the sidekick's workspace and may run that one spec alone, and an
+   * executor that puts that spec in the working copy, inside the call's lease, and runs it from there. Everything else is the
+   * run's: the execution, the cleanup, the account lock, the session renewal and the run's scope.
+   */
+  private openFlowLoop(input: ClosedLoopOpenInput, flow: FlowLoopOpenInput, inRunContext: <R>(fn: () => R) => R, session: ReturnType<typeof trustedSessionRenewal> | undefined): { capability: RunSpecCapability; handle: FlowLoopHandle } {
+    const now = this.deps.now ?? Date.now;
+    const left = this.deps.deadline?.remainingMs();
+    const capability = new RunSpecCapability({
+      runId: `${input.runId}-${flow.flowId}`,
+      limits: { maxCalls: flow.limits.maxCalls, perCallMs: this.deps.setting.limits.perCallMs, maxDevWrites: flow.limits.maxDevWrites },
+      expiresAtMs: now() + (left !== undefined && left > 0 ? left : DEFAULT_LOOP_TTL_MS),
+      now,
+      agents: new Set([RUN_SPEC_FLOW_AGENT]),
+    });
+    const workspace: SpecRoot = { mirrorDir: flow.workspace.dir, specDir: flow.workspace.specDir };
+    const only = normalizeSpecPath(flow.specFile);
+    const useCase = new RunSpecUseCase({
+      capability,
+      specRoot: workspace,
+      specRelDir: this.deps.specRelDir,
+      account: this.deps.account,
+      lock: this.deps.lock,
+      executor: this.stagedExecutor(input, flow),
+      cleanup: this.cleaner(input),
+      ...(session ? { session } : {}),
+      ...(this.deps.deadline ? { deadline: this.deps.deadline } : {}),
+      redact: this.deps.redact,
+      allowPath: (rel) => normalizeSpecPath(rel) === only,
+      allowedDescription: `${this.deps.specRelDir}/${only}`,
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    const running = new Map<string, Set<AbortController>>();
+    this.deps.registry.register({
+      runId: input.runId,
+      delegationId: flow.delegationId,
+      capability,
+      call: async (request) => {
+        const own = new AbortController();
+        const mine = running.get(request.sessionId) ?? new Set<AbortController>();
+        mine.add(own);
+        running.set(request.sessionId, mine);
+        try {
+          return await inRunContext(() => useCase.run(request, own.signal));
+        } finally {
+          mine.delete(own);
+          if (mine.size === 0) running.delete(request.sessionId);
+        }
+      },
+      cancel: (sessionId) => {
+        for (const controller of running.get(sessionId) ?? []) controller.abort();
+      },
+    });
+    let closed = false;
+    const handle: FlowLoopHandle = {
+      limits: capability.limits,
+      signals: () => ({ calls: capability.calls, devWrites: capability.devWrites }),
+      ledger: () => capability.ledger.map((e) => ({ path: e.path, sha256: e.sha256, status: e.status, devWrites: e.devWrites })),
+      isClosed: async () => loopClosed(capability.ledger, new Map([[only, currentSha256(workspace, only)]])),
+      close: async () => {
+        if (closed) return;
+        closed = true;
+        const pending = capability.pendingNamespace;
+        capability.revoke();
+        this.deps.registry.unregisterFlow(input.runId, flow.delegationId);
         if (pending !== undefined) await inRunContext(() => this.cleaner(input).cleanup(pending));
+      },
+    };
+    return { capability, handle };
+  }
+
+  /* The executor of a flow: the spec the sidekick wrote is put in the working copy first, and what runs is that copy. */
+  private stagedExecutor(input: ClosedLoopOpenInput, flow: FlowLoopOpenInput): SpecExecutorPort {
+    const run = this.executor(input);
+    return {
+      execute: async (request) => {
+        const staged = await flow.stage();
+        if (staged === undefined) throw new Error(`the spec ${request.specFile} is not in the sidekick's workspace`);
+        return run.execute({ ...request, specFile: staged });
       },
     };
   }

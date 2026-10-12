@@ -39,7 +39,7 @@ export class AgentBrowserRegistry {
     if (!AGENT_BROWSER_AGENTS.has(session.agent)) return;
     const browser = this.browsers.get(session.runId);
     if (!browser) return;
-    browser.capability.bindSession(session.sessionId);
+    browser.capability.bindSession(session.sessionId, session.delegationId);
     this.sessions.set(session.sessionId, session.runId);
   }
 

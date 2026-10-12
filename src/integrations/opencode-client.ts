@@ -495,11 +495,32 @@ export const NO_WRITE_TOOLS: Readonly<Record<string, false>> = Object.fromEntrie
   ["write", "edit", "patch", "replace_symbol_body", "insert_after_symbol", "insert_before_symbol", "serena_replace_symbol_body", "serena_insert_after_symbol", "serena_insert_before_symbol"].map((name) => [name, false as const]),
 );
 
-/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one that may not write is denied the file tools; one of a session the browser was not granted to hides its tools; every other prompt leaves the tools to its agent's configuration. */
-export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined }) {
+/*
+ * The tools a session's run denied it, by session: what the run did not grant a sidekick (the code-navigation server, whose symbol edits
+ * write wherever it points, the unauthenticated browser, run_spec without a flow's loop). They are set when the session opens and cleared
+ * when it ends, and every prompt of the session carries them. Per-prompt, because the project configuration that could scope an
+ * instance is switched off on the server.
+ */
+const deniedToolsBySession = new Map<string, readonly string[]>();
+
+export function setSessionToolDeny(sessionId: string, tools: readonly string[] | undefined): void {
+  if (tools === undefined || tools.length === 0) deniedToolsBySession.delete(sessionId);
+  else deniedToolsBySession.set(sessionId, [...tools]);
+}
+
+export function sessionToolDeny(sessionId: string): readonly string[] | undefined {
+  return deniedToolsBySession.get(sessionId);
+}
+
+/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one that may not write is denied the file tools; one of a session the browser was not granted to hides its tools; the tools its session was denied are denied it; every other prompt leaves the tools to its agent's configuration. */
+export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; denyTools?: readonly string[] | undefined }) {
   const tools: Record<string, false> = args.withoutTools
     ? { ...NO_TOOLS }
-    : { ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}), ...(args.withoutWrites ? NO_WRITE_TOOLS : {}) };
+    : {
+        ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}),
+        ...(args.withoutWrites ? NO_WRITE_TOOLS : {}),
+        ...Object.fromEntries((args.denyTools ?? []).map((name) => [name, false as const])),
+      };
   return {
     agent: args.agent,
     parts: [{ type: "text" as const, text: args.text }],
@@ -537,7 +558,7 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
       const res = await client.session.prompt({
         path: { id },
         query: { directory: cwd },
-        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id) }),
+        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id), denyTools: sessionToolDeny(id) }),
       });
       if (res.error) {
         throw new Error(`OpenCode session.prompt failed: ${describeFailure(res.error)}`);

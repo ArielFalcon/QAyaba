@@ -53,6 +53,9 @@ export class AgentBrowserCapability {
   private invalidations_ = 0;
   private renewals_ = 0;
   private failedRenewals = 0;
+  /* The calls each flow of a plan may make, and how many it has made; the session each flow's sidekick opened belongs to. */
+  private readonly shares = new Map<string, { share: number; used: number }>();
+  private readonly flowOfSession = new Map<string, string>();
 
   constructor(private readonly init: AgentBrowserCapabilityInit) {}
 
@@ -68,12 +71,19 @@ export class AgentBrowserCapability {
     return { calls: this.calls_, blocks: this.blocks_, invalidations: this.invalidations_, renewals: this.renewals_ };
   }
 
-  bindSession(sessionId: string): void {
+  /* Gives a flow of a plan the calls it may make out of the run's: the sessions bound for it spend from this and from the run's alike. */
+  setShare(delegationId: string, calls: number): void {
+    this.shares.set(delegationId, { share: Math.max(0, Math.floor(calls)), used: 0 });
+  }
+
+  bindSession(sessionId: string, delegationId?: string): void {
     this.sessions.add(sessionId);
+    if (delegationId !== undefined) this.flowOfSession.set(sessionId, delegationId);
   }
 
   unbindSession(sessionId: string): void {
     this.sessions.delete(sessionId);
+    this.flowOfSession.delete(sessionId);
   }
 
   revoke(): void {
@@ -92,10 +102,14 @@ export class AgentBrowserCapability {
     return Math.max(0, this.limits.maxCalls - this.calls_);
   }
 
-  /* Takes one call from the budget, or says why there is none. */
-  reserve(): { ok: true; callNumber: number } | AgentBrowserRefusal {
+  /* Takes one call from the budget, or says why there is none. A session bound for a flow also spends from the flow's share, and a flow with no share has no calls. */
+  reserve(sessionId?: string): { ok: true; callNumber: number } | AgentBrowserRefusal {
     if (this.revoked) return refuse(AGENT_BROWSER_REFUSAL.REVOKED, "the authenticated browser is no longer available: the run it belonged to has ended");
     if (this.calls_ >= this.limits.maxCalls) return refuse(AGENT_BROWSER_REFUSAL.NO_CALLS, `the ${this.limits.maxCalls} authenticated browser calls of this run are spent`);
+    const flow = sessionId === undefined ? undefined : this.flowOfSession.get(sessionId);
+    const share = flow === undefined ? undefined : (this.shares.get(flow) ?? { share: 0, used: 0 });
+    if (share && share.used >= share.share) return refuse(AGENT_BROWSER_REFUSAL.NO_CALLS, `the ${share.share} authenticated browser calls of this flow are spent`);
+    if (share) share.used += 1;
     this.calls_ += 1;
     return { ok: true, callNumber: this.calls_ };
   }

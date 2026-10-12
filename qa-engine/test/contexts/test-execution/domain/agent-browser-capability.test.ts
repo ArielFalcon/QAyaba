@@ -73,3 +73,56 @@ test("another sign-in is allowed until the renewals of a run, successful or not,
   fresh.recordInvalidation(undefined);
   assert.equal(fresh.canRenew(), true, "an invalidation nobody tried to renew uses no attempt");
 });
+
+test("a flow's share caps the calls of the sessions opened for that flow, and a call of a session spends from its flow's share and from the run's", () => {
+  const c = capability({ maxCalls: 10 });
+  c.setShare("flow-a", 2);
+  c.bindSession("side-a", "flow-a");
+  assert.equal(c.authorize("side-a", "qa-sidekick"), undefined);
+  assert.equal(c.reserve("side-a").ok, true);
+  assert.equal(c.reserve("side-a").ok, true);
+  const spent = c.reserve("side-a");
+  assert.equal(spent.ok === false && spent.code, AGENT_BROWSER_REFUSAL.NO_CALLS);
+  assert.equal(c.callsLeft(), 8, "the two calls were also the run's");
+});
+
+test("a flow's share is the flow's: another flow, the run's own sessions and a session with no flow are not held to it", () => {
+  const c = capability({ maxCalls: 10 });
+  c.setShare("flow-a", 1);
+  c.setShare("flow-b", 3);
+  c.bindSession("side-a", "flow-a");
+  c.bindSession("side-b", "flow-b");
+  assert.equal(c.reserve("side-a").ok, true);
+  assert.equal(c.reserve("side-a").ok, false);
+  for (let i = 0; i < 3; i++) assert.equal(c.reserve("side-b").ok, true);
+  assert.equal(c.reserve("side-b").ok, false);
+  for (let i = 0; i < 3; i++) assert.equal(c.reserve("s1").ok, true, "the generator's session has no share");
+});
+
+test("several sessions of one flow draw on its one share", () => {
+  const c = capability({ maxCalls: 10 });
+  c.setShare("flow-a", 2);
+  c.bindSession("first", "flow-a");
+  c.bindSession("second", "flow-a");
+  assert.equal(c.reserve("first").ok, true);
+  assert.equal(c.reserve("second").ok, true);
+  assert.equal(c.reserve("first").ok, false);
+});
+
+test("a flow's share never lets the flow past the run's own cap", () => {
+  const c = capability({ maxCalls: 2 });
+  c.setShare("flow-a", 5);
+  c.bindSession("side-a", "flow-a");
+  assert.equal(c.reserve("side-a").ok, true);
+  assert.equal(c.reserve("side-a").ok, true);
+  const third = c.reserve("side-a");
+  assert.equal(third.ok === false && third.code, AGENT_BROWSER_REFUSAL.NO_CALLS);
+});
+
+test("a session bound for a flow that was given no share is refused, not left unlimited", () => {
+  const c = capability({ maxCalls: 10 });
+  c.bindSession("side-x", "flow-x");
+  const refused = c.reserve("side-x");
+  assert.equal(refused.ok === false && refused.code, AGENT_BROWSER_REFUSAL.NO_CALLS);
+});
+

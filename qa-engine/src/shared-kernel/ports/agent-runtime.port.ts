@@ -16,6 +16,10 @@ export interface AgentOpenDescriptor {
    * Omitted or `true` means "register as usual", as for every other role.
    */
   liveObservation?: boolean;
+  /** The flow of a plan the session is opened for: the right to run a spec and to use the browser is the flow's own, and its sidekick's session finds it by this. */
+  delegationId?: string;
+  /** Tool names or patterns the session's prompts are denied, whatever its agent's configuration allows: what the run did not grant it. A runtime with no per-prompt control over tools ignores it. */
+  denyTools?: readonly string[];
 }
 
 /** Per-turn telemetry. runId is nullable for runs without a run context. */

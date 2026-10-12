@@ -38,6 +38,7 @@ function rig(opts: { closed?: boolean; openThrows?: boolean; grant?: boolean } =
   const closedAsked: string[][] = [];
   const handle: ClosedLoopHandle = {
     limits: LIMITS,
+    openFlow: () => undefined,
     sweepProbes: async () => void events.push("sweep"),
     isClosed: async (specs) => (closedAsked.push([...specs]), closedState.value),
     signals: () => ({ calls: 3, devWrites: 2 }),

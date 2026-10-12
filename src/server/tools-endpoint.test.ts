@@ -67,6 +67,23 @@ test("a call from the generator's session runs and returns the report", async ()
   assert.deepEqual(seen, [{ sessionId: "ses-1", agent: "qa-generator", path: "flows/a.spec.ts", grep: "adds" }]);
 });
 
+test("a call from the sidekick's session of a flow reaches that flow's loop alone, and the generator's loop is not reachable from it", async () => {
+  const registry = new ClosedLoopRegistry();
+  const reached: string[] = [];
+  const loop = (delegationId: string | undefined): void => {
+    const capability = new RunSpecCapability({ runId: "run-1", limits: { maxCalls: 2, perCallMs: 60_000, maxDevWrites: 5 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0, ...(delegationId ? { agents: new Set(["qa-sidekick"]) } : {}) });
+    registry.register({ runId: "run-1", ...(delegationId ? { delegationId } : {}), capability, call: async () => (reached.push(delegationId ?? "run"), { ok: true, report: { status: "passed", tests: [], passedTests: 1, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } }) });
+  };
+  loop(undefined);
+  loop("run-1-cart");
+  registry.bindSession({ sessionId: "gen", runId: "run-1", agent: "qa-generator" });
+  registry.bindSession({ sessionId: "side", runId: "run-1", agent: "qa-sidekick", delegationId: "run-1-cart" });
+  const body = (sessionID: string, agent: string) => JSON.stringify({ sessionID, agent, path: "flows/cart.spec.ts" });
+  assert.equal((await handle(request({ body: body("side", "qa-sidekick") }), registry)).status, 200);
+  assert.equal((await handle(request({ body: body("gen", "qa-generator") }), registry)).status, 200);
+  assert.deepEqual(reached, ["run-1-cart", "run"]);
+});
+
 test("each refusal has its own status", async () => {
   const cases: Array<[string, number]> = [["invalid-request", 400], ["not-found", 404], ["revoked", 403], ["expired", 403], ["no-calls", 429], ["no-writes", 429], ["no-time", 429], ["busy", 409]];
   for (const [code, status] of cases) {

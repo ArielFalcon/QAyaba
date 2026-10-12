@@ -21,6 +21,8 @@ import {
   fallbackModelFromConfig,
   createRawEventStreamOpener,
   openCodePromptBody,
+  setSessionToolDeny,
+  sessionToolDeny,
   setAgentBrowserGrantLookup,
   hidesBrowserTools,
 } from "./opencode-client";
@@ -1303,6 +1305,26 @@ test("openCodePromptBody: a prompt may be denied its writes and the browser at o
   assert.equal(both.write, false);
   const none = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutTools: true, withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
   assert.equal(none["*"], false);
+});
+
+test("openCodePromptBody: the tools a session was denied are denied its prompts, beside the other denials, and a prompt without tools stays without all of them", () => {
+  const denied = (openCodePromptBody({ agent: "qa-sidekick", text: "x", denyTools: ["serena*", "run_spec"], withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal(denied["serena*"], false);
+  assert.equal(denied.run_spec, false);
+  assert.equal(denied.write, false);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-sidekick", text: "x", denyTools: [] }), false);
+  const none = (openCodePromptBody({ agent: "qa-sidekick", text: "x", withoutTools: true, denyTools: ["serena*"] }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal(none["*"], false);
+});
+
+test("a session's denied tools are kept per session, replaced by a later set, and forgotten when cleared", () => {
+  setSessionToolDeny("ses-deny-1", ["serena*"]);
+  assert.deepEqual(sessionToolDeny("ses-deny-1"), ["serena*"]);
+  assert.equal(sessionToolDeny("ses-deny-2"), undefined);
+  setSessionToolDeny("ses-deny-1", ["playwright*"]);
+  assert.deepEqual(sessionToolDeny("ses-deny-1"), ["playwright*"]);
+  setSessionToolDeny("ses-deny-1", undefined);
+  assert.equal(sessionToolDeny("ses-deny-1"), undefined);
 });
 
 test("openCodePromptBody: a prompt of a session the run did not grant the browser hides its tools and changes nothing else", () => {

@@ -184,3 +184,19 @@ test("closing revokes the right, forgets the sessions and stops the browser, onc
   const refused = await live.call({ sessionId: "ses-1", agent: "qa-generator", action: "snapshot" });
   assert.equal(refused.ok === false && refused.code, "revoked");
 });
+
+test("a flow's share of the browser's calls is granted through the handle, and its sidekick's calls stop at it while the generator's go on", async () => {
+  const r = rig();
+  const handle = (await new AgentBrowserPortAdapter(r.deps).open(OPEN))!;
+  handle.grantShare("flow-a", 1);
+  r.registry.bindSession({ sessionId: "side", runId: "run-9", agent: "qa-sidekick", delegationId: "flow-a" });
+  r.registry.bindSession({ sessionId: "gen", runId: "run-9", agent: "qa-generator" });
+  const sidekickCall = () => r.registry.find("side")!.call({ sessionId: "side", agent: "qa-sidekick", action: "navigate", url: "/orders" });
+  assert.equal((await sidekickCall()).ok, true);
+  const second = await sidekickCall();
+  assert.equal(second.ok, false);
+  assert.equal(!second.ok ? second.code : "", "no-calls");
+  assert.equal((await call(r.registry, "gen")).ok, true);
+  assert.equal(r.host.performed.filter((p) => p.sessionId === "side").length, 1, "the refused call never reached the browser");
+});
+

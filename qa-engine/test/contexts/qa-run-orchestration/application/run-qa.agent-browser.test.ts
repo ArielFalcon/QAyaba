@@ -24,6 +24,7 @@ function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: bool
   const saved: RunOutcome[] = [];
   const handle: AgentBrowserHandle = {
     limits: DEFAULT_AGENT_BROWSER_LIMITS,
+    grantShare: () => {},
     signals: () => SIGNAL,
     close: async () => { events.push("close"); if (opts.closeThrows) throw new Error("browser stuck"); },
   };

@@ -5,6 +5,7 @@ import {
   DEFAULT_CLOSED_LOOP_LIMITS,
   MIN_CALL_MS,
   RUN_SPEC_AGENT,
+  RUN_SPEC_FLOW_AGENT,
   RunSpecCapability,
   loopClosed,
   type LedgerEntry,
@@ -34,6 +35,14 @@ test("only the generator's own session may call, in a run whose capability is li
   assert.equal(capability.authorize("ses-1", "qa-reviewer")?.code, CLOSED_LOOP_REFUSAL.WRONG_AGENT);
   capability.unbindSession("ses-1");
   assert.equal(capability.authorize("ses-1", RUN_SPEC_AGENT)?.code, CLOSED_LOOP_REFUSAL.UNKNOWN_SESSION);
+});
+
+test("a capability made for a flow's sidekick is held by that agent's sessions and never by the generator's", () => {
+  const capability = new RunSpecCapability({ runId: "run-1-cart", limits: LIMITS, expiresAtMs: 10_000_000, now: () => 1_000, agents: new Set([RUN_SPEC_FLOW_AGENT]) });
+  capability.bindSession("side-1");
+  assert.equal(capability.authorize("side-1", RUN_SPEC_FLOW_AGENT), undefined);
+  assert.equal(capability.authorize("side-1", RUN_SPEC_AGENT)?.code, CLOSED_LOOP_REFUSAL.WRONG_AGENT);
+  assert.equal(capability.authorize("side-1", "qa-reviewer")?.code, CLOSED_LOOP_REFUSAL.WRONG_AGENT);
 });
 
 test("a revoked capability refuses everything, and revoking twice changes nothing", () => {

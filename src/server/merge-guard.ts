@@ -299,6 +299,17 @@ export const PROTECTED_PATHS: string[] = [
   "src/server/tools-endpoint.ts",
   "agents/tool/authbrowser.ts",
   "agents/lib/authbrowser-client.mjs",
+  /* What an authoring agent may do against DEV and in the working copy while it writes: the lease that decides who acts on DEV and whether an action may write, the capability and the use case of run_spec (its calls, time, writes and the one spec a flow may run), the registry and the adapter that decide which session holds which loop, the tool and the client the agents call it through, and the workspace a sidekick works in with the one rule by which its files come back. An autonomous fix that loosened any of them could let a sidekick act on DEV at the same time as another action, run a spec that is not its own, or put into the suite a file its brief never named. */
+  "qa-engine/src/contexts/test-execution/domain/dev-lease.ts",
+  "qa-engine/src/contexts/test-execution/domain/account-lock.ts",
+  "qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts",
+  "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
+  "agents/tool/run_spec.ts",
+  "agents/lib/run-spec-client.mjs",
   /* 4. build/topology the canary cannot verify (image rebuild only) */
   ".github/",
   "Dockerfile",

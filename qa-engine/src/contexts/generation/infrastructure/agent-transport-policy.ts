@@ -62,6 +62,9 @@ export interface AgentOpenDescriptor {
   objective?: string;
   /** `false` keeps the session out of SSE/stall-watchdog registration while its turns still persist under `runId` (mirrors the kernel port's AgentOpenDescriptor). */
   liveObservation?: boolean;
+  /** The flow of a plan the session is opened for, and the tools its run denied it (mirrors the kernel port's AgentOpenDescriptor). */
+  delegationId?: string;
+  denyTools?: readonly string[];
 }
 
 export interface AgentDeps {
@@ -593,7 +596,7 @@ export function withSessionRegistration(
     register: (sessionId: string, runId: string, cwd: string) => void;
     unregister: (sessionId: string) => void;
     /* Told which agent opened which session for which run, whatever its live-observation choice: the run_spec loop gives its right to the generator's sessions through this. Absent: nothing is told. */
-    bind?: (session: { sessionId: string; runId: string; agent: string }) => void;
+    bind?: (session: { sessionId: string; runId: string; agent: string; delegationId?: string; denyTools?: readonly string[] }) => void;
     unbind?: (sessionId: string) => void;
   },
 ): AgentDeps {
@@ -609,7 +612,10 @@ export function withSessionRegistration(
       const runId = opts?.descriptor?.liveObservation === false ? undefined : opts?.descriptor?.runId;
       if (runId) register(inner.id, runId, cwd);
       const boundRunId = opts?.descriptor?.runId;
-      if (boundRunId) bind?.({ sessionId: inner.id, runId: boundRunId, agent });
+      if (boundRunId) {
+        const { delegationId, denyTools } = opts?.descriptor ?? {};
+        bind?.({ sessionId: inner.id, runId: boundRunId, agent, ...(delegationId !== undefined ? { delegationId } : {}), ...(denyTools?.length ? { denyTools } : {}) });
+      }
 
       return {
         ...inner,

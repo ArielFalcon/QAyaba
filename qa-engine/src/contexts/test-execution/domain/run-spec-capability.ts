@@ -8,8 +8,11 @@
 import { DEFAULT_CLOSED_LOOP_LIMITS, type ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 
-/* The only agent whose sessions may hold the capability. */
+/* The agent whose sessions hold the run's own capability. */
 export const RUN_SPEC_AGENT = "qa-generator";
+
+/* The agent whose sessions hold the capability of one flow of a plan: the sidekick that authors it. */
+export const RUN_SPEC_FLOW_AGENT = "qa-sidekick";
 
 /* Where the generator's throwaway specs live, relative to the spec directory. Nothing under it is ever delivered, stored or validated. */
 export const PROBE_REL_DIR = ".qa-probe";
@@ -79,11 +82,15 @@ export interface RunSpecCapabilityInit {
   limits: ClosedLoopLimits;
   expiresAtMs: number;
   now: () => number;
+  /* The agents whose sessions may hold it. Absent: the generator alone. */
+  agents?: ReadonlySet<string>;
 }
 
 function refuse(code: ClosedLoopRefusalCode, message: string): ClosedLoopRefusal {
   return { ok: false, code, message };
 }
+
+const DEFAULT_AGENTS: ReadonlySet<string> = new Set([RUN_SPEC_AGENT]);
 
 export class RunSpecCapability {
   private readonly sessions = new Set<string>();
@@ -139,7 +146,7 @@ export class RunSpecCapability {
     if (this.revoked) return refuse(CLOSED_LOOP_REFUSAL.REVOKED, "run_spec is no longer available: the run it belonged to has ended");
     if (this.init.now() >= this.init.expiresAtMs) return refuse(CLOSED_LOOP_REFUSAL.EXPIRED, "run_spec is no longer available: its time has run out");
     if (!this.sessions.has(sessionId)) return refuse(CLOSED_LOOP_REFUSAL.UNKNOWN_SESSION, "run_spec is not available to this session");
-    if (agent !== RUN_SPEC_AGENT) return refuse(CLOSED_LOOP_REFUSAL.WRONG_AGENT, "run_spec is available to the generator only");
+    if (!(this.init.agents ?? DEFAULT_AGENTS).has(agent)) return refuse(CLOSED_LOOP_REFUSAL.WRONG_AGENT, "run_spec is not available to this agent");
     return undefined;
   }
 

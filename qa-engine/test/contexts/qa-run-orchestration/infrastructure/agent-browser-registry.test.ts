@@ -76,3 +76,23 @@ test("a sweep closes every browser that is still open and forgets it", async () 
   assert.equal(registry.find("gen"), undefined);
   assert.equal(await registry.sweepAll(), 0);
 });
+
+test("a sidekick session opened for a flow spends from that flow's share of the browser's calls", () => {
+  const registry = new AgentBrowserRegistry();
+  const { browser } = live("r1");
+  registry.register(browser);
+  browser.capability.setShare("flow-a", 1);
+  registry.bindSession({ sessionId: "side", runId: "r1", agent: "qa-sidekick", delegationId: "flow-a" });
+  assert.equal(registry.find("side"), browser);
+  assert.equal(browser.capability.reserve("side").ok, true);
+  assert.equal(browser.capability.reserve("side").ok, false, "the flow's one call is spent");
+});
+
+test("the generator's session has no flow and no share", () => {
+  const registry = new AgentBrowserRegistry();
+  const { browser } = live("r1");
+  registry.register(browser);
+  registry.bindSession({ sessionId: "gen", runId: "r1", agent: "qa-generator" });
+  assert.equal(browser.capability.reserve("gen").ok, true);
+});
+

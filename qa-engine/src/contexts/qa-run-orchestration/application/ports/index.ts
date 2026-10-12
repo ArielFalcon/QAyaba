@@ -291,9 +291,42 @@ export interface ClosedLoopSignals {
   /** Mutating requests the executed specs sent to DEV. */
   devWrites: number;
 }
+/** What a flow's loop is opened with: its own share of the run's calls and writes, the sidekick's workspace its spec is read from, and the one spec it may run. */
+export interface FlowLoopOpenInput {
+  delegationId: string;
+  /** The flow's slug: it names the namespace of the flow's calls. */
+  flowId: string;
+  limits: { maxCalls: number; maxDevWrites: number };
+  /** The sidekick's workspace: where its spec is written and read. */
+  workspace: { dir: string; specDir: string };
+  /** The one spec the flow may run, relative to the spec directory. */
+  specFile: string;
+  /** Puts the spec in the working copy where the suite runs it, and says where (relative to the spec directory), or undefined when the workspace has no such spec. Called inside the lease of each call. */
+  stage(): Promise<string | undefined>;
+}
+/** One call of a flow's loop that ran: the bytes of the spec it ran (their sha256), and how it ended. */
+export interface FlowLedgerEntry {
+  path: string;
+  sha256: string;
+  status: string;
+  devWrites: number;
+}
+export interface FlowLoopHandle {
+  /** What the flow's prompt states about the tool: its own share. */
+  limits: ClosedLoopLimits;
+  signals(): ClosedLoopSignals;
+  /** What the orchestrator saw the flow's calls do, oldest first. */
+  ledger(): readonly FlowLedgerEntry[];
+  /** Whether the spec the sidekick holds now is the one whose last call passed. */
+  isClosed(): Promise<boolean>;
+  /** Revokes the flow's right and cleans the data of a call that was in flight. Never throws. */
+  close(): Promise<void>;
+}
 export interface ClosedLoopHandle {
   /** What the generator's prompt states about the tool. */
   limits: ClosedLoopLimits;
+  /** Opens the loop of one flow of a plan, for the sidekick that authors it; undefined once the run's loop is closed. Throws when the flow is already open. */
+  openFlow(input: FlowLoopOpenInput): FlowLoopHandle | undefined;
   /** Removes the probe specs a generator session left in the spec directory. Idempotent. */
   sweepProbes(): Promise<void>;
   /** Whether every one of these delivered specs holds the bytes whose last call passed. */
@@ -327,6 +360,8 @@ export interface AgentBrowserOpenInput {
 export interface AgentBrowserHandle {
   /** What the generator's prompt states about the tools. */
   limits: AgentBrowserLimits;
+  /** Gives a flow of a plan the calls its sidekick may make out of the run's, before the sidekick's session opens. */
+  grantShare(delegationId: string, calls: number): void;
   signals(): AgentBrowserGateSignal;
   /** Revokes the right, stops the browser. Never throws. */
   close(): Promise<void>;
@@ -343,6 +378,23 @@ export interface GenerationPort {
    * static per-run value. `enrichment` is independently absent-safe.
    */
   generate(objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput>;
+  /**
+   * The one turn a coordinated run asks the lead for a plan instead of specs. `enrichment.planning` carries the limits the plan
+   * will be held to and is required. Absent: this port cannot plan, and a coordinated run authors the change as one piece of work.
+   */
+  plan?(specDir: string, signal: AbortSignal | undefined, diff: string, enrichment: GenerationEnrichment): Promise<PlanOutput>;
+}
+/**
+ * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: only the orchestrator's admission reads
+ * it. `noopReason` is the reason the lead gave for writing nothing when it declared that instead of planning. A turn that gives
+ * neither is `parsed` when its verdict could be read at all; `timedOut` is a turn that ran out of its planning time.
+ */
+export interface PlanOutput {
+  plan?: Record<string, unknown>;
+  noopReason?: string;
+  parsed: boolean;
+  timedOut: boolean;
+  turn?: AgentTurnStats;
 }
 /**
  * `priorCorrections` lets the next review judge convergence on previously
@@ -378,23 +430,6 @@ export interface RunDeadlinePort {
  * Adapter catch produces `${REVIEWER_UNAVAILABLE_MARKER}: <reason>`; the
  * use-case matches on it. One constant so producer and matcher cannot drift.
  */
-  /**
-   * The one turn a coordinated run asks the lead for a plan instead of specs. `enrichment.planning` carries the limits the plan
-   * will be held to and is required. Absent: this port cannot plan, and a coordinated run authors the change as one piece of work.
-   */
-  plan?(specDir: string, signal: AbortSignal | undefined, diff: string, enrichment: GenerationEnrichment): Promise<PlanOutput>;
-}
-/**
- * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: only the orchestrator's admission reads
- * it. `noopReason` is the reason the lead gave for writing nothing when it declared that instead of planning. A turn that gives
- * neither is `parsed` when its verdict could be read at all; `timedOut` is a turn that ran out of its planning time.
- */
-export interface PlanOutput {
-  plan?: Record<string, unknown>;
-  noopReason?: string;
-  parsed: boolean;
-  timedOut: boolean;
-  turn?: AgentTurnStats;
 export const REVIEWER_UNAVAILABLE_MARKER = "reviewer unavailable";
 
 /**

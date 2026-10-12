@@ -87,6 +87,20 @@ test("the probe directory is a place a spec may be run from", async (t) => {
   assert.equal(h.executed[0]!.specFile, ".qa-probe/try.spec.ts");
 });
 
+test("a call may be limited to the one spec its holder was given, and any other is refused before a call is spent, whatever its form", async (t) => {
+  const h = harness(t, { allowPath: (rel) => rel === "flows/a.spec.ts", allowedDescription: "e2e/flows/a.spec.ts" });
+  h.write("flows/b.spec.ts", SPEC);
+  h.write(".qa-probe/try.spec.ts", SPEC);
+  for (const path of ["flows/b.spec.ts", "e2e/flows/b.spec.ts", ".qa-probe/try.spec.ts", "flows/./b.spec.ts"]) {
+    const response = await call(h, path);
+    assert.equal(response.ok, false, path);
+    assert.match(!response.ok ? response.message : "", /flows\/a\.spec\.ts/, "the refusal names the spec it may run");
+  }
+  assert.equal(h.executed.length, 0);
+  assert.equal(h.capability.calls, 0);
+  for (const path of ["flows/a.spec.ts", "e2e/flows/a.spec.ts", "./flows/a.spec.ts"]) assert.ok((await call(h, path)).ok, path);
+});
+
 test("what is not a spec of this suite is refused before a call is spent", async (t) => {
   const h = harness(t);
   h.write("auth.setup.ts", SPEC);

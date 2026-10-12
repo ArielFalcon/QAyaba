@@ -93,6 +93,10 @@ export interface RunSpecDeps {
   deadline?: RunDeadlineView;
   /* Takes the run's secrets out of any text that leaves; the run's own scope must be active when it is called. */
   redact: (text: string) => string;
+  /* Which specs, by path relative to the spec directory, a call may run. Absent: any spec of the suite. A flow of a plan may run its own spec and no other. */
+  allowPath?: (rel: string) => boolean;
+  /* What the refusal says when `allowPath` declines a spec. */
+  allowedDescription?: string;
   signal?: AbortSignal;
 }
 
@@ -126,6 +130,9 @@ export class RunSpecUseCase {
 
     const rel = this.confinedPath(request.path);
     if (typeof rel !== "string") return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, rel.message);
+    if (this.deps.allowPath && !this.deps.allowPath(rel)) {
+      return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, `run_spec may run only ${this.deps.allowedDescription ?? "the spec you were given"}`);
+    }
     const grep = this.grepOf(request.grep);
     if (typeof grep === "object") return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, grep.message);
 

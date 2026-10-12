@@ -107,7 +107,7 @@ export class AgentBrowserUseCase {
       }
     }
 
-    const reservation = capability.reserve();
+    const reservation = capability.reserve(request.sessionId);
     if (!reservation.ok) return this.refusal(reservation.code, reservation.message);
 
     const waitSignal = AbortSignal.any([...(stop ? [stop] : []), (this.deps.leaseWaitSignal ?? AbortSignal.timeout.bind(AbortSignal))(capability.limits.leaseWaitMs)]);

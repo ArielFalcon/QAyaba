@@ -1,7 +1,7 @@
 import { tool } from "@opencode-ai/plugin";
 import { callRunSpec } from "../lib/run-spec-client.mjs";
 
-// `run_spec`: the generator executes a spec it wrote, once, against DEV, as the suite would run it. The orchestrator runs it
+// `run_spec`: an authoring role (the generator, or the sidekick that authors one flow of a plan) executes a spec it wrote, once, against DEV, as the suite would run it. The orchestrator runs it
 // (in its sandbox, under a namespace of its own, within the caps the task states) and answers; nothing runs in this process.
 // Loaded from the global config directory only: the project configuration of a watched repo is ignored by the server.
 // The logic is in ../lib/run-spec-client.mjs, which has its own test.

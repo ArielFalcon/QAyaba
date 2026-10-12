@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, withTimeout } from "../integrations/opencode-client";
+import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 
@@ -34,7 +34,7 @@ import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWritt
 import { Sha, shaMatches } from "@kernel/sha";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
 import { resolveCoordinationSettings } from "@kernel/coordination";
-import { AccountLock } from "@contexts/test-execution/domain/account-lock";
+import { DevLease } from "@contexts/test-execution/domain/dev-lease";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
 import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
@@ -456,8 +456,12 @@ export function historyLearningStore(appName: string): LearningStore {
   };
 }
 
-/* Two uses of one test account never interleave, whichever run they belong to. */
-const PROCESS_ACCOUNT_LOCK = new AccountLock();
+/*
+ * DEV is held through one lease for the whole process, whichever run an action belongs to: two uses of one test account never
+ * interleave, and an action that may write holds DEV alone. The proxy has no read-only mode yet, so nothing is built to believe a
+ * read-only claim and every action is exclusive; the lease is built to, once there is one to say so.
+ */
+const PROCESS_ACCOUNT_LOCK = new DevLease();
 
 /* The most a browser process of the agent tools lives, whatever happens to the orchestrator: longer than any run. */
 const AGENT_BROWSER_LIFETIME_SECONDS = 3 * 60 * 60;
@@ -1378,18 +1382,16 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
       withSessionRegistration(deps.getAgentDeps(), {
         register: registerRunSession,
         unregister: unregisterRunSession,
-        ...(registry || browsers
-          ? {
-              bind: (session) => {
-                registry?.bindSession(session);
-                browsers?.bindSession(session);
-              },
-              unbind: (sessionId) => {
-                registry?.unbindSession(sessionId);
-                browsers?.unbindSession(sessionId);
-              },
-            }
-          : {}),
+        bind: (session) => {
+          registry?.bindSession(session);
+          browsers?.bindSession(session);
+          setSessionToolDeny(session.sessionId, session.denyTools);
+        },
+        unbind: (sessionId) => {
+          registry?.unbindSession(sessionId);
+          browsers?.unbindSession(sessionId);
+          setSessionToolDeny(sessionId, undefined);
+        },
       }),
       { stallMs: stallMs() },
     ),

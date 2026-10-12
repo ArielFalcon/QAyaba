@@ -3641,6 +3641,31 @@ test("the factory tells the browser registry about the authoring sessions throug
   assert.deepEqual(ended, ["ses-1"]);
 });
 
+test("a sidekick session opened for a flow is told to the run_spec registry with its flow, and the tools its run denied it are denied its prompts until it ends", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const { RunSpecCapability } = await import("@contexts/test-execution/domain/run-spec-capability");
+  const { sessionToolDeny } = await import("../integrations/opencode-client");
+  const registry = new ClosedLoopRegistry();
+  const capability = new RunSpecCapability({ runId: "run-flow", limits: { maxCalls: 1, perCallMs: 60_000, maxDevWrites: 1 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0, agents: new Set(["qa-sidekick"]) });
+  registry.register({ runId: "run-flow", delegationId: "run-flow-cart", capability, call: async () => { throw new Error("not called"); } });
+  const deps: AgentDeps = { open: async () => ({ id: "ses-flow-1", prompt: async () => "", dispose: async () => {} }) as never };
+  const opened = engineAgentDeps({ getAgentDeps: () => deps, closedLoopRegistry: registry });
+  const session = await opened.open("qa-sidekick", "/w", { descriptor: { runId: "run-flow", role: "qa-sidekick", delegationId: "run-flow-cart", denyTools: ["serena*", "playwright*"] } });
+  assert.equal(capability.authorize("ses-flow-1", "qa-sidekick"), undefined, "the session holds its flow's capability");
+  assert.deepEqual(sessionToolDeny("ses-flow-1"), ["serena*", "playwright*"]);
+  await session.dispose();
+  assert.equal(capability.authorize("ses-flow-1", "qa-sidekick")?.code, "unknown-session");
+  assert.equal(sessionToolDeny("ses-flow-1"), undefined, "nothing is denied a session that has ended");
+});
+
+test("a session opened with no denied tools installs none", async () => {
+  const { sessionToolDeny } = await import("../integrations/opencode-client");
+  const deps: AgentDeps = { open: async () => ({ id: "ses-plain-1", prompt: async () => "", dispose: async () => {} }) as never };
+  const opened = engineAgentDeps({ getAgentDeps: () => deps });
+  await opened.open("qa-generator", "/m", { descriptor: { runId: "run-plain", role: "qa-generator" } });
+  assert.equal(sessionToolDeny("ses-plain-1"), undefined);
+});
+
 /* ── The acceptance harness an experiment arm is judged by ─────────────────────────────────────── */
 
 test("buildAcceptanceHarness composes the pipeline's own gate, execution, coverage and review over a throwaway copy", async () => {
@@ -3690,3 +3715,19 @@ test("the composition carries the app's qa.coordination with every limit it left
   assert.equal(on.coordinationSettings?.flowBudgetMs.opencode, 120_000);
   assert.equal(on.coordinationSettings?.flowBudgetMs.codex, DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.codex);
 });
+
+test("the run_spec loop and the agent browser take DEV through the same lease, which holds it alone for an action that may write", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
+  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const { DevLease } = await import("@contexts/test-execution/domain/dev-lease");
+  const app: AppConfig = {
+    ...cfg("lease-app"),
+    qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true }, agentBrowser: { enabled: true } },
+    auth: { kind: "form", usernameEnv: "LEASE_USER", passwordEnv: "LEASE_PASS" },
+    dev: { baseUrl: "https://dev.example.com" },
+  };
+  const wired = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: new ClosedLoopRegistry(), agentBrowserRegistry: new AgentBrowserRegistry(), getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  assert.ok(wired.closedLoop?.lock instanceof DevLease);
+  assert.equal(wired.agentBrowser?.lock, wired.closedLoop?.lock);
+});
+

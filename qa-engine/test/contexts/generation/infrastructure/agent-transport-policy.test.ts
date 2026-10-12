@@ -254,6 +254,18 @@ test("withSessionRegistration calls register with the session id, descriptor.run
   assert.deepEqual(calls[0], { sessionId: "sess-99", runId: "run-42", directory: "/mirrors/org/app" });
 });
 
+test("withSessionRegistration tells the bind hook the flow a session was opened for and the tools its run denied it, and only when it has them", async () => {
+  const { deps: base } = fakeBaseDeps("sess-flow");
+  const bound: Array<Record<string, unknown>> = [];
+  const wrapped = withSessionRegistration(base, { register: () => {}, unregister: () => {}, bind: (session) => bound.push({ ...session }) });
+  await wrapped.open("qa-sidekick", "/work", { descriptor: { runId: "run-7", role: "qa-sidekick", delegationId: "run-7-cart", denyTools: ["serena*"] } });
+  await wrapped.open("qa-generator", "/m", { descriptor: { runId: "run-7", role: "qa-generator" } });
+  assert.deepEqual(bound, [
+    { sessionId: "sess-flow", runId: "run-7", agent: "qa-sidekick", delegationId: "run-7-cart", denyTools: ["serena*"] },
+    { sessionId: "sess-flow", runId: "run-7", agent: "qa-generator" },
+  ]);
+});
+
 test("withSessionRegistration does NOT register when descriptor.runId is absent (no fabricated run identity)", async () => {
   const { deps: base } = fakeBaseDeps();
   let registerCalls = 0;
