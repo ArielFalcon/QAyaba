@@ -8,7 +8,7 @@ import {
   type MirrorEntry,
   type MirrorPruneDeps,
 } from "./mirror-prune";
-import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../paths";
+import { DELEGATIONS_DIR, EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../paths";
 
 const NOW = 1_750_000_000_000;
 const FRESH = NOW - 60_000;
@@ -57,6 +57,13 @@ test("the directory holding an experiment's throwaway working copies is never pr
 
 test("the directory holding an experiment's warm-start snapshots is never pruned, however old and whatever the configured apps", () => {
   const { deps, removed } = makeDeps({ entries: [entry(WARM_SNAPSHOTS_DIR, STALE), entry("gone__repo", STALE)], configured: [] });
+  const result = pruneMirrors(deps);
+  assert.deepEqual(result.deleted, ["gone__repo"]);
+  assert.deepEqual(removed, ["/mirrors/gone__repo"]);
+});
+
+test("the directory holding the workspaces of a run's sidekicks is never pruned, however old and whatever the configured apps", () => {
+  const { deps, removed } = makeDeps({ entries: [entry(DELEGATIONS_DIR, STALE), entry("gone__repo", STALE)], configured: [] });
   const result = pruneMirrors(deps);
   assert.deepEqual(result.deleted, ["gone__repo"]);
   assert.deepEqual(removed, ["/mirrors/gone__repo"]);

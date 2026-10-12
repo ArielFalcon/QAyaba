@@ -25,3 +25,10 @@ export const EXPERIMENT_COPIES_DIR = ".baseline";
  * must leave it alone.
  */
 export const WARM_SNAPSHOTS_DIR = ".warm";
+
+/*
+ * The directory under the mirrors root that holds the workspaces of a run's sidekicks, one folder per run and delegation
+ * (qa-run-orchestration's delegation workspace). It is not a repo's mirror, so the mirror pruning must leave it alone: the
+ * run that made a workspace removes it, and the sweep at boot and at the start of a run removes what a crash left.
+ */
+export const DELEGATIONS_DIR = ".qa-delegations";
