@@ -5,6 +5,8 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createExecScopeProvider } from "../../../src/shared-infrastructure/process-sandbox/exec-scope-provider.ts";
+import { REDACTED } from "@kernel/ports/redaction.port.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../src/shared-infrastructure/run-secret-redaction.ts";
 import { activeExecScope } from "../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { MirrorFsOps } from "../../../src/shared-infrastructure/process-sandbox/mirror-access.ts";
 
@@ -72,6 +74,20 @@ test("a mirror that cannot be sealed is said, not thrown into the run", async ()
     const failing: MirrorFsOps = { lstat: () => { throw new Error("EIO"); }, readdir: () => ["x"], chown: () => {}, chmod: () => { throw new Error("EIO"); } };
     const session = await createExecScopeProvider({ workRoot: root, sandbox: SELF, mirrorRoot: "/m", mirrorOps: failing, egress: { dev: [], install: [] } }).open({ runId: "run-4" });
     session.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the spec account's password is a secret of the run from the moment its scope is entered; its username is not", async () => {
+  const root = mkdtempSync(join(tmpdir(), "scope-provider-"));
+  try {
+    const provider = createExecScopeProvider({ workRoot: root, sandbox: null, egress: { dev: [], install: [] }, suiteAccount: { user: "admin", pass: "spec-pass-1" } });
+    const session = await provider.open({ runId: "run-secrets" });
+    const scope = createRunSecretScope();
+    const redacted = withRunSecretScope(scope, () => session.run(() => redactByValue("admin signs in with spec-pass-1")));
+    session.close();
+    assert.equal(redacted, `admin signs in with ${REDACTED}`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

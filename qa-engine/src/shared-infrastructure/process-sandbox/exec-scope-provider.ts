@@ -50,7 +50,7 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
       };
       return {
         run: (fn) => withExecScope(scope, () => {
-          if (deps.suiteAccount) activeRunSecretScope()?.addAccountSecrets([deps.suiteAccount.user, deps.suiteAccount.pass]);
+          if (deps.suiteAccount) activeRunSecretScope()?.addAccountSecrets([deps.suiteAccount.pass]);
           return fn();
         }),
         close: () => {

@@ -105,9 +105,9 @@ export class AuthSessionAdapter implements AuthSessionPort {
     return session;
   }
 
-  /* The secrets of the account, by value, into the run this prepare is part of (a no-op outside a run): the login's, the DEV gate's and the certificate's passphrase. Registered before anything can fail, so a login that throws has still named them. */
+  /* The secrets of the account, by value, into the run this prepare is part of (a no-op outside a run): the login's password, the DEV gate's credentials and the certificate's passphrase. The login's username is not a credential and is left out: a name such as `admin` stands in routes, page text and assertions a model has to read. Registered before anything can fail, so a login that throws has still named them. */
   private registerAccountSecrets(auth: AuthDeclaration | undefined): void {
-    const declared = [auth?.usernameEnv, auth?.passwordEnv, auth?.certPassEnv, ...DEV_GATE_ENV_NAMES];
+    const declared = [auth?.passwordEnv, auth?.certPassEnv, ...DEV_GATE_ENV_NAMES];
     activeRunSecretScope()?.addAccountSecrets(declared.map((name) => (name === undefined ? undefined : this.deps.env[name])));
   }
 

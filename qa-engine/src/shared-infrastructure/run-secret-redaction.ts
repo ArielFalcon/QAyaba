@@ -1,4 +1,4 @@
-/* The secrets of one run's test account, redacted from text by VALUE. The pattern redaction of sanitize-text.ts finds a secret by how it looks, so a plain password a spec printed, or a cookie in a captured page, passes it; here the run's own secrets are known (the account's username and password, the DEV gate's credentials, the client certificate's passphrase, and the cookie and localStorage values of the session the login produced), and any text that is about to reach a model has each of them replaced wherever it stands.
+/* The secrets of one run's test account, redacted from text by VALUE. The pattern redaction of sanitize-text.ts finds a secret by how it looks, so a plain password a spec printed, or a cookie in a captured page, passes it; here the run's own secrets are known (the account's password, the DEV gate's credentials, the client certificate's passphrase, and the cookie and localStorage values of the session the login produced), and any text that is about to reach a model has each of them replaced wherever it stands.
    One scope per run, carried through the run's async calls (AsyncLocalStorage), so two runs never see each other's secrets and nothing is passed down by hand. The run opens it (`withRunSecretScope`); whatever learns a secret registers it into the scope the run is in (`registerSessionSecretsFromStorageState`, or `addAccountSecrets` on `activeRunSecretScope()`); the one text seam all model-bound text goes through (sanitizeText) and the transport that sends a prompt apply it (`redactByValue`). Outside a scope it changes nothing.
    Cheap: one regular expression of every escaped value, longest first, rebuilt only when a value is added. A value is also found as a page, a JSON string or a URL spells it. Never logs a value: a warning says what failed in words of its own. Fail-open on registration (a session that cannot be read strictly adds no value, with a warning, and the run goes on) because the pattern redaction still stands behind it. The session file is read through the confined reader, strictly: no link anywhere on the way, a regular file, under a cap. */
 
@@ -6,7 +6,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { readFailureReason, readOwnedSpecFile } from "./spec-path-confinement.ts";
 
-/* A username or a password shorter than this is not redacted: it would take the same letters out of every word around it and protect nothing, and no real account has one. */
+/* A password shorter than this is not redacted: it would take the same letters out of every word around it and protect nothing, and no real account has one. */
 export const MIN_ACCOUNT_SECRET_CHARS = 4;
 /* A cookie or localStorage value shorter than this is a flag, a language or a counter, not a credential. */
 export const MIN_SESSION_VALUE_CHARS = 8;
@@ -18,7 +18,7 @@ export const MAX_SECRET_VALUES = 2000;
 export const MAX_STORAGE_STATE_BYTES = 4 * 1024 * 1024;
 
 export interface RunSecretScope {
-  /* The account's own secrets: usernames, passwords, gate credentials, a certificate's passphrase. Empty, missing, too short and too long ones are skipped. */
+  /* The account's own secrets: passwords, gate credentials, a certificate's passphrase (never an account's username: it is a name, not a credential). Empty, missing, too short and too long ones are skipped. */
   addAccountSecrets(values: ReadonlyArray<string | undefined>): void;
   /* Cookie and storage values of the session: the same, with the longer floor. */
   addSessionValues(values: ReadonlyArray<string | undefined>): void;

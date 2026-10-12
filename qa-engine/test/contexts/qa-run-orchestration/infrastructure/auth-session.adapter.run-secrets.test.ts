@@ -35,7 +35,7 @@ test("a certificate's passphrase is registered", async () => {
   assert.equal(seen("p12-pass-phrase"), REDACTED);
 });
 
-test("a form login's username and password are registered, and so are the cookie and storage values of the session it wrote", async () => {
+test("a form login's password is registered, and so are the cookie and storage values of the session it wrote; its username is not a secret and stays readable", async () => {
   const { adapter } = adapterWith(
     { QA_USER: "qa-account-user", QA_PASS: "qa-account-pass" },
     {
@@ -47,7 +47,7 @@ test("a form login's username and password are registered, and so are the cookie
   );
   const session = await inRun(() => adapter.prepare({ specDir: dir("auth-spec-"), baseUrl: "https://dev.example", phase: "pre-generate", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } }));
   assert.ok(session.storageStatePath);
-  assert.equal(seen("qa-account-user qa-account-pass session-cookie-value storage-token-value"), [REDACTED, REDACTED, REDACTED, REDACTED].join(" "));
+  assert.equal(seen("qa-account-user qa-account-pass session-cookie-value storage-token-value"), ["qa-account-user", REDACTED, REDACTED, REDACTED].join(" "));
 });
 
 test("a login that fails still leaves its account secrets registered", async () => {
@@ -60,4 +60,10 @@ test("outside a run the adapter registers nothing and behaves as before", async 
   const { adapter } = adapterWith({ DEV_ENV_PASS: "gate-pass-word" });
   assert.deepEqual(await adapter.prepare({ specDir: dir("auth-spec-"), baseUrl: "https://dev.example", phase: "pre-generate" }), { unauthored: false });
   assert.equal(redactByValue("gate-pass-word"), "gate-pass-word");
+});
+
+test("an account name such as admin is left in the routes, DOM and assertions a model reads", async () => {
+  const { adapter } = adapterWith({ QA_USER: "admin", QA_PASS: "correct-horse-battery" });
+  await inRun(() => adapter.prepare({ specDir: dir("auth-spec-"), baseUrl: "https://dev.example", phase: "pre-generate", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } }));
+  assert.equal(seen("goto /admin/users as admin"), "goto /admin/users as admin");
 });
