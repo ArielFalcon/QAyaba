@@ -12,11 +12,12 @@ import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs
 import { join, relative } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
+import { openDeniedWindow } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { ConfinedPathError, MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { MAX_STORAGE_STATE_BYTES, activeRunSecretScope, redactByValue, registerSessionSecretsFromStorageState } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
-import { AuthPreconditionError } from "../domain/auth-precondition.ts";
+import { AuthPreconditionError, PRECONDITION_KIND } from "../domain/auth-precondition.ts";
 import { LOGIN_STATUS, classifyLoginEvidence, renderLoginEvidence, type LoginOutcome } from "../domain/helpers/login-evidence.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "./login-discovery/login-discovery.runner.ts";
 
@@ -78,6 +79,9 @@ export const AUTH_SETUP_ENV = {
 /* The env names of the DEV gate's HTTP Basic credentials and of the client certificate's passphrase: the contract of the DOM capture and the login (dom-snapshot.ts, auth-session-env.ts), not an app's. */
 const DEV_GATE_ENV_NAMES = ["DEV_ENV_USER", "DEV_ENV_PASS", "DEV_CLIENT_CERT_PASS"] as const;
 
+const MAX_HOSTS_IN_NOTE = 10;
+const HOST_SHAPE = /^[A-Za-z0-9._:\[\]-]{1,253}$/;
+
 const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /* The login the stock seed ships as, in the spec directory. */
@@ -135,7 +139,33 @@ export class AuthSessionAdapter implements AuthSessionPort {
     return { clientCertPath: certPath, unauthored: false };
   }
 
+  /* The login, with the hosts the egress filter refused its children collected apart from the rest of the run. A login that did not sign in while its child was refused hosts failed on the network layer more probably than on the account: it ends as an egress precondition that names them, never as a login the caller may replace or retry, and any other failure note says which hosts were refused too. */
   private async runFormSetup(req: AuthSessionRequest, signal?: AbortSignal): Promise<AuthSession> {
+    const window = openDeniedWindow();
+    const started = Date.now();
+    try {
+      const session = await this.attemptFormLogin(req, signal);
+      if (session.storageStatePath || window.hosts().length === 0) return session;
+      throw new AuthPreconditionError(PRECONDITION_KIND.EGRESS_DENIED, this.deniedNote(window.hosts()), Date.now() - started);
+    } catch (err) {
+      const hosts = window.hosts();
+      if (hosts.length === 0 || err instanceof AuthPreconditionError && err.kind === PRECONDITION_KIND.EGRESS_DENIED) throw err;
+      if (err instanceof AuthPreconditionError) throw new AuthPreconditionError(err.kind, `${err.note} ${this.deniedNote(hosts)}`, err.ms);
+      throw new AuthPreconditionError(PRECONDITION_KIND.EGRESS_DENIED, this.deniedNote(hosts), Date.now() - started);
+    } finally {
+      window.close();
+    }
+  }
+
+  /* What the note says of the refused hosts: names only, shown when they look like hosts, and scrubbed like every note that leaves. */
+  private deniedNote(hosts: readonly string[]): string {
+    const shown = hosts.slice(0, MAX_HOSTS_IN_NOTE).map((host) => (HOST_SHAPE.test(host) ? host : "(unprintable name)"));
+    const more = hosts.length > shown.length ? ` and ${hosts.length - shown.length} more` : "";
+    const text = `the egress filter refused the login's browser ${hosts.length} host(s): ${shown.join(", ")}${more}. If the login needs them (an identity provider on another origin, for one), declare their origins in dev.allowedOrigins`;
+    return redactByValue(this.deps.discovery ? this.deps.discovery.redact(text) : text);
+  }
+
+  private async attemptFormLogin(req: AuthSessionRequest, signal?: AbortSignal): Promise<AuthSession> {
     const usernameEnv = req.auth?.usernameEnv;
     const passwordEnv = req.auth?.passwordEnv;
     if (!usernameEnv || !passwordEnv) {

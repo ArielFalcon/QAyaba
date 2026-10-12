@@ -14,6 +14,8 @@ export const PRECONDITION_KIND = {
   CAPTCHA_PRESENT: "captcha-present",
   SSO_ONLY: "sso-only",
   SESSION_NOT_PERSISTABLE: "session-not-persistable",
+  /* The login's child was refused hosts by the egress filter and did not sign in: the network layer, not the account or the app, is the probable cause. */
+  EGRESS_DENIED: "egress-denied",
 } as const;
 
 export type PreconditionKind = (typeof PRECONDITION_KIND)[keyof typeof PRECONDITION_KIND];

@@ -9,6 +9,8 @@ import { RunQaUseCase, type RunQaConfig, type RunQaUseCaseDeps } from "@contexts
 import type { AuthSession, AuthSessionRequest } from "@contexts/qa-run-orchestration/application/ports/auth-session.port.ts";
 import type { SuiteCaptureInput, SuiteStorePort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
+import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
+import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 
 const WORKSPACE = { specDir: "/tmp/qa-suite/e2e", mirrorDir: "/tmp/qa-suite" };
@@ -236,6 +238,33 @@ test("a login that fails again after the demotion ends the run as before, and on
   const second = await new RunQaUseCase(own.deps({ authSession: failing, authContext: ctx })).run(INPUT);
   assert.equal(second.decision.verdict, "infra-error");
   assert.equal(own.demoted.length, 0, "the app's own login keeps today's behaviour");
+});
+
+test("a restored login that fails because the egress filter refused its hosts is kept, not replaced: the run ends E-PRECONDITION naming them, with no Issue and nothing learned", async () => {
+  const r = rig({ authRestored: true });
+  const attempts: string[] = [];
+  const authSession = {
+    prepare: async (req: AuthSessionRequest): Promise<AuthSession> => {
+      attempts.push(req.phase);
+      throw new AuthPreconditionError(PRECONDITION_KIND.EGRESS_DENIED, "the egress filter refused the login's browser 1 host(s): idp.example.test. Declare their origins in dev.allowedOrigins", 30_000);
+    },
+  };
+  let folded = 0;
+  const out = await new RunQaUseCase(r.deps({
+    authSession,
+    authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } },
+    learning: { fold: async () => void (folded += 1), retrieve: async () => [] },
+  })).run(INPUT);
+
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.PRECONDITION);
+  assert.match(out.note ?? "", /idp\.example\.test/);
+  assert.match(out.note ?? "", /dev\.allowedOrigins/);
+  assert.equal(r.demoted.length, 0, "the stored login is not thrown away for a network reason");
+  assert.deepEqual(attempts, ["pre-generate"], "no second login with the stock seed");
+  assert.equal(r.events.filter((e) => e === "setup").length, 1);
+  assert.equal(r.events.includes("publish"), false, "no Issue, no PR");
+  assert.equal(folded, 0);
 });
 
 test("a run without a suite store behaves as it always did", async () => {
