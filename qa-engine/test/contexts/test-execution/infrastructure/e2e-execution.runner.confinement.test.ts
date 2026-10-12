@@ -699,3 +699,15 @@ test("a failure dump that is a link puts nothing of the file behind it in the fa
     rmSync(outsideDir, { recursive: true, force: true });
   }
 });
+
+test("a cleanup pass hands the Playwright child PW_CLEANUP=1 and the base namespace, and an ordinary run does not", { timeout: 60_000 }, async () => {
+  await withStandInPlaywright(`fs.writeFileSync(path.join(__dirname, "env-" + (process.env.PW_CLEANUP ?? "unset") + ".txt"), process.env.PW_NAMESPACE ?? ""); fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)});`, async (root) => {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+
+    await runE2E(root, { baseUrl: "http://localhost", namespace: "qa-bot", cleanupPass: true }, deps);
+    assert.equal(readFileSync(join(root, "env-1.txt"), "utf8"), "qa-bot");
+
+    await runE2E(root, { baseUrl: "http://localhost", namespace: "qa-bot-run" }, deps);
+    assert.equal(existsSync(join(root, "env-unset.txt")), true);
+  });
+});

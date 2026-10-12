@@ -65,6 +65,8 @@ export interface E2eExecuteOptions {
   project?: string;
   testIdAttribute?: string;
   specFiles?: string[];
+  /* Run as the dedicated cleanup pass: the child is handed PW_CLEANUP=1, which the seed's cleanup.spec.ts needs to do anything (it skips otherwise), and `namespace` is then the BASE data prefix to clean. */
+  cleanupPass?: boolean;
 }
 
 export type StreamEvent =
@@ -120,6 +122,7 @@ export interface E2eExecuteDeps {
     faultInject?: boolean;
     project?: string;
     specFiles?: string[];
+    cleanupPass?: boolean;
     signal?: AbortSignal;
     timeoutMs?: number;
     onEvent?: (ev: StreamEvent) => void;
@@ -196,6 +199,7 @@ export async function runE2E(
     project: opts.project,
     testIdAttribute: opts.testIdAttribute,
     specFiles: opts.specFiles,
+    cleanupPass: opts.cleanupPass,
     signal: opts.signal,
     timeoutMs: opts.timeoutMs,
     onEvent,
@@ -551,7 +555,7 @@ export function createDefaultE2eExecuteDeps(
   }
   return {
     defaultTimeoutMs,
-    runSuite: ({ dir, baseUrl, namespace, testIdAttribute, faultInject, project, specFiles, signal, timeoutMs, onEvent, failureCaptureDir }) =>
+    runSuite: ({ dir, baseUrl, namespace, testIdAttribute, faultInject, project, specFiles, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
       new Promise((resolve, reject) => {
         const work = mkdtempSync(join(tmpdir(), "qa-pw-"));
         const reporterPath = join(work, "qa-stream-reporter.cjs");
@@ -561,7 +565,7 @@ export function createDefaultE2eExecuteDeps(
         const child = spawn("npx", playwrightArgs(reporterPath, project, specFiles), {
           cwd: dir,
           /* Agent-written specs are untrusted code: scrub orchestrator secrets, keep DEV_* creds. QA_FAILURE_CAPTURE_DIR: the qa-failure-capture afterEach fixture writes per-case aria snapshot dumps here on failure; the orchestrator harvests them post-run to populate QaCase.failureDom for the fix-loop grounding prompt. PW_TEST_ID_ATTRIBUTE: threads the configured testIdAttribute into the runner so playwright.config.ts resolves getByTestId correctly for the app's convention. PW_ACTION_TIMEOUT_MS: optional per-target override of the seed's action auto-wait bound (default 8000) so a slower DEV can widen it without editing the seed config — injected from the composition root (env-read confinement, this file's header). */
-          env: authSessionEnv(authDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) }),
+          env: authSessionEnv(authDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) }),
           detached: true,
         });
 

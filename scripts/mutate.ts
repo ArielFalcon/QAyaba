@@ -507,13 +507,13 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "what the e2e runner reads back from the Playwright child, which runs code the agent wrote: the JSON report (a strict, capped read that never waits on a pipe or follows a link, and a report that cannot be used is a run with no result, infrastructure and never a pass, said with the reason and nothing the report held) and the failure-capture dumps (each read strictly under a cap, each that cannot be used left out so that its case runs without grounding, said once for the directory with a count and a reason and no file's name or content), with the lines of the runner that read them back and that distrust a pass the child did not exit 0 for (the status or the signal that ended it) and leave the report of a run that is settled unread",
     mutate: [
       /* Why a pass is not believed, and what the runner makes of it. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:143-148",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:260-271",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:146-151",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:264-275",
       /* The caps, the report's read, the dump's decoding and the dumps' read. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:347-414",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:351-418",
       /* What the runner does when the child is gone: reads the report unless the run is settled, before the directory it is in is removed (a line apart, which is the removal and not a read), and says why when it could not. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:601-603",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:605-608",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:605-607",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:609-612",
     ],
     tests: [
       "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",

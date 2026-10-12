@@ -65,6 +65,19 @@ export function noRetryConfig(): string {
 
 /* ── collaborators ─────────────────────────────────────────────────────────────────── */
 
+/** What the cleanup pass runs with: the app's BASE data prefix as the namespace (every arm's data starts with it: the pipeline's runs, the plain agent's `<prefix>-<sha7>-<label>` and the re-runs), and the cleanup flag the seed's cleanup spec needs to do anything. */
+export function cleanupRunOptions(app: AppFacts, spec: string): { baseUrl: string; namespace: string; specFiles: string[]; cleanupPass: true; testIdAttribute?: string } {
+  return { baseUrl: app.baseUrl, namespace: app.testDataPrefix, specFiles: [spec], cleanupPass: true, ...(app.testIdAttribute !== undefined ? { testIdAttribute: app.testIdAttribute } : {}) };
+}
+
+/** A cleanup is ok only when its test ran and passed. A skipped test is dropped from the cases (and a suite that executed nothing is an infra-error), so a cleanup that did nothing is never ok. */
+export function judgeCleanup(run: { verdict: RunVerdict; cases: ReadonlyArray<{ name: string; status: string }> }): { ok: boolean; note: string } {
+  const passed = run.cases.some((c) => c.status === "pass");
+  if (run.verdict === "pass" && passed) return { ok: true, note: run.verdict };
+  if (run.cases.length === 0) return { ok: false, note: `${run.verdict}: the cleanup test did not run (skipped, or no result), so it cleaned nothing` };
+  return { ok: false, note: run.verdict };
+}
+
 /** What the campaign needs to know of the app, from its config. */
 export interface AppFacts {
   name: string;
@@ -520,8 +533,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
     runCleanup: async ({ app, snapshot, spec, workspace }) => {
       const { e2eDir, authDir } = await prepareWorkspace(workspace, snapshot, []);
       await login(app, e2eDir, authDir);
-      const run = await execute(app, e2eDir, authDir, `${app.testDataPrefix}-cleanup`, [spec]);
-      return { ok: run.verdict === "pass", note: run.verdict };
+      return judgeCleanup(await runE2E(e2eDir, cleanupRunOptions(app, spec), createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), authDir)));
     },
 
     runPipeline: async (req) => {

@@ -5,7 +5,7 @@ import type { LoadedSnapshot } from "./warm-suite.ts";
 import type { DeltaFile, SuiteDelta } from "./campaign-suite.ts";
 import type { ProbeReport } from "./probe-metrics.ts";
 import type { CampaignRecord } from "./campaign-report.ts";
-import { noRetryConfig, runCampaign, type AppFacts, type ArmOutcome, type CampaignDeps, type PipelineRequest, type BaselineRequest, type ValidationRequest } from "./campaign.ts";
+import { cleanupRunOptions, judgeCleanup, noRetryConfig, runCampaign, type AppFacts, type ArmOutcome, type CampaignDeps, type PipelineRequest, type BaselineRequest, type ValidationRequest } from "./campaign.ts";
 
 const SHA = "abc1234def";
 const GOOD_SPEC = 'import { test, expect } from "@playwright/test";\ntest("refuses", async ({ page }) => {\n await page.goto("/x");\n await expect(page.getByRole("alert")).toBeVisible();\n});\n';
@@ -373,4 +373,44 @@ test("the re-run's config is the repo's own with the retries turned off, so a sp
   const config = noRetryConfig();
   assert.ok(config.includes("retries: 0"));
   assert.ok(config.includes("playwright.repo.config"), "wraps the repo's config rather than replacing it");
+});
+
+test("the cleanup pass is run on the app's data prefix as a cleanup pass, not under a namespace of its own", () => {
+  const app: AppFacts = { name: "demo", repo: "org/demo", baseUrl: "https://dev.example.test", testDataPrefix: "qa-bot", shadow: true, services: [] };
+
+  const options = cleanupRunOptions(app, "cleanup-addresses.spec.ts");
+
+  assert.equal(options.cleanupPass, true);
+  assert.equal(options.namespace, app.testDataPrefix);
+  assert.deepEqual(options.specFiles, ["cleanup-addresses.spec.ts"]);
+  assert.equal(options.baseUrl, app.baseUrl);
+});
+
+test("the cleanup pass carries the app's test id attribute when it declares one", () => {
+  const app: AppFacts = { name: "demo", repo: "org/demo", baseUrl: "https://dev.example.test", testDataPrefix: "qa-bot", shadow: true, services: [], testIdAttribute: "data-qa" };
+
+  assert.equal(cleanupRunOptions(app, "cleanup.spec.ts").testIdAttribute, "data-qa");
+});
+
+test("a cleanup whose test passed is ok", () => {
+  assert.equal(judgeCleanup({ verdict: "pass", cases: [{ name: "cleanup.spec.ts › cleanup", status: "pass" }] }).ok, true);
+});
+
+test("a cleanup whose only test was skipped did nothing and is not ok", () => {
+  /* The runner drops a skipped test from the cases; a suite that executed nothing is an infra-error. */
+  const outcome = judgeCleanup({ verdict: "infra-error", cases: [] });
+
+  assert.equal(outcome.ok, false);
+  assert.match(outcome.note, /did not run|skipped/i);
+});
+
+test("a cleanup that reports a pass without any passed test is not ok", () => {
+  assert.equal(judgeCleanup({ verdict: "pass", cases: [] }).ok, false);
+});
+
+test("a cleanup that failed is not ok and its note carries the verdict", () => {
+  const outcome = judgeCleanup({ verdict: "fail", cases: [{ name: "cleanup.spec.ts › cleanup", status: "fail" }] });
+
+  assert.equal(outcome.ok, false);
+  assert.match(outcome.note, /fail/);
 });

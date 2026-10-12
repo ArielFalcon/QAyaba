@@ -969,3 +969,15 @@ test("orphan-data cleanup whose child writes more than a pipe buffer finishes in
     }
   });
 });
+
+test("runE2E hands the runner the cleanup-pass flag only when the caller asked for one", async () => {
+  const seen: Array<boolean | undefined> = [];
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => { seen.push(args.cleanupPass); return { report: { stats: { expected: 1, unexpected: 0 } }, logs: "ok", ran: true }; },
+  };
+
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot", cleanupPass: true }, deps);
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot" }, deps);
+
+  assert.deepEqual(seen, [true, undefined]);
+});
