@@ -144,6 +144,11 @@ export class RunSpecUseCase {
       tests = outcome.tests;
       devWrites = outcome.devWrites;
       note = outcome.note;
+      /* The ledger names the bytes that ran. The file is the agent's to change while the call is out, so what it holds now is read again: a pass is recorded only for a file that is still the one hashed before the run. */
+      if (this.sha256Now(rel) !== sha256) {
+        if (status === RUN_SPEC_STATUS.PASSED) status = RUN_SPEC_STATUS.ERROR;
+        note = [note, "the spec changed while the call ran, so this result is not recorded as a pass of the file as it stands now; run it again"].filter((n) => n !== undefined).join("; ");
+      }
     } catch (err) {
       console.error(`[qa] run_spec call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
       note = "the call could not be completed by the harness; nothing was reported by the spec";
@@ -182,6 +187,16 @@ export class RunSpecUseCase {
     /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled) is charged one, so the cap still shrinks with the calls. */
     if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; one write was charged");
     return { status, tests, devWrites: result.devWrites ?? UNCOUNTED_WRITE_CHARGE, ...(notes.length > 0 ? { note: notes.join("; ") } : {}) };
+  }
+
+  /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */
+  private sha256Now(rel: string): string | undefined {
+    try {
+      const read = readOwnedSpecFile(this.deps.specRoot, rel, MAX_SPEC_SOURCE_BYTES);
+      return "bytes" in read ? createHash("sha256").update(read.bytes).digest("hex") : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private async renew(): Promise<boolean> {

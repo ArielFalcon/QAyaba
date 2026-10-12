@@ -136,6 +136,7 @@ With `qa.closedLoop.enabled` (or a run's own choice) the OpenCode generator may 
 | Caps | calls, seconds per call (also bounded by what the run deadline has left), mutating requests to DEV; counted by the orchestrator, from the capture block's per-test ledger in `fixtures.ts` (browser requests and the `request` fixture, `page.request`, `context.request`) |
 | What comes back | status, per test the title, status, error (2 KB), final page address (no query) and its accessibility tree (8 KB), the budget left; every text passes the run's by-value redaction and the pattern redaction; never raw process output |
 | Session lost | a failed call that ends on the login page renews the saved session once and says so |
+| Ledger | each call records the sha256 of the spec's bytes read before the run; the file is hashed again after it, and a call whose file changed (or vanished) meanwhile is recorded as not passed, so the loop is never closed over bytes that did not run |
 | Probes | scratch specs under `e2e/.qa-probe/` are swept after every generation and when the run ends, and are never delivered, stored or validated |
 
 In the agents image the tool's package is installed in `/root/node_modules` (the config directory is a read-only bind mount of `./agents`). `node agents/smoke/run-spec-tool.smoke.mjs`

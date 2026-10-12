@@ -228,6 +228,35 @@ test("the ledger holds the sha256 of the bytes that ran, and the writes the fixt
   assert.equal(response.report.budget.devWritesLeft, 2);
 });
 
+test("a spec rewritten while the call ran is not recorded as a pass, whatever the run said", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0 };
+  h.deps.executor.execute = async (request) => {
+    h.executed.push(request);
+    /* The spec's bytes are the agent's to change: the sandboxed child is not, but the agent's own files are, and the ledger must name what ran. */
+    h.write("flows/a.spec.ts", `${SPEC}// edited while it ran\n`);
+    return h.next.result!;
+  };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.notEqual(response.report.status, "passed");
+  assert.notEqual(h.capability.ledger[0]!.status, "passed");
+  assert.match(response.report.note ?? "", /changed while/);
+});
+
+test("a spec removed while the call ran is not recorded as a pass either", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "pass", cases: [{ name: "t", status: "pass" }], logs: "", devWrites: 0 };
+  h.deps.executor.execute = async (request) => {
+    h.executed.push(request);
+    rmSync(join(h.specDir, "flows", "a.spec.ts"));
+    return h.next.result!;
+  };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.notEqual(h.capability.ledger[0]!.status, "passed");
+});
+
 test("a call whose writes could not be counted is charged one, and says so", async (t) => {
   const h = harness(t);
   const response = await call(h, "flows/a.spec.ts");
