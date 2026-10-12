@@ -1,10 +1,6 @@
 /* The file boundary of the execution sandbox, proven instead of assumed. Dropping to the sandbox uid keeps agent code away from the orchestrator's secrets, code and config only where the filesystem enforces permissions, and not every one does: a bind mount of Docker Desktop's file sharing (`fakeowner`) grants every uid whatever it asks, so a mode set at boot says nothing there. At every boot the container therefore tries, as the sandbox uid, everything that uid must not be able to do, and the service refuses agent code when one attempt succeeds.
 
-   What is tried is planned here from the layout the composition root passes (the secret files, the directories that must stay closed, the paths that must stay unwritable) and from the mount table: every mount at or under the app root must refuse a write, so a bind added to the container later is checked without anyone listing it. The probes run in a child of that uid (src/server/file-boundary-check.ts) and report raw outcomes; the judgment is made here, by the orchestrator, and fails closed: an attempt with no result, or an error that proves nothing, is not a pass. */
-
-import { closeSync, openSync, readdirSync, statSync, unlinkSync } from "node:fs";
-import { randomBytes } from "node:crypto";
-import { join } from "node:path";
+   What is tried is planned here from the layout the composition root passes (the secret files, the directories that must stay closed, the paths that must stay unwritable) and from the mount table: every mount at or under the app root must refuse a write, so a bind added to the container later is checked without anyone listing it. The probes run in a child of that uid (src/server/file-boundary-probe.mjs, plain JavaScript: nothing it loads is a transform or a cache the uid could have planted) and report only what each system call answered; what that means is decided here, by the orchestrator, and fails closed: an attempt with no result, or an error that proves nothing, is not a pass. */
 
 export interface FileBoundaryLayout {
   /* The orchestrator's root: it and every mount under it must refuse a write. */
@@ -67,69 +63,35 @@ export function planFileBoundaryProbes(layout: FileBoundaryLayout, mounts: reado
   return probes;
 }
 
-/* The filesystem calls a probe makes, as the uid it runs as; each throws the call's error. */
-export interface FileBoundaryProbeOps {
-  readFile(path: string): void;
-  list(path: string): void;
-  kind(path: string): "dir" | "file" | "other";
-  /* Creates a file of its own in the directory and removes it again. */
-  createIn(dir: string): void;
-  /* Opens an existing file for writing and closes it: no byte of it changes. */
-  openForWrite(path: string): void;
-}
-
-export const realFileBoundaryProbeOps: FileBoundaryProbeOps = {
-  readFile: (path) => closeSync(openSync(path, "r")),
-  list: (path) => {
-    readdirSync(path);
-  },
-  kind: (path) => {
-    const st = statSync(path);
-    return st.isDirectory() ? "dir" : st.isFile() ? "file" : "other";
-  },
-  createIn: (dir) => {
-    const path = join(dir, `.qa-file-boundary-probe-${process.pid}-${randomBytes(6).toString("hex")}`);
-    closeSync(openSync(path, "wx", 0o600));
-    unlinkSync(path);
-  },
-  openForWrite: (path) => closeSync(openSync(path, "r+")),
-};
-
 const REFUSED = new Set(["EACCES", "EPERM", "EROFS"]);
 const ABSENT = new Set(["ENOENT", "ENOTDIR"]);
+const MAX_CODE_CHARS = 80;
 
-function attempt(action: () => void): Omit<FileBoundaryProbeResult, "probe"> {
-  try {
-    action();
-    return { outcome: "allowed" };
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code ?? "unknown";
-    if (REFUSED.has(code)) return { outcome: "refused" };
-    if (ABSENT.has(code)) return { outcome: "absent" };
-    return { outcome: "inconclusive", code };
-  }
+/* What the child saw of one attempt, raw: the error code of the system call (null when it succeeded). A write first asks what the path is, so it also says what it found: a directory is written by creating a file in it, a file by opening it for writing, anything else is not tried; a path that could not be examined has no kind and the code of that failure. */
+interface ProbeObservation {
+  kind?: "dir" | "file" | "other";
+  code: string | null;
 }
 
-/* Makes every attempt with `ops` and reports what each came to. A write first asks what the path is: a directory is written by creating a file in it, a file by opening it for writing, anything else proves nothing. */
-export function runFileBoundaryProbes(probes: readonly FileBoundaryProbe[], ops: FileBoundaryProbeOps = realFileBoundaryProbeOps): FileBoundaryProbeResult[] {
-  return probes.map((probe) => {
-    if (probe.kind === "read") return { probe, ...attempt(() => ops.readFile(probe.path)) };
-    if (probe.kind === "list") return { probe, ...attempt(() => ops.list(probe.path)) };
-    const kinds: Array<"dir" | "file" | "other"> = [];
-    const found = attempt(() => {
-      kinds.push(ops.kind(probe.path));
-    });
-    if (found.outcome !== "allowed") return { probe, ...found };
-    const kind = kinds[0];
-    if (kind === "dir") return { probe, ...attempt(() => ops.createIn(probe.path)) };
-    if (kind === "file") return { probe, ...attempt(() => ops.openForWrite(probe.path)) };
-    return { probe, outcome: "inconclusive", code: "not a file or a directory" };
-  });
+const KINDS: readonly string[] = ["dir", "file", "other"];
+
+function observationOf(probe: FileBoundaryProbe, entry: unknown): ProbeObservation | undefined {
+  if (typeof entry !== "object" || entry === null) return undefined;
+  const { kind, code } = entry as { kind?: unknown; code?: unknown };
+  if (code !== null && typeof code !== "string") return undefined;
+  if (probe.kind !== "write") return kind === undefined ? { code } : undefined;
+  if (kind === undefined) return code === null ? undefined : { code };
+  return typeof kind === "string" && KINDS.includes(kind) ? { kind: kind as ProbeObservation["kind"], code } : undefined;
 }
 
-const OUTCOMES: readonly FileBoundaryOutcome[] = ["refused", "absent", "allowed", "inconclusive"];
+function resultOf(probe: FileBoundaryProbe, { kind, code }: ProbeObservation): FileBoundaryProbeResult {
+  if (code === null) return kind === "other" ? { probe, outcome: "inconclusive", code: "not a file or a directory" } : { probe, outcome: "allowed" };
+  if (REFUSED.has(code)) return { probe, outcome: "refused" };
+  if (ABSENT.has(code)) return { probe, outcome: "absent" };
+  return { probe, outcome: "inconclusive", code: code.slice(0, MAX_CODE_CHARS) };
+}
 
-/* The outcomes the probing child printed, one per planned attempt and in its order (it prints `runFileBoundaryProbes` without the probes). Anything that is not exactly that is no report at all, which the judgment takes as attempts that were not made. */
+/* The observations the probing child printed, one per planned attempt and in its order. Anything that is not exactly that is no report at all, which the judgment takes as attempts that were not made. */
 export function readProbeReport(probes: readonly FileBoundaryProbe[], text: string): FileBoundaryProbeResult[] {
   let parsed: unknown;
   try {
@@ -140,10 +102,10 @@ export function readProbeReport(probes: readonly FileBoundaryProbe[], text: stri
   if (!Array.isArray(parsed) || parsed.length !== probes.length) return [];
   const results: FileBoundaryProbeResult[] = [];
   for (const [i, entry] of parsed.entries()) {
-    if (typeof entry !== "object" || entry === null) return [];
-    const { outcome, code } = entry as { outcome?: unknown; code?: unknown };
-    if (typeof outcome !== "string" || !OUTCOMES.includes(outcome as FileBoundaryOutcome)) return [];
-    results.push({ probe: probes[i]!, outcome: outcome as FileBoundaryOutcome, ...(typeof code === "string" ? { code: code.slice(0, 80) } : {}) });
+    const probe = probes[i]!;
+    const observation = observationOf(probe, entry);
+    if (!observation) return [];
+    results.push(resultOf(probe, observation));
   }
   return results;
 }

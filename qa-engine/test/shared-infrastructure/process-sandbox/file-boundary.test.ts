@@ -8,10 +8,8 @@ import {
   parseFileBoundaryStatus,
   planFileBoundaryProbes,
   readProbeReport,
-  runFileBoundaryProbes,
   type FileBoundaryLayout,
   type FileBoundaryProbe,
-  type FileBoundaryProbeOps,
 } from "../../../src/shared-infrastructure/process-sandbox/file-boundary.ts";
 
 const MOUNTINFO = [
@@ -48,33 +46,7 @@ test("the plan tries to read every secret file, list every closed directory, and
   assert.equal(plan.filter((p) => p.kind === "write" && p.path === "/app/data").length, 1, "a path is tried once per kind");
 });
 
-function fakeOps(allowed: Record<string, true | string>, kinds: Record<string, "dir" | "file" | "other"> = {}): FileBoundaryProbeOps & { created: string[] } {
-  const created: string[] = [];
-  const attempt = (path: string): void => {
-    const outcome = allowed[path];
-    if (outcome === true) return;
-    const err = Object.assign(new Error(`no ${path}`), { code: outcome ?? "EACCES" });
-    throw err;
-  };
-  return {
-    created,
-    readFile: attempt,
-    list: attempt,
-    kind: (path) => {
-      const k = kinds[path];
-      if (k) return k;
-      attempt(path);
-      return "dir";
-    },
-    createIn: (dir) => {
-      attempt(dir);
-      created.push(dir);
-    },
-    openForWrite: attempt,
-  };
-}
-
-test("a refused, a missing and an allowed attempt are told apart; an error that proves nothing is inconclusive", () => {
+test("the child's raw observations are told apart: refused, missing, allowed, and an error that proves nothing is inconclusive", () => {
   const probes: FileBoundaryProbe[] = [
     { kind: "read", path: "/secret" },
     { kind: "read", path: "/gone" },
@@ -82,16 +54,27 @@ test("a refused, a missing and an allowed attempt are told apart; an error that 
     { kind: "list", path: "/odd" },
     { kind: "write", path: "/ro" },
   ];
-  const results = runFileBoundaryProbes(probes, fakeOps({ "/gone": "ENOENT", "/open": true, "/odd": "EIO", "/ro": "EROFS" }, { "/ro": "dir" }));
+  const results = readProbeReport(probes, JSON.stringify([{ code: "EACCES" }, { code: "ENOENT" }, { code: null }, { code: "EIO" }, { code: "EROFS", kind: "dir" }]));
   assert.deepEqual(results.map((r) => r.outcome), ["refused", "absent", "allowed", "inconclusive", "refused"]);
   assert.equal(results[3]!.code, "EIO");
 });
 
-test("a write is tried by creating a file in a directory and by opening a file for writing, never by changing its bytes", () => {
-  const ops = fakeOps({ "/dir": true, "/file": true }, { "/dir": "dir", "/file": "file", "/pipe": "other" });
-  const results = runFileBoundaryProbes([{ kind: "write", path: "/dir" }, { kind: "write", path: "/file" }, { kind: "write", path: "/pipe" }], ops);
-  assert.deepEqual(results.map((r) => r.outcome), ["allowed", "allowed", "inconclusive"]);
-  assert.deepEqual(ops.created, ["/dir"]);
+test("a write counts by what the child found at the path: a directory or a file it could write is allowed, anything else proves nothing", () => {
+  const probes: FileBoundaryProbe[] = [
+    { kind: "write", path: "/dir" },
+    { kind: "write", path: "/file" },
+    { kind: "write", path: "/pipe" },
+    { kind: "write", path: "/missing" },
+    { kind: "write", path: "/closed" },
+  ];
+  const results = readProbeReport(probes, JSON.stringify([
+    { kind: "dir", code: null },
+    { kind: "file", code: null },
+    { kind: "other", code: null },
+    { code: "ENOENT" },
+    { code: "EACCES" },
+  ]));
+  assert.deepEqual(results.map((r) => r.outcome), ["allowed", "allowed", "inconclusive", "absent", "refused"]);
 });
 
 test("the boundary holds only when every attempt was refused or found nothing; each exposure is named", () => {
@@ -142,11 +125,23 @@ test("a long list of exposures is cut in the status, and the cut says how many w
   assert.match(read.reason ?? "", /more/);
 });
 
-test("the report of the probing child is believed only where it answers the attempt that was asked, with an outcome it may give", () => {
+test("the report of the probing child is believed only where it answers the attempt that was asked, in a shape it may have", () => {
   const probes: FileBoundaryProbe[] = [{ kind: "read", path: "/a" }, { kind: "write", path: "/b" }];
-  const good = readProbeReport(probes, JSON.stringify([{ outcome: "refused" }, { outcome: "inconclusive", code: "EIO" }]));
+  const good = readProbeReport(probes, JSON.stringify([{ code: "EACCES" }, { kind: "dir", code: "EIO" }]));
   assert.deepEqual(good, [{ probe: probes[0], outcome: "refused" }, { probe: probes[1], outcome: "inconclusive", code: "EIO" }]);
-  for (const text of ["", "not json", "{}", JSON.stringify([{ outcome: "refused" }]), JSON.stringify([{ outcome: "refused" }, { outcome: "fine" }]), JSON.stringify([{ outcome: "refused" }, null])]) {
+  const unreadable = [
+    "",
+    "not json",
+    "{}",
+    JSON.stringify([{ code: "EACCES" }]),
+    JSON.stringify([{ code: "EACCES" }, { kind: "dir", code: 5 }]),
+    JSON.stringify([{ code: "EACCES" }, null]),
+    JSON.stringify([{ outcome: "refused" }, { outcome: "refused" }]),
+    JSON.stringify([{ code: null, kind: "dir" }, { kind: "dir", code: null }]),
+    JSON.stringify([{ code: "EACCES" }, { code: null }]),
+    JSON.stringify([{ code: "EACCES" }, { kind: "socket", code: null }]),
+  ];
+  for (const text of unreadable) {
     const results = readProbeReport(probes, text);
     assert.equal(judgeFileBoundary(probes, results).holds, false, text);
   }

@@ -63,6 +63,12 @@ fi
 EXEC_ROOT="${QA_EXEC_ROOT:-/tmp/qa-exec}"
 mkdir -p "$EXEC_ROOT" && chmod 0711 "$EXEC_ROOT"
 
+# The TypeScript loader (tsx) caches its transforms in <tmp>/tsx-<euid> and runs what it finds there without validating it. The
+# temporary directory is writable by the sandbox uid and survives a restart of the container, so what agent code planted in
+# its own cache is removed before anything of ours starts. (The boot check's probing child runs no loader at all.)
+SANDBOX_UID="${CODE_SANDBOX_UID:-1002}"
+rm -rf "${TMPDIR:-/tmp}/tsx-$SANDBOX_UID"
+
 # File boundary: proves, as the sandbox uid, that the modes above hold on this host's filesystems. A stale status from an earlier
 # boot of the same container is removed first, so a check that does not run leaves no status, which the service never trusts.
 FILE_BOUNDARY_STATUS="${QA_FILE_BOUNDARY_STATUS_FILE:-/run/qa-file-boundary.status}"

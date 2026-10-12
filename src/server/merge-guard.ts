@@ -267,6 +267,7 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/file-boundary.ts",
   "src/server/file-boundary.ts",
   "src/server/file-boundary-check.ts",
+  "src/server/file-boundary-probe.mjs",
   "src/server/api-token.ts",
   "config/egress/",
   /* The container's entrypoint and the egress self-test: the file permissions that keep the sandbox uid out of the API token, the auth material and the provider keys, and the kernel filter that holds its network to the declared origins. */

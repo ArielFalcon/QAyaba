@@ -108,8 +108,11 @@ app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the o
   read `/proc/1/environ` and the API token (new and old place), list `data/`, `data/auth`, `config/`, `config/apps`, the code graph
   and the mirrors volume, and write the app root, **every mount under it found in `/proc/self/mountinfo`** (so a bind added later is
   checked without anyone listing it), the orchestrator's code and config and the status files the service trusts. A write is tried
-  by creating a file in a directory (removed again) or by opening a file for writing (no byte changes). The orchestrator judges
-  the child's report and leaves `ok` or `breach: <what>` in `QA_FILE_BOUNDARY_STATUS_FILE` (default
+  by creating a file in a directory (removed again) or by opening a file for writing (no byte changes). The child is the plain
+  script `src/server/file-boundary-probe.mjs`, run with the plain node binary, no loader and an environment of `PATH` alone: a
+  TypeScript loader's disk cache (`<tmp>/tsx-<uid>`) is writable by the sandbox uid, survives restarts and is loaded unvalidated,
+  so a probe that ran through it could be forged to report everything refused (the entrypoint also removes that cache at every
+  boot). The child reports only each call's error code; the orchestrator judges the report and leaves `ok` or `breach: <what>` in `QA_FILE_BOUNDARY_STATUS_FILE` (default
   `/run/qa-file-boundary.status`; a stale one is removed before the check). An attempt with no result, an error that proves
   nothing, or a missing status is a breach. The launcher reads the status before every spawn: under `QA_EXEC_SANDBOX=required` a
   breach refuses agent code (`E-SANDBOX`, reason `files`), under `best-effort` it runs and says so once; `/api/health` reports

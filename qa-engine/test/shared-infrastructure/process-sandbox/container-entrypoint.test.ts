@@ -9,9 +9,9 @@ import { join } from "node:path";
 const SCRIPT = join(import.meta.dirname, "..", "..", "..", "..", "bin", "container-entrypoint.sh");
 const mode = (path: string): number => statSync(path).mode & 0o777;
 
-function boot(root: string, command: string[] = ["true"]): string {
+function boot(root: string, command: string[] = ["true"], extraEnv: Record<string, string> = {}): string {
   return execFileSync("/bin/sh", [SCRIPT, ...command], {
-    env: { PATH: process.env.PATH ?? "", QA_APP_ROOT: root, MIRROR_DIR: join(root, ".mirrors"), QA_EXEC_ROOT: join(root, "exec") },
+    env: { PATH: process.env.PATH ?? "", QA_APP_ROOT: root, MIRROR_DIR: join(root, ".mirrors"), QA_EXEC_ROOT: join(root, "exec"), ...extraEnv },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -151,6 +151,26 @@ test("a file-boundary status left by an earlier boot is removed, so a check that
       stdio: "ignore",
     });
     assert.equal(existsSync(status), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("what the sandbox uid's TypeScript loader cached in the temporary directory is removed at boot, before anything is checked", () => {
+  const root = mkdtempSync(join(tmpdir(), "entrypoint-"));
+  try {
+    mkdirSync(join(root, "data"));
+    mkdirSync(join(root, "config"));
+    const temp = join(root, "tmp");
+    mkdirSync(join(temp, "tsx-4242", "deep"), { recursive: true });
+    writeFileSync(join(temp, "tsx-4242", "deep", "planted.js"), "forged");
+    mkdirSync(join(temp, "tsx-0"));
+    writeFileSync(join(temp, "tsx-0", "root-cache"), "kept");
+    writeFileSync(join(temp, "unrelated"), "kept");
+    boot(root, ["true"], { TMPDIR: temp, CODE_SANDBOX_UID: "4242" });
+    assert.equal(existsSync(join(temp, "tsx-4242")), false);
+    assert.equal(existsSync(join(temp, "tsx-0", "root-cache")), true, "only the sandbox uid's cache goes");
+    assert.equal(existsSync(join(temp, "unrelated")), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

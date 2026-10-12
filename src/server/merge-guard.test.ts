@@ -321,6 +321,13 @@ test("isProtectedPath flags the bounded runners and the git call sites an untrus
   }
 });
 
+test("isProtectedPath flags the file boundary's probing child: the plain script the sandbox uid runs to try what it must not do", () => {
+  /* An autonomous edit that made the child report everything refused, or run through a loader again, would blind the boot check. */
+  const file = "src/server/file-boundary-probe.mjs";
+  assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+  assert.equal(isProtectedPath(file), true, file);
+});
+
 test("isProtectedPath flags the authenticated agent browser: its guard, host, launcher, endpoint and the tools the agents call it through", () => {
   /* The guard decides every request the browser makes and the host holds the session in memory only; loosening either, or the endpoint and tools that reach them, lets an agent write to DEV or drive the browser around the guard. */
   const files = [

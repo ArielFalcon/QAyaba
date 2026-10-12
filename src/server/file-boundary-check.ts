@@ -9,12 +9,16 @@
  * QA_FILE_BOUNDARY_STATUS_FILE (default /run/qa-file-boundary.status). The service never trusts a missing status: the launcher
  * then refuses agent code under QA_EXEC_SANDBOX=required (E-SANDBOX) and /api/health says why.
  *
+ * The probing child is src/server/file-boundary-probe.mjs, started with the plain node binary and no loader: a TypeScript loader
+ * keeps its transforms under the temporary directory (tsx-<uid>), which the sandbox uid can write and which survives restarts, and
+ * loads what it finds there unvalidated, so earlier agent code could forge a probe that reports everything refused. The child's
+ * environment is PATH alone, so it reads no temporary directory, hook or option an earlier run could have prepared.
+ *
  * Exit 0 when the boundary holds, 1 when it does not; the entrypoint starts the service either way.
  *   tsx src/server/file-boundary-check.ts            the check (root)
- *   tsx src/server/file-boundary-check.ts --probe    the probing child (the sandbox uid; the planned attempts on stdin)
  */
 
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,28 +28,32 @@ import {
   mountPointsUnder,
   planFileBoundaryProbes,
   readProbeReport,
-  runFileBoundaryProbes,
   type FileBoundaryProbe,
   type FileBoundaryVerdict,
 } from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
-import { resolveSandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { qayabaRoot } from "../paths";
 import { fileBoundaryLayout, fileBoundaryStatusFile } from "./file-boundary";
 
-const PROBE_FLAG = "--probe";
+const PROBE_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "file-boundary-probe.mjs");
 const PROBE_TIMEOUT_MS = 60_000;
 
-function probeChild(): number {
-  let probes: FileBoundaryProbe[];
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(0, "utf8"));
-    if (!Array.isArray(parsed)) return 2;
-    probes = parsed.filter((p): p is FileBoundaryProbe => typeof p === "object" && p !== null && typeof p.path === "string" && ["read", "list", "write"].includes(p.kind));
-  } catch {
-    return 2;
-  }
-  process.stdout.write(JSON.stringify(runFileBoundaryProbes(probes).map(({ outcome, code }) => (code === undefined ? { outcome } : { outcome, code }))));
-  return 0;
+/* How the probing child is started: the way the launcher starts agent code (uid and gid, no supplementary groups), running the plain script with the plain binary. */
+export function probeSpawnFor(sandbox: Sandbox, probes: readonly FileBoundaryProbe[], env: NodeJS.ProcessEnv): { command: string; args: string[]; options: SpawnSyncOptions & { encoding: "utf8" } } {
+  return {
+    command: process.execPath,
+    args: [PROBE_SCRIPT],
+    options: {
+      uid: sandbox.uid,
+      gid: sandbox.gid,
+      cwd: "/",
+      env: { PATH: env.PATH ?? "/usr/local/bin:/usr/bin:/bin" },
+      input: JSON.stringify(probes),
+      encoding: "utf8",
+      timeout: PROBE_TIMEOUT_MS,
+      maxBuffer: 4 * 1024 * 1024,
+    },
+  };
 }
 
 function writeStatus(path: string, text: string): void {
@@ -60,16 +68,8 @@ function check(env: NodeJS.ProcessEnv): FileBoundaryVerdict {
   if (!sandbox) return { holds: false, exposures: ["there is no sandbox uid to check as (not root on Linux, the image lacks the sandbox user, or CODE_SANDBOX=off)"] };
   const root = qayabaRoot();
   const probes = planFileBoundaryProbes(fileBoundaryLayout(env, root), mountPointsUnder(readFileSync("/proc/self/mountinfo", "utf8"), root));
-  const child = spawnSync(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), PROBE_FLAG], {
-    uid: sandbox.uid,
-    gid: sandbox.gid,
-    cwd: "/",
-    env: { PATH: env.PATH ?? "/usr/local/bin:/usr/bin:/bin" },
-    input: JSON.stringify(probes),
-    encoding: "utf8",
-    timeout: PROBE_TIMEOUT_MS,
-    maxBuffer: 4 * 1024 * 1024,
-  });
+  const { command, args, options } = probeSpawnFor(sandbox, probes, env);
+  const child = spawnSync(command, args, options);
   const finished = child.error === undefined && child.status === 0;
   const verdict = judgeFileBoundary(probes, finished ? readProbeReport(probes, child.stdout) : []);
   if (finished || verdict.holds) return verdict;
@@ -78,7 +78,6 @@ function check(env: NodeJS.ProcessEnv): FileBoundaryVerdict {
 }
 
 function main(): number {
-  if (process.argv.includes(PROBE_FLAG)) return probeChild();
   const env = process.env;
   const statusFile = fileBoundaryStatusFile(env);
   let verdict: FileBoundaryVerdict;
