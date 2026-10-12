@@ -27,9 +27,8 @@ Edits to the recorded body, and nothing else:
 - the unused native agents (`plan`, `explore`, `compaction`, `summary`, `title`) are dropped;
 - each permission rule is laid out on one line.
 
-The read-denial patterns were last changed (`**/.auth/**` became `**/e2e/.auth/**`, `**/data/auth/**` was dropped) by editing this
-recording to match `agents/opencode.json`, rule for rule and in the same order, not by a new capture: re-record it on the next stack
-run.
+The recording is a fresh capture, not a hand edit: the global `tools` map's `run_spec` and `authbrowser_*` switches resolve into
+deny rules on every agent (and an allow rule on the two authoring roles), which the earlier hand-edited body lacked.
 
 What the capture shows, and what the parser tests pin (the first two points are as the 1.17.7 recording shows
 them; the two about the directory were observed on the 1.16.2 capture of 2026-10-07 and were not repeated):
