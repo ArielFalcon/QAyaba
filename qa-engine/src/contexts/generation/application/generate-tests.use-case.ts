@@ -199,8 +199,8 @@ export class GenerateTestsUseCase {
     const declaredSpecs = declareSpecs(deliverable.specs, deliverable.specMetas);
     const declared = declaredSpecs.length > 0 ? { declaredSpecs } : {};
 
-    /* A generation that ran out of time has no specs to review: the reviewer's session would be spent on nothing. */
-    if (!generationRunsReviewer(input) || end === GENERATION_END.TIME_BUDGET) {
+    /* A generation that ran out of time, or that declared a no-op, has no specs to review: the reviewer's session would be spent on nothing, and opening it after the run's time is spent would end a valid no-op as a time-budget error. */
+    if (!generationRunsReviewer(input) || end === GENERATION_END.TIME_BUDGET || end === GENERATION_END.DECLARED_NOOP) {
       return {
         specs: deliverable.specs,
         ...declared,

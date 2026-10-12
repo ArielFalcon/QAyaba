@@ -9,6 +9,7 @@ import { AgentTimeoutError, AgentUnavailableError } from "@kernel/domain-error.t
 import { renderGenerationNote } from "@contexts/generation/domain/generation-end.ts";
 import { REPAIR_TURN_TIMEOUT_MS } from "@contexts/generation/domain/repair-turn.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { OpenSessionOpts } from "@kernel/ports/agent-runtime.port.ts";
 
@@ -183,6 +184,21 @@ test("a generation that ran out of time does not open the reviewer on specs it n
   const { ports, seen } = build([{ throws: new AgentTimeoutError("timed out") }]);
   const result = await new GenerateTestsUseCase(ports).generate(baseInput({ needsReview: true }));
   assert.equal(result.end, GENERATION_END.TIME_BUDGET);
+  assert.equal(result.reviewed, false);
+  assert.equal(seen.opened.some((o) => o.role === "reviewer"), false);
+});
+
+test("a declared no-op has no specs for a reviewer to judge: its session is never opened, so a spent run deadline cannot turn the no-op into a time-budget end", async () => {
+  const { ports, seen } = build([{ output: "NOOP" }]);
+  const open = ports.runtime.openSession.bind(ports.runtime);
+  ports.runtime.openSession = async (role, cwd, sessionOpts) => {
+    if (role === "reviewer") throw new RunDeadlineExceededError(600_000, "diff", "reviewer", "before-turn");
+    return open(role, cwd, sessionOpts);
+  };
+  const result = await new GenerateTestsUseCase(ports).generate(baseInput({ needsReview: true }));
+
+  assert.equal(result.end, GENERATION_END.DECLARED_NOOP);
+  assert.deepEqual(result.specs, []);
   assert.equal(result.reviewed, false);
   assert.equal(seen.opened.some((o) => o.role === "reviewer"), false);
 });
