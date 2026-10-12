@@ -585,9 +585,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "run-decision": {
-    description: "run decision: verdict → side effect (pr/issue/shadow-log/quarantine/none)",
+    description: "run decision: verdict → side effect (pr/issue/shadow-log/quarantine/none), and whether a run's suite is accepted",
     mutate: [`${ORCH}/domain/run-decision.service.ts`, `${ORCH}/domain/run-decision.ts`],
     tests: [
+      `${ORCH_TEST}/domain/run-acceptance.test.ts`,
       `${ORCH_TEST}/domain/run-decision.service.test.ts`,
       `${ORCH_TEST}/domain/run-decision.test.ts`,
       `${ORCH_TEST}/domain/run-decision-parity.test.ts`,

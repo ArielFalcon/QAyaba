@@ -57,3 +57,13 @@ export function decide(ev: RunEvidence): RunDecision {
 
   return RunDecision.of("pass", "pr");
 }
+
+/**
+ * Whether the run's suite is worth keeping for the next run: it passed (a flaky pass never does), generated something, got the
+ * approval its app requires, and is not held back by the change-coverage signal. This is decide()'s "would publish" conjunction
+ * without the shadow switch: shadow decides where a pull request would go, not whether the run proved the suite, so a shadow run
+ * that nothing publishes still keeps what it proved.
+ */
+export function isAccepted(ev: RunEvidence): boolean {
+  return ev.verdict === "pass" && ev.generating && (!ev.needsReview || ev.reviewerApproved) && !ev.blocksPublish;
+}
