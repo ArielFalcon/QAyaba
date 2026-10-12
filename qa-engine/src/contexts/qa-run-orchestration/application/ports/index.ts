@@ -7,7 +7,7 @@
  */
 
 import type { Sha } from "@kernel/sha.ts";
-import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
+import type { RunMode, RunPurpose, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunStep } from "@kernel/run-step.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -92,6 +92,8 @@ export interface RunInput {
    * fabricated. Intra-run regenerations reuse this same input object.
    */
   parentRunId?: string;
+  /** Why the run was started, when it is not a change to test (see RUN_PURPOSE). Recorded on the persisted note; never read by a verdict. */
+  purpose?: RunPurpose;
 }
 export interface RunPipelinePort {
   /**

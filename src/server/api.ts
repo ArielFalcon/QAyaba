@@ -32,6 +32,7 @@ import {
   CreateAppInputSchema,
   CreateAppResultSchema,
   CreateRunResultSchema,
+  LoginBootstrapResultSchema,
   DeleteAppResultSchema,
   PublicAgentConfig,
   PublicAgentConfigSchema,
@@ -131,6 +132,12 @@ export interface ApiDeps {
   deleteApp?: (name: string, purge: boolean) => { removed: string[] };
   listRepos?: (owner: string, page: number) => Promise<{ repos: Array<{ fullName: string; private: boolean; description: string | null }>; hasMore: boolean }>;
   runEvents?: RunEventStore;
+
+  /*
+   * Enqueues the run that authors the app's login and proves it (purpose login-bootstrap) at an explicit sha, and returns its
+   * run id ("" while shutting down). Absent ⇒ the login-bootstrap route returns 501.
+   */
+  bootstrapLogin?: (app: string, sha: string) => string;
 
   boundaries?: {
     propose(app: string, input: z.infer<typeof ProposeBoundariesInputSchema>): { ok: true } | { ok: false; error: string } | Promise<{ ok: true } | { ok: false; error: string }>;
@@ -272,6 +279,11 @@ export async function handleApi(
   const boundaryConfirmMatch = path.match(/^\/api\/apps\/([^/]+)\/boundaries\/confirm$/);
   if (req.method === "POST" && boundaryConfirmMatch) {
     return await handleConfirmBoundaries(req, res, deps, boundaryConfirmMatch[1]!);
+  }
+
+  const loginBootstrapMatch = path.match(/^\/api\/apps\/([^/]+)\/login-bootstrap$/);
+  if (req.method === "POST" && loginBootstrapMatch) {
+    return await handleLoginBootstrap(res, deps, loginBootstrapMatch[1]!);
   }
 
   const intelMatch = path.match(/^\/api\/apps\/([^/]+)\/intelligence$/);
@@ -1333,6 +1345,48 @@ function handleDeleteApp(res: ServerResponse, deps: ApiDeps, name: string, purge
   return true;
 }
 
+
+/*
+ * The run that establishes and proves an app's login. Only a form login is authored (a client certificate needs no login script,
+ * a public app no login, a code app no browser), so anything else is a 409 rather than a run that could only fail.
+ */
+async function handleLoginBootstrap(res: ServerResponse, deps: ApiDeps, name: string): Promise<boolean> {
+  if (!deps.bootstrapLogin) {
+    json(res, 501, { error: "login bootstrap is not available" });
+    return true;
+  }
+  let appConfig: AppConfig;
+  try {
+    appConfig = deps.loadApp(name);
+  } catch {
+    json(res, 404, { error: `app not found: '${name}'` });
+    return true;
+  }
+  if (appConfig.code === true || appConfig.auth?.kind !== "form") {
+    json(res, 409, { error: `app '${name}' declares no form login to bootstrap` });
+    return true;
+  }
+  let sha: string;
+  try {
+    sha = await deps.resolveRef(appConfig.repo, appConfig.baseBranch ?? "main");
+  } catch (err) {
+    json(res, 400, { error: redactionPort.redactError(err) });
+    return true;
+  }
+  let id: string;
+  try {
+    id = deps.bootstrapLogin(appConfig.name, sha);
+  } catch (err) {
+    json(res, 500, { error: `failed to enqueue the login run: ${err instanceof Error ? err.message : String(err)}` });
+    return true;
+  }
+  if (!id) {
+    json(res, 503, { error: "service shutting down" });
+    return true;
+  }
+  contractJson(res, 202, LoginBootstrapResultSchema, { id, app: appConfig.name, sha, status: "enqueued" });
+  return true;
+}
 
 async function handleProposeBoundaries(req: IncomingMessage, res: ServerResponse, deps: ApiDeps, name: string): Promise<boolean> {
   if (!deps.boundaries) {

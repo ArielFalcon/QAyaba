@@ -507,6 +507,27 @@ func (e OnboardingJobStatusIndexProgressStatus) Valid() bool {
 	}
 }
 
+// Defines values for OnboardingJobStatusLoginProgressStatus.
+const (
+	OnboardingJobStatusLoginProgressStatusFailed     OnboardingJobStatusLoginProgressStatus = "failed"
+	OnboardingJobStatusLoginProgressStatusUnauthored OnboardingJobStatusLoginProgressStatus = "unauthored"
+	OnboardingJobStatusLoginProgressStatusVerified   OnboardingJobStatusLoginProgressStatus = "verified"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingJobStatusLoginProgressStatus enum.
+func (e OnboardingJobStatusLoginProgressStatus) Valid() bool {
+	switch e {
+	case OnboardingJobStatusLoginProgressStatusFailed:
+		return true
+	case OnboardingJobStatusLoginProgressStatusUnauthored:
+		return true
+	case OnboardingJobStatusLoginProgressStatusVerified:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OnboardingJobStatusOutcome.
 const (
 	NoProfile OnboardingJobStatusOutcome = "no-profile"
@@ -597,6 +618,7 @@ const (
 	OnboardingJobStatusStateFailed           OnboardingJobStatusState = "failed"
 	OnboardingJobStatusStateIdle             OnboardingJobStatusState = "idle"
 	OnboardingJobStatusStateIndexing         OnboardingJobStatusState = "indexing"
+	OnboardingJobStatusStateLogin            OnboardingJobStatusState = "login"
 	OnboardingJobStatusStateMapping          OnboardingJobStatusState = "mapping"
 	OnboardingJobStatusStateProposing        OnboardingJobStatusState = "proposing"
 	OnboardingJobStatusStateResolvingMirrors OnboardingJobStatusState = "resolvingMirrors"
@@ -613,6 +635,8 @@ func (e OnboardingJobStatusState) Valid() bool {
 	case OnboardingJobStatusStateIdle:
 		return true
 	case OnboardingJobStatusStateIndexing:
+		return true
+	case OnboardingJobStatusStateLogin:
 		return true
 	case OnboardingJobStatusStateMapping:
 		return true
@@ -920,19 +944,19 @@ func (e RunRecordMode) Valid() bool {
 
 // Defines values for RunRecordStatus.
 const (
-	RunRecordStatusDone     RunRecordStatus = "done"
-	RunRecordStatusEnqueued RunRecordStatus = "enqueued"
-	RunRecordStatusRunning  RunRecordStatus = "running"
+	Done     RunRecordStatus = "done"
+	Enqueued RunRecordStatus = "enqueued"
+	Running  RunRecordStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordStatus enum.
 func (e RunRecordStatus) Valid() bool {
 	switch e {
-	case RunRecordStatusDone:
+	case Done:
 		return true
-	case RunRecordStatusEnqueued:
+	case Enqueued:
 		return true
-	case RunRecordStatusRunning:
+	case Running:
 		return true
 	default:
 		return false
@@ -1533,6 +1557,14 @@ type LearningRuleViewConfidence string
 // LearningRuleViewStatus defines model for LearningRuleView.Status.
 type LearningRuleViewStatus string
 
+// LoginBootstrapResult defines model for LoginBootstrapResult.
+type LoginBootstrapResult struct {
+	App    string `json:"app"`
+	Id     string `json:"id"`
+	Sha    string `json:"sha"`
+	Status string `json:"status"`
+}
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	GithubToken string `json:"githubToken"`
@@ -1566,7 +1598,13 @@ type OnboardingJobStatus struct {
 		Status    OnboardingJobStatusIndexProgressStatus `json:"status"`
 	} `json:"indexProgress,omitempty"`
 	LastResolvedScore *float32 `json:"lastResolvedScore,omitempty"`
-	MappingProgress   *struct {
+	LoginProgress     *struct {
+		RunId   *string                                 `json:"runId,omitempty"`
+		Status  *OnboardingJobStatusLoginProgressStatus `json:"status,omitempty"`
+		Step    *string                                 `json:"step,omitempty"`
+		Verdict *string                                 `json:"verdict,omitempty"`
+	} `json:"loginProgress,omitempty"`
+	MappingProgress *struct {
 		RunId   *string `json:"runId,omitempty"`
 		Step    *string `json:"step,omitempty"`
 		Verdict *string `json:"verdict,omitempty"`
@@ -1591,6 +1629,9 @@ type OnboardingJobStatus struct {
 
 // OnboardingJobStatusIndexProgressStatus defines model for OnboardingJobStatus.IndexProgress.Status.
 type OnboardingJobStatusIndexProgressStatus string
+
+// OnboardingJobStatusLoginProgressStatus defines model for OnboardingJobStatus.LoginProgress.Status.
+type OnboardingJobStatusLoginProgressStatus string
 
 // OnboardingJobStatusOutcome defines model for OnboardingJobStatus.Outcome.
 type OnboardingJobStatusOutcome string

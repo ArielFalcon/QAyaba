@@ -12,7 +12,7 @@ import { Sha } from "@kernel/sha.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { relative } from "node:path";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
+import type { RunMode, RunPurpose, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
@@ -376,6 +376,8 @@ export interface RunQaInput {
   baseSha?: Sha;
   /** Continuation provenance from the /continue API only. Absent is never fabricated. */
   parentRunId?: string;
+  /** Why the run was started, when it is not a change to test. Only tags the persisted note; no verdict, decision or gate reads it. */
+  purpose?: RunPurpose;
 }
 
 export interface RunQaResult {
@@ -2401,7 +2403,7 @@ export class RunQaUseCase {
       },
       rulesRetrieved: extra?.rulesRetrieved ?? [],
       ...(extra?.diffArchetypes !== undefined ? { diffArchetypes: extra.diffArchetypes } : {}),
-      ...(extra?.note !== undefined ? { note: extra.note } : {}),
+      ...(input.purpose !== undefined || extra?.note !== undefined ? { note: [input.purpose !== undefined ? `[${input.purpose}]` : undefined, extra?.note].filter((part) => part !== undefined).join(" ") } : {}),
       at: new Date().toISOString(),
       /* Persist the same cases + logs the returned result carries. Non-execute callers pass []. */
       cases,

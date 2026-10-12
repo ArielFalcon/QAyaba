@@ -356,6 +356,8 @@ report:
   onFailure: "github-issue"
 ```
 
+**The login is a verified onboarding step.** An app that declares a form login (`auth.kind: form` in the YAML) is not onboarded until its login signs in: after the architecture map, onboarding enqueues a manual run for the login purpose that authors `e2e/auth.setup.ts` and one smoke spec of a route that needs the session. When that run is accepted (green, reviewed, not held back by coverage) the login and the spec are kept in the **suite store** (`data/suites/<app>/` in the qa-data volume), so later runs, including shadow runs that publish nothing, start from a working login instead of authoring it again. The onboarding status reports `loginProgress.status` as `verified`, `unauthored` or `failed`; the same run can be started on its own with `POST /api/v1/apps/{name}/login-bootstrap`.
+
 ### Trigger a manual run
 
 ```bash

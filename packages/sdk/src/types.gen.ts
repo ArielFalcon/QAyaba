@@ -256,6 +256,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/apps/{name}/login-bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enqueue the run that establishes and proves the app's login (a manual run for the login purpose); the login is kept once the run is accepted */
+        post: operations["bootstrapLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/apps/{name}/intelligence": {
         parameters: {
             query?: never;
@@ -792,7 +809,7 @@ export interface components {
         };
         OnboardingJobStatus: {
             /** @enum {string} */
-            state: "idle" | "resolvingMirrors" | "proposing" | "scoring" | "indexing" | "mapping" | "done" | "failed";
+            state: "idle" | "resolvingMirrors" | "proposing" | "scoring" | "indexing" | "mapping" | "login" | "done" | "failed";
             app?: string;
             round: number;
             ceiling: number;
@@ -849,6 +866,13 @@ export interface components {
                 step?: string;
                 verdict?: string;
             };
+            loginProgress?: {
+                runId?: string;
+                step?: string;
+                verdict?: string;
+                /** @enum {string} */
+                status?: "verified" | "unauthored" | "failed";
+            };
             resolution?: {
                 edges: {
                     fromRepo: string;
@@ -869,6 +893,12 @@ export interface components {
         ConfirmBoundariesInput: {
             /** @enum {boolean} */
             confirm: true;
+        };
+        LoginBootstrapResult: {
+            id: string;
+            app: string;
+            sha: string;
+            status: string;
         };
         PublicAgentConfig: {
             /** @enum {string} */
@@ -1783,6 +1813,49 @@ export interface operations {
             };
             /** @description no confirmable boundary profile for this app */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    bootstrapLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description login-bootstrap run enqueued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginBootstrapResult"];
+                };
+            };
+            /** @description app not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the app has no form login to bootstrap, or an onboarding job is running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description service shutting down */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

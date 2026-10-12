@@ -4,6 +4,7 @@ import { JobQueue } from "./queue";
 import {
   enqueueTrackedRun,
   enqueueContextMapRun,
+  enqueueLoginBootstrapRun,
   cancelTrackedRun,
   ONBOARDING_WAIT_MAX_MS,
   ONBOARDING_MIRROR_CEILING_MS,
@@ -158,6 +159,22 @@ test("a context-map run is an e2e context-mode run at the given sha, from a manu
   assert.equal(run?.target, "e2e");
   assert.equal(run?.source, "manual");
   assert.equal(run?.triggerRepo, undefined, "context mode cannot be driven from a service repo");
+});
+
+test("a login-bootstrap run is an e2e manual run for the login purpose, guided to author the login and prove it, never tied to a service repo", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueLoginBootstrapRun(queue, "runner-login-bootstrap", "c0ffee1", { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+  const [run] = calls;
+  assert.equal(getRecord(id)?.status, "done");
+  assert.equal(run?.mode, "manual");
+  assert.equal(run?.target, "e2e");
+  assert.equal(run?.source, "manual");
+  assert.equal(run?.purpose, "login-bootstrap");
+  assert.equal(run?.triggerRepo, undefined);
+  assert.match(run?.guidance ?? "", /auth\.setup\.ts/);
+  assert.match(run?.guidance ?? "", /one smoke spec/);
 });
 
 test("PIPELINE_ENGINE=legacy (stale operator setting) — still routes through the rewritten engineFactory (accepted-but-ignored)", async () => {

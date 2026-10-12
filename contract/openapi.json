@@ -628,6 +628,43 @@
         }
       }
     },
+    "/api/v1/apps/{name}/login-bootstrap": {
+      "post": {
+        "operationId": "bootstrapLogin",
+        "summary": "Enqueue the run that establishes and proves the app's login (a manual run for the login purpose); the login is kept once the run is accepted",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "login-bootstrap run enqueued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginBootstrapResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "app not found"
+          },
+          "409": {
+            "description": "the app has no form login to bootstrap, or an onboarding job is running"
+          },
+          "503": {
+            "description": "service shutting down"
+          }
+        }
+      }
+    },
     "/api/v1/apps/{name}/intelligence": {
       "get": {
         "operationId": "getAppIntelligence",
@@ -2450,6 +2487,7 @@
               "scoring",
               "indexing",
               "mapping",
+              "login",
               "done",
               "failed"
             ]
@@ -2675,6 +2713,29 @@
             },
             "additionalProperties": false
           },
+          "loginProgress": {
+            "type": "object",
+            "properties": {
+              "runId": {
+                "type": "string"
+              },
+              "step": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "verified",
+                  "unauthored",
+                  "failed"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
           "resolution": {
             "type": "object",
             "properties": {
@@ -2764,6 +2825,30 @@
         },
         "required": [
           "confirm"
+        ],
+        "additionalProperties": false
+      },
+      "LoginBootstrapResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "app",
+          "sha",
+          "status"
         ],
         "additionalProperties": false
       },

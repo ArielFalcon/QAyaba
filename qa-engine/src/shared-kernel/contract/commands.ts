@@ -279,7 +279,18 @@ export const MappingProgressSchema = z.object({
   verdict: z.string().optional(),
 });
 
-export const OnboardStateSchema = z.enum(["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "mapping", "done", "failed"]);
+/** How the app's login stands once the login phase has judged its run: signed in and proven by an accepted run (verified), not authored by that run (unauthored), or the run could not tell (failed: the login could not be completed, or the run did not finish). */
+export const LoginBootstrapStatusSchema = z.enum(["verified", "unauthored", "failed"]);
+
+/** The login phase's run, copied off its run record while it runs; `status` appears once the run has ended. */
+export const LoginProgressSchema = z.object({
+  runId: z.string().optional(),
+  step: z.string().optional(),
+  verdict: z.string().optional(),
+  status: LoginBootstrapStatusSchema.optional(),
+});
+
+export const OnboardStateSchema = z.enum(["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "mapping", "login", "done", "failed"]);
 export const OnboardOutcomeSchema = z.enum(["winner", "no-profile"]);
 
 export const RepoIndexStatusSchema = z.enum(["ok", "failed"]);
@@ -321,7 +332,17 @@ export const OnboardingJobStatusSchema = z.object({
   finishedAt: z.string().optional(),
   indexProgress: z.array(RepoIndexOutcomeSchema).optional(),
   mappingProgress: MappingProgressSchema.optional(),
+  /** Present once the login phase has started; absent for an app with no form login to bootstrap. */
+  loginProgress: LoginProgressSchema.optional(),
   resolution: ResolutionSummarySchema.optional(),
+});
+
+/** What POST /apps/{name}/login-bootstrap answers: the run that establishes and proves the app's login, enqueued. */
+export const LoginBootstrapResultSchema = z.object({
+  id: z.string(),
+  app: z.string(),
+  sha: z.string(),
+  status: z.string(),
 });
 
 export const ProposeBoundariesInputSchema = z.object({
@@ -445,6 +466,7 @@ export type RepoListItem = z.infer<typeof RepoListItemSchema>;
 export type RepoListResponse = z.infer<typeof RepoListResponseSchema>;
 export type BoundaryProfileWire = z.infer<typeof BoundaryProfileSchema>;
 export type OnboardingJobStatus = z.infer<typeof OnboardingJobStatusSchema>;
+export type LoginBootstrapResult = z.infer<typeof LoginBootstrapResultSchema>;
 export type ProposeBoundariesInput = z.infer<typeof ProposeBoundariesInputSchema>;
 export type ConfirmBoundariesInput = z.infer<typeof ConfirmBoundariesInputSchema>;
 export type AgentProvider = z.infer<typeof AgentProviderSchema>;

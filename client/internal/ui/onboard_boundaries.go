@@ -190,12 +190,17 @@ func (m boundaryProposeModel) View() string {
 		b.WriteString(m.renderIndexing())
 	case m.status.State == contract.OnboardingJobStatusStateMapping:
 		b.WriteString(m.renderMapping())
+	case m.status.State == contract.OnboardingJobStatusStateLogin:
+		b.WriteString(m.renderLogin())
 	case m.isConfirmableWinner():
 		b.WriteString(m.renderWinnerCard())
 	case m.status.State == contract.OnboardingJobStatusStateDone && m.status.Outcome != nil && *m.status.Outcome == contract.NoProfile:
 		b.WriteString(m.renderNoProfile())
 	}
 
+	if m.status.State == contract.OnboardingJobStatusStateDone && !m.isAppMismatch() {
+		b.WriteString(m.renderLoginResult())
+	}
 	if m.err != "" {
 		b.WriteString("\n" + errorStyle.Render("✗ "+m.err) + "\n")
 	}
@@ -220,6 +225,8 @@ func (m boundaryProposeModel) badgeLabelAndStyle() (string, lipgloss.Style) {
 		return "indexing", infoStyle
 	case contract.OnboardingJobStatusStateMapping:
 		return "mapping", infoStyle
+	case contract.OnboardingJobStatusStateLogin:
+		return "login", infoStyle
 	case contract.OnboardingJobStatusStateDone:
 		if m.status.Outcome != nil && *m.status.Outcome == contract.Winner {
 			return "resolved", okStyle
@@ -307,6 +314,39 @@ func (m boundaryProposeModel) renderMapping() string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+/* renderLogin shows the login phase — a manual QA run that establishes the app's login and proves it with one smoke spec. Progress is the run id plus the latest step/verdict copied off the run record. */
+func (m boundaryProposeModel) renderLogin() string {
+	var b strings.Builder
+	b.WriteString(hintStyle.Render("establishing the app's login…") + "\n")
+	if p := m.status.LoginProgress; p != nil && p.RunId != nil && *p.RunId != "" {
+		b.WriteString(labelStyle.Render("run " + *p.RunId))
+		if p.Step != nil && *p.Step != "" {
+			b.WriteString(labelStyle.Render(" · " + *p.Step))
+		}
+		if p.Verdict != nil && *p.Verdict != "" {
+			b.WriteString(labelStyle.Render(" · " + *p.Verdict))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+/* renderLoginResult says how the login phase ended, once the job is done: verified (an accepted run signed in and kept the login), unauthored (the run did not author one) or failed (the login could not be completed, or the run did not finish). Nothing is shown for an app with no login to bootstrap. */
+func (m boundaryProposeModel) renderLoginResult() string {
+	p := m.status.LoginProgress
+	if p == nil || p.Status == nil {
+		return ""
+	}
+	switch *p.Status {
+	case contract.OnboardingJobStatusLoginProgressStatusVerified:
+		return "\n" + okStyle.Render("login verified — the app's login signs in and is kept for the next runs.") + "\n"
+	case contract.OnboardingJobStatusLoginProgressStatusUnauthored:
+		return "\n" + errorStyle.Render("login unauthored — the run did not leave a working login; the next run will author it.") + "\n"
+	default:
+		return "\n" + errorStyle.Render("login failed — check the test account's credentials and the app's login page.") + "\n"
+	}
 }
 
 /* renderAppMismatch reports that the polled status belongs to a different app than this screen —

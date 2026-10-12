@@ -441,3 +441,70 @@ func TestWinnerCardMentionsArchitectureMapOnConfirm(t *testing.T) {
 		t.Fatalf("winner confirm hint must mention context.json:\n%s", out)
 	}
 }
+
+func loginStatus(state contract.OnboardingJobStatusState, status *contract.OnboardingJobStatusLoginProgressStatus) contract.OnboardingJobStatus {
+	outcome := contract.Winner
+	profile := winnerProfile()
+	runId := "run_2"
+	step := "generate"
+	progress := &struct {
+		RunId   *string                                          `json:"runId,omitempty"`
+		Status  *contract.OnboardingJobStatusLoginProgressStatus `json:"status,omitempty"`
+		Step    *string                                          `json:"step,omitempty"`
+		Verdict *string                                          `json:"verdict,omitempty"`
+	}{RunId: &runId, Step: &step, Status: status}
+	return contract.OnboardingJobStatus{
+		State: state, App: strPtr("shop"), Round: 3, Ceiling: 3,
+		CandidatesScored: 6, Outcome: &outcome, ResolvedProfile: &profile, LoginProgress: progress,
+	}
+}
+
+func TestBoundaryProposeRendersLoginBadgeAndProgress(t *testing.T) {
+	m := newBoundaryProposeModel(nil, "shop")
+	m.width, m.height = 100, 30
+	m, _ = m.Update(boundaryStatusMsg{status: loginStatus(contract.OnboardingJobStatusStateLogin, nil)})
+	out := strings.ToLower(m.View())
+	for _, want := range []string{"login", "run_2", "generate"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("View() missing %q for a login status:\n%s", want, out)
+		}
+	}
+}
+
+func TestLoginStateIsNotTerminalAndKeepsTheTickGoing(t *testing.T) {
+	if isTerminalOnboardState(contract.OnboardingJobStatusStateLogin) {
+		t.Fatal("login must be non-terminal — the ticker must keep polling through it")
+	}
+	m := newBoundaryProposeModel(nil, "shop")
+	m.width, m.height = 100, 30
+	_, cmd := m.Update(boundaryStatusMsg{status: loginStatus(contract.OnboardingJobStatusStateLogin, nil)})
+	if cmd == nil {
+		t.Fatal("a login status must reschedule the next tick")
+	}
+}
+
+func TestDoneJobSaysHowTheLoginEnded(t *testing.T) {
+	cases := map[contract.OnboardingJobStatusLoginProgressStatus]string{
+		contract.OnboardingJobStatusLoginProgressStatusVerified:   "login verified",
+		contract.OnboardingJobStatusLoginProgressStatusUnauthored: "login unauthored",
+		contract.OnboardingJobStatusLoginProgressStatusFailed:     "login failed",
+	}
+	for status, want := range cases {
+		status := status
+		m := newBoundaryProposeModel(nil, "shop")
+		m.width, m.height = 100, 30
+		m, _ = m.Update(boundaryStatusMsg{status: loginStatus(contract.OnboardingJobStatusStateDone, &status)})
+		if out := strings.ToLower(m.View()); !strings.Contains(out, want) {
+			t.Fatalf("View() missing %q for a login that ended %s:\n%s", want, status, out)
+		}
+	}
+}
+
+func TestDoneJobWithoutALoginPhaseSaysNothingAboutLogin(t *testing.T) {
+	m := newBoundaryProposeModel(nil, "shop")
+	m.width, m.height = 100, 30
+	m, _ = m.Update(boundaryStatusMsg{status: winnerStatus()})
+	if out := strings.ToLower(m.View()); strings.Contains(out, "login verified") || strings.Contains(out, "login failed") || strings.Contains(out, "login unauthored") {
+		t.Fatalf("an app with no login phase must not show a login result:\n%s", out)
+	}
+}

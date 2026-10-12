@@ -27,7 +27,7 @@ import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
 import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
-import { enqueueTrackedRun, enqueueContextMapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
+import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
 import { appAuthDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
@@ -541,6 +541,16 @@ const onboardingJob = createOnboardingJob({
     return { runId: rec.id, status: rec.status, step: rec.step, verdict: rec.verdict };
   },
   isCodeApp: (app) => Boolean(loadAppConfig(app).code),
+  /*
+   * The login phase after the map: a manual run for the login purpose at the mirror's HEAD, under the app's own qa.shadow. Same
+   * shutdown guard as the map's enqueue; "" is a clean skip for the job. An accepted run keeps the login and its smoke spec in
+   * the suite store (run-qa.use-case.ts), which is what "verified" means.
+   */
+  enqueueLoginRun: async ({ app, mirrorDir }) => {
+    if (shuttingDown) return "";
+    return enqueueLoginBootstrapRun(queue, app, await getHeadSha(mirrorDir, defaultMirrorDeps), runnerDeps());
+  },
+  hasLogin: (app) => loadAppConfig(app).auth?.kind === "form",
 });
 
 const apiDeps: ApiDeps = {
@@ -551,6 +561,7 @@ const apiDeps: ApiDeps = {
   createApp: (input) => adminCreateApp(input, appAdminDeps),
   updateApp: (input) => adminUpdateApp(input, appAdminDeps),
   deleteApp: (name, purge) => adminDeleteApp(name, purge, appAdminDeps),
+  bootstrapLogin: (app, sha) => (shuttingDown ? "" : enqueueLoginBootstrapRun(queue, app, sha, runnerDeps())),
   listRepos: (owner, page) => github.listRepos(owner, page),
   runEvents,
 

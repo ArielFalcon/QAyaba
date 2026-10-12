@@ -19,6 +19,7 @@ import { isInfraError } from "../errors";
 import type { RunEventStore } from "./run-events";
 import type { RunEventBody } from "../contract/events";
 import { Sha } from "@kernel/sha";
+import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import { selectEngine } from "@contexts/qa-run-orchestration/composition/pipeline-engine-flag";
 import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
@@ -53,6 +54,7 @@ export interface RunRequest {
   previousNamespace?: string;  /* cleanup: namespace from an interrupted previous run */
   commits?: number;  /* diff mode: how many commits ending at the SHA the diff spans (default 1) */
   baseSha?: string;  /* PR/push range: when set, diff spans baseSha..sha (range diff) */
+  purpose?: RunPurpose;  /* why the run was started, when it is not a change to test (login bootstrap) */
 }
 
 /* Side-effecting collaborators, injected so the funnel is unit-testable with stubs. */
@@ -171,6 +173,7 @@ async function runViaRewrittenEngine(
     ...(req.baseSha ? { baseSha: Sha.of(req.baseSha) } : {}),
 
     ...(req.parentRunId ? { parentRunId: req.parentRunId } : {}),
+    ...(req.purpose ? { purpose: req.purpose } : {}),
   };
   const outcome = await port.run(input, signal);
 
@@ -203,6 +206,27 @@ async function runViaRewrittenEngine(
  */
 export function enqueueContextMapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps): string {
   return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual" }, deps);
+}
+
+/*
+ * What a login-bootstrap run is told. App-agnostic: the app's login comes from its own declaration (the test account in the run's
+ * environment), the page to prove it on from the app's own routes. The run is a manual generation, so the generator's login section
+ * (the stock seed did not sign in) and every gate apply as for any run; the login is kept only because the run was accepted.
+ */
+export const LOGIN_BOOTSTRAP_GUIDANCE = [
+  "Establish and prove the app's login.",
+  "Make e2e/auth.setup.ts sign in with the configured test account (DEV_TEST_USER and DEV_TEST_PASS) so that the session it saves reaches the app's signed-in area.",
+  "Then write one smoke spec that opens one route that needs that session and asserts something only a signed-in user sees.",
+  "Write no other spec, and do not change the app's code.",
+].join(" ");
+
+/*
+ * A login-bootstrap run: a manual e2e generation whose purpose is the app's login. It is accepted like any run (green, reviewed, not
+ * held back by coverage), and an accepted run keeps the login and its smoke spec in the suite store, which is what makes the login a
+ * verified step of onboarding. Under the app's own qa.shadow; never given a triggerRepo.
+ */
+export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps): string {
+  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "manual", source: "manual", guidance: LOGIN_BOOTSTRAP_GUIDANCE, purpose: RUN_PURPOSE.LOGIN_BOOTSTRAP }, deps);
 }
 
 /*

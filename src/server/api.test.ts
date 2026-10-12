@@ -1449,3 +1449,64 @@ test("POST /api/apps/:name/boundaries/confirm forwards :name into deps.boundarie
   assert.equal(res.status, 200);
   assert.deepEqual(calls.confirm, ["shop"]);
 });
+
+
+/* ── POST /api/apps/:name/login-bootstrap: enqueue the run that establishes and proves the app's login ── */
+
+const formLoginApp: any = { ...appConfig, baseBranch: "develop", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } };
+const loginDeps = (over: Partial<ApiDeps> = {}): ApiDeps =>
+  deps({ loadApp: (n) => { if (n === "demo") return formLoginApp; if (n === "pub") return appConfig; if (n === "cli") return { ...formLoginApp, code: true }; throw new Error("not found"); }, ...over });
+
+test("POST /api/apps/:name/login-bootstrap enqueues the login run at the base branch head and answers 202 with the run", async () => {
+  const resolved: string[][] = [];
+  const bootstrapped: string[][] = [];
+  const res = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), res, loginDeps({
+    resolveRef: async (repo, ref) => { resolved.push([repo, ref]); return "a".repeat(40); },
+    bootstrapLogin: (app, sha) => { bootstrapped.push([app, sha]); return "run-login-1"; },
+  }));
+  assert.equal(res.status, 202);
+  assert.deepEqual(JSON.parse(res.body), { id: "run-login-1", app: "demo", sha: "a".repeat(40), status: "enqueued" });
+  assert.deepEqual(resolved, [["org/demo", "develop"]]);
+  assert.deepEqual(bootstrapped, [["demo", "a".repeat(40)]]);
+});
+
+test("login-bootstrap refuses what has no login to bootstrap: an unknown app (404), a public app and a code app (409)", async () => {
+  let enqueued = 0;
+  const over = { bootstrapLogin: () => { enqueued += 1; return "run-login-1"; } };
+  const unknown = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/nope/login-bootstrap"), unknown, loginDeps(over));
+  assert.equal(unknown.status, 404);
+  const pub = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/pub/login-bootstrap"), pub, loginDeps(over));
+  assert.equal(pub.status, 409);
+  assert.match(JSON.parse(pub.body).error, /form login/);
+  const code = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/cli/login-bootstrap"), code, loginDeps(over));
+  assert.equal(code.status, 409);
+  assert.equal(enqueued, 0);
+});
+
+test("login-bootstrap answers 501 when the capability is not wired, 503 while shutting down, 400 for a ref that does not resolve and 500 for an enqueue that throws", async () => {
+  const none = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), none, loginDeps());
+  assert.equal(none.status, 501);
+
+  const draining = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), draining, loginDeps({ bootstrapLogin: () => "" }));
+  assert.equal(draining.status, 503);
+
+  const badRef = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), badRef, loginDeps({ bootstrapLogin: () => "x", resolveRef: async () => { throw new Error("ls-remote failed"); } }));
+  assert.equal(badRef.status, 400);
+
+  const boom = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), boom, loginDeps({ bootstrapLogin: () => { throw new Error("queue exploded"); } }));
+  assert.equal(boom.status, 500);
+});
+
+test("login-bootstrap is a POST only: a GET on the path is not the route", async () => {
+  const res = mkRes();
+  const handled = await handleApi(mkReq("GET", "/api/apps/demo/login-bootstrap"), res, loginDeps({ bootstrapLogin: () => "run-login-1" }));
+  assert.equal(handled === true && res.status === 202, false);
+});

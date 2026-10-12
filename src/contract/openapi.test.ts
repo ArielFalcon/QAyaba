@@ -69,6 +69,15 @@ test("the OpenAPI document exposes the boundary-onboarding endpoints and their s
   }
 });
 
+test("the OpenAPI document exposes the login-bootstrap endpoint, its result and the login progress of the onboarding status", () => {
+  const doc = buildOpenApiDocument() as Doc;
+  const path = doc.paths["/api/v1/apps/{name}/login-bootstrap"] as Record<string, unknown> | undefined;
+  assert.ok(path?.post, "missing POST .../login-bootstrap");
+  assert.ok(doc.components.schemas.LoginBootstrapResult, "missing component LoginBootstrapResult");
+  const status = doc.components.schemas.OnboardingJobStatus?.properties as Record<string, unknown> | undefined;
+  assert.ok(status?.loginProgress, "OnboardingJobStatus must carry loginProgress");
+});
+
 test("nested entities are $ref'd, not inlined (codegen-friendly)", () => {
   const doc = buildOpenApiDocument() as Doc;
   const cases = doc.components.schemas.RunRecord?.properties?.cases;
