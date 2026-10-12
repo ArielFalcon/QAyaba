@@ -145,7 +145,7 @@ export class FsDelegationWorkspaceAdapter implements DelegationWorkspacePort {
     for (const path of request.writablePaths) {
       const normalized = path.replaceAll("\\", "/");
       writable.add(normalized);
-      const result = this.copyBack(workspace, request, normalized);
+      const result = this.copyBack(workspace, request, normalized, undefined, true);
       if ("reason" in result) refused.push({ path: normalized, reason: result.reason });
       else if (result.copied) copied.push(normalized);
     }
@@ -198,8 +198,8 @@ export class FsDelegationWorkspaceAdapter implements DelegationWorkspacePort {
     return removed;
   }
 
-  /* One writable file from the workspace into the working copy, strictly on both sides: to its own place, or to `to` below the spec directory. */
-  private copyBack(workspace: DelegationWorkspace, request: DelegationWorkspaceRequest, path: string, to?: string): { copied: boolean } | { reason: string } {
+  /* One writable file from the workspace into the working copy, strictly on both sides: to its own place, or to `to` below the spec directory. With `onlyChanged`, a file whose bytes are those the workspace was made with is left alone and reported as not copied, since the sidekick delivered nothing for it. */
+  private copyBack(workspace: DelegationWorkspace, request: DelegationWorkspaceRequest, path: string, to?: string, onlyChanged = false): { copied: boolean } | { reason: string } {
     const prefix = `${request.specRelDir.replace(/\/+$/, "")}/`;
     if (!path.startsWith(prefix) || path.split("/").includes("..")) return { reason: `the path is not inside the spec directory ${request.specRelDir}` };
     const rel = path.slice(prefix.length);
@@ -208,6 +208,7 @@ export class FsDelegationWorkspaceAdapter implements DelegationWorkspacePort {
     const read = readOwnedSpecFile(from, rel, MAX_SPEC_SOURCE_BYTES);
     if ("absent" in read) return { copied: false };
     if ("reason" in read) return { reason: read.reason };
+    if (onlyChanged && this.baselines.get(workspace.dir)?.get(path) === sha256(read.bytes)) return { copied: false };
     try {
       writeOwnedSpecFile({ mirrorDir: request.mirrorDir, specDir: request.specDir }, to ?? rel, read.bytes);
     } catch (err) {

@@ -152,6 +152,36 @@ test("a writable file the sidekick never made is neither copied nor refused", ()
     assert.equal(collected.proposalsTotal, 0);
   }));
 
+test("a writable file that already existed and is byte-identical when the work is taken back is not reported as copied", () =>
+  withFixture(async (f) => {
+    const adapter = adapterOf(f);
+    const workspace = await adapter.create(f.request);
+    const collected = await adapter.collect(workspace, f.request);
+    assert.deepEqual(collected.copied, [], "the sidekick wrote nothing, so nothing went back");
+    assert.deepEqual(collected.refused, []);
+  }, { writablePaths: ["e2e/flows/existing.spec.ts"] }));
+
+test("a writable file that already existed and was changed is copied back, and an untouched twin of it is not", () =>
+  withFixture(async (f) => {
+    put(f.mirrorDir, "e2e/flows/other.spec.ts", "// other\n");
+    const request = { ...f.request, writablePaths: ["e2e/flows/existing.spec.ts", "e2e/flows/other.spec.ts"] };
+    const adapter = adapterOf(f);
+    const workspace = await adapter.create(request);
+    put(workspace.dir, "e2e/flows/existing.spec.ts", "// improved\n");
+    const collected = await adapter.collect(workspace, request);
+    assert.deepEqual(collected.copied, ["e2e/flows/existing.spec.ts"]);
+    assert.equal(readFileSync(join(f.mirrorDir, "e2e/flows/existing.spec.ts"), "utf8"), "// improved\n");
+  }));
+
+test("staging an existing writable file still copies it when it is unchanged, since the orchestrator runs it as it stands", () =>
+  withFixture(async (f) => {
+    const request = { ...f.request, writablePaths: ["e2e/flows/existing.spec.ts"] };
+    const adapter = adapterOf(f);
+    const workspace = await adapter.create(request);
+    assert.equal(await adapter.stage(workspace, request, "e2e/flows/existing.spec.ts", ".qa-probe/existing.spec.ts"), true);
+    assert.equal(readFileSync(join(f.specDir, ".qa-probe/existing.spec.ts"), "utf8"), "// existing\n");
+  }));
+
 test("a writable file that is a link is refused, and what it points at is never read", () =>
   withFixture(async (f) => {
     const adapter = adapterOf(f);

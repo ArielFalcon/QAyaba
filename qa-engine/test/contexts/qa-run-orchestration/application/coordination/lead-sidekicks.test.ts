@@ -371,6 +371,29 @@ test("flows that all declined, each with a reason, are a declared no-op of the r
   assert.match(outcome.aggregated.note ?? "", /already covered/);
 });
 
+test("a sidekick that says it changed nothing but left changes in its workspace has not declined the flow", async () => {
+  const r = rig({
+    answers: { cart: [{ summary: "nothing to assert", filesChanged: [] }], login: [{}] },
+    hasFile: new Set(["login"]),
+    proposals: { cart: 2 },
+  });
+  const outcome = await r.coordinator.coordinate(input(r));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => f.id), ["cart"], "its word is not taken over what the workspace shows");
+});
+
+test("a sidekick that wrote nothing for a flow and says why declines it, with the workspace showing no change", async () => {
+  const r = rig({
+    answers: { cart: [{ summary: "nothing to assert", filesChanged: [] }], login: [{}] },
+    hasFile: new Set(["login"]),
+  });
+  const outcome = await r.coordinator.coordinate(input(r));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => f.id), []);
+});
+
 test("a flow that runs out of its time is stopped and nothing is taken back from it; with nothing delivered the run ends on its time budget", async () => {
   let release!: () => void;
   const hold = new Promise<void>((resolve) => { release = resolve; });

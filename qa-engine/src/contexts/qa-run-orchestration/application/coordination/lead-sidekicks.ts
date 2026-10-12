@@ -290,10 +290,13 @@ export class LeadSidekicks {
       let copied = false;
       let proposals: FlowProposals | undefined;
       let refusal: string | undefined;
+      /* Whether the workspace shows the sidekick changed no file at all: its own list of what it changed is its word, this is what is on disk. */
+      let workspaceUntouched = false;
       if (eligible && !signal.aborted) {
         const collected = await this.deps.workspaces.collect(workspace, request);
         copied = collected.copied.length > 0;
         refusal = collected.refused[0] ? `${collected.refused[0].path}: ${collected.refused[0].reason}` : undefined;
+        workspaceUntouched = collected.proposalsTotal === 0;
         if (collected.proposalsTotal > 0) proposals = { flowId: flow.id, changes: collected.proposals, total: collected.proposalsTotal };
       }
       const failureClass = classifyDelegationFailure(result.status, result.filesChanged.length, copied ? 1 : 0);
@@ -311,7 +314,7 @@ export class LeadSidekicks {
       if (copied) {
         return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals };
       }
-      if (eligible && refusal === undefined && result.filesChanged.length === 0 && result.summary.trim() !== "") {
+      if (eligible && refusal === undefined && workspaceUntouched && result.filesChanged.length === 0 && result.summary.trim() !== "") {
         return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DECLINED, reason: result.summary }, proposals };
       }
 
