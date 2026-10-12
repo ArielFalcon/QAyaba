@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openRunWorkDir, removeRunWorkDir, stageAuthMaterial } from "../../../src/shared-infrastructure/process-sandbox/exec-workdir.ts";
 import { AUTH_MATERIAL_FILES } from "../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
+import { createRunSecretScope, withRunSecretScope } from "../../../src/shared-infrastructure/run-secret-redaction.ts";
 
 const SELF = { uid: process.getuid?.() ?? 0, gid: process.getgid?.() ?? 0, home: "/home/sandbox" };
 
@@ -127,5 +128,25 @@ test("a root that does not exist yet is created with its parents", () => {
     assert.equal(statSync(openRunWorkDir(root, "run-6", null)).isDirectory(), true);
   } finally {
     rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("staging registers the session file and the certificate bytes as secrets of the run, so a spec that prints them encoded is redacted", () => {
+  const root = scratch();
+  const authDir = scratch();
+  try {
+    const session = '{"cookies":[{"name":"sid","value":"abcdef0123456789"}],"origins":[]}';
+    const cert = Buffer.from("binary-pkcs12-material-\u0001\u0002\u0003-0123456789abcdef");
+    writeFileSync(join(authDir, AUTH_MATERIAL_FILES.storageState), session);
+    writeFileSync(join(authDir, AUTH_MATERIAL_FILES.clientCert), cert);
+    const dir = openRunWorkDir(root, "run-5", null);
+    const scope = createRunSecretScope();
+    withRunSecretScope(scope, () => stageAuthMaterial(authDir, dir, null));
+    for (const leaked of [Buffer.from(session).toString("base64"), Buffer.from(session).toString("hex"), cert.toString("base64"), cert.toString("base64url")]) {
+      assert.doesNotMatch(scope.redact(`out ${leaked} out`), new RegExp(leaked.slice(0, 16).replace(/[+/]/g, "\\$&")), leaked.slice(0, 12));
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(authDir, { recursive: true, force: true });
   }
 });

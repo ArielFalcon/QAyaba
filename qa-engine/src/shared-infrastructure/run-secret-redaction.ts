@@ -17,11 +17,18 @@ export const MAX_SECRET_VALUES = 2000;
 /* The most of a session file that is read. */
 export const MAX_STORAGE_STATE_BYTES = 4 * 1024 * 1024;
 
+/* An encoded spelling shorter than this is not redacted: a few characters of base64 or hex are in half the words around them, and a secret that short is not worth hiding at that price. */
+export const MIN_ENCODED_VARIANT_CHARS = 12;
+/* Opaque bytes (a client certificate, a session file) are matched in full, so they are held to a size that keeps the pattern small; a larger file is not registered (the long-token filter on a tool's answer is what stands for it). */
+export const MAX_OPAQUE_BYTES = 128 * 1024;
+
 export interface RunSecretScope {
   /* The account's own secrets: passwords, gate credentials, a certificate's passphrase (never an account's username: it is a name, not a credential). Empty, missing, too short and too long ones are skipped. */
   addAccountSecrets(values: ReadonlyArray<string | undefined>): void;
   /* Cookie and storage values of the session: the same, with the longer floor. */
   addSessionValues(values: ReadonlyArray<string | undefined>): void;
+  /* Raw bytes of material the run holds (the client certificate, the session file), taken out as text and in each encoding a spec could print them in. Empty and oversized ones are skipped. */
+  addOpaqueBytes(buffers: ReadonlyArray<Buffer | undefined>): void;
   /* The text with every value of the scope replaced, wherever it stands, and how many replacements were made. */
   redactCounted(text: string): { text: string; count: number };
   /* The same, for a caller that has no use for the count. */
@@ -32,14 +39,27 @@ const store = new AsyncLocalStorage<RunSecretScope>();
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/* One value as a page, a JSON string and a URL spell it, besides itself. */
+/* The ways a spec can print bytes without printing them as they are: base64 (standard and URL-safe alphabets, with and without padding), and hex in both cases. Inside a longer base64 string the bytes begin at any of three offsets of the three-byte groups, and the characters that stand for them alone are those between the group the first byte shares with its predecessors and the one the last byte shares with its successors, so each of the three alignments is spelled. Splitting the secret, or any other encoding of it (rot13, a cipher, one character per request), is not found: see docs/execution-sandbox.md. */
+function encodedSpellings(bytes: Buffer): string[] {
+  const standard = bytes.toString("base64");
+  const found = [standard, standard.replace(/=+$/, ""), bytes.toString("base64url"), bytes.toString("hex"), bytes.toString("hex").toUpperCase()];
+  for (let lead = 0; lead < 3; lead++) {
+    const shifted = Buffer.concat([Buffer.alloc(lead), bytes]).toString("base64").replace(/=+$/, "");
+    const middle = shifted.slice(Math.ceil((8 * lead) / 6), Math.floor((8 * (lead + bytes.length)) / 6));
+    found.push(middle, middle.replaceAll("+", "-").replaceAll("/", "_"));
+  }
+  return found.filter((spelling) => spelling.length >= MIN_ENCODED_VARIANT_CHARS);
+}
+
+/* One value as a page, a JSON string and a URL spell it, and in the encodings above, besides itself. */
 function spellings(value: string): string[] {
   const html = value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-  return [value, html, JSON.stringify(value).slice(1, -1), encodeURIComponent(value)];
+  return [value, html, JSON.stringify(value).slice(1, -1), encodeURIComponent(value), ...encodedSpellings(Buffer.from(value, "utf8"))];
 }
 
 export function createRunSecretScope(): RunSecretScope {
   const values = new Set<string>();
+  const opaque = new Set<string>();
   let pattern: RegExp | undefined;
 
   const add = (candidates: ReadonlyArray<string | undefined>, minChars: number): void => {
@@ -51,9 +71,19 @@ export function createRunSecretScope(): RunSecretScope {
       pattern = undefined;
     }
   };
+  const addOpaque = (buffers: ReadonlyArray<Buffer | undefined>): void => {
+    for (const buffer of buffers) {
+      if (buffer === undefined || buffer.length < MIN_ENCODED_VARIANT_CHARS || buffer.length > MAX_OPAQUE_BYTES) continue;
+      const text = buffer.toString("utf8");
+      if (opaque.has(text)) continue;
+      opaque.add(text);
+      for (const spelling of [text, ...encodedSpellings(buffer)]) opaque.add(spelling);
+      pattern = undefined;
+    }
+  };
   const compiled = (): RegExp | undefined => {
-    if (pattern === undefined && values.size > 0) {
-      const all = new Set([...values].flatMap(spellings));
+    if (pattern === undefined && (values.size > 0 || opaque.size > 0)) {
+      const all = new Set([...[...values].flatMap(spellings), ...opaque]);
       pattern = new RegExp([...all].sort((a, b) => b.length - a.length || (a < b ? -1 : 1)).map(escapeRegExp).join("|"), "g");
     }
     return pattern;
@@ -73,6 +103,7 @@ export function createRunSecretScope(): RunSecretScope {
   return {
     addAccountSecrets: (candidates) => add(candidates, MIN_ACCOUNT_SECRET_CHARS),
     addSessionValues: (candidates) => add(candidates, MIN_SESSION_VALUE_CHARS),
+    addOpaqueBytes: addOpaque,
     redactCounted,
     redact: (text) => redactCounted(text).text,
   };

@@ -7,6 +7,7 @@
 
 import { createHash } from "node:crypto";
 import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { dropOpaqueTokens } from "../../../shared-infrastructure/output-token-filter.ts";
 import { importsTestFromFixtures } from "../../../shared-infrastructure/spec-fixtures-import.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -25,8 +26,10 @@ import type { SessionRenewalPort, SpecCleanupPort, SpecExecutionResult, SpecExec
 export const MAX_GREP_CHARS = 200;
 export const MAX_ERROR_CHARS = 2_000;
 export const MAX_FAILURE_DOM_CHARS = 8_000;
-export const MAX_TITLE_CHARS = 300;
-export const MAX_REPORTED_TESTS = 30;
+export const MAX_TITLE_CHARS = 160;
+export const MAX_REPORTED_TESTS = 20;
+/* How exactly a failing test's time is told: a duration to the millisecond is a number the spec chooses by sleeping. */
+export const DURATION_GRANULARITY_MS = 1_000;
 
 /* The same shape the Playwright runner insists on for a spec file it is handed (e2e-execution.runner.ts SPEC_FILE_RE); a test keeps the two equal. */
 export const SPEC_PATH_PATTERN = /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\.spec\.ts$/;
@@ -50,7 +53,8 @@ export interface RunSpecRequest {
 
 export interface RunSpecTestReport {
   title: string;
-  status: "passed" | "failed";
+  /* Only a test that did not pass is listed: a passing test's title is the generator's own, and a title is text a spec can compute (see docs/execution-sandbox.md). */
+  status: "failed";
   durationMs?: number;
   error?: { message: string };
   failureDom?: string;
@@ -59,7 +63,10 @@ export interface RunSpecTestReport {
 
 export interface RunSpecReport {
   status: RunSpecStatus;
+  /* The tests that did not pass, at most MAX_REPORTED_TESTS. */
   tests: RunSpecTestReport[];
+  /* How many tests passed. */
+  passedTests: number;
   budget: CallBudget;
   note?: string;
   /* The saved session ended on the login page and could not be renewed from here: the tests' results say nothing about the spec. */
@@ -137,6 +144,7 @@ export class RunSpecUseCase {
     const started = Date.now();
     let status: RunSpecStatus = RUN_SPEC_STATUS.ERROR;
     let tests: RunSpecTestReport[] = [];
+    let passedTests = 0;
     let devWrites = 0;
     let note: string | undefined;
     let sessionLost = false;
@@ -144,6 +152,7 @@ export class RunSpecUseCase {
       const outcome = await this.deps.lock.withLock(this.deps.account, () => this.executeAndClean(rel, grep, reservation.namespace, reservation.timeoutMs, stop), stop);
       status = outcome.status;
       tests = outcome.tests;
+      passedTests = outcome.passedTests;
       devWrites = outcome.devWrites;
       note = outcome.note;
       sessionLost = outcome.sessionLost === true;
@@ -158,10 +167,10 @@ export class RunSpecUseCase {
     } finally {
       capability.settle({ path: rel, sha256, status, ms: Date.now() - started, devWrites });
     }
-    return { ok: true, report: { status, tests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
+    return { ok: true, report: { status, tests, passedTests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
   }
 
-  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; devWrites: number; note?: string; sessionLost?: boolean }> {
+  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; note?: string; sessionLost?: boolean }> {
     let result: SpecExecutionResult | undefined;
     let failure: string | undefined;
     try {
@@ -175,14 +184,16 @@ export class RunSpecUseCase {
     } catch (err) {
       console.warn(`[qa] run_spec cleanup of ${namespace} failed (best effort): ${err instanceof Error ? err.message : String(err)}`);
     }
-    if (result === undefined) return { status: RUN_SPEC_STATUS.ERROR, tests: [], devWrites: 0, note: failure ?? "the spec could not be run" };
+    if (result === undefined) return { status: RUN_SPEC_STATUS.ERROR, tests: [], passedTests: 0, devWrites: 0, note: failure ?? "the spec could not be run" };
 
-    const tests = result.cases.slice(0, MAX_REPORTED_TESTS).map((c) => this.testReport(c));
+    const failing = result.cases.filter((c) => c.status !== "pass");
+    const passedTests = result.cases.length - failing.length;
+    const tests = failing.slice(0, MAX_REPORTED_TESTS).map((c) => this.testReport(c));
     const status = this.statusOf(result);
     const notes: string[] = [];
     if (status === RUN_SPEC_STATUS.TIMED_OUT) notes.push(`the spec did not finish within ${Math.round(timeoutMs / 1000)}s and was stopped`);
     if (status === RUN_SPEC_STATUS.ERROR) notes.push(result.cases.length === 0 ? "no test ran: check the path and the grep" : "the run ended without a result");
-    if (result.cases.length > MAX_REPORTED_TESTS) notes.push(`only the first ${MAX_REPORTED_TESTS} of ${result.cases.length} tests are listed`);
+    if (failing.length > MAX_REPORTED_TESTS) notes.push(`only the first ${MAX_REPORTED_TESTS} of ${failing.length} failing tests are listed`);
     let sessionLost = false;
     if (status !== RUN_SPEC_STATUS.PASSED && endedOnLoginWall(result.cases)) {
       /* The renewal port decides whether a sign-in may run at all: it never runs a login the agent wrote, and it is bounded (see trusted-session-renewal.ts). Without one, or when it declines, the session is lost for the rest of the loop. */
@@ -195,7 +206,7 @@ export class RunSpecUseCase {
     }
     /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled or never left, a run that was stopped) is charged the whole budget that was left: the count comes from the suite's own fixtures, which is code the agent can edit, so an absent or unbelievable count is never read as "none". */
     if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; the whole write budget that was left was charged");
-    return { status, tests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
+    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
   }
 
   /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */
@@ -224,16 +235,18 @@ export class RunSpecUseCase {
     return RUN_SPEC_STATUS.ERROR;
   }
 
+  /* Everything a spec can write into a test's title, error or final address passes the run's by-value redaction (the secrets it holds, in each encoding it could print them in) and then the long-token filter. */
   private testReport(c: QaCase): RunSpecTestReport {
-    const redact = this.deps.redact;
-    const failed = c.status !== "pass";
+    /* What the page showed at this test's failure point: a token that is in it is one the generator can read there, so the filter leaves it alone. */
+    const shown = c.failureDom === undefined ? "" : this.deps.redact(c.failureDom);
+    const clean = (text: string): string => dropOpaqueTokens(this.deps.redact(text), shown);
     return {
-      title: cut(redact(c.name), MAX_TITLE_CHARS),
-      status: failed ? "failed" : "passed",
-      ...(c.durationMs !== undefined ? { durationMs: c.durationMs } : {}),
-      ...(failed && c.detail !== undefined ? { error: { message: cut(redact(c.detail.replace(ANSI, "")), MAX_ERROR_CHARS) } } : {}),
-      ...(failed && c.failureDom !== undefined ? { failureDom: cut(redact(c.failureDom), MAX_FAILURE_DOM_CHARS) } : {}),
-      ...(failed && c.finalUrl !== undefined ? { finalUrl: redact(withoutQuery(c.finalUrl)) } : {}),
+      title: cut(clean(c.name), MAX_TITLE_CHARS),
+      status: "failed",
+      ...(c.durationMs !== undefined ? { durationMs: Math.round(c.durationMs / DURATION_GRANULARITY_MS) * DURATION_GRANULARITY_MS } : {}),
+      ...(c.detail !== undefined ? { error: { message: cut(clean(c.detail.replace(ANSI, "")), MAX_ERROR_CHARS) } } : {}),
+      ...(c.failureDom !== undefined ? { failureDom: cut(this.deps.redact(c.failureDom), MAX_FAILURE_DOM_CHARS) } : {}),
+      ...(c.finalUrl !== undefined ? { finalUrl: clean(withoutQuery(c.finalUrl)) } : {}),
     };
   }
 

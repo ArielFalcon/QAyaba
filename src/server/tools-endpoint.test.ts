@@ -10,7 +10,7 @@ import { AUTHBROWSER_PATH, DEFAULT_TOOLS_PORT, handleToolsRequest, resolveToolsP
 
 const TOKEN = "service-token-for-tests";
 
-function liveRegistry(call: (request: RunSpecRequest) => Promise<RunSpecResponse> = async () => ({ ok: true, report: { status: "passed", tests: [], budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } })) {
+function liveRegistry(call: (request: RunSpecRequest) => Promise<RunSpecResponse> = async () => ({ ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } })) {
   const registry = new ClosedLoopRegistry();
   const capability = new RunSpecCapability({ runId: "run-1", limits: { maxCalls: 2, perCallMs: 60_000, maxDevWrites: 5 }, expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
   registry.register({ runId: "run-1", capability, call });
@@ -52,14 +52,14 @@ test("a session no loop owns is forbidden, and so is any other agent's", async (
   assert.equal(stranger.status, 403);
   assert.equal((stranger.body as { code: string }).code, "unknown-session");
 
-  const registry = liveRegistry(async (call) => (call.agent === "qa-generator" ? { ok: true, report: { status: "passed", tests: [], budget: { callsLeft: 0, msLeft: undefined, devWritesLeft: 0 } } } : { ok: false, code: "wrong-agent", message: "run_spec is available to the generator only", budget: { callsLeft: 0, msLeft: undefined, devWritesLeft: 0 } }));
+  const registry = liveRegistry(async (call) => (call.agent === "qa-generator" ? { ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 0, msLeft: undefined, devWritesLeft: 0 } } } : { ok: false, code: "wrong-agent", message: "run_spec is available to the generator only", budget: { callsLeft: 0, msLeft: undefined, devWritesLeft: 0 } }));
   const reviewer = await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-reviewer", path: "a.spec.ts" }) }), registry);
   assert.equal(reviewer.status, 403);
 });
 
 test("a call from the generator's session runs and returns the report", async () => {
   const seen: RunSpecRequest[] = [];
-  const registry = liveRegistry(async (call) => (seen.push(call), { ok: true, report: { status: "failed", tests: [{ title: "t", status: "failed" }], budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 2 } } }));
+  const registry = liveRegistry(async (call) => (seen.push(call), { ok: true, report: { status: "failed", tests: [{ title: "t", status: "failed" }], passedTests: 0, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 2 } } }));
   const response = await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-generator", path: "flows/a.spec.ts", grep: "adds" }) }), registry);
   assert.equal(response.status, 200);
   assert.equal((response.body as { ok: boolean }).ok, true);

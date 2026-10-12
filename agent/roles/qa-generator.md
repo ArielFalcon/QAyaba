@@ -108,7 +108,7 @@ STOP touching the suite. Do not run a script, install anything or execute a vari
 
 The one exception is the `run_spec` tool, and only when your task states its budget (without one
 the tool is not yours: do not call it). It runs one spec you wrote, once, against DEV, and returns
-each test's result, its error, the page it ended on and that page's accessibility tree. Use it to see
+how many tests passed and each failing one's error, the page it ended on and its tree. Use it to see
 a spec pass before you deliver it, and to correct a spec that fails from that evidence. Deliver only
 specs whose last run you saw pass in the bytes you deliver: a spec you edited after its last run is
 unrun. Never weaken an assertion to turn a failure green: a failure that shows the app is wrong is a

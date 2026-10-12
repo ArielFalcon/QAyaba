@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { CLOSED_LOOP_REFUSAL, RUN_SPEC_AGENT, RunSpecCapability } from "@contexts/test-execution/domain/run-spec-capability.ts";
-import { RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
+import { MAX_REPORTED_TESTS, MAX_TITLE_CHARS, RunSpecUseCase, escapeGrep, type RunSpecDeps } from "@contexts/test-execution/application/run-spec.use-case.ts";
 import type { SpecExecutionRequest, SpecExecutionResult } from "@contexts/test-execution/application/ports/run-spec.ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
@@ -63,7 +63,8 @@ test("a spec that passes is run once in its own namespace and reported without r
   const response = await call(h, "flows/a.spec.ts");
   assert.ok(response.ok);
   assert.equal(response.report.status, "passed");
-  assert.deepEqual(response.report.tests, [{ title: "flows/a.spec.ts › loads", status: "passed", durationMs: 12 }]);
+  assert.deepEqual(response.report.tests, [], "a test that passed is a count, not a title");
+  assert.equal(response.report.passedTests, 1);
   assert.deepEqual(h.executed.map((r) => [r.specFile, r.namespace, r.timeoutMs]), [["flows/a.spec.ts", "run-1-rs1", 60_000]]);
   assert.doesNotMatch(JSON.stringify(response), /RAW STDOUT/);
   assert.deepEqual(response.report.budget, { callsLeft: 2, msLeft: undefined, devWritesLeft: 5 });
@@ -391,4 +392,54 @@ test("a call that waits for the account when its session ends leaves the queue w
   assert.equal(h.executed.length, 0);
   release();
   await held;
+});
+
+const TOKEN = createHash("sha512").update("an-exfiltrated-session").digest().subarray(0, 36).toString("base64");
+
+test("only a failing test is listed by title, the titles are bounded, and how many passed is a number", async (t) => {
+  const h = harness(t);
+  const cases: QaCase[] = [
+    { name: "flows/a.spec.ts › passes one", status: "pass", durationMs: 12 },
+    { name: `flows/a.spec.ts › ${"t".repeat(MAX_TITLE_CHARS * 2)}`, status: "fail", detail: "boom" },
+    { name: "flows/a.spec.ts › passes two", status: "pass" },
+  ];
+  h.next.result = { verdict: "fail", cases, logs: "", devWrites: 0 };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.passedTests, 2);
+  assert.equal(response.report.tests.length, 1);
+  assert.ok(response.report.tests[0]!.title.length <= MAX_TITLE_CHARS);
+  assert.doesNotMatch(JSON.stringify(response.report), /passes (one|two)/);
+});
+
+test("at most the first MAX_REPORTED_TESTS failing tests are listed, and the rest are counted", async (t) => {
+  const h = harness(t);
+  const cases: QaCase[] = Array.from({ length: MAX_REPORTED_TESTS + 5 }, (_, i) => ({ name: `flows/a.spec.ts › t${i}`, status: "fail" as const, detail: "x" }));
+  h.next.result = { verdict: "fail", cases, logs: "", devWrites: 0 };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.tests.length, MAX_REPORTED_TESTS);
+  assert.match(response.report.note ?? "", /first \d+ of \d+ failing/);
+});
+
+test("a long random-looking token in a failing test's title, error or page address is removed unless the page capture shows it", async (t) => {
+  const h = harness(t);
+  const cases: QaCase[] = [
+    { name: `flows/a.spec.ts › leaks ${TOKEN}`, status: "fail", detail: `Error: sent ${TOKEN} out`, finalUrl: `https://dev.example/x/${TOKEN}`, failureDom: "heading: Orders" },
+    { name: "flows/a.spec.ts › shown", status: "fail", detail: `Error: expected ${TOKEN}`, failureDom: `cell: ${TOKEN}` },
+  ];
+  h.next.result = { verdict: "fail", cases, logs: "", devWrites: 0 };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  const [leaking, shown] = response.report.tests;
+  for (const text of [leaking!.title, leaking!.error!.message, leaking!.finalUrl!]) assert.doesNotMatch(text, new RegExp(TOKEN.replace(/[+/]/g, "\\$&")));
+  assert.match(shown!.error!.message, new RegExp(TOKEN.replace(/[+/]/g, "\\$&")), "the page shows it, so the agent could read it anyway");
+});
+
+test("how long a failing test took is reported to the second, not to the millisecond", async (t) => {
+  const h = harness(t);
+  h.next.result = { verdict: "fail", cases: [{ name: "flows/a.spec.ts › slow", status: "fail", detail: "x", durationMs: 4_321 }], logs: "", devWrites: 0 };
+  const response = await call(h, "flows/a.spec.ts");
+  assert.ok(response.ok);
+  assert.equal(response.report.tests[0]!.durationMs, 4_000);
 });

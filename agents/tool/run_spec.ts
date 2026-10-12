@@ -8,7 +8,7 @@ import { callRunSpec } from "../lib/run-spec-client.mjs";
 
 export default tool({
   description:
-    "Run one Playwright spec file you wrote, once, against DEV, as the suite will run it, and get each test's result: its error, the page it ended on and that page's accessibility tree. " +
+    "Run one Playwright spec file you wrote, once, against DEV, as the suite will run it, and get how many tests passed and, for each failing one, its error, the page it ended on and that page's accessibility tree. " +
     "Use it only when your task states a run_spec budget. The answer carries the calls, time and DEV writes still left.",
   args: {
     path: tool.schema.string().describe("The spec file, relative to the repository (e2e/flows/x.spec.ts) or to e2e/. A throwaway under e2e/.qa-probe/ is allowed and is never delivered."),

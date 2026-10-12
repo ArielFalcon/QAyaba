@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import {
+  MAX_OPAQUE_BYTES,
   MAX_SECRET_VALUE_CHARS,
   MIN_ACCOUNT_SECRET_CHARS,
   MIN_SESSION_VALUE_CHARS,
@@ -170,4 +171,47 @@ test("nothing the scope logs carries a secret", () => {
     }
     assert.ok(log.every((line) => !line.includes(PASSWORD)));
   });
+});
+
+test("a secret is also taken out when the spec printed it base64, base64url or hex encoded", () => {
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([PASSWORD]);
+  const bytes = Buffer.from(PASSWORD);
+  for (const encoded of [bytes.toString("base64"), bytes.toString("base64url"), bytes.toString("hex"), bytes.toString("hex").toUpperCase(), bytes.toString("base64").replaceAll("=", "")]) {
+    assert.equal(scope.redact(`leaked: ${encoded} end`), `leaked: ${REDACTED} end`, encoded);
+  }
+});
+
+test("a secret embedded in a longer base64 string is found at each of the three alignments", () => {
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets([PASSWORD]);
+  for (const prefix of ["", "a", "ab"]) {
+    const encoded = Buffer.from(`${prefix}${PASSWORD}-tail`).toString("base64");
+    const out = scope.redact(encoded);
+    assert.notEqual(out, encoded, `prefix ${JSON.stringify(prefix)}`);
+    assert.match(out, new RegExp(REDACTED.replace(/[[\]]/g, "\\$&")));
+  }
+});
+
+test("the encodings of a short secret are left alone: a few characters of base64 or hex say nothing and would eat ordinary words", () => {
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets(["abcd"]);
+  const text = `${Buffer.from("abcd").toString("base64")} ${Buffer.from("abcd").toString("hex")}`;
+  assert.equal(scope.redact(text), text);
+  assert.equal(scope.redact("abcd"), REDACTED);
+});
+
+test("opaque bytes (a client certificate, a session file) are taken out in the encodings a spec could print them in", () => {
+  const scope = createRunSecretScope();
+  const blob = Buffer.from("PKCS12-not-really-but-binary-\u0000\u0001\u0002-material-0123456789", "utf8");
+  scope.addOpaqueBytes([blob]);
+  for (const encoded of [blob.toString("base64"), blob.toString("base64url"), blob.toString("hex"), blob.toString("utf8")]) {
+    assert.equal(scope.redact(`x ${encoded} y`), `x ${REDACTED} y`, encoded.slice(0, 20));
+  }
+});
+
+test("opaque bytes that are empty or too large to match on are not registered", () => {
+  const scope = createRunSecretScope();
+  scope.addOpaqueBytes([Buffer.alloc(0), Buffer.alloc(MAX_OPAQUE_BYTES + 1, 7)]);
+  assert.equal(scope.redact("anything at all"), "anything at all");
 });

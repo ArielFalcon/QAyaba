@@ -4,6 +4,7 @@ import { chownSync, chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } f
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { readOwnedSpecFile } from "../spec-path-confinement.ts";
+import { activeRunSecretScope } from "../run-secret-redaction.ts";
 import { AUTH_MATERIAL_FILES } from "./auth-session-env.ts";
 import type { StagedAuth } from "./exec-env.ts";
 import type { Sandbox } from "./sandbox.ts";
@@ -80,6 +81,8 @@ export function stageAuthMaterial(authDir: string | undefined, workDir: string, 
     const pass = readStrict(authDir, AUTH_MATERIAL_FILES.certPass, MAX_CERT_PASS_BYTES);
     if (pass) staged.certPass = pass.toString("utf8");
   }
+  /* What a spec could print of this material, raw or encoded, is taken out of anything a tool answers with: the run's secret scope holds the bytes (a no-op outside a run). */
+  activeRunSecretScope()?.addOpaqueBytes([session, cert]);
   return staged;
 }
 
