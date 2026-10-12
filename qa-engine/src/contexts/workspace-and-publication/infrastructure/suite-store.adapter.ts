@@ -292,6 +292,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     const fresh = new Map<string, Buffer>();
     let dropped = 0;
     let admitted = 0;
+    let repaired = 0;
     for (const [path, decision] of decisions) {
       if (decision.action === "admit") {
         const before = stored.get(path);
@@ -299,6 +300,10 @@ export class SuiteStoreAdapter implements SuiteStorePort {
         next.set(path, unchanged ? before : decision.entry);
         if (!unchanged) {
           admitted += 1;
+          fresh.set(decision.entry.sha256, decision.bytes);
+        } else if (!this.blobIsIntact(decision.entry.sha256)) {
+          /* The bytes are in hand and the stored copy is not whole: put them back. */
+          repaired += 1;
           fresh.set(decision.entry.sha256, decision.bytes);
         }
       }
@@ -318,7 +323,7 @@ export class SuiteStoreAdapter implements SuiteStorePort {
 
     const authEntry = next.get(AUTH_SETUP_PATH);
     const auth = this.nextAuth(manifest, authEntry, input);
-    const changed = admitted > 0 || dropped > 0 || JSON.stringify(auth) !== JSON.stringify(manifest.auth);
+    const changed = admitted > 0 || dropped > 0 || repaired > 0 || JSON.stringify(auth) !== JSON.stringify(manifest.auth);
     if (changed) {
       this.writeStore(this.nextManifest(manifest, entries, auth), fresh);
     }
@@ -435,13 +440,22 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     return undefined;
   }
 
+  /* Whether the blob of this hash is in the store and still hashes to its name. */
+  private blobIsIntact(sha: string): boolean {
+    try {
+      return sha256Of(readFileSync(join(this.deps.storeDir, BLOBS_DIR, sha))) === sha;
+    } catch {
+      return false;
+    }
+  }
+
   /* Blobs first, then the manifest swap, then the removal of what nothing references: a crash in between leaves the previous manifest whole. */
   private writeStore(manifest: SuiteManifest, fresh: ReadonlyMap<string, Buffer>): void {
     const blobs = join(this.deps.storeDir, BLOBS_DIR);
     mkdirSync(blobs, { recursive: true, mode: 0o700 });
     for (const [sha, bytes] of fresh) {
       const target = join(blobs, sha);
-      if (!existsSync(target)) writeAtomically(target, bytes);
+      if (!this.blobIsIntact(sha)) writeAtomically(target, bytes);
     }
     writeAtomically(join(this.deps.storeDir, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
     const referenced = new Set(manifest.entries.map((entry) => entry.sha256));

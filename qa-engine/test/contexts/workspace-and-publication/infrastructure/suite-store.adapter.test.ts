@@ -363,6 +363,23 @@ test("a corrupt manifest or a blob that no longer matches its hash is said aloud
   await assert.rejects(() => r.store().restore(root(r)), /unsafe path/);
 });
 
+test("a capture that holds a file again repairs its stored copy when that no longer matches its hash", async (t) => {
+  const r = rig(t);
+  r.put("flows/a.spec.ts", "a");
+  r.put("package.json", "{}");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+  writeFileSync(join(r.storeDir, "blobs", sha("a")), "tampered");
+  writeFileSync(join(r.storeDir, "blobs", sha("{}")), "tampered");
+
+  await r.capture({ runId: "run-2", executedGreen: ["flows/a.spec.ts"] });
+
+  assert.equal(readFileSync(join(r.storeDir, "blobs", sha("a")), "utf8"), "a", "an unchanged spec");
+  assert.equal(readFileSync(join(r.storeDir, "blobs", sha("{}")), "utf8"), "{}", "an unchanged support file");
+  r.clean();
+  assert.equal((await r.store().restore(root(r))).restored, 2);
+  assert.deepEqual(r.warnings, []);
+});
+
 test("entries are classified: specs, the login, and everything else as support (the engine's own cleanup spec included)", () => {
   assert.equal(suiteEntryKind("flows/login.spec.ts"), "spec");
   assert.equal(suiteEntryKind("a.spec.mjs"), "spec");
