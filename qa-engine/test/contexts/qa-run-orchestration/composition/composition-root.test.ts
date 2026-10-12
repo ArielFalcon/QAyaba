@@ -25,6 +25,7 @@ import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 
 import { GENERATION_END } from "@kernel/generation-end.ts";
+import { COORDINATION_MODE, resolveCoordinationSettings } from "@kernel/coordination.ts";
 /* ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
    SAME stub shapes rewritten-orchestrator.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
@@ -1630,4 +1631,12 @@ test("wireBridges builds the agent browser port from cfg.agentBrowser and omits 
 
   assert.equal("agentBrowser" in wireBridges(fakeConfig({ agentBrowser: wiring })), false, "an app with no DEV url has nothing to browse");
   assert.equal("agentBrowser" in wireBridges(fakeConfig({ isCode: true, target: "code", baseUrl: "https://dev.example.com", agentBrowser: wiring })), false, "a code target never gets it");
+});
+
+test("wireBridges hands the use case the app's coordination settings, and omits them when the config has none", () => {
+  const without = wireBridges(fakeConfig());
+  assert.equal("coordinationSettings" in without, false);
+  const settings = resolveCoordinationSettings({ mode: COORDINATION_MODE.LEAD_SIDEKICKS });
+  const wired = wireBridges(fakeConfig({ coordinationSettings: settings }));
+  assert.deepEqual(wired.coordinationSettings, settings);
 });

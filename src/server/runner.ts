@@ -21,6 +21,7 @@ import type { RunEventBody } from "../contract/events";
 import { Sha } from "@kernel/sha";
 import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
+import type { CoordinationMode } from "@kernel/coordination";
 import { selectEngine } from "@contexts/qa-run-orchestration/composition/pipeline-engine-flag";
 import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 
@@ -57,6 +58,7 @@ export interface RunRequest {
   purpose?: RunPurpose;  /* why the run was started, when it is not a change to test (login bootstrap) */
   closedLoop?: boolean;  /* the run's own choice about the run_spec loop (an A/B arm), overriding the app's setting */
   agentBrowser?: boolean;  /* the run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting */
+  coordinationMode?: CoordinationMode;  /* the run's own choice of coordination mode (an A/B arm), overriding the app's setting */
 }
 
 /* Side-effecting collaborators, injected so the funnel is unit-testable with stubs. */
@@ -178,6 +180,7 @@ async function runViaRewrittenEngine(
     ...(req.purpose ? { purpose: req.purpose } : {}),
     ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}),
     ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}),
+    ...(req.coordinationMode !== undefined ? { coordinationMode: req.coordinationMode } : {}),
   };
   const outcome = await port.run(input, signal);
 

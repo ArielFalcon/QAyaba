@@ -61,3 +61,14 @@ describe("--agent-browser", () => {
     assert.equal("agentBrowser" in delegateRunInput(plain, "e2e"), false);
   });
 });
+
+describe("--coordination", () => {
+  it("is the run's own choice of coordination mode and reaches the service, and is absent unless given", () => {
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "lead-sidekicks"]).coordinationMode, "lead-sidekicks");
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "single"]).coordinationMode, "single");
+    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
+    assert.equal("coordinationMode" in plain, false);
+    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "single"]), "e2e").coordinationMode, "single");
+    assert.equal("coordinationMode" in delegateRunInput(plain, "e2e"), false);
+  });
+});

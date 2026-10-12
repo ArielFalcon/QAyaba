@@ -5,6 +5,7 @@
 import { createServer, IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { qayabaRoot } from "./paths";
+import type { CoordinationMode } from "@kernel/coordination";
 import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, chmodSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "./server/queue";
@@ -290,13 +291,13 @@ process.on("unhandledRejection", (reason) => {
   recordIncident({ source: "qa-generator", severity: "error", summary: `unhandled rejection: ${msg}` });
 });
 
-function enqueueApiRun(app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean): string {
+function enqueueApiRun(app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode): string {
   if (shuttingDown) {
     console.warn(`[qa] rejecting run ${app}@${sha} — shutting down`);
     return "";
   }
 
-  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}) }, runnerDeps());
+  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(coordinationMode !== undefined ? { coordinationMode } : {}) }, runnerDeps());
 }
 
 /*

@@ -33,6 +33,7 @@ import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastru
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
 import { Sha, shaMatches } from "@kernel/sha";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
+import { resolveCoordinationSettings } from "@kernel/coordination";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
@@ -1123,6 +1124,8 @@ export function buildRewrittenCompositionConfig(
       : {}),
 
     execScope: execWiring.execScope,
+    /* How this app's runs are coordinated: its qa.coordination with every limit it left out defaulted. A run can override the mode. */
+    coordinationSettings: resolveCoordinationSettings(app.qa.coordination),
     /*
      * The run_spec loop: composed for an e2e app whenever the host has a registry; whether a run is granted it is the app's
      * qa.closedLoop (or the run's own choice), decided when the run opens it. The generator's role is read from the agent

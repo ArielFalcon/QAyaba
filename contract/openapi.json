@@ -2069,6 +2069,13 @@
           },
           "agentBrowser": {
             "type": "boolean"
+          },
+          "coordinationMode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "lead-sidekicks"
+            ]
           }
         },
         "required": [

@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
+import type { CoordinationMode } from "@kernel/coordination.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { detectFakeSpec } from "./fake-pass-detector.ts";
@@ -110,6 +111,8 @@ export interface PipelineRequest {
   closedLoop?: boolean;
   /** The run's own choice about the authenticated agent browser (an A/B), overriding the app's setting; absent: the app's setting decides. */
   agentBrowser?: boolean;
+  /** The run's own choice of coordination mode (an A/B), overriding the app's setting; absent: the app's setting decides. */
+  coordinationMode?: CoordinationMode;
 }
 
 export interface BaselineRequest {
@@ -197,7 +200,7 @@ export interface CampaignDeps {
 /* ── the run ───────────────────────────────────────────────────────────────────────── */
 
 const USAGE = [
-  "usage: npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label> [--arms A,B] [--wall-cap-min <m>] [--closed-loop on|off] [--agent-browser on|off]",
+  "usage: npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label> [--arms A,B] [--wall-cap-min <m>] [--closed-loop on|off] [--agent-browser on|off] [--coordination single|lead-sidekicks]",
   "                           [--allow-non-shadow] [--skip-env-checks] [--engram-isolated] [--dry-run]",
   "  EXPERIMENT ONLY. Runs every case --replicas times per arm (A: the plain agent, B: the pipeline), one run at a time against DEV, the arms",
   "  alternating order by replicate. Before each arm-run: idle queue, the case's cleanup, the warm snapshot seeded into the suite store. Delivered files are saved and",
@@ -206,6 +209,7 @@ const USAGE = [
   "  --wall-cap-min       wall cap per arm-run, equal for every arm (default 30)",
   "  --closed-loop        the pipeline arm's own choice about the run_spec loop, for an A/B of the loop (a diff case only: a cross-repo case enters through the webhook, which cannot carry it)",
   "  --agent-browser      the pipeline arm's own choice about the authenticated agent browser, for an A/B of the tools (a diff case only, like --closed-loop)",
+  "  --coordination       the pipeline arm's own choice of coordination mode (single: the lead authors alone; lead-sidekicks: the lead plans and sidekicks author in parallel), for an A/B of the mode (a diff case only, like --closed-loop)",
   "  --allow-non-shadow   run the pipeline on an app whose config is not shadow (a webhook cannot ask for shadow)",
   "  --skip-env-checks    do not require QA_CAMPAIGN_FREEZE in this process (the server was started with it another way)",
   "  --engram-isolated    attest that the agents' engram data is isolated for this campaign (recorded; the runner cannot do it)",
@@ -309,7 +313,7 @@ export async function runCampaign(argv: string[], deps: CampaignDeps): Promise<n
 
     record = {
       schema: 1, label: args.label, app: app.name, startedAt: deps.nowIso(), finishedAt: null, complete: false,
-      args: { replicas: args.replicas, arms: args.arms, wallCapMin: args.wallCapMin, warm: args.warm, casesPath: args.casesPath, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}) },
+      args: { replicas: args.replicas, arms: args.arms, wallCapMin: args.wallCapMin, warm: args.warm, casesPath: args.casesPath, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}) },
       environment: {
         campaignFreeze: deps.envFlags().campaignFreeze, engramIsolated: args.engramIsolated,
         appShadow: app.shadow, forcedShadow: args.arms.includes(ARM.PIPELINE),
@@ -383,7 +387,7 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
   let rejected: DeltaFile[] = [];
   try {
     if (arm === ARM.PIPELINE) {
-      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}) });
+      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}) });
       /* Read right after the run and before anything restores the mirror: the files are the only evidence of what the pipeline accepted. */
       const delta = await deps.pipelineDelta(app, snapshot);
       if (pipelineAccepted(outcome.report, app) && !outcome.capped && !outcome.lost) files = delta.files;
@@ -584,7 +588,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       let runId: string | null = null;
       try {
         if (req.kind === CASE_KIND.DIFF) {
-          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true, ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}), ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}) }) });
+          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true, ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}), ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}), ...(req.coordinationMode !== undefined ? { coordinationMode: req.coordinationMode } : {}) }) });
           const body = await json(res);
           if (!res.ok || typeof body.id !== "string") throw new Error(`the service rejected the run: ${typeof body.error === "string" ? body.error : `HTTP ${res.status}`}`);
           runId = body.id;

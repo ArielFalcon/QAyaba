@@ -19,6 +19,7 @@ import type { RunEventBody } from "@kernel/run-event.ts";
 import type { GenerationEndKind } from "@kernel/generation-end.ts";
 import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import type { CoordinationMode } from "@kernel/coordination.ts";
 import type { AgentBrowserGateSignal, AgentBrowserLimits } from "@kernel/agent-browser.ts";
 
 /**
@@ -100,6 +101,8 @@ export interface RunInput {
   closedLoop?: boolean;
   /** The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
   agentBrowser?: boolean;
+  /** The run's own choice of coordination mode (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
+  coordinationMode?: CoordinationMode;
 }
 export interface RunPipelinePort {
   /**

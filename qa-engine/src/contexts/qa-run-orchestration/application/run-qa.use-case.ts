@@ -15,6 +15,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RUN_PURPOSE, type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
+import type { CoordinationMode, CoordinationSettings } from "@kernel/coordination.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
@@ -404,6 +405,11 @@ export interface RunQaUseCaseDeps {
    * run's agentTimeout before fail-open fires. Absent → cfg.agentTimeoutMs.
    */
   sidekickTimeoutMs?: number;
+  /**
+   * How this app's runs are coordinated. Absent: the single mode, as every run was before. A run's own
+   * choice (RunQaInput.coordinationMode) overrides the mode.
+   */
+  coordinationSettings?: CoordinationSettings;
   config?: Partial<RunQaConfig>;
 }
 
@@ -432,6 +438,8 @@ export interface RunQaInput {
   closedLoop?: boolean;
   /** The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
   agentBrowser?: boolean;
+  /** The run's own choice of coordination mode (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
+  coordinationMode?: CoordinationMode;
 }
 
 export interface RunQaResult {

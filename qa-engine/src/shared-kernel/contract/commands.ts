@@ -125,6 +125,8 @@ export const CreateRunInputSchema = z.object({
   closedLoop: z.boolean().optional(),
   /* The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's qa.agentBrowser.enabled. Absent: the app's setting decides. */
   agentBrowser: z.boolean().optional(),
+  /* The run's own choice of coordination mode (an A/B arm), overriding the app's qa.coordination.mode: "single" (the lead authors the change alone) or "lead-sidekicks" (the lead plans, sidekicks author the flows in parallel). Absent: the app's setting decides. */
+  coordinationMode: z.enum(["single", "lead-sidekicks"]).optional(),
 });
 
 export const CreateRunResultSchema = z.object({

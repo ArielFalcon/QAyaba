@@ -6,6 +6,7 @@ import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort } from "../application/ports/index.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import type { CoordinationSettings } from "@kernel/coordination.ts";
 import { ClosedLoopPortAdapter } from "../infrastructure/bridges/closed-loop-port.adapter.ts";
 import type { ClosedLoopRegistry } from "../infrastructure/closed-loop-registry.ts";
 import type { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
@@ -274,6 +275,8 @@ export interface CompositionConfig {
   coordinationTelemetryPath?: string;
   /* Per-delegation wall-clock cap in ms (compose/environment tunable). Absent -> 420_000. */
   sidekickTimeoutMs?: number;
+  /* How the app's runs are coordinated (qa.coordination, limits defaulted). Absent: the single mode, the lead authors alone. */
+  coordinationSettings?: CoordinationSettings;
 }
 
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
@@ -571,6 +574,8 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
     /* Absent suiteStore is omitted entirely — never a fabricated no-op stub (a stub that restores nothing would hide that no suite persists). */
     ...(cfg.suiteStore ? { suiteStore: cfg.suiteStore } : {}),
+    /* Absent coordination settings are omitted entirely: the run is in the single mode. */
+    ...(cfg.coordinationSettings ? { coordinationSettings: cfg.coordinationSettings } : {}),
     /* Coordination is always wired (no kill-switch). Governing points are listed independently below; the sidekick shares the reviewer's runtime with its own session lifecycle. */
     ...(() => {
       /* Process-lifetime store so adaptive thresholds see prior runs (not a fresh empty bag per composition). */

@@ -349,6 +349,20 @@ test("qa.closedLoop is off unless an app turns it on, and every limit is bounded
   }
 });
 
+test("qa.coordination is absent unless an app sets it, takes only the two modes, and every limit is bounded", () => {
+  assert.equal(AppConfigSchema.parse(base).qa.coordination, undefined);
+
+  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { mode: "lead-sidekicks", maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000, codex: 400_000 } } } });
+  assert.deepEqual(on.qa.coordination, { mode: "lead-sidekicks", maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000, codex: 400_000 } });
+
+  const partial = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { mode: "single" } } });
+  assert.deepEqual(partial.qa.coordination, { mode: "single" });
+
+  for (const bad of [{ mode: "swarm" }, { maxParallel: 0 }, { maxParallel: 7 }, { maxFlows: 1 }, { maxFlows: 13 }, { maxFlows: 2.5 }, { planBudgetMs: 1_000 }, { flowBudgetMs: { opencode: 1_000 } }]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: bad } }), JSON.stringify(bad));
+  }
+});
+
 test("qa.agentBrowser is off unless an app turns it on, and its lists hold only well-formed paths", () => {
   const off = AppConfigSchema.parse(base);
   assert.equal(off.qa.agentBrowser, undefined);

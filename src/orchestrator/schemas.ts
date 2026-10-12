@@ -206,6 +206,28 @@ export const AppConfigSchema = z
         })
         .optional(),
       /*
+       * How a run is coordinated. `single` (default): the lead authors the whole change in one turn, as always. `lead-sidekicks`:
+       * the lead plans first, and a plan of independent flows is authored by sidekicks in parallel, each closing its own run_spec
+       * loop, with the lead taking over what they cannot finish. `maxParallel` flows run at once, a plan may name `maxFlows`, the
+       * planning turn takes at most `planBudgetMs`, and one flow at most `flowBudgetMs` for the runtime its sidekick runs on. A run
+       * can be forced into either mode for an A/B. Needs the OpenCode runtime for the sidekicks and, for an app with a login, the
+       * run_spec loop or the authenticated browser: without them the work stays with the lead.
+       */
+      coordination: z
+        .object({
+          mode: z.enum(["single", "lead-sidekicks"]).optional(),
+          maxParallel: z.number().int().min(1).max(6).optional(),
+          maxFlows: z.number().int().min(2).max(12).optional(),
+          planBudgetMs: z.number().int().min(30_000).max(900_000).optional(),
+          flowBudgetMs: z
+            .object({
+              opencode: z.number().int().min(60_000).max(3_600_000).optional(),
+              codex: z.number().int().min(60_000).max(3_600_000).optional(),
+            })
+            .optional(),
+        })
+        .optional(),
+      /*
        * Optional run-level wall-clock ceiling (ms). When the run's total elapsed time exceeds this at
        * the ENTRY of a generation, no further generation starts and the run concludes on its current
        * state — it NEVER aborts an in-flight execute/review or discards a green result. Default

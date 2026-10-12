@@ -10,6 +10,7 @@ import { describeSandboxHealth } from "./sandbox-health";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { RUN_MODES, RunMode, TestTarget, RunRecord, engineStatus } from "../types";
+import { isCoordinationMode, type CoordinationMode } from "@kernel/coordination";
 import { AppConfig } from "../orchestrator/config-loader";
 import { sanitizeText, RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { buildRunContext, buildLearningContext, buildRunChatContext } from "./chat";
@@ -85,7 +86,7 @@ export type LoginOutcome =
 
 export interface ApiDeps {
   queue: { readonly size: number };
-  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean): string;
+  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode): string;
   loadApp(name: string): AppConfig;  /* throws if the app is not configured */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
@@ -471,9 +472,15 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   }
   const agentBrowser = typeof body.agentBrowser === "boolean" ? body.agentBrowser : undefined;
 
+  if (body.coordinationMode !== undefined && !isCoordinationMode(body.coordinationMode)) {
+    json(res, 400, { error: "'coordinationMode' must be \"single\" or \"lead-sidekicks\"" });
+    return true;
+  }
+  const coordinationMode = isCoordinationMode(body.coordinationMode) ? body.coordinationMode : undefined;
+
   let id: string;
   try {
-    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser);
+    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, coordinationMode);
   } catch (err) {
     json(res, 500, { error: `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}` });
     return true;

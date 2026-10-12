@@ -705,6 +705,8 @@ export interface components {
             commits?: number;
             closedLoop?: boolean;
             agentBrowser?: boolean;
+            /** @enum {string} */
+            coordinationMode?: "single" | "lead-sidekicks";
         };
         CreateRunResult: {
             id: string;

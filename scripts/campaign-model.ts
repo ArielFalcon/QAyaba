@@ -8,6 +8,7 @@
  * that looks fake is never valid (scripts/fake-pass-detector.ts).
  */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
+import { isCoordinationMode, type CoordinationMode } from "@kernel/coordination.ts";
 import type { FakeFlag } from "./fake-pass-detector.ts";
 import { assertFileName } from "./probe-report.ts";
 
@@ -155,6 +156,8 @@ export interface CampaignArguments {
   closedLoop?: boolean;
   /** The pipeline arm's own choice about the authenticated agent browser (an A/B), overriding the app's setting. Absent: the app's setting decides. */
   agentBrowser?: boolean;
+  /** The pipeline arm's own choice of coordination mode (an A/B), overriding the app's setting. Absent: the app's setting decides. */
+  coordinationMode?: CoordinationMode;
 }
 
 export type ParsedArguments = { ok: true; args: CampaignArguments } | { ok: false; problem: string };
@@ -162,7 +165,7 @@ export type ParsedArguments = { ok: true; args: CampaignArguments } | { ok: fals
 export function parseArguments(argv: readonly string[]): ParsedArguments {
   const values: Record<string, string> = {};
   const flags = new Set<string>();
-  const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm", "--closed-loop", "--agent-browser"]);
+  const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm", "--closed-loop", "--agent-browser", "--coordination"]);
   const boolean = new Set(["--allow-non-shadow", "--skip-env-checks", "--engram-isolated", "--dry-run"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -182,6 +185,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
   if (!Number.isFinite(wallCapMin) || wallCapMin <= 0) return { ok: false, problem: "error: --wall-cap-min needs a positive number of minutes" };
   if (values["--closed-loop"] !== undefined && values["--closed-loop"] !== "on" && values["--closed-loop"] !== "off") return { ok: false, problem: 'error: --closed-loop takes "on" or "off"' };
   if (values["--agent-browser"] !== undefined && values["--agent-browser"] !== "on" && values["--agent-browser"] !== "off") return { ok: false, problem: 'error: --agent-browser takes "on" or "off"' };
+  if (values["--coordination"] !== undefined && !isCoordinationMode(values["--coordination"])) return { ok: false, problem: 'error: --coordination takes "single" or "lead-sidekicks"' };
   try {
     assertFileName(values["--label"]!, "label");
     assertFileName(values["--warm"]!, "warm snapshot label");
@@ -195,6 +199,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
       allowNonShadow: flags.has("--allow-non-shadow"), skipEnvChecks: flags.has("--skip-env-checks"), engramIsolated: flags.has("--engram-isolated"), dryRun: flags.has("--dry-run"),
       ...(values["--closed-loop"] !== undefined ? { closedLoop: values["--closed-loop"] === "on" } : {}),
       ...(values["--agent-browser"] !== undefined ? { agentBrowser: values["--agent-browser"] === "on" } : {}),
+      ...(isCoordinationMode(values["--coordination"]) ? { coordinationMode: values["--coordination"] } : {}),
     },
   };
 }

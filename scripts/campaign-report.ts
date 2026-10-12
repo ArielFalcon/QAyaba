@@ -3,6 +3,7 @@
  * A figure that was not measured is null and reads `n/a`; it is never a zero and stays out of every median.
  */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
+import type { CoordinationMode } from "@kernel/coordination.ts";
 import type { Arm, CaseKind, CaseExpectation, Outcome, SpecAssessment } from "./campaign-model.ts";
 
 export interface ArmRunResult {
@@ -70,7 +71,7 @@ export interface CampaignRecord {
   finishedAt: string | null;
   /** False when the campaign stopped before its last arm-run. */
   complete: boolean;
-  args: { replicas: number; arms: Arm[]; wallCapMin: number; warm: string; casesPath: string; closedLoop?: boolean; agentBrowser?: boolean };
+  args: { replicas: number; arms: Arm[]; wallCapMin: number; warm: string; casesPath: string; closedLoop?: boolean; agentBrowser?: boolean; coordinationMode?: CoordinationMode };
   environment: CampaignEnvironment;
   snapshot: { label: string; createdAt: string; warm: boolean };
   cases: CampaignCaseRecord[];

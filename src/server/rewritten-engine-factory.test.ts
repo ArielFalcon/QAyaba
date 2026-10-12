@@ -31,6 +31,7 @@ import { RUN_TIME_BUDGET_ENV } from "@contexts/qa-run-orchestration/domain/run-t
 import { isRunDeadlineError } from "@kernel/run-deadline";
 import { renderGenerationNote } from "@contexts/generation/domain/generation-end";
 import { GENERATION_END } from "@kernel/generation-end";
+import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination";
 import { Sha } from "@kernel/sha";
 import { BlastRadius } from "@kernel/blast-radius";
 import {
@@ -3673,4 +3674,19 @@ test("buildAcceptanceHarness follows the app's coverage policy: signal never blo
   } finally {
     rmSync(copyDir, { recursive: true, force: true });
   }
+});
+
+test("the composition carries the app's qa.coordination with every limit it left out defaulted, and the single mode when it declares none", () => {
+  const host = { getAgentDeps: stubAgentDeps };
+  const plain = buildRewrittenCompositionConfig(cfg("coord-plain"), host, "ns", { mode: "diff" });
+  assert.deepEqual(plain.coordinationSettings, DEFAULT_COORDINATION_SETTINGS);
+  assert.equal(plain.coordinationSettings?.mode, COORDINATION_MODE.SINGLE);
+
+  const app: AppConfig = { ...cfg("coord-on"), qa: { needsReview: true, testDataPrefix: "qa-bot", coordination: { mode: "lead-sidekicks", maxFlows: 4, flowBudgetMs: { opencode: 120_000 } } } };
+  const on = buildRewrittenCompositionConfig(app, host, "ns", { mode: "diff" });
+  assert.equal(on.coordinationSettings?.mode, COORDINATION_MODE.LEAD_SIDEKICKS);
+  assert.equal(on.coordinationSettings?.maxFlows, 4);
+  assert.equal(on.coordinationSettings?.maxParallel, DEFAULT_COORDINATION_SETTINGS.maxParallel);
+  assert.equal(on.coordinationSettings?.flowBudgetMs.opencode, 120_000);
+  assert.equal(on.coordinationSettings?.flowBudgetMs.codex, DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.codex);
 });
