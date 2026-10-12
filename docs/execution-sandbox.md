@@ -238,3 +238,17 @@ host the self-test decides, never an assumption.
 - Operator scripts that run suites outside the queue (`baseline-agent`, `campaign`) use the same launcher in their own process:
   run them only while the queue is idle, since each rewrites the egress chain for its own listeners (the service puts its own back
   at its next run).
+- **The reaper kills by uid, not by cgroup.** A process that survives SIGKILL (stuck in uninterruptible I/O) fails the next spawn
+  or scope open closed instead of being tolerated; zombies are ignored because they hold nothing, and PID 1 of the image does
+  not reap them (they are cleared when their parent goes). A daemon that is still a descendant of a live child is left alone
+  until that child exits, so during a long-lived child (the agent browser) a sibling child can briefly share its uid with such a
+  descendant. The registry of live children is per process.
+- **No persistent home means no persistent cache.** `npm ci` and the toolchains re-download into the run's home every run.
+- **The DEV-write counter is the suite's own code.** A spec that forges its ledger can under-report; the hard bounds are the call
+  cap, the per-call time and the egress filter (see the `run_spec` table).
+- **A checked dump can still carry a string.** The text of a script's source in a coverage dump is the writer's, in bounded size.
+- **An answer can carry a few bits.** See "The answer of a tool is a channel".
+- **Any container on the agents network can open the tools port;** the token (32+ characters) and the rate limits are what stand
+  between it and the run's tools.
+- **The public-suffix list for wildcards is a short bundled one,** not the Public Suffix List, and there is no CIDR form for
+  internal addresses: an app declares each address it needs.

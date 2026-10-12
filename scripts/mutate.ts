@@ -274,25 +274,25 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/domain/pre-exec-grounding.service.ts:117-117`,
       `${ORCH}/domain/fix-loop.aggregate.ts:197-197`,
       /* The run's own lines: what it has delivered, the regeneration that is handed it, the merge after the first pass and the sidekick's, and the attribution of each contradiction. */
-      `${ORCH}/application/run-qa.use-case.ts:1041-1041`,
-      `${ORCH}/application/run-qa.use-case.ts:1063-1072`,
-      `${ORCH}/application/run-qa.use-case.ts:1314-1315`,
-      `${ORCH}/application/run-qa.use-case.ts:1320-1320`,
-      `${ORCH}/application/run-qa.use-case.ts:1413-1414`,
-      `${ORCH}/application/run-qa.use-case.ts:1425-1425`,
-      `${ORCH}/application/run-qa.use-case.ts:1431-1431`,
-      `${ORCH}/application/run-qa.use-case.ts:1439-1442`,
-      `${ORCH}/application/run-qa.use-case.ts:1450-1450`,
-      `${ORCH}/application/run-qa.use-case.ts:1484-1486`,
-      `${ORCH}/application/run-qa.use-case.ts:1678-1678`,
-      `${ORCH}/application/run-qa.use-case.ts:1687-1692`,
-      `${ORCH}/application/run-qa.use-case.ts:1884-1886`,
-      `${ORCH}/application/run-qa.use-case.ts:1908-1909`,
-      `${ORCH}/application/run-qa.use-case.ts:1911-1911`,
-      `${ORCH}/application/run-qa.use-case.ts:1917-1919`,
-      `${ORCH}/application/run-qa.use-case.ts:1931-1931`,
-      `${ORCH}/application/run-qa.use-case.ts:2073-2073`,
-      `${ORCH}/application/run-qa.use-case.ts:2218-2218`,
+      `${ORCH}/application/run-qa.use-case.ts:1069-1069`,
+      `${ORCH}/application/run-qa.use-case.ts:1092-1101`,
+      `${ORCH}/application/run-qa.use-case.ts:1343-1344`,
+      `${ORCH}/application/run-qa.use-case.ts:1349-1349`,
+      `${ORCH}/application/run-qa.use-case.ts:1442-1443`,
+      `${ORCH}/application/run-qa.use-case.ts:1454-1454`,
+      `${ORCH}/application/run-qa.use-case.ts:1460-1460`,
+      `${ORCH}/application/run-qa.use-case.ts:1468-1471`,
+      `${ORCH}/application/run-qa.use-case.ts:1479-1479`,
+      `${ORCH}/application/run-qa.use-case.ts:1513-1515`,
+      `${ORCH}/application/run-qa.use-case.ts:1707-1707`,
+      `${ORCH}/application/run-qa.use-case.ts:1716-1721`,
+      `${ORCH}/application/run-qa.use-case.ts:1913-1915`,
+      `${ORCH}/application/run-qa.use-case.ts:1937-1938`,
+      `${ORCH}/application/run-qa.use-case.ts:1940-1940`,
+      `${ORCH}/application/run-qa.use-case.ts:1946-1948`,
+      `${ORCH}/application/run-qa.use-case.ts:1960-1960`,
+      `${ORCH}/application/run-qa.use-case.ts:2102-2102`,
+      `${ORCH}/application/run-qa.use-case.ts:2247-2247`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/spec-path.test.ts",
@@ -400,7 +400,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/integrations/opencode-client.ts:315-317",
       "src/integrations/opencode-client.ts:325-335",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
-      "src/server/rewritten-engine-factory.ts:562-594",
+      "src/server/rewritten-engine-factory.ts:563-595",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",
@@ -513,6 +513,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_INFRA_TEST}/coverage-dump-reader.confinement.test.ts`,
       `${OS_INFRA_TEST}/fault-injection-counter-reader.test.ts`,
       `${OS_INFRA_TEST}/fault-injection-oracle.adapter.test.ts`,
+      /* What a dump and a counter are rebuilt as before they reach the mirror the readers read. */
+      `${OS_INFRA_TEST}/dump-sanitizers.test.ts`,
       /* The real readers behind the collector the factory builds. */
       `${OS_INFRA_TEST}/target-coverage-collector.test.ts`,
       /* Apart from rewritten-engine-factory.test.ts, whose many tests would all run once per mutant. */
@@ -526,13 +528,13 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "what the e2e runner reads back from the Playwright child, which runs code the agent wrote: the JSON report (a strict, capped read that never waits on a pipe or follows a link, and a report that cannot be used is a run with no result, infrastructure and never a pass, said with the reason and nothing the report held) and the failure-capture dumps (each read strictly under a cap, each that cannot be used left out so that its case runs without grounding, said once for the directory with a count and a reason and no file's name or content), with the lines of the runner that read them back and that distrust a pass the child did not exit 0 for (the status or the signal that ended it) and leave the report of a run that is settled unread",
     mutate: [
       /* Why a pass is not believed, and what the runner makes of it. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:158-163",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:291-302",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:166-171",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:300-311",
       /* The caps, the report's read, the dump's decoding and the dumps' read. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:405-471",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:414-480",
       /* What the runner does when the child is gone: reads the report unless the run is settled, before the directory it is in is removed (a line apart, which is the removal and not a read), and says why when it could not. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:664-666",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:668-671",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:691-693",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:696-699",
     ],
     tests: [
       "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
