@@ -346,3 +346,41 @@ test("a child is started with a home inside the run's work dir, never a home tha
     rmSync(h.root, { recursive: true, force: true });
   }
 });
+
+test("required with a file boundary that does not hold refuses to spawn, says what is exposed, and records the refusal", () => {
+  const h = harness({ mode: "required", fileBoundary: { breach: () => "/app/src is writable by the sandbox uid" } });
+  try {
+    assert.throws(
+      () => h.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: h.scope }),
+      (err: unknown) => err instanceof SandboxUnavailableError && err.reason === "files" && err.code === "E-SANDBOX" && /\/app\/src is writable/.test(err.message),
+    );
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.scope.report.refusal, "files");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("best-effort with a file boundary that does not hold spawns and warns once, loudly", () => {
+  const h = harness({ mode: "best-effort", fileBoundary: { breach: () => "/app/config is listable by the sandbox uid" } });
+  try {
+    h.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: h.scope });
+    h.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: h.scope });
+    assert.equal(h.calls.length, 2);
+    assert.equal(h.warnings.filter((w) => /file boundary/.test(w)).length, 1);
+    assert.equal(h.scope.report.refusal, undefined);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a file boundary that holds lets the child start as the sandbox uid", () => {
+  const h = harness({ mode: "required", fileBoundary: { breach: () => undefined } });
+  try {
+    h.port.spawn("npx", ["tsc"], { cwd: "/m", profile: "offline", scope: h.scope });
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.calls[0]!.options.uid, SANDBOX.uid);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});

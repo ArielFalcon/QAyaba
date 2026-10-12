@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -117,5 +117,41 @@ test("the code-graph directory is found where CBM_CACHE_DIR says, a link is not 
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test("the API token in the data directory and the root-only parent of the host's config folder are closed at boot", () => {
+  const root = mkdtempSync(join(tmpdir(), "entrypoint-"));
+  try {
+    mkdirSync(join(root, "data"), { mode: 0o755 });
+    writeFileSync(join(root, "data", ".api_token"), "t", { mode: 0o644 });
+    chmodSync(join(root, "data", ".api_token"), 0o644);
+    mkdirSync(join(root, ".host", "config"), { recursive: true, mode: 0o755 });
+    chmodSync(join(root, ".host"), 0o755);
+    chmodSync(join(root, ".host", "config"), 0o777);
+    symlinkSync(".host/config", join(root, "config"));
+    boot(root);
+    assert.equal(mode(join(root, "data", ".api_token")), 0o600);
+    assert.equal(mode(join(root, ".host")), 0o700);
+    assert.equal(mode(join(root, ".host", "config")), 0o750);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a file-boundary status left by an earlier boot is removed, so a check that does not run leaves none to be trusted", () => {
+  const root = mkdtempSync(join(tmpdir(), "entrypoint-"));
+  try {
+    mkdirSync(join(root, "data"));
+    mkdirSync(join(root, "config"));
+    const status = join(root, "files.status");
+    writeFileSync(status, "ok\n");
+    execFileSync("/bin/sh", [SCRIPT, "true"], {
+      env: { PATH: process.env.PATH ?? "", QA_APP_ROOT: root, MIRROR_DIR: join(root, ".mirrors"), QA_EXEC_ROOT: join(root, "exec"), QA_FILE_BOUNDARY_STATUS_FILE: status },
+      stdio: "ignore",
+    });
+    assert.equal(existsSync(status), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

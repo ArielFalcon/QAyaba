@@ -1,4 +1,4 @@
-/* The composition root's wiring of the execution sandbox: the one place that reads the process environment for it. The launcher, the per-run scope provider and the identity they run children as are built here from the environment and handed to the engine; qa-engine never reads process.env for any of it. */
+/* The composition root's wiring of the execution sandbox: the one place that reads the process environment for it. The launcher, the per-run scope provider and the identity they run children as are built here from the environment and handed to the engine; qa-engine never reads process.env for any of it. Every launcher built here asks the boot check of the file boundary before each spawn (file-boundary.ts). */
 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import type { ExecScopePort } from "../../qa-engine/src/shared-infrastructure/pr
 import { createExecScopeProvider } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider";
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { resolveEgressMode } from "./egress-wiring";
+import { fileBoundaryGateFor } from "./file-boundary";
 import { processReaper } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox-reaper";
 
 export interface ExecWiring {
@@ -44,7 +45,7 @@ export function gateCredsFrom(env: NodeJS.ProcessEnv): { user: string; pass: str
 export function buildExecWiring(input: ExecWiringInput): ExecWiring {
   const mode = resolveExecSandboxMode(input.env);
   const reaper = processReaper(input.sandbox);
-  const exec = createExecSandbox({ sandbox: input.sandbox, mode, egressMode: resolveEgressMode(input.env), baseEnv: input.env, ...(input.egress ? { egress: input.egress } : {}), ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}), ...(reaper ? { reaper } : {}) });
+  const exec = createExecSandbox({ sandbox: input.sandbox, mode, egressMode: resolveEgressMode(input.env), baseEnv: input.env, fileBoundary: fileBoundaryGateFor(input.env), ...(input.egress ? { egress: input.egress } : {}), ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}), ...(reaper ? { reaper } : {}) });
   const gateCreds = gateCredsFrom(input.env);
   const execScope = createExecScopeProvider({
     workRoot: input.workRoot ?? execWorkRoot(input.env),
@@ -70,7 +71,7 @@ export interface ScriptExec {
 export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null, egress?: EgressGate): ScriptExec {
   const mode = resolveExecSandboxMode(env);
   const reaper = processReaper(sandbox);
-  const exec = createExecSandbox({ sandbox, mode, egressMode: resolveEgressMode(env), baseEnv: env, ...(egress ? { egress } : {}), ...(reaper ? { reaper } : {}) });
+  const exec = createExecSandbox({ sandbox, mode, egressMode: resolveEgressMode(env), baseEnv: env, fileBoundary: fileBoundaryGateFor(env), ...(egress ? { egress } : {}), ...(reaper ? { reaper } : {}) });
   const gateCreds = gateCredsFrom(env);
   return {
     exec,

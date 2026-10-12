@@ -263,6 +263,11 @@ export const PROTECTED_PATHS: string[] = [
   "src/server/egress-wiring.ts",
   "src/server/dns-forward.ts",
   "src/server/sandbox-health.ts",
+  /* The file boundary's boot check: what the sandbox uid must see refused, the probing child that tries it as that uid, the judgment and the status the launcher refuses agent code on; plus where the API token lives, out of the host's config folder. An autonomous fix that dropped a probe or trusted a missing status would let agent code read the token or rewrite the orchestrator on a host whose filesystem does not enforce permissions. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/file-boundary.ts",
+  "src/server/file-boundary.ts",
+  "src/server/file-boundary-check.ts",
+  "src/server/api-token.ts",
   "config/egress/",
   /* The container's entrypoint and the egress self-test: the file permissions that keep the sandbox uid out of the API token, the auth material and the provider keys, and the kernel filter that holds its network to the declared origins. */
   "bin/container-entrypoint.sh",

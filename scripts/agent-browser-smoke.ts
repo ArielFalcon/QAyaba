@@ -1,8 +1,9 @@
 /*
  * Smoke test of the authenticated agent browser against a local test server, with the REAL parts: the sandboxed browser
  * launcher, the guarded Playwright context and playwright-core. `npx tsx scripts/agent-browser-smoke.ts` on a host with
- * Chromium, or, to run it as the sandbox uid the way production does, inside the orchestrator image:
- *   docker run --rm --entrypoint npx <orchestrator image> tsx scripts/agent-browser-smoke.ts
+ * Chromium, or, to run it as the sandbox uid the way production does, inside the orchestrator image, through its entrypoint (whose boot
+ * check of the file boundary the launcher requires before it starts anything as that uid; the egress step only warns without NET_ADMIN):
+ *   docker run --rm -e CODE_SANDBOX_UID=1002 --entrypoint /app/bin/container-entrypoint.sh <orchestrator image> npx tsx scripts/agent-browser-smoke.ts
  *
  * It proves what the unit tests can only assume about the browser: the session reaches the page from memory (the server sees
  * the cookie) and is written nowhere; a form POST and a fetch POST never reach the server; a denied route and an undeclared

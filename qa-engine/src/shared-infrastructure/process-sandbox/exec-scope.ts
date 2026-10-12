@@ -9,7 +9,7 @@ export interface SandboxReport {
   /* Hosts a child tried to reach that the run's policy does not declare, without duplicates, in first-seen order. */
   denied: string[];
   /* Why the launcher refused to start a child in this run, when it did: the run then ends E-SANDBOX whatever path it took to its infra-error. */
-  refusal?: "uid" | "egress" | "residue";
+  refusal?: "uid" | "files" | "egress" | "residue";
 }
 
 export interface RunScope {

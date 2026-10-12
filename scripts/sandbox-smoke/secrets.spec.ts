@@ -24,8 +24,9 @@ test("the auth directory of an app cannot be read", () => {
   expect(codeOf(() => readdirSync("/app/data/auth"))).toMatch(/^(EACCES|EPERM)$/);
 });
 
-test("the API token is unreadable", () => {
-  expect(codeOf(() => readFileSync("/app/config/.api_token"))).toMatch(/^(EACCES|EPERM)$/);
+test("the API token is unreadable, where the service keeps it and where an earlier version did", () => {
+  expect(codeOf(() => readFileSync("/app/data/.api_token"))).toMatch(/^(EACCES|EPERM)$/);
+  expect(codeOf(() => readFileSync("/app/config/.api_token"))).toMatch(/^(EACCES|EPERM|ENOENT)$/);
 });
 
 test("the code graph of the indexed repos cannot be listed", () => {
@@ -34,6 +35,7 @@ test("the code graph of the indexed repos cannot be listed", () => {
 
 test("the config directory (app configs) cannot be listed", () => {
   expect(codeOf(() => readdirSync("/app/config"))).toMatch(/^(EACCES|EPERM)$/);
+  expect(codeOf(() => readdirSync("/app/config/apps"))).toMatch(/^(EACCES|EPERM)$/);
 });
 
 test("none of the orchestrator's secrets or its test account is in this process's environment", () => {

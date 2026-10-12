@@ -15,7 +15,7 @@ export type ExecSandboxMode = "required" | "best-effort";
 /* The reason a run cannot execute agent code safely. A run that hits it ends as an infra-error E-SANDBOX: persisted, never learned from, no Issue. */
 export class SandboxUnavailableError extends Error {
   readonly code = "E-SANDBOX";
-  constructor(readonly reason: "uid" | "egress" | "scope" | "residue", message: string) {
+  constructor(readonly reason: "uid" | "files" | "egress" | "scope" | "residue", message: string) {
     super(message);
     this.name = "SandboxUnavailableError";
   }
@@ -28,11 +28,13 @@ export function isSandboxUnavailable(err: unknown): err is SandboxUnavailableErr
 /* Said once per process, not per launcher: a composition builds several. */
 let warnedNoUid = false;
 let warnedNoEgress = false;
+let warnedFileBoundary = false;
 
 /* For tests: the warnings are said again. */
 export function resetExecSandboxWarnings(): void {
   warnedNoUid = false;
   warnedNoEgress = false;
+  warnedFileBoundary = false;
 }
 
 /* Unset means `required` wherever the sandbox uid can exist (root on Linux, which is every container): a deployment that forgot the variable must refuse to run agent code as the orchestrator, not run it with a warning. Elsewhere (a developer's laptop, or a non-root user) there is no uid to drop to and the default is best-effort. An explicit value is always the operator's. */
@@ -41,6 +43,12 @@ export function resolveExecSandboxMode(env: NodeJS.ProcessEnv, platform: NodeJS.
   if (raw === undefined || raw === "") return platform === "linux" && getuid() === 0 ? "required" : "best-effort";
   if (raw === "required" || raw === "best-effort") return raw;
   throw new Error(`QA_EXEC_SANDBOX must be "required" or "best-effort", got ${JSON.stringify(raw)}`);
+}
+
+/* The file boundary as the boot check found it (src/server/file-boundary-check.ts): whether the sandbox uid really cannot read the orchestrator's secrets or write its code and config on this host's filesystems. A permission that a filesystem does not enforce (a bind mount of Docker Desktop's file sharing) is only proven by trying, as that uid. */
+export interface FileBoundaryGate {
+  /* What the sandbox uid can reach that it must not, in words; undefined when the boundary holds. */
+  breach(): string | undefined;
 }
 
 /* A held right to reach some origins; released when the child is gone. */
@@ -89,6 +97,8 @@ export interface ExecSandboxDeps {
   /* The orchestrator's environment, the base the profiles allowlist from. */
   baseEnv: NodeJS.ProcessEnv;
   egress?: EgressGate;
+  /* The boot check of the file boundary. With `required` a boundary that does not hold refuses every spawn (E-SANDBOX); with `best-effort` the child runs and the launcher says so. Absent: nothing is checked (no sandbox uid, or a caller outside the container). */
+  fileBoundary?: FileBoundaryGate;
   /* The mirrors volume: a child whose cwd is in one of its mirrors gets that mirror's group opened to the sandbox for the run (mirror-access.ts). */
   mirrorRoot?: string;
   mirrorOps?: MirrorFsOps;
@@ -136,6 +146,21 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
         if (!warnedNoUid) {
           warnedNoUid = true;
           warn("[qa] WARNING: QA_EXEC_SANDBOX=best-effort and no sandbox uid is available: agent-influenced code runs as the orchestrator's own user, with its files and credentials in reach. Do not run this way against anything you care about.");
+        }
+      }
+
+      /* The uid is only a boundary where the filesystems enforce it: a secret the sandbox uid can read, or code and config it can write, make the drop to that uid worth nothing. */
+      if (deps.sandbox !== null && deps.fileBoundary) {
+        const breach = deps.fileBoundary.breach();
+        if (breach !== undefined) {
+          if (deps.mode === "required") {
+            scope.report.refusal = "files";
+            throw new SandboxUnavailableError("files", `refusing to spawn ${cmd}: QA_EXEC_SANDBOX=required but the file boundary does not hold on this host (${breach})`);
+          }
+          if (!warnedFileBoundary) {
+            warnedFileBoundary = true;
+            warn(`[qa] WARNING: QA_EXEC_SANDBOX=best-effort and the file boundary does not hold on this host (${breach}): agent-influenced code runs as the sandbox uid with those paths in reach.`);
+          }
         }
       }
 
