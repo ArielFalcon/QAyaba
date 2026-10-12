@@ -151,3 +151,9 @@ test("an allowance names a mutating method from the list and a path, nothing els
   assert.notEqual(mutatingEntryError("POST /a b"), undefined, "the path is held to the pattern rules");
   assert.notEqual(mutatingEntryError(""), undefined);
 });
+
+test("a ** that is not between two slashes covers any run of characters, segments included", () => {
+  const g = guard({ denyRoutes: ["/exp**"] });
+  for (const path of ["/exp", "/export", "/export/a/b", "/expand/x"]) assert.equal(g.decide({ method: "GET", url: `https://dev.example.com${path}` }).allow, false, path);
+  assert.equal(g.decide({ method: "GET", url: "https://dev.example.com/ex" }).allow, true);
+});

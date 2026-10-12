@@ -405,3 +405,46 @@ test("a call whose session ended while it waited for the account is a cancelled 
   release();
   await held;
 });
+
+test("a title is cut at 300 characters and not before", async () => {
+  const exact = new FakeHost();
+  exact.next = () => page({ title: "t".repeat(300) });
+  const whole = await setup({ host: exact }).useCase.call(nav("/orders"));
+  assert.equal(whole.ok && whole.page.title.length, 300);
+  const over = new FakeHost();
+  over.next = () => page({ title: "t".repeat(301) });
+  const cut = await setup({ host: over }).useCase.call(nav("/orders"));
+  assert.equal(cut.ok && cut.page.title.length, 300);
+});
+
+test("what the browser says besides the tree reaches the agent, redacted", async () => {
+  const host = new FakeHost();
+  host.next = () => page({ notes: ["a dialog was dismissed hunter2"] });
+  const res = await setup({ host }).useCase.call(nav("/orders"));
+  assert.equal(res.ok && res.notes.length, 1);
+  assert.doesNotMatch(JSON.stringify(res), /hunter2/);
+});
+
+test("the end of the run stops a call even when the call has a signal of its own", async () => {
+  const lock = new AccountLock();
+  let release!: () => void;
+  const held = lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const runAbort = new AbortController();
+  const { useCase } = setup({ lock, runSignal: runAbort.signal });
+  const pending = useCase.call(nav("/orders"), new AbortController().signal);
+  await new Promise((r) => setImmediate(r));
+  runAbort.abort();
+  const res = await pending;
+  assert.equal(res.ok === false && res.code, AGENT_BROWSER_REFUSAL.FAILED);
+  release();
+  await held;
+});
+
+test("sign-ins that keep throwing stop being attempted once the allowed number is used", async () => {
+  const host = new FakeHost();
+  host.next = () => page({ url: `${BASE}/login` });
+  let attempts = 0;
+  const { useCase } = setup({ host, renew: async () => { attempts += 1; throw new Error("login script crashed"); } });
+  for (let i = 0; i < 4; i++) await useCase.call(nav("/orders"));
+  assert.equal(attempts, 2);
+});
