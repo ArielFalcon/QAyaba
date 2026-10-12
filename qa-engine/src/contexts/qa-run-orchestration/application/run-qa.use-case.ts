@@ -453,6 +453,13 @@ const DEFAULT_CONFIG: RunQaConfig = {
 };
 
 /** What the run knows when its deadline ends it: the little a terminal outcome carries, filled in as the run learns it. */
+const DENIED_HOSTS_SHOWN = 20;
+
+/* A refused name is whatever the child asked for; it is shown only when it looks like a host. */
+function printableHost(host: string): string {
+  return /^[A-Za-z0-9._:\[\]-]{1,253}$/.test(host) ? host : "(unprintable name)";
+}
+
 interface RunTrail {
   mirrorDir?: string;
   rulesRetrieved?: string[];
@@ -500,12 +507,49 @@ export class RunQaUseCase {
     } catch (err) {
       if (isSandboxUnavailable(err) && err.reason !== "scope") return await this.sandboxUnavailableResult(input, err, trail);
       if (err instanceof ProbeSweepError) return await this.probeSweepResult(input, err, trail);
-      if (!isRunDeadlineError(err)) throw err;
+      if (!isRunDeadlineError(err)) {
+        await this.keepSandboxEvidence(input, err, trail, signal);
+        throw err;
+      }
       return await this.deadlineResult(input, err, trail);
     } finally {
       await this.closeClosedLoop(trail);
       await this.closeAgentBrowser(trail);
+      this.sayDeniedHosts();
     }
+  }
+
+  /**
+   * An error nothing here handles (an agent runtime that failed mid-turn) leaves the caller to record the run, and the caller
+   * has no scope to read: the hosts the egress filter refused would be lost, and they are what an operator needs to learn
+   * which origins to declare. When a child ran, an infra-error outcome carrying only that evidence is persisted before the
+   * error goes on. A run that spawned nothing has no evidence and persists nothing; a cancelled run is not an error. The
+   * note names the kind of error, never its text, which the caller records after redacting it. A fault here never replaces the error.
+   */
+  private async keepSandboxEvidence(input: RunQaInput, err: unknown, trail: RunTrail, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted || sandboxSignal() === undefined) return;
+    const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
+    const kind = err instanceof Error && err.name ? err.name : "an error";
+    try {
+      await this.terminalResult("infra-error", cfg, input, { generating: true, static: false }, {
+        note: `The run ended on ${kind} before it reached a verdict; only what the sandbox saw is kept here.`,
+        ...(trail.rulesRetrieved ? { rulesRetrieved: trail.rulesRetrieved } : {}),
+        ...(trail.mirrorDir ? { mirrorDir: trail.mirrorDir } : {}),
+      });
+    } catch (persistErr) {
+      console.error(`[qa] could not persist the sandbox evidence of a run that ended on an error: ${persistErr instanceof Error ? persistErr.message : String(persistErr)}`);
+    }
+  }
+
+  /* Says once, at the end of a run, which hosts the egress filter refused: the operator reads from it what to declare in dev.allowedOrigins. */
+  private sayDeniedHosts(): void {
+    const denied = sandboxSignal()?.denied ?? [];
+    if (denied.length === 0) return;
+    const shown = denied.slice(0, DENIED_HOSTS_SHOWN).map(printableHost);
+    const more = denied.length > shown.length ? ` (and ${denied.length - shown.length} more)` : "";
+    const text = `[qa] sandbox: egress denied ${denied.length} host(s): ${shown.join(", ")}${more}`;
+    console.warn(text);
+    this.deps.observer?.onEvent({ type: "log.line", level: "warn", text });
   }
 
   /* Revokes the browser's right and stops it. A fault is said and never changes how the run ended. */

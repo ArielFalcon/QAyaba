@@ -9,13 +9,14 @@ import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
+import type { ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { createExecSandbox, SandboxUnavailableError } from "../../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope, type ExecScopePort } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import { createExecScopeProvider } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope-provider.ts";
 
-async function runWith(options: { execScope?: ExecScopePort; execute: () => Promise<{ verdict: "pass"; cases: []; logs: string }> }): Promise<{ saved: RunOutcome[]; threw?: unknown }> {
+async function runWith(options: { execScope?: ExecScopePort; observer?: ObserverPort; execute: () => Promise<{ verdict: "pass"; cases: []; logs: string }> }): Promise<{ saved: RunOutcome[]; threw?: unknown }> {
   const mirror = mkdtempSync(join(tmpdir(), "qa-run-exec-scope-"));
   const specDir = join(mirror, "e2e");
   mkdirSync(specDir, { recursive: true });
@@ -45,6 +46,7 @@ async function runWith(options: { execScope?: ExecScopePort; execute: () => Prom
       cleanup: { cleanup: async () => {} },
       config: { needsReview: false },
       ...(options.execScope ? { execScope: options.execScope } : {}),
+      ...(options.observer ? { observer: options.observer } : {}),
     });
     try {
       await useCase.run({ app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "run-exec-scope" });
@@ -123,4 +125,93 @@ test("a run whose sandbox scope cannot be opened because a survivor holds the sa
   assert.ok(outcome, "the run persisted an outcome");
   assert.equal(outcome.verdict, "infra-error");
   assert.equal(outcome.errorClass, ERROR_CLASS.SANDBOX);
+});
+
+/* What the egress filter records while a child runs: the scope's report fills in as hosts are refused. */
+function refuseHosts(...hosts: string[]): void {
+  const report = activeExecScope()!.report;
+  report.egress = "enforced";
+  report.denied.push(...hosts);
+}
+
+test("a run that dies on an agent error after a child was refused hosts still persists which hosts, and the error still reaches the caller", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-run-exec-root-"));
+  try {
+    const failure = new Error("provider error");
+    const out = await runWith({
+      execScope: provider(root),
+      execute: async () => {
+        refuseHosts("idp.example.test", "cdn.example.test");
+        throw failure;
+      },
+    });
+    assert.equal(out.threw, failure, "the shell still sees the error that ended the run");
+    const outcome = out.saved.at(-1);
+    assert.ok(outcome, "the run persisted an outcome");
+    assert.equal(outcome.verdict, "infra-error");
+    assert.deepEqual(outcome.gateSignals.sandbox, { egress: "enforced", denied: ["idp.example.test", "cdn.example.test"] });
+    assert.equal(outcome.gateSignals.coverageRatio, null, "no other signal is made up for a run that never reached it");
+    assert.equal(outcome.gateSignals.valueScore, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a run that dies on an error having started no sandboxed child persists nothing of its own", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-run-exec-root-"));
+  try {
+    const out = await runWith({ execScope: provider(root), execute: async () => { throw new Error("provider error"); } });
+    assert.ok(out.threw instanceof Error);
+    assert.deepEqual(out.saved, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a run that ends E-SANDBOX or on a verdict persists the hosts it was refused too", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-run-exec-root-"));
+  try {
+    const exec = createExecSandbox({ sandbox: null, mode: "required", baseEnv: {}, warn: () => {} });
+    const out = await runWith({
+      execScope: provider(root),
+      execute: async () => {
+        refuseHosts("idp.example.test");
+        exec.spawn("npx", ["playwright", "test"], { cwd: "/m", profile: "suite" });
+        return { verdict: "pass", cases: [], logs: "" };
+      },
+    });
+    const outcome = out.saved.at(-1);
+    assert.equal(outcome?.errorClass, ERROR_CLASS.SANDBOX);
+    assert.deepEqual(outcome?.gateSignals.sandbox?.denied, ["idp.example.test"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function loggingObserver(lines: string[]): ObserverPort {
+  return { onStep: () => {}, onEvent: (event) => { if (event.type === "log.line") lines.push(event.text); } };
+}
+
+test("the end of a run says which hosts the egress filter refused, once, and says nothing when none were", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-run-exec-root-"));
+  try {
+    const lines: string[] = [];
+    await runWith({
+      execScope: provider(root),
+      observer: loggingObserver(lines),
+      execute: async () => {
+        refuseHosts("idp.example.test", "cdn.example.test");
+        return { verdict: "pass", cases: [], logs: "" };
+      },
+    });
+    const said = lines.filter((l) => l.includes("sandbox: egress denied"));
+    assert.equal(said.length, 1);
+    assert.match(said[0]!, /denied 2 host\(s\): idp\.example\.test, cdn\.example\.test/);
+
+    const quiet: string[] = [];
+    await runWith({ execScope: provider(root), observer: loggingObserver(quiet), execute: async () => ({ verdict: "pass", cases: [], logs: "" }) });
+    assert.deepEqual(quiet.filter((l) => l.includes("sandbox: egress denied")), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
