@@ -1140,6 +1140,8 @@ test("the default runner starts the child with the narrowing options and the wri
   assert.ok(spawned[0]!.args.includes("--retries=0"));
   assert.ok(spawned[0]!.args.includes("--grep=x"));
   assert.equal(spawned[0]!.extraEnv?.PW_COUNT_DEV_WRITES, "1");
+  assert.equal(spawned[0]!.extraEnv?.PW_COVERAGE, "0", "a spec the generator is trying is not measured for change-coverage");
   assert.equal(spawned[1]!.args.some((a) => a.startsWith("--retries") || a.startsWith("--grep")), false);
   assert.equal(spawned[1]!.extraEnv?.PW_COUNT_DEV_WRITES, undefined);
+  assert.equal(spawned[1]!.extraEnv?.PW_COVERAGE, undefined);
 });

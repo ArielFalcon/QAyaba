@@ -68,7 +68,7 @@ export interface E2eExecuteOptions {
   retries?: number;
   /* A literal title filter, escaped for Playwright's --grep by the caller. */
   grep?: string;
-  /* Have the fixtures count the mutating requests the specs send to DEV (PW_COUNT_DEV_WRITES) and report the total in `devWrites`. */
+  /* Have the fixtures count the mutating requests the specs send to DEV (PW_COUNT_DEV_WRITES) and report the total in `devWrites`. Such a run is a spec the generator is trying, not the suite: it is not measured for change-coverage (PW_COVERAGE=0), which would only slow it. */
   countWrites?: boolean;
   /* Run as the dedicated cleanup pass: the child is handed PW_CLEANUP=1, which the seed's cleanup.spec.ts needs to do anything (it skips otherwise), and `namespace` is then the BASE data prefix to clean. */
   cleanupPass?: boolean;
@@ -625,7 +625,7 @@ export function createDefaultE2eExecuteDeps(
         const child = exec.spawn("npx", playwrightArgs(reporterPath, project, specFiles, join(work, "results"), { retries, grep }), {
           cwd: dir,
           profile: "suite",
-          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) },
+          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) },
         });
 
         const stderr = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);

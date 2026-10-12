@@ -42,7 +42,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
@@ -217,6 +217,9 @@ const BUILTIN_TOOL_KEYS = new Set([
   "invalid",
   "apply_patch",
 ]);
+
+/* Tools the repo ships itself (agents/tool/*.ts) rather than OpenCode or an MCP server: run_spec lets the generator ask the orchestrator to run a spec it wrote. */
+const CUSTOM_TOOL_KEYS = new Set(["run_spec"]);
 
 function loadRawConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(process.cwd(), "agents", "opencode.json"), "utf8")) as Record<string, unknown>;
@@ -901,7 +904,7 @@ test("known built-in tool keys are recognized (sanity check for the BUILTIN_TOOL
     for (const key of Object.keys(tools)) {
       const isWildcard = key.endsWith("*");
       const isKnownMcpTool = allMcpToolNames.has(key);
-      const isBuiltin = BUILTIN_TOOL_KEYS.has(key);
+      const isBuiltin = BUILTIN_TOOL_KEYS.has(key) || CUSTOM_TOOL_KEYS.has(key);
       assert.ok(
         isWildcard || isKnownMcpTool || isBuiltin,
         `agent "${name}" declares tools key "${key}" that is neither a known built-in, a known MCP ` +
@@ -909,4 +912,21 @@ test("known built-in tool keys are recognized (sanity check for the BUILTIN_TOOL
       );
     }
   }
+});
+
+test("run_spec is off for every agent by the global tools map and on for qa-generator alone", () => {
+  const raw = loadRawConfig();
+  assert.deepEqual((raw.tools as Record<string, unknown> | undefined)?.run_spec, false, "the global default switches the tool off");
+  const { agents } = loadAgentConfig();
+  const on = Object.entries(agents).filter(([, agent]) => agentTools(agent).run_spec === true).map(([name]) => name);
+  assert.deepEqual(on, ["qa-generator"]);
+  for (const [name, agent] of Object.entries(agents)) {
+    if (name !== "qa-generator") assert.notEqual(agentTools(agent).run_spec, true, `${name} must not call run_spec`);
+  }
+});
+
+test("the run_spec tool file exists and its package is installed in the agents image", () => {
+  assert.ok(existsSync(join(process.cwd(), "agents", "tool", "run_spec.ts")), "the tool file the config enables exists");
+  const dockerfile = readFileSync(join(process.cwd(), "agents", "Dockerfile"), "utf8");
+  assert.match(dockerfile, /npm ci/, "the tool's package is installed in the image, not taken from a host folder");
 });
