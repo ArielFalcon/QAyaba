@@ -216,17 +216,6 @@ test("a call's directory is fresh, inside the work dir, and carries the subdirec
   }
 });
 
-test("directories inside the mirror are created for the sandbox on request", () => {
-  const h = harness();
-  try {
-    const target = join(h.root, "mirror", "e2e", ".qa", "coverage");
-    h.port.prepareWritable([target]);
-    assert.equal(statSync(target).isDirectory(), true);
-  } finally {
-    rmSync(h.root, { recursive: true, force: true });
-  }
-});
-
 test("a child that runs in a mirror gets that mirror opened to the sandbox group, once per run", () => {
   const opened: string[] = [];
   const ops = {

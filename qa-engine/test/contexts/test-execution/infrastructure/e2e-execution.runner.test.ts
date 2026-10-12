@@ -8,7 +8,7 @@
  */
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -1123,7 +1123,7 @@ test("the default runner starts the child with the narrowing options and the wri
       for (const sub of subdirs) mkdirSync(join(dir, sub), { recursive: true });
       return dir;
     },
-    prepareWritable: () => {},
+   
     writeScript: (name: string, content: string) => {
       const path = join(workRoot, `written-${written.length}-${name}`);
       writeFileSync(path, content);
@@ -1158,4 +1158,45 @@ test("the default runner starts the child with the narrowing options and the wri
   assert.equal(spawned[1]!.args.some((a) => a.startsWith("--retries") || a.startsWith("--grep")), false);
   assert.equal(spawned[1]!.extraEnv?.PW_COUNT_DEV_WRITES, undefined);
   assert.equal(spawned[1]!.extraEnv?.PW_COVERAGE, undefined);
+});
+
+test("the default runner leads the dump folders to the work dir while the child runs, and carries over only a valid dump once it has gone", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-dump-runner-"));
+  const workRoot = join(root, "work");
+  const specDir = join(root, "mirror", "e2e");
+  mkdirSync(join(specDir, ".qa"), { recursive: true });
+  mkdirSync(workRoot, { recursive: true });
+  const seen: { coverageIsLink?: boolean } = {};
+  const exec = {
+    isolated: false,
+    workDir: () => workRoot,
+    allocDir: (prefix: string, subdirs: readonly string[] = []) => {
+      const dir = mkdtempSync(join(workRoot, `${prefix}-`));
+      for (const sub of subdirs) mkdirSync(join(dir, sub), { recursive: true });
+      return dir;
+    },
+    writeScript: () => "",
+    spawn: () => {
+      const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      /* What the fixtures do: write below the suite's own .qa, plus a file the fixtures never write. */
+      const dumpDir = join(specDir, ".qa", "coverage", "ns-dump");
+      seen.coverageIsLink = lstatSync(dumpDir).isSymbolicLink();
+      writeFileSync(join(dumpDir, "w0-0.json"), JSON.stringify([{ url: "https://dev/a.js", source: "x" }]));
+      writeFileSync(join(dumpDir, "planted.txt"), "cookie=1");
+      setImmediate(() => child.emit("close", 0, null));
+      return child;
+    },
+  };
+  try {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 5_000, exec as never, undefined, () => ({ ran: true, report: { stats: { expected: 1 } } }));
+    await deps.runSuite({ dir: specDir, baseUrl: "https://dev", namespace: "ns-dump" });
+    assert.equal(seen.coverageIsLink, true, "while the child runs, the mirror path leads to the work dir");
+    const carried = join(specDir, ".qa", "coverage", "ns-dump");
+    assert.equal(lstatSync(carried).isSymbolicLink(), false);
+    assert.deepEqual(readdirSync(carried), ["w0-0.json"], "the planted file did not reach the mirror");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

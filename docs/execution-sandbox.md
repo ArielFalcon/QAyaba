@@ -86,9 +86,16 @@ current user and the launcher warns, loudly, once per process; use it only on a 
 
 The mirror a run executes in is opened to the sandbox *group* (`root:<sandbox gid>`, `0750`) when its first child starts; every
 mirror is sealed again when the run's scope opens and when it ends. Files in a mirror stay root-owned and world-readable, so
-the sandbox reads specs and installed packages and cannot change them. The only places it can write are its work dir and
-`e2e/.qa/coverage` and `e2e/.qa/fault-injection` (the fixtures' dump folders, handed over non-recursively before a suite run).
-A code-mode repo is handed to the sandbox user entirely (a build writes into it), as before.
+the sandbox reads specs and installed packages and cannot change them. **The only place it can write is its work dir; nothing a
+child writes lands in the mirror** (the mirror is read by the agent, so a writable folder in it was a channel past the egress
+filter and the redaction). The suite's fixtures still write their dumps to `e2e/.qa/coverage/<namespace>` and
+`e2e/.qa/fault-injection/<namespace>`: while the child runs those two paths are links, made by the orchestrator, to a folder in
+the run's work dir, and once the child is gone the links are removed and only what passes the check is copied over
+(`run-dump-bridge.ts`): a file name pattern, a size cap, a parse and a rebuild field by field (a coverage dump keeps a script's
+url, source, executed ranges and the source map's sources, root and mappings; a counter keeps its count), written by the
+orchestrator as a plain file. The set is whole or nothing, as the readers take it. The residual: a string field the readers do
+use (a script's source) can still carry a payload the writer chose, in bounded size. A code-mode repo is handed to the sandbox
+user entirely (a build writes into it), as before.
 
 `/proc/1/environ` (the service's environment, with every secret) is `0400 root` and so unreadable once a child dropped to the
 sandbox uid; the smoke test checks it.

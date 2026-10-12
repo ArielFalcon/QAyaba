@@ -111,6 +111,7 @@ async function main(): Promise<number> {
         const found = await check.run({
           e2eDir,
           checksDir: join(SMOKE_SPEC_DIR, "checks"),
+          namespace: "sandbox-smoke-check",
           exec: wiring.exec,
           workDir: wiring.exec.workDir(),
           runSpecs: (files) => runE2E(e2eDir, { baseUrl: origin, namespace: "sandbox-smoke-check", specFiles: [...files] }, deps),

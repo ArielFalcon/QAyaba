@@ -6,7 +6,7 @@ import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:c
 import { buildExecEnv, type SandboxProfile } from "./exec-env.ts";
 import { activeExecScope, type RunScope, type SandboxReport } from "./exec-scope.ts";
 import { mirrorTopDir, openMirrorForSandbox, type MirrorFsOps } from "./mirror-access.ts";
-import { allocWorkSubdir, prepareWritableDirs, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
+import { allocWorkSubdir, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";
 import { SandboxResidueError, liveSandboxChildren, trackSandboxChild, type SandboxReaper } from "./sandbox-reaper.ts";
 
@@ -68,8 +68,6 @@ export interface ExecSandboxPort {
   workDir(scope?: RunScope): string;
   /* A fresh directory inside the run's work dir for one call, with the named subdirectories, owned by the sandbox. */
   allocDir(prefix: string, subdirs?: readonly string[], scope?: RunScope): string;
-  /* Hands directories inside the mirror to the sandbox for writing, and nothing else. */
-  prepareWritable(dirs: readonly string[]): void;
   /* Writes a script the orchestrator authored into the run's work dir, readable and not writable by the sandbox, and returns its path. */
   writeScript(name: string, content: string): string;
 }
@@ -110,9 +108,6 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
       const active = scope ?? activeExecScope();
       if (!active) throw new SandboxUnavailableError("scope", "no run scope is active, so there is no work directory to allocate in");
       return allocWorkSubdir(active.workDir, prefix, subdirs, deps.sandbox);
-    },
-    prepareWritable(dirs) {
-      prepareWritableDirs(dirs, deps.sandbox);
     },
     writeScript(name, content) {
       const active = activeExecScope();

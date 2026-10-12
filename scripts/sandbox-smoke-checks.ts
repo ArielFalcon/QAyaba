@@ -5,7 +5,7 @@
  * Add a check here for every fix whose effect can be observed in a running container.
  */
 
-import { cpSync, existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExecSandboxPort } from "../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import type { QaCase } from "../qa-engine/src/shared-kernel/qa-case.ts";
@@ -15,6 +15,8 @@ export interface SmokeCheckContext {
   e2eDir: string;
   /* Where the check specs are kept: scripts/sandbox-smoke/checks. */
   checksDir: string;
+  /* The data namespace of the runs the checks make. */
+  namespace: string;
   /* The launcher the run's children are started through, and the run's work dir (readable here: this process is root). */
   exec: ExecSandboxPort;
   workDir: string;
@@ -105,4 +107,24 @@ export const survivorCannotReadALaterChildEnvironment: SmokeCheck = {
   },
 };
 
-export const SMOKE_CHECKS: readonly SmokeCheck[] = [specSelectionIsExact, detachedDaemonIsGoneAfterTheCall, survivorCannotReadALaterChildEnvironment];
+/* What a suite's fixtures write into the mirror's dump folders must pass the orchestrator's check before it is the agent's to read. */
+export const dumpFolderIsNotAChannel: SmokeCheck = {
+  name: "what a spec writes to the coverage dump folder does not reach the mirror, except a checked dump",
+  async run(ctx) {
+    cpSync(join(ctx.checksDir, "dump-writer.spec.ts"), join(ctx.e2eDir, "dump-writer.spec.ts"));
+    const run = await ctx.runSpecs(["dump-writer.spec.ts"]);
+    const problems = run.cases.filter((c) => c.status !== "pass").map((c) => `inside the sandbox: ${c.name}`);
+    if (run.cases.length < 3) problems.push(`only ${run.cases.length} of 3 dump cases ran`);
+    const dir = join(ctx.e2eDir, ".qa", "coverage", ctx.namespace);
+    if (!existsSync(dir)) return [...problems, "the dump the fixtures write did not reach the mirror at all (the readers would see no coverage)"];
+    if (lstatSync(dir).isSymbolicLink()) problems.push("the mirror still holds a link to the run's work dir");
+    const names = readdirSync(dir);
+    if (names.join(",") !== "w0-0.json") problems.push(`the mirror's dump folder holds ${JSON.stringify(names)}, expected only the checked dump`);
+    const kept = existsSync(join(dir, "w0-0.json")) ? readFileSync(join(dir, "w0-0.json"), "utf8") : "";
+    if (kept.includes("SMOKE_EXFIL_MARKER")) problems.push("a key the reader does not use was carried into the mirror");
+    if (!kept.includes("https://dev.example/a.js")) problems.push("the checked dump lost the fields the reader uses");
+    return problems;
+  },
+};
+
+export const SMOKE_CHECKS: readonly SmokeCheck[] = [specSelectionIsExact, detachedDaemonIsGoneAfterTheCall, survivorCannotReadALaterChildEnvironment, dumpFolderIsNotAChannel];

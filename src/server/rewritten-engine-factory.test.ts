@@ -3646,7 +3646,7 @@ test("buildAcceptanceHarness composes the pipeline's own gate, execution, covera
   const { buildAcceptanceHarness } = await import("./rewritten-engine-factory");
   const copyDir = mkdtempSync(join(tmpdir(), "acceptance-copy-"));
   try {
-    const exec = { isolated: false, workDir: () => copyDir, allocDir: () => copyDir, prepareWritable: () => {}, writeScript: () => "", spawn: () => { throw new Error("no process is started by composing"); } };
+    const exec = { isolated: false, workDir: () => copyDir, allocDir: () => copyDir, writeScript: () => "", spawn: () => { throw new Error("no process is started by composing"); } };
     const app: AppConfig = { ...cfg("accept-app"), qa: { needsReview: true, testDataPrefix: "qa-bot", changeCoverage: { mode: "enforce", minRatio: 0.5 } } };
     const harness = buildAcceptanceHarness({ app, copyDir, exec: exec as never, getAgentDeps: stubAgentDeps });
     assert.equal(typeof harness.validation.validate, "function");
@@ -3666,7 +3666,7 @@ test("buildAcceptanceHarness follows the app's coverage policy: signal never blo
   const { buildAcceptanceHarness } = await import("./rewritten-engine-factory");
   const copyDir = mkdtempSync(join(tmpdir(), "acceptance-copy-"));
   try {
-    const exec = { isolated: false, workDir: () => copyDir, allocDir: () => copyDir, prepareWritable: () => {}, writeScript: () => "", spawn: () => { throw new Error("no process"); } };
+    const exec = { isolated: false, workDir: () => copyDir, allocDir: () => copyDir, writeScript: () => "", spawn: () => { throw new Error("no process"); } };
     const harness = buildAcceptanceHarness({ app: cfg("accept-signal"), copyDir, exec: exec as never });
     assert.equal(harness.objectiveSignal.blocks("fail"), false);
     assert.equal(harness.review, undefined);

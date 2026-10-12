@@ -17,6 +17,7 @@ import { describeReasons, readRunOutputDir, scanRunOutputDir, type RunOutputLimi
 import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { parsePlaywrightReport } from "./playwright-report.ts";
 import { PLAYWRIGHT_INFRA_RE } from "../domain/playwright-infra.ts";
+import { openDumpBridge } from "./run-dump-bridge.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
@@ -628,8 +629,22 @@ export function createDefaultE2eExecuteDeps(
         const reporterPath = join(work, "qa-stream-reporter.cjs");
         const jsonPath = join(work, "report", "report.json");
         writeFileSync(reporterPath, STREAM_REPORTER);
-        /* The fixtures write the coverage and fault-injection dumps below the suite's own .qa; those two folders are the only part of the mirror the sandbox may write. */
-        exec.prepareWritable([join(dir, ".qa", "coverage"), join(dir, ".qa", "fault-injection")]);
+        /* The fixtures write the coverage and fault-injection dumps below the suite's own .qa, from the sandboxed child. Nothing the child writes lands in the mirror: those two paths lead to a folder of the run's work dir while it runs, and only the dumps that pass the check are carried over once it is gone (run-dump-bridge.ts). */
+        const dumpRoot = exec.allocDir("dumps", ["coverage", "fault-injection"]);
+        const dumps = openDumpBridge({ specDir: dir, namespace, dumpRoot, workRoot });
+        let dumpsClosed = false;
+        const closeDumps = (harvest: boolean): void => {
+          if (dumpsClosed) return;
+          dumpsClosed = true;
+          try {
+            if (harvest) dumps.harvest();
+            else dumps.dispose();
+          } catch (err) {
+            console.error(`[qa] the dump folders of the run could not be handed over (${err instanceof Error ? err.message : String(err)}); the coverage and fault-injection signals stay unmeasured (non-blocking)`);
+          } finally {
+            try { rmSync(dumpRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
+          }
+        };
 
         /* QA_FAILURE_CAPTURE_DIR: the qa-failure-capture afterEach fixture writes per-case aria snapshot dumps here on failure; the orchestrator harvests them post-run to populate QaCase.failureDom for the fix-loop grounding prompt. PW_TEST_ID_ATTRIBUTE: threads the configured testIdAttribute into the runner so playwright.config.ts resolves getByTestId correctly for the app's convention. PW_ACTION_TIMEOUT_MS: optional per-target override of the seed's action auto-wait bound (default 8000) so a slower DEV can widen it without editing the seed config — injected from the composition root (env-read confinement, this file's header). */
         const child = exec.spawn("npx", playwrightArgs(reporterPath, project, testListPath, join(work, "results"), { retries, grep }), {
@@ -655,12 +670,14 @@ export function createDefaultE2eExecuteDeps(
         const ms = timeoutMs ?? defaultTimeoutMs;
         const timer = setTimeout(() => {
           processKill.killTree(child);
+          closeDumps(false);
           settle(() => resolve({ report: {}, logs: `playwright runner timed out after ${ms}ms — killed\n${stderr.text()}`, ran: false }));
         }, ms);
 
         const onAbort = signal
           ? () => {
               processKill.killTree(child);
+              closeDumps(false);
               settle(() => resolve({ report: {}, logs: `playwright runner aborted by operator cancel — killed\n${stderr.text()}`, ran: false }));
             }
           : undefined;
@@ -670,10 +687,11 @@ export function createDefaultE2eExecuteDeps(
         child.stderr!.setEncoding("utf8");
         child.stdout!.on("data", (d: string) => events.feed(d));
         child.stderr!.on("data", (d: string) => stderr.append(d));
-        child.on("error", (err) => { try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
+        child.on("error", (err) => { closeDumps(false); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
         child.on("close", (code, signal) => {
           /* The child is gone, and the path it was handed is the one thing it could still have changed: the report is read strictly (see readPlaywrightReport), never waited on and never followed. A run that is settled already (it timed out or the operator cancelled, and the child was killed) is waited for by nobody, so its report is not read: parsing one made slow on purpose would only hold the orchestrator after the deadline. */
           const read = settled ? undefined : readReport(jsonPath, workRoot);
+          closeDumps(!settled);
           try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
           if (read === undefined) return;
           const refusal = !read.ran && "reason" in read ? `\n[qa] the Playwright report was not read (${read.reason}); this run has no result.` : "";

@@ -79,3 +79,58 @@ export async function readNativeReports(repoDir: string): Promise<NativeReports>
   if (lcov === undefined || istanbul === undefined || jacoco === undefined) return { lcov: [], istanbul: [], jacoco: [] };
   return { lcov, istanbul, jacoco };
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+/* A dump as the orchestrator keeps it for the reader: only what the reduction to the lines of the changed files uses (a script's url and source, the ranges V8 says ran, and the source map's sources, root and mappings), rebuilt field by field. The dump is written by the suite's fixtures, which is agent-editable code in a process with the session in reach, and what reaches the mirror can be read by the agent; so nothing is copied that the reader does not use (a key it adds, a map's embedded sources, a name) and a dump of another shape is refused. The strings the reader does use remain strings the writer chose: a payload hidden in a script's source survives this, which is why a dump reaches the mirror only through this function and in bounded size. Throws RangeError on a dump that is not that shape. */
+export function sanitizeV8Dump(bytes: Buffer): Buffer {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new RangeError("not JSON");
+  }
+  if (!Array.isArray(parsed)) throw new RangeError("not a list of scripts");
+  return Buffer.from(JSON.stringify(parsed.map(sanitizeV8Entry)));
+}
+
+function sanitizeV8Entry(raw: unknown): Record<string, unknown> {
+  if (!isRecord(raw)) throw new RangeError("a script is not an object");
+  const entry: Record<string, unknown> = {};
+  if (raw.url !== undefined) {
+    if (typeof raw.url !== "string") throw new RangeError("url is not a string");
+    entry.url = raw.url;
+  }
+  if (raw.source !== undefined) {
+    if (typeof raw.source !== "string") throw new RangeError("source is not a string");
+    entry.source = raw.source;
+  }
+  if (raw.functions !== undefined) {
+    if (!Array.isArray(raw.functions)) throw new RangeError("functions is not a list");
+    entry.functions = raw.functions.map((fn: unknown) => {
+      if (!isRecord(fn)) throw new RangeError("a function is not an object");
+      if (fn.ranges === undefined) return {};
+      if (!Array.isArray(fn.ranges)) throw new RangeError("ranges is not a list");
+      return {
+        ranges: fn.ranges.map((range: unknown) => {
+          if (!isRecord(range) || !isCount(range.startOffset) || !isCount(range.endOffset) || !isCount(range.count)) throw new RangeError("a range is not three counts");
+          return { startOffset: range.startOffset, endOffset: range.endOffset, count: range.count };
+        }),
+      };
+    });
+  }
+  if (raw.map !== undefined) {
+    const map = raw.map;
+    if (!isRecord(map) || !Array.isArray(map.sources) || !map.sources.every((source: unknown) => typeof source === "string") || typeof map.mappings !== "string") throw new RangeError("the source map is not sources and mappings");
+    if (map.sourceRoot !== undefined && typeof map.sourceRoot !== "string") throw new RangeError("sourceRoot is not a string");
+    if (map.version !== undefined && !isCount(map.version)) throw new RangeError("version is not a count");
+    entry.map = {
+      ...(map.version !== undefined ? { version: map.version } : {}),
+      sources: map.sources,
+      ...(map.sourceRoot !== undefined ? { sourceRoot: map.sourceRoot } : {}),
+      mappings: map.mappings,
+    };
+  }
+  return entry;
+}

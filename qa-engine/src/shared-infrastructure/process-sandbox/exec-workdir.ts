@@ -100,14 +100,6 @@ export function allocWorkSubdir(workDir: string, prefix: string, subdirs: readon
   return dir;
 }
 
-/* Directories inside the mirror that a child writes into and nowhere else (the coverage and fault-injection dumps of a suite run): created when absent and handed to the sandbox, non-recursively, so the rest of the mirror stays read-only to it. */
-export function prepareWritableDirs(dirs: readonly string[], sandbox: Sandbox | null): void {
-  for (const dir of dirs) {
-    mkdirSync(dir, { recursive: true, mode: 0o755 });
-    chownTo(dir, sandbox);
-  }
-}
-
 /* A script authored by the orchestrator (a reporter, a login or capture script), written where the sandbox can read it and cannot change it: the file is root-owned and read-only, in the work dir's `scripts` folder. */
 export function writeWorkScript(workDir: string, name: string, content: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) throw new Error(`invalid script name ${JSON.stringify(name)}`);

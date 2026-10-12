@@ -39,7 +39,6 @@ export function testExecSandbox(options: TestExecOptions = {}): { exec: ExecSand
     spawn: (cmd, args, o) => inner.spawn(cmd, args, { ...o, scope: o.scope ?? activeExecScope() ?? scope }),
     workDir: (s) => inner.workDir(s ?? activeExecScope() ?? scope),
     allocDir: (prefix, subdirs, s) => inner.allocDir(prefix, subdirs, s ?? activeExecScope() ?? scope),
-    prepareWritable: (dirs) => inner.prepareWritable(dirs),
     writeScript: (name, content) => (activeExecScope() ? inner.writeScript(name, content) : writeWorkScript(scope.workDir, name, content)),
   };
   return { exec, scope, dispose: () => rmSync(root, { recursive: true, force: true }) };

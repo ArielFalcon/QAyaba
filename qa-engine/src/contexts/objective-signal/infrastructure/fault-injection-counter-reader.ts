@@ -21,3 +21,19 @@ export function countInjectedResponses(e2eDir: string, namespace: string, limits
   );
   return counts?.reduce((sum, count) => sum + count, 0);
 }
+
+/* The largest count a counter may hold: far beyond any suite's responses, and a bound on what the field can carry. */
+export const MAX_FAULT_INJECTION_COUNT = 1_000_000_000;
+
+/* A counter as the orchestrator keeps it for the reader: `{ "corrupted": n }` with nothing else, rebuilt from the count. The counter is written by the suite's fixtures (agent-editable code) and reaches a folder the agent reads, so no other key survives. Throws RangeError on anything that is not a non-negative integer count. */
+export function sanitizeFaultCounter(bytes: Buffer): Buffer {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new RangeError("not JSON");
+  }
+  const corrupted = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as { corrupted?: unknown }).corrupted : undefined;
+  if (typeof corrupted !== "number" || !Number.isInteger(corrupted) || corrupted < 0 || corrupted > MAX_FAULT_INJECTION_COUNT) throw new RangeError("not a count");
+  return Buffer.from(JSON.stringify({ corrupted }));
+}
