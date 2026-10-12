@@ -10,7 +10,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readOwnedSpecFile } from "../qa-engine/src/shared-infrastructure/spec-path-confinement.ts";
-import { MAX_FILE_BYTES, exclusionReason, looksLikeSessionState, walkTree, type SnapshotManifest } from "./warm-suite.ts";
+import type { SnapshotManifest } from "./warm-suite.ts";
+import { MAX_FILE_BYTES, exclusionReason, looksLikeSessionState, walkTree } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
 
 export interface DeltaFile {
   /** Relative to the suite directory, "/"-separated. */

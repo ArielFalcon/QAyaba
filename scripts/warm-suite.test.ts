@@ -7,9 +7,10 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  AUTH_SETUP_FILE, MANIFEST_FILE, MAX_FILE_BYTES, STOCK_SEED_MARKER, createSnapshot, exclusionReason, loadSnapshot, looksLikeSessionState,
+  AUTH_SETUP_FILE, MANIFEST_FILE, STOCK_SEED_MARKER, createSnapshot, loadSnapshot,
   main, parseArguments, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type WarmDeps,
 } from "./warm-suite.ts";
+import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
 
 const STOCK_SEED = readFileSync(join(import.meta.dirname, "..", "config", "e2e", "auth.setup.ts"), "utf8");
 const APP_LOGIN = "import { test as setup } from '@playwright/test';\nsetup('authenticate', async ({ page }) => { await page.goto('/login'); });\n";
@@ -115,20 +116,6 @@ test("a label names one snapshot, and a snapshot that fails leaves nothing under
   assert.throws(() => snapshotOf(s, "w2"), /larger than/);
   assert.equal(existsSync(warmSnapshotDir(s.warmRoot, "demo", "w2")), false);
   assert.deepEqual(readdirSync(join(s.warmRoot, "demo")), ["w1"], "no partial folder is left beside the snapshots");
-});
-
-test("what is left out is decided by path and content: credentials and sessions by any name, specs that merely sound like them are kept", () => {
-  assert.equal(exclusionReason(".env.production", false) !== undefined, true);
-  assert.equal(exclusionReason("a/b/.auth", true) !== undefined, true);
-  assert.equal(exclusionReason("keys/server.pem", false) !== undefined, true);
-  assert.equal(exclusionReason("flows/cookie-banner.spec.ts", false), undefined);
-  assert.equal(exclusionReason("flows/session.spec.ts", false), undefined);
-  assert.equal(exclusionReason("environment.ts", false), undefined);
-  assert.equal(exclusionReason("flows", true), undefined);
-  assert.equal(looksLikeSessionState("x.json", Buffer.from('{"cookies":[],"origins":[]}')), true);
-  assert.equal(looksLikeSessionState("x.json", Buffer.from('{"cookies":"no"}')), false);
-  assert.equal(looksLikeSessionState("x.json", Buffer.from("not json")), false);
-  assert.equal(looksLikeSessionState("x.ts", Buffer.from('{"cookies":[],"origins":[]}')), false);
 });
 
 /* ── loading ── */

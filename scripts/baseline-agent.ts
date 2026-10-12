@@ -52,7 +52,8 @@ import {
 import { assertFileName, defaultProbeResultsDir, readGroundTruthFile, writeJsonAtomically } from "./probe-report.ts";
 import { saveSuiteFiles, specsOf, suiteDelta } from "./campaign-suite.ts";
 import { prepareHarnessAuth } from "./harness-auth.ts";
-import { MAX_FILE_BYTES, loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
+import { loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
+import { MAX_FILE_BYTES } from "../qa-engine/src/shared-infrastructure/suite-tree.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
