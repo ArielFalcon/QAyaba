@@ -6,7 +6,7 @@
   },
   "staticLayers": {
     "opencode": 19099,
-    "codex": 34009
+    "codex": 34057
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -2970,11 +2970,11 @@
       "directives": 12
     },
     "context/e2e/first/tree-none/none": {
-      "bytes": 4737,
+      "bytes": 4786,
       "directives": 6
     },
     "context/e2e/first/tree-none/none/limit": {
-      "bytes": 4783,
+      "bytes": 4832,
       "directives": 6
     },
     "diff/code/first/tree-none/brief": {
@@ -13219,9 +13219,10 @@
     }
   },
   "lastIncrease": {
-    "reason": "Governance: the shared agent instructions gain the rule that authoring-time DEV exploration only observes and never runs ad-hoc scripts, and the generator prompt gains one line forbidding any other shell command; the growth is the enforceable-in-prose half of the shell allow-list and Playwright code/upload denials.",
+    "reason": "the architecture-mapping prompt and skill state that a route's implementationFiles list its template and style files when the framework keeps them apart",
     "budgets": [
-      "static:opencode",
+      "context/e2e/first/tree-none/none:bytes",
+      "context/e2e/first/tree-none/none/limit:bytes",
       "static:codex"
     ]
   }

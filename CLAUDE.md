@@ -224,7 +224,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Diff-ranked map routes** — before the live-DOM capture cut, the routes the orchestrator
   derived are ordered by the links the context map declares to the changed files, and only
   those: a route's `implementationFiles`, then its `source`, then the `spec` of an API
-  operation it joins (`generation/domain/route-ranking.ts`). Brief routes keep their place in
+  operation it joins (`generation/domain/route-ranking.ts`). A route's `implementationFiles`
+  also gain the non-code files they declare by relative path literal (a page's template and
+  style sheets), read strictly from the working copy (`infrastructure/bridges/implementation-resources.ts`).
+  Brief routes keep their place in
   front, nothing is inferred from names, and a cross-repo run ranks only by the spec of an
   operation under the service's staged root.
 - **Templated routes** — a route template of the map (`/shops/:province/:city`) is opened through a real

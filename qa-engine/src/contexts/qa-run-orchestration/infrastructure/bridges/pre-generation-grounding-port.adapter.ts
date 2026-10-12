@@ -13,6 +13,7 @@ import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
+import { withDeclaredResources } from "./implementation-resources.ts";
 
 const diffParser = new DiffParserService();
 
@@ -22,6 +23,7 @@ export interface PreGenerationGroundingStaticContext {
   testIdAttribute?: string; /* config-declared convention (e.g. "data-cy") — forwarded to DOM capture */
   contextMap?: ArchitectureContext; /* the FE<->BE architecture map (context.json), if loaded */
   prChangedFiles?: string[]; /* union of changed files, for contract filtering */
+  mirrorDir?: string; /* the working copy the map's implementationFiles are relative to — absent → a route is tied only to the files the map names */
   stagedRoots?: string[]; /* cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it (present even when empty) — the pack ranks a route only by the spec of an operation it joins, under these roots */
 }
 
@@ -219,6 +221,14 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       if (loaded) contextMap = loaded;
     } catch (err) {
       console.warn(`[qa] WARNING: contextMap read-back failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+    }
+    /* A page changed through its template or style sheet reaches its route by the files its implementation files declare. A single repo only: across repos the changed files are the service's, and the map's files belong to the other repo. */
+    if (contextMap && this.ctx.mirrorDir && this.ctx.stagedRoots === undefined) {
+      try {
+        contextMap = withDeclaredResources(contextMap, this.ctx.mirrorDir);
+      } catch (err) {
+        console.warn(`[qa] WARNING: declared resources of the context map not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     if (contextMap) result.contextMap = contextMap;
 

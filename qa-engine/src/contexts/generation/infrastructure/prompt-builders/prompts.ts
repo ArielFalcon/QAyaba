@@ -1137,7 +1137,7 @@ export function buildContextTask(input: OpencodeRunInput): string {
     `1. **routes** — every frontend entry URL (the unit an E2E targets) + the component it renders.`,
     `   Extract FROM the Angular routing files (e.g. app.routes.ts, *.routes.ts).`,
     `   Required per entry: path (e.g. "/checkout"). Optional: name, component, source.`,
-    `   Also give implementationFiles: the repo-relative files that implement the route's page (the files a change to that page would touch).`,
+    `   Also give implementationFiles: the repo-relative files that implement the route's page (the files a change to that page would touch, with its template and style files when separate).`,
     ``,
     `2. **api** — every backend operation the app calls.`,
     `   Extract FROM the OpenAPI specs${openapiHint ? ` (hint: ${openapiHint})` : " (search with serena/glob for openapi or swagger files)"}.`,
