@@ -102,6 +102,11 @@ export function openDumpBridge(input: DumpBridgeInput): DumpBridge {
     }
   };
 
+  /* A set that is left out is not the same as a run that left none: with nothing in the mirror a reader would take it for "no response was there to corrupt". A plain file where the folder would be is a path every reader refuses to follow, so they report the count unknown. */
+  const leaveOut = (kind: DumpKind): void => {
+    writeOwnedSpecFile(specRoot, `.qa/${kind.folder}/${input.namespace}`, Buffer.from("the dumps of this run were left out: see the orchestrator's log\n"));
+  };
+
   return {
     harvest() {
       if (done) return;
@@ -125,10 +130,12 @@ export function openDumpBridge(input: DumpBridgeInput): DumpBridge {
         if ("absent" in scan) continue;
         if ("unusable" in scan) {
           console.warn(`[qa] WARNING: the ${kind.folder} dumps of this run were not read (${scan.unusable}); the signal stays unmeasured this run (non-blocking).`);
+          leaveOut(kind);
           continue;
         }
         if (scan.cut || scan.leftOut.length > 0) {
           console.warn(`[qa] WARNING: the ${kind.folder} dumps of this run: ${scan.leftOut.length} file(s) not usable${scan.cut ? " and more entries than are looked at" : ""} (${describeReasons(scan.leftOut)}). None of them is used, so the signal stays unmeasured this run (non-blocking).`);
+          leaveOut(kind);
           continue;
         }
         for (const file of scan.files) writeOwnedSpecFile(specRoot, `.qa/${kind.folder}/${input.namespace}/${file.name}`, file.bytes);

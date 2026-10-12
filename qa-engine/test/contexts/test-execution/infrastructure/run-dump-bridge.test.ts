@@ -5,6 +5,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDumpBridge } from "@contexts/test-execution/infrastructure/run-dump-bridge.ts";
+import { countInjectedResponses } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts";
 
 interface Rig {
   specDir: string;
@@ -26,7 +27,8 @@ function rig(t: TestContext): Rig {
 
 const NS = "qa-bot-abc";
 const open = (r: Rig) => openDumpBridge({ specDir: r.specDir, namespace: NS, dumpRoot: r.dumpRoot, workRoot: r.workRoot });
-const entries = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir).sort() : []);
+/* The files below a folder; none when the path is not a folder (nothing there, or the plain file that says a set was left out). */
+const entries = (dir: string): string[] => (existsSync(dir) && lstatSync(dir).isDirectory() ? readdirSync(dir).sort() : []);
 const DUMP = JSON.stringify([{ url: "https://dev.example/a.js", source: "x\n", functions: [{ ranges: [{ startOffset: 0, endOffset: 1, count: 1 }] }] }]);
 
 test("while the child runs, the mirror's dump folder for the namespace leads to the work dir and holds nothing of its own", (t) => {
@@ -81,6 +83,33 @@ test("a link, a named pipe's name or an oversized file in the dump folder is nev
   symlinkSync(outside, join(r.dumpRoot, "coverage", "link.json"));
   bridge.harvest();
   assert.deepEqual(entries(join(r.specDir, ".qa", "coverage", NS)), []);
+});
+
+test("a set of counters that was left out is not the same as a run that left none: the reader is told the count is unknown", (t) => {
+  const r = rig(t);
+  const none = open(r);
+  none.harvest();
+  assert.equal(countInjectedResponses(r.specDir, NS), 0, "no counter at all: no response was there to corrupt");
+
+  const left = open(r);
+  writeFileSync(join(r.dumpRoot, "fault-injection", "injected-1.json"), JSON.stringify({ corrupted: 3 }));
+  writeFileSync(join(r.dumpRoot, "fault-injection", "injected-2.json"), "not json at all");
+  left.harvest();
+  assert.equal(countInjectedResponses(r.specDir, NS), undefined, "one counter that cannot be used, so the count of the others is no count");
+  assert.deepEqual(entries(join(r.specDir, ".qa", "fault-injection", NS)), [], "and none of them was carried over");
+});
+
+test("a set that was left out is cleared by the next run of the same namespace, whose counters are read as they are", (t) => {
+  const r = rig(t);
+  const first = open(r);
+  writeFileSync(join(r.dumpRoot, "fault-injection", "injected-1.json"), "not json at all");
+  first.harvest();
+  rmSync(join(r.dumpRoot, "fault-injection", "injected-1.json"));
+
+  const second = open(r);
+  writeFileSync(join(r.dumpRoot, "fault-injection", "injected-1.json"), JSON.stringify({ corrupted: 2 }));
+  second.harvest();
+  assert.equal(countInjectedResponses(r.specDir, NS), 2);
 });
 
 test("the counters of the fault-injection pass reach the mirror as counts and nothing else", (t) => {
