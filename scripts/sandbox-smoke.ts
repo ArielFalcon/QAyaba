@@ -111,6 +111,8 @@ async function main(): Promise<number> {
         const found = await check.run({
           e2eDir,
           checksDir: join(SMOKE_SPEC_DIR, "checks"),
+          exec: wiring.exec,
+          workDir: wiring.exec.workDir(),
           runSpecs: (files) => runE2E(e2eDir, { baseUrl: origin, namespace: "sandbox-smoke-check", specFiles: [...files] }, deps),
         });
         console.log(`  ${found.length === 0 ? "ok  " : "FAIL"} ${check.name}${found.length === 0 ? "" : ` — ${found.join("; ")}`}`);

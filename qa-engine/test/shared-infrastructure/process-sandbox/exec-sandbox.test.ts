@@ -6,9 +6,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { createExecSandbox, resolveExecSandboxMode, SandboxUnavailableError, type EgressGate, type ExecSandboxDeps } from "../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
+import { createExecSandbox, isSandboxUnavailable, resolveExecSandboxMode, SandboxUnavailableError, type EgressGate, type ExecSandboxDeps } from "../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { SANDBOX_PROFILES } from "../../../src/shared-infrastructure/process-sandbox/exec-env.ts";
 import { newSandboxReport, withExecScope, type RunScope } from "../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
+import { SandboxResidueError } from "../../../src/shared-infrastructure/process-sandbox/sandbox-reaper.ts";
 import { openRunWorkDir } from "../../../src/shared-infrastructure/process-sandbox/exec-workdir.ts";
 import { AUTH_MATERIAL_FILES } from "../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 
@@ -241,6 +242,72 @@ test("a child that runs in a mirror gets that mirror opened to the sandbox group
     h.port.spawn("npx", [], { cwd: "/tmp/elsewhere", profile: "offline", scope: h.scope });
     assert.deepEqual(opened, [`chown /app/.mirrors/org__app 0:${SANDBOX.gid}`]);
     assert.deepEqual([...(h.scope.openedMirrors ?? [])], ["/app/.mirrors/org__app"]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+function reaperLog(failWith?: Error): { reaper: { reapOrphans(): number }; reaps: number[] } {
+  const reaps: number[] = [];
+  return { reaps, reaper: { reapOrphans: () => { reaps.push(reaps.length); if (failWith) throw failWith; return 0; } } };
+}
+
+test("whatever an earlier child left running is ended before the next one starts", () => {
+  const log = reaperLog();
+  const h = harness({ reaper: log.reaper });
+  try {
+    h.port.spawn("npx", ["playwright"], { cwd: "/m", profile: "suite", scope: h.scope });
+    assert.equal(log.reaps.length, 1);
+    assert.equal(h.calls.length, 1);
+    h.port.spawn("npx", ["playwright"], { cwd: "/m", profile: "login", account: { user: "u", pass: "p-pass-1" }, scope: h.scope });
+    assert.equal(log.reaps.length, 2, "and again before a login, which carries the account");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a survivor that cannot be killed refuses the spawn: the next child would share its uid", () => {
+  const log = reaperLog(new SandboxResidueError([4242]));
+  const h = harness({ reaper: log.reaper });
+  try {
+    assert.throws(
+      () => h.port.spawn("npx", ["playwright"], { cwd: "/m", profile: "login", account: { user: "u", pass: "p-pass-1" }, scope: h.scope }),
+      (err: unknown) => isSandboxUnavailable(err) && err.reason === "residue",
+    );
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.scope.report.refusal, "residue");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("what the last live child left behind is ended when that child exits, and not while another is still running", () => {
+  const log = reaperLog();
+  let nextPid = 91000;
+  const spawnFn = (() => Object.assign(new EventEmitter(), { pid: (nextPid += 1) })) as unknown as typeof import("node:child_process").spawn;
+  const h = harness({ reaper: log.reaper, spawnFn });
+  try {
+    const a = h.port.spawn("npx", ["a"], { cwd: "/m", profile: "suite", scope: h.scope }) as ChildProcess & EventEmitter;
+    const b = h.port.spawn("npx", ["b"], { cwd: "/m", profile: "suite", scope: h.scope }) as ChildProcess & EventEmitter;
+    const before = log.reaps.length;
+    a.emit("exit", 0, null);
+    assert.equal(log.reaps.length, before, "b is still running, so what is around it is not an orphan yet");
+    b.emit("exit", 0, null);
+    assert.equal(log.reaps.length, before + 1);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a child is started with a home inside the run's work dir, never a home that outlives the run", () => {
+  const h = harness();
+  try {
+    for (const profile of SANDBOX_PROFILES) h.port.spawn("npx", ["x"], { cwd: "/m", profile, scope: h.scope });
+    for (const call of h.calls) {
+      const env = call.options.env as Record<string, string>;
+      assert.equal(env.HOME, join(h.scope.workDir, "home"));
+      assert.notEqual(env.HOME, SANDBOX.home);
+    }
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }

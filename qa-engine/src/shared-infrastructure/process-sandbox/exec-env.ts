@@ -99,5 +99,5 @@ export function buildExecEnv(input: ExecEnvInput): Record<string, string> {
     raw.DEV_TEST_USER = account.user;
     raw.DEV_TEST_PASS = account.pass;
   }
-  return sandboxSpawnOptions(raw, input.sandbox).env;
+  return sandboxSpawnOptions(raw, input.sandbox, join(input.workDir, "home")).env;
 }

@@ -112,3 +112,15 @@ test("a run in which the launcher refused to start agent code ends E-SANDBOX, no
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a run whose sandbox scope cannot be opened because a survivor holds the sandbox uid ends E-SANDBOX without running anything", async () => {
+  let executed = false;
+  const refusing: ExecScopePort = { open: async () => { throw new SandboxUnavailableError("residue", "the run cannot start: 1 process(es) of the sandbox uid survived SIGKILL"); } };
+  const out = await runWith({ execScope: refusing, execute: async () => { executed = true; return { verdict: "pass", cases: [], logs: "" }; } });
+  assert.equal(out.threw, undefined);
+  assert.equal(executed, false);
+  const outcome = out.saved.at(-1);
+  assert.ok(outcome, "the run persisted an outcome");
+  assert.equal(outcome.verdict, "infra-error");
+  assert.equal(outcome.errorClass, ERROR_CLASS.SANDBOX);
+});

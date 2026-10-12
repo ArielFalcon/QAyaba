@@ -6,6 +6,7 @@ import { createExecSandbox, resolveExecSandboxMode, type EgressGate, type ExecSa
 import type { ExecScopePort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { createExecScopeProvider } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider";
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { processReaper } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox-reaper";
 
 export interface ExecWiring {
   exec: ExecSandboxPort;
@@ -41,7 +42,8 @@ export function gateCredsFrom(env: NodeJS.ProcessEnv): { user: string; pass: str
 
 export function buildExecWiring(input: ExecWiringInput): ExecWiring {
   const mode = resolveExecSandboxMode(input.env);
-  const exec = createExecSandbox({ sandbox: input.sandbox, mode, baseEnv: input.env, ...(input.egress ? { egress: input.egress } : {}), ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}) });
+  const reaper = processReaper(input.sandbox);
+  const exec = createExecSandbox({ sandbox: input.sandbox, mode, baseEnv: input.env, ...(input.egress ? { egress: input.egress } : {}), ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}), ...(reaper ? { reaper } : {}) });
   const gateCreds = gateCredsFrom(input.env);
   const execScope = createExecScopeProvider({
     workRoot: input.workRoot ?? execWorkRoot(input.env),
@@ -52,6 +54,7 @@ export function buildExecWiring(input: ExecWiringInput): ExecWiring {
     ...(input.egress ? { egressGate: input.egress } : {}),
     ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}),
     ...(input.suiteAccount ? { suiteAccount: input.suiteAccount } : {}),
+    ...(reaper ? { reaper } : {}),
   });
   return { exec, execScope, sandbox: input.sandbox, mode };
 }
@@ -65,7 +68,8 @@ export interface ScriptExec {
 
 export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null, egress?: EgressGate): ScriptExec {
   const mode = resolveExecSandboxMode(env);
-  const exec = createExecSandbox({ sandbox, mode, baseEnv: env, ...(egress ? { egress } : {}) });
+  const reaper = processReaper(sandbox);
+  const exec = createExecSandbox({ sandbox, mode, baseEnv: env, ...(egress ? { egress } : {}), ...(reaper ? { reaper } : {}) });
   const gateCreds = gateCredsFrom(env);
   return {
     exec,
@@ -78,6 +82,7 @@ export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null,
         ...(gateCreds ? { gateCreds } : {}),
         egress: { dev: scope.devOrigins ?? [], install: scope.installOrigins ?? [] },
         ...(egress ? { egressGate: egress } : {}),
+        ...(reaper ? { reaper } : {}),
       }).open({ runId: scope.runId });
       try {
         return await session.run(fn);

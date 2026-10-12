@@ -8,13 +8,14 @@ import { activeExecScope, type RunScope, type SandboxReport } from "./exec-scope
 import { mirrorTopDir, openMirrorForSandbox, type MirrorFsOps } from "./mirror-access.ts";
 import { allocWorkSubdir, prepareWritableDirs, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";
+import { SandboxResidueError, liveSandboxChildren, trackSandboxChild, type SandboxReaper } from "./sandbox-reaper.ts";
 
 export type ExecSandboxMode = "required" | "best-effort";
 
 /* The reason a run cannot execute agent code safely. A run that hits it ends as an infra-error E-SANDBOX: persisted, never learned from, no Issue. */
 export class SandboxUnavailableError extends Error {
   readonly code = "E-SANDBOX";
-  constructor(readonly reason: "uid" | "egress" | "scope", message: string) {
+  constructor(readonly reason: "uid" | "egress" | "scope" | "residue", message: string) {
     super(message);
     this.name = "SandboxUnavailableError";
   }
@@ -82,6 +83,8 @@ export interface ExecSandboxDeps {
   /* The mirrors volume: a child whose cwd is in one of its mirrors gets that mirror's group opened to the sandbox for the run (mirror-access.ts). */
   mirrorRoot?: string;
   mirrorOps?: MirrorFsOps;
+  /* Ends what an earlier child left running as the sandbox uid (sandbox-reaper.ts): before each spawn and when the last live child exits. Absent: nothing is reaped (no sandbox uid, or not Linux). */
+  reaper?: SandboxReaper;
   /* The spawn primitive; a test passes a fake. */
   spawnFn?: typeof nodeSpawn;
   warn?: (line: string) => void;
@@ -127,6 +130,17 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
         if (!warnedNoUid) {
           warnedNoUid = true;
           warn("[qa] WARNING: QA_EXEC_SANDBOX=best-effort and no sandbox uid is available: agent-influenced code runs as the orchestrator's own user, with its files and credentials in reach. Do not run this way against anything you care about.");
+        }
+      }
+
+      /* Before anything is prepared for this child: a process an earlier child left under the same uid could read this one's environment (a login carries the account) and its files. A survivor that cannot be killed refuses the spawn. */
+      if (deps.sandbox !== null && deps.reaper) {
+        try {
+          deps.reaper.reapOrphans();
+        } catch (err) {
+          if (!(err instanceof SandboxResidueError)) throw err;
+          scope.report.refusal = "residue";
+          throw new SandboxUnavailableError("residue", `refusing to spawn ${cmd}: ${err.message}`);
         }
       }
 
@@ -181,6 +195,19 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
       } catch (err) {
         lease?.release();
         throw err;
+      }
+      if (deps.sandbox !== null && deps.reaper) {
+        const uid = deps.sandbox.uid;
+        const reaper = deps.reaper;
+        /* Tracked from the moment it exists, so the reaper never takes a live child (or a descendant of one) for an orphan; and what the last live child left behind is ended as it goes. */
+        trackSandboxChild(uid, child, () => {
+          if (liveSandboxChildren(uid).size > 0) return;
+          try {
+            reaper.reapOrphans();
+          } catch (err) {
+            console.error(`[qa] ERROR: ${err instanceof Error ? err.message : String(err)}; the next spawn is refused until they are gone`);
+          }
+        });
       }
       if (lease) {
         const held = lease;

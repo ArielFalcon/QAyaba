@@ -3,9 +3,10 @@
 import { join } from "node:path";
 import { activeRunSecretScope } from "../run-secret-redaction.ts";
 import { newSandboxReport, withExecScope, type ExecScopePort, type RunScope } from "./exec-scope.ts";
-import type { EgressGate } from "./exec-sandbox.ts";
+import { SandboxUnavailableError, type EgressGate } from "./exec-sandbox.ts";
 import { openRunWorkDir, removeRunWorkDir } from "./exec-workdir.ts";
 import { sealMirrors, type MirrorFsOps } from "./mirror-access.ts";
+import { SandboxResidueError, type SandboxReaper } from "./sandbox-reaper.ts";
 import type { Sandbox } from "./sandbox.ts";
 
 export interface ExecScopeProviderDeps {
@@ -23,6 +24,8 @@ export interface ExecScopeProviderDeps {
   mirrorOps?: MirrorFsOps;
   /* The egress filter, prepared for the run's origins before its first child. */
   egressGate?: EgressGate;
+  /* Ends every process the sandbox uid still has when the scope opens (an earlier run's) and when it closes (this run's). Absent: nothing is reaped. */
+  reaper?: SandboxReaper;
 }
 
 export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopePort {
@@ -36,6 +39,15 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
   };
   return {
     async open({ runId }) {
+      /* Nothing an earlier run left running may be alive when this one starts: it shares the sandbox uid and would see this run's children. A survivor that cannot be killed refuses the run. */
+      if (deps.sandbox && deps.reaper) {
+        try {
+          deps.reaper.reapOrphans();
+        } catch (err) {
+          if (!(err instanceof SandboxResidueError)) throw err;
+          throw new SandboxUnavailableError("residue", `the run cannot start: ${err.message}`);
+        }
+      }
       await deps.egressGate?.prepare?.([...deps.egress.dev, ...deps.egress.install]);
       sealAll();
       const workDir = openRunWorkDir(deps.workRoot, runId, deps.sandbox);
@@ -54,6 +66,14 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
           return fn();
         }),
         close: () => {
+          /* The run's children are done, so what is still running under their uid is theirs to have left: ended before the directory they were writing in goes. A survivor is said loudly; the next scope and the next spawn refuse to go on while it lives. */
+          if (deps.sandbox && deps.reaper) {
+            try {
+              deps.reaper.reapOrphans();
+            } catch (err) {
+              console.error(`[qa] ERROR: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
           removeRunWorkDir(workDir);
           /* The mirrors the run opened to the sandbox's group go back to root alone. */
           sealAll();

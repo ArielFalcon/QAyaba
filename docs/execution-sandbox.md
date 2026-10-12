@@ -25,12 +25,12 @@ A new spawn site cannot bypass the first: `npm run arch:check` fails on any `qa-
 One function starts every such child: `ExecSandboxPort.spawn(cmd, args, { cwd, profile, ... })`. It always runs the child
 detached, as the sandbox uid and gid (`CODE_SANDBOX_UID`, `1002` in the image), inside the run's scope.
 
-| Profile | Used for | Environment (besides `PATH`, `LANG`, `HOME=/home/sandbox`, `TMPDIR=<work dir>/tmp`, `PLAYWRIGHT_BROWSERS_PATH`) | Network |
+| Profile | Used for | Environment (besides `PATH`, `LANG`, `HOME=<work dir>/home`, `TMPDIR=<work dir>/tmp`, `PLAYWRIGHT_BROWSERS_PATH`) | Network |
 |---|---|---|---|
 | `offline` | `tsc`, `eslint`, `playwright test --list` | nothing | none |
 | `suite` | the specs, the cleanup spec, the DOM capture | `PW_*` the caller names, `PW_STORAGE_STATE` (a per-spawn copy), the client certificate (a copy) and its passphrase, `DEV_ENV_USER/PASS` (the DEV HTTP-Basic gate) | the app's origins |
 | `login` | the auth setup, the login discovery | the `suite` set without a session, plus **`DEV_TEST_USER/PASS` (the test account)** | the app's origins |
-| `install` | `npm ci`, a code-mode install / test / coverage, Stryker | the package-manager and toolchain variables (`npm_config_*`, `JAVA_HOME`, `GOPATH`, ...) rebased under the sandbox home | registries |
+| `install` | `npm ci`, a code-mode install / test / coverage, Stryker | the package-manager and toolchain variables (`npm_config_*`, `JAVA_HOME`, `GOPATH`, ...) rebased under the run's home | registries |
 
 The environment is built from an allowlist per profile, not by removing known secrets from the orchestrator's: a secret
 the orchestrator gains later is absent from every child without anyone listing it. A caller can add only the
@@ -42,8 +42,19 @@ login the saved session cannot give them sets `e2e.specCredentials: account` in 
 that holds the account can send it to any origin the app declares; it is registered as a run secret and redacted by value.
 
 **Work dir.** Each run gets `/tmp/qa-exec/<runId>/` (made by root, owned by the sandbox uid, `0700`, removed when the
-run ends). Playwright's `--output`, the JSON report, the stream reporter, the failure dumps, the login's session file and
-`TMPDIR` all live there. The orchestrator reads results back only through the strict readers (no link, a regular
+run ends). Playwright's `--output`, the JSON report, the stream reporter, the failure dumps, the login's session file,
+`TMPDIR` and **`HOME`** all live there. There is no persistent sandbox home: a toolchain cache, a shell profile or a config
+file one child plants is gone with the run, so it cannot reach a later child or a later run (the price is that package
+manager and toolchain caches are re-filled every run).
+
+**Survivors.** `killTree` signals a child's process group, and a process that made its own session (a daemon, a double fork)
+escapes it; it would then share the sandbox uid with the next child and could read that child's `/proc/<pid>/environ` (a
+login child carries the test account). `sandbox-reaper.ts` therefore kills by uid: every process of the sandbox uid that is
+not a live child of the launcher (or its descendant) is SIGKILLed when a run's scope opens, before **every** spawn, when the
+last live child exits, and when the scope closes, and the call fails closed (`E-SANDBOX`, reason `residue`: the spawn is
+refused, or the run does not start) if any survives. Zombies are ignored (they hold nothing). A daemon a build tool means
+to keep (Gradle's) is ended too, so it is restarted by the next build. Processes of a run not started through the launcher
+(operator scripts in their own process) are not in the registry, which is per process: run those only while the queue is idle. The orchestrator reads results back only through the strict readers (no link, a regular
 file, under a cap), because the child can plant a link, a pipe or an oversized file under any name.
 
 **Session.** A suite never sees the orchestrator's auth dir: each spawn gets a fresh copy of the session in the work dir,

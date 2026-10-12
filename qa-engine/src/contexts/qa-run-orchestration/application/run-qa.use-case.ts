@@ -23,7 +23,7 @@ import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capabili
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { isSandboxUnavailable, type SandboxUnavailableError } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
-import { sandboxRefused, sandboxSignal, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
+import { refusedScope, sandboxRefused, sandboxSignal, withExecScope, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { AuthSession, AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
@@ -499,7 +499,14 @@ export class RunQaUseCase {
 
   async run(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
     /* The run owns the secrets of its test account: whatever learns one registers it into this scope, and the text that reaches a model has them taken out by value (run-secret-redaction.ts). */
-    const sandbox = await this.deps.execScope?.open({ runId: input.runId });
+    let sandbox: Awaited<ReturnType<ExecScopePort["open"]>> | undefined;
+    try {
+      sandbox = await this.deps.execScope?.open({ runId: input.runId });
+    } catch (err) {
+      /* The scope could not be made because the sandbox is not safe to run in (a process of an earlier run still holds the sandbox uid): the run ends E-SANDBOX without executing anything. */
+      if (!isSandboxUnavailable(err)) throw err;
+      return await withRunSecretScope(createRunSecretScope(), () => withExecScope(refusedScope(input.runId, err.reason === "scope" ? "uid" : err.reason), () => this.sandboxUnavailableResult(input, err, {})));
+    }
     try {
       return await withRunSecretScope(createRunSecretScope(), () => (sandbox ? sandbox.run(() => this.runInScope(input, signal)) : this.runInScope(input, signal)));
     } finally {

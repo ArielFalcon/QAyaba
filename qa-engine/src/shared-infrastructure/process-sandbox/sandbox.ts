@@ -73,14 +73,17 @@ function rebaseUnderHome(value: string, fromHome: string, toHome: string): strin
 export function sandboxSpawnOptions(
   base: Record<string, string>,
   sandbox: Sandbox | null,
+  /* The home the child gets. The launcher passes a directory inside the run's work dir, which dies with the run: a home that persisted would carry what one child planted (a toolchain cache, a config, a shell profile) into every later child and every later run. Absent: the sandbox's own home, which is only for a caller outside a run. */
+  home: string | undefined = sandbox?.home,
 ): { env: Record<string, string>; uid?: number; gid?: number } {
   if (!sandbox) return { env: base };
+  const toHome = home ?? sandbox.home;
   const fromHome = base.HOME ?? "";
-  const env: Record<string, string> = { HOME: sandbox.home, USER: "sandbox", LOGNAME: "sandbox" };
+  const env: Record<string, string> = { HOME: toHome, USER: "sandbox", LOGNAME: "sandbox" };
   for (const [key, value] of Object.entries(base)) {
     if (key === "HOME" || key === "USER" || key === "LOGNAME") continue;
     if (SANDBOX_DROP_ENV_EXACT.has(key)) continue;
-    env[key] = ALLOWED_ENV_PREFIX.test(key) ? rebaseUnderHome(value, fromHome, sandbox.home) : value;
+    env[key] = ALLOWED_ENV_PREFIX.test(key) ? rebaseUnderHome(value, fromHome, toHome) : value;
   }
   return { env, uid: sandbox.uid, gid: sandbox.gid };
 }

@@ -44,9 +44,9 @@ test("no profile ever hands the child an orchestrator secret, however the accoun
   }
 });
 
-test("the child's home and temp dir are the sandbox's own, never the orchestrator's", () => {
+test("the child's home and temp dir are inside the run's work dir, never the orchestrator's and never one that outlives the run", () => {
   const env = buildExecEnv(input("suite"));
-  assert.equal(env.HOME, SANDBOX.home);
+  assert.equal(env.HOME, "/tmp/qa-exec/run-1/home");
   assert.equal(env.TMPDIR, "/tmp/qa-exec/run-1/tmp");
   assert.equal(env.PATH, SECRETS.PATH);
 });
@@ -109,11 +109,11 @@ test("a login's session file must be inside the run's work dir", () => {
   assert.throws(() => buildExecEnv(input("login", { extraEnv: { PW_STORAGE_STATE: "/app/data/auth/x/user.json" } })), /work dir/i);
 });
 
-test("the install profile keeps the toolchain and package-manager variables and rebases the cache under the sandbox home", () => {
+test("the install profile keeps the toolchain and package-manager variables and rebases the cache under the run's home", () => {
   const env = buildExecEnv(input("install"));
   assert.equal(env.JAVA_HOME, "/usr/lib/jvm/default-java");
   assert.equal(env.npm_config_registry, "https://registry.npmjs.org/");
-  assert.equal(env.npm_config_cache, "/home/sandbox/.npm");
+  assert.equal(env.npm_config_cache, "/tmp/qa-exec/run-1/home/.npm");
 });
 
 test("the suite profile does not carry the toolchain variables it does not need", () => {

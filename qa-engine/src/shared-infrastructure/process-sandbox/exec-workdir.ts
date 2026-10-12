@@ -10,7 +10,7 @@ import type { StagedAuth } from "./exec-env.ts";
 import type { Sandbox } from "./sandbox.ts";
 
 /* Subdirectories a child may write to. `scripts` is not among them: it is written by the orchestrator (a reporter, a login script) and only read by the child. */
-const WRITABLE_SUBDIRS = ["tmp", "results", "report", "failures", "login", "auth"] as const;
+const WRITABLE_SUBDIRS = ["tmp", "home", "results", "report", "failures", "login", "auth"] as const;
 const ROOT_OWNED_SUBDIRS = ["scripts"] as const;
 
 const RUN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;

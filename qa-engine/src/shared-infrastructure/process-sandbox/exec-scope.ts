@@ -9,7 +9,7 @@ export interface SandboxReport {
   /* Hosts a child tried to reach that the run's policy does not declare, without duplicates, in first-seen order. */
   denied: string[];
   /* Why the launcher refused to start a child in this run, when it did: the run then ends E-SANDBOX whatever path it took to its infra-error. */
-  refusal?: "uid" | "egress";
+  refusal?: "uid" | "egress" | "residue";
 }
 
 export interface RunScope {
@@ -41,6 +41,11 @@ export function activeExecScope(): RunScope | undefined {
 
 export function newSandboxReport(): SandboxReport {
   return { egress: "not-applicable", denied: [] };
+}
+
+/* The scope of a run that never got one: the sandbox refused to open it, and the run's last words are said inside this one so that the refusal is what classifies how it ended. It has no work dir and spawns nothing. */
+export function refusedScope(runId: string, refusal: NonNullable<SandboxReport["refusal"]>): RunScope {
+  return { runId, workDir: "", egress: { dev: [], install: [] }, report: { egress: "not-applicable", denied: [], refusal } };
 }
 
 /* What a run's sandbox did, for the persisted gate signals: absent when no child was ever started or refused. */

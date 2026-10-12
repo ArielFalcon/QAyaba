@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { createExecScopeProvider } from "../../../src/shared-infrastructure/process-sandbox/exec-scope-provider.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../src/shared-infrastructure/run-secret-redaction.ts";
+import { SandboxResidueError } from "../../../src/shared-infrastructure/process-sandbox/sandbox-reaper.ts";
+import { isSandboxUnavailable } from "../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope } from "../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { MirrorFsOps } from "../../../src/shared-infrastructure/process-sandbox/mirror-access.ts";
 
@@ -89,6 +91,48 @@ test("the spec account's password is a secret of the run from the moment its sco
     session.close();
     assert.equal(redacted, `admin signs in with ${REDACTED}`);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a run starts only when nothing of an earlier run is left running under the sandbox uid, and ends the same way", async () => {
+  const root = mkdtempSync(join(tmpdir(), "scope-provider-"));
+  const reaps: string[] = [];
+  try {
+    const provider = createExecScopeProvider({ workRoot: root, sandbox: SELF, egress: { dev: [], install: [] }, reaper: { reapOrphans: () => { reaps.push(existsSync(join(root, "run-9")) ? "work dir present" : "work dir absent"); return 0; } } });
+    const session = await provider.open({ runId: "run-9" });
+    session.close();
+    assert.deepEqual(reaps, ["work dir absent", "work dir present"], "reaped before the work dir is made, and before it is removed");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a survivor that cannot be killed refuses the run, as the sandbox being unavailable", async () => {
+  const root = mkdtempSync(join(tmpdir(), "scope-provider-"));
+  try {
+    const provider = createExecScopeProvider({ workRoot: root, sandbox: SELF, egress: { dev: [], install: [] }, reaper: { reapOrphans: () => { throw new SandboxResidueError([4242]); } } });
+    await assert.rejects(async () => provider.open({ runId: "run-10" }), (err: unknown) => isSandboxUnavailable(err) && err.reason === "residue");
+    assert.equal(existsSync(join(root, "run-10")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a survivor at the end of a run is said and does not stop the scope from closing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "scope-provider-"));
+  const errors: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+  try {
+    let calls = 0;
+    const provider = createExecScopeProvider({ workRoot: root, sandbox: SELF, egress: { dev: [], install: [] }, reaper: { reapOrphans: () => { calls += 1; if (calls > 1) throw new SandboxResidueError([4242]); return 0; } } });
+    const session = await provider.open({ runId: "run-11" });
+    session.close();
+    assert.equal(existsSync(join(root, "run-11")), false);
+    assert.match(errors.join("\n"), /survived/);
+  } finally {
+    console.error = original;
     rmSync(root, { recursive: true, force: true });
   }
 });
