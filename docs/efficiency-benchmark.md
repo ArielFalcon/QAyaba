@@ -241,6 +241,8 @@ docker compose exec orchestrator npm run baseline-agent -- --app <app> --sha <sh
 With `--warm` the copy's `e2e/` is made equal to the snapshot before setup and the dependency install, the
 prompt says nothing about the login (the session is injected as usual), and the specs the snapshot held are
 not counted as the agent's. A cold or missing snapshot, or a warm login that cannot log in, stops the case.
+`--keep-specs <dir>` (it needs `--warm`) copies every file the agent added or changed in `e2e/` since the snapshot to `<dir>` before the
+throwaway copy is removed, so the specs outlive the copy; a copy that cannot be kept stops the case and leaves the copy where it is.
 
 Shadow mode starts cold every run: it never opens a PR, so `e2e/` is never tracked, and the per-run
 `git clean -fd` on the mirror deletes it (the stock `auth.setup.ts` is seeded again and the generator
@@ -352,7 +354,79 @@ ground truth neither credits nor rejects (they show as unjudged).
 ## Campaigns
 
 A campaign repeats the same cases for both arms, several times, so the arms can be compared on more than one draw.
-The pipeline learns from every run, and a replicate that starts from what the last one left is not a replicate.
+Three things make a single run of each arm a poor comparison, and the campaign removes them:
+
+- **"Green" means different things.** The plain agent calls any spec that passed its own two runs a pass (a spec holding
+  `expect(true).toBe(true)` scores), and the pipeline executes once, with retries, and after a reviewer rejection accepts
+  regenerated specs that never ran. The campaign judges both arms the same way, outside both ([Validity](#validity)).
+- **The pipeline learns from every run**, so replicate 2 starts from what replicate 1 taught it ([Freeze switch](#freeze-switch-qa_campaign_freeze)).
+- **State leaks between runs**: the suite a run leaves in the mirror, the data a case creates on DEV.
+
+### Workflow
+
+```bash
+# once: the warm snapshot (see Warm start), with QA_PRESERVE_UNTRACKED_SUITE=1 and QA_CAMPAIGN_FREEZE=1 on the orchestrator
+cp config/benchmarks/campaign-cases.example.json config/benchmarks/campaign-cases.json   # gitignored: it names real commits
+docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> --dry-run
+docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> [--arms A,B] [--wall-cap-min 30]
+```
+
+The cases file is validated whole before anything runs (an unknown key is an error):
+
+```json
+{ "app": "my-app", "cases": [ { "id": "checkout-coupon", "kind": "diff", "sha": "<app commit>",
+    "expected": { "outcome": "spec", "mustVerify": "what a valid spec must check, in words" } },
+  { "id": "orders-dup", "kind": "cross-repo", "sha": "<service commit>", "serviceRepo": "org/orders-service",
+    "groundTruth": "config/benchmarks/ground-truth/orders-dup.json",
+    "expected": { "outcome": "either", "mustVerify": "..." }, "cleanup": { "spec": "cleanup-orders.spec.ts" } } ] }
+```
+
+`expected.outcome` is `spec`, `noop` or `either` (it only judges whether the arm did the right kind of thing; whether the specs are any good is
+validity and the rubric). `cleanup.spec` is a spec **in the warm snapshot** that removes what the case's specs create on DEV; it is run with the warm
+login before every arm-run of the case, because a case that writes data (an address, an order) leaves leftovers that break the next replicate.
+`groundTruth` is optional and is handed to both arms as in [Cross-repo case](#cross-repo-case).
+
+| Aspect | How |
+|---|---|
+| Order | replicate by replicate, case by case, one arm-run at a time; the arms alternate order by replicate (AB, BA, AB, ...) so neither is always first against DEV |
+| Before each arm-run | wait for an idle queue (up to 5 min; then the campaign stops, keeping what finished), run the case's cleanup, restore the warm snapshot into the app's mirror |
+| Arm B | `diff`: `POST /api/v1/runs` with `shadow: true` (always). `cross-repo`: the webhook, signed with `WEBHOOK_SECRET` when set; a webhook cannot ask for shadow, so the app must be in shadow mode. The run is found by the app and the trigger repo, waited for, and read with `probe-report`'s collector right after it ends. If other apps declare the same service the webhook starts their runs too: the campaign waits for the queue before its next step |
+| Arm A | `baseline-agent` in-process, with `--warm`, `--timeout-min` = the wall cap and `--keep-specs <campaign>/<case>/A-<n>/files` (it copies every file it added or changed in `e2e/` since the snapshot before its throwaway copy is removed; it needs `--warm`) |
+| Wall cap | `--wall-cap-min` (default 30) for each arm-run. B is cancelled with `DELETE /api/v1/runs/<id>` when it outlives the cap (the replicate is flagged invalid); A's cap is the agent session, as `--timeout-min` is (its setup and its own suite runs are outside it, B's cap covers the whole run, so A may exceed it by those) |
+| Refusals before anything runs | app not in shadow mode (unless `--allow-non-shadow`); for arm B, `QA_CAMPAIGN_FREEZE` or `QA_PRESERVE_UNTRACKED_SUITE` not on in this process (unless `--skip-env-checks`, for a server started with them by another route); snapshot not warm; a cleanup spec the snapshot lacks; a service the app does not declare; for arm A, a commit missing from the mirrors (the plain agent never fetches: run the pipeline arm once on the case first, `--arms B --replicas 1`); a campaign label that exists |
+| Dry run | `--dry-run` runs all of those checks and prints the plan; it starts no run |
+
+Output, in `config/benchmarks/campaigns/<label>/` (gitignored), rewritten after every arm-run so a stopped campaign keeps what finished:
+
+| File | Holds |
+|---|---|
+| `campaign.json` | the record: conditions (freeze, preserve, shadow, engram attestation), the snapshot, and one entry per case x arm x replicate |
+| `campaign.md` | the per arm-run table (verdict, whether the outcome was the expected one, valid, valid / delivered specs, fake-pass flags, USD, wall, wall without the change-coverage phase (where the value oracle runs), steps, cold/warm, whether the replicate is invalid and why) and a per case x arm summary with medians over comparable replicates and the figures that were measured |
+| `rubric.csv` | one row per **valid, comparable** arm-run, with what the case says the spec must verify and where the files are, and an empty `score_0_3` column for the owner |
+| `<case>/<arm>-<n>/files/` | every file the arm delivered (specs and helpers). For B, only when its run was accepted; a rejected run's files are in `rejected/` |
+| `<case>/<arm>-<n>/{result,report}.json` | the arm-run's entry, and the arm's own probe report |
+
+A replicate is flagged **invalid** (and left out of the summary) when the environment, not the arm, decided it: the wall cap cut it, the
+cleanup failed, the run was lost, an infra-error the arm did not cause (`E-NO-DECISION`, `E-STEP-BUDGET` and `E-TIME-BUDGET` are the arm's own
+results), or the re-run could not execute against DEV.
+
+### Validity
+
+After each arm-run the harness takes the files the arm delivered and judges them itself:
+
+1. **Delivered.** B: the files that differ from the restored snapshot in the app's mirror, and only when the run's verdict is `pass` or `flaky`
+   (never those of an `invalid`, `fail` or cut run). A: everything the agent added or changed (it has no acceptance gate; its own verdict is
+   recorded as it was). `.qa/` (the pipeline's state) is not part of the set.
+2. **Fake-pass detector** (`scripts/fake-pass-detector.ts`, pure, the same for both arms). A spec is flagged when its name looks like a probe
+   (`_explore`, `_register`, `tmp`, `scratch`, `probe`, `playground`, as a whole word of a path segment or a leading underscore), when the file
+   defines no test, when a test body is empty, when an `expect` is on a literal (`expect(true)`, `expect(1 + 1).toBe(2)`), when no `expect` anywhere
+   in the file is on the page, a locator, a request or a value read from them, or when it is `expect(page).toBeTruthy()` and its kin. It reads the
+   text only, so a spec that asserts through a helper it cannot see can be flagged; it must not let those patterns through. A flagged spec is never
+   valid and is not re-run.
+3. **Re-run.** The remaining specs are executed twice, one after the other, against DEV with the warm login, in a throwaway suite under
+   `<mirrors>/.baseline/campaign-<label>/` built from the snapshot plus the delivered files, with the repo's Playwright config wrapped so
+   `retries: 0` (a pass on retry is not a pass here). A spec is valid when both runs pass all of its tests. An arm-run is **valid** when it
+   delivered at least one spec and every delivered spec is valid; then it is listed in `rubric.csv` for the owner to score.
 
 ### Freeze switch: `QA_CAMPAIGN_FREEZE`
 
@@ -377,7 +451,9 @@ project. The orchestrator (where the campaign runs) can neither see it nor resto
 only merges, and `engram export` is all-or-nothing), and a per-run tool switch would have to cross the agent transport
 and the Codex supervisor. To keep memory out of the comparison, give the campaign its own engram data directory instead:
 stop the agents container, point its `ENGRAM_DATA_DIR` at a fresh or pre-copied directory, and start it again before the
-campaign; the campaign JSON records `engramIsolated: false` unless you pass `--engram-isolated` to attest that you did.
+campaign; the campaign JSON records `engramIsolated: false` (and the markdown says so) unless you pass `--engram-isolated`
+to attest that you did. Neither an engram tool switch nor a snapshot/restore of the app's engram project is implemented, because the
+runner cannot reach the data and a per-run tool switch is not wired through the agent transport.
 
 ## Success criteria and guardrails
 

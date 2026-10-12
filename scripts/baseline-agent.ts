@@ -51,6 +51,7 @@ import {
 } from "./probe-metrics.ts";
 import { assertFileName, defaultProbeResultsDir, readGroundTruthFile, writeJsonAtomically } from "./probe-report.ts";
 import { saveSuiteFiles, specsOf, suiteDelta } from "./campaign-suite.ts";
+import { prepareHarnessAuth } from "./harness-auth.ts";
 import { MAX_FILE_BYTES, loadSnapshot, restoreSuite, specsTouchedSinceSnapshot, warmSnapshotDir, warmStatus, type LoadedSnapshot } from "./warm-suite.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -890,19 +891,12 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
   const { readConfinedSpecFile, readConfinedSpecBytes } = await import("../qa-engine/src/shared-infrastructure/spec-path-confinement.ts");
   const { runE2E, createDefaultE2eExecuteDeps, e2eTimeoutMs } = await import("../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts");
   const { ProcessKillAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts");
-  const { SandboxedBinaryRunnerAdapter } = await import("../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.ts");
-  const { AuthSessionAdapter } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts");
   const { installHttpDispatcher } = await import("../src/util/net.ts");
-  const { createDiscoverLogin } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts");
-  const { loadContextMapFromDisk } = await import("../qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts");
-  const { RedactionPortAdapter } = await import("../src/orchestrator/sanitizer.ts");
-  const redaction = new RedactionPortAdapter();
 
   const service = await defaultService(env);
   const mirrorsRoot = workdirRoot();
   const git = defaultMirrorDeps;
   const slug = (repo: string): string => repo.replaceAll("/", "__");
-  const runner = new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() });
   const serveUrl = env.OPENCODE_SERVE_URL ?? "http://agents:4096";
   const serverPassword = env.OPENCODE_SERVER_PASSWORD;
   const headers = serverPassword ? { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } : undefined;
@@ -1039,23 +1033,8 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       return model ? `${model.providerID}/${model.modelID}` : null;
     },
 
-    prepareAuth: async (app, plan, phase) => {
-      const adapter = new AuthSessionAdapter({
-        env: process.env,
-        authDir: plan.authDir,
-        ...(app.testIdAttribute !== undefined ? { testIdAttribute: app.testIdAttribute } : {}),
-        /* The login the pipeline's harness gives its own runs, discovery included: authentication is infrastructure and both arms get the same. */
-        discovery: { discoverLogin: createDiscoverLogin({ runner }), redact: (text: string) => redaction.redact(text), loadContextMap: loadContextMapFromDisk },
-        spawnSetup: async (specDir, childEnv, signal) => {
-          const result = await runner.run({ command: "npx", args: ["playwright", "test", "--project=setup"], cwd: specDir, env: childEnv, timeoutMs: 120_000, ...(signal ? { signal } : {}) });
-          const logs = `${result.stdout}\n${result.stderr}`;
-          return { exitCode: result.timedOut ? 1 : (result.exitCode ?? 1), logs: result.timedOut ? `auth setup timed out\n${logs}` : logs };
-        },
-      });
-      const loaded = loadAppConfig(app.name);
-      const session = await adapter.prepare({ specDir: join(plan.copyDir, SUITE_DIR), baseUrl: app.baseUrl, ...(loaded.auth ? { auth: loaded.auth } : {}), phase });
-      return { unauthored: session.unauthored };
-    },
+    prepareAuth: (app, plan, phase) =>
+      prepareHarnessAuth({ appName: app.name, baseUrl: app.baseUrl, ...(app.testIdAttribute !== undefined ? { testIdAttribute: app.testIdAttribute } : {}), specDir: join(plan.copyDir, SUITE_DIR), authDir: plan.authDir, phase }),
 
     runAgent: async ({ copyDir, prompt, timeoutMs, keepSession }) => {
       await installHttpDispatcher(timeoutMs + 60_000);
