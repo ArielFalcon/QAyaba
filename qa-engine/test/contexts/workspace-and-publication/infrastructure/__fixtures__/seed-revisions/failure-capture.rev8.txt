@@ -21,10 +21,25 @@ let runtimeErrors: { type: string; text: string }[] = [];
 // DEV-write counter, on only when the orchestrator asks (PW_COUNT_DEV_WRITES=1, for a spec it executes on the
 // generator's behalf): the mutating requests (POST, PUT, PATCH, DELETE) a test's page and context send, written
 // per test to a ledger file in the capture directory so the orchestrator can hold what a spec does to DEV to a cap.
-// A context is listened to once however many tests share it.
+// A context is listened to once however many tests share it. Requests of the API clients (the `request` fixture,
+// `page.request`, `context.request`) are not browser requests, so their fetch is counted too.
 let devWrites = 0;
 const countedContexts = new WeakSet<object>();
-test.beforeEach(async ({ page }) => {
+const countedApis = new WeakSet<object>();
+interface WriteCountable { fetch(target: unknown, options?: { method?: string }): Promise<unknown> }
+function countWrites(api: WriteCountable | undefined): void {
+  if (!api || countedApis.has(api)) return;
+  countedApis.add(api);
+  const original = api.fetch.bind(api);
+  api.fetch = (target, options) => {
+    try {
+      const own = typeof target === 'object' && target !== null && typeof (target as { method?: unknown }).method === 'function' ? (target as { method: () => string }).method() : 'GET';
+      if (/^(?:POST|PUT|PATCH|DELETE)$/.test(String(options?.method ?? own).toUpperCase())) devWrites++;
+    } catch {}
+    return original(target, options);
+  };
+}
+test.beforeEach(async ({ page, request }) => {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
   runtimeErrors = [];                                 // same per-test reset discipline
@@ -37,7 +52,9 @@ test.beforeEach(async ({ page }) => {
         context.on('request', (r) => {
           try { if (/^(?:POST|PUT|PATCH|DELETE)$/.test(r.method())) devWrites++; } catch {}
         });
+        countWrites(context.request);
       }
+      countWrites(request);
     } catch {}
   }
   try {

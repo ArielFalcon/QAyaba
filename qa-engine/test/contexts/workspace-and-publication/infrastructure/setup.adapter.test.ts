@@ -672,6 +672,42 @@ test("the counter starts from zero for every test and counts a shared context on
   }
 });
 
+test("writes sent through the API clients (the request fixture, page.request, context.request) are counted by what they fetch, once each however often they are seen", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-api-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "api");
+    const sent: string[] = [];
+    const client = () => ({ fetch: async (target: unknown, options?: { method?: string }) => { sent.push(options?.method ?? "request-object"); return target; } });
+    const request = client();
+    const contextRequest = client();
+    const context = { on() {}, request: contextRequest };
+    const page = { on() {}, url: () => "http://localhost/", context: () => context, locator: () => ({ ariaSnapshot: async () => "" }) };
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page, request });
+    await request.fetch("/a", { method: "POST" });
+    await request.fetch("/b", { method: "GET" });
+    await contextRequest.fetch("/c", { method: "delete" });
+    await contextRequest.fetch({ method: () => "PATCH" });
+    await request.fetch({ method: () => "HEAD" });
+    await mod.afterEachFn({ page, request }, passingInfo);
+    await mod.beforeEachFn({ page, request });
+    await request.fetch("/d", { method: "PUT" });
+    await mod.afterEachFn({ page, request }, { ...passingInfo, testId: "second" });
+    assert.equal(sent.length, 6, "every fetch still reaches the real client");
+    const counts = readdirSync(captureDir).sort().map((f) => JSON.parse(readFileSync(join(captureDir, f), "utf8")).writes);
+    assert.deepEqual(counts.sort(), [1, 3], "the first test sent POST, DELETE and PATCH; the second PUT; the clients are wrapped once");
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("without the counter asked for, a passing test leaves nothing and a page with no context does not break the block", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-writes-off-"));
   const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;

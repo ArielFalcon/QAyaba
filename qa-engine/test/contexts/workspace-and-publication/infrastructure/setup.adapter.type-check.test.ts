@@ -32,7 +32,8 @@ const PLAYWRIGHT_TYPES_STAND_IN = `export interface Request { resourceType(): st
 export interface Response { status(): number; url(): string; request(): Request }
 export interface ConsoleMessage { type(): string; text(): string }
 export interface Locator { ariaSnapshot(options?: { timeout?: number }): Promise<string> }
-export interface BrowserContext { on(event: "request", listener: (request: Request) => unknown): this }
+export interface APIRequestContext { fetch(urlOrRequest: string | Request, options?: { method?: string }): Promise<unknown>; post(url: string): Promise<unknown> }
+export interface BrowserContext { on(event: "request", listener: (request: Request) => unknown): this; request: APIRequestContext }
 export interface Page {
   context(): BrowserContext;
   on(event: "response", listener: (response: Response) => unknown): this;
@@ -49,7 +50,7 @@ export interface TestType<Args> {
   afterEach(hook: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
   extend<T extends object>(fixtures: object): TestType<Args & T>;
 }
-export declare const test: TestType<{ page: Page }>;
+export declare const test: TestType<{ page: Page; request: APIRequestContext }>;
 export declare const expect: (actual: unknown) => { toBe(expected: unknown): void };
 `;
 
