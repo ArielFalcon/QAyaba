@@ -6,6 +6,7 @@ import {
   sidekickDeniedTools,
   type AuthoringFacts,
 } from "@contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts";
+import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 
 const facts = (over: Partial<AuthoringFacts> = {}): AuthoringFacts => ({
   hasLogin: true,
@@ -15,10 +16,14 @@ const facts = (over: Partial<AuthoringFacts> = {}): AuthoringFacts => ({
   ...over,
 });
 
-test("an app with a login and the authenticated browser granted is authored with that browser, at the parallelism the plan allows", () => {
+test("an app with a login and the authenticated browser granted is authored with that browser, no more flows at once than the browser has pages", () => {
   const decision = sidekickAuthoring(facts());
   assert.equal(decision.mode, SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER);
-  assert.equal(decision.maxParallel, undefined);
+  assert.equal(decision.maxParallel, MAX_SESSION_PAGES);
+});
+
+test("without the authenticated browser, run_spec alone is not held to the browser's page count", () => {
+  assert.equal(sidekickAuthoring(facts({ browserGranted: false })).maxParallel, undefined);
 });
 
 test("an app with a login and no browser is authored with run_spec alone, and with neither the sidekicks stay out", () => {

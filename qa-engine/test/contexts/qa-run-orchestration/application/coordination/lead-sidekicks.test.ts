@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, type PlanningLimits } from "@kernel/coordination.ts";
+import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import {
   LeadSidekicks,
@@ -191,6 +192,14 @@ test("a lead on a runtime that cannot hold the planning turn to read-only, or on
   }
   assert.equal(asked, 0, "no planning turn was paid for");
   assert.equal(r.created.length, 0);
+});
+
+test("with the authenticated browser, a plan is never asked for more flows at once than the browser has pages, whatever the app allows", async () => {
+  const r = rig();
+  const seen: PlanningLimits[] = [];
+  const settings = { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS, maxParallel: MAX_SESSION_PAGES + 2 };
+  await r.coordinator.coordinate(input(r, { settings, plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
+  assert.equal(seen[0]!.maxParallel, MAX_SESSION_PAGES);
 });
 
 test("the planning turn is given the limits the plan is held to, and one that ran out of time or gave neither plan nor reason is one piece of work", async () => {

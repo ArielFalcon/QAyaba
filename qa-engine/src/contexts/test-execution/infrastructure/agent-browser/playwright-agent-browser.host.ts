@@ -8,12 +8,11 @@
  * The module imports no file API on purpose (see the dependency rule): all it holds comes in through its dependencies.
  */
 
+import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import { BrowserActionError, type AgentBrowserHostPort, type BlockedRequest, type BrowserAction, type BrowserCallOptions, type PageState } from "../../application/ports/agent-browser.ports.ts";
 import type { RouteGuard } from "../../domain/agent-browser-route-guard.ts";
 import type { BrowserLauncherPort, LaunchedBrowser, PwContext, PwContextOptions, PwPage, PwRequest, SessionMaterial } from "./playwright-types.ts";
 
-/* Pages open at once: the lead and the sidekicks of a run. */
-export const MAX_SESSION_PAGES = 4;
 const VIEWPORT = { width: 1280, height: 800 } as const;
 /* The longest the browser waits for a page to go quiet after a click or a keypress; a page that never does is reported as it is. */
 const SETTLE_MS = 2_000;

@@ -3,6 +3,9 @@
 /* The tools an authoring role is given, by the name OpenCode shows the model (the file agents/tool/authbrowser.ts and its exports). */
 export const AGENT_BROWSER_TOOLS = ["authbrowser_navigate", "authbrowser_snapshot", "authbrowser_click", "authbrowser_type"] as const;
 
+/* Pages the run's browser holds at once, one per session that uses it: the lead and the sidekicks of a plan. A plan is never asked to run more flows at once than this. */
+export const MAX_SESSION_PAGES = 4;
+
 export interface AgentBrowserSetting {
   /* Absolute paths (`*` within a segment, `**` across segments) the browser never reaches, whatever the method. */
   denyRoutes: readonly string[];

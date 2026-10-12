@@ -7,6 +7,8 @@
  * run_spec or the authenticated browser at all and is left out. Pure.
  */
 
+import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
+
 export const SIDEKICK_AUTHORING = {
   AUTHENTICATED_BROWSER: "authenticated-browser",
   RUN_SPEC_ONLY: "run-spec-only",
@@ -38,7 +40,7 @@ export function sidekickAuthoring(facts: AuthoringFacts): SidekickAuthoringDecis
     return { mode: SIDEKICK_AUTHORING.EXCLUDED, reason: `the sidekick role runs on ${facts.provider ?? "a runtime the host cannot name"}, and only OpenCode can call run_spec and the authenticated browser` };
   }
   if (!facts.hasLogin) return { mode: SIDEKICK_AUTHORING.UNAUTHENTICATED_BROWSER, maxParallel: 1 };
-  if (facts.browserGranted) return { mode: SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER };
+  if (facts.browserGranted) return { mode: SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER, maxParallel: MAX_SESSION_PAGES };
   if (facts.runSpecGranted) return { mode: SIDEKICK_AUTHORING.RUN_SPEC_ONLY };
   return { mode: SIDEKICK_AUTHORING.EXCLUDED, reason: "the app has a login and the run was granted neither the authenticated browser nor run_spec, so a sidekick would author against the login wall" };
 }
