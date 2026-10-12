@@ -472,6 +472,8 @@ export interface LearningPort {
 }
 /** Cross-cutting infra port, kernel-resident so neither context imports it from the other. */
 export type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
+/** The durable copy of an app's accepted e2e suite (see the port). */
+export type { SuiteStorePort, SuiteRoot, SuiteRestoreResult, SuiteCaptureInput, SuiteCaptureResult } from "@kernel/ports/suite-store.port.ts";
 export interface WorkspacePort {
   /**
    * `mirrorDir` is the working-copy root before specRelDir is joined. The "pr"

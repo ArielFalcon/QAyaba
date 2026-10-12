@@ -133,6 +133,13 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts",
   /*
+   * Decides which files of the agent-written suite outlive a run, and writes them back into the watched repo's working copy
+   * through the confined writers: admitting a credential, a login session, or a login that never signed in (or following a link
+   * on restore) would persist an attacker-influenced file into every later run. The login it keeps is the one that executes
+   * with the test account's credentials.
+   */
+  "qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts",
+  /*
    * The spawn primitives for the untrusted-code-execution sandbox (sandbox.ts, already protected,
    * delegates the actual spawn to these) — they receive an already-scrubbed env and run untrusted
    * agent-authored binaries; weakening the spawn/kill contract here is the same class of risk as
