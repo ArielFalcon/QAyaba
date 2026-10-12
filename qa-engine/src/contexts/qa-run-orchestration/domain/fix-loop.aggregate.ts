@@ -66,6 +66,8 @@ export interface FixLoopInput {
   mode: RunMode;
   objectiveSource: string[];
   maxRetries: number;
+  /* False retires the regeneration and the re-execution, which only repeat what the generator already saw pass: the failure is still adjudicated once, so the Issue carries its class and a defect or an infrastructure fault is still recognised. Absent: true. */
+  regenerate?: boolean;
   cycleBudget: CycleBudget;
   wallClockBudget: WallClockBudget;
   devHealthy: () => Promise<boolean>;
@@ -117,7 +119,8 @@ export class FixLoop {
     let lastRegenResult: Pick<FixLoopGenerateResult, "specSources" | "reexploreNavigations" | "specMetas"> | undefined =
       input.initialSpecSources?.length ? { specSources: input.initialSpecSources } : undefined;
 
-    const maxRetries = input.maxRetries;
+    const regenerate = input.regenerate !== false;
+    const maxRetries = regenerate ? input.maxRetries : 1;
 
     for (let retry = 0; retry < maxRetries && run.verdict === "fail" && input.generating; retry++) {
       const failed = run.cases.filter((c) => c.status === "fail");
@@ -183,6 +186,7 @@ export class FixLoop {
       }
       /* Any break-* action ends the loop; for BREAK_NEEDS_HUMAN adjVerdict is already set — the caller labels the Issue. */
       if (verdict.action !== ADJ_ACTION.CONTINUE) break;
+      if (!regenerate) break;
 
       prevRound = curRound;
 

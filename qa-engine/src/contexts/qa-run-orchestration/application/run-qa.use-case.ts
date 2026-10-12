@@ -12,10 +12,13 @@ import { Sha } from "@kernel/sha.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { relative } from "node:path";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { RunMode, RunPurpose, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
+import { RUN_PURPOSE, type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
+import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
+import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { isSandboxUnavailable, type SandboxUnavailableError } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
@@ -53,6 +56,8 @@ import type {
   CrossRepoImpactPort,
   CrossRepoImpact,
   ConfinementPort,
+  ClosedLoopHandle,
+  ClosedLoopPort,
   MirrorGcPort,
   CurriculumPort,
   ContextMapCapturePort,
@@ -105,6 +110,8 @@ interface TerminalOptions {
   reviewerUnavailable?: boolean | undefined;
   /** What the reviewer's runtime reported when it was unavailable, persisted on the run record. */
   reviewerRationale?: string | undefined;
+  /** How the run_spec loop was used up to this exit; absent when the run did not grant it. */
+  closedLoop?: ClosedLoopGateSignal | undefined;
 }
 
 /** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */
@@ -188,6 +195,21 @@ function buildFailureDomSnapshot(cases: readonly QaCase[]): string | undefined {
     parts.push(`### ${c.name}\n${lines.join("\n")}`);
   }
   return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+/* A probe is a throwaway spec the generator ran through run_spec: it lives under the probe directory and is never a deliverable. */
+function isProbeSpec(file: string): boolean {
+  return normalizeSpecPath(file).split("/").includes(PROBE_REL_DIR);
+}
+
+/* The generation without the probes it listed as deliverables; the same object when it listed none. */
+function withoutProbeSpecs<T extends Pick<GenerationOutput, "specs" | "declaredSpecs">>(output: T): T {
+  if (!output.specs.some(isProbeSpec) && !(output.declaredSpecs ?? []).some((d) => isProbeSpec(d.file))) return output;
+  return {
+    ...output,
+    specs: output.specs.filter((file) => !isProbeSpec(file)),
+    ...(output.declaredSpecs ? { declaredSpecs: output.declaredSpecs.filter((d) => !isProbeSpec(d.file)) } : {}),
+  };
 }
 
 /** Subset of host AppConfig the composition root passes in. The full shape is a shell concern. */
@@ -318,6 +340,15 @@ export interface RunQaUseCaseDeps {
    */
   suiteStore?: SuiteStorePort;
   /**
+   * The right to execute a spec while authoring (the run_spec tool). Opened for e2e runs that generate, after the login and before
+   * the first generation, and closed when the run ends, however it ends. Absent, or resolving undefined: the run is what it was
+   * without the tool. A fault opening it costs the run only the loop, said aloud. When it is open and every delivered spec holds
+   * the bytes whose last call passed, the regenerations that would only repeat that work are retired (static-fix rounds, the
+   * pre-execution corrective regeneration, the fix loop's regeneration); the declared no-op, the silence classes and the single
+   * change-coverage regeneration are untouched.
+   */
+  closedLoop?: ClosedLoopPort;
+  /**
    * Once, after pre-publish confinement and publish have both resolved, so gc
    * never races this run's git write. The sequential queue already prevents other
    * runs overlapping. A thrown prune() is caught here and never alters the verdict.
@@ -385,6 +416,8 @@ export interface RunQaInput {
   parentRunId?: string;
   /** Why the run was started, when it is not a change to test. Only tags the persisted note; no verdict, decision or gate reads it. */
   purpose?: RunPurpose;
+  /** The run's own choice about the run_spec loop (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
+  closedLoop?: boolean;
 }
 
 export interface RunQaResult {
@@ -411,6 +444,8 @@ export interface RunQaResult {
     catalogGateInWindow: number;
     catalogGateAdvisory: number;
     catalogGateFailClosed: number;
+    /** Present only when the run granted the run_spec tool. */
+    closedLoop?: ClosedLoopGateSignal;
   };
   cases: QaCase[];
   /** One-shot post-execution string. Absent on early exits that never reached execute(). */
@@ -437,6 +472,8 @@ const DEFAULT_CONFIG: RunQaConfig = {
 interface RunTrail {
   mirrorDir?: string;
   rulesRetrieved?: string[];
+  /** The run_spec loop, once opened: closed by runInScope however the run ends. */
+  closedLoop?: ClosedLoopHandle;
 }
 
 export class RunQaUseCase {
@@ -460,6 +497,20 @@ export class RunQaUseCase {
       if (isSandboxUnavailable(err) && err.reason !== "scope") return await this.sandboxUnavailableResult(input, err, trail);
       if (!isRunDeadlineError(err)) throw err;
       return await this.deadlineResult(input, err, trail);
+    } finally {
+      await this.closeClosedLoop(trail);
+    }
+  }
+
+  /* Revokes the run_spec right and removes what its calls left. A fault is said and never changes how the run ended. */
+  private async closeClosedLoop(trail: RunTrail): Promise<void> {
+    const loop = trail.closedLoop;
+    if (!loop) return;
+    trail.closedLoop = undefined;
+    try {
+      await loop.close();
+    } catch (err) {
+      console.error(`[qa] closing the run_spec loop failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -728,6 +779,36 @@ export class RunQaUseCase {
     }
 
     /*
+     * The run_spec loop: only for a run that writes e2e tests with a login the suite can use. A fault opening it costs the run only
+     * the loop. Its facts reach every generation of the run (the first pass and each regeneration) through baseEnrichment.
+     */
+    let closedLoop: ClosedLoopHandle | undefined;
+    if (
+      this.deps.closedLoop &&
+      generating &&
+      !cfg.isCode &&
+      input.mode !== "context" &&
+      input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP &&
+      !authSeedUnauthored
+    ) {
+      try {
+        closedLoop = await this.deps.closedLoop.open({
+          runId: input.runId,
+          app: input.app,
+          mode: input.mode,
+          mirrorDir: workspace.mirrorDir,
+          specDir: workspace.specDir,
+          ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
+          ...(input.closedLoop !== undefined ? { enabled: input.closedLoop } : {}),
+        });
+      } catch (err) {
+        rethrowIfRunDeadline(err);
+        console.error(`[qa] the run_spec loop could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      trail.closedLoop = closedLoop;
+    }
+
+    /*
      * sha is always present so manifest changeRef.sha is never empty.
      * retrieve() is enrichment, not a requirement: failure is caught and generation
      * continues. Prompt renderers use trigger/action; retrievedRuleIds (r.id) are
@@ -882,6 +963,7 @@ export class RunQaUseCase {
         ? { staticSignal: blastRadiusSignal, ...(blastRadiusSignalHasSymbols ? { staticSignalHasSymbols: true } : {}) }
         : {}),
       ...(selectedExemplars.length ? { skillExemplars: selectedExemplars } : {}),
+      ...(closedLoop ? { closedLoop: closedLoop.limits } : {}),
       ...(resolvedServiceLinks.length ? { serviceLinks: resolvedServiceLinks } : {}),
       ...(resolvedContractDrift.length ? { contractDrift: resolvedContractDrift } : {}),
       ...(crossRepoImpact?.impactedLinks.length ? { crossRepoImpact: { impactedLinks: crossRepoImpact.impactedLinks } } : {}),
@@ -896,13 +978,34 @@ export class RunQaUseCase {
      * objective of a delegation is never a spec's). Every regeneration is handed them.
      */
     let delivered: readonly DeliveredSpec[] = [];
+    /* What follows every generation by the lead: the probes it left behind are swept before anything looks at the working copy, and none is a deliverable. Without a loop, the generation is returned as it is. */
+    const afterGeneration = async <T extends Pick<GenerationOutput, "specs" | "declaredSpecs">>(output: T): Promise<T> => {
+      if (!closedLoop) return output;
+      try {
+        await closedLoop.sweepProbes();
+      } catch (err) {
+        console.error(`[qa] sweeping the run_spec probes failed (the working copy may hold throwaway specs): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return withoutProbeSpecs(output);
+    };
+    /* Whether every delivered spec was seen passing in the bytes it has now: the generator has already done the work a regeneration would repeat. A fault in asking is "not closed", which keeps every regeneration. */
+    const loopClosedNow = async (): Promise<boolean> => {
+      if (!closedLoop || delivered.length === 0) return false;
+      try {
+        return await closedLoop.isClosed(delivered.map((d) => d.file));
+      } catch (err) {
+        console.error(`[qa] could not tell whether the run_spec loop is closed (regenerations stay on): ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      }
+    };
+    const closedLoopSignal = async (): Promise<ClosedLoopGateSignal | undefined> => (closedLoop ? { ...closedLoop.signals(), closed: await loopClosedNow() } : undefined);
     /* One regeneration by the lead over what the run has delivered so far; what it delivers joins that. */
     const regenerate = async (regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> => {
-      const regenerated = await this.deps.generation.generate([], workspace.specDir, regenerationSignal, classificationDiff, {
+      const regenerated = await afterGeneration(await this.deps.generation.generate([], workspace.specDir, regenerationSignal, classificationDiff, {
         ...baseEnrichment,
         ...enrichment,
         ...(delivered.length > 0 ? { deliveredSpecs: delivered } : {}),
-      });
+      }));
       delivered = mergeDeliveredSpecs(delivered, regenerated, "lead");
       return regenerated;
     };
@@ -1149,10 +1252,10 @@ export class RunQaUseCase {
        */
       const sidekickFirstPass = authSeedUnauthored ? undefined : fromSidekick;
       generated = sidekickFirstPass
-        ?? (await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
+        ?? (await afterGeneration(await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
           ...baseEnrichment,
           ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
-        }));
+        })));
       delivered = mergeDeliveredSpecs(delivered, generated, sidekickFirstPass ? "sidekick" : "lead");
     }
     /*
@@ -1206,6 +1309,7 @@ export class RunQaUseCase {
           archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
           confinement: confinementAcc,
           mirrorDir: workspace.mirrorDir,
+          closedLoop: await closedLoopSignal(),
         });
       } else {
         const emptyNote =
@@ -1260,7 +1364,12 @@ export class RunQaUseCase {
      * produced specs — an empty result must not discard the original specs.
      */
     const { corrections: groundingCorrections, attributedSpecFiles: groundingAttribution } = await runPreExecGrounding();
-    if (groundingCorrections.length > 0) {
+    /* A spec the generator saw pass against DEV is not rewritten for what a static look at its selectors suspects. */
+    const correctiveRegenRetired = groundingCorrections.length > 0 && (await loopClosedNow());
+    if (correctiveRegenRetired) {
+      this.deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] pre-exec grounding raised corrections, but every delivered spec was seen passing through run_spec: no corrective regeneration" });
+    }
+    if (groundingCorrections.length > 0 && !correctiveRegenRetired) {
       this.deps.observer?.onStep("retry", "pre-exec grounding: corrective regen");
       const corrected = await regenerate(signal, {
         selectorContradictions: groundingCorrections,
@@ -1292,7 +1401,12 @@ export class RunQaUseCase {
     const resolveTested = (): { flow?: string; objective?: string }[] | undefined =>
       fixLoopFinalSpecMetas?.length ? fixLoopFinalSpecMetas : lastGenerated.specMetas;
     let staticFixRounds = 0;
-    while (!validation.ok && !validation.infra && generating && lastGenerated.specs.length > 0 && staticFixRounds < MAX_STATIC_FIX_ROUNDS) {
+    /* The same reasoning: a failing gate on a spec the generator saw pass ends the run invalid instead of rewriting the spec. */
+    const staticFixRetired = !validation.ok && !validation.infra && generating && lastGenerated.specs.length > 0 && (await loopClosedNow());
+    if (staticFixRetired) {
+      this.deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the static gate failed, but every delivered spec was seen passing through run_spec: no static-fix rounds" });
+    }
+    while (!staticFixRetired && !validation.ok && !validation.infra && generating && lastGenerated.specs.length > 0 && staticFixRounds < MAX_STATIC_FIX_ROUNDS) {
       /* Cancel mid-repair must stop before burning another generate()+validate() round-trip. */
       if (signal?.aborted) {
         return this.abortedResult(workspace.mirrorDir);
@@ -1343,6 +1457,7 @@ export class RunQaUseCase {
           confinement: confinementAcc,
           tested: resolveTested(),
           mirrorDir: workspace.mirrorDir,
+          closedLoop: await closedLoopSignal(),
         },
       );
     }
@@ -1390,6 +1505,7 @@ export class RunQaUseCase {
           confinement: confinementAcc,
           tested: resolveTested(),
           mirrorDir: workspace.mirrorDir,
+          closedLoop: await closedLoopSignal(),
         },
       );
     };
@@ -1764,6 +1880,11 @@ export class RunQaUseCase {
       const initialSpecSources = lastGenerated.specSources;
       /* Failure-point DOM from the initial failing cases, before any FixLoop re-execute. */
       const failureDomSnapshot = buildFailureDomSnapshot(run.cases);
+      /* The generator saw every delivered spec pass against DEV in these very bytes: a failure now is not one a rewrite is likely to cure, so it is adjudicated for its Issue and not regenerated. */
+      const fixLoopRetired = await loopClosedNow();
+      if (fixLoopRetired) {
+        this.deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the suite failed, but every delivered spec was seen passing through run_spec: the failure is adjudicated and not regenerated" });
+      }
       const fixLoopResult = await fixLoop.run({
         initialRun: { verdict: run.verdict, cases: run.cases },
         isCode: cfg.isCode,
@@ -1771,6 +1892,7 @@ export class RunQaUseCase {
         mode: input.mode,
         objectiveSource: [],
         maxRetries: cfg.maxRetries,
+        ...(fixLoopRetired ? { regenerate: false } : {}),
         cycleBudget,
         wallClockBudget,
         devHealthy,
@@ -1991,6 +2113,7 @@ export class RunQaUseCase {
             confinement: confinementAcc,
             tested: resolveTested(),
             mirrorDir: workspace.mirrorDir,
+            closedLoop: await closedLoopSignal(),
           });
         }
         /* parsed:false fails closed immediately, without burning a regeneration round. */
@@ -2183,6 +2306,7 @@ export class RunQaUseCase {
 
     /* Derive errorClass/valueScore once for both the persisted outcome and the returned result. */
     const gateValueScore = valueScore;
+    const loopSignal = await closedLoopSignal();
     /* Thread the review loop's real final-round corrections into errorClass derivation. */
     const errorClass = this.deriveErrorClass(decision.verdict, coverageRatio, gateValueScore, finalReviewerCorrections);
     let mainlineOutcome: RunOutcome | undefined;
@@ -2224,6 +2348,7 @@ export class RunQaUseCase {
         adjudicationClass: lastAdjudicatorVerdictClass,
         /* Merged confinement across every enforce() this run made. Omitted when never wired. */
         ...(confinementAcc !== undefined ? { confinement: confinementAcc } : {}),
+        ...(loopSignal ? { closedLoop: loopSignal } : {}),
       });
       await this.deps.runHistory.save(mainlineOutcome);
 
@@ -2313,6 +2438,7 @@ export class RunQaUseCase {
         catalogGateInWindow,
         catalogGateAdvisory,
         catalogGateFailClosed,
+        ...(loopSignal ? { closedLoop: loopSignal } : {}),
       },
       cases: run.cases,
       logs: run.logs,
@@ -2418,6 +2544,8 @@ export class RunQaUseCase {
       adjudicationClass?: string;
       /* Omitted entirely when confinement never ran — never a fabricated {strays:0}. */
       confinement?: { strays: number; dangerous: number; reverted: string[] };
+      /* Absent when the run did not grant the run_spec tool. */
+      closedLoop?: ClosedLoopGateSignal;
     },
   ) {
     const gateCoverageRatio = coverageRatio;
@@ -2460,6 +2588,7 @@ export class RunQaUseCase {
         ...(extra?.contractDriftCount !== undefined ? { contractDriftCount: extra.contractDriftCount } : {}),
         ...(extra?.crossRepoImpactedCount !== undefined ? { crossRepoImpactedCount: extra.crossRepoImpactedCount } : {}),
         ...(extra?.confinement !== undefined ? { confinement: extra.confinement } : {}),
+        ...(extra?.closedLoop !== undefined ? { closedLoop: extra.closedLoop } : {}),
       },
       rulesRetrieved: extra?.rulesRetrieved ?? [],
       ...(extra?.diffArchetypes !== undefined ? { diffArchetypes: extra.diffArchetypes } : {}),
@@ -2681,6 +2810,7 @@ export class RunQaUseCase {
       preconditionFailed,
       reviewerUnavailable,
       reviewerRationale,
+      closedLoop: loopSignal,
     } = opts;
     const decision = decide({
       verdict,
@@ -2730,6 +2860,7 @@ export class RunQaUseCase {
         ...(rulesRetrieved.length ? { rulesRetrieved } : {}),
         ...(diffArchetypes ? { diffArchetypes } : {}),
         ...(confinement !== undefined ? { confinement } : {}),
+        ...(loopSignal ? { closedLoop: loopSignal } : {}),
       });
       await this.deps.runHistory.save(terminalOutcome);
       /*
@@ -2795,6 +2926,7 @@ export class RunQaUseCase {
         catalogGateInWindow: skipPersist ? 0 : groundingSignals.catalogGateInWindow,
         catalogGateAdvisory: skipPersist ? 0 : groundingSignals.catalogGateAdvisory,
         catalogGateFailClosed: skipPersist ? 0 : groundingSignals.catalogGateFailClosed,
+        ...(!skipPersist && loopSignal ? { closedLoop: loopSignal } : {}),
       },
       cases: [],
       /*

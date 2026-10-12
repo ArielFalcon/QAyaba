@@ -1150,3 +1150,31 @@ test("a flaky spec the filtered retry did not re-run keeps a passing retry flaky
   );
   assert.equal(result.run.verdict, "flaky");
 });
+
+/* ── A loop that adjudicates and does not regenerate ───────────────────────────────────────────── */
+
+test("with regeneration retired, a failing run is adjudicated once and never regenerated or re-executed", async () => {
+  const { loop, rec } = recordingLoop({});
+  const result = await loop.run(loopInput({ regenerate: false, maxRetries: 2, initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts", detail: LOCATOR_FAULT })] } }));
+  assert.equal(rec.generates.length, 0);
+  assert.equal(rec.executes.length, 0);
+  assert.equal(result.retries, 0);
+  assert.equal(result.run.verdict, "fail");
+  assert.ok(result.lastAdjudicatorVerdict, "the Issue still carries a class");
+});
+
+test("with regeneration retired, a real defect is still recognised and an infrastructure failure still reclassified", async () => {
+  const defect = recordingLoop({ check: () => findings({ anyVerifiedPresent: true }) });
+  const bug = await defect.loop.run(loopInput({ regenerate: false, initialRun: { verdict: "fail", cases: [makeCase({ detail: VALUE_MISMATCH })] } }));
+  assert.equal(bug.realBugDetected, true);
+
+  const infra = recordingLoop({});
+  const down = await infra.loop.run(loopInput({ regenerate: false, initialRun: { verdict: "fail", cases: [makeCase({ detail: "browserType.launch: Executable doesn't exist" })] } }));
+  assert.equal(down.run.verdict, "infra-error");
+});
+
+test("regeneration is on unless a caller retires it", async () => {
+  const { loop, rec } = recordingLoop({ regen: noFix });
+  await loop.run(loopInput({ maxRetries: 1, initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts", detail: LOCATOR_FAULT })] } }));
+  assert.equal(rec.generates.length, 1);
+});

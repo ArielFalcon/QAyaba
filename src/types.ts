@@ -308,6 +308,8 @@ export interface RunOutcome {
     catalogGateFailClosed?: number;
     /* What the execution sandbox did for the run (egress filter state, hosts denied); absent when no child was started. */
     sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
+    /* How the generator used run_spec this run and whether the loop ended closed; absent when the tool was not granted. */
+    closedLoop?: { calls: number; devWrites: number; closed: boolean };
 
     structuralSignalBytes?: number;
     serviceLinksCount?: number;

@@ -5,6 +5,7 @@
  * ends. Every limit is a count the orchestrator keeps, so a model cannot talk its way past one.
  */
 
+import { DEFAULT_CLOSED_LOOP_LIMITS, type ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 
 /* The only agent whose sessions may hold the capability. */
@@ -13,16 +14,8 @@ export const RUN_SPEC_AGENT = "qa-generator";
 /* Where the generator's throwaway specs live, relative to the spec directory. Nothing under it is ever delivered, stored or validated. */
 export const PROBE_REL_DIR = ".qa-probe";
 
-export interface ClosedLoopLimits {
-  /* Calls to run_spec in one run. */
-  maxCalls: number;
-  /* The longest one call may run. */
-  perCallMs: number;
-  /* Mutating requests (POST, PUT, PATCH, DELETE) the executed specs may send to DEV in one run. */
-  maxDevWrites: number;
-}
-
-export const DEFAULT_CLOSED_LOOP_LIMITS: ClosedLoopLimits = { maxCalls: 8, perCallMs: 120_000, maxDevWrites: 20 };
+export type { ClosedLoopLimits };
+export { DEFAULT_CLOSED_LOOP_LIMITS };
 
 /* Less than this and a browser cannot start, log in and do anything worth reporting. */
 export const MIN_CALL_MS = 10_000;

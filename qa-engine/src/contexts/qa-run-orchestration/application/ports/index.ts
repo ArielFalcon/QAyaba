@@ -18,6 +18,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunEventBody } from "@kernel/run-event.ts";
 import type { GenerationEndKind } from "@kernel/generation-end.ts";
 import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
+import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 
 /**
  * Port-local CommitIntent. Generation's type is structurally assignable;
@@ -124,6 +125,8 @@ export interface GenerationEnrichment {
   domSnapshot?: string;
   /** Changed lines a green run failed to exercise (enforce-mode coverage regen). */
   coverageGap?: string;
+  /** Present only when the run granted the generator the run_spec tool: the limits its prompt states. */
+  closedLoop?: ClosedLoopLimits;
   /**
    * Every spec this run has delivered so far, refreshed for each regeneration turn: the lead's
    * declared flow and objective where it declared them, a sidekick's specs by path alone.
@@ -252,6 +255,42 @@ export interface GenerationOutput {
 /** The reviewer's verdict on a generation, or undefined when no reviewer looked at it: the one way the run reads `approved`. */
 export function reviewerApprovalOf(generation: Pick<GenerationOutput, "reviewed" | "approved">): boolean | undefined {
   return generation.reviewed ? generation.approved : undefined;
+}
+
+/**
+ * The run_spec loop of one run, as the use case sees it: the right to execute a spec while authoring, granted to the
+ * generator's own sessions. The run opens it after the login and closes it when it ends, however it ends.
+ */
+export interface ClosedLoopOpenInput {
+  runId: string;
+  app: string;
+  mode: RunMode;
+  purpose?: RunPurpose;
+  mirrorDir: string;
+  specDir: string;
+  /** The run's own choice, when it makes one (an A/B arm): overrides the app's setting. Absent: the app's setting decides. */
+  enabled?: boolean;
+}
+export interface ClosedLoopSignals {
+  /** run_spec calls that started. */
+  calls: number;
+  /** Mutating requests the executed specs sent to DEV. */
+  devWrites: number;
+}
+export interface ClosedLoopHandle {
+  /** What the generator's prompt states about the tool. */
+  limits: ClosedLoopLimits;
+  /** Removes the probe specs a generator session left in the spec directory. Idempotent. */
+  sweepProbes(): Promise<void>;
+  /** Whether every one of these delivered specs holds the bytes whose last call passed. */
+  isClosed(deliveredSpecs: readonly string[]): Promise<boolean>;
+  signals(): ClosedLoopSignals;
+  /** Revokes the right, removes the probes and the data the calls left. Never throws. */
+  close(): Promise<void>;
+}
+export interface ClosedLoopPort {
+  /** Resolves undefined when this run is not granted the loop (disabled, another runtime, nothing to run it with). */
+  open(input: ClosedLoopOpenInput): Promise<ClosedLoopHandle | undefined>;
 }
 
 export interface GenerationPort {

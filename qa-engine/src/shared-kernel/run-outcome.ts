@@ -3,6 +3,7 @@
 import type { RunMode, TestTarget } from "./run-mode.ts";
 import type { RunVerdict } from "./run-verdict.ts";
 import type { QaCase } from "./qa-case.ts";
+import type { ClosedLoopGateSignal } from "./closed-loop.ts";
 
 export type ErrorClass = string | null;
 
@@ -38,6 +39,8 @@ export interface RunOutcome {
     catalogGateFailClosed?: number;
     /* What the execution sandbox did for the run: whether the egress filter held ("unenforced" is the operator-allowed warn mode) and the hosts a child tried to reach that the run does not declare. Absent when no child was started. Persist-only. */
     sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
+    /* How the generator used run_spec this run, and whether the loop ended closed. Absent when the run did not grant the tool. Persist-only: it reads nothing back into a verdict. */
+    closedLoop?: ClosedLoopGateSignal;
     /* Undefined = the signal never ran — never a fabricated 0 (that would be indistinguishable from "ran and found zero"). Persist-only; never read by decide/verdict/gate/publish. */
     structuralSignalBytes?: number;
     serviceLinksCount?: number;
