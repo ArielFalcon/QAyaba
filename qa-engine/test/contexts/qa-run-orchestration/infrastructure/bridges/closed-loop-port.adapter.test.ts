@@ -202,3 +202,27 @@ test("the registry forgets a session that was unbound", async (t) => {
   r.registry.unbindSession("ses-1");
   assert.equal(r.registry.find("ses-1"), undefined);
 });
+
+test("when the generator's session ends, the call it left running is stopped, and a session that is still bound is left alone", async (t) => {
+  const r = rig(t);
+  const seen: AbortSignal[] = [];
+  r.deps.execution = {
+    execute: async (_dir, opts) => {
+      const signal = (opts as ExecutionOpts).signal!;
+      seen.push(signal);
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      return { verdict: "infra-error", cases: [], logs: "aborted" };
+    },
+  };
+  await new ClosedLoopPortAdapter(r.deps).open(r.openInput);
+  r.registry.bindSession({ sessionId: "ses-1", runId: "run-9", agent: RUN_SPEC_AGENT });
+  r.registry.bindSession({ sessionId: "ses-2", runId: "run-9", agent: RUN_SPEC_AGENT });
+  const pending = callOf(r);
+  await new Promise((resolve) => setImmediate(resolve));
+  r.registry.unbindSession("ses-2");
+  assert.equal(seen[0]!.aborted, false, "another session ending does not stop it");
+  r.registry.unbindSession("ses-1");
+  assert.equal(seen[0]!.aborted, true);
+  const response = await pending;
+  assert.ok(response.ok && response.report.status === "error");
+});

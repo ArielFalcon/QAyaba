@@ -109,8 +109,10 @@ function withoutQuery(url: string): string {
 export class RunSpecUseCase {
   constructor(private readonly deps: RunSpecDeps) {}
 
-  async run(request: RunSpecRequest): Promise<RunSpecResponse> {
+  /* `callSignal` is this call's own cancellation (its generator session ended); the run's cancellation (`deps.signal`) stops it too. */
+  async run(request: RunSpecRequest, callSignal?: AbortSignal): Promise<RunSpecResponse> {
     const { capability, deadline } = this.deps;
+    const stop = callSignal && this.deps.signal ? AbortSignal.any([callSignal, this.deps.signal]) : (callSignal ?? this.deps.signal);
     const refused = capability.authorize(request.sessionId, request.agent);
     if (refused) return this.refusal(refused.code, refused.message);
 
@@ -137,7 +139,7 @@ export class RunSpecUseCase {
     let devWrites = 0;
     let note: string | undefined;
     try {
-      const outcome = await this.deps.lock.withLock(this.deps.account, () => this.executeAndClean(rel, grep, reservation.namespace, reservation.timeoutMs), this.deps.signal);
+      const outcome = await this.deps.lock.withLock(this.deps.account, () => this.executeAndClean(rel, grep, reservation.namespace, reservation.timeoutMs, stop), stop);
       status = outcome.status;
       tests = outcome.tests;
       devWrites = outcome.devWrites;
@@ -151,11 +153,11 @@ export class RunSpecUseCase {
     return { ok: true, report: { status, tests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}) } };
   }
 
-  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; devWrites: number; note?: string }> {
+  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; devWrites: number; note?: string }> {
     let result: SpecExecutionResult | undefined;
     let failure: string | undefined;
     try {
-      result = await this.deps.executor.execute({ specFile: rel, namespace, timeoutMs, ...(grep !== undefined ? { grep } : {}), ...(this.deps.signal ? { signal: this.deps.signal } : {}) });
+      result = await this.deps.executor.execute({ specFile: rel, namespace, timeoutMs, ...(grep !== undefined ? { grep } : {}), ...(stop ? { signal: stop } : {}) });
     } catch (err) {
       console.error(`[qa] run_spec execution failed (${namespace}): ${err instanceof Error ? err.message : String(err)}`);
       failure = "the spec could not be run";

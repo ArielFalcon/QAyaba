@@ -13,6 +13,8 @@ export interface LiveLoop {
   capability: RunSpecCapability;
   /* Executes one call inside the run's own scope (its sandbox, its secrets), whatever request triggered it. */
   call(request: RunSpecRequest): Promise<RunSpecResponse>;
+  /* Stops the call this session left running, if any: nobody is reading its answer any more. */
+  cancel?(sessionId: string): void;
 }
 
 export interface OpenedSession {
@@ -49,7 +51,9 @@ export class ClosedLoopRegistry {
     const runId = this.sessions.get(sessionId);
     if (runId === undefined) return;
     this.sessions.delete(sessionId);
-    this.loops.get(runId)?.capability.unbindSession(sessionId);
+    const loop = this.loops.get(runId);
+    loop?.capability.unbindSession(sessionId);
+    loop?.cancel?.(sessionId);
   }
 
   find(sessionId: string): LiveLoop | undefined {

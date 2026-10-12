@@ -84,7 +84,27 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
     });
     /* The run's async context as it is now: the run's sandbox scope and its secret scope. */
     const inRunContext = AsyncLocalStorage.snapshot();
-    this.deps.registry.register({ runId: input.runId, capability, call: (request) => inRunContext(() => useCase.run(request)) });
+    /* A call belongs to its session: when the session ends (its turn finished, timed out or was cancelled) nobody reads the answer, and a spec left running would overlap the phases that follow. */
+    const running = new Map<string, Set<AbortController>>();
+    this.deps.registry.register({
+      runId: input.runId,
+      capability,
+      call: async (request) => {
+        const own = new AbortController();
+        const mine = running.get(request.sessionId) ?? new Set<AbortController>();
+        mine.add(own);
+        running.set(request.sessionId, mine);
+        try {
+          return await inRunContext(() => useCase.run(request, own.signal));
+        } finally {
+          mine.delete(own);
+          if (mine.size === 0) running.delete(request.sessionId);
+        }
+      },
+      cancel: (sessionId) => {
+        for (const controller of running.get(sessionId) ?? []) controller.abort();
+      },
+    });
     return this.handle(input, capability, root, inRunContext);
   }
 

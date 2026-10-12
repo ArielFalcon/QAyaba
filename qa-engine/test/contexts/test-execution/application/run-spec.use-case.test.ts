@@ -297,3 +297,36 @@ test("the path shape the call accepts is the one the Playwright runner insists o
   const { SPEC_PATH_PATTERN } = await import("@contexts/test-execution/application/run-spec.use-case.ts");
   assert.equal(SPEC_PATH_PATTERN.source, SPEC_FILE_RE.source);
 });
+
+test("a call whose session ends is stopped: the executor is aborted, the call is spent and settled, and its namespace is still cleaned", async (t) => {
+  const h = harness(t);
+  const controller = new AbortController();
+  h.deps.executor.execute = async (request) => {
+    h.executed.push(request);
+    await new Promise<void>((resolve) => request.signal!.addEventListener("abort", () => resolve(), { once: true }));
+    return { verdict: "infra-error", cases: [], logs: "playwright runner aborted by operator cancel — killed" };
+  };
+  const pending = new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_AGENT, path: "flows/a.spec.ts" }, controller.signal);
+  await new Promise((r) => setImmediate(r));
+  controller.abort();
+  const response = await pending;
+  assert.ok(response.ok && response.report.status === "error");
+  assert.equal(h.capability.calls, 1);
+  assert.equal(h.capability.pendingNamespace, undefined, "the call is settled, so the next call is not told another is running");
+  assert.deepEqual(h.cleaned, ["run-1-rs1"]);
+});
+
+test("a call that waits for the account when its session ends leaves the queue without running", async (t) => {
+  const h = harness(t);
+  let release!: () => void;
+  const held = h.deps.lock.withLock("app/user", () => new Promise<void>((r) => { release = r; }));
+  const controller = new AbortController();
+  const pending = new RunSpecUseCase(h.deps).run({ sessionId: "ses-1", agent: RUN_SPEC_AGENT, path: "flows/a.spec.ts" }, controller.signal);
+  await new Promise((r) => setImmediate(r));
+  controller.abort();
+  const response = await pending;
+  assert.ok(response.ok && response.report.status === "error");
+  assert.equal(h.executed.length, 0);
+  release();
+  await held;
+});
