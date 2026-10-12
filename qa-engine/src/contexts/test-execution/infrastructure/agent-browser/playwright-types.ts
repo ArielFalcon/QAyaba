@@ -80,6 +80,8 @@ export interface PwContext {
 export interface PwBrowser {
   newContext(options: PwContextOptions): Promise<PwContext>;
   close(): Promise<void>;
+  /* Fires when the browser process dies or its connection closes. */
+  on?(event: "disconnected", handler: () => void): void;
 }
 
 /* A browser the orchestrator started and owns, with the way to stop it. */

@@ -79,6 +79,8 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
   private readonly loose: { blocked: BlockedRequest[]; notes: string[] } = { blocked: [], notes: [] };
   private creatingPage = false;
   private closed = false;
+  /* Counts the times what is being built stopped being the thing wanted (a reset, a browser that died): a build that finds it moved on discards what it made. */
+  private epoch = 0;
   private readonly now: () => number;
 
   constructor(private readonly deps: PlaywrightAgentBrowserHostDeps) {
@@ -128,6 +130,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     const context = this.context;
     this.context = undefined;
     this.building = undefined;
+    this.epoch += 1;
     for (const entry of this.entries.values()) this.byPage.delete(entry.page);
     this.entries.clear();
     if (context) await context.close().catch(() => undefined);
@@ -147,10 +150,26 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     const launched = this.launched;
     this.launched = undefined;
     await this.reset();
-    if (launched) {
-      await launched.browser.close().catch(() => undefined);
-      await launched.dispose().catch(() => undefined);
-    }
+    if (launched) await this.stop(launched);
+  }
+
+  /* Stops a browser and its process; never throws. */
+  private async stop(launched: LaunchedBrowser): Promise<void> {
+    await launched.browser.close().catch(() => undefined);
+    await launched.dispose().catch(() => undefined);
+  }
+
+  /* The browser process died or its connection closed: everything built on it is gone, so the next call builds anew. */
+  private async lost(launched: LaunchedBrowser): Promise<void> {
+    if (this.launched !== launched) return;
+    this.launched = undefined;
+    this.epoch += 1;
+    this.context = undefined;
+    this.building = undefined;
+    for (const entry of this.entries.values()) this.byPage.delete(entry.page);
+    this.entries.clear();
+    console.error("[qa] the agent browser disconnected; the next call starts a new one");
+    await this.stop(launched);
   }
 
   private failure(action: BrowserAction, err: unknown): string {
@@ -256,16 +275,24 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
 
   private contextFor(): Promise<PwContext> {
     if (this.context) return Promise.resolve(this.context);
-    this.building ??= this.build().catch((err: unknown) => {
-      this.building = undefined;
+    if (this.building) return this.building;
+    const building: Promise<PwContext> = this.build().catch((err: unknown) => {
+      /* Only the build still wanted is forgotten: a reset or a crash may already have started the next one. */
+      if (this.building === building) this.building = undefined;
       throw err;
     });
-    return this.building;
+    this.building = building;
+    return building;
   }
 
   private async build(): Promise<PwContext> {
-    this.launched ??= await this.deps.launcher.launch();
+    const epoch = this.epoch;
+    const gone = (): BrowserActionError => new BrowserActionError(this.closed ? "the browser is closed: the run it belonged to has ended" : "the browser was restarted while it was starting; try again");
+    /* Every await below can outlast a close or a reset: what was made before it is discarded, never left running. */
+    const launched = this.launched ?? (await this.start());
+    if (this.closed || this.epoch !== epoch) throw gone();
     const material = await this.deps.material();
+    if (this.closed || this.epoch !== epoch) throw gone();
     const options: PwContextOptions = {
       serviceWorkers: "block",
       acceptDownloads: false,
@@ -274,7 +301,32 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
       ...(material.httpCredentials ? { httpCredentials: material.httpCredentials } : {}),
       ...(material.clientCertificate ? { clientCertificates: [material.clientCertificate] } : {}),
     };
-    const context = await this.launched.browser.newContext(options);
+    const context = await launched.browser.newContext(options);
+    try {
+      if (this.closed || this.epoch !== epoch) throw gone();
+      await this.configure(context);
+      if (this.closed || this.epoch !== epoch) throw gone();
+    } catch (err) {
+      await context.close().catch(() => undefined);
+      throw err;
+    }
+    this.context = context;
+    return context;
+  }
+
+  /* Starts the browser process. A browser that finished starting after the host was closed is stopped, not kept; one that is kept is watched for its death. */
+  private async start(): Promise<LaunchedBrowser> {
+    const launched = await this.deps.launcher.launch();
+    if (this.closed) {
+      await this.stop(launched);
+      throw new BrowserActionError("the browser is closed: the run it belonged to has ended");
+    }
+    this.launched = launched;
+    launched.browser.on?.("disconnected", () => void this.lost(launched));
+    return launched;
+  }
+
+  private async configure(context: PwContext): Promise<void> {
     await context.addInitScript(BLOCK_SERVICE_WORKERS_SCRIPT);
     await context.route("**/*", async (route) => {
       /* Fails closed: whatever goes wrong while deciding, the request does not go out. */
@@ -304,8 +356,6 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
       this.loose.notes.push("the page tried to open a new tab; it was closed (use navigate to open an address)");
       void page.close().catch(() => undefined);
     });
-    this.context = context;
-    return context;
   }
 
   private recordBlock(request: PwRequest, detail: string, reason: BlockedRequest["reason"]): void {

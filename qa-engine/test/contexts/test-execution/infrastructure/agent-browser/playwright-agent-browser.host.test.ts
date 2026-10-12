@@ -95,27 +95,51 @@ class FakeContext implements PwContext {
 class FakeBrowser implements PwBrowser {
   readonly contexts: FakeContext[] = [];
   closed = false;
+  private readonly disconnectHandlers: (() => void)[] = [];
+  /* Held while set: the context is not handed out until it resolves, so a test can act while the host is mid-build. */
+  newContextGate: Promise<void> | undefined;
   async newContext(options: PwContextOptions): Promise<PwContext> {
     const context = new FakeContext(options);
     this.contexts.push(context);
+    await this.newContextGate;
     return context;
   }
   async close(): Promise<void> { this.closed = true; }
+  on(_event: "disconnected", handler: () => void): void { this.disconnectHandlers.push(handler); }
+  /* The browser process died or its pipe closed. */
+  crash(): void { for (const handler of this.disconnectHandlers) handler(); }
+}
+
+function gate(): { promise: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const promise = new Promise<void>((resolve) => { open = resolve; });
+  return { promise, open };
 }
 
 function setup(over: { material?: SessionMaterial; denyRoutes?: string[]; allowMutating?: string[] } = {}) {
   const browser = new FakeBrowser();
+  const browsers: FakeBrowser[] = [];
+  /* While set, the step is held until it resolves, so a test can act while the host is mid-build. */
+  const gates: { launch?: Promise<void>; material?: Promise<void> } = {};
   let launches = 0;
   let disposed = 0;
   let materialReads = 0;
   const host = new PlaywrightAgentBrowserHost({
-    launcher: { launch: async (): Promise<LaunchedBrowser> => { launches += 1; return { browser, dispose: async () => { disposed += 1; } }; } },
-    material: async () => { materialReads += 1; return over.material ?? { storageState: { cookies: [{ name: "sid", value: "s3cret" }], origins: [] } }; },
+    launcher: {
+      launch: async (): Promise<LaunchedBrowser> => {
+        launches += 1;
+        const launched = launches === 1 ? browser : new FakeBrowser();
+        browsers.push(launched);
+        await gates.launch;
+        return { browser: launched, dispose: async () => { disposed += 1; } };
+      },
+    },
+    material: async () => { materialReads += 1; await gates.material; return over.material ?? { storageState: { cookies: [{ name: "sid", value: "s3cret" }], origins: [] } }; },
     guard: createRouteGuard({ origins: [BASE], denyRoutes: over.denyRoutes ?? ["/admin/**"], allowMutating: over.allowMutating ?? [] }),
   });
   const signal = new AbortController().signal;
   const call = (sessionId: string, action: BrowserAction) => host.perform(sessionId, action, { signal, timeoutMs: 10_000 });
-  return { host, browser, call, counts: () => ({ launches, disposed, materialReads }) };
+  return { host, browser, browsers, gates, call, counts: () => ({ launches, disposed, materialReads }) };
 }
 
 const pageOf = (browser: FakeBrowser): FakePage => [...browser.contexts[0]!.pages][0]!;
@@ -374,4 +398,67 @@ test("a browser that fails to start is tried again by the next call", async () =
   await assert.rejects(host.perform("s1", { kind: "snapshot" }, options));
   await host.perform("s1", { kind: "snapshot" }, options);
   assert.equal(attempts, 2);
+});
+
+test("closing the host while the browser is still starting does not leave the browser that finishes starting running", async () => {
+  const { host, browser, gates, call, counts } = setup();
+  const launching = gate();
+  gates.launch = launching.promise;
+  const pending = call("s1", { kind: "snapshot" });
+  await new Promise((r) => setImmediate(r));
+  await host.close();
+  launching.open();
+  await assert.rejects(pending, BrowserActionError);
+  assert.equal(browser.closed, true, "the browser that came up after the close is closed");
+  assert.equal(counts().disposed, 1, "and its process is stopped");
+  assert.equal(browser.contexts.length, 0, "no context was built on it");
+});
+
+test("closing the host while the session is being read does not build a context on the browser", async () => {
+  const { host, browser, gates, call, counts } = setup();
+  const reading = gate();
+  gates.material = reading.promise;
+  const pending = call("s1", { kind: "snapshot" });
+  await new Promise((r) => setImmediate(r));
+  await host.close();
+  reading.open();
+  await assert.rejects(pending, BrowserActionError);
+  assert.equal(browser.contexts.length, 0);
+  assert.equal(browser.closed, true);
+  assert.equal(counts().disposed, 1);
+});
+
+test("closing the host while the context is being built closes that context too", async () => {
+  const { host, browser, call } = setup();
+  const building = gate();
+  browser.newContextGate = building.promise;
+  const pending = call("s1", { kind: "snapshot" });
+  await new Promise((r) => setImmediate(r));
+  await host.close();
+  building.open();
+  await assert.rejects(pending, BrowserActionError);
+  assert.equal(browser.contexts[0]!.closed, true);
+  assert.equal(browser.closed, true);
+});
+
+test("a browser that crashed is replaced by the next call: a new process, a new context from the session as it is now, a new page", async () => {
+  const { browsers, call, counts } = setup();
+  await call("s1", { kind: "navigate", url: `${BASE}/orders` });
+  browsers[0]!.crash();
+  const state = await call("s1", { kind: "navigate", url: `${BASE}/cart` });
+  assert.equal(state.url, `${BASE}/cart`);
+  assert.equal(counts().launches, 2);
+  assert.equal(counts().materialReads, 2, "the session is read again");
+  assert.equal(counts().disposed, 1, "the process of the browser that died is stopped");
+  assert.equal(browsers[1]!.contexts.length, 1);
+  assert.equal(browsers[1]!.contexts[0]!.pages.size, 1);
+});
+
+test("a crash that comes after the host was closed starts nothing", async () => {
+  const { host, browsers, call, counts } = setup();
+  await call("s1", { kind: "snapshot" });
+  await host.close();
+  browsers[0]!.crash();
+  assert.equal(counts().launches, 1);
+  assert.equal(counts().disposed, 1, "the close already stopped it, and the crash does not stop it again");
 });
