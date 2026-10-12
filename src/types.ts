@@ -291,9 +291,11 @@ export interface RunOutcome {
     phaseTimings?: Record<string, number>;
     /*
      * Pre-execution deterministic selector check (observation-only). `preExecAmbiguityCatches`:
-     * strict-mode ambiguities against the live pre-write DOM; `deterministicSelectorBlocks`: how
-     * many persisted after corrective regen and triggered the deterministic block. Never affects
-     * the verdict on their own (the static gate does). Absent when the check did not run.
+     * strict-mode ambiguities against the live pre-write DOM, an advisory the run only counts and
+     * logs (the check is a regex over the spec text: real execution decides, so it never asks for a
+     * regeneration or folds the verdict). `deterministicSelectorBlocks`: how many of them held the
+     * run; always 0 since the check became advisory, kept so earlier runs and the benchmark read
+     * the same record. Absent when the check did not run.
      */
     preExecAmbiguityCatches?: number;
     deterministicSelectorBlocks?: number;

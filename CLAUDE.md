@@ -149,6 +149,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   (`generation/domain/harness-facts.ts`), existing-suite manifest.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
   `review-dom-grounding-port.adapter.ts` (same folder).
+  The pre-exec selector-ambiguity check is a regex over the spec text and **advisory**: its findings
+  are counted (`preExecAmbiguityCatches`) and logged as a warning, never fold the verdict, request a
+  regeneration or feed the FixLoop; execution decides. Only the catalog gate's fabricated test-ids
+  (a captured, settled route) feed the one-shot corrective regeneration.
 - **Step limit and milestone** — the generator, explorer and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the legacy `maxSteps` mapped into it; `stepLimits`

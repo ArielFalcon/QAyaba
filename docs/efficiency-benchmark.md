@@ -100,7 +100,7 @@ The numbers above are illustrative.
 | `sessions total · generator` | distinct agent sessions of the run that recorded at least one turn; the generator's own count leaves out the planner's turn |
 | `steps used`, `max steps`, `step use` | per generator turn: steps taken, the limit the turn's end was classified against (the number its prompt stated, else the orchestrator's own copy of the configured limit), and their ratio |
 | `generator: step limit` | `hit` when any generator turn ended on its step limit, `not hit` when every one is known not to have, `n/a` otherwise (a Codex-primary run has no step budget, so it is always `n/a`) |
-| the three gate counters | `preExecAmbiguityCatches`, `deterministicSelectorBlocks` and `catalogGateFailClosed`, from the run's recorded outcome |
+| the three gate counters | `preExecAmbiguityCatches`, `deterministicSelectorBlocks` and `catalogGateFailClosed`, from the run's recorded outcome. The ambiguity check is advisory (a regex over the spec text; real execution decides), so `preExecAmbiguityCatches` counts what it found and `deterministicSelectorBlocks` is `0` on every run since it stopped holding the run |
 | `mean · known · unknown` | the label's mean step use over the turns whose ratio is known, and how many turns were left out |
 
 **`n/a` is never zero.** A figure the run did not record reads `n/a`. `steps used` is `n/a` unless the

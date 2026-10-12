@@ -151,7 +151,7 @@ import {
 } from "./coordination/index.ts";
 import type { ProposedOrchestrationDecision } from "./coordination/proposed-orchestration-decision.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
-import { checkPreExecGrounding, checkPersistingAmbiguity } from "../domain/pre-exec-grounding.service.ts";
+import { checkPreExecGrounding } from "../domain/pre-exec-grounding.service.ts";
 import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
@@ -1096,21 +1096,27 @@ export class RunQaUseCase {
     /* FixLoop's final specMetas. Undefined when it never regenerated. resolveTested() decides precedence. */
     let fixLoopFinalSpecMetas: { flow?: string; objective?: string }[] | undefined;
 
-    /* Absent port: counters stay 0, not undefined. Accumulated so they survive every terminal. */
+    /* Absent port: counters stay 0, not undefined. Accumulated so they survive every terminal. The ambiguity check is advisory (it is a regex over the spec text, and real execution decides), so nothing is blocked on it and `deterministicSelectorBlocks` stays 0. */
     let preExecAmbiguityCatches = 0;
-    let deterministicSelectorBlocks = 0;
+    const deterministicSelectorBlocks = 0;
     let catalogGateInWindow = 0;
     let catalogGateAdvisory = 0;
     let catalogGateFailClosed = 0;
     /*
-     * Re-reads on-disk specs every call so a post-regen re-check is not stale. A contradiction names
-     * no spec, but the gate says which spec raised each: the files are those of the capture's specs.
+     * Reads the on-disk specs. Only the catalog gate's corrections come back to be repaired (a
+     * correction names no spec, but the gate says which spec raised each: the files are those of the
+     * capture's specs); an ambiguity is counted and warned about, and asks for nothing.
      */
     const runPreExecGrounding = async (): Promise<{ corrections: string[]; attributedSpecFiles: string[] }> => {
       if (!this.deps.preExecGrounding) return { corrections: [], attributedSpecFiles: [] };
       const { specFiles, specSources, routes } = await this.deps.preExecGrounding.capture(workspace.specDir, signal);
       const result = checkPreExecGrounding({ specSources, routes });
       preExecAmbiguityCatches += result.preExecAmbiguityCatches;
+      if (result.ambiguities.length > 0) {
+        const text = `[qa] pre-exec ambiguity check (advisory, execution decides): ${result.ambiguities.join(" | ")}`;
+        console.warn(text);
+        this.deps.observer?.onEvent({ type: "log.line", level: "warn", text });
+      }
       catalogGateInWindow += result.catalogGateInWindow;
       catalogGateAdvisory += result.catalogGateAdvisory;
       catalogGateFailClosed += result.catalogGateFailClosed;
@@ -1168,24 +1174,6 @@ export class RunQaUseCase {
       });
       await enforceConfinement();
       validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles);
-    }
-
-    /*
-     * If a strict-mode ambiguity persists after static-fix, fold it into the static
-     * gate so invalid holds the run before execution. Catalog corrections never
-     * reach this block — only the one-shot repair and FixLoop channels.
-     */
-    if (this.deps.preExecGrounding && preExecAmbiguityCatches > 0 && validation.ok) {
-      const { specSources, routes } = await this.deps.preExecGrounding.capture(workspace.specDir, signal);
-      const persisting = checkPersistingAmbiguity({ specSources, routes });
-      deterministicSelectorBlocks = persisting.length;
-      if (persisting.length > 0) {
-        validation = {
-          ok: false,
-          infra: false,
-          errors: persisting.map((a) => `strict-mode selector ambiguity (deterministic — would fail at runtime; scope to a unique parent): ${a}`),
-        };
-      }
     }
 
     /*

@@ -203,22 +203,22 @@ test("RunQaUseCase: emits preExecAmbiguityCatches:0 + deterministicSelectorBlock
   assert.equal(out.gateSignals.deterministicSelectorBlocks, 0);
 });
 
-/* PreExecGroundingPort wired — real counters, corrective regen, deterministic block.
+/* PreExecGroundingPort wired — real counters, the ambiguity check as a signal, the catalog gate's corrective regen.
    A page-rooted, page.goto("/owners")-targeting spec source drives the ambiguity check (matches the
    captured route by name, per the domain service's per-spec route pairing); a getByTestId-only spec
-   drives the catalog gate independently.
+   drives the catalog gate independently. The ambiguity check is a regex over the spec text: it has
+   false positives that real execution does not, so its findings are advisory telemetry only and
+   execution decides.
  */
 const AMBIGUOUS_SPEC_SOURCE = `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click();`;
 const FABRICATED_TESTID_SPEC_SOURCE = `await page.goto("/owners"); await page.getByTestId("ghost-id").click();`;
 const CLEAN_SPEC_SOURCE = `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click();`;
+const AMBIGUOUS_ROUTES = [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }];
+const ROUTE_WITHOUT_GHOST_ID = [{ route: "/owners", nodes: [], status: "captured" as const, settled: true, testIds: new Map<string, number>() }];
 
 test("RunQaUseCase: PreExecGroundingPort wired — a captured ambiguity is counted in preExecAmbiguityCatches", async () => {
   const { ports } = stubPorts({
-    capture: async () => ({
-      specFiles: ["a.spec.ts"],
-      specSources: [AMBIGUOUS_SPEC_SOURCE],
-      routes: [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }],
-    }),
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
     generate: async () => (scriptedGeneration({
       specs: ["a.spec.ts"],
       approved: true,
@@ -231,14 +231,63 @@ test("RunQaUseCase: PreExecGroundingPort wired — a captured ambiguity is count
   assert.equal(out.gateSignals.preExecAmbiguityCatches, 1);
 });
 
-test("RunQaUseCase: PreExecGroundingPort wired — corrections feed the ONE-SHOT corrective regen via selectorContradictions", async () => {
+test("RunQaUseCase: PreExecGroundingPort wired — a captured ambiguity asks for no corrective regeneration: the spec goes on to be executed", async () => {
+  const generateCalls: Array<{ enrichment?: { selectorContradictions?: readonly string[]; attributedSpecFiles?: readonly string[] } }> = [];
+  let executions = 0;
+  const { ports } = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      generateCalls.push({ enrichment });
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    execute: async () => { executions++; return { verdict: "pass", cases: [{ name: "owners", status: "pass" }], logs: "" }; },
+  });
+  const useCase = new RunQaUseCase(ports);
+
+  await useCase.run(baseInput);
+
+  assert.equal(generateCalls.length, 1, "only the initial generation: the ambiguity requested no regeneration");
+  assert.equal(generateCalls.some((c) => (c.enrichment?.selectorContradictions?.length ?? 0) > 0), false);
+  assert.equal(generateCalls.some((c) => (c.enrichment?.attributedSpecFiles?.length ?? 0) > 0), false);
+  assert.equal(executions, 1, "the spec was executed against DEV");
+});
+
+test("RunQaUseCase: PreExecGroundingPort wired — an ambiguity that persists never holds the run invalid: the execution decides the verdict", async () => {
+  /* capture() reports the SAME duplicate-node tree on every call: the ambiguity is always there. */
+  const passing = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "owners", status: "pass" }], logs: "" }),
+  });
+  const failing = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+    execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" }),
+  });
+
+  const green = await new RunQaUseCase(passing.ports).run(baseInput);
+  const red = await new RunQaUseCase(failing.ports).run(baseInput);
+
+  assert.equal(green.decision.verdict, "pass");
+  assert.equal(green.gateSignals.preExecAmbiguityCatches, 1, "the signal is still recorded");
+  assert.equal(green.gateSignals.deterministicSelectorBlocks, 0, "nothing was blocked");
+  assert.equal(red.decision.verdict, "fail", "a failure comes from the execution, not from the static check");
+});
+
+test("RunQaUseCase: PreExecGroundingPort wired — a captured ambiguity is surfaced as a warning in the run's log", async () => {
+  const { ports } = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+  });
+  const { observer, events } = fakeObserver();
+
+  await new RunQaUseCase({ ...ports, config: baseConfig, observer }).run(baseInput);
+
+  const warning = events.find((e) => e.type === "log.line" && e.level === "warn" && /MULTIPLE/.test(e.text));
+  assert.ok(warning, "the ambiguity is logged at warn level, with what it found");
+});
+
+test("RunQaUseCase: PreExecGroundingPort wired — a catalog correction feeds the ONE-SHOT corrective regen via selectorContradictions", async () => {
   const generateCalls: Array<{ enrichment?: { selectorContradictions?: readonly string[] } }> = [];
   const { ports } = stubPorts({
-    capture: async () => ({
-      specFiles: ["a.spec.ts"],
-      specSources: [AMBIGUOUS_SPEC_SOURCE],
-      routes: [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }],
-    }),
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [FABRICATED_TESTID_SPEC_SOURCE], routes: ROUTE_WITHOUT_GHOST_ID }),
     generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
       generateCalls.push({ enrichment });
       return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
@@ -249,46 +298,19 @@ test("RunQaUseCase: PreExecGroundingPort wired — corrections feed the ONE-SHOT
   await useCase.run(baseInput);
 
   /* The FIRST generate() call is the initial pass (no corrections yet — nothing captured before it).
-     The pre-exec gate runs AFTER it, catches the ambiguity, and feeds it into exactly ONE corrective
+     The pre-exec gate runs AFTER it, catches the fabricated test-id, and feeds it into exactly ONE corrective regen.
    */
-  const correctiveCall = generateCalls.find((c) => (c.enrichment?.selectorContradictions?.length ?? 0) > 0);
-  assert.ok(correctiveCall, "expected one generate() call carrying selectorContradictions");
-  assert.match(correctiveCall!.enrichment!.selectorContradictions![0]!, /MULTIPLE/);
+  const correctiveCalls = generateCalls.filter((c) => (c.enrichment?.selectorContradictions?.length ?? 0) > 0);
+  assert.equal(correctiveCalls.length, 1, "exactly one generate() call carrying selectorContradictions");
+  assert.match(correctiveCalls[0]!.enrichment!.selectorContradictions![0]!, /ghost-id/);
 });
 
-test("RunQaUseCase: PreExecGroundingPort wired — a PERSISTING ambiguity after the corrective regen holds the run invalid", async () => {
-  const { ports } = stubPorts({
-    /* The stub generation port never actually rewrites specs to resolve the ambiguity (the corrective
-       regen is a no-op from the gate's point of view) — capture() keeps reporting the SAME
-       duplicate-node tree every call, so the ambiguity PERSISTS after the one-shot repair.
-     */
-    capture: async () => ({
-      specFiles: ["a.spec.ts"],
-      specSources: [AMBIGUOUS_SPEC_SOURCE],
-      routes: [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }],
-    }),
-    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
-  });
-  const useCase = new RunQaUseCase(ports);
-
-  const out = await useCase.run(baseInput);
-
-  assert.equal(out.decision.verdict, "invalid");
-  assert.equal(out.decision.sideEffect, "issue");
-  assert.ok(out.gateSignals.deterministicSelectorBlocks > 0);
-});
-
-test("RunQaUseCase: PreExecGroundingPort wired — catalog-gate fail-closed corrections NEVER trigger the deterministic block (safe direction)", async () => {
-  /* A fabricated test-id (catalog gate) with ZERO role-based ambiguity — the block must stay
-     ambiguity-only; a catalog correction alone can never hold the run invalid, only feed the
-     one-shot repair (the established safe-direction split — catalogGate* is telemetry, not a gate).
+test("RunQaUseCase: PreExecGroundingPort wired — catalog-gate fail-closed corrections NEVER hold the run invalid (safe direction)", async () => {
+  /* A fabricated test-id (catalog gate) with ZERO role-based ambiguity: a catalog correction alone
+     can never hold the run invalid, only feed the one-shot repair (catalogGate* is telemetry, not a gate).
    */
   const { ports } = stubPorts({
-    capture: async () => ({
-      specFiles: ["a.spec.ts"],
-      specSources: [FABRICATED_TESTID_SPEC_SOURCE],
-      routes: [{ route: "/owners", nodes: [], status: "captured", settled: true, testIds: new Map() }],
-    }),
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [FABRICATED_TESTID_SPEC_SOURCE], routes: ROUTE_WITHOUT_GHOST_ID }),
     generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
   });
   const useCase = new RunQaUseCase(ports);
@@ -317,31 +339,26 @@ test("RunQaUseCase: PreExecGroundingPort wired — a clean capture (no ambiguity
   assert.equal(out.gateSignals.deterministicSelectorBlocks, 0);
 });
 
-test("RunQaUseCase: PreExecGroundingPort wired — a FixLoop regen (post-execution-failure) also receives pre-exec corrections via selectorContradictions", async () => {
+test("RunQaUseCase: PreExecGroundingPort wired — a FixLoop regen (post-execution-failure) also receives the catalog corrections via selectorContradictions", async () => {
   let executeCalls = 0;
-  let captureCalls = 0;
   const generateCalls: Array<{ enrichment?: { selectorContradictions?: readonly string[]; fixCases?: readonly unknown[] } }> = [];
   const { ports } = stubPorts({
-    /* First capture call sees the ambiguity -> triggers the one-shot corrective regen and sets
-       pendingSelectorContradictions. The re-check (2nd capture call, post-static-fix-loop) sees a
-       CLEAN tree (the corrective regen "fixed" it from the gate's point of view) -> validation.ok
-       stays true -> the run proceeds to execute() with pendingSelectorContradictions STILL holding
-       the first capture's corrections (nothing clears it until a FixLoop regen actually consumes it).
-     */
-    capture: async () => {
-      captureCalls++;
-      const nodes = captureCalls === 1 ? ["heading: Owners", "heading: Owners"] : ["heading: Owners"];
-      return { specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: [{ route: "/owners", nodes }] };
-    },
+    /* The capture sees the fabricated test-id once and then a clean page (the corrective regen "fixed" it from the gate's point of view): the run proceeds to execute() with the pending corrections STILL held (nothing clears them until a FixLoop regen consumes them). */
+    capture: (() => {
+      let captureCalls = 0;
+      return async () => ({
+        specFiles: ["a.spec.ts"],
+        specSources: [++captureCalls === 1 ? FABRICATED_TESTID_SPEC_SOURCE : CLEAN_SPEC_SOURCE],
+        routes: ROUTE_WITHOUT_GHOST_ID,
+      });
+    })(),
     generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
       generateCalls.push({ enrichment });
       return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;
-      /* First execute (post static-gate) fails -> engages the FixLoop; subsequent retries pass so
-         the loop terminates promptly.
-       */
+      /* First execute fails -> engages the FixLoop; subsequent retries pass so the loop terminates promptly. */
       if (executeCalls === 1) {
         return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" };
       }
@@ -351,17 +368,37 @@ test("RunQaUseCase: PreExecGroundingPort wired — a FixLoop regen (post-executi
   const useCase = new RunQaUseCase(ports);
 
   const out = await useCase.run(baseInput);
-  assert.notEqual(out.decision.verdict, "invalid", "sanity: the run must reach execute()/FixLoop, not hold invalid at the pre-exec re-check");
+  assert.notEqual(out.decision.verdict, "invalid");
 
-  /* At least one generate() call during/after the FixLoop's own engagement carries BOTH fixCases
-     (the FixLoop's own regen context) AND selectorContradictions (leftover pre-exec corrections)
-     — proving the gate's corrections reach the FixLoop's regen channel too, not just the
-     pre-execution corrective regen.
-   */
+  /* A generate() call during the FixLoop's engagement carries BOTH fixCases (the FixLoop's own regen context) AND selectorContradictions (the pending catalog corrections). */
   const fixLoopCallWithCorrections = generateCalls.find(
     (c) => (c.enrichment?.fixCases?.length ?? 0) > 0 && (c.enrichment?.selectorContradictions?.length ?? 0) > 0,
   );
   assert.ok(fixLoopCallWithCorrections, "expected a FixLoop regen call carrying both fixCases and selectorContradictions");
+});
+
+test("RunQaUseCase: PreExecGroundingPort wired — a FixLoop regen is not handed a pre-exec ambiguity: it fed nothing", async () => {
+  let executeCalls = 0;
+  const generateCalls: Array<{ enrichment?: { selectorContradictions?: readonly string[]; fixCases?: readonly unknown[] } }> = [];
+  const { ports } = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      generateCalls.push({ enrichment });
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    execute: async () => {
+      executeCalls++;
+      return executeCalls === 1
+        ? { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" }
+        : { verdict: "pass", cases: [{ name: "owners", status: "pass" }], logs: "" };
+    },
+  });
+
+  await new RunQaUseCase(ports).run(baseInput);
+
+  const fixLoopCalls = generateCalls.filter((c) => (c.enrichment?.fixCases?.length ?? 0) > 0);
+  assert.ok(fixLoopCalls.length > 0, "sanity: the FixLoop regenerated");
+  assert.equal(fixLoopCalls.some((c) => (c.enrichment?.selectorContradictions ?? []).some((line) => /MULTIPLE/.test(line))), false);
 });
 
 /* The pre-generate grounding phase — contextPack/existingSpecFiles thread into GenerationEnrichment

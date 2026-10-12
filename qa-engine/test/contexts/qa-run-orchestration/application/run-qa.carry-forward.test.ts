@@ -70,11 +70,11 @@ const REJECTS_ONCE = (): ReviewPort["review"] => {
 };
 const COVERAGE_GAP: ObjectiveSignalPort["measure"] = async () => ({ status: "fail", ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] });
 
-/** The ambiguity the pre-exec gate catches in `source`, which a spec at `a.spec.ts` holds. */
-const AMBIGUOUS = `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click();`;
-const CLEAN = `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click();`;
-const OWNERS_TWICE = [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }];
-const OWNERS_ONCE = [{ route: "/owners", nodes: ["heading: Owners"] }];
+/** The test-id the pre-exec catalog gate catches in `source`, which a spec at `a.spec.ts` holds: the page has `real-id` only. (A role ambiguity is advisory and requests no regeneration, so it is no trigger here.) */
+const AMBIGUOUS = `await page.goto("/owners"); await page.getByTestId("ghost-id").click();`;
+const CLEAN = `await page.goto("/owners"); await page.getByTestId("real-id").click();`;
+const OWNERS_TWICE = [{ route: "/owners", nodes: [], status: "captured" as const, settled: true, testIds: new Map([["real-id", 1]]) }];
+const OWNERS_ONCE = OWNERS_TWICE;
 
 function delegationOf(runId: string, point: string, ...files: string[]): DelegationResult {
   return {
@@ -210,11 +210,10 @@ test("a pre-exec contradiction is attributed to the spec file that raised it, no
   assert.deepEqual(calls[1]!.attributedSpecFiles, ["a.spec.ts"]);
 });
 
-test("a spec that holds the selector of a pre-exec contradiction but raised nothing (it disambiguates the node) is not attributed", async () => {
-  const disambiguated = `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).first().click();`;
+test("a spec that holds a test-id the page has raised nothing and is not attributed", async () => {
   const calls = await run({
     generations: [lead(A1, B1)],
-    capture: async () => ({ specFiles: ["a.spec.ts", "b.spec.ts"], specSources: [AMBIGUOUS, disambiguated], routes: OWNERS_TWICE }),
+    capture: async () => ({ specFiles: ["a.spec.ts", "b.spec.ts"], specSources: [AMBIGUOUS, CLEAN], routes: OWNERS_TWICE }),
   });
   assert.ok((calls[1]!.selectorContradictions?.length ?? 0) > 0, "the corrective regeneration carries the contradiction the gate caught");
   assert.deepEqual(calls[1]!.attributedSpecFiles, ["a.spec.ts"]);

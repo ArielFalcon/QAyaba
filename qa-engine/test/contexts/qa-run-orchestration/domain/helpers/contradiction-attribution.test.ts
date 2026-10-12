@@ -4,12 +4,10 @@ import { attributeContradictions } from "@contexts/qa-run-orchestration/domain/h
 import { checkSpecSelectors, contradictionOrigins, type ContradictionOrigin } from "@contexts/qa-run-orchestration/domain/helpers/selector-check.ts";
 import { checkPreExecGrounding, type RouteTree } from "@contexts/qa-run-orchestration/domain/pre-exec-grounding.service.ts";
 
-/* A contradiction names a selector, never the spec, and the checks know which spec raised it. Attribution reads that: the real checks' own output goes through it, so a spec that holds the same selector but raised nothing (scoped, disambiguated, or on a route that is fine) is never named. */
+/* A contradiction names a selector, never the spec, and the checks know which spec raised it. Attribution reads that: the real checks' own output goes through it, so a spec that holds the same selector but raised nothing (on a page that has it, or a Lever-2 selector it scopes) is never named. */
 
 const OWNERS_PAGE = `await page.goto("/owners");`;
 const PAGE_ROOTED = `${OWNERS_PAGE} await page.getByRole("heading", { name: "Owners" }).click();`;
-const DISAMBIGUATED = `${OWNERS_PAGE} await page.getByRole("heading", { name: "Owners" }).first().click();`;
-const SCOPED = `${OWNERS_PAGE} await page.locator("main").getByRole("heading", { name: "Owners" }).click();`;
 const UNRELATED = `${OWNERS_PAGE} await page.getByRole("link", { name: "Home" }).click();`;
 const TWO_OWNERS: RouteTree[] = [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners", "link: Home"] }];
 
@@ -19,27 +17,24 @@ function preExecAttribution(specSources: string[], routes: RouteTree[]): string[
   return attributeContradictions(corrections, origins, specSources.map((_, index) => `spec${index}.spec.ts`));
 }
 
-test("an ambiguity is attributed to the spec that raised it", () => {
-  assert.deepEqual(preExecAttribution([UNRELATED, PAGE_ROOTED], TWO_OWNERS), ["spec1.spec.ts"]);
+const GHOST = `${OWNERS_PAGE} await page.getByTestId("ghost-id").click();`;
+const OWNERS_WITHOUT_GHOST: RouteTree[] = [{ route: "/owners", nodes: [], status: "captured", settled: true, testIds: new Map() }];
+
+test("a test-id the page lacks is attributed to the spec that raised it", () => {
+  assert.deepEqual(preExecAttribution([UNRELATED, GHOST], OWNERS_WITHOUT_GHOST), ["spec1.spec.ts"]);
 });
 
-test("a spec that holds the same selector disambiguated, or scoped to a parent, raised nothing and is not attributed", () => {
-  assert.deepEqual(preExecAttribution([DISAMBIGUATED, PAGE_ROOTED, SCOPED], TWO_OWNERS), ["spec1.spec.ts"]);
-  assert.deepEqual(preExecAttribution([DISAMBIGUATED, SCOPED], TWO_OWNERS), []);
+test("a spec that uses a test-id the page has raised nothing and is not attributed", () => {
+  const routes: RouteTree[] = [{ route: "/owners", nodes: [], status: "captured", settled: true, testIds: new Map([["ghost-id", 1]]) }];
+  assert.deepEqual(preExecAttribution([GHOST, UNRELATED], routes), []);
 });
 
-test("an ambiguity that two specs raise is attributed to both, in the order of the specs", () => {
-  assert.deepEqual(preExecAttribution([PAGE_ROOTED, UNRELATED, PAGE_ROOTED], TWO_OWNERS), ["spec0.spec.ts", "spec2.spec.ts"]);
+test("a test-id that two specs lack is attributed to both, in the order of the specs", () => {
+  assert.deepEqual(preExecAttribution([GHOST, UNRELATED, GHOST], OWNERS_WITHOUT_GHOST), ["spec0.spec.ts", "spec2.spec.ts"]);
 });
 
-test("a spec is attributed for the page it targets: the same selector where the page is fine is not", () => {
-  const list = `await page.goto("/list"); await page.getByRole("button", { name: "Edit" }).click();`;
-  const detail = `await page.goto("/detail"); await page.getByRole("button", { name: "Edit" }).click();`;
-  const routes: RouteTree[] = [
-    { route: "/list", nodes: Array(5).fill("button: Edit") },
-    { route: "/detail", nodes: ["button: Edit"] },
-  ];
-  assert.deepEqual(preExecAttribution([detail, list], routes), ["spec1.spec.ts"]);
+test("a role ambiguity the pre-exec gate tells is advisory: it is attributed to no spec", () => {
+  assert.deepEqual(preExecAttribution([UNRELATED, PAGE_ROOTED], TWO_OWNERS), []);
 });
 
 test("a test-id the page of one spec does not have is attributed to that spec, not to the one whose page has it", () => {
@@ -50,15 +45,6 @@ test("a test-id the page of one spec does not have is attributed to that spec, n
     { route: "/owners", nodes: [], status: "captured", settled: true, testIds: new Map([["owner-list", 1]]) },
   ];
   assert.deepEqual(preExecAttribution([onOwners, onPets], routes), ["spec1.spec.ts"]);
-});
-
-test("an ambiguity and a test-id on different specs are both attributed, each to its own", () => {
-  const ghost = `await page.goto("/pets"); await page.getByTestId("ghost-id").click();`;
-  const routes: RouteTree[] = [
-    { route: "/owners", nodes: ["heading: Owners", "heading: Owners"], status: "captured", settled: true, testIds: new Map() },
-    { route: "/pets", nodes: [], status: "captured", settled: true, testIds: new Map() },
-  ];
-  assert.deepEqual(preExecAttribution([ghost, PAGE_ROOTED], routes), ["spec1.spec.ts", "spec0.spec.ts"]);
 });
 
 /* Lever-2: the FixLoop's check names the selector that is absent from, or matches several nodes of, the page it failed on. */
