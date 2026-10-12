@@ -1849,3 +1849,20 @@ test("the runner hands the run's own choice about the run_spec loop to the engin
     else process.env.PIPELINE_ENGINE = prev;
   }
 });
+
+test("the runner hands the run's own choice about the agent browser to the engine, and invents none", async () => {
+  const prev = process.env.PIPELINE_ENGINE;
+  process.env.PIPELINE_ENGINE = "rewritten";
+  try {
+    const queue = new JobQueue();
+    const { port, calls } = fakePort({ verdict: "pass" });
+    enqueueTrackedRun(queue, { app: "runner-browser-on", sha: "def5678", target: "e2e", mode: "diff", source: "manual", agentBrowser: true }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-browser-off", sha: "def5678", target: "e2e", mode: "diff", source: "manual", agentBrowser: false }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-browser-none", sha: "def5678", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+    await queue.drain();
+    assert.deepEqual(calls.map((c) => c.agentBrowser), [true, false, undefined]);
+  } finally {
+    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
+    else process.env.PIPELINE_ENGINE = prev;
+  }
+});

@@ -35,6 +35,9 @@ import { Sha, shaMatches } from "@kernel/sha";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
+import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
+import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
+import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
 import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import { ValidationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/validation-port.adapter";
 import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter";
@@ -455,6 +458,9 @@ export function historyLearningStore(appName: string): LearningStore {
 /* Two uses of one test account never interleave, whichever run they belong to. */
 const PROCESS_ACCOUNT_LOCK = new AccountLock();
 
+/* The most a browser process of the agent tools lives, whatever happens to the orchestrator: longer than any run. */
+const AGENT_BROWSER_LIFETIME_SECONDS = 3 * 60 * 60;
+
 /* The host's already-built real collaborators this factory reuses instead of re-assembling. */
 export interface RewrittenEngineFactoryDeps {
   /*
@@ -478,6 +484,11 @@ export interface RewrittenEngineFactoryDeps {
    * tool's calls. Absent: no run is ever granted the tool.
    */
   closedLoopRegistry?: ClosedLoopRegistry;
+  /*
+   * Where the authoring agents' sessions find the run's authenticated browser. One per process, shared with the tools endpoint
+   * that serves the browser's calls. Absent: no run is ever granted the browser.
+   */
+  agentBrowserRegistry?: AgentBrowserRegistry;
   mirrorRoot?: string;
   /* Test seam: inject spies for the two mirror primitives instead of real git/disk. */
   mirror?: {
@@ -1138,6 +1149,37 @@ export function buildRewrittenCompositionConfig(
           },
         }
       : {}),
+    /*
+     * The authenticated agent browser: composed for an e2e app with a DEV url whenever the host has a registry; whether a run is
+     * granted it is the app's qa.agentBrowser (or the run's own choice), decided when the run opens it. It starts in the execution
+     * sandbox (the same launcher, uid and egress lease a spec gets) with a lifetime of its own on Linux, so that a browser the
+     * orchestrator forgot, because it was restarted in place, ends by itself. The generator's runtime is read as it is now, and a
+     * host that cannot say is not assumed to be OpenCode: only OpenCode can call a custom tool, and a Codex role never gets one.
+     */
+    ...(deps.agentBrowserRegistry && !isCode && app.dev?.baseUrl
+      ? {
+          agentBrowser: {
+            registry: deps.agentBrowserRegistry,
+            setting: {
+              enabled: app.qa.agentBrowser?.enabled === true,
+              denyRoutes: app.qa.agentBrowser?.denyRoutes ?? [],
+              allowMutating: app.qa.agentBrowser?.allowMutating ?? [],
+            },
+            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
+            launcher: new SandboxedChromiumLauncher({
+              exec: execWiring.exec,
+              chromium: loadPlaywrightChromium,
+              kill: new ProcessKillAdapter(),
+              ...(process.platform === "linux" ? { ttlWrapper: { command: "timeout", seconds: AGENT_BROWSER_LIFETIME_SECONDS } } : {}),
+            }),
+            account: `${app.name}/${app.auth?.usernameEnv ?? "public"}`,
+            lock: PROCESS_ACCOUNT_LOCK,
+            ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}),
+            deadline: runDeadline,
+            redact: (text: string) => redactionPort.redact(redactByValue(text)),
+          },
+        }
+      : {}),
     ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
     ...(!isCode && app.dev?.baseUrl
       ? {
@@ -1324,15 +1366,27 @@ export function buildRewrittenCompositionConfig(
 }
 
 
-/* The agent transport the engine opens its sessions through: the host's, with live observation, the stall watchdog and usage, and the run_spec registry told which sessions the generator opens for which run. */
-export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry">): AgentDeps {
+/* The agent transport the engine opens its sessions through: the host's, with live observation, the stall watchdog and usage, and the run_spec and agent-browser registries told which sessions the agents open for which run. */
+export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry">): AgentDeps {
   const registry = deps.closedLoopRegistry;
+  const browsers = deps.agentBrowserRegistry;
   return withUsageSink(
     withStallWatchdog(
       withSessionRegistration(deps.getAgentDeps(), {
         register: registerRunSession,
         unregister: unregisterRunSession,
-        ...(registry ? { bind: (session) => registry.bindSession(session), unbind: (sessionId) => registry.unbindSession(sessionId) } : {}),
+        ...(registry || browsers
+          ? {
+              bind: (session) => {
+                registry?.bindSession(session);
+                browsers?.bindSession(session);
+              },
+              unbind: (sessionId) => {
+                registry?.unbindSession(sessionId);
+                browsers?.unbindSession(sessionId);
+              },
+            }
+          : {}),
       }),
       { stallMs: stallMs() },
     ),

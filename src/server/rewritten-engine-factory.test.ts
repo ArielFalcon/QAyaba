@@ -3575,6 +3575,71 @@ test("the factory tells the registry about the generator's sessions through the 
   assert.equal(capability.authorize("ses-77", "qa-generator")?.code, "unknown-session");
 });
 
+/* ── The authenticated agent browser ───────────────────────────────────────────────────────────── */
+
+test("an e2e app composes the agent browser only when the host has a registry, with the app's lists", async () => {
+  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const app: AppConfig = {
+    ...cfg("browser-app"),
+    qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true, denyRoutes: ["/admin/**"], allowMutating: ["POST /api/search"] } },
+    auth: { kind: "form", usernameEnv: "BROWSER_USER", passwordEnv: "BROWSER_PASS", loginPath: "/entrar" },
+    dev: { baseUrl: "https://dev.example.com" },
+  };
+  const without = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
+  assert.equal(without.agentBrowser, undefined);
+
+  const registry = new AgentBrowserRegistry();
+  const wired = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("opencode") }, "ns", { mode: "diff" });
+  assert.equal(wired.agentBrowser?.registry, registry);
+  assert.deepEqual(wired.agentBrowser?.setting, { enabled: true, denyRoutes: ["/admin/**"], allowMutating: ["POST /api/search"] });
+  assert.equal(wired.agentBrowser?.account, "browser-app/BROWSER_USER");
+  assert.equal(wired.agentBrowser?.loginPath, "/entrar");
+  assert.equal(wired.agentBrowser?.generatorRuntimeCanCall(), true);
+  assert.equal(typeof wired.agentBrowser?.launcher.launch, "function");
+});
+
+test("the agent browser is off for an app that does not turn it on, and never composed for a code app", async () => {
+  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const registry = new AgentBrowserRegistry();
+  const host = { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("opencode") };
+  const off = buildRewrittenCompositionConfig({ ...cfg("browser-off"), dev: { baseUrl: "https://dev.example.com" } }, host, "ns", { mode: "diff" });
+  assert.equal(off.agentBrowser?.setting.enabled, false);
+  assert.deepEqual([off.agentBrowser?.setting.denyRoutes, off.agentBrowser?.setting.allowMutating], [[], []]);
+
+  const code: AppConfig = { name: "browser-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true } }, report: { onFailure: "github-issue" } };
+  assert.equal(buildRewrittenCompositionConfig(code, host, "ns", { mode: "diff", target: "code" }).agentBrowser, undefined);
+});
+
+test("only an OpenCode generator, as the facade assigns it now, is granted the browser", async () => {
+  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const app: AppConfig = { ...cfg("browser-runtime"), qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true } }, dev: { baseUrl: "https://dev.example.com" } };
+  const registry = new AgentBrowserRegistry();
+  const codex = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("codex") }, "ns", { mode: "diff" });
+  assert.equal(codex.agentBrowser?.generatorRuntimeCanCall(), false);
+  const noFacade = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry }, "ns", { mode: "diff" });
+  assert.equal(noFacade.agentBrowser?.generatorRuntimeCanCall(), false);
+});
+
+test("the factory tells the browser registry about the authoring sessions through the transport", async () => {
+  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
+  const { AgentBrowserCapability } = await import("@contexts/test-execution/domain/agent-browser-capability");
+  const registry = new AgentBrowserRegistry();
+  const capability = new AgentBrowserCapability({ runId: "run-browser", expiresAtMs: Number.MAX_SAFE_INTEGER, now: () => 0 });
+  const ended: string[] = [];
+  registry.register({ runId: "run-browser", capability, call: async () => { throw new Error("not called"); }, endSession: (id) => void ended.push(id), close: async () => {} });
+  let n = 0;
+  const deps: AgentDeps = { open: async () => ({ id: `ses-${++n}`, prompt: async () => "", dispose: async () => {} }) as never };
+  const opened = engineAgentDeps({ getAgentDeps: () => deps, agentBrowserRegistry: registry });
+  const generator = await opened.open("qa-generator", "/m", { descriptor: { runId: "run-browser", role: "qa-generator" } });
+  const reviewer = await opened.open("qa-reviewer", "/m", { descriptor: { runId: "run-browser", role: "qa-reviewer" } });
+  assert.equal(capability.authorize("ses-1", "qa-generator"), undefined);
+  assert.equal(capability.authorize("ses-2", "qa-reviewer")?.code, "unknown-session", "a reviewer's session is never bound");
+  await generator.dispose();
+  await reviewer.dispose();
+  assert.equal(capability.authorize("ses-1", "qa-generator")?.code, "unknown-session");
+  assert.deepEqual(ended, ["ses-1"]);
+});
+
 /* ── The acceptance harness an experiment arm is judged by ─────────────────────────────────────── */
 
 test("buildAcceptanceHarness composes the pipeline's own gate, execution, coverage and review over a throwaway copy", async () => {

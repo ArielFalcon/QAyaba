@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LoginPathSchema } from "../../qa-engine/src/shared-kernel/login-path";
+import { mutatingEntryError, routePatternError } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard";
 import { compileEgressPolicy, EgressPolicyError } from "../../qa-engine/src/shared-infrastructure/egress/egress-policy";
 
 /*
@@ -16,6 +17,15 @@ const OriginListSchema = z.array(z.string().min(1)).superRefine((origins, ctx) =
     }
   });
 });
+
+/* A list of strings each checked by `check` (which returns what is wrong with one, or undefined): a bad entry is refused when the config is loaded. */
+const checkedList = (check: (entry: string) => string | undefined) =>
+  z.array(z.string().min(1)).max(100).superRefine((entries, ctx) => {
+    entries.forEach((entry, index) => {
+      const problem = check(entry);
+      if (problem !== undefined) ctx.addIssue({ code: "custom", message: `${JSON.stringify(entry)} ${problem}`, path: [index] });
+    });
+  });
 
 /*
  * ── boundaries[] schema (Stitcher → Generation seam) ──────────────────────────
@@ -179,6 +189,20 @@ export const AppConfigSchema = z
           maxCalls: z.number().int().min(1).max(50).optional(),
           perCallMs: z.number().int().min(10_000).max(600_000).optional(),
           maxDevWrites: z.number().int().min(0).max(1_000).optional(),
+        })
+        .optional(),
+      /*
+       * The authenticated agent browser: lets the authoring agents (qa-generator, qa-sidekick) read DEV through the session the run
+       * signed in with, by tools the orchestrator serves (the session never leaves it). Off unless `enabled` is true. Needs the
+       * OpenCode runtime and a login the saved session covers; a run can be forced on or off for an A/B. It never writes to DEV:
+       * `denyRoutes` are paths (`*` within a segment, `**` across) it never reaches, and `allowMutating` (`[POST ]/path`) names the
+       * only requests that write which it lets through (a search that is a POST, a GraphQL endpoint).
+       */
+      agentBrowser: z
+        .object({
+          enabled: z.boolean().optional(),
+          denyRoutes: checkedList(routePatternError).optional(),
+          allowMutating: checkedList(mutatingEntryError).optional(),
         })
         .optional(),
       /*

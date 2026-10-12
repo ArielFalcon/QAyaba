@@ -348,3 +348,28 @@ test("qa.closedLoop is off unless an app turns it on, and every limit is bounded
     assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, closedLoop: bad } }), JSON.stringify(bad));
   }
 });
+
+test("qa.agentBrowser is off unless an app turns it on, and its lists hold only well-formed paths", () => {
+  const off = AppConfigSchema.parse(base);
+  assert.equal(off.qa.agentBrowser, undefined);
+
+  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, agentBrowser: { enabled: true, denyRoutes: ["/admin/**", "/billing"], allowMutating: ["POST /api/search", "/graphql"] } } });
+  assert.deepEqual(on.qa.agentBrowser, { enabled: true, denyRoutes: ["/admin/**", "/billing"], allowMutating: ["POST /api/search", "/graphql"] });
+
+  const partial = AppConfigSchema.parse({ ...base, qa: { ...base.qa, agentBrowser: { enabled: true } } });
+  assert.deepEqual(partial.qa.agentBrowser, { enabled: true });
+
+  for (const bad of [
+    { enabled: "yes" },
+    { denyRoutes: ["admin"] },
+    { denyRoutes: ["https://dev.example.com/admin"] },
+    { denyRoutes: ["/a?x=1"] },
+    { allowMutating: ["GET /api/x"] },
+    { allowMutating: ["FETCH /api/x"] },
+    { allowMutating: ["api/x"] },
+    { denyRoutes: "/admin" },
+    { denyRoutes: Array.from({ length: 101 }, (_, i) => `/r${i}`) },
+  ]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, agentBrowser: bad } }), JSON.stringify(bad).slice(0, 60));
+  }
+});
