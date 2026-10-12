@@ -21,12 +21,19 @@ export const ALLOWED_ENV_PREFIX = /^(?:LC_|npm_config_|PIP_|CGO_|CARGO_|RUSTUP_|
 export interface ScrubEnvOptions {
   extraExact?: Set<string>;
   extraAllowed?: RegExp;
+  /* Skip the warning that names the variables left out; for a caller that scrubs on every spawn. */
+  quiet?: boolean;
 }
 
 export function scrubEnv(opts?: ScrubEnvOptions): Record<string, string> {
+  return scrubEnvFrom(process.env, opts);
+}
+
+/* The same filter over an env the caller hands in, so that a module that must not read process.env (the execution launcher) can reuse the one allowlist. */
+export function scrubEnvFrom(source: NodeJS.ProcessEnv, opts?: ScrubEnvOptions): Record<string, string> {
   const env: Record<string, string> = {};
   const dropped: string[] = [];
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(source)) {
     if (value === undefined) continue;
     if (BLOCKED_ENV_PREFIX.test(key)) continue;
     if (
@@ -40,7 +47,7 @@ export function scrubEnv(opts?: ScrubEnvOptions): Record<string, string> {
       dropped.push(key);
     }
   }
-  if (dropped.length > 0) {
+  if (dropped.length > 0 && opts?.quiet !== true) {
     console.warn(`[qa] scrubEnv dropped ${dropped.length} env var(s) not in allowlist: ${dropped.join(", ")}`);
   }
   return env;
