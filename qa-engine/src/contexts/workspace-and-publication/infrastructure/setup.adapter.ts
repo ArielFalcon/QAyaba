@@ -230,10 +230,10 @@ function namedAt<T>(path: string, run: () => T): T {
 }
 
 /* The file whose presence says that a directory is a project: a directory that has it is not seeded again. */
-const PROJECT_MARK_FILE = "package.json";
+export const PROJECT_MARK_FILE = "package.json";
 
 /* The seed is the orchestrator's own and read plainly; the project directory it is copied into is the agent's. Every directory and file goes in through the strict calls of spec-path-confinement, so that a link where a directory or a file of the project belongs is never written through (a directory or a file that is a link is refused, loudly), and a project directory that is itself a link is refused. The mark of a project is written last: a copy that fails half way (a link in the way) must leave a directory that is not taken for seeded, or no later setup would copy the rest. */
-function copySeedStrictly(seedDir: string, e2eDir: string, filter: (src: string) => boolean = () => true): void {
+export function copySeedStrictly(seedDir: string, e2eDir: string, filter: (src: string) => boolean = () => true): void {
   if (!filter(seedDir)) return;
   try {
     lstatSync(e2eDir);

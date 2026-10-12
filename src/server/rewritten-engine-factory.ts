@@ -1199,7 +1199,7 @@ export function buildRewrittenCompositionConfig(
      * and a campaign seeds the store itself (scripts/warm-suite.ts seed-store) before each arm-run.
      */
     ...(!isCode
-      ? { suiteStore: new SuiteStoreAdapter({ storeDir: appSuiteStoreDir(root, app.name), app: app.name, repo: app.repo, specRelDir: e2eRelDir, listTracked: gitListTracked(runner), now: () => new Date(), readOnly: campaignFrozen }) }
+      ? { suiteStore: new SuiteStoreAdapter({ storeDir: appSuiteStoreDir(root, app.name), app: app.name, repo: app.repo, specRelDir: e2eRelDir, seedDir: join(qayabaRoot(), "config", "e2e"), listTracked: gitListTracked(runner), now: () => new Date(), readOnly: campaignFrozen }) }
       : {}),
     ...(observer ? { observer } : {}),
   };

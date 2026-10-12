@@ -26,6 +26,9 @@ interface Rig {
   has(rel: string): boolean;
   clean(): void;
   store(limits?: SuiteStoreLimits, readOnly?: boolean): SuiteStoreAdapter;
+  /** The engine's seed project the store was told about; a test rewrites a file of it to stand for an engine upgrade. */
+  seedDir: string;
+  seed(rel: string, text: string): void;
   manifest(): SuiteManifest;
   blobs(): string[];
   /** `executedGreen` as a list means "these paths ran green with the bytes they hold right now"; a map names the exact bytes that ran. */
@@ -43,11 +46,13 @@ function rig(t: TestContext): Rig {
   const storeDir = join(base, "data", "suites", "demo");
   mkdirSync(specDir, { recursive: true });
   const tracked = new Map<string, TrackedFile>();
+  const seedDir = join(base, "config", "e2e");
+  mkdirSync(seedDir, { recursive: true });
   const warnings: string[] = [];
   let tick = 0;
   const store = (limits?: SuiteStoreLimits, readOnly?: boolean): SuiteStoreAdapter =>
     new SuiteStoreAdapter({
-      storeDir, app: "demo", repo: "org/app", specRelDir: "e2e",
+      storeDir, app: "demo", repo: "org/app", specRelDir: "e2e", seedDir,
       listTracked: async () => tracked,
       now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++)),
       warn: (m) => warnings.push(m),
@@ -62,7 +67,11 @@ function rig(t: TestContext): Rig {
   const ranGreen = (...paths: string[]): Map<string, string> =>
     new Map(paths.filter((p) => existsSync(join(specDir, p))).map((p) => [p, sha(readFileSync(join(specDir, p)))]));
   return {
-    base, mirrorDir, specDir, storeDir, tracked, warnings, put, store,
+    base, mirrorDir, specDir, storeDir, tracked, warnings, put, store, seedDir,
+    seed: (rel, text) => {
+      mkdirSync(dirname(join(seedDir, rel)), { recursive: true });
+      writeFileSync(join(seedDir, rel), text);
+    },
     read: (rel) => readFileSync(join(specDir, rel), "utf8"),
     has: (rel) => existsSync(join(specDir, rel)),
     clean: () => {
@@ -378,6 +387,83 @@ test("a capture that holds a file again repairs its stored copy when that no lon
   r.clean();
   assert.equal((await r.store().restore(root(r))).restored, 2);
   assert.deepEqual(r.warnings, []);
+});
+
+test("a file that is byte-equal to the engine's seed is not stored: it is the seed's to give, not the app's", async (t) => {
+  const r = rig(t);
+  r.seed("package.json", "{\"seed\":1}");
+  r.seed("fixtures.ts", "seed fixtures");
+  r.put("package.json", "{\"seed\":1}");
+  r.put("fixtures.ts", "app fixtures");
+  r.put("flows/a.spec.ts", "a");
+
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+
+  assert.deepEqual(r.manifest().entries.map((e) => e.path), ["fixtures.ts", "flows/a.spec.ts"]);
+});
+
+test("a stored file that has since become the seed's own is dropped at the next capture", async (t) => {
+  const r = rig(t);
+  r.put("package.json", "{\"v\":1}");
+  await r.capture({});
+  r.seed("package.json", "{\"v\":1}");
+
+  const result = await r.capture({ runId: "run-2" });
+
+  assert.equal(result.dropped, 1);
+});
+
+test("an engine seed upgrade reaches an app whose cold working copy is restored, and what the app authored is kept", async (t) => {
+  const r = rig(t);
+  r.seed("package.json", "{\"playwright\":\"1.60.0\"}");
+  r.seed("playwright.config.ts", "seed config v1");
+  r.put("package.json", "{\"playwright\":\"1.60.0\"}");
+  r.put("playwright.config.ts", "seed config v1");
+  r.put("flows/a.spec.ts", "a");
+  r.put(AUTH_SETUP_PATH, APP_LOGIN);
+  r.put("pages/login.page.ts", "export class LoginPage {}");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"], authVerifiedSha256: sha(APP_LOGIN) });
+
+  r.seed("playwright.config.ts", "seed config v2");
+  r.seed("package.json", "{\"playwright\":\"1.61.0\"}");
+  r.clean();
+  await r.store().restore(root(r));
+
+  assert.equal(r.read("playwright.config.ts"), "seed config v2");
+  assert.equal(r.read("package.json"), "{\"playwright\":\"1.61.0\"}");
+  assert.equal(r.read("flows/a.spec.ts"), "a");
+  assert.equal(r.read(AUTH_SETUP_PATH), APP_LOGIN, "the app's login is not replaced by the seed's");
+  assert.equal(r.read("pages/login.page.ts"), "export class LoginPage {}");
+});
+
+test("a stored file the app changed from the seed is restored over the seed", async (t) => {
+  const r = rig(t);
+  r.seed("package.json", "{\"seed\":1}");
+  r.seed("fixtures.ts", "seed fixtures");
+  r.put("package.json", "{\"seed\":1,\"extra\":true}");
+  r.put("fixtures.ts", "app fixtures");
+  await r.capture({});
+
+  r.clean();
+  await r.store().restore(root(r));
+
+  assert.equal(r.read("package.json"), "{\"seed\":1,\"extra\":true}");
+  assert.equal(r.read("fixtures.ts"), "app fixtures");
+});
+
+test("a working copy that already holds a project is not seeded by the restore", async (t) => {
+  const r = rig(t);
+  r.seed("package.json", "{\"seed\":1}");
+  r.seed("eslint.config.js", "seed eslint");
+  r.put("flows/a.spec.ts", "a");
+  await r.capture({ executedGreen: ["flows/a.spec.ts"] });
+  r.clean();
+  r.put("package.json", "{\"the app's own\":1}");
+
+  await r.store().restore(root(r));
+
+  assert.equal(r.has("eslint.config.js"), false);
+  assert.equal(r.read("package.json"), "{\"the app's own\":1}");
 });
 
 test("entries are classified: specs, the login, and everything else as support (the engine's own cleanup spec included)", () => {

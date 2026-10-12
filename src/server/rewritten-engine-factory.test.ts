@@ -1,6 +1,7 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -323,6 +324,38 @@ test("buildRewrittenCompositionConfig wires the suite store for an e2e run and l
   assert.ok(shadow.suiteStore, "a shadow run keeps its suite too: nothing else would");
   const code = buildRewrittenCompositionConfig(cfg("suite-store-code"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", target: "code" });
   assert.equal(code.suiteStore, undefined);
+});
+
+test("the suite store starts a cold working copy from the engine's seed project before the stored files go over it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "factory-suite-seed-"));
+  const before = process.env.QAYABA_ROOT;
+  process.env.QAYABA_ROOT = root;
+  try {
+    const storeDir = join(root, "data", "suites", "suite-store-seeded");
+    const blob = Buffer.from("test('a')");
+    const hash = createHash("sha256").update(blob).digest("hex");
+    mkdirSync(join(storeDir, "blobs"), { recursive: true });
+    writeFileSync(join(storeDir, "blobs", hash), blob);
+    writeFileSync(join(storeDir, "manifest.json"), JSON.stringify({
+      schema: 1, app: "suite-store-seeded", repo: "org/app", specRelDir: "e2e", generation: 1,
+      entries: [{ path: "flows/a.spec.ts", sha256: hash, bytes: blob.length, kind: "spec", admittedBy: { runId: "r", sha: "s", at: "2026-01-01T00:00:00.000Z" } }],
+    }));
+    mkdirSync(join(root, "config", "e2e"), { recursive: true });
+    writeFileSync(join(root, "config", "e2e", "package.json"), "{\"engine\":\"seed\"}");
+    const mirror = join(root, "mirror");
+    mkdirSync(mirror);
+    execFileSync("git", ["init", "-q"], { cwd: mirror });
+
+    const config = buildRewrittenCompositionConfig(cfg("suite-store-seeded"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    await config.suiteStore!.restore({ mirrorDir: mirror, specDir: join(mirror, "e2e") });
+
+    assert.equal(readFileSync(join(mirror, "e2e", "package.json"), "utf8"), "{\"engine\":\"seed\"}");
+    assert.equal(readFileSync(join(mirror, "e2e", "flows", "a.spec.ts"), "utf8"), "test('a')");
+  } finally {
+    if (before === undefined) delete process.env.QAYABA_ROOT;
+    else process.env.QAYABA_ROOT = before;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("under the campaign freeze the suite store is read-only: a capture writes nothing", async () => {

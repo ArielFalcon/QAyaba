@@ -21,6 +21,7 @@ import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/gi
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { readOwnedSpecFile, writeOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { PROJECT_MARK_FILE, copySeedStrictly } from "./setup.adapter.ts";
 import { MAX_FILE_BYTES, assertSafeRelative, exclusionReason, looksLikeSessionState, walkTree } from "../../../shared-infrastructure/suite-tree.ts";
 
 export const SUITE_MANIFEST_SCHEMA = 1;
@@ -100,6 +101,12 @@ export interface SuiteStoreDeps {
   repo: string;
   /** The suite directory below the working copy ("e2e"). */
   specRelDir: string;
+  /**
+   * The engine's seed project (config/e2e). Optional: absent, the store neither skips seed copies nor seeds a cold working copy.
+   * The store keeps only what differs from the seed, so a file the app never changed follows the seed's upgrades, and a restore into a
+   * working copy with no project starts from the seed before the stored files go over it.
+   */
+  seedDir?: string;
   /** The files git tracks under the suite directory at the working copy's HEAD, keyed by their path below the suite directory. */
   listTracked(mirrorDir: string, specRelDir: string): Promise<ReadonlyMap<string, TrackedFile>>;
   now(): Date;
@@ -211,6 +218,9 @@ export class SuiteStoreAdapter implements SuiteStorePort {
     if (manifest.entries.length === 0) return result;
     const tracked = await this.deps.listTracked(root.mirrorDir, this.deps.specRelDir);
     if (!existsSync(root.specDir)) mkdirSync(root.specDir, { recursive: true });
+    if (this.deps.seedDir !== undefined && !existsSync(join(root.specDir, PROJECT_MARK_FILE))) {
+      copySeedStrictly(this.deps.seedDir, root.specDir, (src) => !src.includes("node_modules"));
+    }
     for (const entry of manifest.entries) {
       if (entry.kind === SUITE_ENTRY_KIND.AUTH_SETUP && manifest.auth?.status !== AUTH_STATUS.VERIFIED) continue;
       const trackedFile = tracked.get(entry.path);
@@ -269,6 +279,10 @@ export class SuiteStoreAdapter implements SuiteStorePort {
       if (looksLikeSessionState(file, bytes)) {
         decisions.set(file, { action: "drop" });
         skipped.push({ path: file, reason: "login session (storage state)" });
+        continue;
+      }
+      if (kind !== SUITE_ENTRY_KIND.AUTH_SETUP && this.isSeedCopy(file, bytes)) {
+        decisions.set(file, { action: "drop" });
         continue;
       }
       const sha = sha256Of(bytes);
@@ -441,6 +455,18 @@ export class SuiteStoreAdapter implements SuiteStorePort {
       (this.deps.warn ?? console.error)(`[suite-store] ${entry.path}: the stored copy cannot be read (${err instanceof Error ? err.message : String(err)}); it is left out and dropped at the next capture`);
     }
     return undefined;
+  }
+
+  /* Whether the file is, byte for byte, the engine's own seed file at the same path: not the app's, so not the store's. */
+  private isSeedCopy(path: string, bytes: Buffer): boolean {
+    if (this.deps.seedDir === undefined) return false;
+    const seedPath = join(this.deps.seedDir, path);
+    try {
+      return lstatSync(seedPath).isFile() && readFileSync(seedPath).equals(bytes);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT" || (err as NodeJS.ErrnoException).code === "ENOTDIR") return false;
+      throw err;
+    }
   }
 
   /* Whether the blob of this hash is in the store and still hashes to its name. */
