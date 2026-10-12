@@ -358,6 +358,13 @@ test("the suite store starts a cold working copy from the engine's seed project 
   }
 });
 
+test("the diff time budgets are read from the environment the composition was given, not the process's: a mistyped value throws naming its variable", () => {
+  assert.throws(
+    () => buildRewrittenCompositionConfig(cfg("budget-env"), { getAgentDeps: stubAgentDeps, env: { QA_DIFF_TIME_BUDGET_MS_TINY: "soon" } }, "qa-bot-abc1234-run1", { mode: "diff" }),
+    /QA_DIFF_TIME_BUDGET_MS_TINY/,
+  );
+});
+
 test("under the campaign freeze the suite store is read-only: a capture writes nothing", async () => {
   const root = mkdtempSync(join(tmpdir(), "factory-suite-freeze-"));
   const before = process.env.QAYABA_ROOT;

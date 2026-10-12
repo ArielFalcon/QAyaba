@@ -772,7 +772,7 @@ export function buildRewrittenCompositionConfig(
     /* The transport's own deadline: the generator's time budget is never set above it. */
     promptCapMs: agentPromptCapMs(),
     /* QA_DIFF_TIME_BUDGET_MS_{TINY,FOCUSED,BROAD} override a tier's time; read here once because qa-engine never reads process.env. A mistyped value throws. */
-    timeBudgets: resolveDiffTimeBudgets(process.env),
+    timeBudgets: resolveDiffTimeBudgets(deps.env ?? process.env),
   });
 
 
