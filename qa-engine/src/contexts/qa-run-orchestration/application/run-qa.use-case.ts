@@ -800,6 +800,7 @@ export class RunQaUseCase {
           specDir: workspace.specDir,
           ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
           ...(input.closedLoop !== undefined ? { enabled: input.closedLoop } : {}),
+          ...(signal ? { signal } : {}),
         });
       } catch (err) {
         rethrowIfRunDeadline(err);

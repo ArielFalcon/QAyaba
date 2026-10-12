@@ -107,6 +107,11 @@ export class RunSpecCapability {
     return this.entries;
   }
 
+  /* The namespace of the call in flight, when one is: what an interrupted run must clean. */
+  get pendingNamespace(): string | undefined {
+    return this.inFlight?.namespace;
+  }
+
   /* Calls that were started, refused ones excluded. */
   get calls(): number {
     return this.calls_;

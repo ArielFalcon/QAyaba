@@ -333,3 +333,18 @@ test("e2e.specCredentials accepts none and account, and nothing else", () => {
   assert.throws(() => AppConfigSchema.parse({ ...base, e2e: { specCredentials: "all" } }));
   assert.equal(AppConfigSchema.parse(base).e2e?.specCredentials, undefined, "default: the specs never see the account");
 });
+
+test("qa.closedLoop is off unless an app turns it on, and every limit is bounded", () => {
+  const off = AppConfigSchema.parse(base);
+  assert.equal(off.qa.closedLoop, undefined);
+
+  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, closedLoop: { enabled: true, maxCalls: 6, perCallMs: 90_000, maxDevWrites: 10 } } });
+  assert.deepEqual(on.qa.closedLoop, { enabled: true, maxCalls: 6, perCallMs: 90_000, maxDevWrites: 10 });
+
+  const partial = AppConfigSchema.parse({ ...base, qa: { ...base.qa, closedLoop: { enabled: true } } });
+  assert.deepEqual(partial.qa.closedLoop, { enabled: true });
+
+  for (const bad of [{ maxCalls: 0 }, { maxCalls: 51 }, { perCallMs: 5_000 }, { perCallMs: 700_000 }, { maxDevWrites: -1 }, { maxDevWrites: 1_001 }, { maxCalls: 1.5 }, { enabled: "yes" }]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, closedLoop: bad } }), JSON.stringify(bad));
+  }
+});

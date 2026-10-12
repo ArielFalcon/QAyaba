@@ -270,6 +270,8 @@ export interface ClosedLoopOpenInput {
   specDir: string;
   /** The run's own choice, when it makes one (an A/B arm): overrides the app's setting. Absent: the app's setting decides. */
   enabled?: boolean;
+  /** The run's cancellation: a call in flight when it fires is stopped. */
+  signal?: AbortSignal;
 }
 export interface ClosedLoopSignals {
   /** run_spec calls that started. */
