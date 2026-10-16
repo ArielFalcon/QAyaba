@@ -137,6 +137,17 @@ test("ground(): without a map every file counts", async () => {
   assert.equal(input.changedLiterals?.length, 2);
 });
 
+test("ground() hands the run the added labels the pack states with more nodes than unchanged lines, and nothing when it states none", async () => {
+  const diff = labelDiff;
+  const withLines = (changedValuesWithMoreNodes?: string[]): PreGenerationGroundingPortAdapter =>
+    new PreGenerationGroundingPortAdapter(
+      { e2eDir: "/mirrors/org/app/e2e" },
+      { buildContextPack: async () => ({ text: "## Context Pack", domBytes: 1, contractBytes: 0, ...(changedValuesWithMoreNodes ? { changedValuesWithMoreNodes } : {}) }) },
+    );
+  assert.deepEqual((await withLines(["Cambiar filtros"]).ground("/tmp/qa-golden/e2e", undefined, diff, { sha: "abc1234" })).changedValuesWithMoreNodes, ["Cambiar filtros"]);
+  assert.equal("changedValuesWithMoreNodes" in (await withLines().ground("/tmp/qa-golden/e2e", undefined, diff, { sha: "abc1234" })), false);
+});
+
 test("ground(): a diff with no changed label gives the pack no literals", async () => {
   const diff = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -1,1 +1,1 @@", "-const a = 1;", "+const a = 2;"].join("\n");
   const input = await packInputFor({}, diff);

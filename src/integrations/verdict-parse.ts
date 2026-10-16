@@ -1,6 +1,7 @@
 
 
 import type { SpecMeta } from "../types";
+import { readNoopKind, type NoopKind } from "@kernel/noop-kind.ts";
 
 export interface FinalVerdict {
   approved: boolean;
@@ -9,6 +10,8 @@ export interface FinalVerdict {
   note?: string;
   /** The reason the generator gave for writing nothing (`noop.reason`); absent unless it declared a no-op with a reason. `approved` is never a no-op signal. */
   noopReason?: string;
+  /** The reason it gave, as the contract names it (`noop.kind`): recorded as `unspecified` when the verdict names none. Present exactly when `noopReason` is. */
+  noopKind?: NoopKind;
   /** The plan a lead emitted when its turn asked for one: the raw object, untrusted and read by the orchestrator's admission alone. Absent unless the verdict carried a `plan` object. */
   plan?: Record<string, unknown>;
   /** false when no verdict JSON was found (fail-closed). Distinguishes parse miss from rejection. */
@@ -84,6 +87,12 @@ function noopReasonOf(raw: unknown): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+/* The decision of a `noop` block: its reason and the kind it names, both only when it gives a reason. */
+function noopOf(raw: unknown): { noopReason?: string; noopKind?: NoopKind } {
+  const reason = noopReasonOf(raw);
+  return reason === undefined ? {} : { noopReason: reason, noopKind: readNoopKind((raw as Record<string, unknown>).kind) };
+}
+
 /*
  * Last balanced object with `specs`, `noop` or `approved`. A missing `approved` is not a rejection
  * (the reviewer is the gate); no parseable block — or one listing a spec that is not a path
@@ -102,7 +111,7 @@ export function parseVerdict(text: string): FinalVerdict {
       specs: specs as string[],
       specMetas: parseSpecMetas(o.specMetas),
       note: typeof o.note === "string" ? o.note : undefined,
-      noopReason: noopReasonOf(o.noop),
+      ...noopOf(o.noop),
       ...(planOf(o.plan) ? { plan: planOf(o.plan) } : {}),
       parsed: true,
     };

@@ -10,6 +10,7 @@ import type { Sha } from "@kernel/sha.ts";
 import type { RunMode, RunPurpose, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunStep } from "@kernel/run-step.ts";
+import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
@@ -255,6 +256,8 @@ export interface GenerationOutput {
   specs: string[];
   declaredSpecs?: DeliveredSpec[];
   end: GenerationEndKind;
+  /** For a declared no-op, the reason its verdict named (`unspecified` when it named none). Absent for every other end. Observe-only. */
+  noopKind?: NoopKind;
   reviewed: boolean;
   approved: boolean;
   note?: string;
@@ -691,6 +694,8 @@ export interface GroundingResult {
   contextBrief?: ExplorationBrief;
   /** Facts about the suite's harness (the configured test-id attribute, what the fixtures file exports). Absent when nothing was configured or scannable (fail-open). */
   harnessFacts?: HarnessFacts;
+  /** The added labels whose changed-value line in the pack said more nodes than unchanged lines of the file. Absent when none did, or when no pack carries such lines. */
+  changedValuesWithMoreNodes?: string[];
 }
 /**
  * Pre-generate first-write grounding (DOM/route/context pack), run once after

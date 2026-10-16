@@ -79,7 +79,7 @@ from role/label/text you can still observe; **never construct a test-id from sou
 convention** — a fabricated test-id is the #1 cause of 30s selector timeouts.
 
 Source code says what the change did, never what a page shows: it grounds no selector and no asserted
-value. When the evidence does not show the element the change touched, choose one of two outcomes: a
+value. When the evidence does not show the element the change touched, choose: a
 spec that creates, through the UI, the state in which the page renders that element and asserts it
 there, or the no-op defined under Final output. Never assert a pre-existing element that only carries
 the same label as the changed one: it stays green whether the change works or not.
@@ -166,22 +166,22 @@ End with a single JSON block, with no text after it:
 }
 ```
 
-A no-op has two legitimate reasons: nothing in this change is worth an E2E test, or the changed
-behaviour cannot be observed on DEV in its current state. Write no specs and end with this block
-instead, stating the reason that holds — it is what makes an empty list a decision:
+A no-op has two legitimate reasons, and `noop.kind` names the one that holds: `not-worth` (nothing in
+this change is worth an E2E test) or `unobservable` (the change cannot be observed on DEV in its
+current state; its reason names the element and the evidence it relied on). Write no specs and end
+with this block instead — the reason is what makes an empty list a decision:
 
 ```json
-{ "specs": [], "noop": { "reason": "the diff only renames an internal helper; no user-visible behavior changes" } }
+{ "specs": [], "noop": { "kind": "not-worth", "reason": "the diff only renames an internal helper; no user-visible behavior changes" } }
 ```
 
 - Do **NOT** report an `approved` field. You do not judge your own work: the orchestrator runs the
   separate, independent `qa-reviewer` (see step 6) and ITS verdict is authoritative. Self-approving
-  here would be ignored, so don't spend effort (or a self-review subagent) trying to produce it.
+  would be ignored.
 - `specs`: the files you wrote/updated, each as its path relative to `e2e/` (`flows/login.spec.ts`
   for `e2e/flows/login.spec.ts`) — the path the test runner reports, never a bare file name. Each
   `specMetas[].file` uses the same path. An empty list is a decision only together with
-  `noop.reason` (which of the two reasons holds, and why) — never invent tests to fill it. An empty
+  `noop.kind` and `noop.reason` — never invent tests to fill it. An empty
   list with no reason is not a decision, and `approved` never stands in for one.
-- `note`: any limitation worth surfacing (e.g. "the page behind /orders redirected to /login, so it was
-  not observed"), otherwise "".
+- `note`: any limitation worth surfacing (e.g. "/orders redirected to /login"), otherwise "".
 - When the prompt asks for a plan, write no file and emit only the plan contract it gives, in place of the block above.

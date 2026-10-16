@@ -9,7 +9,7 @@ import type { AgentTurnRecord } from "../src/server/history.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
 import {
   DEFAULT_SUITE_DIR, PHASES, buildPipelineReport, contentReadsOf, coverageOf, gotoRoutes, normalizeRoute, parseGroundTruth, phaseDurations, promptSections, renderMarkdown, renderRunRow,
-  scoreGroundTruth, specSourcesOf, stitcherMetrics, summarizeTools, toProbeTurn, turnFromCallMetrics, type GroundTruth, type ReadingContext, type TimedRunEvent,
+  renderNoopLines, scoreGroundTruth, specSourcesOf, stitcherMetrics, summarizeTools, toProbeTurn, turnFromCallMetrics, type GroundTruth, type ReadingContext, type TimedRunEvent,
 } from "./probe-metrics.ts";
 
 const step = (ts: number, name: string, detail?: string): TimedRunEvent => ({ ts, body: { type: "step.changed", step: name as "gate", ...(detail ? { detail } : {}) } });
@@ -257,6 +257,16 @@ test("a pipeline report carries how the generator used run_spec and whether the 
   assert.deepEqual(withLoop.closedLoop, { calls: 3, devWrites: 2, closed: true });
   const without = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome(), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
   assert.equal("closedLoop" in without, false);
+});
+
+test("a pipeline report carries the kind of a declared no-op, listed in the markdown, and nothing for a run that is not one", () => {
+  const declared = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome({ noop: { kind: "unobservable" } }), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  assert.deepEqual(declared.noop, { kind: "unobservable" });
+  assert.match(renderNoopLines([declared]).join("\n"), new RegExp(`${RUN_ID}: unobservable`));
+  assert.ok(renderMarkdown([declared]).includes("### No-op"));
+  const without = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome(), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
+  assert.equal("noop" in without, false);
+  assert.deepEqual(renderNoopLines([without]), []);
 });
 
 test("a pipeline report carries how the authoring agents used the browser, and nothing when the run did not grant it", () => {

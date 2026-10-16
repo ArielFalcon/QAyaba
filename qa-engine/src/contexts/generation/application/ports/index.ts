@@ -4,6 +4,7 @@ import type { Objective } from "@kernel/objective.ts";
 import type { QaCase, SpecMeta } from "@kernel/qa-case.ts";
 import type { OpencodeRunInput, ReviewInput, ExplorationBrief } from "./generation-ports.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
+import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 export type { ManifestEntry };
 export interface ManifestRepositoryPort {
@@ -13,7 +14,7 @@ export interface ManifestRepositoryPort {
 }
 
 /** Free-form LLM text → structured deliverable. Fail-closed on an unparseable verdict. parsed is FALSE only on a parse miss, not a deliberate no-op. specMetas drives the disk-reconciled manifest upsert (disk over the agent's word). noopReason is the generator's stated reason for writing nothing (never inferred from `approved`); outputTail is the end of the agent's output. Both are already redacted and bounded to the note limit. */
-export interface GeneratorDeliverable { specs: string[]; note?: string; parsed?: boolean; specMetas?: SpecMeta[]; noopReason?: string; outputTail?: string; plan?: Record<string, unknown>; }
+export interface GeneratorDeliverable { specs: string[]; note?: string; parsed?: boolean; specMetas?: SpecMeta[]; noopReason?: string; noopKind?: NoopKind; outputTail?: string; plan?: Record<string, unknown>; }
 export interface ReviewJudgment {
   approved: boolean;
   corrections: string[];

@@ -489,6 +489,8 @@ describe("prompt-sync drift guard", () => {
   }
   const LAST_ACTION_RULE = phrasePattern("verdict is your LAST action");
   const DECLARED_NO_OP_RULE = phrasePattern("you have declared a no-op");
+  /* The second reason of the no-op, in the words the generator role states it and the effort of a diff's first pass quotes. */
+  const UNOBSERVABLE_NOOP_REASON = phrasePattern("cannot be observed on DEV in its current state");
   /* Supplied context is used at the confidence the prompt states for each part, and what the prompt marks as unverified or stale is looked up when a test depends on it. */
   const CONFIDENCE_RULE = phrasePattern("at the confidence the prompt states", "at the confidence it states");
   const UNVERIFIED_LOOKUP_RULE = phrasePattern("marks as unverified or stale");
@@ -590,7 +592,11 @@ describe("prompt-sync drift guard", () => {
     /* The outcome contract: source code grounds no selector, a same-label stand-in is never asserted, and the no-op has its second reason. Each is stated by the generator role alone. */
     { rule: "source code grounding no selector and no asserted value", pattern: phrasePattern("grounds no selector and no asserted value"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "never asserting a pre-existing element with the changed label", pattern: phrasePattern("Never assert a pre-existing element"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "the no-op for a change DEV cannot show", pattern: phrasePattern("cannot be observed on DEV in its current state"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* The generator role owns the sentence that names the second reason of the no-op; the one place an assembled prompt offers the no-op (the effort of a diff's first pass) quotes it, and no other turn does. */
+    ...(["tree", "pack", "openapi", "broad"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (a diff's first pass, ${shape})`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 1 } })),
+    ...(["code", "code-regen", "regen", "complete", "complete-regen", "context"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (${shape}, which offers no effort)`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 0 } })),
+    { rule: "the generator naming the kind of its no-op in the verdict", pattern: phrasePattern("`noop.kind` names the one that holds"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "an unobservable no-op naming the element and the evidence it relied on", pattern: phrasePattern("names the element and the evidence it relied on"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "reading the existing spec of a flow before updating it", pattern: READ_BEFORE_UPDATE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     /* An OpenAPI contract is read for a contract fact the prompt lacks: the static layers hold the rule, and the assembled prompt of an app that declares a contract does not repeat it. */
     { rule: "reading a contract fact from the matching operation of the repo's OpenAPI spec", pattern: CONTRACT_READ_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },

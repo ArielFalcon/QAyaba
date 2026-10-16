@@ -327,6 +327,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       );
       const packResult = signal ? await raceWithAbort(buildPromise, signal) : await buildPromise;
       if (packResult.text) result.contextPack = packResult.text;
+      if (packResult.changedValuesWithMoreNodes?.length) result.changedValuesWithMoreNodes = packResult.changedValuesWithMoreNodes;
     } catch (err) {
       if (isAbortError(err)) return result; /* abort: return whatever was gathered so far, never throw — see the note above. */
       console.warn(`[qa] WARNING: context-pack build FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);

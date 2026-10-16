@@ -83,10 +83,10 @@ function renderLeadPlan(limits: PlanningLimits): string {
   return [
     `## ${PROMPT_HEADINGS.leadPlan}`,
     `This turn asks for a plan, not for specs: write no file. Close with ONLY a JSON object {"plan": ...} of one of these shapes.`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing is worth a test or DEV cannot show the change>"}}`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing is worth a test, or the element and the evidence showing the change cannot be observed on DEV in its current state>"}}`,
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.SINGLE}"}} when the change is one piece of work you author yourself.`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]}]}} when the change is several independent flows, each written and run without the others.`,
-    `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]}]}} when the change is several independent flows.`,
+    `A fan-out names at most ${limits.maxFlows} flows, ${limits.maxParallel} written at once. A flow is one spec file named by its id; flows share no file and no data.`,
     ``,
   ].join("\n");
 }
@@ -1199,7 +1199,7 @@ export interface EffortTier {
 }
 
 /* The clause every tier ends with, so that what the data declares (the no-op is admitted) is what the text says. */
-export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test or DEV cannot show the change";
+export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test or the change cannot be observed on DEV in its current state";
 const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_NO_OP_CLAUSE}.`;
 
 export const EFFORT_BY_TIER: Record<DiffTier, EffortTier> = {
@@ -1268,8 +1268,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     `## Commit message (the author's intent — derive each test's objective from this)`,
     renderCommitMessage(intent, true),
     ``,
-    `Cross-check against the diff: if the code does more than the message claims, cover what`,
-    `the code actually changes, not just what the message promises.`,
+    `Cross-check against the diff: cover what the code actually changes, not only what the message promises.`,
     ``,
     ...classifierNoteLines(input),
     objective.text,

@@ -97,6 +97,18 @@ test("a page that was not grounded says nothing about a value, and a page that o
   assert.match(section, /no captured node shows it/);
 });
 
+test("the pack reports the added values a route shows by more nodes than unchanged lines hold them, and no other", async () => {
+  const stated = await buildContextPack(
+    { ...PACK_INPUT, changedLiterals: [label(0), label(2, "added", "Otro texto")] },
+    siteShowing([{ route: "/restaurantes", nodes: NODES_WITHOUT_RESTAURANTS }]),
+  );
+  assert.deepEqual(stated.changedValuesWithMoreNodes, ["Cambiar filtros"]);
+  const unattributable = await buildContextPack({ ...PACK_INPUT, changedLiterals: [label(2)] }, siteShowing([{ route: "/restaurantes", nodes: NODES_WITHOUT_RESTAURANTS }]));
+  assert.equal("changedValuesWithMoreNodes" in unattributable, false);
+  const none = await buildContextPack(PACK_INPUT, siteShowing([{ route: "/restaurantes", nodes: NODES_WITHOUT_RESTAURANTS }]));
+  assert.equal("changedValuesWithMoreNodes" in none, false);
+});
+
 test("a pack without changed literals has no changed-values section", async () => {
   const result = await buildContextPack(PACK_INPUT, siteShowing([{ route: "/restaurantes", nodes: NODES_WITHOUT_RESTAURANTS }]));
   assert.equal(sectionText(result.text), "");

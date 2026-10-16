@@ -11,7 +11,7 @@ import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import { rankRoutesByChange } from "../domain/route-ranking.ts";
 import { instantiableTemplate, instantiateRoute } from "../domain/route-instantiation.ts";
-import { renderChangedValues, type ObservedPage } from "../domain/changed-values.ts";
+import { renderChangedValues, valuesWithMoreNodesThanLines, type ObservedPage } from "../domain/changed-values.ts";
 import type { ChangedLiteral } from "../../../shared-kernel/diff-parser/changed-literal.ts";
 
 export { PACK_HEADINGS };
@@ -71,6 +71,8 @@ export interface ContextPackAssembly {
 
   domBytes: number;
   contractBytes: number;
+  /* The added values whose changed-value line states more nodes on a route than unchanged lines hold them. Absent when none does. */
+  changedValuesWithMoreNodes?: string[];
 }
 
 export interface ContextPackDeps {
@@ -351,6 +353,8 @@ export async function buildContextPack(
   const changedValuesSection =
     domSection !== "" && input.changedLiterals?.length ? sanitizeText(renderChangedValues(input.changedLiterals, observedPages), "model").text : "";
 
+  const moreNodes = changedValuesSection === "" ? [] : valuesWithMoreNodesThanLines(input.changedLiterals ?? [], observedPages);
+
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
 
@@ -378,5 +382,5 @@ export async function buildContextPack(
   ].join("\n");
 
   const text = packHeader + parts.join("\n\n");
-  return { text, domBytes, contractBytes };
+  return { text, domBytes, contractBytes, ...(moreNodes.length > 0 ? { changedValuesWithMoreNodes: moreNodes } : {}) };
 }

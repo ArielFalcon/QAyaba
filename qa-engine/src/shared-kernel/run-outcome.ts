@@ -6,6 +6,7 @@ import type { QaCase } from "./qa-case.ts";
 import type { ClosedLoopGateSignal } from "./closed-loop.ts";
 import type { AgentBrowserGateSignal } from "./agent-browser.ts";
 import type { CoordinationGateSignal } from "./coordination.ts";
+import type { NoopKind } from "./noop-kind.ts";
 
 export type ErrorClass = string | null;
 
@@ -47,6 +48,8 @@ export interface RunOutcome {
     agentBrowser?: AgentBrowserGateSignal;
     /* How the run was coordinated when it asked for the lead/sidekick mode: what became of the plan, how many flows were authored, delivered and left unfinished, and whether the lead took over. Absent for a run in the single mode. Persist-only: it reads nothing back into a verdict. */
     coordination?: CoordinationGateSignal;
+    /* The reason a declared no-op named (`noop.kind` of its verdict, `unspecified` when it named none). Absent for a run that is not one. Persist-only: it reads nothing back into a verdict. */
+    noop?: { kind: NoopKind };
     /* Undefined = the signal never ran — never a fabricated 0 (that would be indistinguishable from "ran and found zero"). Persist-only; never read by decide/verdict/gate/publish. */
     structuralSignalBytes?: number;
     serviceLinksCount?: number;

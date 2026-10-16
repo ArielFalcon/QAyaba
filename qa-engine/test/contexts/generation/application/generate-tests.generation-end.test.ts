@@ -4,6 +4,7 @@ import { GenerateTestsUseCase, type GenerationPorts, type GenerationResult } fro
 import type { GeneratorDeliverable, ManifestEntry } from "@contexts/generation/application/ports/index.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
+import { NOOP_KIND, type NoopKind } from "@kernel/noop-kind.ts";
 import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 
 /** One scripted turn: the text the agent returned and the stats its runtime measured for it (none for a runtime that cannot). */
@@ -22,11 +23,11 @@ const NOOP_VERDICT = '{"specs":[],"noop":{"reason":"the diff only renames an int
 /** A stand-in for the verdict parser that reads the compact verdicts of these tests. */
 function parseGenerator(text: string): GeneratorDeliverable {
   try {
-    const verdict = JSON.parse(text) as { specs?: string[]; noop?: { reason?: string } };
+    const verdict = JSON.parse(text) as { specs?: string[]; noop?: { reason?: string; kind?: NoopKind } };
     return {
       specs: verdict.specs ?? [],
       parsed: true,
-      ...(verdict.noop?.reason ? { noopReason: verdict.noop.reason } : {}),
+      ...(verdict.noop?.reason ? { noopReason: verdict.noop.reason, noopKind: verdict.noop.kind ?? NOOP_KIND.UNSPECIFIED } : {}),
       outputTail: text,
     };
   } catch {
@@ -161,6 +162,18 @@ test("an empty verdict whose repair declares a no-op ends as a declared no-op wi
   assert.equal(prompts.length, 2);
   assert.equal(result.end, GENERATION_END.DECLARED_NOOP);
   assert.equal(result.note, "the diff only renames an internal helper");
+});
+
+test("a declared no-op reports the kind its verdict named, and unspecified when it named none", async () => {
+  const unobservable = await generate([{ output: '{"specs":[],"noop":{"kind":"unobservable","reason":"DEV listed no rows, so the button never rendered"}}', stats: FINISHED }]);
+  assert.equal(unobservable.result.end, GENERATION_END.DECLARED_NOOP);
+  assert.equal(unobservable.result.noopKind, NOOP_KIND.UNOBSERVABLE);
+  assert.equal((await generate([{ output: NOOP_VERDICT, stats: FINISHED }])).result.noopKind, NOOP_KIND.UNSPECIFIED);
+});
+
+test("a generation that is no declared no-op reports no kind", async () => {
+  assert.equal("noopKind" in (await generate([{ output: SPEC_VERDICT, stats: FINISHED }])).result, false);
+  assert.equal("noopKind" in (await generate([{ output: EMPTY_VERDICT, stats: FINISHED }, { output: EMPTY_VERDICT, stats: FINISHED }])).result, false);
 });
 
 test("a no-op declared at once needs no repair", async () => {

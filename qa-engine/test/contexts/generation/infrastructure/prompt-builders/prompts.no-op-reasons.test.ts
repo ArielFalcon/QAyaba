@@ -19,7 +19,7 @@ setExplorationBriefCollaborators({
 });
 
 const NOTHING_WORTH_A_TEST = /nothing (?:here )?is worth a test/i;
-const DEV_CANNOT_SHOW = /DEV cannot show the change/i;
+const DEV_CANNOT_SHOW = /cannot be observed on DEV in its current state/i;
 
 const input: OpencodeRunInput = {
   repo: "org/app",
@@ -54,4 +54,5 @@ test("the no-op of a lead's plan names both reasons", () => {
   const noop = plan.split("\n").find((line) => line.includes(`"kind":"${LEAD_PLAN_KIND.NOOP}"`)) ?? "";
   assert.match(noop, NOTHING_WORTH_A_TEST);
   assert.match(noop, DEV_CANNOT_SHOW);
+  assert.match(noop, /the element and the evidence/i, "the unobservable reason is qualified: it names the element and the evidence");
 });

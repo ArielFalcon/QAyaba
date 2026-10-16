@@ -46,7 +46,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     usage: true, phaseTimings: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
     structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
-    crossRepoImpactedCount: true, sandbox: true, closedLoop: true, agentBrowser: true, coordination: true,
+    crossRepoImpactedCount: true, sandbox: true, closedLoop: true, agentBrowser: true, coordination: true, noop: true,
   } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
 
   const ALLOWLIST: Record<string, string> = {
@@ -76,7 +76,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
       "reviewerApproved", "flaky", "retries", "confinement", "usage", "phaseTimings",
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
-      "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "closedLoop", "agentBrowser", "coordination",
+      "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "closedLoop", "agentBrowser", "coordination", "noop",
     ];
     assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toLegacyRunOutcome's own header claims 100% pass-through for this nested object");
   });
@@ -115,6 +115,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
         closedLoop: { calls: 4, devWrites: 3, closed: true },
         agentBrowser: { calls: 9, blocks: 2, invalidations: 1, renewals: 1 },
         coordination: { mode: "lead-sidekicks", plan: "fanout", flows: 3, delivered: 2, incomplete: 1, takeover: false, authoring: "authenticated-browser" },
+        noop: { kind: "unobservable" },
       },
       rulesRetrieved: [S("rulesRetrieved")],
       reflection: { rootCause: S("reflection.rootCause") },
@@ -148,6 +149,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     assert.deepEqual(gs.confinement, { strays: 1, dangerous: 0, reverted: [S("reverted")] }, `gateSignals.confinement dropped at ${dyingLayer}`);
     assert.deepEqual(gs.usage, { totalTokens: 999 }, `gateSignals.usage dropped at ${dyingLayer}`);
     assert.deepEqual(gs.phaseTimings, { generate: 111 }, `gateSignals.phaseTimings dropped at ${dyingLayer}`);
+    assert.deepEqual(gs.noop, { kind: "unobservable" }, `gateSignals.noop dropped at ${dyingLayer}`);
     assert.equal(gs.preExecAmbiguityCatches, 2, `gateSignals.preExecAmbiguityCatches dropped at ${dyingLayer}`);
     assert.equal(gs.deterministicSelectorBlocks, 1, `gateSignals.deterministicSelectorBlocks dropped at ${dyingLayer}`);
     assert.equal(gs.catalogGateInWindow, 5, `gateSignals.catalogGateInWindow dropped at ${dyingLayer}`);

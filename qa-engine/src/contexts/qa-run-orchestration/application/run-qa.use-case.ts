@@ -15,6 +15,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RUN_PURPOSE, type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
+import { NOOP_KIND, type NoopKind } from "@kernel/noop-kind.ts";
 import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, effectiveCoordinationMode, type CoordinationGateSignal, type CoordinationMode, type CoordinationSettings } from "@kernel/coordination.ts";
 import type { CoordinateResult, LeadSidekicks } from "./coordination/lead-sidekicks.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -965,6 +966,8 @@ export class RunQaUseCase {
     let groundingContextMap: ArchitectureContext | undefined;
     let groundingContextBrief: ExplorationBrief | undefined;
     let groundingHarnessFacts: HarnessFacts | undefined;
+    /* The added labels whose changed-value line in the pack said more nodes than unchanged lines: what an unobservable no-op is set beside. */
+    let groundingMoreNodes: readonly string[] = [];
     if (this.deps.preGenerationGrounding) {
       this.deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
       try {
@@ -979,6 +982,7 @@ export class RunQaUseCase {
         groundingContextMap = grounding.contextMap;
         groundingContextBrief = grounding.contextBrief;
         groundingHarnessFacts = grounding.harnessFacts;
+        groundingMoreNodes = grounding.changedValuesWithMoreNodes ?? [];
       } catch (err) {
         rethrowIfRunDeadline(err);
         /* Abort during grounding takes the abort route, not ungrounded continue. */
@@ -1152,7 +1156,8 @@ export class RunQaUseCase {
       this.coordinationOf.set(input, result.signal);
       if (result.action === "single") return undefined;
       if (result.action === "noop") {
-        return { specs: [], end: GENERATION_END.DECLARED_NOOP, reviewed: false, approved: true, parsed: true, note: result.reason };
+        /* A plan names no kind of no-op. */
+        return { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason };
       }
       const { aggregated } = result;
       if (aggregated.end !== GENERATION_END.DELIVERED) {
@@ -1222,10 +1227,19 @@ export class RunQaUseCase {
           });
         }
       } else if (terminal.action === "skip") {
+        /* Observe-only: an unobservable no-op beside a pack that showed more nodes than unchanged lines is logged, never acted on. */
+        if (generated.noopKind === NOOP_KIND.UNOBSERVABLE && groundingMoreNodes.length > 0) {
+          this.deps.observer?.onEvent({
+            type: "log.line",
+            level: "warn",
+            text: `[qa] the generator declared the change unobservable on DEV, while the pack's changed-value lines show more nodes than unchanged lines for ${groundingMoreNodes.length} changed value(s)`,
+          });
+        }
         const skipped = this.skippedResult({ note: generated.note, reviewerApproved: reviewerApprovalOf(generated) });
         const skipLoopSignal = await closedLoopSignal();
         const skippedOutcome = this.toRunOutcome(input, skipped.decision, [], 0, null, skipped.errorClass, {
           reviewerApproved: skipped.gateSignals.reviewerApproved,
+          ...(generated.noopKind ? { noop: { kind: generated.noopKind } } : {}),
           ...(skipped.note !== undefined ? { note: skipped.note } : {}),
           ...(confinementAcc !== undefined ? { confinement: confinementAcc } : {}),
           ...(skipLoopSignal ? { closedLoop: skipLoopSignal } : {}),
@@ -2263,6 +2277,8 @@ export class RunQaUseCase {
       closedLoop?: ClosedLoopGateSignal;
       /* Absent when the run did not grant the authenticated agent browser. */
       agentBrowser?: AgentBrowserGateSignal;
+      /* The kind a declared no-op named; absent for every run that is not one. */
+      noop?: { kind: NoopKind };
     },
   ) {
     const gateCoverageRatio = coverageRatio;
@@ -2307,6 +2323,7 @@ export class RunQaUseCase {
         ...(extra?.confinement !== undefined ? { confinement: extra.confinement } : {}),
         ...(extra?.closedLoop !== undefined ? { closedLoop: extra.closedLoop } : {}),
         ...(extra?.agentBrowser !== undefined ? { agentBrowser: extra.agentBrowser } : {}),
+        ...(extra?.noop !== undefined ? { noop: extra.noop } : {}),
         ...(this.coordinationOf.has(input) ? { coordination: this.coordinationOf.get(input)! } : {}),
       },
       rulesRetrieved: extra?.rulesRetrieved ?? [],
