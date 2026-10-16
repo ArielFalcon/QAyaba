@@ -1,7 +1,7 @@
 
 
 import type { SpecMeta } from "../types";
-import { readNoopKind, type NoopKind } from "@kernel/noop-kind.ts";
+import { readNoopKind, type NoopKind } from "@kernel/noop-kind";
 
 export interface FinalVerdict {
   approved: boolean;

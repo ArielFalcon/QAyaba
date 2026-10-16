@@ -8005,7 +8005,7 @@ test("a declared no-op records its kind in the gate signals of the run it skips"
       generate: async () => ({ ...scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "no rows on DEV" }), noopKind: kind }),
     });
     const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: `noop-kind-${kind}` });
-    assert.equal(out.outcome.verdict, "skipped");
+    assert.equal(out.outcome?.verdict, "skipped");
     assert.deepEqual(savedOutcomes.at(-1)?.gateSignals.noop, { kind });
   }
 });
@@ -8023,7 +8023,7 @@ test("an unobservable no-op declared while the pack shows more nodes than unchan
   });
   const { observer, events } = fakeObserver();
   const out = await new RunQaUseCase({ ...ports, observer, config: baseConfig }).run({ ...baseInput, runId: "noop-contradicted" });
-  assert.equal(out.outcome.verdict, "skipped");
+  assert.equal(out.outcome?.verdict, "skipped");
   const warnings = events.filter((e) => e.type === "log.line" && e.level === "warn");
   assert.equal(warnings.length, 1);
   assert.match(String((warnings[0] as { text: string }).text), /unobservable/);
@@ -8038,7 +8038,7 @@ test("a no-op the lead declares in its plan is recorded with the kind unspecifie
     leadSidekicks,
     config: baseConfig,
   }).run({ ...baseInput, runId: "plan-noop-kind" });
-  assert.equal(out.outcome.verdict, "skipped");
+  assert.equal(out.outcome?.verdict, "skipped");
   assert.deepEqual(savedOutcomes.at(-1)?.gateSignals.noop, { kind: NOOP_KIND.UNSPECIFIED });
 });
 

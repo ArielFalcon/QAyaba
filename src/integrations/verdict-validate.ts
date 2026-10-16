@@ -4,7 +4,7 @@ import { z } from "zod";
 import { GeneratorVerdictSchema, ReviewerVerdictSchema, correctionText, correctionSeverity } from "../orchestrator/schemas";
 import { lastJsonMatching, isClosingVerdict } from "./verdict-parse";
 import { GRAVE_TAGS } from "../qa/learning/taxonomy";
-import { NOOP_KIND } from "@kernel/noop-kind.ts";
+import { NOOP_KIND } from "@kernel/noop-kind";
 
 
 /*

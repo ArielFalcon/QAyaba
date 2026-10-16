@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseVerdict } from "./verdict-parse";
 import { repairInstruction } from "./verdict-validate";
-import { NOOP_KIND } from "@kernel/noop-kind.ts";
+import { NOOP_KIND } from "@kernel/noop-kind";
 
 const verdict = (noop: unknown): string => JSON.stringify({ specs: [], noop });
 
