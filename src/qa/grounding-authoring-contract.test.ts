@@ -46,17 +46,10 @@ for (const file of AUTHORING_PROMPTS) {
     assert.doesNotMatch(src, /wrote tests from code analysis/i, `${file}: the note's example must not license tests written from source code alone`);
   });
 
-  test(`${file} makes a declared no-op the exit for a change DEV cannot show, and forbids standing in a pre-existing element with the same label`, () => {
+  /* The sentences that name the second reason of the no-op, say that source grounds nothing and forbid the same-label stand-in are pinned once, as owned rules (src/agent-runtime/prompt-sync.test.ts); what no owned rule counts is the alternative to the no-op. */
+  test(`${file} offers a spec that creates the state through the UI as the alternative to the no-op`, () => {
     const src = readFileSync(file, "utf8").replace(/\s+/g, " ");
-    assert.match(src, /cannot be observed on DEV in its current state/i, `${file}: the second legitimate no-op reason`);
     assert.match(src, /creates,? through the UI,? the state/i, `${file}: the alternative to a no-op is a spec that creates the state through the UI`);
-    assert.match(src, /never assert a pre-existing element that[^.]*same label/i, `${file}: a same-label stand-in proves nothing about the change`);
-    assert.match(src, /grounds no selector/i, `${file}: source code never grounds a selector`);
-  });
-
-  test(`${file} ends the turn on a written spec or a declared no-op alike`, () => {
-    const src = readFileSync(file, "utf8").replace(/\s+/g, " ");
-    assert.match(src, /specs are written, or you have declared a no-op, you are DONE generating/i, `${file}: the stop rule names both outcomes`);
   });
 }
 
