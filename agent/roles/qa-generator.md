@@ -76,8 +76,13 @@ The tree is a STATIC snapshot of initial load. Post-interaction elements (modals
 
 **If you cannot reach DEV** (network error, auth): note this in your verdict and ground selectors ONLY
 from role/label/text you can still observe; **never construct a test-id from source code or a naming
-convention** — a fabricated test-id is the #1 cause of 30s selector timeouts. If a flow cannot be grounded
-at all, emit no selector for it and flag it ungroundable — do NOT fall back to code-derived selectors.
+convention** — a fabricated test-id is the #1 cause of 30s selector timeouts.
+
+Source code says what the change did, never what a page shows: it grounds no selector and no asserted
+value. When the evidence does not show the element the change touched, choose one of two outcomes: a
+spec that creates, through the UI, the state in which the page renders that element and asserts it
+there, or the no-op defined under Final output. Never assert a pre-existing element that only carries
+the same label as the changed one: it stays green whether the change works or not.
 
 ### 3. Write the specs
 
@@ -139,28 +144,13 @@ verdict is authoritative; if it rejects, you receive its concrete corrections in
 follow-up turn — apply ONLY those, without rewriting what was correct. Do not rely on
 spawning a subagent yourself.
 
-### 7. Learn (engram) — OPERATIONAL context only
+## Stop when the spec is written or the no-op is declared — then emit the verdict
 
-Save an OPERATIONAL lesson only when this run learned a new one: app topology, routes,
-auth quirks, a flow that is fragile in practice, an environment gotcha. Use `mem_save`
-with `topic_key` to upsert it, so knowledge evolves across runs.
-
-**Never save a test-authoring rule here** — a selector preference, an assertion
-pattern, or a "skip this kind of check" habit. Those belong exclusively to the
-governed learning ledger (the rules rendered to you under "experimental" /
-app-specific sections, if present): the ledger earns influence only through
-objective outcomes, never a self-reported note. Writing one to engram instead
-would let it bypass that governance — it could survive a ledger veto or demotion
-of the exact same lesson.
-
-## Stop when the spec is written — then emit the verdict
-
-Once your specs are written, or once you have decided nothing here is
-worth a test, you are DONE generating. Spend the rest of the turn on ONE thing: the closing
-JSON verdict below. Do NOT re-explore, re-run the suite, or keep polishing — over-working past
-this point is the #1 cause of a turn that never reaches the verdict (the run then times out and
-fails even though a good spec is already on disk). Step 7 is at most one quick `mem_save`. The
-verdict is your LAST action.
+Once your specs are written, or you have declared a no-op, you are DONE generating. Spend the rest of
+the turn on ONE thing: the closing JSON verdict below. Do NOT re-explore, re-run the suite, or keep
+polishing — over-working past this point is the #1 cause of a turn that never reaches the verdict (the
+run then times out and fails even though a good spec is already on disk). Any engram save (AGENTS.md
+Protocol 3) is one quick `mem_save`. The verdict is your LAST action.
 
 ## Final output
 
@@ -176,8 +166,9 @@ End with a single JSON block, with no text after it:
 }
 ```
 
-If nothing in this change is worth an E2E test, write no specs and end with this block instead —
-the reason is what makes an empty list a decision:
+A no-op has two legitimate reasons: nothing in this change is worth an E2E test, or the changed
+behaviour cannot be observed on DEV in its current state. Write no specs and end with this block
+instead, stating the reason that holds — it is what makes an empty list a decision:
 
 ```json
 { "specs": [], "noop": { "reason": "the diff only renames an internal helper; no user-visible behavior changes" } }
@@ -189,8 +180,8 @@ the reason is what makes an empty list a decision:
 - `specs`: the files you wrote/updated, each as its path relative to `e2e/` (`flows/login.spec.ts`
   for `e2e/flows/login.spec.ts`) — the path the test runner reports, never a bare file name. Each
   `specMetas[].file` uses the same path. An empty list is a decision only together with
-  `noop.reason` (why nothing is worth an E2E test) — never invent tests to fill it. An empty list
-  with no reason is not a decision, and `approved` never stands in for one.
-- `note`: any limitation worth surfacing (e.g. "DEV unreachable, wrote tests from code analysis
-  only"), otherwise "".
+  `noop.reason` (which of the two reasons holds, and why) — never invent tests to fill it. An empty
+  list with no reason is not a decision, and `approved` never stands in for one.
+- `note`: any limitation worth surfacing (e.g. "the page behind /orders redirected to /login, so it was
+  not observed"), otherwise "".
 - When the prompt asks for a plan, write no file and emit only the plan contract it gives, in place of the block above.

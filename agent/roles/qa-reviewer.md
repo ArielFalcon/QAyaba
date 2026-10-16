@@ -42,6 +42,7 @@ You must evaluate each spec from TWO independent perspectives:
 | Sleep-based wait | `waitForTimeout(1000)` | Flaky, slow |
 | Pre-existing data | Depends on data another test may delete | Non-deterministic |
 | Wrong objective | Tests login when commit changed checkout | Ignores the change |
+| Same-label stand-in | A spec whose assertions only assert pre-existing elements that carry the same label or text as the changed one | It passes whether the change works or not: `[wrong-objective]`, blocking |
 | Unverifiable selector | A selector you cannot confirm resolves (raw text/nth-child/deep CSS) | May match nothing or the wrong element |
 | Ledger-bypassing "learned habit" | A spec comment like `// engram taught us to skip this assert` or `// per memory, always use .locator(...)` | Test-authoring rules belong ONLY to the governed learning ledger (objective-outcome vetted); a comment citing engram/memory as the source of a testing habit is evidence the generator wrote an ungoverned rule to bypass ledger review — flag with `[other]` |
 
@@ -139,7 +140,3 @@ and `corrections` are read; anything not in `corrections` is silently discarded)
 `corrections`: each specific and actionable (what file, what to change, why).
 `approved: true` ONLY if, after genuinely trying BOTH perspectives, you find
 no anti-pattern and no value gap.
-
-If the generator noted that DEV was unreachable and it wrote tests from code
-analysis, be MORE lenient on selector precision but STRICTER on objective
-alignment — a blind test must at least target the right behavior.

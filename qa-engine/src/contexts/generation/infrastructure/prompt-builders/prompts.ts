@@ -84,7 +84,7 @@ function renderLeadPlan(limits: PlanningLimits): string {
   return [
     `## ${PROMPT_HEADINGS.leadPlan}`,
     `This turn asks for a plan, not for specs: write no file. Close with ONLY a JSON object {"plan": ...} of one of these shapes.`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing here is worth a test>"}}`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing here is worth a test, or why DEV cannot show the change as it is>"}}`,
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.SINGLE}"}} when the change is one piece of work that you will author yourself.`,
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]}]}} when the change is several independent flows, each of which can be written and run without the others.`,
     `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
@@ -1269,7 +1269,7 @@ interface TaskGuards {
   reaskObjective: boolean;
 }
 
-/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and deciding that nothing here is worth a test is within every bound. `upperBound` counts focused specs for the whole change, or for each affected flow. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
+/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and declaring the no-op, for either of its reasons, is within every bound. `upperBound` counts focused specs for the whole change, or for each affected flow. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
 export interface EffortTier {
   upperBound: { specs: number; per: "change" | "flow" };
   admitsNoOp: true;
@@ -1277,7 +1277,7 @@ export interface EffortTier {
 }
 
 /* The clause every tier ends with, so that what the data declares (the no-op is admitted) is what the text says. */
-export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test";
+export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test or DEV cannot show the change as it is";
 const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_NO_OP_CLAUSE}.`;
 
 export const EFFORT_BY_TIER: Record<DiffTier, EffortTier> = {
