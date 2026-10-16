@@ -11,6 +11,8 @@ import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import { rankRoutesByChange } from "../domain/route-ranking.ts";
 import { instantiableTemplate, instantiateRoute } from "../domain/route-instantiation.ts";
+import { renderChangedValues, type ObservedPage } from "../domain/changed-values.ts";
+import type { ChangedLiteral } from "../../../shared-kernel/diff-parser/changed-literal.ts";
 
 export { PACK_HEADINGS };
 
@@ -19,6 +21,7 @@ const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
   [PACK_HEADINGS.feBe, "fe-be-links"],
   [PACK_HEADINGS.risks, "risks"],
   [PACK_HEADINGS.liveDom, "dom-live"],
+  [PACK_HEADINGS.changedValues, "changed-values"],
   [PACK_HEADINGS.contracts, "api-operations"],
 ];
 
@@ -49,6 +52,9 @@ export interface ContextPackInput {
 
   /* Diff/guidance selector signals forwarded to formatDomSnapshot for [CHANGED: …] annotation. Absent/empty → no annotation. */
   changedElements?: ChangedElement[];
+
+  /* The quoted labels the diff added and removed, each with how many unchanged lines of its file already hold it when that file was read. The pack states, for each, how many nodes of the captured trees show it. Absent/empty → no section. */
+  changedLiterals?: ChangedLiteral[];
 
   /* Selector grounding: the config-declared test-id convention (e.g. "data-cy"), forwarded to captureDomForRoutes so the DOM capture queries the right attribute and the agent transcribes real test-ids instead of guessing. Absent → capture defaults to "data-testid". */
   testIdAttribute?: string;
@@ -252,6 +258,8 @@ export async function buildContextPack(
   const pages = new Map<string, CapturedPage>();
   const captures: PackCapture[] = [];
   let renderedRoutes = 0;
+  /* The routes the report covers: a page rendered only for its links is no part of it. */
+  const reportedRoutes = new Set<string>();
   const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
     const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) pages.set(page.route, page); } }, deps.domDeps, input.changedElements);
     const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
@@ -259,6 +267,7 @@ export async function buildContextPack(
     const { grounded, advisory } = splitRedirectSection(raw);
     captures.push({ grounded, advisory });
     renderedRoutes += routes.length;
+    for (const route of routes) reportedRoutes.add(route);
   };
   /* What became of each template the run looked at: the page the links gave it, if any. A template behind the cut is never looked at. */
   const instanceOfTemplate = new Map<string, string | undefined>();
@@ -335,11 +344,19 @@ export async function buildContextPack(
     log(`[qa] context-pack: ${relevantOps.length} relevant API contract(s) included`);
   }
 
+  /* What the grounded pages of the report say of the labels the change added and removed: nothing without a captured DOM to count in. */
+  const observedPages: ObservedPage[] = [...pages.values()]
+    .filter((page) => page.grounded && reportedRoutes.has(page.route))
+    .map((page) => ({ route: page.route, nodes: page.nodes ?? [] }));
+  const changedValuesSection =
+    domSection !== "" && input.changedLiterals?.length ? sanitizeText(renderChangedValues(input.changedLiterals, observedPages), "model").text : "";
+
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
 
   const sections = [
     { text: domSection, held: "the live DOM of the routes it covers" },
+    { text: changedValuesSection, held: "what the captured pages show of the values the change added and removed" },
     { text: redirectSection, held: "the pages reached by redirect (advisory)" },
     { text: contractSection, held: "the API contracts relevant to this objective" },
   ].filter(hasText);

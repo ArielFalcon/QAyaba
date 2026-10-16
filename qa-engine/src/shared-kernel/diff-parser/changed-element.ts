@@ -9,4 +9,6 @@ export interface ChangedElement {
   href?: string;      /* resolved path, / or # only */
   role?: string;      /* best-effort tag → ARIA role */
   raw: string;        /* trimmed added line */
+  /* For a text-only element: how many unchanged lines of `file`, as it is after the change, already hold `text`. Set by a caller that read the file; absent when it was not read. */
+  unchangedLines?: number;
 }

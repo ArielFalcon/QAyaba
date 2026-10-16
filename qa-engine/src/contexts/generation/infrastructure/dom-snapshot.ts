@@ -7,6 +7,7 @@ import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandb
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
 import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, DEGRADE_REASON, gatedAppAdvisory, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
+import { nodeShowsText } from "../domain/changed-values.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { MAX_LINK_LENGTH, MAX_LINKS_PER_PAGE, sameOriginPathnames } from "../domain/route-instantiation.ts";
@@ -167,20 +168,10 @@ export function buildChangedMarker(
     if (c.href !== undefined && attr?.href === c.href) {
       return ` [CHANGED: new link → ${c.href}]`;
     }
-    if (c.text !== undefined) {
-      const colonIdx = line.indexOf(": ");
-      const rawNodeName = colonIdx !== -1 ? line.slice(colonIdx + 2).trim() : line.trim();
-      const nodeName = rawNodeName.replace(ARIA_STATE_STRIP_RE, "").trim();
-      if (nodeName) {
-        const textLower = c.text.toLowerCase();
-        const nodeNameLower = nodeName.toLowerCase();
-        const exactMatch = nodeNameLower === textLower;
-        const nodeWords = nodeNameLower.split(/\s+/).filter(Boolean);
-        const wordMatch = nodeWords.includes(textLower);
-        if (exactMatch || wordMatch) {
-          return ` [CHANGED: added text "${c.text}"]`;
-        }
-      }
+    /* A text-only change names no attribute to tell its node from another that shows the same text: when an unchanged line of its file already holds the text, a node showing it is as likely to come from that line, so it is no mark of the change. */
+    const textOnly = c.testId === undefined && c.id === undefined && c.name === undefined && c.href === undefined;
+    if (c.text !== undefined && !(textOnly && (c.unchangedLines ?? 0) > 0) && nodeShowsText(line, c.text)) {
+      return ` [CHANGED: added text "${c.text}"]`;
     }
   }
   return "";
@@ -328,6 +319,8 @@ export interface CapturedPage {
   route: string;
   grounded: boolean;
   links: string[];
+  /* The node lines of its tree, one `role: name` each. Absent when the page did not report them. */
+  nodes?: readonly string[];
 }
 
 export async function captureDomForRoutes(
@@ -343,7 +336,7 @@ export async function captureDomForRoutes(
   try {
     const snaps = await deps.render(input.e2eDir, input.baseUrl, asked, input.testIdAttribute);
     warnOnDegradedRoutes(snaps);
-    input.onPages?.(snaps.map((snap) => ({ route: snap.route, grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED, links: snap.links ?? [] })));
+    input.onPages?.(snaps.map((snap) => ({ route: snap.route, grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED, links: snap.links ?? [], nodes: snap.nodes ?? [] })));
     const reported = snaps
       .filter((snap) => !seeds.includes(snap.route))
       .map((snap) => {

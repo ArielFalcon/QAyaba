@@ -15,6 +15,7 @@ import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 import { withDeclaredResources } from "./implementation-resources.ts";
+import { withUnchangedLines, type MeasuredLabels } from "./changed-label-lines.ts";
 
 const diffParser = new DiffParserService();
 
@@ -204,6 +205,19 @@ export function readHarnessFacts(input: { specDir: string; testIdAttribute?: str
   return { ...(testIdAttribute !== undefined ? { testIdAttribute } : {}), ...(fixtures ? { fixtures } : {}) };
 }
 
+/* The elements and quoted labels of a diff, with the unchanged lines of the working copy that already hold each label. A single repo only: across repos the diff is the service's, and the working copy belongs to the other repo. */
+function changedLabelsOf(diff: string, ctx: PreGenerationGroundingStaticContext): MeasuredLabels {
+  const elements = diffParser.changedElements(diff);
+  const literals = diffParser.changedLiterals(diff);
+  if (!ctx.mirrorDir || ctx.stagedRoots !== undefined) return { elements, literals };
+  try {
+    return withUnchangedLines(ctx.mirrorDir, diffParser.changedLines(diff), literals, elements);
+  } catch (err) {
+    console.warn(`[qa] WARNING: unchanged lines holding the changed labels not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+    return { elements, literals };
+  }
+}
+
 export class PreGenerationGroundingPortAdapter implements PreGenerationGroundingPort {
   constructor(
     private readonly ctx: PreGenerationGroundingStaticContext,
@@ -290,7 +304,8 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       const deterministicRoutes = contextMap?.routes?.length
         ? contextMap.routes.map((r) => r.path).filter(Boolean)
         : undefined;
-      const changedElements = diff ? diffParser.changedElements(diff) : undefined;
+      const labels = diff ? changedLabelsOf(diff, this.ctx) : undefined;
+      const changedElements = labels?.elements;
       const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
       const buildPromise = build(
         {
@@ -303,6 +318,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(deterministicRoutes?.length ? { routes: deterministicRoutes } : {}),
           ...(this.ctx.stagedRoots ? { stagedRoots: this.ctx.stagedRoots } : {}),
           ...(changedElements?.length ? { changedElements } : {}),
+          ...(labels?.literals.length ? { changedLiterals: labels.literals } : {}),
         },
         deps,
       );

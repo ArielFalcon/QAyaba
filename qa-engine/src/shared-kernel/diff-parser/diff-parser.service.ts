@@ -1,6 +1,12 @@
 /* Canonical unified-diff parser. Git-status parsers are not diffs and stay in their own contexts. Pure: no I/O, no spawn, deterministic. */
 import type { ChangedLines } from "./changed-lines.ts";
 import type { ChangedElement } from "./changed-element.ts";
+import { labelLiteralsOfLine, MAX_ADDED_LITERALS, MAX_REMOVED_LITERALS, type ChangedLiteral } from "./changed-literal.ts";
+
+/* A literal with the line it was read from. */
+interface ScannedLiteral extends ChangedLiteral {
+  raw: string;
+}
 
 export class DiffParserService {
   /* Added/modified lines per file, numbered on the new side. Pure deletions contribute nothing. */
@@ -73,6 +79,8 @@ export class DiffParserService {
     if (hunkLines.size === 0) return [];
 
     const results: ChangedElement[] = [];
+    /* The lines that gave an element: a quoted label is read only from a line that gave none. */
+    const lineHasElement = new Set<string>();
 
     let file: string | null = null;
     let newLine = 0;
@@ -114,7 +122,10 @@ export class DiffParserService {
         if (trimmed.length === 0) continue;
 
         const el = extractSignalsFromLine(trimmed, file, lineNum);
-        if (el) results.push(el);
+        if (el) {
+          results.push(el);
+          lineHasElement.add(`${file}\u0000${lineNum}`);
+        }
 
       } else if (c === "-") {
         /* old side — does not advance new-file counter */
@@ -125,7 +136,66 @@ export class DiffParserService {
       }
     }
 
+    /* A label that sits on a line of its own (an attribute of a component, a constant, a template string) has no tag to read a role from: it is an element by its text alone. */
+    for (const literal of this.scanLiterals(diff)) {
+      if (results.length >= MAX_ELEMENTS) break;
+      if (literal.side !== "added" || lineHasElement.has(`${literal.file}\u0000${literal.line}`)) continue;
+      results.push({ file: literal.file, line: literal.line, text: literal.value, raw: literal.raw });
+    }
+
     return results;
+  }
+
+  /* The quoted labels a diff added and removed, whatever language it is written in: the string literals of its added and removed lines that a page could show as text (see `isLabelLike`). A value that is on both sides of the same file only moved, so it is no change. Each value is listed once per side, and each side is bounded. */
+  changedLiterals(diff: string): ChangedLiteral[] {
+    return this.scanLiterals(diff).map(({ raw: _raw, ...literal }) => literal);
+  }
+
+  private scanLiterals(diff: string): ScannedLiteral[] {
+    if (!diff) return [];
+    const added: ScannedLiteral[] = [];
+    const removed: ScannedLiteral[] = [];
+    let file: string | null = null;
+    let oldLine = 0;
+    let newLine = 0;
+    let inHunk = false;
+    for (const raw of diff.split("\n")) {
+      const header = /^diff --git a\/(\S+) b\/(\S+)/.exec(raw);
+      if (header) {
+        file = header[2] ?? header[1] ?? null;
+        inHunk = false;
+        continue;
+      }
+      const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+      if (hunk) {
+        oldLine = Number(hunk[1]);
+        newLine = Number(hunk[2]);
+        inHunk = true;
+        continue;
+      }
+      if (!inHunk || file === null) continue;
+      const c = raw[0];
+      if (c === "+") {
+        for (const value of labelLiteralsOfLine(raw.slice(1))) added.push({ file, line: newLine, value, side: "added", raw: raw.slice(1).trim() });
+        newLine++;
+      } else if (c === "-") {
+        for (const value of labelLiteralsOfLine(raw.slice(1))) removed.push({ file, line: oldLine, value, side: "removed", raw: raw.slice(1).trim() });
+        oldLine++;
+      } else if (c !== "\\") {
+        oldLine++;
+        newLine++;
+      }
+    }
+    const moved = (literal: ScannedLiteral, others: readonly ScannedLiteral[]): boolean =>
+      others.some((other) => other.file === literal.file && other.value === literal.value);
+    const firstOfEach = (literals: readonly ScannedLiteral[], max: number): ScannedLiteral[] => {
+      const seen = new Set<string>();
+      return literals.filter((literal) => !seen.has(literal.value) && seen.add(literal.value)).slice(0, max);
+    };
+    return [
+      ...firstOfEach(added.filter((literal) => !moved(literal, removed)), MAX_ADDED_LITERALS),
+      ...firstOfEach(removed.filter((literal) => !moved(literal, added)), MAX_REMOVED_LITERALS),
+    ];
   }
 
   /* Manual mode: quoted spans kept whole; standalone tokens must be ≥5 chars or a proper noun and not a QA stopword. Returns ChangedElement{ text } only. */

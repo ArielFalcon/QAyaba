@@ -17,6 +17,7 @@ export type FactId =
   | "api-operations"
   | "dom-live"
   | "dom-failure"
+  | "changed-values"
   | "landmarks"
   | "arch-map"
   | "structural-signal"
