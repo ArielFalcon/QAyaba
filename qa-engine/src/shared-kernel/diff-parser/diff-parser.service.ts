@@ -28,8 +28,7 @@ export class DiffParserService {
       if (hunk) { newLine = Number(hunk[1]); inHunk = true; continue; }
       if (!inHunk) {
         if (raw.startsWith("+++ ")) {
-          const p = raw.slice(4).trim();
-          file = p === "/dev/null" ? null : p.replace(/^[ab]\//, "").replace(/\t.*$/, "");
+          file = headerPath(raw);
         }
         continue;
       }
@@ -111,8 +110,7 @@ export class DiffParserService {
 
       if (!inHunk) {
         if (raw.startsWith("+++ ")) {
-          const p = raw.slice(4).trim();
-          file = p === "/dev/null" ? null : p.replace(/^[ab]\//, "").replace(/\t.*$/, "");
+          file = headerPath(raw);
         }
         continue;
       }
@@ -176,14 +174,16 @@ export class DiffParserService {
       if (!entry) files.set(file, (entry = { added: [], removed: [] }));
       return entry;
     };
-    let file: string | null = null;
+    /* The path of each side comes from the `---` and `+++` header lines, as `changedLines` reads it, so that both name a file the same way whatever its name holds. */
+    let oldFile: string | null = null;
+    let newFile: string | null = null;
     let oldLine = 0;
     let newLine = 0;
     let inHunk = false;
     for (const raw of diff.split("\n")) {
-      const header = /^diff --git a\/(\S+) b\/(\S+)/.exec(raw);
-      if (header) {
-        file = header[2] ?? header[1] ?? null;
+      if (raw.startsWith("diff --git")) {
+        oldFile = null;
+        newFile = null;
         inHunk = false;
         continue;
       }
@@ -194,13 +194,18 @@ export class DiffParserService {
         inHunk = true;
         continue;
       }
-      if (!inHunk || file === null) continue;
+      if (!inHunk) {
+        if (raw.startsWith("--- ")) oldFile = headerPath(raw);
+        else if (raw.startsWith("+++ ")) newFile = headerPath(raw);
+        continue;
+      }
       const c = raw[0];
       if (c === "+") {
-        for (const value of labelLiteralsOfLine(raw.slice(1))) of(file).added.push({ file, line: newLine, value, side: "added", raw: raw.slice(1).trim() });
+        if (newFile !== null) for (const value of labelLiteralsOfLine(raw.slice(1))) of(newFile).added.push({ file: newFile, line: newLine, value, side: "added", raw: raw.slice(1).trim() });
         newLine++;
       } else if (c === "-") {
-        for (const value of labelLiteralsOfLine(raw.slice(1))) of(file).removed.push({ file, line: oldLine, value, side: "removed", raw: raw.slice(1).trim() });
+        const file = newFile ?? oldFile;
+        if (file !== null) for (const value of labelLiteralsOfLine(raw.slice(1))) of(file).removed.push({ file, line: oldLine, value, side: "removed", raw: raw.slice(1).trim() });
         oldLine++;
       } else if (c !== "\\") {
         oldLine++;
@@ -265,6 +270,12 @@ export class DiffParserService {
 }
 
 const MAX_ELEMENTS = 200;
+
+/* The path a `--- ` or `+++ ` header line names: without the a/ or b/ prefix and the tab git puts after a name that holds a space, or null for /dev/null. */
+function headerPath(headerLine: string): string | null {
+  const p = headerLine.slice(4).trim();
+  return p === "/dev/null" ? null : p.replace(/^[ab]\//, "").replace(/\t.*$/, "");
+}
 
 /* The first `max` entries of the lists taken one from each in turn, a value taken once: every list keeps a share before any keeps more. */
 function takeInTurn(lists: ReadonlyArray<readonly ScannedLiteral[]>, max: number): ScannedLiteral[] {
