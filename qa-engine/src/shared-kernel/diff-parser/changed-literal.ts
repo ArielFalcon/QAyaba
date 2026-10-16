@@ -30,6 +30,14 @@ const IDENTIFIER_TOKEN = /^(?:[A-Za-z0-9]*_[A-Za-z0-9_]*|[\w$]+(?:\.[\w$]+)+|\p{
 /* A hole the program fills in at run time: braces, a printf conversion, a `:name` token, a template or ERB tag. What a page shows is not this text. */
 const PLACEHOLDER = /[{}]|<%|%>|%(?:\d+\$)?\d*(?:\.\d+)?[sdifuxXeEgGcb@]|(?:^|[\s(\[]):[A-Za-z_]/;
 
+/* A phrase made only of lower-case ASCII tokens, one of them utility-shaped (a hyphen, colon, underscore, digit, slash or bracket): a list of CSS classes, not words. */
+const LOWER_TOKEN = /^[a-z0-9][a-z0-9_\-:\/\[\]\.%#!&>*=]*$/;
+const UTILITY_SHAPED = /[-:_\/\[\d]/;
+export function isClassList(value: string): boolean {
+  const tokens = value.split(/\s+/).filter(Boolean);
+  return tokens.length > 1 && tokens.every((token) => LOWER_TOKEN.test(token)) && tokens.some((token) => UTILITY_SHAPED.test(token));
+}
+
 /* The common named entities: the Latin-1 letters and signs, and the punctuation pages use most. An entity not listed is left as written. */
 const LATIN1_ENTITY_NAMES =
   "nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml".split(" ");
@@ -56,13 +64,13 @@ export function decodeLiteralText(text: string): string {
   });
 }
 
-/* What a literal must look like to be a label: some text with a letter, no placeholder, and either a phrase or one capitalised word or one word of a script without case. A single lower-case token of a cased script ("submit", "primary") is far more often a code value than a label, so it is left out. */
+/* What a literal must look like to be a label: some text with a letter, no placeholder, not a list of CSS classes, and either a phrase or one capitalised word or one word of a script without case. A single lower-case token of a cased script ("submit", "primary") is far more often a code value than a label, so it is left out. */
 export function isLabelLike(value: string): boolean {
   if (value.length < MIN_LITERAL_CHARS || value.length > MAX_LITERAL_CHARS) return false;
   if (!/\p{L}/u.test(value)) return false;
   if (PLACEHOLDER.test(value)) return false;
   if (SCHEME_PREFIX.test(value) || value.startsWith("/") || value.startsWith("./") || value.startsWith("../")) return false;
-  if (/\s/.test(value)) return true;
+  if (/\s/.test(value)) return !isClassList(value);
   if (IDENTIFIER_TOKEN.test(value)) return false;
   return /^[\p{Lu}\p{Lo}]/u.test(value);
 }

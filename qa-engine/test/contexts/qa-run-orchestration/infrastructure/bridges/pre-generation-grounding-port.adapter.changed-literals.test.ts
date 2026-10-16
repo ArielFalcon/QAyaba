@@ -91,18 +91,50 @@ test("ground(): a changed file that is a link out of the working copy is not rea
   }
 });
 
-test("ground(): a cross-repo run counts no unchanged lines: the working copy is not the repo the diff is of", async () => {
-  await withMirror(
-    "qa-grounding-literals-cross-",
-    (mirror) => {
-      mkdirSync(join(mirror, "src/app"), { recursive: true });
-      writeFileSync(join(mirror, LABEL_FILE), labelSource);
-    },
-    async (mirror) => {
-      const input = await packInputFor({ mirrorDir: mirror, stagedRoots: [] }, labelDiff);
-      assert.ok(input.changedLiterals?.every((l) => l.unchangedLines === undefined));
+const twoFileDiff = [
+  `diff --git a/${LABEL_FILE} b/${LABEL_FILE}`,
+  `--- a/${LABEL_FILE}`,
+  `+++ b/${LABEL_FILE}`,
+  "@@ -1,1 +1,2 @@",
+  " <app-list",
+  '+  endActionLabel="Cambiar filtros"',
+  "diff --git a/src/util/messages.ts b/src/util/messages.ts",
+  "--- a/src/util/messages.ts",
+  "+++ b/src/util/messages.ts",
+  "@@ -1,1 +1,2 @@",
+  " export const a = 1;",
+  '+export const m = "Mensaje interno";',
+].join("\n");
+
+async function packInputWithMap(map: unknown, diff: string, statics: { stagedRoots?: string[] } = {}): Promise<PackInput> {
+  let seen: PackInput = {};
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e", ...statics },
+    {
+      loadContextMap: () => map as never,
+      buildContextPack: async (input) => { seen = input as PackInput; return { text: undefined, domBytes: 0, contractBytes: 0 }; },
     },
   );
+  await adapter.ground("/tmp/qa-golden/e2e", undefined, diff, { sha: "abc1234" });
+  return seen;
+}
+
+const PAGE_MAP = { builtAtSha: "abc1234", routes: [{ path: "/restaurantes", implementationFiles: [LABEL_FILE] }], api: [], feBe: [] };
+
+test("ground(): with a map, the labels of the files it links to pages are the ones the pack states", async () => {
+  const input = await packInputWithMap(PAGE_MAP, twoFileDiff);
+  assert.deepEqual(input.changedLiterals?.map((l) => l.value), ["Cambiar filtros"]);
+});
+
+test("ground(): the labels of other files are used when no linked file has one", async () => {
+  const map = { ...PAGE_MAP, routes: [{ path: "/restaurantes", implementationFiles: ["src/app/other.page.html"] }] };
+  const input = await packInputWithMap(map, twoFileDiff);
+  assert.deepEqual(input.changedLiterals?.map((l) => l.value).sort(), ["Cambiar filtros", "Mensaje interno"]);
+});
+
+test("ground(): without a map every file counts", async () => {
+  const input = await packInputWithMap(undefined, twoFileDiff);
+  assert.equal(input.changedLiterals?.length, 2);
 });
 
 test("ground(): a diff with no changed label gives the pack no literals", async () => {

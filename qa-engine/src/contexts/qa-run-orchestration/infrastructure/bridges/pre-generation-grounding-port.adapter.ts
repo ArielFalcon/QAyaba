@@ -16,6 +16,7 @@ import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../..
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 import { withDeclaredResources } from "./implementation-resources.ts";
 import { withUnchangedLines, type MeasuredLabels } from "./changed-label-lines.ts";
+import { filesLinkedToPages } from "@contexts/generation/domain/route-ranking.ts";
 
 const diffParser = new DiffParserService();
 
@@ -205,10 +206,11 @@ export function readHarnessFacts(input: { specDir: string; testIdAttribute?: str
   return { ...(testIdAttribute !== undefined ? { testIdAttribute } : {}), ...(fixtures ? { fixtures } : {}) };
 }
 
-/* The elements and quoted labels of a diff, with the unchanged lines of the working copy that already hold each label. A single repo only: across repos the diff is the service's, and the working copy belongs to the other repo. */
-function changedLabelsOf(diff: string, ctx: PreGenerationGroundingStaticContext): MeasuredLabels {
+/* The elements and quoted labels of a diff, with the unchanged lines of the working copy that already hold each label. With a map, the labels of the changed files it links to pages come first (see `filesLinkedToPages`). A single repo only: across repos the diff is the service's, so its labels say nothing about the pages and the working copy belongs to the other repo. */
+function changedLabelsOf(diff: string, ctx: PreGenerationGroundingStaticContext, contextMap: ArchitectureContext | undefined): MeasuredLabels {
   const elements = diffParser.changedElements(diff);
-  const literals = diffParser.changedLiterals(diff);
+  const linked = contextMap && ctx.stagedRoots === undefined ? filesLinkedToPages(contextMap, diffParser.changedFiles(diff)) : undefined;
+  const literals = diffParser.changedLiterals(diff, linked ? { preferFiles: linked } : {});
   if (!ctx.mirrorDir || ctx.stagedRoots !== undefined) return { elements, literals };
   try {
     return withUnchangedLines(ctx.mirrorDir, diffParser.changedLines(diff), literals, elements);
@@ -304,7 +306,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       const deterministicRoutes = contextMap?.routes?.length
         ? contextMap.routes.map((r) => r.path).filter(Boolean)
         : undefined;
-      const labels = diff ? changedLabelsOf(diff, this.ctx) : undefined;
+      const labels = diff ? changedLabelsOf(diff, this.ctx, contextMap) : undefined;
       const changedElements = labels?.elements;
       const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
       const buildPromise = build(
