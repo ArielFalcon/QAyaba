@@ -208,10 +208,11 @@ export function readHarnessFacts(input: { specDir: string; testIdAttribute?: str
 
 /* The elements and quoted labels of a diff, with the unchanged lines of the working copy that already hold each label. With a map, the labels of the changed files it links to pages come first (see `filesLinkedToPages`). A single repo only: across repos the diff is the service's, so its labels say nothing about the pages and the working copy belongs to the other repo. */
 function changedLabelsOf(diff: string, ctx: PreGenerationGroundingStaticContext, contextMap: ArchitectureContext | undefined): MeasuredLabels {
+  if (ctx.stagedRoots !== undefined) return { elements: diffParser.changedElements(diff, { quotedLabels: false }), literals: [] };
   const elements = diffParser.changedElements(diff);
-  const linked = contextMap && ctx.stagedRoots === undefined ? filesLinkedToPages(contextMap, diffParser.changedFiles(diff)) : undefined;
+  const linked = contextMap ? filesLinkedToPages(contextMap, diffParser.changedFiles(diff)) : undefined;
   const literals = diffParser.changedLiterals(diff, linked ? { preferFiles: linked } : {});
-  if (!ctx.mirrorDir || ctx.stagedRoots !== undefined) return { elements, literals };
+  if (!ctx.mirrorDir) return { elements, literals };
   try {
     return withUnchangedLines(ctx.mirrorDir, diffParser.changedLines(diff), literals, elements);
   } catch (err) {
