@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 
-/* detectStructuralPatterns feeds the generation prompt's "skill-exemplars" section via
-   OpencodeRunInput.structuralPatterns.
+/* detectStructuralPatterns feeds the curriculum, which selects the templates the generation prompt's
+   "skill-exemplars" section renders (OpencodeRunInput.skillExemplars), and the learning fold's attribution.
  */
 
 test("detectStructuralPatterns: an HTML form diff detects a 'form' pattern", () => {

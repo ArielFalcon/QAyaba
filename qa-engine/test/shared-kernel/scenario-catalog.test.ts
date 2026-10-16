@@ -1,13 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { BUILT_IN_EXEMPLARS, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
+import { countDirectives } from "@contexts/generation/domain/prompt-contract-lint.ts";
 
 /* The skill-exemplars prompt section is rendered at { maxBytes: 1536, overflow: "drop" } — an
    over-budget match set is omitted ENTIRELY. The curriculum folds "what the generator was shown",
    so a silently dropped section would corrupt every `evaluated` counter. Capping at 3 in the
    selector is only honest if EVERY 3-exemplar subset provably fits: this enumerates all C(6,3)=20.
    If this ever fails, LOWER MAX_SELECTED_EXEMPLARS to 2 — do not raise maxBytes, which would steal
-   window from the other priority-3 sections (static-signal, service-links, diff-archetypes).
+   window from the other priority-3 sections (static-signal, service-links).
  */
 const SECTION_MAX_BYTES = 1536;
 
@@ -38,6 +39,24 @@ describe("skill-exemplar section fits the prompt budget at the selection cap", (
       }
     }
     assert.equal(combos, 20);
+  });
+
+  it("introduces the templates as facts: which patterns were detected, and no order and no claim that every template is proven", () => {
+    const exemplar = BUILT_IN_EXEMPLARS[0]!;
+    for (const text of [renderExemplarsForPrompt([exemplar]), renderExemplarsForPrompt([exemplar], { proven: { [exemplar.archetype]: 2 } })]) {
+      const header = text.split("\n### ")[0]!;
+      assert.match(header, /structural patterns detected in this change/i);
+      assert.equal(countDirectives(header), 0, "no directive word in the introduction");
+      assert.doesNotMatch(header, /\bapply\b/i, "the introduction orders nothing");
+      assert.doesNotMatch(header, /\bproven pattern\b/i, "the introduction does not call every template proven");
+    }
+  });
+
+  it("explains the PROVEN marker only when a template carries one", () => {
+    const exemplar = BUILT_IN_EXEMPLARS[0]!;
+    assert.equal(renderExemplarsForPrompt([exemplar]).includes("PROVEN"), false);
+    const marked = renderExemplarsForPrompt([exemplar], { proven: { [exemplar.archetype]: 2 } });
+    assert.match(marked.split("\n### ")[0]!, /PROVEN \(n bugs\) counts/);
   });
 
   it("renders no fabricated PROVEN marker for absent or zero promotion counts", () => {

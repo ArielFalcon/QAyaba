@@ -110,7 +110,8 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
    `config/e2e/` for whatever is still missing, install deps.
 4. **Ground** — assemble what the agent receives (see below).
 5. **Generate** — agent writes/improves specs + `e2e/.qa/manifest.json`; an independent
-   reviewer judges. Declared `noop` + zero specs → `skipped`. Zero specs without `noop`
+   reviewer judges. Declared `noop` + zero specs → `skipped` (a no-op has two reasons: nothing in the change
+   is worth a test, or the change cannot be observed on DEV in its current state). Zero specs without `noop`
    → `infra-error E-NO-DECISION`; step budget exhausted → `infra-error E-STEP-BUDGET`; a diff run's
    first pass stopped by its tier's time budget, or any agent turn of the run stopped by the run's
    wall-clock deadline (below) → `infra-error E-TIME-BUDGET`. With the closed loop on (below) the generator may also
@@ -157,7 +158,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts`
   (fail-open): explorer brief (blast radius; `qa.explorer`, default on when `services[]`) on diff and manual runs,
   context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
-  capturable — `generation/infrastructure/context-pack.ts`), harness facts
+  capturable, and per quoted label the diff added or removed how many captured nodes show it against how
+  many unchanged lines of the changed file already hold it — `generation/infrastructure/context-pack.ts`,
+  `generation/domain/changed-values.ts`), harness facts
   (`generation/domain/harness-facts.ts`), existing-suite manifest.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,
   `review-dom-grounding-port.adapter.ts` (same folder).

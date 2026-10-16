@@ -28,6 +28,20 @@ function assertBothContain(role: string, guard: string): void {
   assert.ok(codex.includes(guard), `agent/roles/${role}.md is missing guard sentence: ${JSON.stringify(guard)}`);
 }
 
+/* The outcome contract: a change DEV cannot show ends as a declared no-op, or as a spec that creates the state through the UI; a pre-existing element with the same label is never asserted in its place. The verdict reads no flag in the note. */
+test("qa-generator: both copies end a change DEV cannot show as a declared no-op and keep the same-label stand-in out of the specs", () => {
+  assertBothContain("qa-generator", "cannot be observed on DEV in its current state");
+  assertBothContain("qa-generator", "Never assert a pre-existing element");
+  assertBothContain("qa-generator", "grounds no selector and no asserted value");
+});
+
+test("qa-reviewer: both copies reject a spec that only asserts pre-existing elements with the changed label", () => {
+  assertBothContain("qa-reviewer", "| Same-label stand-in |");
+  for (const [copy, text] of Object.entries(readBoth("qa-reviewer"))) {
+    assert.doesNotMatch(text, /more lenient/i, `${copy} copy must not relax selector precision for a spec written without the page`);
+  }
+});
+
 test("qa-generator: both copies forbid running the suite itself", () => {
   assertBothContain("qa-generator", "STOP touching the suite");
 });

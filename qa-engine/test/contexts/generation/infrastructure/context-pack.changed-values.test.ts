@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { buildContextPack, deriveClaimsFromPackText, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { captureDomForRoutes, type CapturedPage, type CaptureDomDeps, type RouteSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { CONCLUSION } from "@contexts/generation/domain/changed-values.ts";
+import { countDirectives, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import type { ChangedLiteral } from "@kernel/diff-parser/changed-literal.ts";
 import { countUnchangedLinesHolding } from "@kernel/diff-parser/unchanged-lines.ts";
@@ -48,6 +49,18 @@ test("a label changed on a line while two unchanged lines of the file already ho
   assert.match(section, /changed value "Cambiar filtros": 2 node\(s\) on \/restaurantes; 2 unchanged line\(s\) of src\/app\/restaurant-list\.page\.html already contain it/);
   assert.ok(section.includes(CONCLUSION.notObserved), "the pack states the changed element was not observed");
   assert.ok(deriveClaimsFromPackText(result.text ?? "").some((c) => c.kind === "provides" && c.fact === "changed-values"), "the section is a fact the pack provides");
+});
+
+test("a pack that carries the section lints clean as the pack section of a prompt: no second provider, no duplicate line, no directive wording, no trust vocabulary", async () => {
+  const result = await buildContextPack(
+    { ...PACK_INPUT, changedLiterals: [label(2), label(0, "removed", "Cambiar filtro")] },
+    siteShowing([{ route: "/restaurantes", nodes: [...NODES_WITHOUT_RESTAURANTS, "button: Cambiar filtro"] }]),
+  );
+  assert.ok(sectionText(result.text) !== "");
+  const claims = deriveClaimsFromPackText(result.text ?? "");
+  const findings = lintCell({ name: "pack", regen: false, sections: [{ id: "context-pack", layer: "assembled", text: result.text ?? "", claims, verbatim: false }] });
+  assert.deepEqual(findings, []);
+  assert.equal(countDirectives(sectionText(result.text)), 0);
 });
 
 test("the same label with no unchanged line holding it is observed once a node shows it", async () => {

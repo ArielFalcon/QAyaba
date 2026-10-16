@@ -6,11 +6,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-test("OpencodeRunInput accepts the full deterministic-signal field set (contextPack/domSnapshot/staticSignal/staticSignalHasSymbols/diffArchetypes)", () => {
+test("OpencodeRunInput accepts the full deterministic-signal field set (contextPack/domSnapshot/staticSignal/staticSignalHasSymbols)", () => {
   const input: OpencodeRunInput = {
     repo: "o/a", sha: "abc", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "qa-bot-abc",
     needsReview: true, target: "e2e", mode: "diff", appName: "a",
-    contextPack: "pack", domSnapshot: "dom", staticSignal: "sig", staticSignalHasSymbols: true, diffArchetypes: ["auth-flow"],
+    contextPack: "pack", domSnapshot: "dom", staticSignal: "sig", staticSignalHasSymbols: true,
   };
   assert.equal(input.target, "e2e"); /* compile-time is the real assertion; this keeps node:test happy */
 });

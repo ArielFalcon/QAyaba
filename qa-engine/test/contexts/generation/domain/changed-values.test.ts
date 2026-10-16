@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderChangedValues, nodeShowsText, MAX_ROUTES_NAMED_PER_VALUE } from "@contexts/generation/domain/changed-values.ts";
+import { renderChangedValues, nodeShowsText, CONCLUSION, MAX_ROUTES_NAMED_PER_VALUE } from "@contexts/generation/domain/changed-values.ts";
 import { countDirectives, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { ChangedLiteral } from "@kernel/diff-parser/changed-literal.ts";
 
@@ -15,28 +15,28 @@ test("a changed label shown by as many nodes as unchanged lines already hold it 
   assert.match(out, /changed value "Cambiar filtros"/);
   assert.match(out, /2 node\(s\) on \/restaurantes/);
   assert.match(out, new RegExp(`2 unchanged line\\(s\\) of ${FILE.replace(/\./g, "\\.")} already contain it`));
-  assert.match(out, /the changed element was not observed/);
-  assert.doesNotMatch(out, /→ observed/);
+  assert.ok(out.includes(CONCLUSION.notObserved));
+  assert.ok(!out.includes(`→ ${CONCLUSION.observed}`));
 });
 
 test("a changed label shown by more nodes than unchanged lines hold it is reported as observed", () => {
   const out = renderChangedValues([added("Cambiar filtros", 2)], [page("/restaurantes", ["button: Cambiar filtros", "button: Cambiar filtros", "button: Cambiar filtros"])]);
   assert.match(out, /3 node\(s\) on \/restaurantes/);
-  assert.match(out, /→ observed/);
-  assert.doesNotMatch(out, /not observed/);
+  assert.ok(out.includes(`→ ${CONCLUSION.observed}`));
+  assert.ok(!out.includes(CONCLUSION.notObserved));
 });
 
 test("a new label no unchanged line holds and one node shows is observed", () => {
   const out = renderChangedValues([added("Nuevo texto", 0)], [page("/a", ["button: Nuevo texto"])]);
   assert.match(out, /0 unchanged line\(s\)/);
-  assert.match(out, /→ observed/);
+  assert.ok(out.includes(`→ ${CONCLUSION.observed}`));
 });
 
 test("a changed label no node shows is not observed, whatever the file holds", () => {
   for (const unchangedLines of [0, 3, undefined]) {
     const out = renderChangedValues([added("Nuevo texto", unchangedLines)], [page("/a", ["button: Otra cosa"])]);
     assert.match(out, /0 node\(s\)/, `unchanged lines ${unchangedLines}`);
-    assert.match(out, /the changed element was not observed/, `unchanged lines ${unchangedLines}`);
+    assert.ok(out.includes(CONCLUSION.notObserved), `unchanged lines ${unchangedLines}`);
   }
 });
 
@@ -50,7 +50,7 @@ test("an old value still shown by more nodes than unchanged lines hold it is rep
   const out = renderChangedValues([removed("Cambiar filtro", 0)], [page("/a", ["button: Cambiar filtro"])]);
   assert.match(out, /old value "Cambiar filtro"/);
   assert.match(out, /1 node\(s\) on \/a/);
-  assert.match(out, /old value still visible/);
+  assert.ok(out.includes(CONCLUSION.oldValueVisible));
 });
 
 test("an old value no node shows, or that unchanged lines explain, is not reported", () => {

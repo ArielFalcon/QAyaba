@@ -18,7 +18,7 @@ setExplorationBriefCollaborators({
   renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
 });
 
-const NOTHING_WORTH_A_TEST = /nothing here is worth a test/i;
+const NOTHING_WORTH_A_TEST = /nothing (?:here )?is worth a test/i;
 const DEV_CANNOT_SHOW = /DEV cannot show the change/i;
 
 const input: OpencodeRunInput = {

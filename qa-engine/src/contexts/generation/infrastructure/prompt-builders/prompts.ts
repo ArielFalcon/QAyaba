@@ -26,8 +26,7 @@ import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type Miles
 import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
 import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
-import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
-import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
+import { renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
 
@@ -84,9 +83,9 @@ function renderLeadPlan(limits: PlanningLimits): string {
   return [
     `## ${PROMPT_HEADINGS.leadPlan}`,
     `This turn asks for a plan, not for specs: write no file. Close with ONLY a JSON object {"plan": ...} of one of these shapes.`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing here is worth a test, or why DEV cannot show the change as it is>"}}`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.SINGLE}"}} when the change is one piece of work that you will author yourself.`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]}]}} when the change is several independent flows, each of which can be written and run without the others.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing is worth a test or DEV cannot show the change>"}}`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.SINGLE}"}} when the change is one piece of work you author yourself.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]}]}} when the change is several independent flows, each written and run without the others.`,
     `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
     ``,
   ].join("\n");
@@ -771,30 +770,12 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const harnessFactsContent = isGenerationMode && input.harnessFacts ? renderHarnessFacts(input.harnessFacts, input.e2eRelDir) : "";
 
-  const diffArchetypesContent =
-    input.diffArchetypes?.length && isGenerationMode
-      ? `Change shape (deterministic): ${input.diffArchetypes.join(", ")} — prioritise tests that exercise these`
-      : "";
-
-  /* CHANGE-COVERAGE OBSERVATION marker: no deterministic oracle exists for "did the rich exemplar template change generation quality" — flagging here (+ engram) so a future audit can measure rich-exemplar vs one-line-diffArchetypes-hint defect-catch rate. No live caller populates input.structuralPatterns, so without a local derivation the "archetype-matched templates re-enter the generation prompt" scenario went unmet for a real run. Derived HERE instead, at the layer that already holds the diff (this function already reads input.diff for cappedDiffText above), rather than adding new qa-engine plumbing: an explicitly-supplied input.structuralPatterns still wins; only a genuinely absent/empty one falls back to a local derivation from the diff already in scope. */
+  /* The templates the curriculum selected for the structural patterns of this change, in its order, with the marker of each pattern that has caught a defect. The fold credits exactly these, so a template the curriculum did not select is never rendered. */
   const skillExemplarsContent = (() => {
-    if (!isGenerationMode) return "";
-    if (input.skillExemplars?.length) {
-      const proven: Record<string, number> = {};
-      for (const e of input.skillExemplars) if (e.proven && e.promotionCount > 0) proven[e.archetype] = e.promotionCount;
-      return renderExemplarsForPrompt(input.skillExemplars, { proven });
-    }
-    const patterns = input.structuralPatterns?.length
-      ? input.structuralPatterns
-      : detectStructuralPatterns(input.diff, input.intent?.changedFiles ?? []);
-    const matched = patterns.flatMap((p) => matchExemplars(p));
-    const seenNames = new Set<string>();
-    const deduped = matched.filter((e) => {
-      if (seenNames.has(e.name)) return false;
-      seenNames.add(e.name);
-      return true;
-    });
-    return renderExemplarsForPrompt(deduped);
+    if (!isGenerationMode || !input.skillExemplars?.length) return "";
+    const proven: Record<string, number> = {};
+    for (const e of input.skillExemplars) if (e.proven && e.promotionCount > 0) proven[e.archetype] = e.promotionCount;
+    return renderExemplarsForPrompt(input.skillExemplars, { proven });
   })();
 
   const closedLoopContent = isGenerationMode && input.target === "e2e" && input.closedLoop ? renderClosedLoop(input.closedLoop) : "";
@@ -821,7 +802,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(suiteIsListed ? [section(SUITE_LISTING_SECTION_ID, "semi-stable", listingContent, { priority: 2, claims: [claim.provides("existing-suite")], ...(editableListed ? { overflow: "summarize" as const } : {}) })] : []),
       ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
       ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
-      ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
       ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536, claims: [claim.provides("exemplars")] })] : []),
       ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
       ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims })] : []),
@@ -856,64 +836,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 export function buildPrompt(input: OpencodeRunInput): string {
   return buildPromptAssembled(input).text;
 }
-
-export function buildFollowupPrompt(input: OpencodeRunInput): string {
-  const parts: string[] = [
-    `## Continuation — same session; do NOT re-explore`,
-    ``,
-    `The suite you wrote was executed against DEV. The working rules, blast-radius brief, Context Pack`,
-    `and diff are ALREADY in this session above — do NOT re-read them, do NOT re-activate serena, do NOT`,
-    `re-run find_referencing_symbols, and do NOT re-navigate a route you already explored. Fix from what`,
-    `you already have, plus the new failure signal below.`,
-    GROUNDING_UNCOVERED_ESCAPE,
-    ``,
-  ];
-  if (input.domSnapshot && input.failureSourced) {
-    parts.push(
-      `## ${PROMPT_HEADINGS.groundTruthAtFailure}`,
-      ``,
-      `The tree below is the page AT THE FAILURE POINT — the ONLY source of truth for this fix. Quote the`,
-      `exact \`role: name\` line before writing any locator; an unquotable locator MUST be replaced.`,
-      ``,
-      sanitizeText(input.domSnapshot, "model").text,
-      ``,
-    );
-  }
-  if (input.selectorContradictions?.length) {
-    parts.push(
-      `## ⚠ Selector contradictions (DETERMINISTIC — resolve EVERY one)`,
-      `Each was checked against the captured tree and FAILED — replace it with a role/name that appears there:`,
-      ...input.selectorContradictions.map((c) => `- ${sanitizeText(c).text}`),
-      ``,
-    );
-  }
-  if (input.fixCases?.length) {
-    parts.push(
-      `## Fix failing tests`,
-      `These tests FAILED against DEV. Fix ONLY these; do NOT touch tests that passed.`,
-      ...input.fixCases.flatMap(renderFixCase),
-      ``,
-    );
-  }
-  if (input.reviewCorrections?.length) {
-    parts.push(
-      `## Apply reviewer corrections (HIGHEST priority)`,
-      `An independent reviewer REJECTED the previous specs. Fix EACH item; do NOT rewrite specs not flagged.`,
-      ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
-      ``,
-    );
-  }
-  if (input.coverageGap) {
-    parts.push(
-      `## Cover the change (HIGH priority)`,
-      `The tests ran green but did NOT exercise all the changed lines. Extend/add tests so they are asserted:`,
-      input.coverageGap,
-      ``,
-    );
-  }
-  return parts.join("\n");
-}
-
 
 /** context.json is read from the WATCHED repo (and committed by this system's own PRs), so it is attacker-influenceable. Every field is sanitized before it reaches the test-writing agent (prompt-injection / secret-exfil defense), and the map is BOUNDED so a huge file cannot blow the token budget. `s()` redacts; MAX_ITEMS caps each section. */
 export function renderArchitectureContext(
@@ -1277,7 +1199,7 @@ export interface EffortTier {
 }
 
 /* The clause every tier ends with, so that what the data declares (the no-op is admitted) is what the text says. */
-export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test or DEV cannot show the change as it is";
+export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test or DEV cannot show the change";
 const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_NO_OP_CLAUSE}.`;
 
 export const EFFORT_BY_TIER: Record<DiffTier, EffortTier> = {
@@ -1363,8 +1285,8 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
           `limitation explicitly in your verdict note.`,
           ``,
         ]),
-    `## Scope budget (diff mode — do NOT over-work)`,
-    `The blast radius IS your budget. ${sizeSentence(stat)} so keep generation fast and focused:`,
+    `## Scope budget (diff mode)`,
+    `The blast radius IS your budget. ${sizeSentence(stat)} so keep it focused:`,
     ...(guards.blastRadiusGrounded ? [] : [`- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`]),
     `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
     /* The listing supplies the suite; the read of it is declared only where nothing lists it. */

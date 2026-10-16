@@ -400,7 +400,7 @@ test("the generator cells scanned reach every value of every dimension", () => {
 
 /* ── what the harness sends to an agent ── */
 
-/* A kind of prompt the harness authors for an agent. `prompts(subject)` drives the real builder, or the real class that sends it, with `subject` spliced into a free-text field the prompt renders, and returns every variant of the kind. Every role the runtime opens a session for is reached by at least one kind. `buildFollowupPrompt` has no kind: no production code sends it. */
+/* A kind of prompt the harness authors for an agent. `prompts(subject)` drives the real builder, or the real class that sends it, with `subject` spliced into a free-text field the prompt renders, and returns every variant of the kind. Every role the runtime opens a session for is reached by at least one kind. */
 interface PromptKind {
   kind: string;
   roles: readonly AgentRole[];

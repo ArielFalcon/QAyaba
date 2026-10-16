@@ -5,8 +5,8 @@
     "directives": 20
   },
   "staticLayers": {
-    "opencode": 20839,
-    "codex": 35797
+    "opencode": 19934,
+    "codex": 34892
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -350,7 +350,7 @@
       "directives": 8
     },
     "complete/e2e/first/tree-none/brief+pack/planning/limit": {
-      "bytes": 4391,
+      "bytes": 4390,
       "directives": 6
     },
     "complete/e2e/first/tree-none/brief/limit": {
@@ -382,7 +382,7 @@
       "directives": 11
     },
     "complete/e2e/first/tree-none/brief/planning/limit": {
-      "bytes": 4160,
+      "bytes": 4159,
       "directives": 9
     },
     "complete/e2e/first/tree-none/none": {
@@ -402,7 +402,7 @@
       "directives": 7
     },
     "complete/e2e/first/tree-none/none/planning/limit": {
-      "bytes": 3197,
+      "bytes": 3196,
       "directives": 7
     },
     "complete/e2e/first/tree-none/none/signal": {
@@ -446,7 +446,7 @@
       "directives": 5
     },
     "complete/e2e/first/tree-none/pack/planning/limit": {
-      "bytes": 3507,
+      "bytes": 3506,
       "directives": 5
     },
     "complete/e2e/first/tree-none/pack/signal": {
@@ -3746,436 +3746,436 @@
       "directives": 11
     },
     "diff/e2e/first/tree-none/brief": {
-      "bytes": 6329,
-      "directives": 12
+      "bytes": 6321,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief+pack": {
-      "bytes": 6629,
-      "directives": 9
+      "bytes": 6621,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/brief+pack/contracts-only": {
-      "bytes": 6539,
-      "directives": 12
+      "bytes": 6531,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief+pack/contracts-only/limit": {
-      "bytes": 6658,
-      "directives": 12
+      "bytes": 6650,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief+pack/contracts-only/service": {
-      "bytes": 7227,
-      "directives": 12
+      "bytes": 7219,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief+pack/contracts-only/service/limit": {
-      "bytes": 7346,
-      "directives": 12
+      "bytes": 7338,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief+pack/limit": {
-      "bytes": 6748,
-      "directives": 9
+      "bytes": 6740,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/brief+pack/loop/browser/limit": {
-      "bytes": 5877,
-      "directives": 8
+      "bytes": 5869,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/brief+pack/loop/limit": {
-      "bytes": 5554,
-      "directives": 8
+      "bytes": 5546,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast": {
-      "bytes": 6526,
-      "directives": 9
+      "bytes": 6518,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/co-change": {
-      "bytes": 5557,
-      "directives": 8
+      "bytes": 5549,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/co-change/limit": {
-      "bytes": 5676,
-      "directives": 8
+      "bytes": 5668,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/co-change/no-suite": {
-      "bytes": 5529,
-      "directives": 7
+      "bytes": 5521,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/co-change/no-suite/limit": {
-      "bytes": 5648,
-      "directives": 7
+      "bytes": 5640,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only": {
-      "bytes": 6436,
-      "directives": 12
+      "bytes": 6428,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/limit": {
-      "bytes": 6555,
-      "directives": 12
+      "bytes": 6547,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/service": {
-      "bytes": 7124,
-      "directives": 12
+      "bytes": 7116,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/service/limit": {
-      "bytes": 7243,
-      "directives": 12
+      "bytes": 7235,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal": {
-      "bytes": 6756,
-      "directives": 13
+      "bytes": 6748,
+      "directives": 12
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal/limit": {
-      "bytes": 6875,
-      "directives": 13
+      "bytes": 6867,
+      "directives": 12
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal/service": {
-      "bytes": 7444,
-      "directives": 13
+      "bytes": 7436,
+      "directives": 12
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal/service/limit": {
-      "bytes": 7563,
-      "directives": 13
+      "bytes": 7555,
+      "directives": 12
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/limit": {
-      "bytes": 6645,
-      "directives": 9
+      "bytes": 6637,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/no-suite": {
-      "bytes": 5166,
-      "directives": 7
+      "bytes": 5158,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/no-suite/limit": {
-      "bytes": 5285,
-      "directives": 7
+      "bytes": 5277,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/service": {
-      "bytes": 7214,
-      "directives": 9
+      "bytes": 7206,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/service/limit": {
-      "bytes": 7333,
-      "directives": 9
+      "bytes": 7325,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/signal": {
-      "bytes": 6846,
-      "directives": 10
+      "bytes": 6838,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/signal/limit": {
-      "bytes": 6965,
-      "directives": 10
+      "bytes": 6957,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/signal/no-suite": {
-      "bytes": 5486,
-      "directives": 8
+      "bytes": 5478,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/signal/no-suite/limit": {
-      "bytes": 5605,
-      "directives": 8
+      "bytes": 5597,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/signal/service": {
-      "bytes": 7534,
-      "directives": 10
+      "bytes": 7526,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/signal/service/limit": {
-      "bytes": 7653,
-      "directives": 10
+      "bytes": 7645,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief+pack/no-suite": {
-      "bytes": 5269,
-      "directives": 7
+      "bytes": 5261,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/brief+pack/no-suite/limit": {
-      "bytes": 5388,
-      "directives": 7
+      "bytes": 5380,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/brief+pack/planning/limit": {
-      "bytes": 6171,
-      "directives": 8
+      "bytes": 6162,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/brief+pack/service": {
-      "bytes": 7317,
-      "directives": 9
+      "bytes": 7309,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/brief+pack/service/limit": {
-      "bytes": 7436,
-      "directives": 9
+      "bytes": 7428,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/brief/limit": {
-      "bytes": 6448,
-      "directives": 12
+      "bytes": 6440,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief/loop/browser/limit": {
-      "bytes": 5646,
-      "directives": 11
+      "bytes": 5638,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/brief/loop/limit": {
-      "bytes": 5323,
-      "directives": 11
+      "bytes": 5315,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/brief/no-blast": {
-      "bytes": 6226,
-      "directives": 12
+      "bytes": 6218,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief/no-blast/co-change": {
-      "bytes": 5326,
-      "directives": 11
+      "bytes": 5318,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/brief/no-blast/co-change/limit": {
-      "bytes": 5445,
-      "directives": 11
+      "bytes": 5437,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/brief/no-blast/co-change/no-suite": {
-      "bytes": 5298,
-      "directives": 10
+      "bytes": 5290,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief/no-blast/co-change/no-suite/limit": {
-      "bytes": 5417,
-      "directives": 10
+      "bytes": 5409,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief/no-blast/limit": {
-      "bytes": 6345,
-      "directives": 12
+      "bytes": 6337,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief/no-blast/no-suite": {
-      "bytes": 4935,
-      "directives": 10
+      "bytes": 4927,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief/no-blast/no-suite/limit": {
-      "bytes": 5054,
-      "directives": 10
+      "bytes": 5046,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief/no-blast/service": {
-      "bytes": 6914,
-      "directives": 12
+      "bytes": 6906,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief/no-blast/service/limit": {
-      "bytes": 7033,
-      "directives": 12
+      "bytes": 7025,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief/no-blast/signal": {
-      "bytes": 6546,
-      "directives": 13
+      "bytes": 6538,
+      "directives": 12
     },
     "diff/e2e/first/tree-none/brief/no-blast/signal/limit": {
-      "bytes": 6665,
-      "directives": 13
+      "bytes": 6657,
+      "directives": 12
     },
     "diff/e2e/first/tree-none/brief/no-blast/signal/no-suite": {
-      "bytes": 5255,
-      "directives": 11
+      "bytes": 5247,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/brief/no-blast/signal/no-suite/limit": {
-      "bytes": 5374,
-      "directives": 11
+      "bytes": 5366,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/brief/no-blast/signal/service": {
-      "bytes": 7234,
-      "directives": 13
+      "bytes": 7226,
+      "directives": 12
     },
     "diff/e2e/first/tree-none/brief/no-blast/signal/service/limit": {
-      "bytes": 7353,
-      "directives": 13
+      "bytes": 7345,
+      "directives": 12
     },
     "diff/e2e/first/tree-none/brief/no-suite": {
-      "bytes": 5038,
-      "directives": 10
+      "bytes": 5030,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief/no-suite/limit": {
-      "bytes": 5157,
-      "directives": 10
+      "bytes": 5149,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/brief/planning/limit": {
-      "bytes": 5940,
-      "directives": 11
+      "bytes": 5931,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/brief/service": {
-      "bytes": 7017,
-      "directives": 12
+      "bytes": 7009,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/brief/service/limit": {
-      "bytes": 7136,
-      "directives": 12
+      "bytes": 7128,
+      "directives": 11
     },
     "diff/e2e/first/tree-none/none": {
-      "bytes": 5667,
-      "directives": 10
+      "bytes": 5659,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/none/co-change": {
-      "bytes": 4559,
-      "directives": 9
+      "bytes": 4551,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/none/co-change/limit": {
-      "bytes": 4678,
-      "directives": 9
+      "bytes": 4670,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/none/co-change/no-suite": {
-      "bytes": 4531,
-      "directives": 8
+      "bytes": 4523,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/none/co-change/no-suite/limit": {
-      "bytes": 4650,
-      "directives": 8
+      "bytes": 4642,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/none/limit": {
-      "bytes": 5786,
-      "directives": 10
+      "bytes": 5778,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/none/loop/browser/limit": {
-      "bytes": 4776,
-      "directives": 9
+      "bytes": 4768,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/none/loop/limit": {
-      "bytes": 4453,
-      "directives": 9
+      "bytes": 4445,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/none/no-suite": {
-      "bytes": 4168,
-      "directives": 8
+      "bytes": 4160,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/none/no-suite/limit": {
-      "bytes": 4287,
-      "directives": 8
+      "bytes": 4279,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/none/planning/limit": {
-      "bytes": 5070,
-      "directives": 9
+      "bytes": 5061,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/none/service": {
-      "bytes": 6355,
-      "directives": 10
+      "bytes": 6347,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/none/service/limit": {
-      "bytes": 6474,
-      "directives": 10
+      "bytes": 6466,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/none/signal": {
-      "bytes": 5987,
-      "directives": 11
+      "bytes": 5979,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/none/signal/limit": {
-      "bytes": 6106,
-      "directives": 11
+      "bytes": 6098,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/none/signal/no-suite": {
-      "bytes": 4488,
-      "directives": 9
+      "bytes": 4480,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/none/signal/no-suite/limit": {
-      "bytes": 4607,
-      "directives": 9
+      "bytes": 4599,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/none/signal/service": {
-      "bytes": 6675,
-      "directives": 11
+      "bytes": 6667,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/none/signal/service/limit": {
-      "bytes": 6794,
-      "directives": 11
+      "bytes": 6786,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/pack": {
-      "bytes": 6046,
-      "directives": 8
+      "bytes": 6038,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/pack/co-change": {
-      "bytes": 4869,
-      "directives": 7
+      "bytes": 4861,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/pack/co-change/limit": {
-      "bytes": 4988,
-      "directives": 7
+      "bytes": 4980,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/pack/co-change/no-suite": {
-      "bytes": 4841,
-      "directives": 6
+      "bytes": 4833,
+      "directives": 5
     },
     "diff/e2e/first/tree-none/pack/co-change/no-suite/limit": {
-      "bytes": 4960,
-      "directives": 6
+      "bytes": 4952,
+      "directives": 5
     },
     "diff/e2e/first/tree-none/pack/contracts-only": {
-      "bytes": 5877,
-      "directives": 10
+      "bytes": 5869,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/pack/contracts-only/limit": {
-      "bytes": 5996,
-      "directives": 10
+      "bytes": 5988,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/pack/contracts-only/service": {
-      "bytes": 6565,
-      "directives": 10
+      "bytes": 6557,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/pack/contracts-only/service/limit": {
-      "bytes": 6684,
-      "directives": 10
+      "bytes": 6676,
+      "directives": 9
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal": {
-      "bytes": 6197,
-      "directives": 11
+      "bytes": 6189,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal/limit": {
-      "bytes": 6316,
-      "directives": 11
+      "bytes": 6308,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal/service": {
-      "bytes": 6885,
-      "directives": 11
+      "bytes": 6877,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal/service/limit": {
-      "bytes": 7004,
-      "directives": 11
+      "bytes": 6996,
+      "directives": 10
     },
     "diff/e2e/first/tree-none/pack/limit": {
-      "bytes": 6165,
-      "directives": 8
+      "bytes": 6157,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/pack/loop/browser/limit": {
-      "bytes": 5086,
-      "directives": 7
+      "bytes": 5078,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/pack/loop/limit": {
-      "bytes": 4763,
-      "directives": 7
+      "bytes": 4755,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/pack/no-suite": {
-      "bytes": 4478,
-      "directives": 6
+      "bytes": 4470,
+      "directives": 5
     },
     "diff/e2e/first/tree-none/pack/no-suite/limit": {
-      "bytes": 4597,
-      "directives": 6
+      "bytes": 4589,
+      "directives": 5
     },
     "diff/e2e/first/tree-none/pack/planning/limit": {
-      "bytes": 5380,
-      "directives": 7
+      "bytes": 5371,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/pack/service": {
-      "bytes": 6734,
-      "directives": 8
+      "bytes": 6726,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/pack/service/limit": {
-      "bytes": 6853,
-      "directives": 8
+      "bytes": 6845,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/pack/signal": {
-      "bytes": 6366,
-      "directives": 9
+      "bytes": 6358,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/pack/signal/limit": {
-      "bytes": 6485,
-      "directives": 9
+      "bytes": 6477,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/pack/signal/no-suite": {
-      "bytes": 4798,
-      "directives": 7
+      "bytes": 4790,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/pack/signal/no-suite/limit": {
-      "bytes": 4917,
-      "directives": 7
+      "bytes": 4909,
+      "directives": 6
     },
     "diff/e2e/first/tree-none/pack/signal/service": {
-      "bytes": 7054,
-      "directives": 9
+      "bytes": 7046,
+      "directives": 8
     },
     "diff/e2e/first/tree-none/pack/signal/service/limit": {
-      "bytes": 7173,
-      "directives": 9
+      "bytes": 7165,
+      "directives": 8
     },
     "diff/e2e/regen-coverage/tree-none/brief": {
       "bytes": 6136,
@@ -7974,7 +7974,7 @@
       "directives": 8
     },
     "exhaustive/e2e/first/tree-none/brief+pack/planning/limit": {
-      "bytes": 4528,
+      "bytes": 4527,
       "directives": 6
     },
     "exhaustive/e2e/first/tree-none/brief/limit": {
@@ -8006,7 +8006,7 @@
       "directives": 11
     },
     "exhaustive/e2e/first/tree-none/brief/planning/limit": {
-      "bytes": 4297,
+      "bytes": 4296,
       "directives": 9
     },
     "exhaustive/e2e/first/tree-none/none": {
@@ -8026,7 +8026,7 @@
       "directives": 7
     },
     "exhaustive/e2e/first/tree-none/none/planning/limit": {
-      "bytes": 3334,
+      "bytes": 3333,
       "directives": 7
     },
     "exhaustive/e2e/first/tree-none/none/signal": {
@@ -8070,7 +8070,7 @@
       "directives": 5
     },
     "exhaustive/e2e/first/tree-none/pack/planning/limit": {
-      "bytes": 3644,
+      "bytes": 3643,
       "directives": 5
     },
     "exhaustive/e2e/first/tree-none/pack/signal": {
@@ -11318,7 +11318,7 @@
       "directives": 6
     },
     "manual/e2e/first/tree-none/brief+pack/planning/limit": {
-      "bytes": 4429,
+      "bytes": 4428,
       "directives": 7
     },
     "manual/e2e/first/tree-none/brief/limit": {
@@ -11374,7 +11374,7 @@
       "directives": 9
     },
     "manual/e2e/first/tree-none/brief/planning/limit": {
-      "bytes": 4198,
+      "bytes": 4197,
       "directives": 10
     },
     "manual/e2e/first/tree-none/none": {
@@ -11402,7 +11402,7 @@
       "directives": 7
     },
     "manual/e2e/first/tree-none/none/planning/limit": {
-      "bytes": 3235,
+      "bytes": 3234,
       "directives": 8
     },
     "manual/e2e/first/tree-none/none/signal": {
@@ -11462,7 +11462,7 @@
       "directives": 5
     },
     "manual/e2e/first/tree-none/pack/planning/limit": {
-      "bytes": 3545,
+      "bytes": 3544,
       "directives": 6
     },
     "manual/e2e/first/tree-none/pack/signal": {

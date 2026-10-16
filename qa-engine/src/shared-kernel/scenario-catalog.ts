@@ -106,14 +106,17 @@ export function renderExemplarsForPrompt(
 ): string {
   if (exemplars.length === 0) return "";
 
+  const bugsOf = (e: RenderableExemplar): number => opts?.proven?.[e.archetype] ?? 0;
+  /* Facts only: which patterns the change showed, and what a PROVEN mark counts when one is there. The templates themselves say what to test. */
   const lines = [
     "## Skill exemplars for the detected structural patterns",
-    "Apply these test templates to the current change. Each is a proven pattern for this kind of code.",
+    "Test templates recorded for the structural patterns detected in this change.",
+    ...(exemplars.some((e) => bugsOf(e) > 0) ? ["PROVEN (n bugs) counts the application defects past runs caught with that template."] : []),
     "",
   ];
 
   for (const e of exemplars) {
-    const bugs = opts?.proven?.[e.archetype] ?? 0;
+    const bugs = bugsOf(e);
     const marker = bugs > 0 ? ` — PROVEN (${bugs} ${bugs === 1 ? "bug" : "bugs"})` : "";
     lines.push(`### ${e.name} (${e.archetype})${marker}`);
     lines.push(e.template);
