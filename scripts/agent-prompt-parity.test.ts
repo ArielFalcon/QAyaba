@@ -30,9 +30,12 @@ function assertBothContain(role: string, guard: string): void {
 
 /* The outcome contract: a change DEV cannot show ends as a declared no-op, or as a spec that creates the state through the UI; a pre-existing element with the same label is never asserted in its place. The verdict reads no flag in the note. */
 test("qa-generator: both copies end a change DEV cannot show as a declared no-op and keep the same-label stand-in out of the specs", () => {
-  assertBothContain("qa-generator", "cannot be observed on DEV in its current state");
-  assertBothContain("qa-generator", "Never assert a pre-existing element");
-  assertBothContain("qa-generator", "grounds no selector and no asserted value");
+  for (const [copy, text] of Object.entries(readBoth("qa-generator"))) {
+    const flat = text.replace(/\s+/g, " ");
+    for (const guard of ["cannot be observed on DEV in its current state", "Never assert a pre-existing element", "grounds no selector and no asserted value"]) {
+      assert.ok(flat.includes(guard), `${copy} copy is missing guard sentence: ${JSON.stringify(guard)}`);
+    }
+  }
 });
 
 test("qa-reviewer: both copies reject a spec that only asserts pre-existing elements with the changed label", () => {
