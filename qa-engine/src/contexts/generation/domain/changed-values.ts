@@ -1,4 +1,4 @@
-/* What the captured pages say about the labels a change added and removed, as facts: how many nodes of the captured trees show each value, how many unchanged lines of the changed file already hold it, and what the two counts allow to be said. Pure: the caller supplies the literals (the diff, and the file read for the unchanged lines) and the nodes (the live capture). Nothing here directs the agent; a count that does not exceed the unchanged lines is stated as such, never as a judgement of the change. */
+/* What the captured pages say about the labels a change added and removed, as facts that claim no more than the evidence shows: how many nodes each captured route shows of a value, how many unchanged lines of the changed file already hold it, and, only where a route shows more nodes than those lines could account for, that fact with its limit (no other file was checked). Pure: the caller supplies the literals (the diff, and the file read for the unchanged lines) and the nodes (the live capture). Nothing here directs the agent. */
 
 import { PACK_HEADINGS } from "./prompt-headings.ts";
 import type { ChangedLiteral } from "../../../shared-kernel/diff-parser/changed-literal.ts";
@@ -9,16 +9,18 @@ export interface ObservedPage {
   nodes: readonly string[];
 }
 
-/* The most routes named for one value; the count covers all of them. */
+/* The most routes named for one value; each is counted alone. */
 export const MAX_ROUTES_NAMED_PER_VALUE = 3;
 
 export const CHANGED_VALUES_LEGEND =
-  "Counts are of nodes in the captured trees and of unchanged lines in the changed file; nodes no more numerous than the unchanged lines that hold the value may come from those lines alone.";
+  "Counts are per route, of nodes in the captured trees, and of unchanged lines in the changed file only; no other file was checked.";
 
-export const CONCLUSION = {
-  notObserved: "the changed element was not observed",
-  observed: "observed",
-  oldValueVisible: "old value still visible",
+export const WORDING = {
+  /* Nodes no more numerous than the unchanged lines that hold the value: they may all come from those lines. */
+  ambiguous: "none can be attributed to the change",
+  /* A route shows more nodes than the unchanged lines of the file hold the value. The limit follows it. */
+  moreNodes: (file: string): string => `more nodes than unchanged lines of ${file}`,
+  limit: "(other files not checked)",
 } as const;
 
 const ARIA_STATE_SUFFIX = /(?:\s*\[(?:disabled|expanded|checked|required|selected|pressed|level=\d+)\])+\s*$/;
@@ -35,48 +37,49 @@ export function nodeShowsText(nodeLine: string, text: string): boolean {
 /* A value as it is quoted in a line: one line, with no quote that could end the quotation. */
 const quoted = (value: string): string => `"${value.replace(/\s+/g, " ").replace(/"/g, "'").trim()}"`;
 
-interface Count {
-  total: number;
-  routes: string[];
+interface RouteCount {
+  route: string;
+  nodes: number;
 }
 
-function countShowing(value: string, pages: readonly ObservedPage[]): Count {
-  let total = 0;
-  const routes: string[] = [];
-  for (const page of pages) {
-    const shown = page.nodes.filter((node) => nodeShowsText(node, value)).length;
-    if (shown === 0) continue;
-    total += shown;
-    routes.push(page.route);
-  }
-  return { total, routes };
+/* The routes that show the value, each with its own count. */
+function countsPerRoute(value: string, pages: readonly ObservedPage[]): RouteCount[] {
+  return pages
+    .map((page) => ({ route: page.route, nodes: page.nodes.filter((node) => nodeShowsText(node, value)).length }))
+    .filter((count) => count.nodes > 0);
 }
 
-const nodesPhrase = ({ total, routes }: Count): string => {
-  if (total === 0) return "0 node(s) in the captured trees";
-  const named = routes.slice(0, MAX_ROUTES_NAMED_PER_VALUE).join(", ");
-  const more = routes.length - MAX_ROUTES_NAMED_PER_VALUE;
-  return `${total} node(s) on ${named}${more > 0 ? ` (+${more} more)` : ""}`;
+const routesPhrase = (counts: readonly RouteCount[]): string => {
+  const named = counts.slice(0, MAX_ROUTES_NAMED_PER_VALUE).map(({ nodes, route }) => `${nodes} node(s) on ${route}`).join(", ");
+  const more = counts.length - MAX_ROUTES_NAMED_PER_VALUE;
+  return `${named}${more > 0 ? ` (+${more} more)` : ""}`;
 };
 
-/* The line of a value the change added. The nodes are counted against the unchanged lines of the file: more nodes than those lines hold the value is a node the change introduced; no more is what the unchanged lines alone would render, or nothing at all. */
-function addedLine(literal: ChangedLiteral, pages: readonly ObservedPage[]): string {
-  const count = countShowing(literal.value, pages);
-  const lines = literal.unchangedLines;
-  const held = lines === undefined ? "" : `; ${lines} unchanged line(s) of ${literal.file} already contain it`;
-  const head = `- changed value ${quoted(literal.value)}: ${nodesPhrase(count)}${held}`;
-  if (count.total === 0) return `${head} → ${CONCLUSION.notObserved}`;
-  if (lines === undefined) return head;
-  return `${head} → ${count.total > lines ? CONCLUSION.observed : CONCLUSION.notObserved}`;
+/* The routes on which more nodes show the value than unchanged lines of its file hold it. Unknown when the file was not read. */
+function exceeding(counts: readonly RouteCount[], unchangedLines: number | undefined): RouteCount[] {
+  return unchangedLines === undefined ? [] : counts.filter((count) => count.nodes > unchangedLines);
 }
 
-/* The line of a value the change removed, only when more nodes show it than unchanged lines hold it: the old value is on the page beyond what the file still says. */
+/* The line of a value the change added. */
+function addedLine(literal: ChangedLiteral, pages: readonly ObservedPage[]): string {
+  const counts = countsPerRoute(literal.value, pages);
+  const lines = literal.unchangedLines;
+  const head = `- changed value ${quoted(literal.value)}:`;
+  const held = lines === undefined ? undefined : `${lines} unchanged line(s) of ${literal.file} already hold it`;
+  if (counts.length === 0) return `${head} no captured node shows it${held ? `; ${held}` : ""}`;
+  if (held === undefined) return `${head} ${routesPhrase(counts)} show it; unchanged lines of ${literal.file} were not read`;
+  const beyond = exceeding(counts, lines);
+  if (beyond.length === 0) return `${head} ${routesPhrase(counts)} show it and ${held}: ${WORDING.ambiguous}`;
+  return `${head} ${routesPhrase(counts)} show it and ${held} → ${WORDING.moreNodes(literal.file)} on ${beyond.slice(0, MAX_ROUTES_NAMED_PER_VALUE).map((c) => c.route).join(", ")} ${WORDING.limit}`;
+}
+
+/* The line of a value the change removed, only when a route shows it by more nodes than unchanged lines hold it. */
 function removedLine(literal: ChangedLiteral, pages: readonly ObservedPage[]): string | undefined {
   const lines = literal.unchangedLines;
-  if (lines === undefined) return undefined;
-  const count = countShowing(literal.value, pages);
-  if (count.total <= lines) return undefined;
-  return `- old value ${quoted(literal.value)}: ${nodesPhrase(count)}; ${lines} unchanged line(s) of ${literal.file} still contain it → ${CONCLUSION.oldValueVisible}`;
+  const counts = countsPerRoute(literal.value, pages);
+  const beyond = exceeding(counts, lines);
+  if (lines === undefined || beyond.length === 0) return undefined;
+  return `- old value ${quoted(literal.value)}: ${routesPhrase(counts)} show it and ${lines} unchanged line(s) of ${literal.file} still hold it → ${WORDING.moreNodes(literal.file)} on ${beyond.slice(0, MAX_ROUTES_NAMED_PER_VALUE).map((c) => c.route).join(", ")} ${WORDING.limit}`;
 }
 
 /* The section the pack carries, or "" when there is nothing to say: no captured page, or no literal that gives a line. */
@@ -87,4 +90,12 @@ export function renderChangedValues(literals: readonly ChangedLiteral[], pages: 
     return line === undefined ? [] : [line];
   });
   return lines.length === 0 ? "" : [`### ${PACK_HEADINGS.changedValues}`, CHANGED_VALUES_LEGEND, ...lines].join("\n");
+}
+
+/* The added values some route shows by more nodes than unchanged lines of the file hold them: the ones whose line carries the limit statement. */
+export function valuesWithMoreNodesThanLines(literals: readonly ChangedLiteral[], pages: readonly ObservedPage[]): string[] {
+  if (pages.length === 0) return [];
+  return literals
+    .filter((literal) => literal.side === "added" && exceeding(countsPerRoute(literal.value, pages), literal.unchangedLines).length > 0)
+    .map((literal) => literal.value);
 }

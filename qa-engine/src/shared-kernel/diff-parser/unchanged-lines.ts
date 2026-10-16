@@ -1,9 +1,11 @@
-/* How many lines of a file, as it is after a change, hold a value and were not touched by the change: the lines that showed the value before it and still do. A line counts once however often it holds the value, and the value stands apart: "Cambiar filtro" is not held by a line that only says "Cambiar filtros". `changed` is the new-side line numbers the diff added (`DiffParserService.changedLines`), absent for a file the diff did not add to. */
+import { decodeLiteralText } from "./changed-literal.ts";
+
+/* How many lines of a file, as it is after a change, hold a value and were not touched by the change: the lines that showed the value before it and still do. A line counts once however often it holds the value, and the value stands apart: a value that is only the start of a longer word or phrase is not held by the line that has the longer one. A line is read as a page would show it (HTML entities and escapes decoded), because the value is. `changed` is the new-side line numbers the diff added (`DiffParserService.changedLines`), absent for a file the diff did not add to. */
 export function countUnchangedLinesHolding(source: string, changed: ReadonlySet<number> | undefined, value: string): number {
   if (value === "") return 0;
   let count = 0;
   source.split("\n").forEach((line, index) => {
-    if (!changed?.has(index + 1) && holdsStandalone(line, value)) count++;
+    if (!changed?.has(index + 1) && holdsStandalone(decodeLiteralText(line), value)) count++;
   });
   return count;
 }

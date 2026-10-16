@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildContextPack, deriveClaimsFromPackText, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { captureDomForRoutes, type CapturedPage, type CaptureDomDeps, type RouteSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
-import { CONCLUSION } from "@contexts/generation/domain/changed-values.ts";
+import { WORDING } from "@contexts/generation/domain/changed-values.ts";
 import { countDirectives, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import type { ChangedLiteral } from "@kernel/diff-parser/changed-literal.ts";
@@ -40,14 +40,14 @@ function siteShowing(pages: ReadonlyArray<{ route: string; nodes: string[]; grou
 
 const sectionText = (text: string | undefined): string => (text ?? "").split(/^### /m).slice(1).find((part) => part.startsWith(PACK_HEADINGS.changedValues)) ?? "";
 
-test("a label changed on a line while two unchanged lines of the file already hold it and the page shows two such nodes: the pack says the changed element was not observed", async () => {
+test("a label changed on a line while two unchanged lines of the file already hold it and the page shows two such nodes: the pack says none can be attributed to the change", async () => {
   const result = await buildContextPack(
     { ...PACK_INPUT, changedLiterals: [label(2)] },
     siteShowing([{ route: "/restaurantes", nodes: NODES_WITHOUT_RESTAURANTS }]),
   );
   const section = sectionText(result.text);
-  assert.match(section, /changed value "Cambiar filtros": 2 node\(s\) on \/restaurantes; 2 unchanged line\(s\) of src\/app\/restaurant-list\.page\.html already contain it/);
-  assert.ok(section.includes(CONCLUSION.notObserved), "the pack states the changed element was not observed");
+  assert.match(section, /changed value "Cambiar filtros": 2 node\(s\) on \/restaurantes show it and 2 unchanged line\(s\) of src\/app\/restaurant-list\.page\.html already hold it/);
+  assert.ok(section.includes(WORDING.ambiguous), "the pack states that none of the nodes can be attributed to the change");
   assert.ok(deriveClaimsFromPackText(result.text ?? "").some((c) => c.kind === "provides" && c.fact === "changed-values"), "the section is a fact the pack provides");
 });
 
@@ -63,12 +63,13 @@ test("a pack that carries the section lints clean as the pack section of a promp
   assert.equal(countDirectives(sectionText(result.text)), 0);
 });
 
-test("the same label with no unchanged line holding it is observed once a node shows it", async () => {
+test("the same label with no unchanged line holding it is stated with the limit of the comparison once a node shows it", async () => {
   const result = await buildContextPack(
     { ...PACK_INPUT, changedLiterals: [label(0)] },
     siteShowing([{ route: "/restaurantes", nodes: NODES_WITHOUT_RESTAURANTS }]),
   );
-  assert.ok(sectionText(result.text).includes(`→ ${CONCLUSION.observed}`));
+  assert.ok(sectionText(result.text).includes(WORDING.moreNodes(FILE)));
+  assert.ok(sectionText(result.text).includes(WORDING.limit));
 });
 
 test("an old value the page still shows beyond the unchanged lines that hold it is stated", async () => {
@@ -77,7 +78,7 @@ test("an old value the page still shows beyond the unchanged lines that hold it 
     siteShowing([{ route: "/restaurantes", nodes: ["button: Cambiar filtro"] }]),
   );
   const section = sectionText(result.text);
-  assert.ok(section.includes(CONCLUSION.oldValueVisible));
+  assert.ok(section.includes(WORDING.moreNodes(FILE)));
   assert.equal(section.match(/^- old value/gm)?.length, 1, "only the old value the page shows is stated");
 });
 
@@ -93,8 +94,7 @@ test("a page that was not grounded says nothing about a value, and a page that o
     siteShowing([{ route: "/restaurantes", nodes: ["heading: Restaurantes"] }, { route: "/", nodes: ["button: Cambiar filtros"] }]),
   );
   const section = sectionText(seedOnly.text);
-  assert.match(section, /0 node\(s\) in the captured trees/);
-  assert.ok(section.includes(CONCLUSION.notObserved));
+  assert.match(section, /no captured node shows it/);
 });
 
 test("a pack without changed literals has no changed-values section", async () => {
@@ -111,7 +111,7 @@ test("a capture reports the nodes of each page it renders, so the pack can count
   assert.deepEqual(reported[0]?.nodes, NODES_WITHOUT_RESTAURANTS);
 });
 
-test("end to end from a diff: the one-line label change of the live run reads as not observed against the two nodes DEV rendered", async () => {
+test("end to end from a diff: the one-line label change of the live run reads as unattributable against the two nodes DEV rendered", async () => {
   const diff = [
     `diff --git a/${FILE} b/${FILE}`,
     `--- a/${FILE}`,
@@ -133,6 +133,6 @@ test("end to end from a diff: the one-line label change of the live run reads as
   const changedLiterals = parser.changedLiterals(diff).map((literal) => ({ ...literal, unchangedLines }));
   const result = await buildContextPack({ ...PACK_INPUT, changedLiterals }, siteShowing([{ route: "/restaurantes", nodes: NODES_WITHOUT_RESTAURANTS }]));
   const section = sectionText(result.text);
-  assert.ok(section.includes(CONCLUSION.notObserved));
-  assert.equal(section.includes(`→ ${CONCLUSION.observed}`), false);
+  assert.ok(section.includes(WORDING.ambiguous));
+  assert.equal(section.includes(WORDING.moreNodes(FILE)), false);
 });
