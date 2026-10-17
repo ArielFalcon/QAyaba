@@ -527,7 +527,10 @@ export function withStallWatchdog(
     open: async (agent, cwd, openOpts) => {
       const inner = await baseDeps.open(agent, cwd, openOpts);
 
-      if (inner.selfTimed) return inner;
+      /* A liveness watchdog is armed only for a session whose activity it can observe: a self-timed one
+         keeps its own clock, and one opened without live observation is never fed by the event stream, so
+         an armed timer would trip on silence nobody can see. It stays bounded by its own turn timeout. */
+      if (inner.selfTimed || openOpts?.descriptor?.liveObservation === false) return inner;
 
       let rejectInFlight: ((err: unknown) => void) | undefined;
 

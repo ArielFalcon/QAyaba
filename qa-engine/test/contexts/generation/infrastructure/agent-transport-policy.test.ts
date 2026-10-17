@@ -206,6 +206,73 @@ test("withStallWatchdog: a normal (non-self-timed) session IS still wrapped", as
   assert.equal(watchdogCreated, true, "a normal session must still be wrapped by the watchdog");
 });
 
+/* A virtual clock for the real stall watchdog: advance() fires due timers, no real time passes. */
+function virtualClockWatchdogFactory(stallMs: number) {
+  let now = 0;
+  let pending: { at: number; cb: () => void } | undefined;
+  const timers = {
+    setTimeout: (cb: () => void, ms: number) => {
+      const entry = { at: now + ms, cb };
+      pending = entry;
+      return entry as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: (id: ReturnType<typeof setTimeout> | undefined) => {
+      if (pending && (pending as unknown) === id) pending = undefined;
+    },
+  };
+  return {
+    factory: (onStall: () => void) => createStallWatchdog({ stallMs, onStall, timers }),
+    advance: (ms: number) => {
+      now += ms;
+      if (pending && pending.at <= now) {
+        const { cb } = pending;
+        pending = undefined;
+        cb();
+      }
+    },
+  };
+}
+
+function slowPromptDeps(sessionId: string): { deps: AgentDeps; finish: (v: string) => void } {
+  let finish!: (v: string) => void;
+  const deps: AgentDeps = {
+    open: async () => ({
+      id: sessionId,
+      prompt: () => new Promise<string>((res) => { finish = res; }),
+      dispose: async () => {},
+    }),
+  };
+  return { deps, finish: (v) => finish(v) };
+}
+
+test("withStallWatchdog: a session opened without live observation is not stalled by silence it cannot observe", async () => {
+  const clock = virtualClockWatchdogFactory(180_000);
+  const { deps: base, finish } = slowPromptDeps("unobserved-session");
+  const wrapped = withStallWatchdog(base, { stallMs: 180_000, watchdogFactory: clock.factory });
+
+  const session = await wrapped.open("any-agent", "/tmp", { descriptor: { liveObservation: false } });
+  const promptPromise = session.prompt("hello");
+  clock.advance(240_000); /* longer than the stall window, no activity notification can ever arrive */
+  finish("late answer");
+
+  assert.equal(await promptPromise, "late answer");
+  await session.dispose();
+});
+
+test("withStallWatchdog: an observed session with no activity still trips the watchdog", async () => {
+  const clock = virtualClockWatchdogFactory(180_000);
+  const { deps: base, finish } = slowPromptDeps("observed-session");
+  const wrapped = withStallWatchdog(base, { stallMs: 180_000, watchdogFactory: clock.factory });
+
+  const session = await wrapped.open("any-agent", "/tmp", { descriptor: { liveObservation: true } });
+  const promptPromise = session.prompt("hello");
+  clock.advance(180_001);
+  finish("too late");
+
+  await assert.rejects(() => promptPromise, (err: unknown) => err instanceof StalledAgentError);
+  await session.dispose();
+});
+
 /* ─── withSessionRegistration ─────────────────────────────────────────────────────────────────────
    `collaborators` is REQUIRED: qa-engine cannot reach the shell registerRunSession/unregisterRunSession
    functions on its own, so the composition root (src/server/rewritten-engine-factory.ts) must inject
