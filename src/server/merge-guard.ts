@@ -202,6 +202,8 @@ export const PROTECTED_PATHS: string[] = [
    * agent-authored code).
    */
   "src/agent-runtime/codex-strategy.ts",
+  /* The twin of codexExecEnv inside the agents container (the allowlist for `codex exec`, the trace context it forwards, the config.toml it writes): the two allowlists are pinned equal, so loosening one is loosening both. */
+  "agents/agent-supervisor.mjs",
   /*
    * reviewerPrimaryCollisionErrors is the SOLE guard that reviewer/primary use different models in
    * dual mode — deleting or weakening it silently collapses independent-judgment review into a
@@ -327,6 +329,9 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts",
   "qa-engine/src/contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts",
   "agents/lib/run-spec-client.mjs",
+  /* The spans a served call runs under and how its outcome is told: bridges/ covers them, and they are listed so that narrowing that prefix cannot unprotect them. */
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-trace.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-outcome.ts",
   /* 4. build/topology the canary cannot verify (image rebuild only) */
   ".github/",
   "Dockerfile",
@@ -335,6 +340,7 @@ export const PROTECTED_PATHS: string[] = [
   ".dockerignore",
   "docker-compose.yml",
   "docker-compose.override.yml",
+  "docker-compose.telemetry.yml",
   "package.json",
   "package-lock.json",
 ];

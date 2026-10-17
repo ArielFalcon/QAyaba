@@ -843,3 +843,14 @@ test("the real ledger store persists deploys on disk across reads, creating its 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("isProtectedPath flags the tool-call trace modules, the supervisor that mirrors Codex's env allowlist, and the telemetry compose file", () => {
+  for (const file of [
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-trace.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-outcome.ts",
+    "agents/agent-supervisor.mjs",
+    "docker-compose.telemetry.yml",
+  ]) {
+    assert.equal(isProtectedPath(file), true, file);
+  }
+});

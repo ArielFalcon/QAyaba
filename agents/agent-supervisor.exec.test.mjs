@@ -134,3 +134,11 @@ test("the child still gets none of the supervisor's secrets", async () => {
   }
   assert.equal(childEnv().GITHUB_TOKEN, undefined);
 });
+
+test("a usage object with no valid count is no usage at all, not zeros", async () => {
+  for (const usage of [{}, { unknown_field: 5 }, { input_tokens: "7", output_tokens: -3 }]) {
+    const out = await run([message("done"), completed(usage)]);
+    assert.equal("usage" in out, false, JSON.stringify(usage));
+  }
+  assert.equal(supervisor.extractCodexUsage(lines(completed({}))), undefined);
+});

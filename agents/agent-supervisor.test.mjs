@@ -429,3 +429,17 @@ test("ensureCodexConfig: an operator's own [otel] table wins over the endpoint, 
   assert.equal(toml.match(/^\[otel\]$/gm).length, 1);
   assert.doesNotMatch(toml, /trace_exporter/);
 });
+
+test("ensureCodexConfig: an operator's telemetry configuration in any spelling wins over the endpoint", () => {
+  for (const own of ["[ otel ]\nenvironment = \"mine\"\n", "[otel.exporter]\nx = 1\n", "[ otel . trace_exporter ]\nx = 1\n", "otel = { environment = \"mine\" }\n", "otel.environment = \"mine\"\n", "  otel . environment = \"mine\"\n", '"otel".environment = "mine"\n', "[[otel]]\n"]) {
+    const codexHome = seed(own);
+    ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
+    assert.doesNotMatch(configOf(codexHome), /BEGIN qayaba-otel|v1\/traces/, own);
+  }
+});
+
+test("ensureCodexConfig: a key that only starts with otel, or a table of another name, does not stop the endpoint", () => {
+  const codexHome = seed('otelish = 1\n[oteldata]\nx = 1\n');
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
+  assert.match(configOf(codexHome), /v1\/traces/);
+});

@@ -428,6 +428,8 @@ export function extractCodexUsage(jsonl) {
       continue;
     }
     if (event?.type !== "turn.completed" || typeof event.usage !== "object" || event.usage === null) continue;
+    // A usage object with no valid count says nothing: it is no usage, which is not zero usage.
+    if (!USAGE_FIELDS.some((field) => Number.isSafeInteger(event.usage[field]) && event.usage[field] >= 0)) continue;
     total ??= Object.fromEntries(USAGE_FIELDS.map((field) => [field, 0]));
     for (const field of USAGE_FIELDS) {
       const value = event.usage[field];
@@ -695,7 +697,10 @@ export function ensureCodexConfig(codexHome, env = process.env) {
     }).join("\n").trimEnd();
 
     // A table of the operator's own would be defined twice by ours, which TOML rejects: theirs wins.
-    const ownOtel = kept.some((b) => b.header !== null && /^\[otel[\].]/.test(b.header));
+    // In any spelling: [otel], [ otel ], [otel.x], [[otel]], and a key of the file's top level (otel = ..., otel.x = ..., "otel".x = ...).
+    const OTEL_TABLE = /^\s*\[\[?\s*(?:otel|"otel")\s*(?:[\].]|$)/;
+    const OTEL_KEY = /^\s*(?:otel|"otel")\s*[.=]/;
+    const ownOtel = existing.split(/\r?\n/).some((line) => OTEL_TABLE.test(line)) || (blocks[0]?.body ?? []).some((line) => OTEL_KEY.test(line));
     if (tracesUrl !== undefined && ownOtel) console.warn("[agent-supervisor] config.toml already has an [otel] table of its own: QA_AGENT_OTLP_ENDPOINT is not applied");
     const otelBlock = tracesUrl !== undefined && !ownOtel ? "\n" + codexOtelToml(tracesUrl) : "";
     const mcpBlock = mcpToml.trimEnd() + "\n";
