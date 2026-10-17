@@ -99,7 +99,7 @@ export const ATTRIBUTES = {
   "qayaba.exec.signal": str("The signal that ended the child, if any."),
   "qayaba.exec.timed_out": bool("The child was killed by its timeout."),
   "qayaba.reaper.killed": int("Processes the sandbox reaper killed after the child."),
-  "qayaba.egress.denied_cotemporal": spec("string[]", "Hosts denied while the child was alive (co-temporal, not causal).", "high", "redacted-text"),
+  "qayaba.egress.denied_cotemporal": spec("string[]", "Hosts denied while the span was alive (co-temporal, not causal). Every span whose lifetime overlaps a denial carries it: a sandboxed child, and the tool call that started it, so one denial can appear on several spans.", "high", "redacted-text"),
   "process.exit.code": int("The child's exit code."),
   "error.type": str("The class of an infrastructure failure."),
   "exception.type": str("The class name of a recorded exception."),

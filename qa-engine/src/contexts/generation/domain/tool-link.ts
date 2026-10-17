@@ -71,21 +71,33 @@ export function matchServerCalls(calls: readonly LinkableCall[], servers: readon
   pairs.sort((a, b) => Number(b.exact) - Number(a.exact) || a.distance - b.distance);
 
   const joined = new Map<string, ServerToolCall>();
-  const used = new Set<ServerToolCall>();
-  /* Two pairs at the same rank that share a call, or share a span, cannot be told apart: neither side of either is joined. */
-  const ambiguousCalls = new Set<string>();
-  const ambiguousServers = new Set<ServerToolCall>();
-  for (const pair of pairs) {
-    for (const other of pairs) {
-      if (other === pair || other.exact !== pair.exact || other.distance !== pair.distance) continue;
-      if (other.call === pair.call) ambiguousCalls.add(pair.call.callId);
-      if (other.server === pair.server) ambiguousServers.add(pair.server);
+  /* Calls and spans that are taken, or that tied: neither is available to a pair of a worse rank. */
+  const spent = new Set<string>();
+  const spentServers = new Set<ServerToolCall>();
+  let start = 0;
+  while (start < pairs.length) {
+    /* One rank: the pairs that are equally good. */
+    let end = start + 1;
+    while (end < pairs.length && pairs[end]!.exact === pairs[start]!.exact && pairs[end]!.distance === pairs[start]!.distance) end += 1;
+    const live = pairs.slice(start, end).filter((p) => !spent.has(p.call.callId) && !spentServers.has(p.server));
+    const perCall = new Map<string, number>();
+    const perServer = new Map<ServerToolCall, number>();
+    for (const p of live) {
+      perCall.set(p.call.callId, (perCall.get(p.call.callId) ?? 0) + 1);
+      perServer.set(p.server, (perServer.get(p.server) ?? 0) + 1);
     }
-  }
-  for (const pair of pairs) {
-    if (ambiguousCalls.has(pair.call.callId) || ambiguousServers.has(pair.server) || joined.has(pair.call.callId) || used.has(pair.server)) continue;
-    joined.set(pair.call.callId, pair.server);
-    used.add(pair.server);
+    for (const p of live) {
+      if (perCall.get(p.call.callId) === 1 && perServer.get(p.server) === 1) {
+        joined.set(p.call.callId, p.server);
+        spent.add(p.call.callId);
+        spentServers.add(p.server);
+      } else {
+        /* A tie cannot be told apart: both sides of every tied pair are out, so no later and worse pair claims them. */
+        spent.add(p.call.callId);
+        spentServers.add(p.server);
+      }
+    }
+    start = end;
   }
   return joined;
 }

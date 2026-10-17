@@ -3,7 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createAgentDeps, withSessionRegistration, withStallWatchdog, type AgentDeps, type AgentTurnEvent, type RawAgentTransport, type RawPromptResult } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker";
-import { CallEfficiencyTracker, type StreamToken, type TrackerTimer } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
+import { callEfficiencyTracker as tracker, type StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
+import { observeUnwatchedSession, unobserveUnwatchedSession } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
@@ -19,22 +20,12 @@ const toolEvent = (status: "running" | "completed"): RawOpencodeEvent => ({
   properties: { part: { id: "prt_1", sessionID: SESSION, messageID: "m1", type: "tool", callID: "c1", tool: "read", state: { status, input: { filePath: `${CWD}/src/a.ts` }, time: { start: 1_000, ...(status === "completed" ? { end: 1_020 } : {}) }, ...(status === "completed" ? { output: "const a = 1" } : {}) } } },
 });
 
-/* A timer that records what the tracker arms and never fires it. */
-class RecordingTimer implements TrackerTimer {
-  armed = 0;
-  setTimeout(): number {
-    this.armed += 1;
-    return this.armed;
-  }
-  clearTimeout(): void {}
-}
-
 interface Outcome {
   output?: string;
   error?: string;
   rawPrompts: number;
   rows: Array<Pick<AgentTurnEvent, "role" | "runId" | "outputText" | "ended" | "round" | "isRepair">>;
-  armedTimers: number;
+  elapsedMs: number;
   callsTracked: number | undefined;
   spanCalls: unknown;
 }
@@ -42,9 +33,8 @@ interface Outcome {
 async function explorerTurn(opts: { observe: boolean; stallMs?: number; fail?: boolean; promptMs?: number }): Promise<Outcome> {
   resetCircuit();
   const h = traceHarness();
-  const timer = new RecordingTimer();
-  const tracker = new CallEfficiencyTracker({ timer, now: () => h.clock.now() });
-  /* The directory's stream is still opening and never connects: an attempt that waited for it would wait for ever. */
+  const startedAt = Date.now();
+  /* The directory's stream is still opening and never connects: an attempt that waited for it would wait out the tracker's readiness bound (5 s). */
   const token: StreamToken = Symbol("stream");
   tracker.streamOpening(CWD, token);
   const traces = new AgentTurnTraces();
@@ -77,8 +67,8 @@ async function explorerTurn(opts: { observe: boolean; stallMs?: number; fail?: b
   const registered = withSessionRegistration(watched, {
     register: () => assert.fail("the explorer is never registered for live observation"),
     unregister: () => {},
-    observe: (sessionId, cwd) => tracker.attachUnwatched(sessionId, cwd),
-    unobserve: (sessionId) => tracker.clear(sessionId),
+    observe: (sessionId, cwd) => observeUnwatchedSession(sessionId, cwd),
+    unobserve: (sessionId) => unobserveUnwatchedSession(sessionId),
   });
   const deps: AgentDeps = withTurnTelemetry(registered, { telemetry: h.telemetry, clock: h.clock, intent: INTENT, traces });
 
@@ -91,11 +81,16 @@ async function explorerTurn(opts: { observe: boolean; stallMs?: number; fail?: b
   }
   const metrics = rows[0]?.callMetrics;
   await session.dispose();
+  tracker.streamClosed(CWD, token);
+  /* A disposed session is forgotten: a late event of it reaches no tracker. */
+  tracker.record(toolEvent("completed"));
+  const afterDispose = tracker.take(SESSION, "");
+  assert.equal(afterDispose, null);
   return {
     ...outcome,
     rawPrompts,
     rows: rows.map((t) => ({ role: t.role, runId: t.runId, outputText: t.outputText, ended: t.ended, round: t.round, isRepair: t.isRepair })),
-    armedTimers: timer.armed,
+    elapsedMs: Date.now() - startedAt,
     callsTracked: metrics?.totalCalls,
     spanCalls: h.spans().find((s) => s.name === "invoke_agent qa-explorer")?.attributes["qayaba.agent.calls.total"],
   } as Outcome;
@@ -118,9 +113,9 @@ test("a failing explorer turn fails the same way with its calls tracked as witho
   assert.equal(on.rawPrompts, off.rawPrompts);
 });
 
-test("observing the explorer arms no timer and waits for no stream, so it is as quick as before", async () => {
+test("observing the explorer waits for no stream, so it is as quick as before", async () => {
   const on = await explorerTurn({ observe: true });
-  assert.equal(on.armedTimers, 0);
+  assert.ok(on.elapsedMs < 1_000, `took ${on.elapsedMs} ms`);
   assert.equal(on.output, "the brief");
 });
 

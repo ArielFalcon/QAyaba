@@ -19,7 +19,7 @@ import { extractJsonObjects } from "../integrations/verdict-parse";
 import { sha256Hex } from "../../qa-engine/src/shared-infrastructure/content-hash";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { AttemptEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
-import { classifyAgentFault, type AgentErrorType } from "@contexts/generation/domain/agent-error-class";
+import { carriedAgentErrorType, carryAgentErrorType, classifyAgentFault, type AgentErrorType } from "@contexts/generation/domain/agent-error-class";
 import { codexUsageAsRuntime, type CodexTokenUsage } from "@kernel/telemetry/genai-semconv";
 import type { TimeLimitSource, TurnLimit } from "@kernel/turn-limit";
 import type { SpanHandle } from "@kernel/telemetry/telemetry.port";
@@ -56,7 +56,14 @@ export function defaultCodexTimeoutMs(role: AgentRole, env: Record<string, strin
 }
 
 
-export const CODEX_USAGE_AVAILABLE = false as boolean;
+/*
+ * What of Codex's usage is wired. PER-TURN usage is: the `turn.completed` usage of an exec reaches the turn's persisted row and its
+ * spans (an exec that reports none leaves them null). RUN-LEVEL usage is not: `openSession`'s `onUsage`, which sums into
+ * `gateSignals.usage`, is never called for Codex, so a Codex-only run still has no run-level usage (never a zero). Both facts are
+ * pinned by a test; wiring the run-level sum is a change of its own (it changes what a run reports).
+ */
+export const CODEX_USAGE_AVAILABLE = true as boolean;
+export const CODEX_RUN_USAGE_FED = false as boolean;
 
 /* The whole message of a deadline a Codex transport fires itself: CodexExecTransport's own timer, or the supervisor's relayed as its error body. Anchored, because the text an exec fails with can mention any timeout of the provider's. */
 const CODEX_OWN_DEADLINE = /^codex (?:prompt: |exec )timed out after \d+ms$/;
@@ -355,8 +362,8 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
          */
         checkCodexCircuit(breakerRole);
         const startedAt = Date.now();
-        /* The bytes the exec is sent: the hash of a turn is the hash of these, as in the OpenCode funnel. */
-        const sent = withCodexRolePreamble(role, text, this.promptRoot);
+        /* The bytes the exec is sent: the hash of a turn is the hash of these, as in the OpenCode funnel. Built inside the try below, so a failure to build them counts against the circuit breaker as it always has. */
+        let sent = text;
         /* What the trace is told, as the OpenCode funnel tells it; a fault in it never reaches the prompt. */
         const notify = (event: AttemptEvent): void => {
           try {
@@ -384,6 +391,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
           console.error(`[qa] attempt trace context failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
         }
         try {
+          sent = withCodexRolePreamble(role, text, this.promptRoot);
           rawOutput = await session.prompt(sent, {
             ...(promptOpts?.timeoutMs !== undefined ? { timeoutMs: promptOpts.timeoutMs } : {}),
             ...(traceparent !== undefined ? { traceparent } : {}),
@@ -395,14 +403,8 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
         } catch (err) {
           recordCodexCircuitFailure(breakerRole);
           const errorType = classifyCodexFault(err);
-          /* The class travels with the error, as the OpenCode funnel's does, so the turn above reads the same class the attempt did. */
-          if (typeof err === "object" && err !== null && (err as { agentErrorType?: unknown }).agentErrorType === undefined) {
-            try {
-              Object.assign(err, { agentErrorType: errorType });
-            } catch {
-              /* a frozen error keeps the class the turn reads from it */
-            }
-          }
+          /* The class travels beside the error, as the OpenCode funnel's does (the error itself is not touched), so the turn above reads the same class the attempt did. */
+          if (carriedAgentErrorType(err) === undefined) carryAgentErrorType(err, errorType);
           notify({ kind: "end", prompt: thisRound, attempt: 1, at: Date.now(), error: err, errorType });
           throw err;
         }
@@ -669,6 +671,8 @@ const isCount = (value: unknown): value is number => typeof value === "number" &
 function tokenUsageFromSupervisor(raw: unknown): CodexTokenUsage | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const r = raw as Record<string, unknown>;
+  /* An object that holds no valid count says nothing: no usage, which is not zero usage. */
+  if (![r.input_tokens, r.cached_input_tokens, r.output_tokens, r.reasoning_output_tokens].some(isCount)) return undefined;
   return {
     inputTokens: isCount(r.input_tokens) ? r.input_tokens : 0,
     cachedInputTokens: isCount(r.cached_input_tokens) ? r.cached_input_tokens : 0,
@@ -689,7 +693,8 @@ export function extractCodexTokenUsage(jsonl: string): CodexTokenUsage | undefin
       continue;
     }
     if (event.type !== "turn.completed" || typeof event.usage !== "object" || event.usage === null) continue;
-    const reported = tokenUsageFromSupervisor(event.usage)!;
+    const reported = tokenUsageFromSupervisor(event.usage);
+    if (!reported) continue;
     total = total
       ? {
           inputTokens: total.inputTokens + reported.inputTokens,

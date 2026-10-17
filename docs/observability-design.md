@@ -523,6 +523,8 @@ Either way, the turn span's `error.type` (§5.3) already covers what reaches the
   3. Codex spans become **real children** of the attempt span.
 
   S0.3 shrinks to a live smoke of that hop.
+- **Persisted rows.** Codex turn rows in `agent_turns` now also carry what the OpenCode funnel's carry: tokens (input without the cache, as every row holds it), prompt hash, section hashes, applied and fired limits, `ended`, the requested model and provider. Cost, cache writes, model answered, step budget and call metrics stay null. Run-level `gateSignals.usage` is still not fed by Codex.
+- **Assumption to verify live.** A `turn.completed` usage is read as the spend of that turn alone (a delta). One exec is one turn, so the sum over an exec's events is right either way; the fixture-level check against a real capture is still open.
 - Set `metrics_exporter="none"`, because the default is `statsig`, an OpenAI endpoint, which would
   break the "no SaaS" rule.
 

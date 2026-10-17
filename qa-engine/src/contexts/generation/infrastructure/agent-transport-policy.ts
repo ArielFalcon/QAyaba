@@ -6,7 +6,7 @@ import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtim
 import { sanitizeText } from "./sanitize-text.ts";
 import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { sha256Hex } from "../../../shared-infrastructure/content-hash.ts";
-import { classifyAgentFault, classifyProviderError, type AgentErrorType } from "../domain/agent-error-class.ts";
+import { carryAgentErrorType, classifyAgentFault, classifyProviderError, type AgentErrorType } from "../domain/agent-error-class.ts";
 import type { TimeLimitSource, TurnLimit } from "@kernel/turn-limit.ts";
 import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";
 import { finalStepText } from "../domain/step-exhaustion.ts";
@@ -532,7 +532,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                   ...(providerFault ? { errorType: providerFault } : {}),
                 });
                 if (res.agentError) {
-                  throw Object.assign(agentErrorToInfra(res.agentError), { agentErrorType: providerFault });
+                  throw carryAgentErrorType(agentErrorToInfra(res.agentError), providerFault);
                 }
                 recordCircuitSuccess(breakerRole);
                 if (snapshot) opts?.onUsage?.(snapshot);

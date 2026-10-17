@@ -364,3 +364,15 @@ test("a browser call refused for the guard before it reaches the lease still has
   assert.equal(tool.attributes["qayaba.browser.blocks"], 1);
   assert.equal(tool.attributes["qayaba.tool.refusal"], "blocked");
 });
+
+test("a call that arrives after its attempt and session are over hangs under the phase that is open, and links to nothing", async (t) => {
+  const r = rig(t);
+  const registry = await openLoop(r);
+  await r.turn(async () => {});
+  const response = await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts", messageId: "m1" });
+  assert.equal(response.ok, true);
+  const tool = r.h.only("qayaba.tool.run_spec");
+  assert.equal(parentOf(tool), r.scope.telemetry!.parent()!.spanId);
+  assert.equal(r.h.named("execute_tool run_spec").length, 0);
+  assert.deepEqual(r.h.unended(), []);
+});

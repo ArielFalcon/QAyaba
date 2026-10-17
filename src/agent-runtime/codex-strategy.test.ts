@@ -19,6 +19,7 @@ import {
   CodexExecTransport,
   SupervisorExecTransport,
   CODEX_USAGE_AVAILABLE,
+  CODEX_RUN_USAGE_FED,
   codexExecEnv,
   type SpawnFn,
   type CodexHeadlessTransport,
@@ -684,29 +685,45 @@ describe("extractCodexLastMessage", () => {
   });
 });
 
-/* onUsage honesty: tokens are null and onUsage is not emitted because `codex exec` does not
-   expose usage in the current JSONL schema. The exported CODEX_USAGE_AVAILABLE flag, the
-   AgentTurnEvent token fields (asserted via the onTurn callback), and a structural assertion
-   that the flag is false pin that contract. When a captured fixture proves usage is in the
-   JSONL: set CODEX_USAGE_AVAILABLE = true, wire onUsage in openSession + parse token fields,
-   and update this test to assert the real usage fields. The false assertion going red is
-   intentional — it forces the wiring, not just flipping the flag.
- */
-describe("onUsage honesty", () => {
-  it("CODEX_USAGE_AVAILABLE is false — pending hook is NOT yet activated", () => {
-    /* Honest assertion: codex exec does not yet expose token usage. When a captured fixture
-       proves usage is available, this test goes red until onUsage is wired.
-     */
-    assert.equal(
-      CODEX_USAGE_AVAILABLE,
-      false,
-      "CODEX_USAGE_AVAILABLE must be false until an image-gated fixture confirms " +
-        "codex exec --json exposes token usage fields. Do NOT set this to true without wiring " +
-        "the actual usage parsing and onUsage callback in openSession.",
-    );
+/* Usage honesty. PER-TURN usage is wired: what `turn.completed` reports reaches the turn's row, and an exec that reports none leaves
+   the row's fields null. RUN-LEVEL usage (openSession's onUsage, summed into gateSignals.usage) is still NOT fed by Codex.
+   Both facts are pinned here; the CODEX_RUN_USAGE_FED assertion going red is intentional, it forces the run-level wiring and the
+   decision that goes with it (it changes what a run reports), not just a flag flip.
+   ASSUMPTION TO VERIFY LIVE: a `turn.completed` usage is the spend of that turn alone (a delta), not a running total of the
+   session. One exec is one turn, so summing the events of an exec is right either way; across execs nothing is carried. */
+describe("usage honesty", () => {
+  it("per-turn usage is wired and run-level usage is not", () => {
+    assert.equal(CODEX_USAGE_AVAILABLE, true);
+    assert.equal(CODEX_RUN_USAGE_FED, false);
   });
 
-  it("AgentTurnEvent token fields are null — no fabricated data emitted", async () => {
+  it("a prompt whose exec reported usage never calls the run-level onUsage, while its turn row carries the tokens", async () => {
+    const runLevel: unknown[] = [];
+    const rows: Array<{ tokensInput: unknown; tokensCacheRead: unknown }> = [];
+    const fakeTransport: CodexHeadlessTransport = {
+      start: async () => ({
+        id: "usage-session",
+        prompt: async (_text, opts) => {
+          opts?.onUsage?.({ inputTokens: 100, cachedInputTokens: 40, outputTokens: 7, reasoningOutputTokens: 2 });
+          return "ok";
+        },
+        dispose: async () => {},
+      }),
+      health: async () => ({ provider: "codex" as const, status: "healthy" as const, configured: true }),
+      listModels: async () => [],
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "k" }, transport: fakeTransport, onAttempt: () => {} });
+    const session = await strategy.openSession("primary", "/tmp", {
+      descriptor: { runId: "run-usage", role: "primary" as const },
+      onUsage: (usage: unknown) => runLevel.push(usage),
+      onTurn: (t) => rows.push({ tokensInput: t.tokensInput, tokensCacheRead: t.tokensCacheRead }),
+    } as Parameters<CodexRuntimeStrategy["openSession"]>[2]);
+    await session.prompt("go");
+    assert.deepEqual(runLevel, []);
+    assert.deepEqual(rows, [{ tokensInput: 60, tokensCacheRead: 40 }]);
+  });
+
+  it("AgentTurnEvent token fields are null when the exec reported no usage — no fabricated data emitted", async () => {
     /* Assert that token fields in the turn event are null (not fabricated) when using the codex path. */
     const capturedTurns: Array<{ tokensInput: unknown; tokensOutput: unknown; cost: unknown }> = [];
 
@@ -737,17 +754,17 @@ describe("onUsage honesty", () => {
     assert.equal(
       turn.tokensInput,
       null,
-      "tokensInput must be null for codex (usage not available in JSONL). See CODEX_USAGE_AVAILABLE.",
+      "tokensInput must be null when the exec reported no usage",
     );
     assert.equal(
       turn.tokensOutput,
       null,
-      "tokensOutput must be null for codex (usage not available in JSONL). See CODEX_USAGE_AVAILABLE.",
+      "tokensOutput must be null when the exec reported no usage",
     );
     assert.equal(
       turn.cost,
       null,
-      "cost must be null for codex (usage not available in JSONL). See CODEX_USAGE_AVAILABLE.",
+      "cost is never reported by codex exec",
     );
   });
 
@@ -1230,5 +1247,26 @@ describe("the trace context of a Codex exec", () => {
   it("the exec environment forwards the two trace names and still nothing else it did not already forward", () => {
     const env = codexExecEnv({ PATH: "/bin", TRACEPARENT, TRACESTATE: "vendor=1", OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318", GITHUB_TOKEN: "ghp_x", QA_TOOLS_TOKEN: "t" });
     assert.deepEqual(Object.keys(env).sort(), ["PATH", "TRACEPARENT", "TRACESTATE"]);
+  });
+});
+
+describe("usage that says nothing", () => {
+  it("a usage object with no valid count is no usage at all, not zeros", async () => {
+    const seen: unknown[] = [];
+    for (const usage of [{}, { input_tokens: "9" }, { input_tokens: -1, output_tokens: 1.5 }, "none", null, []]) {
+      const transport = new SupervisorExecTransport({ baseUrl: "http://agents:4097", env: { CODEX_API_KEY: "k" }, fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ message: "ok", usage }) }) });
+      const session = await transport.start({ role: "primary", cwd: "/repo" });
+      await session.prompt("go", { onUsage: (u) => seen.push(u) });
+    }
+    assert.deepEqual(seen, []);
+  });
+
+  it("a local exec whose turn.completed carries no valid count reports none", () => {
+    assert.equal(extractCodexTokenUsage(JSON.stringify({ type: "turn.completed", usage: {} })), undefined);
+    assert.equal(extractCodexTokenUsage(JSON.stringify({ type: "turn.completed", usage: { unknown_field: 5 } })), undefined);
+  });
+
+  it("a usage with one valid count keeps it and reads the others as none", () => {
+    assert.deepEqual(extractCodexTokenUsage(JSON.stringify({ type: "turn.completed", usage: { output_tokens: 4 } })), { inputTokens: 0, cachedInputTokens: 0, outputTokens: 4, reasoningOutputTokens: 0 });
   });
 });

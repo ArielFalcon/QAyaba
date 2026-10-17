@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AgentTimeoutError, StalledAgentError, AgentUnavailableError } from "@kernel/domain-error.ts";
-import { AGENT_ERROR_TYPES, classifyAgentFault, classifyProviderError } from "@contexts/generation/domain/agent-error-class.ts";
+import { AGENT_ERROR_TYPES, carriedAgentErrorType, carryAgentErrorType, classifyAgentFault, classifyProviderError } from "@contexts/generation/domain/agent-error-class.ts";
 
 test("a provider payload is classified by its error name and HTTP status", () => {
   const cases: Array<[Parameters<typeof classifyProviderError>[0], string]> = [
@@ -45,7 +45,7 @@ test("a thrown fault is classified by its class, its socket code or its status",
 });
 
 test("a fault that carries its provider classification keeps it", () => {
-  const err = Object.assign(new AgentUnavailableError("out of credits"), { agentErrorType: "quota_exceeded" });
+  const err = carryAgentErrorType(new AgentUnavailableError("out of credits"), "quota_exceeded");
   assert.equal(classifyAgentFault(err), "quota_exceeded");
 });
 
@@ -72,4 +72,22 @@ test("a cause cycle classifies as unknown instead of recursing, and a long chain
   assert.equal(classifyAgentFault(deep), "unknown", "a cause beyond the depth cap is not followed");
   const shallow = Object.assign(new Error("wrapper"), { cause: Object.assign(new Error("root"), { code: "ECONNRESET" }) });
   assert.equal(classifyAgentFault(shallow), "socket_closed");
+});
+
+test("the class a fault carries is a side channel: the error itself gains no property, enumerable or not", () => {
+  const err = new Error("x");
+  const before = Reflect.ownKeys(err).sort();
+  assert.equal(carryAgentErrorType(err, "auth"), err);
+  assert.deepEqual(Reflect.ownKeys(err).sort(), before);
+  assert.deepEqual(Object.keys(err), []);
+  assert.equal(carriedAgentErrorType(err), "auth");
+  assert.equal(classifyAgentFault(err), "auth");
+  assert.equal(carriedAgentErrorType(new Error("y")), undefined);
+});
+
+test("carrying nothing, or carrying on a value that is not an object, changes nothing", () => {
+  const err = new Error("x");
+  carryAgentErrorType(err, undefined);
+  assert.equal(carriedAgentErrorType(err), undefined);
+  assert.equal(carryAgentErrorType("text", "auth"), "text");
 });

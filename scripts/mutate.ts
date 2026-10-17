@@ -409,6 +409,20 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "tool-link-and-codex-usage": {
+    description: "the join of a tool call to the orchestrator's span of it (a tie excludes both sides, a worse rank never claims what a better one left), Codex's usage put in the shape every row holds, and the reading of what an exec reported it spent (a usage with no valid count is none, not zero)",
+    mutate: [
+      `${GEN}/domain/tool-link.ts`,
+      "qa-engine/src/shared-kernel/telemetry/genai-semconv.ts:99-107",
+      "src/agent-runtime/codex-strategy.ts:668-708",
+    ],
+    tests: [
+      `${GEN_TEST}/domain/tool-link.test.ts`,
+      "qa-engine/test/shared-kernel/telemetry/genai-semconv.test.ts",
+      "src/agent-runtime/codex-strategy.test.ts",
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "merge-guard": {
     description: "self-maintainer auto-merge gates: protected paths, change/rate limits",
     mutate: ["src/server/merge-guard.ts"],

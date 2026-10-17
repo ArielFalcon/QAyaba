@@ -6,6 +6,7 @@ import { AgentTimeoutError } from "@kernel/domain-error.ts";
 import { createAgentDeps, type AgentTurnEvent, type RawAgentTransport, type RawPromptResult, type AttemptEvent } from "@contexts/generation/infrastructure/agent-transport-policy.ts";
 import { CIRCUIT_THRESHOLD, resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../../src/shared-infrastructure/run-secret-redaction.ts";
+import { carriedAgentErrorType } from "@contexts/generation/domain/agent-error-class.ts";
 
 const answered = (extra: Partial<RawPromptResult> = {}): RawPromptResult => ({
   parts: [{ type: "text", text: "done" }],
@@ -114,7 +115,7 @@ test("a primary-model fault that the fallback recovers is two attempts, the seco
 test("a provider error embedded in the answer is classified, reaches the attempt, and rides the thrown error", async () => {
   const { deps, events } = observed(transport(async () => ({ parts: [], agentError: { name: "APIError", data: { statusCode: 429, message: "You exceeded your current quota" } } })));
   const session = await deps.open("qa-generator", "/w", { descriptor: { runId: "r1", role: "qa-generator" } });
-  await assert.rejects(session.prompt("hello"), (err: unknown) => (err as { agentErrorType?: string }).agentErrorType === "quota_exceeded");
+  await assert.rejects(session.prompt("hello"), (err: unknown) => carriedAgentErrorType(err) === "quota_exceeded" && !("agentErrorType" in (err as object)));
   const end = events.find((e) => e.kind === "end");
   assert.ok(end && end.kind === "end");
   assert.equal(end.errorType, "quota_exceeded");

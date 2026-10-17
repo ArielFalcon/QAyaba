@@ -49,3 +49,13 @@ test("the live attempt of a session is the one its latest turn has open, and a s
   traces.end("s");
   assert.equal(traces.attemptSpan("s"), undefined);
 });
+
+test("a call served for one session is told to that session's turn only, so parallel sessions never see each other's calls", () => {
+  const traces = new AgentTurnTraces();
+  const told: string[] = [];
+  const probeFor = (name: string) => ({ ...fakeProbe(), liveAttempt: () => undefined, noteToolCall: () => told.push(name) });
+  traces.begin("sidekick-1", probeFor("one") as unknown as TurnProbe);
+  traces.begin("sidekick-2", probeFor("two") as unknown as TurnProbe);
+  traces.noteToolCall("sidekick-2", { tool: "run_spec", startedAt: 1, endedAt: 2, context: { traceId: "t", spanId: "x" } });
+  assert.deepEqual(told, ["two"]);
+});

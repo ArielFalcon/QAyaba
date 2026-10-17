@@ -66,3 +66,34 @@ test("a call still running when the turn ended joins a server span that started 
   const joined = matchServerCalls([call("c1", "run_spec", 1_000, null, "m1")], [server("s1", "run_spec", 1_200, 90_000, "m1")]);
   assert.equal(joined.get("c1")?.context.spanId, "s1");
 });
+
+test("a call that ties between two spans excludes both, so a later and worse call cannot claim either", () => {
+  const joined = matchServerCalls(
+    [call("a", "run_spec", 1_000, 5_000), call("b", "run_spec", 1_500, 5_000)],
+    [server("s1", "run_spec", 1_100, 4_000), server("s2", "run_spec", 900, 4_000)],
+  );
+  assert.equal(joined.size, 0);
+});
+
+test("two run_spec calls whose times overlap each join the span that started with it", () => {
+  const joined = matchServerCalls(
+    [call("c1", "run_spec", 1_000, 5_000, "m1"), call("c2", "run_spec", 1_200, 5_200, "m1")],
+    [server("s2", "run_spec", 1_230, 5_100, "m1"), server("s1", "run_spec", 1_020, 4_900, "m1")],
+  );
+  assert.equal(joined.get("c1")?.context.spanId, "s1");
+  assert.equal(joined.get("c2")?.context.spanId, "s2");
+});
+
+test("a call whose span was served long after the call ended is not joined", () => {
+  const joined = matchServerCalls([call("c1", "run_spec", 1_000, 2_000, "m1")], [server("s1", "run_spec", 60_000, 61_000, "m1")]);
+  assert.equal(joined.size, 0);
+});
+
+test("matching many calls and spans stays fast", () => {
+  const calls = Array.from({ length: 400 }, (_, i) => call(`c${i}`, "run_spec", i * 10_000, i * 10_000 + 5_000, "m"));
+  const servers = Array.from({ length: 400 }, (_, i) => server(`s${i}`, "run_spec", i * 10_000 + 7, i * 10_000 + 4_000, "m"));
+  const started = Date.now();
+  const joined = matchServerCalls(calls, servers);
+  assert.equal(joined.size, 400);
+  assert.ok(Date.now() - started < 2_000);
+});

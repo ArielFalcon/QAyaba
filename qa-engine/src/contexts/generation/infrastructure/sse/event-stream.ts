@@ -35,8 +35,11 @@ export function setRawEventStreamOpener(opener: RawEventStreamOpener): () => voi
 
 export const activityRouter = new ActivityRouter();
 
-/* Sessions that are observed and not watched: their events reach the call tracker and nothing else. */
-const unwatchedSessions = new Set<string>();
+/* Sessions that are observed and not watched (by when they were first observed): their events reach the call tracker and nothing else. */
+const unwatchedSessions = new Map<string, number>();
+
+/* Longer than the longest run budget plus a margin: a session observed this long ago has outlived any run that could own it, so its disposal was missed. */
+export const UNWATCHED_MAX_AGE_MS = 4 * 60 * 60 * 1000;
 
 /* The event every OpenCode event connection opens with. */
 const SERVER_CONNECTED = "server.connected";
@@ -270,8 +273,10 @@ export function registerRunSession(sessionId: string, runId: string, directory: 
  * live activity feed, never feeds a liveness watchdog and never makes an attempt wait for the stream. For a session that opted out
  * of live observation (the explorer's), whose behaviour observing must not change.
  */
-export function observeUnwatchedSession(sessionId: string, directory: string): void {
-  unwatchedSessions.add(sessionId);
+export function observeUnwatchedSession(sessionId: string, directory: string, now: number = Date.now()): void {
+  /* A session nobody disposed (a run that died) is let go on the next observation, with what it held. */
+  for (const [stale, since] of unwatchedSessions) if (now - since > UNWATCHED_MAX_AGE_MS) unobserveUnwatchedSession(stale);
+  unwatchedSessions.set(sessionId, now);
   eventStreams.attach(sessionId, directory);
   callEfficiencyTracker.attachUnwatched(sessionId, directory);
 }

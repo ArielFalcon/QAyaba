@@ -13,6 +13,7 @@ import {
   unregisterRunSession,
   observeUnwatchedSession,
   unobserveUnwatchedSession,
+  UNWATCHED_MAX_AGE_MS,
   EventStreamManager,
   setRawEventStreamOpener,
 } from "@contexts/generation/infrastructure/sse/event-stream.ts";
@@ -457,4 +458,19 @@ test("an observed unwatched session is not a session of the run for the live act
     restoreOpener();
   }
   assert.deepEqual(seen, []);
+});
+
+test("a session observed unwatched whose disposal was missed is let go, with its tracker state, when a later one is observed", () => {
+  observeUnwatchedSession("sess-leaked", "/m/leak", 0);
+  observeUnwatchedSession("sess-fresh", "/m/leak", UNWATCHED_MAX_AGE_MS + 1);
+  try {
+    /* The leaked one is gone: its events no longer reach the tracker, and a new attach of the same id starts clean. */
+    callEfficiencyTracker.record(toolPartEvent("sess-leaked", "c1", "read", { filePath: "/m/leak/a.ts" }) as never);
+    assert.equal(callEfficiencyTracker.take("sess-leaked", ""), null);
+    callEfficiencyTracker.record(toolPartEvent("sess-fresh", "c1", "read", { filePath: "/m/leak/a.ts" }) as never);
+    assert.equal(callEfficiencyTracker.take("sess-fresh", "")?.totalCalls, 1);
+  } finally {
+    unobserveUnwatchedSession("sess-fresh");
+    unobserveUnwatchedSession("sess-leaked");
+  }
 });

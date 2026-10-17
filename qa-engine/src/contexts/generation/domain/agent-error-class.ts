@@ -23,6 +23,22 @@ export type AgentErrorType = (typeof AGENT_ERROR_TYPES)[number];
 
 const isAgentErrorType = (value: unknown): value is AgentErrorType => typeof value === "string" && (AGENT_ERROR_TYPES as readonly string[]).includes(value);
 
+/*
+ * The class a transport decided for a fault it is about to throw, kept beside the error and not on it: a thrown error stays exactly
+ * what it was (no new own property, enumerable or not), and whoever classifies it later reads the class here.
+ */
+const carried = new WeakMap<object, AgentErrorType>();
+
+/* Returns `err` itself. Nothing is recorded for a value that is not an object, or for no class. */
+export function carryAgentErrorType<T>(err: T, type: AgentErrorType | undefined): T {
+  if (type !== undefined && typeof err === "object" && err !== null) carried.set(err, type);
+  return err;
+}
+
+export function carriedAgentErrorType(err: unknown): AgentErrorType | undefined {
+  return typeof err === "object" && err !== null ? carried.get(err) : undefined;
+}
+
 /* The provider error payload the runtime embeds in an assistant message (the same shape the transport policy turns into an infra error). */
 export interface ProviderErrorPayload {
   name: string;
@@ -78,8 +94,10 @@ function classifyFault(err: unknown, visited: Set<object>, depth: number): Agent
   if (typeof err !== "object" || err === null) return "unknown";
   if (visited.has(err) || depth > MAX_CAUSE_DEPTH) return "unknown";
   visited.add(err);
-  const carried = (err as { agentErrorType?: unknown }).agentErrorType;
-  if (isAgentErrorType(carried)) return carried;
+  const kept = carriedAgentErrorType(err);
+  if (kept !== undefined) return kept;
+  const legacy = (err as { agentErrorType?: unknown }).agentErrorType;
+  if (isAgentErrorType(legacy)) return legacy;
   if (err instanceof AgentTimeoutError || err instanceof StalledAgentError) return "timeout";
   const named = err as { name?: unknown; code?: unknown; message?: unknown };
   if (named.name === "AgentTimeoutError" || named.name === "StalledAgentError") return "timeout";

@@ -146,6 +146,24 @@ test("an infra failure of the transport is the same error object the caller got,
   });
   const out = await turn(r);
   assert.equal(out.error, error);
+  assert.equal("agentErrorType" in error, false, "the error carries no property of ours");
+  assert.deepEqual(Object.keys(error), Object.keys(new AgentUnavailableError("x", { cause: new Error("y") })));
+});
+
+test("a failure while the prompt is being put together still counts against the circuit breaker, as before", async () => {
+  resetCodexCircuit();
+  const h = traceHarness();
+  const strategy = new CodexRuntimeStrategy({
+    env: { CODEX_API_KEY: "k" },
+    transport: { start: async () => ({ id: "s", prompt: async () => "never", dispose: async () => {} }), health: async () => ({ provider: "codex", status: "healthy", configured: true }), listModels: async () => [] },
+    promptRoot: 42 as unknown as string,
+    onAttempt: () => {},
+  });
+  void h;
+  const session = await strategy.openSession("primary", "/repo", { descriptor: { runId: "r", role: "qa-generator" } });
+  for (let i = 0; i < 5; i += 1) await assert.rejects(session.prompt("go"), TypeError);
+  await assert.rejects(session.prompt("go"), /circuit breaker is open/i);
+  resetCodexCircuit();
 });
 
 test("a telemetry port that throws changes nothing the caller sees of a Codex prompt", async () => {
