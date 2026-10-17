@@ -150,6 +150,69 @@ export const ATTRIBUTES = {
   "qayaba.agent.trace_truncated": bool("The turn made more steps or calls than its trace keeps."),
   "qayaba.error.message": text("A redacted, capped failure message."),
 
+  /* Context spans (design §4.4): one per grounding source, with the ids of what it supplied. */
+  "qayaba.context.source": str("The grounding source: learning, curriculum, context-map, route-ranking, dom-capture, context-pack, service-links, structural-signal, cross-repo-impact or explorer-brief."),
+  "qayaba.context.items.count": int("Items the source supplied."),
+  "qayaba.context.bytes": int("Bytes the source contributed to what the agent receives."),
+  "qayaba.context.truncated": bool("The source was cut to fit a bound."),
+  "qayaba.context.truncated_items": int("Items the source left out to fit its bound."),
+  "qayaba.context.item_ids": spec("string[]", "Stable ids of the items the source supplied (design §4.4), at most 200; the rest are counted in qayaba.context.item_ids.overflow.", "high"),
+  "qayaba.context.item_ids.overflow": int("Item ids left out of qayaba.context.item_ids because of its cap."),
+
+  /* One route of a DOM capture (an event on qayaba.context.dom-capture). */
+  "qayaba.route.path": str("The route a capture event is about.", "high"),
+  "qayaba.route.status": str("captured or degraded."),
+  "qayaba.route.degrade_reason": str("Why a route's capture is degraded: errored, empty or redirected."),
+  "qayaba.route.settled": bool("The page reached network idle before it was read."),
+  "qayaba.route.nodes": int("Accessibility-tree nodes read from the route."),
+  "qayaba.route.test_ids": int("Distinct test ids found on the route."),
+  "qayaba.route.runtime_errors": int("Runtime errors the page logged."),
+  "qayaba.route.ms": int("Milliseconds the capture script spent on the route."),
+
+  /* Login attempts (design §6.3). */
+  "qayaba.auth.method": str("How a login attempt signed in: discovery or seed."),
+  "qayaba.auth.attempt": int("The attempt number within the login's preparation."),
+  "qayaba.auth.outcome": str("authenticated, failed, inconclusive, setup-failed or precondition."),
+  "qayaba.auth.precondition_kind": str("The precondition kind of a login that could not be completed."),
+  "qayaba.auth.restored": bool("The login script in use was restored from the suite store."),
+  "qayaba.auth.demoted": bool("A restored login was demoted earlier in this run."),
+  "qayaba.auth.demoted_reason": text("Why the restored login was demoted."),
+  "qayaba.egress.denied": spec("string[]", "Hosts the egress filter refused while the login ran, apart from those the app blocks on purpose.", "high", "redacted-text"),
+  "qayaba.egress.denied_intentional": spec("string[]", "Refused hosts the app declares as blocked on purpose.", "high", "redacted-text"),
+
+  /* Suite store (design §4.2). */
+  "qayaba.suite_store.restored": int("Files written into the working copy by a restore."),
+  "qayaba.suite_store.overlaid": int("Tracked files whose unpublished change was put back."),
+  "qayaba.suite_store.tracked_wins": int("Stored files left out because git tracks the path with other content."),
+  "qayaba.suite_store.auth_restored": bool("The stored login was put back."),
+  "qayaba.suite_store.entries": int("Entries the store holds after a capture."),
+  "qayaba.suite_store.admitted": int("Entries added or changed by a capture."),
+  "qayaba.suite_store.dropped": int("Entries removed by a capture."),
+  "qayaba.suite_store.skipped": int("Files seen but not admitted by a capture."),
+  "qayaba.suite_store.skip_reasons": spec("string[]", "The distinct reasons files were not admitted, from a closed set."),
+  "qayaba.suite_store.reason": text("Why the stored login was demoted."),
+
+  /* Validation (design §6.2). */
+  "qayaba.validate.check": str("The static check: typecheck, lint, list or manifest."),
+  "qayaba.validate.ok": bool("The check passed."),
+  "qayaba.validate.errors": int("Errors the check reported."),
+  "qayaba.validate.infra": bool("The check failed for an infrastructure reason."),
+  "qayaba.catalog_gate.fabricated": int("Test ids a spec uses that a captured, settled route does not have (the gate fails closed on them)."),
+  "qayaba.catalog_gate.in_window": int("Test id selectors the gate checked against a captured, settled route."),
+  "qayaba.catalog_gate.advisory": int("Test id selectors the gate could only note, not check (route not captured or settled, or past the confident window)."),
+  "qayaba.preexec.ambiguity_catches": int("Selector ambiguities the pre-execution advisory counted."),
+
+  /* Execution, synthesized from the Playwright JSON report (design §6.2). */
+  "qayaba.spec.file": str("A spec file of the suite, relative to the suite directory.", "high"),
+  "qayaba.test.name": text("A test case's title chain."),
+  "qayaba.test.status": str("passed, failed, flaky, skipped, timedOut or interrupted."),
+  "qayaba.test.failure_category": str("selector, auth, data_state, timeout, assertion, infra or egress."),
+  "qayaba.test.retries": int("Retries the case used."),
+  "qayaba.attempt": int("The attempt number of a case (0 is the first run)."),
+  "qayaba.time.source": str("Where the span's times come from: report."),
+  "qayaba.selector.match_count": int("Elements a locator resolved to in a strict mode violation."),
+  "qayaba.selector.strategy": str("The kind of locator that failed: testid, role, text or css."),
+
   /* Langfuse viewing aids, set on the root. */
   "langfuse.trace.name": str("Langfuse trace name."),
   "langfuse.session.id": str("Langfuse session id.", "high"),

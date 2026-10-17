@@ -149,6 +149,8 @@ export interface E2eExecuteDeps {
   allocateFailureDir?(): { dir: string; root: string; dispose(): void };
   /* OPTIONAL diagnostic sink for a secret-redaction audit trail (src/orchestrator/sanitizer.ts's recordAudit/SECRET_AUDIT — a security-boundary concern this module does not import directly, to stay src/-free). Absent ⇒ no audit recorded (safe for every unit test that doesn't care about it). The composition-root shell (rewritten-engine-factory.ts) binds the REAL recordAudit into createDefaultE2eExecuteDeps's returned object, so production behavior is unchanged. */
   recordAudit?(runId: string, detection: SecretDetection): void;
+  /* OPTIONAL read-only observer of a report-shaped Playwright JSON report, told once per run before the verdict is derived (the shell turns it into spans). It never alters the report or the verdict; a fault in it is logged and ignored. */
+  onReport?(report: unknown): void;
 }
 
 /** Local result shape so this file stays src/-free. */
@@ -285,6 +287,11 @@ export async function runE2E(
     });
   }
 
+  try {
+    deps.onReport?.(report);
+  } catch (err) {
+    console.error(`[qa] the report observer failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
   const parsed = parsePlaywrightReport(report);
 
   if (parsed.executed === 0) {

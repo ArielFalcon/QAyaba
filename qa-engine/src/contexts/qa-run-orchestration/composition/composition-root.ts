@@ -3,7 +3,7 @@ buildShadow always uses this engine with shadow-log publication and in-memory hi
 
 import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort } from "../application/ports/index.ts";
+import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort, ValidationPort, LearningPort } from "../application/ports/index.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
@@ -24,6 +24,10 @@ import { systemTimers } from "../application/coordination/fan-out-dispatcher.ts"
 import { FsDelegationWorkspaceAdapter } from "../infrastructure/delegation-workspace.adapter.ts";
 import { specFileForFlow } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { getSharedCoordinationTelemetry } from "../infrastructure/bridges/coordination-telemetry-port.adapter.ts";
+import { SpecSnapshotValidationPort } from "../infrastructure/bridges/spec-snapshot-validation.adapter.ts";
+import { TracedCrossRepoImpactPort, TracedCurriculumPort, TracedLearningPort, TracedServiceLinksPort, TracedStructuralSignalPort, telemetryGroundingTrace } from "../infrastructure/bridges/context-trace.ts";
+import { TracedSuiteStore } from "../infrastructure/bridges/suite-store-trace.ts";
+import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/bridges/generation-port.adapter.ts";
@@ -146,6 +150,8 @@ export interface CompositionConfig {
   runDeadline?: RunDeadlinePort;
   /* The telemetry port the shell built. Absent: nothing is traced. It never changes a verdict. */
   telemetry?: TelemetryPort;
+  /* Where the text of the specs a run holds at validation is kept for after-the-fact grading (docs/observability-design.md §11.1). Absent: none is kept. Never blocks a run. */
+  specSnapshots?: SpecSnapshotPort;
   /* The one wall clock of the run's record: the phase cursor times phases on it and the phase spans start and end on its readings. Absent: the system clock. */
   clock?: TelemetryClock;
   guidance?: string;
@@ -353,13 +359,17 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}),
   }, { stepLimitFor: cfg.stepLimitFor });
 
-  const validation = new ValidationPortAdapter(
+  const staticValidation = new ValidationPortAdapter(
     {
       e2e: cfg.validationStrategies.e2e as StaticGateAdapter,
       code: cfg.validationStrategies.code as CodeValidationStrategy,
     },
     { target: cfg.target },
   );
+  /* The specs a run holds are kept as they stand at each validation (e2e only: a code run's spec directory is the whole repo). Requires the outbound sanitizer, which wireBridges demands below anyway. */
+  const validation: ValidationPort = cfg.specSnapshots && !cfg.isCode && cfg.sanitize
+    ? new SpecSnapshotValidationPort(staticValidation, { port: cfg.specSnapshots, sanitize: cfg.sanitize })
+    : staticValidation;
 
   const execution = new ExecutionPortAdapter(
     { e2e: cfg.executionStrategies.e2e as E2eExecutionStrategy, code: cfg.executionStrategies.code as CodeExecutionStrategy },
@@ -410,7 +420,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
           prChangedFiles: cfg.prChangedFiles,
           ...(cfg.triggerService ? { stagedRoots: stagedRootsOf(cfg.mirrorDir, join(cfg.mirrorDir, cfg.e2eRelDir), cfg.triggerService.mirrorDir) } : {}),
         },
-        cfg.groundingCollaborators ?? {},
+        cfg.telemetry ? { ...cfg.groundingCollaborators, trace: telemetryGroundingTrace(cfg.telemetry) } : (cfg.groundingCollaborators ?? {}),
       )
     : undefined;
   const reviewDomGrounding = !cfg.isCode
@@ -441,15 +451,16 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
   const codeGraphPort = cfg.codebaseMemory
     ? new LazyProjectCodeGraphAdapter(cfg.codebaseMemory, new ProjectNameResolver(cfg.codebaseMemory))
     : undefined;
-  const structuralSignal = codeGraphPort
+  const plainStructuralSignal = codeGraphPort
     ? new StructuralSignalPortAdapter(
         codeGraphPort,
         /* Classify-source repo root (SERVICE on a webhook, PRIMARY otherwise) — not the e2e subfolder and not always the primary suite mirror (see StructuralSignalPortAdapter). */
         cfg.codeGraphRepoDir ?? cfg.mirrorDir,
       )
     : undefined;
+  const structuralSignal = plainStructuralSignal && cfg.telemetry ? new TracedStructuralSignalPort(plainStructuralSignal, cfg.telemetry) : plainStructuralSignal;
 
-  const serviceLinks = cfg.serviceTopology
+  const plainServiceLinks = cfg.serviceTopology
     ? new ServiceLinksPortAdapter(
         cfg.serviceTopology.boundaryProfiles,
         new MirrorRegistryAdapter(cfg.serviceTopology.mirrorRoot), /* DI: real port impl, not a static call */
@@ -460,8 +471,9 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
         },
       )
     : undefined;
+  const serviceLinks = plainServiceLinks && cfg.telemetry ? new TracedServiceLinksPort(plainServiceLinks, cfg.telemetry) : plainServiceLinks;
 
-  const crossRepoImpact = cfg.crossRepoImpact
+  const plainCrossRepoImpact = cfg.crossRepoImpact
     ? new CrossRepoImpactPortAdapter({
         mirrors: new MirrorRegistryAdapter(cfg.crossRepoImpact.mirrorRoot),
         makeVcs: (repoDir) => new GitMirrorReadAdapter(repoDir, cfg.crossRepoImpact!.runner),
@@ -469,6 +481,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
         runner: cfg.crossRepoImpact.runner, /* same runner — no extra spawn surface */
       })
     : undefined;
+  const crossRepoImpact = plainCrossRepoImpact && cfg.telemetry ? new TracedCrossRepoImpactPort(plainCrossRepoImpact, cfg.telemetry) : plainCrossRepoImpact;
 
   const objectiveSignal = new ObjectiveSignalPortAdapter(
     {
@@ -486,7 +499,8 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     },
   );
 
-  const learning = new LearningPortAdapter(cfg.learningRepo ?? new StubLearningRepository(), cfg.appName);
+  const plainLearning = new LearningPortAdapter(cfg.learningRepo ?? new StubLearningRepository(), cfg.appName);
+  const learning: LearningPort = cfg.telemetry ? new TracedLearningPort(plainLearning, cfg.telemetry) : plainLearning;
 
   const workspace = new WorkspacePortAdapter(cfg.checkout, { specRelDir: cfg.isCode ? "" : cfg.e2eRelDir });
 
@@ -582,11 +596,11 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
     ...(cfg.clock ? { phaseClock: cfg.clock } : {}),
     /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
-    ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
+    ...(cfg.curriculumPort ? { curriculum: cfg.telemetry ? new TracedCurriculumPort(cfg.curriculumPort, cfg.telemetry) : cfg.curriculumPort } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
     /* Absent suiteStore is omitted entirely — never a fabricated no-op stub (a stub that restores nothing would hide that no suite persists). */
-    ...(cfg.suiteStore ? { suiteStore: cfg.suiteStore } : {}),
+    ...(cfg.suiteStore ? { suiteStore: cfg.telemetry ? new TracedSuiteStore(cfg.suiteStore, cfg.telemetry) : cfg.suiteStore } : {}),
     /* Absent coordination settings are omitted entirely: the run is in the single mode. */
     ...(cfg.coordinationSettings ? { coordinationSettings: cfg.coordinationSettings } : {}),
     /* The lead/sidekick mode: wired for an e2e run whose shell gave it a place for the sidekicks' workspaces; whether a run uses it is the app's coordination mode or the run's own choice. The sidekicks share the reviewer's runtime, each with a session of its own. A run in the single mode (the default) asks it for nothing. */

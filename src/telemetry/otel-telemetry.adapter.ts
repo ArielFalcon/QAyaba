@@ -56,7 +56,8 @@ export const TEXT_CAP_CHARS = 1024;
 export const CONTENT_CAP_CHARS = 32 * 1024;
 /* Caps for the structure of a span: plain string values, array lengths, names, error classes and metric attribute values. */
 export const NONE_CAP_CHARS = 256;
-export const ARRAY_CAP = 64;
+/* 200 is the cap of a context span's item ids (design §4.4); the engine counts what it leaves out. */
+export const ARRAY_CAP = 200;
 export const NAME_CAP_CHARS = 128;
 export const ERROR_TYPE_CAP_CHARS = 128;
 export const METRIC_VALUE_CAP_CHARS = 64;

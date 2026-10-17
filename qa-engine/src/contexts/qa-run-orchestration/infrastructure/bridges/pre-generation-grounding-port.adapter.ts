@@ -4,7 +4,7 @@ import type { PreGenerationGroundingPort, GroundingResult, HarnessFacts } from "
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import type { ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import type { ContextPackAssembly, ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
@@ -28,7 +28,16 @@ export interface PreGenerationGroundingStaticContext {
   stagedRoots?: string[]; /* cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it (present even when empty) — the pack ranks a route only by the spec of an operation it joins, under these roots */
 }
 
+/* Told what grounding supplied, as it supplies it. Read-only: nothing it does reaches what the agent receives, and a fault in it is logged and ignored. */
+export interface GroundingTrace {
+  contextMap?(map: ArchitectureContext): void;
+  brief?(brief: ExplorationBrief): void;
+  pack?(assembly: ContextPackAssembly): void;
+}
+
 export interface PreGenerationGroundingCollaborators {
+  /* Optional observer of the sources (context map, explorer brief, context pack). Absent: nothing is told. */
+  trace?: GroundingTrace;
   /* Optional overrides — default to the real generation/infrastructure primitives. Injectable for testing (existence-level: this bridge is exercised without a real Playwright/browser). */
   buildContextPack?: typeof buildContextPack;
   contextPackDeps?: ContextPackDeps;
@@ -210,6 +219,15 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     private readonly collaborators: PreGenerationGroundingCollaborators = {},
   ) {}
 
+  /* The observer is told in passing: its fault never changes what grounding returns. */
+  private tell(notify: () => void): void {
+    try {
+      notify();
+    } catch (err) {
+      console.error(`[qa] the grounding trace failed (grounding is unaffected): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   async ground(specDir: string, signal?: AbortSignal, diff?: string, opts?: { sha: string; intent?: CommitIntent; runId?: string }): Promise<GroundingResult> {
     if (signal?.aborted) return {};
 
@@ -232,6 +250,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       }
     }
     if (contextMap) result.contextMap = contextMap;
+    if (contextMap) this.tell(() => this.collaborators.trace?.contextMap?.(contextMap));
 
     try {
       const found = enumerateExistingSpecFiles(this.ctx.e2eDir);
@@ -282,6 +301,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     }
 
     if (brief) result.contextBrief = brief;
+    if (brief) this.tell(() => this.collaborators.trace?.brief?.(brief));
 
     /* buildContextPack does not accept AbortSignal. Racing unblocks the run on cancel; the in-flight render keeps running to its own timeout and its result is discarded. This port never throws — abort resolves; the use-case routes abort after this call. */
     try {
@@ -308,6 +328,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       );
       const packResult = signal ? await raceWithAbort(buildPromise, signal) : await buildPromise;
       if (packResult.text) result.contextPack = packResult.text;
+      this.tell(() => this.collaborators.trace?.pack?.(packResult));
     } catch (err) {
       if (isAbortError(err)) return result; /* abort: return whatever was gathered so far, never throw — see the note above. */
       console.warn(`[qa] WARNING: context-pack build FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);

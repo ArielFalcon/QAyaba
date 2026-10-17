@@ -466,7 +466,9 @@ threat-model header first) and a canary-before-promote hot-swap.
 - **When the OpenCode pin or `@opencode-ai/plugin` moves**, re-run `agents/smoke/run-spec-tool.smoke.mjs` and
   `agents/smoke/authbrowser-tool.smoke.mjs` in the new image (the plugin's `ToolContext` and the naming of a file's exports are what the
   tools depend on) next to re-recording the agent-list fixture. **When Playwright moves**, `playwright-core` in `package.json` moves with
-  it, and `npx tsx scripts/agent-browser-smoke.ts` is re-run in the new orchestrator image (see `docs/execution-sandbox.md`).
+  it, and `npx tsx scripts/agent-browser-smoke.ts` is re-run in the new orchestrator image (see `docs/execution-sandbox.md`), and the failure classifier's fixtures (the error messages in
+  `qa-engine/test/contexts/test-execution/domain/failure-category.test.ts`, which the trace's failure categories, strict-mode match
+  counts and locator kinds are read from) are re-recorded from the new version's wording.
 - **Pin exact versions on the execution path** — Playwright `1.60.0` matches the
   `playwright:v1.60.0-noble` image. Never use `^`. The OpenCode build is pinned in
   `agents/Dockerfile`: when the pin moves, re-record

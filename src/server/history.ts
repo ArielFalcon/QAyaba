@@ -313,6 +313,7 @@ function ensureDb(): void {
     CREATE INDEX IF NOT EXISTS idx_run_spans_trace_id ON run_spans(trace_id);
     CREATE INDEX IF NOT EXISTS idx_run_spans_start_ns ON run_spans(start_ns);
 
+<<<<<<< HEAD
     -- Evaluation scores (docs/observability-design.md section 11): one row per (run, score name, grader version), replaced on a regrade.
     -- Never pruned: they are tiny, and a campaign compares them long after the run's spans are gone. No foreign key to runs, for the same reason.
     CREATE TABLE IF NOT EXISTS run_scores (
@@ -349,6 +350,21 @@ function ensureDb(): void {
       started_at TEXT NOT NULL,
       finished_at TEXT
     );
+=======
+    -- The text of the specs a run held when it validated them (docs/observability-design.md §11.1), redacted and capped, so
+    -- a run can be graded after its working copy is gone. One row per (run, path, bytes): a spec rewritten during the run is
+    -- kept in each version. Same retention as run_spans.
+    CREATE TABLE IF NOT EXISTS run_spec_snapshots (
+      run_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      text TEXT NOT NULL,
+      bytes INTEGER NOT NULL,
+      captured_at INTEGER NOT NULL,
+      PRIMARY KEY (run_id, path, sha256)
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_spec_snapshots_captured_at ON run_spec_snapshots(captured_at);
+>>>>>>> 86f37727 (feat(observability): trace grounding sources, logins, suite store, validation and execution, and keep spec snapshots)
 
     CREATE TABLE IF NOT EXISTS learning_rules (
       id TEXT PRIMARY KEY,
@@ -599,6 +615,7 @@ function ensureDb(): void {
   /* The span ledger keeps its own window (QA_TELEMETRY_RETENTION_DAYS, default 30). A malformed value is reported loudly by the telemetry bootstrap; here it must not stop the history from opening. */
   try {
     pruneRunSpans(spanRetentionDays(), Date.now());
+    pruneSpecSnapshots(spanRetentionDays(), Date.now());
   } catch (error) {
     console.error(`[telemetry] span ledger prune failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -1530,6 +1547,49 @@ export function pruneRunSpans(days: number, nowMs: number, limit: number = RUN_S
   return db
     .prepare("DELETE FROM run_spans WHERE rowid IN (SELECT rowid FROM run_spans WHERE start_ns < ? LIMIT ?)")
     .run(BigInt(Math.floor(cutoffMs)) * 1_000_000n, limit).changes;
+}
+
+export interface SpecSnapshotRow {
+  runId: string;
+  path: string;
+  sha256: string;
+  text: string;
+  bytes: number;
+  /* Epoch ms. */
+  capturedAt: number;
+}
+
+/* Keeps the snapshots of a run's specs in ONE transaction. A row already kept (same run, path and bytes) is left as it is. */
+export function commitSpecSnapshots(rows: readonly SpecSnapshotRow[]): void {
+  ensureDb();
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO run_spec_snapshots (run_id, path, sha256, text, bytes, captured_at)
+    VALUES (@runId, @path, @sha256, @text, @bytes, @capturedAt)`);
+  db.transaction((batch: readonly SpecSnapshotRow[]) => {
+    for (const row of batch) insert.run(row);
+  })(rows);
+}
+
+export function listSpecSnapshots(runId: string): SpecSnapshotRow[] {
+  ensureDb();
+  const rows = db.prepare("SELECT * FROM run_spec_snapshots WHERE run_id = ? ORDER BY captured_at, path").all(runId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    runId: r.run_id as string,
+    path: r.path as string,
+    sha256: r.sha256 as string,
+    text: r.text as string,
+    bytes: r.bytes as number,
+    capturedAt: r.captured_at as number,
+  }));
+}
+
+/* Drops up to `limit` snapshots kept more than `days` before `nowMs`, and returns how many: the window of the span ledger. */
+export function pruneSpecSnapshots(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK): number {
+  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(cutoffMs)) return 0;
+  return db
+    .prepare("DELETE FROM run_spec_snapshots WHERE rowid IN (SELECT rowid FROM run_spec_snapshots WHERE captured_at < ? LIMIT ?)")
+    .run(Math.floor(cutoffMs), limit).changes;
 }
 
 export function loadRunEvents(runId: string, afterSeq = -1): Array<{ runId: string; seq: number; ts: number; body: unknown }> {

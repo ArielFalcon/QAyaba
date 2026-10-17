@@ -28,6 +28,10 @@ import { buildProduction, type CompositionConfig } from "@contexts/qa-run-orches
 import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
 import { createDiscoverLogin } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
+import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capture-trace";
+import { traceValidateDeps } from "@contexts/test-execution/infrastructure/static-gate.trace";
+import { synthesizeReportSpans } from "@contexts/test-execution/infrastructure/report-spans";
+import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
@@ -902,7 +906,9 @@ export function buildRewrittenCompositionConfig(
   });
 
 
-  const validateDeps = createValidateDeps(exec);
+  const plainValidateDeps = createValidateDeps(exec);
+  /* Each static check is a span of its own under the validate phase (telemetry off: the checks as they are). */
+  const validateDeps = deps.telemetry ? traceValidateDeps(plainValidateDeps, deps.telemetry) : plainValidateDeps;
   const staticGate = new StaticGateAdapter({
     typecheck: validateDeps.typecheck,
     lint: validateDeps.lint,
@@ -914,10 +920,15 @@ export function buildRewrittenCompositionConfig(
   const codeValidate = new CodeValidationStrategy((repoDir, opts) => validateCodeProject(repoDir, createCodeValidateDeps(exec), opts));
 
 
-  const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs), recordAudit };
+  const e2eExecuteDeps: E2eExecuteDeps = {
+    ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs),
+    recordAudit,
+    /* The Playwright report as spans (spec files, cases, attempts) under the phase that executes. */
+    ...(deps.telemetry ? { onReport: (report: unknown) => synthesizeReportSpans({ telemetry: deps.telemetry! }, report) } : {}),
+  };
   const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), exec);
   /* One launcher-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
-  const captureDomDeps = createCaptureDomDeps(exec);
+  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
   const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(exec), recordAudit };
@@ -1065,6 +1076,8 @@ export function buildRewrittenCompositionConfig(
     ...(stepLimitFor ? { stepLimitFor } : {}),
     runDeadline,
     ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
+    /* What a run's specs held at validation is kept for after-the-fact grading, as long as the run is traced. */
+    ...(deps.telemetry ? { specSnapshots: new SqliteSpecSnapshotAdapter() } : {}),
     ...(deps.clock ? { clock: deps.clock } : {}),
     reviewRuntime: {
       runtime: boundedRuntime,
@@ -1228,6 +1241,7 @@ export function buildRewrittenCompositionConfig(
           authSession: new AuthSessionAdapter({
             env: process.env,
             authDir,
+            ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
             ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
             ...(pwActionTimeoutMs !== undefined ? { actionTimeoutMs: pwActionTimeoutMs } : {}),
             /*

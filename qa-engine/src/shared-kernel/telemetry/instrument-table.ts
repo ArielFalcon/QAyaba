@@ -23,6 +23,10 @@ export const INSTRUMENTS = {
   "qayaba.agent.cost": { type: "counter", attrs: ["qayaba.agent.role", GENAI.attrs.requestModel, "qayaba.app"] },
   "qayaba.provider.errors": { type: "counter", attrs: [...MODEL, "error.type"] },
   "qayaba.egress.denied": { type: "counter", attrs: ["qayaba.exec.profile"] },
+  /* What a run's grounding, login and tests came to. */
+  "qayaba.tests": { type: "counter", attrs: ["qayaba.test.status", "qayaba.test.failure_category"] },
+  "qayaba.auth.attempts": { type: "counter", attrs: ["qayaba.auth.outcome"] },
+  "qayaba.context.bytes": { type: "histogram", attrs: ["qayaba.context.source"] },
   /* Host health (design §7): process-wide; the only attribute is the closed stat (p50, p99, max). */
   "qayaba.host.suspend.count": { type: "counter", attrs: [] },
   "qayaba.host.suspend.duration": { type: "histogram", attrs: [] },

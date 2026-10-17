@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor, type ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { SpanKind, SpanStatusCode, type Tracer, type Meter } from "@opentelemetry/api";
-import { OtelTelemetry, type CaptureMode } from "./otel-telemetry.adapter";
+import { ARRAY_CAP, OtelTelemetry, type CaptureMode } from "./otel-telemetry.adapter";
 import { createRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import type { TelemetryClock } from "@kernel/telemetry/telemetry.port";
 import { GENAI } from "@kernel/telemetry/genai-semconv";
@@ -429,7 +429,7 @@ test("string attributes of every class, array lengths, span names and event name
   const s = byName("op ".repeat(200).slice(0, 128));
   assert.equal(String(s.attributes["qayaba.app"]).length, 256);
   assert.equal(String(s.attributes["qayaba.tool.target"]).length, 1024);
-  assert.equal((s.attributes["qayaba.egress.denied_cotemporal"] as string[]).length, 64);
+  assert.equal((s.attributes["qayaba.egress.denied_cotemporal"] as string[]).length, ARRAY_CAP);
   assert.equal(s.events[0]!.name.length, 128);
 });
 

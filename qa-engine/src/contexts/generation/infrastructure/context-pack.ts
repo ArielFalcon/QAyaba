@@ -60,11 +60,28 @@ export interface ContextPackInput {
   stagedRoots?: string[];
 }
 
+/* What the pack was made from, for the trace: nothing here reaches the agent or the verdict. */
+export interface ContextPackTrace {
+  /* The routes asked of the capture, in rank order, after the cut. */
+  rankedRoutes: string[];
+  /* The routes that name a page, before the cut. */
+  capturablePages: number;
+  /* The pages the capture returned. */
+  pages: CapturedPage[];
+  /* The test ids the change added (ChangedElement), for the present or absent fact of each. */
+  changedTestIds: string[];
+  /* The operations whose contracts the pack carries. */
+  contractIds: string[];
+  /* DOM lines the line cap left out. */
+  omittedLines: number;
+}
+
 export interface ContextPackAssembly {
   text: string | undefined;
 
   domBytes: number;
   contractBytes: number;
+  trace?: ContextPackTrace;
 }
 
 export interface ContextPackDeps {
@@ -240,6 +257,7 @@ export async function buildContextPack(
   /* Only a route made of literals and whole-segment parameters can be filled from a link; any other route that names no page is simply left out. */
   const isTemplate = (entry: { route: string }): boolean => instantiableTemplate(entry.route);
   /* The pages the first capture renders: the routes that are pages, as many as the cut keeps. */
+  const capturablePages = classified.filter((entry) => entry.reason === undefined).length;
   const firstPass = classified.filter((entry) => entry.reason === undefined).map((entry) => entry.route).slice(0, MAX_ROUTES);
   /* A template can take a slot only if fewer than a cut's worth of pages rank ahead of it. */
   const reachableTemplates: string[] = [];
@@ -252,6 +270,7 @@ export async function buildContextPack(
   const pages = new Map<string, CapturedPage>();
   const captures: PackCapture[] = [];
   let renderedRoutes = 0;
+  let omittedLines = 0;
   const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
     const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) pages.set(page.route, page); } }, deps.domDeps, input.changedElements);
     const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
@@ -295,6 +314,7 @@ export async function buildContextPack(
         const lines = captures.map((c) => c.grounded).filter((text) => text !== "").join("\n").split("\n");
         const maxLines = Math.max(10, Math.floor(domBudgetChars / 60));
         const { kept, dropped } = capDomLines(lines, maxLines);
+        omittedLines = dropped;
         redirectSection = captures.map((c) => c.advisory).reduce(joinRedirectSections, "");
         domSection = [
           `### ${PACK_HEADINGS.liveDom} (a11y tree — GROUND TRUTH for selectors)`,
@@ -337,6 +357,14 @@ export async function buildContextPack(
 
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
+  const trace: ContextPackTrace = {
+    rankedRoutes: firstPass,
+    capturablePages,
+    pages: [...pages.values()],
+    changedTestIds: (input.changedElements ?? []).flatMap((element) => (element.testId === undefined ? [] : [element.testId])),
+    contractIds: relevantOps.map((op) => op.operationId),
+    omittedLines,
+  };
 
   const sections = [
     { text: domSection, held: "the live DOM of the routes it covers" },
@@ -344,7 +372,7 @@ export async function buildContextPack(
     { text: contractSection, held: "the API contracts relevant to this objective" },
   ].filter(hasText);
   if (sections.length === 0) {
-    return { text: undefined, domBytes: 0, contractBytes: 0 };
+    return { text: undefined, domBytes: 0, contractBytes: 0, trace };
   }
   /* The list of routes left out accompanies a pack that has something to say; it is no reason to make one. */
   sections.push(...[{ text: renderNotCapturable(notCaptured), held: "the routes not capturable, with why" }].filter(hasText));
@@ -361,5 +389,5 @@ export async function buildContextPack(
   ].join("\n");
 
   const text = packHeader + parts.join("\n\n");
-  return { text, domBytes, contractBytes };
+  return { text, domBytes, contractBytes, trace };
 }

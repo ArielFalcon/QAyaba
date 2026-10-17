@@ -58,3 +58,11 @@ export interface SuiteStorePort {
   /** Marks the stored login as one that no longer works and takes it out of the working copy, so the project setup seeds the stock one again. */
   demoteAuth(root: SuiteRoot, reason: string): Promise<void>;
 }
+
+/* Why a capture left a file out, in the words the result carries; the trace classifies a reason by these (suite-store-trace.ts). A reason of the confined reader (a link, a pipe, a file over the cap) is its own. */
+export const SKIP_REASON = {
+  VANISHED: "the file vanished during the capture",
+  SESSION_STATE: "login session (storage state)",
+  CHANGED_AFTER_RUN: "changed after it ran green: these bytes never executed",
+  NOT_VERIFIED_LOGIN: "not the login that signed in",
+} as const;

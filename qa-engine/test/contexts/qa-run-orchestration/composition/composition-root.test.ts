@@ -25,6 +25,11 @@ import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { COORDINATION_MODE, resolveCoordinationSettings } from "@kernel/coordination.ts";
+import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
+import { NO_SPEC_SNAPSHOTS } from "@kernel/ports/spec-snapshot.port.ts";
+import { TracedCurriculumPort, TracedLearningPort } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-trace.ts";
+import { SpecSnapshotValidationPort } from "@contexts/qa-run-orchestration/infrastructure/bridges/spec-snapshot-validation.adapter.ts";
+import { TracedSuiteStore } from "@contexts/qa-run-orchestration/infrastructure/bridges/suite-store-trace.ts";
 /* ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
    SAME stub shapes rewritten-orchestrator.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
@@ -1645,3 +1650,25 @@ test("wireBridges wires the lead/sidekick mode only for an e2e run whose shell n
   }
 });
 
+
+
+/* ── Observability: the sources, the suite store and the validation are traced only when the shell supplied a telemetry port. ── */
+
+test("with a telemetry port the learning, curriculum and suite store ports are traced, and without one they are the plain adapters", () => {
+  const curriculumPort = { select: async () => [], fold: async () => {} };
+  const suiteStore = { restore: async () => ({ restored: 0, trackedWins: 0, overlaid: 0, authRestored: false }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} };
+  const traced = wireBridges(fakeConfig({ telemetry: new NoopTelemetry(), curriculumPort, suiteStore }));
+  assert.ok(traced.learning instanceof TracedLearningPort);
+  assert.ok(traced.curriculum instanceof TracedCurriculumPort);
+  assert.ok(traced.suiteStore instanceof TracedSuiteStore);
+  const plain = wireBridges(fakeConfig({ curriculumPort, suiteStore }));
+  assert.equal(plain.learning instanceof TracedLearningPort, false);
+  assert.equal(plain.curriculum, curriculumPort);
+  assert.equal(plain.suiteStore, suiteStore);
+});
+
+test("spec snapshots wrap the validation of an e2e run only, and only when a snapshot port is supplied", () => {
+  assert.ok(wireBridges(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS })).validation instanceof SpecSnapshotValidationPort);
+  assert.equal(wireBridges(fakeConfig()).validation instanceof SpecSnapshotValidationPort, false);
+  assert.equal(wireBridges(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS, isCode: true, target: "code" })).validation instanceof SpecSnapshotValidationPort, false);
+});

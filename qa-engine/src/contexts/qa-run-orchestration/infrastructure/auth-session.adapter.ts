@@ -18,6 +18,9 @@ import { MAX_STORAGE_STATE_BYTES, activeRunSecretScope, redactByValue, registerS
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
 import { AuthPreconditionError, PRECONDITION_KIND } from "../domain/auth-precondition.ts";
+import { startRunChildSpan } from "../../../shared-infrastructure/telemetry/run-spans.ts";
+import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
+import { suiteAuthNotes } from "../../../shared-infrastructure/telemetry/run-auth-notes.ts";
 import { LOGIN_STATUS, classifyLoginEvidence, renderLoginEvidence, type LoginOutcome } from "../domain/helpers/login-evidence.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "./login-discovery/login-discovery.runner.ts";
 
@@ -74,6 +77,8 @@ export interface AuthSessionAdapterDeps {
    * is left out of what decides it and of what its note names. Absent: every refused host counts.
    */
   intentionallyBlocked?(host: string): boolean;
+  /** Absent: login attempts are not traced. Tracing never changes how a login ends. */
+  telemetry?: TelemetryPort;
 }
 
 /* The env names the seed playwright.config.ts reads for the test-id attribute and the action auto-wait bound; the execute and DOM-capture spawns pass the same pair. */
@@ -96,8 +101,67 @@ const AUTH_SETUP_FILE = "auth.setup.ts";
 /* What a submit that could not be confirmed leaves before execute: no seed runs after it, so there is nothing of the seed's to say. */
 const UNCONFIRMED_LOGIN_MESSAGE = "auth setup was not retried: a login was already submitted and its outcome could not be confirmed";
 
+/* How one login attempt ended, for its span and its count. */
+type AttemptOutcome = { outcome: "authenticated" | "failed" | "inconclusive" | "setup-failed"; preconditionKind?: undefined } | { outcome: "precondition"; preconditionKind: string };
+
 export class AuthSessionAdapter implements AuthSessionPort {
+  /* Attempts made through this adapter, which serves one run: the number an attempt's span carries. */
+  private attempts = 0;
+
   constructor(private readonly deps: AuthSessionAdapterDeps) {}
+
+  /* One login attempt as a `qayaba.auth.login` span: how it ended, the hosts the egress filter refused while it ran (the ones the app blocks on purpose apart from the rest), and what the suite store told this run about its login. A fault in tracing is swallowed; the attempt's own result or error goes on unchanged. */
+  private async traced<T>(method: "discovery" | "seed", run: () => Promise<T>, outcomeOf: (result: T) => AttemptOutcome): Promise<T> {
+    const telemetry = this.deps.telemetry;
+    if (!telemetry) return run();
+    let span: ReturnType<typeof startRunChildSpan> | undefined;
+    let window: ReturnType<typeof openDeniedWindow> | undefined;
+    try {
+      this.attempts += 1;
+      span = startRunChildSpan(telemetry, "qayaba.auth.login", { "qayaba.auth.method": method, "qayaba.auth.attempt": this.attempts });
+      window = openDeniedWindow();
+    } catch (err) {
+      console.error(`[telemetry] a login attempt could not be traced (it goes on untraced): ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const conclude = (outcome: AttemptOutcome, error?: unknown): void => {
+      try {
+        const hosts = window?.hosts() ?? [];
+        window?.close();
+        const intentional = hosts.filter((host) => this.deps.intentionallyBlocked?.(host) ?? false);
+        const denied = hosts.filter((host) => !intentional.includes(host));
+        const notes = suiteAuthNotes();
+        span?.setAttrs({
+          "qayaba.auth.outcome": outcome.outcome,
+          ...(outcome.preconditionKind !== undefined ? { "qayaba.auth.precondition_kind": outcome.preconditionKind } : {}),
+          ...(denied.length > 0 ? { "qayaba.egress.denied": denied } : {}),
+          ...(intentional.length > 0 ? { "qayaba.egress.denied_intentional": intentional } : {}),
+          "qayaba.auth.restored": notes?.restored ?? false,
+          ...(notes?.demotedReason !== undefined ? { "qayaba.auth.demoted": true, "qayaba.auth.demoted_reason": notes.demotedReason } : {}),
+        });
+        /* A login that could not be completed is a product outcome; only a fault of the machinery itself is an error. */
+        if (error !== undefined && outcome.outcome === "failed" && !(error instanceof AuthPreconditionError)) span?.recordError(error);
+        span?.end();
+        telemetry.counter("qayaba.auth.attempts")(1, { "qayaba.auth.outcome": outcome.outcome });
+      } catch (err) {
+        console.error(`[telemetry] a login attempt could not be concluded (it goes on): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    let result: T;
+    try {
+      result = await run();
+    } catch (err) {
+      conclude(err instanceof AuthPreconditionError ? { outcome: "precondition", preconditionKind: err.kind } : { outcome: "failed" }, err);
+      throw err;
+    }
+    let outcome: AttemptOutcome = { outcome: "inconclusive" };
+    try {
+      outcome = outcomeOf(result);
+    } catch {
+      /* the outcome stays inconclusive */
+    }
+    conclude(outcome);
+    return result;
+  }
 
   async prepare(req: AuthSessionRequest, signal?: AbortSignal): Promise<AuthSession> {
     /*
@@ -195,7 +259,12 @@ export class AuthSessionAdapter implements AuthSessionPort {
     const accountEnv: Record<string, string> = { DEV_TEST_USER: user, DEV_TEST_PASS: pass };
     /* Discovery is for the stock seed only: an app's own login script is its own recipe. */
     if (stock && this.deps.discovery) {
-      const found = await this.discover(req, user, pass, accountEnv, storageStatePath, childStatePath, staging?.root, this.deps.discovery, signal);
+      const discovery = this.deps.discovery;
+      const found = await this.traced(
+        "discovery",
+        () => this.discover(req, user, pass, accountEnv, storageStatePath, childStatePath, staging?.root, discovery, signal),
+        (result) => ({ outcome: "session" in result ? "authenticated" : "inconclusive" }),
+      );
       if ("session" in found) return found.session;
       /* A submit already went out: the seed must not send another. */
       if (found.attempted) {
@@ -216,8 +285,14 @@ export class AuthSessionAdapter implements AuthSessionPort {
     if (this.deps.testIdAttribute) childEnv[AUTH_SETUP_ENV.testIdAttribute] = this.deps.testIdAttribute;
     if (this.deps.actionTimeoutMs) childEnv[AUTH_SETUP_ENV.actionTimeoutMs] = this.deps.actionTimeoutMs;
 
-    const result = await this.deps.spawnSetup(req.specDir, childEnv, signal);
-    const wrote = this.takeSession(childStatePath, storageStatePath, staging?.root);
+    const { result, wrote } = await this.traced(
+      "seed",
+      async () => {
+        const spawned = await this.deps.spawnSetup(req.specDir, childEnv, signal);
+        return { result: spawned, wrote: this.takeSession(childStatePath, storageStatePath, staging?.root) };
+      },
+      ({ result: spawned, wrote: took }) => ({ outcome: spawned.exitCode === 0 && took ? "authenticated" : stock && req.phase === "pre-generate" ? "setup-failed" : "failed" }),
+    );
     if (result.exitCode === 0 && wrote) {
       return { storageStatePath, unauthored: false, ...(setup.sha256 !== undefined && !stock ? { setupSha256: setup.sha256 } : {}) };
     }

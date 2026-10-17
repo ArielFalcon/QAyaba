@@ -575,6 +575,22 @@ export class RunQaUseCase {
     };
   }
 
+  /* What the pre-execution gates found, as events on the phase they ran in: the ambiguity advisory and the catalog gate (its count of fabricated test ids and how many of them were fail-closed). Nothing is said when they found nothing. A fault here never reaches the run. */
+  private noteGroundingGates(trail: RunTrail, result: { preExecAmbiguityCatches: number; catalogGateInWindow: number; catalogGateAdvisory: number; catalogGateFailClosed: number }): void {
+    try {
+      if (result.preExecAmbiguityCatches > 0) trail.spans.event("ambiguity_advisory", { "qayaba.preexec.ambiguity_catches": result.preExecAmbiguityCatches });
+      if (result.catalogGateInWindow + result.catalogGateAdvisory + result.catalogGateFailClosed > 0) {
+        trail.spans.event("catalog_gate", {
+          "qayaba.catalog_gate.fabricated": result.catalogGateFailClosed,
+          "qayaba.catalog_gate.in_window": result.catalogGateInWindow,
+          "qayaba.catalog_gate.advisory": result.catalogGateAdvisory,
+        });
+      }
+    } catch (err) {
+      console.error(`[qa] the pre-execution gates could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /* The armed deadline, on the phase it was armed in. */
   private noteDeadlineArmed(trail: RunTrail): void {
     try {
@@ -1422,6 +1438,7 @@ export class RunQaUseCase {
       catalogGateInWindow += result.catalogGateInWindow;
       catalogGateAdvisory += result.catalogGateAdvisory;
       catalogGateFailClosed += result.catalogGateFailClosed;
+      this.noteGroundingGates(trail, result);
       return { corrections: result.corrections, attributedSpecFiles: attributeContradictions(result.corrections, result.origins, specFiles) };
     };
     /*

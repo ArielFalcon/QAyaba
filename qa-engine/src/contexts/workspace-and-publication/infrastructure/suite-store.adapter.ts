@@ -14,6 +14,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { SKIP_REASON } from "@kernel/ports/suite-store.port.ts";
 import type { SuiteCaptureInput, SuiteCaptureResult, SuiteRestoreResult, SuiteRoot, SuiteStorePort } from "@kernel/ports/suite-store.port.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
@@ -294,13 +295,13 @@ export class SuiteStoreAdapter implements SuiteStorePort {
       const read = readOwnedSpecFile(input, file, this.limits.maxFileBytes);
       if ("reason" in read || "absent" in read) {
         decisions.set(file, { action: "keep" });
-        skipped.push({ path: file, reason: "reason" in read ? read.reason : "the file vanished during the capture" });
+        skipped.push({ path: file, reason: "reason" in read ? read.reason : SKIP_REASON.VANISHED });
         continue;
       }
       const bytes = read.bytes;
       if (looksLikeSessionState(file, bytes)) {
         decisions.set(file, { action: "drop" });
-        skipped.push({ path: file, reason: "login session (storage state)" });
+        skipped.push({ path: file, reason: SKIP_REASON.SESSION_STATE });
         continue;
       }
       if (kind !== SUITE_ENTRY_KIND.AUTH_SETUP && this.isSeedCopy(file, bytes)) {
@@ -310,12 +311,12 @@ export class SuiteStoreAdapter implements SuiteStorePort {
       const sha = sha256Of(bytes);
       if (kind === SUITE_ENTRY_KIND.SPEC && sha !== executed) {
         decisions.set(file, { action: "keep" });
-        skipped.push({ path: file, reason: "changed after it ran green: these bytes never executed" });
+        skipped.push({ path: file, reason: SKIP_REASON.CHANGED_AFTER_RUN });
         continue;
       }
       if (kind === SUITE_ENTRY_KIND.AUTH_SETUP && (sha !== input.authVerifiedSha256 || isStockAuthSetup(bytes.toString("utf8")))) {
         decisions.set(file, { action: "keep" });
-        skipped.push({ path: file, reason: "not the login that signed in" });
+        skipped.push({ path: file, reason: SKIP_REASON.NOT_VERIFIED_LOGIN });
         continue;
       }
       const trackedFile = tracked.get(file);

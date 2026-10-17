@@ -1,5 +1,6 @@
 /* Canonical DOM-grounding capture for the independent reviewer. The orchestrator (not the generator — independence holds) renders the routes the spec targets once and inlines real roles + accessible names into the reviewer prompt. Fail-open: a failed or empty render never blocks review. */
 
+import { AsyncResource } from "node:async_hooks";
 import { join } from "node:path";
 import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
@@ -328,6 +329,8 @@ export interface CapturedPage {
   route: string;
   grounded: boolean;
   links: string[];
+  /* The test ids the page carries, when it carries any (for the trace's change-value facts). */
+  testIds?: string[];
 }
 
 export async function captureDomForRoutes(
@@ -343,7 +346,7 @@ export async function captureDomForRoutes(
   try {
     const snaps = await deps.render(input.e2eDir, input.baseUrl, asked, input.testIdAttribute);
     warnOnDegradedRoutes(snaps);
-    input.onPages?.(snaps.map((snap) => ({ route: snap.route, grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED, links: snap.links ?? [] })));
+    input.onPages?.(snaps.map((snap) => ({ route: snap.route, grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED, links: snap.links ?? [], ...(snap.testIds && snap.testIds.size > 0 ? { testIds: [...snap.testIds.keys()] } : {}) })));
     const reported = snaps
       .filter((snap) => !seeds.includes(snap.route))
       .map((snap) => {
@@ -666,7 +669,15 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
  * copy in the run's work dir, no account. REQUIRED, with no default: a capture that could start without the launcher
  * would run that package as the orchestrator. A caller that bypasses the type system still gets a loud throw here.
  */
-export function createCaptureDomDeps(exec: ExecSandboxPort, maxOutputChars: number = MAX_CAPTURE_OUTPUT_CHARS): CaptureDomDeps {
+/* What one run of the capture script came to, told to the optional observer once the script is done (or has failed, in which case there are no snapshots): the snapshots it returned, the routes it was asked for, and how much it printed. Read-only; it never changes what the capture returns. */
+export interface DomCaptureReport {
+  asked: readonly string[];
+  snaps: readonly RouteSnapshot[];
+  outputChars: number;
+}
+export type DomCaptureObserver = (report: DomCaptureReport) => void;
+
+export function createCaptureDomDeps(exec: ExecSandboxPort, maxOutputChars: number = MAX_CAPTURE_OUTPUT_CHARS, observer?: DomCaptureObserver): CaptureDomDeps {
   if (!exec) {
     throw new Error("[qa] createCaptureDomDeps requires an execution launcher — there is no safe default (the capture loads a package from the agent-writable e2e project).");
   }
@@ -687,11 +698,18 @@ export function createCaptureDomDeps(exec: ExecSandboxPort, maxOutputChars: numb
         });
         const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length));
         let finished = false;
+        /* Bound to the run's async context now, so the observer sees the run's open phase and secrets from the child's event callbacks. */
+        const notify = observer ? AsyncResource.bind((report: DomCaptureReport) => observer(report)) : undefined;
         const done = (snaps: RouteSnapshot[]): void => {
           if (finished) return;
           finished = true;
           clearTimeout(timer);
           resolve(snaps);
+          try {
+            notify?.({ asked: routes, snaps, outputChars: stdout.text().length });
+          } catch (err) {
+            console.error(`[qa] the DOM capture observer failed (the capture is unaffected): ${err instanceof Error ? err.message : String(err)}`);
+          }
         };
         child.stdout!.setEncoding("utf8");
         child.stdout!.on("data", (d: string) => {
