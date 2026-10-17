@@ -12,7 +12,8 @@ import {
   ONBOARDING_INDEXING_CEILING_MS,
   ONBOARDING_WAIT_MARGIN_MS,
 } from "./runner";
-import { getRecord, createRecord, updateRecord } from "./history";
+import { getRecord, createRecord, updateRecord, getRunPhases } from "./history";
+import { recordPhaseSnapshot } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { AppConfig } from "../orchestrator/config-loader";
 import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
@@ -1985,4 +1986,75 @@ test("the runner hands the run's own choice of coordination mode to the engine, 
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
     else process.env.PIPELINE_ENGINE = prev;
   }
+});
+
+test("a finished run records the furthest phase and the phase timings its outcome carried", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({
+    verdict: "infra-error",
+    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } },
+  });
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-recorded", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.deepEqual(getRunPhases(id), { furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } });
+});
+
+test("a run whose outcome carries no phase record leaves the phase columns empty", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-absent", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.deepEqual(getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+});
+
+test("a run the engine ended with an error still records how far it got", async () => {
+  const queue = new JobQueue();
+  const failure = new Error("agent runtime failed mid-turn");
+  recordPhaseSnapshot(failure, { furthestPhase: "generate", phaseTimings: { gate: 1, generate: 5_000 } });
+  const port: RunPipelinePort = { async run() { throw failure; } };
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-on-error", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.equal(getRecord(id)!.verdict, "infra-error");
+  assert.deepEqual(getRunPhases(id), { furthestPhase: "generate", phaseTimings: { gate: 1, generate: 5_000 } });
+});
+
+test("a run that ended with an error nobody recorded phases for leaves the phase columns empty", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = { async run() { throw new Error("the factory blew up"); } };
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-error-bare", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.deepEqual(getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+});
+
+test("a phase record that cannot be stored never stops the failed run from being finalized, announced and reported", async () => {
+  const queue = new JobQueue();
+  const failure = new Error("agent runtime failed mid-turn");
+  recordPhaseSnapshot(failure, { furthestPhase: "generate", phaseTimings: { generate: 10n as unknown as number } });
+  const port: RunPipelinePort = { async run() { throw failure; } };
+  const events = createRunEventStore();
+  const incidentsBefore = getIncidents().length;
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+  let id: string;
+  try {
+    id = enqueueTrackedRun(queue, { app: "runner-phases-unstorable", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port, runEvents: events });
+    await queue.drain();
+  } finally {
+    console.error = originalError;
+  }
+
+  const r = getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error");
+  assert.deepEqual(getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+  const bodies = events.replay(id).map((e) => e.body.type);
+  assert.ok(bodies.includes("agent.error"));
+  assert.ok(bodies.includes("run.verdict"));
+  assert.equal(getIncidents().length, incidentsBefore + 1, "an unexpected internal error still opens its incident");
+  assert.ok(errors.some((l) => /phase/i.test(l)), "the dropped phase record is said aloud");
 });

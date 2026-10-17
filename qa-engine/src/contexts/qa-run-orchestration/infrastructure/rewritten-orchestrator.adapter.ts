@@ -44,6 +44,8 @@ function toOutcome(input: RunInput, result: RunQaResult): RunOutcome {
       catalogGateInWindow: result.gateSignals.catalogGateInWindow,
       catalogGateAdvisory: result.gateSignals.catalogGateAdvisory,
       catalogGateFailClosed: result.gateSignals.catalogGateFailClosed,
+      ...(result.gateSignals.phaseTimings !== undefined ? { phaseTimings: result.gateSignals.phaseTimings } : {}),
+      ...(result.gateSignals.furthestPhase !== undefined ? { furthestPhase: result.gateSignals.furthestPhase } : {}),
     },
     rulesRetrieved: result.rulesRetrieved,
     ...(result.note !== undefined ? { note: result.note } : {}),

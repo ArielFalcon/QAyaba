@@ -9,7 +9,8 @@
 
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
-import { createRecord, updateRecord, addCase, getRecord, appendActivity, listRecords, interruptedRecords } from "./history";
+import { createRecord, updateRecord, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases } from "./history";
+import { phaseSnapshotOf } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { recordIncident } from "./maintainer";
 import { testDataNamespace } from "../qa/test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus } from "../types";
@@ -169,7 +170,7 @@ async function runViaRewrittenEngine(
   liveAnnounced?: Map<string, LiveAnnouncedStatus>,
 
   previousNamespace?: string,
-): Promise<QaRunResult> {
+): Promise<QaRunResult & { phases?: { furthestPhase: string; phaseTimings: Record<string, number> } }> {
   assertTriggerRepoDeclared(appConfig, req.triggerRepo);
   const input: RunInput = {
     app: req.app,
@@ -210,6 +211,7 @@ async function runViaRewrittenEngine(
     cases,
     logs: outcome.logs ?? "",
     ...(outcome.note !== undefined ? { note: outcome.note } : {}),
+    ...(outcome.gateSignals.furthestPhase !== undefined ? { phases: { furthestPhase: outcome.gateSignals.furthestPhase, phaseTimings: outcome.gateSignals.phaseTimings ?? {} } } : {}),
   };
 }
 
@@ -381,7 +383,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        */
       const liveAnnounced = new Map<string, LiveAnnouncedStatus>();
       const observer = buildRewrittenObserver(record.id, deps.runEvents, liveAnnounced);
-      const run: QaRunResult = await runViaRewrittenEngine(
+      const run = await runViaRewrittenEngine(
 
         deps.engineFactory(
           appConfig,
@@ -425,6 +427,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         step: "done",
         retrying: false,
         note: run.note || undefined,
+        phases: serializablePhases(run.phases),
         /*
          * passed/failed are NOT written here: addCase() is the single source of truth — it dedups
          * by name and recomputes both columns from the cases table on every streamed case.
@@ -465,7 +468,10 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         : infra
           ? msg
           : `unexpected internal error (not infrastructure — investigate): ${msg}`;
-      updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note });
+      /* The engine tells where the run stood when it threw; a failure from anywhere else has nothing to record. Stored with the final status, never apart from it. */
+      const reached = phaseSnapshotOf(err);
+      const phases = reached?.furthestPhase ? serializablePhases({ furthestPhase: reached.furthestPhase, phaseTimings: reached.phaseTimings as Record<string, number> }) : undefined;
+      updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
       console.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);

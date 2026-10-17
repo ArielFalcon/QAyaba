@@ -44,6 +44,7 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
       ...(outcome.gateSignals.confinement !== undefined ? { confinement: outcome.gateSignals.confinement } : {}),
       ...(outcome.gateSignals.usage !== undefined ? { usage: outcome.gateSignals.usage as LegacyRunOutcome["gateSignals"]["usage"] } : {}),
       ...(outcome.gateSignals.phaseTimings !== undefined ? { phaseTimings: outcome.gateSignals.phaseTimings } : {}),
+      ...(outcome.gateSignals.furthestPhase !== undefined ? { furthestPhase: outcome.gateSignals.furthestPhase } : {}),
       ...(outcome.gateSignals.preExecAmbiguityCatches !== undefined ? { preExecAmbiguityCatches: outcome.gateSignals.preExecAmbiguityCatches } : {}),
       ...(outcome.gateSignals.deterministicSelectorBlocks !== undefined ? { deterministicSelectorBlocks: outcome.gateSignals.deterministicSelectorBlocks } : {}),
       ...(outcome.gateSignals.catalogGateInWindow !== undefined ? { catalogGateInWindow: outcome.gateSignals.catalogGateInWindow } : {}),

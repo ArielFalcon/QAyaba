@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
+import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -944,4 +944,85 @@ test("opening a pre-existing agent_turns table twice adds each efficiency column
     assert.equal(columns.filter((c) => c === name).length, 1, `${name} is present exactly once`);
     assert.equal(row[name], null, `${name} reads NULL on a row written before the column existed`);
   }
+});
+
+test("the phases a run reached are stored on its record and read back, null for a run that recorded none", () => {
+  const withPhases = createRecord({ target: "e2e", app: "hist-phases-a", sha: "abcdef1234", mode: "diff" });
+  const without = createRecord({ target: "e2e", app: "hist-phases-a", sha: "abcdef1235", mode: "diff" });
+  recordRunPhases(withPhases.id, { furthestPhase: "execute", phaseTimings: { gate: 3, execute: 900 } });
+
+  assert.deepEqual(getRunPhases(withPhases.id), { furthestPhase: "execute", phaseTimings: { gate: 3, execute: 900 } });
+  assert.deepEqual(getRunPhases(without.id), { furthestPhase: null, phaseTimings: null });
+});
+
+test("opening a runs table that predates the phase columns adds them, and a run on it records its phases", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "history-legacy-runs-phases-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const legacyPath = join(dir, "legacy.db");
+  const legacy = new Database(legacyPath);
+  legacy.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '')");
+  legacy.close();
+  const previousPath = process.env.HISTORY_DB_PATH;
+  process.env.HISTORY_DB_PATH = legacyPath;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
+    else process.env.HISTORY_DB_PATH = previousPath;
+  });
+
+  const store = (await import(new URL("./history.ts?open=phases", import.meta.url).href)) as typeof import("./history");
+  const run = store.createRecord({ target: "e2e", app: "old", sha: "abcdef1", mode: "diff" });
+  store.recordRunPhases(run.id, { furthestPhase: "setup", phaseTimings: { setup: 4 } });
+
+  assert.deepEqual(store.getRunPhases(run.id), { furthestPhase: "setup", phaseTimings: { setup: 4 } });
+});
+
+function finishedRun(app: string, verdict: RunOutcome["verdict"], furthestPhase: string | null, errorClass: string | null, at?: string): string {
+  const r = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+  updateRecord(r.id, { status: "done", verdict });
+  if (furthestPhase) recordRunPhases(r.id, { furthestPhase, phaseTimings: {} });
+  if (errorClass !== null) {
+    saveRunOutcome({
+      runId: r.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict, errorClass: errorClass as RunOutcome["errorClass"],
+      gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [], at: at ?? new Date().toISOString(),
+    });
+  }
+  return r.id;
+}
+
+test("the funnel counts finished runs by furthest phase, verdict and error class, earliest phase first", () => {
+  const app = "hist-funnel-a";
+  finishedRun(app, "pass", "learn", null);
+  finishedRun(app, "pass", "learn", null);
+  finishedRun(app, "infra-error", "setup", "E-INFRA");
+  finishedRun(app, "infra-error", "setup", "E-INFRA");
+  finishedRun(app, "infra-error", "generate", "E-STEP-BUDGET");
+
+  assert.deepEqual(getRunFunnel({ app }), [
+    { furthestPhase: "setup", verdict: "infra-error", errorClass: "E-INFRA", count: 2 },
+    { furthestPhase: "generate", verdict: "infra-error", errorClass: "E-STEP-BUDGET", count: 1 },
+    { furthestPhase: "learn", verdict: "pass", errorClass: null, count: 2 },
+  ]);
+});
+
+test("the funnel groups a run that recorded no phase apart, and leaves out runs that have not finished and other apps", () => {
+  const app = "hist-funnel-b";
+  finishedRun(app, "infra-error", null, null);
+  finishedRun("hist-funnel-other", "pass", "learn", null);
+  createRecord({ target: "e2e", app, sha: "abcdef1299", mode: "diff" });
+
+  assert.deepEqual(getRunFunnel({ app }), [{ furthestPhase: null, verdict: "infra-error", errorClass: null, count: 1 }]);
+});
+
+test("the funnel narrowed by a date leaves out the runs before it, whatever the date's spelling", () => {
+  const app = "hist-funnel-c";
+  const id = finishedRun(app, "pass", "learn", null);
+  const raw = new Database(process.env.HISTORY_DB_PATH!);
+  raw.prepare("UPDATE runs SET at = ? WHERE id = ?").run("2026-10-01T12:00:00.000Z", id);
+  raw.close();
+
+  assert.equal(getRunFunnel({ app, since: "2026-10-01T12:00:01.000Z" }).length, 0);
+  assert.equal(getRunFunnel({ app, since: "2026-10-01T11:59:59.000Z" }).length, 1);
+  assert.equal(getRunFunnel({ app, since: "2026-10-01 12:00:01" }).length, 0, "a date without the T compares as a date, not as text");
+  assert.equal(getRunFunnel({ app, since: "2026-10-01 11:00" }).length, 1);
 });

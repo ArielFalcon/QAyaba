@@ -26,6 +26,7 @@
     "mutate:keystone": "tsx scripts/mutate.ts keystone",
     "efficiency-benchmark": "tsx scripts/efficiency-benchmark.ts",
     "probe-report": "tsx scripts/probe-report.ts",
+    "funnel": "tsx scripts/run-funnel.ts",
     "baseline-agent": "tsx scripts/baseline-agent.ts",
     "warm-suite": "tsx scripts/warm-suite.ts",
     "campaign": "tsx scripts/campaign.ts",

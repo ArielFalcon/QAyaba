@@ -129,6 +129,7 @@ interface PreconditionFailure {
 }
 import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
+import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock } from "../domain/run-phase-cursor.ts";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
@@ -212,6 +213,8 @@ export interface RunQaConfig {
 }
 
 export interface RunQaUseCaseDeps {
+  /** Absent: the system clock. Times each phase of a run (tests inject a fake). */
+  phaseClock?: PhaseClock;
   changeAnalysis: ChangeAnalysisPort;
   generation: GenerationPort;
   review: ReviewPort;
@@ -426,6 +429,10 @@ export interface RunQaResult {
     catalogGateInWindow: number;
     catalogGateAdvisory: number;
     catalogGateFailClosed: number;
+    /** Milliseconds spent in each phase the run entered. Absent when it entered none. */
+    phaseTimings?: Record<string, number>;
+    /** The phase of the pipeline the run got furthest into. Absent when it entered none. */
+    furthestPhase?: string;
     /** Present only when the run granted the run_spec tool. */
     closedLoop?: ClosedLoopGateSignal;
     /** Present only when the run granted the authenticated agent browser. */
@@ -442,6 +449,8 @@ export interface RunQaResult {
    */
   note?: string;
 }
+
+const SYSTEM_PHASE_CLOCK: PhaseClock = { now: () => Date.now() };
 
 const DEFAULT_CONFIG: RunQaConfig = {
   needsReview: false,
@@ -461,6 +470,8 @@ function printableHost(host: string): string {
 }
 
 interface RunTrail {
+  /** The run's phase cursor, created before anything runs. */
+  phases: RunPhaseCursor;
   mirrorDir?: string;
   rulesRetrieved?: string[];
   /** The run_spec loop, once opened: closed by runInScope however the run ends. */
@@ -501,7 +512,25 @@ export class RunQaUseCase {
   }
 
   private async runInScope(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
-    const trail: RunTrail = {};
+    const phases = new RunPhaseCursor(this.deps.phaseClock ?? SYSTEM_PHASE_CLOCK);
+    const trail: RunTrail = { phases };
+    try {
+      return this.withPhases(await this.runHandlingEnds(input, signal, trail), phases);
+    } catch (err) {
+      /* An error nothing here handles goes to the caller, which records the run: it is told where the run stood. */
+      phases.close();
+      recordPhaseSnapshot(err, phases.snapshot());
+      throw err;
+    } finally {
+      phases.close();
+      await this.closeClosedLoop(trail);
+      await this.closeAgentBrowser(trail);
+      this.sayDeniedHosts();
+    }
+  }
+
+  /* Runs the pipeline; the errors that end a run as an outcome of their own are turned into one here. */
+  private async runHandlingEnds(input: RunQaInput, signal: AbortSignal | undefined, trail: RunTrail): Promise<RunQaResult> {
     try {
       return await this.execute(input, signal, trail);
     } catch (err) {
@@ -512,10 +541,27 @@ export class RunQaUseCase {
         throw err;
       }
       return await this.deadlineResult(input, err, trail);
-    } finally {
-      await this.closeClosedLoop(trail);
-      await this.closeAgentBrowser(trail);
-      this.sayDeniedHosts();
+    }
+  }
+
+  /*
+   * Every way a run can end carries where it got. The record is on the returned result and on a copy of its outcome; what the
+   * run persisted was saved earlier and is never touched, so the run history holds no phase data (the run's record does).
+   * Observability never changes how a run ended: a fault here returns the result as it was.
+   */
+  private withPhases(result: RunQaResult, phases: RunPhaseCursor): RunQaResult {
+    try {
+      phases.close();
+      const { furthestPhase, phaseTimings } = phases.snapshot();
+      if (furthestPhase === null) return result;
+      return {
+        ...result,
+        ...(result.outcome ? { outcome: { ...result.outcome, gateSignals: { ...result.outcome.gateSignals, phaseTimings, furthestPhase } } } : {}),
+        gateSignals: { ...result.gateSignals, phaseTimings, furthestPhase },
+      };
+    } catch (err) {
+      console.error(`[qa] the phase record could not be attached (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+      return result;
     }
   }
 
@@ -582,7 +628,7 @@ export class RunQaUseCase {
    * is learned from it and no Issue is opened, since it says nothing about the app or the tests, and the operator sees
    * why on the record.
    */
-  private async sandboxUnavailableResult(input: RunQaInput, err: SandboxUnavailableError, trail: RunTrail): Promise<RunQaResult> {
+  private async sandboxUnavailableResult(input: RunQaInput, err: SandboxUnavailableError, trail: Omit<RunTrail, "phases">): Promise<RunQaResult> {
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     const note = `The run could not execute the tests safely and ended without running them (${ERROR_CLASS.SANDBOX}): ${err.message}`;
     console.error(`[qa] ${note}`);
@@ -652,6 +698,7 @@ export class RunQaUseCase {
       return this.abortedResult();
     }
 
+    trail.phases.enter("gate");
     this.deps.observer?.onStep("gate");
     if (this.deps.deployGate) {
       const gateResult = await this.deps.deployGate.waitUntilServing(input.sha);
@@ -664,6 +711,7 @@ export class RunQaUseCase {
       return this.abortedResult();
     }
 
+    trail.phases.enter("workspace");
     const workspace = await this.deps.workspace.prepare(input.sha);
     trail.mirrorDir = workspace.mirrorDir;
 
@@ -717,6 +765,7 @@ export class RunQaUseCase {
      */
     let generating = true;
     if (input.mode === "diff") {
+      trail.phases.enter("classify");
       this.deps.observer?.onStep("classify");
       const classification = await this.deps.changeAnalysis.classify(input.sha, input.baseSha ? { baseSha: input.baseSha } : undefined);
       classificationDiff = classification.diff;
@@ -769,6 +818,7 @@ export class RunQaUseCase {
      * setup would otherwise seed the stock login and nothing else. A fault here is a cold run, said aloud, not a failed one; the
      * run then captures nothing, since the working copy was never compared with the store.
      */
+    trail.phases.enter("setup");
     let suiteRestored = false;
     let storeRestoredLogin = false;
     if (this.deps.suiteStore && !cfg.isCode && input.mode !== "context") {
@@ -937,6 +987,7 @@ export class RunQaUseCase {
     const retrievalArchetypes = (diffArchetypes ?? []).filter((k) => k !== "generic");
     const retrievalRelevance: RelevanceBias | undefined =
       retrievalArchetypes.length > 0 ? { archetypes: retrievalArchetypes } : undefined;
+    trail.phases.enter("ground");
     let retrievedRules: RetrievedRule[] = [];
     try {
       retrievedRules = await this.deps.learning.retrieve(input.sha, retrievalRelevance);
@@ -1177,6 +1228,7 @@ export class RunQaUseCase {
      * result is not a GenerationPort call.
      * In the lead/sidekick mode the flows' specs stand in for the lead's first pass (coordinateFirstPass).
      */
+    trail.phases.enter("generate");
     this.deps.observer?.onStep("generate", generating ? undefined : "regression: running the existing suite, not generating");
     /* A regression run generates nothing: a stand-in with no generation end, never one a generation could return. */
     let generated: GenerationOutput | RegressionStandIn;
@@ -1335,6 +1387,7 @@ export class RunQaUseCase {
      * changedFiles scopes the code-target compile gate; ignored by e2e. Empty outside diff mode.
      */
     const validateChangedFiles = classificationIntent?.changedFiles ?? [];
+    trail.phases.enter("validate");
     this.deps.observer?.onStep("validate");
     let validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles);
     let lastGenerated = generated;
@@ -1412,6 +1465,7 @@ export class RunQaUseCase {
      * (static sites / code) defaults to always-healthy. The InfraError message is
      * captured as a side effect so FixLoop can keep a boolean-returning contract.
      */
+    trail.phases.enter("health");
     this.deps.observer?.onStep("health");
     let lastHealthCheckError: string | undefined;
     const devHealthy = async (): Promise<boolean> => {
@@ -1482,6 +1536,7 @@ export class RunQaUseCase {
       authVerifiedSha256 = auth.setupSha256;
     }
     if (input.mode !== "context") {
+      trail.phases.enter("execute");
       this.deps.observer?.onStep("execute");
     }
     /* Live per-case ObserverPort events during execute(). Absent observer: callbacks are no-ops. */
@@ -1512,6 +1567,7 @@ export class RunQaUseCase {
 
     /* FixLoop only when the initial verdict is "fail". Context mode's synthetic pass never enters. */
     if (run.verdict === "fail") {
+      trail.phases.enter("fix_loop");
       this.deps.observer?.onStep("retry", "fix-loop engaged after a failing execute()");
       const fixLoopExecution: FixLoopExecutionPort = {
         /*
@@ -1672,6 +1728,7 @@ export class RunQaUseCase {
        * cross-repo). Do not emit the step for a pass that never measured.
        */
       if (input.mode === "diff" && !input.triggerRepo) {
+        trail.phases.enter("coverage");
         this.deps.observer?.onStep("coverage");
       }
       /*
@@ -1775,6 +1832,7 @@ export class RunQaUseCase {
        * Last-round rejection is terminal. A regen that produces zero specs must not
        * inherit the generator's self-approval.
        */
+      trail.phases.enter("review");
       const MAX_REVIEW_ROUNDS = 2;
       let reviewCases = run.cases;
       let previousRoundCorrections: string[] | undefined;
@@ -1876,6 +1934,7 @@ export class RunQaUseCase {
     }
 
     /* Publish never emits its own step; "decide" covers the decide+publish pair. */
+    trail.phases.enter("decide");
     this.deps.observer?.onStep("decide");
     const evidence: RunEvidence = {
       verdict: run.verdict,
@@ -1927,6 +1986,7 @@ export class RunQaUseCase {
      * tests. A context run whose map failed validation already ended through terminalResult,
      * without persisting or folding either.
      */
+    trail.phases.enter("publish");
     const isContextCleanPass = input.mode === "context" && decision.verdict === "pass";
     /*
      * A clean context-mode pass wrote the FE<->BE architecture map to the mirror's
@@ -2065,6 +2125,7 @@ export class RunQaUseCase {
         ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
       });
       await this.deps.runHistory.save(mainlineOutcome);
+      trail.phases.enter("learn");
 
       /*
        * What this outcome may teach is decided in one place (learningGates). Off-path: never gates

@@ -43,7 +43,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     static: true, coverageRatio: true, valueScore: true, mutantCount: true, killedCount: true,
     reviewerCorrections: true,
     reviewerRationale: true, reviewerApproved: true, flaky: true, retries: true, confinement: true,
-    usage: true, phaseTimings: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
+    usage: true, phaseTimings: true, furthestPhase: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
     structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
     crossRepoImpactedCount: true, sandbox: true, closedLoop: true, agentBrowser: true, coordination: true,
@@ -73,7 +73,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     const mapped = [
       "static", "coverageRatio", "valueScore", "mutantCount", "killedCount", "reviewerCorrections",
       "reviewerRationale",
-      "reviewerApproved", "flaky", "retries", "confinement", "usage", "phaseTimings",
+      "reviewerApproved", "flaky", "retries", "confinement", "usage", "phaseTimings", "furthestPhase",
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
       "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "closedLoop", "agentBrowser", "coordination",
@@ -102,6 +102,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
         confinement: { strays: 1, dangerous: 0, reverted: [S("reverted")] },
         usage: { totalTokens: 999 },
         phaseTimings: { generate: 111 },
+        furthestPhase: "execute",
         preExecAmbiguityCatches: 2,
         deterministicSelectorBlocks: 1,
         catalogGateInWindow: 5,
@@ -148,6 +149,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     assert.deepEqual(gs.confinement, { strays: 1, dangerous: 0, reverted: [S("reverted")] }, `gateSignals.confinement dropped at ${dyingLayer}`);
     assert.deepEqual(gs.usage, { totalTokens: 999 }, `gateSignals.usage dropped at ${dyingLayer}`);
     assert.deepEqual(gs.phaseTimings, { generate: 111 }, `gateSignals.phaseTimings dropped at ${dyingLayer}`);
+    assert.equal(gs.furthestPhase, "execute", `gateSignals.furthestPhase dropped at ${dyingLayer}`);
     assert.equal(gs.preExecAmbiguityCatches, 2, `gateSignals.preExecAmbiguityCatches dropped at ${dyingLayer}`);
     assert.equal(gs.deterministicSelectorBlocks, 1, `gateSignals.deterministicSelectorBlocks dropped at ${dyingLayer}`);
     assert.equal(gs.catalogGateInWindow, 5, `gateSignals.catalogGateInWindow dropped at ${dyingLayer}`);

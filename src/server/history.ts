@@ -23,6 +23,7 @@ import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/lear
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import type { TurnEnd } from "@kernel/turn-end";
@@ -184,7 +185,9 @@ function ensureDb(): void {
       trigger_repo TEXT,
       at TEXT NOT NULL,
       step_started_at TEXT,
-      logs TEXT DEFAULT ''
+      logs TEXT DEFAULT '',
+      furthest_phase TEXT,
+      phase_timings TEXT
     );
 
     CREATE TABLE IF NOT EXISTS cases (
@@ -349,6 +352,13 @@ function ensureDb(): void {
   }
   if (!columnExists("runs", "trigger_repo")) {
     db.exec("ALTER TABLE runs ADD COLUMN trigger_repo TEXT");
+  }
+  /* Where the run got in the pipeline and the JSON of its time per phase: NULL for a run that recorded none (an older run, a cancelled one). */
+  if (!columnExists("runs", "furthest_phase")) {
+    db.exec("ALTER TABLE runs ADD COLUMN furthest_phase TEXT");
+  }
+  if (!columnExists("runs", "phase_timings")) {
+    db.exec("ALTER TABLE runs ADD COLUMN phase_timings TEXT");
   }
   /*
    * Every agent_turns efficiency column
@@ -587,6 +597,60 @@ export function createRecord(opts: {
   };
 }
 
+/* What a run recorded about its phases. Kept off RunRecord, which is the API's shape. */
+export interface RunPhases {
+  furthestPhase: string | null;
+  phaseTimings: Record<string, number> | null;
+}
+
+/* Stores where a run got and how long each phase took. Called once, when the run is finalized. */
+export function recordRunPhases(id: string, phases: { furthestPhase: string; phaseTimings: Record<string, number> }): void {
+  ensureDb();
+  db.prepare("UPDATE runs SET furthest_phase = ?, phase_timings = ? WHERE id = ?").run(phases.furthestPhase, JSON.stringify(phases.phaseTimings), id);
+}
+
+export function getRunPhases(id: string): RunPhases | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT furthest_phase, phase_timings FROM runs WHERE id = ?").get(id) as { furthest_phase: string | null; phase_timings: string | null } | undefined;
+  if (!row) return undefined;
+  return {
+    furthestPhase: row.furthest_phase,
+    phaseTimings: row.phase_timings === null ? null : safeJsonParse<Record<string, number> | null>(row.phase_timings, null),
+  };
+}
+
+export interface RunFunnelRow {
+  furthestPhase: string | null;
+  verdict: string | null;
+  errorClass: string | null;
+  count: number;
+}
+
+/*
+ * How many finished runs ended where: grouped by the phase they got furthest into, their verdict and their error class
+ * (from the run's outcome row, null when it has none). A run that recorded no phase groups under null. Earliest phase
+ * first. Read-only.
+ */
+export function getRunFunnel(opts: { app?: string; since?: string } = {}): RunFunnelRow[] {
+  ensureDb();
+  const where = ["r.status = 'done'"];
+  const params: string[] = [];
+  if (opts.app !== undefined) { where.push("r.app = ?"); params.push(opts.app); }
+  if (opts.since !== undefined) { where.push("datetime(r.at) >= datetime(?)"); params.push(opts.since); }
+  const rows = db.prepare(
+    `SELECT r.furthest_phase AS furthestPhase, r.verdict AS verdict, o.error_class AS errorClass, COUNT(*) AS count
+     FROM runs r LEFT JOIN run_outcomes o ON o.id = r.id
+     WHERE ${where.join(" AND ")}
+     GROUP BY r.furthest_phase, r.verdict, o.error_class`,
+  ).all(...params) as RunFunnelRow[];
+  const rank = (phase: string | null): number => {
+    const i = phase === null ? -1 : (RUN_PHASES as readonly string[]).indexOf(phase);
+    return i === -1 ? RUN_PHASES.length : i;
+  };
+  const text = (v: string | null): string => v ?? "";
+  return rows.sort((a, b) => rank(a.furthestPhase) - rank(b.furthestPhase) || text(a.verdict).localeCompare(text(b.verdict)) || text(a.errorClass).localeCompare(text(b.errorClass)));
+}
+
 export function getRecord(id: string): RunRecord | undefined {
   ensureDb();
   const row = getRunStmt.get(id) as Record<string, unknown> | undefined;
@@ -605,7 +669,26 @@ export function currentRun(): RunRecord | undefined {
   return row ? rowToRecord(row) : undefined;
 }
 
-export function updateRecord(id: string, patch: Partial<RunRecord>): void {
+/* A run's phase record as updateRecord takes it: written in the same statement as the status it accompanies. */
+export interface RunPhasesPatch {
+  furthestPhase: string;
+  /* Already known to serialize; see serializablePhases. */
+  phaseTimings: Record<string, number>;
+}
+
+/* The phases as they can be stored, or undefined (said on the console) when they cannot: a phase record never costs a run its final status. */
+export function serializablePhases(phases: RunPhasesPatch | undefined): RunPhasesPatch | undefined {
+  if (!phases) return undefined;
+  try {
+    JSON.stringify(phases.phaseTimings);
+    return phases;
+  } catch (err) {
+    console.error(`[qa] the phase record of a run could not be stored and is dropped: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+}
+
+export function updateRecord(id: string, patch: Partial<RunRecord> & { phases?: RunPhasesPatch }): void {
   ensureDb();
   const setClauses: string[] = [];
   const params: Array<unknown> = [];
@@ -628,6 +711,10 @@ export function updateRecord(id: string, patch: Partial<RunRecord>): void {
   if (patch.failed !== undefined) add("failed", patch.failed);
   if (patch.note !== undefined) add("note", patch.note);
   if (patch.retrying !== undefined) add("retrying", patch.retrying ? 1 : 0);
+  if (patch.phases !== undefined) {
+    add("furthest_phase", patch.phases.furthestPhase);
+    add("phase_timings", JSON.stringify(patch.phases.phaseTimings));
+  }
 
   if (setClauses.length > 0) {
     params.push(id);

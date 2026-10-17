@@ -289,6 +289,8 @@ export interface RunOutcome {
      * Absent on a run that recorded nothing (e.g. a pre-classify skip). Never affects verdict.
      */
     phaseTimings?: Record<string, number>;
+    /* The pipeline phase the run got furthest into. Absent when the run entered none. */
+    furthestPhase?: string;
     /*
      * Pre-execution deterministic selector check (observation-only). `preExecAmbiguityCatches`:
      * strict-mode ambiguities against the live pre-write DOM, an advisory the run only counts and
