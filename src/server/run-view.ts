@@ -64,7 +64,7 @@ export function buildRunViewExtras(runId: string, deps: RunViewDeps): RunViewExt
     phases: RUN_PHASES.filter((p) => timings[p] !== undefined).map((p) => ({ name: p, durationMs: Math.max(0, timings[p] ?? 0) })),
     furthestPhase: phases?.furthestPhase ?? null,
     usage: usageOf(deps.getAgentTurns(runId)),
-    specCounts: evidence.specs,
+    specCounts: { generated: evidence.specs.generated, valid: evidence.specs.valid, passed: evidence.specs.passed ?? null },
     decision: facts?.decision ?? null,
     budgets: facts?.limitFired
       ? { exhausted: true, limit: facts.limitFired, ...(facts.limitRole ? { role: facts.limitRole } : {}) }

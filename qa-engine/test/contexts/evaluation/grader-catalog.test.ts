@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GRADER_CATALOG, specOfScore, scoreOf, STEP_INTENTS, CONTEXT_SOURCES } from "@contexts/evaluation/domain/grader-catalog.ts";
+import { GRADER_CATALOG, specOfScore, scoreOf, STEP_INTENTS, CONTEXT_SOURCES, MAX_SCORE_COMMENT_CHARS, isGradedName } from "@contexts/evaluation/domain/grader-catalog.ts";
 import { GRADERS, gradeEvidence } from "@contexts/evaluation/domain/graders.ts";
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor.ts";
 import { evidence } from "./evidence-fixtures.ts";
@@ -15,7 +15,7 @@ test("every graded catalog entry has a grader, and the pending ones have none", 
 });
 
 test("every score a grader emits conforms to its catalog entry", () => {
-  const e = evidence({ stepIntents: { auth: 1, explore: 2 }, limit: { fired: "step-cap", role: "r" } });
+  const e = evidence({ stepIntents: { auth: 1, explore: 2 }, limit: { fired: "step-cap", role: "r", intent: "explore" } });
   for (const s of gradeEvidence(e)) {
     const spec = specOfScore(s.name);
     assert.ok(spec, s.name);
@@ -46,4 +46,15 @@ test("furthest_phase declares the canonical phase order as its categories", () =
 
 test("every boolean score is pass-oriented (higher is better)", () => {
   for (const s of GRADER_CATALOG.filter((x) => x.dataType === "BOOLEAN")) assert.equal(s.polarity, "higher_better", s.name);
+});
+
+test("a score comment is capped at the catalog limit", () => {
+  const score = scoreOf({ name: "spec_pass_rate", value: 1, comment: "x".repeat(MAX_SCORE_COMMENT_CHARS * 4) });
+  assert.equal(score.comment?.length, MAX_SCORE_COMMENT_CHARS);
+});
+
+test("pending catalog entries are not graded names, graded ones are", () => {
+  assert.equal(isGradedName("context_utilization"), false);
+  assert.equal(isGradedName("spec_pass_rate"), true);
+  assert.equal(isGradedName("nonsense"), false);
 });

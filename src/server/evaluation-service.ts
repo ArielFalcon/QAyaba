@@ -23,6 +23,9 @@ import {
   setRunEvaluationStatus,
 } from "./history";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
+import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+
+const redaction = new RedactionPortAdapter();
 
 /* The newest grader version wins; versions are compared as numbers when they are, as strings otherwise. */
 function newer(a: string, b: string): boolean {
@@ -32,7 +35,7 @@ function newer(a: string, b: string): boolean {
 }
 
 export class SqliteScoreStore implements ScoreStorePort {
-  replace(runId: string, scores: readonly Score[], gradedAt: string): void {
+  replace(runId: string, scores: readonly Score[], gradedAt: string, scope: { graderVersion: string; baseNames?: readonly string[] }): void {
     replaceRunScores(
       scores.map((s) => ({
         runId,
@@ -46,6 +49,7 @@ export class SqliteScoreStore implements ScoreStorePort {
         observationId: s.observationId ?? null,
       })),
       gradedAt,
+      { runId, ...scope },
     );
   }
 
@@ -96,15 +100,11 @@ export class SqliteRegradeJobStore implements RegradeJobStorePort {
 }
 
 export class HistoryRunSelector implements RunSelectorPort {
-  exists(runId: string): boolean {
-    return runExists(runId);
-  }
-
   finishedSince(sinceIso: string): string[] {
     return listFinishedRunIdsSince(sinceIso);
   }
 
-  /* Runs do not carry a campaign yet; a campaign filter covers nothing until they do. */
+  /* Runs carry no campaign identity until slice S5 adds the campaign fields; a campaign filter covers nothing until then. */
   ofCampaign(_campaignId: string): string[] {
     return [];
   }
@@ -177,6 +177,8 @@ export interface EvaluationServiceDeps {
   schedule?: (fn: () => void) => void;
   yieldToLoop?: () => Promise<void>;
   log?: (message: string) => void;
+  /* Redacts a text before it is stored on a job and served (default: the outbound redaction port). */
+  sanitize?: (text: string) => string;
 }
 
 export function createEvaluationService(deps: EvaluationServiceDeps = {}): EvaluationService {
@@ -196,6 +198,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
     runs: deps.runs ?? new HistoryRunSelector(),
     jobs,
     grade,
+    sanitize: deps.sanitize ?? ((text: string) => redaction.redact(text)),
     newId: deps.newId ?? (() => `regrade-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`),
     now,
     yieldToLoop: deps.yieldToLoop ?? (() => new Promise<void>((resolve) => setImmediate(resolve))),

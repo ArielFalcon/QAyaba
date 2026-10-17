@@ -1522,8 +1522,8 @@ export interface components {
             };
             specCounts: {
                 generated: number;
-                valid: number;
-                passed: number;
+                valid: number | null;
+                passed: number | null;
             };
             decision: string | null;
             budgets: {

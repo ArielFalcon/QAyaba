@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { createEvaluationService } from "./evaluation-service";
 import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from "./evaluation-evidence";
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
-import { createRecord, updateRecord, addCase, saveRunOutcome, replaceRunScores, getRunFacts, saveAgentTurn, listRunScoreRows, getRegradeJob, saveRegradeJob, failInterruptedRegradeJobs } from "./history";
+import Database from "better-sqlite3";
+import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
+import { createRecord, updateRecord, addCase, saveRunOutcome, replaceRunScores, getRunFacts, saveAgentTurn, listRunScoreRows, getRegradeJob, saveRegradeJob, failInterruptedRegradeJobs, getRecord } from "./history";
 import type { RunOutcome } from "../types";
 
 const quiet = () => undefined;
@@ -22,7 +24,9 @@ function manualScheduler() {
   };
 }
 
-function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decision?: string | null; specs?: string[]; cases?: Array<{ name: string; status: "pass" | "fail" }>; furthest?: string; traceId?: string | null } = {}): string {
+type TestCase = { name: string; status: "pass" | "fail"; file?: string };
+
+function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decision?: string | null; specs?: string[]; cases?: TestCase[]; furthest?: string; traceId?: string | null; facts?: NonNullable<Parameters<typeof updateRecord>[1]["facts"]>; reviewerTurn?: boolean } = {}): string {
   const r = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
   const verdict = over.verdict ?? "pass";
   updateRecord(r.id, {
@@ -30,10 +34,20 @@ function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decis
     verdict,
     step: "done",
     phases: { furthestPhase: over.furthest ?? "learn", phaseTimings: { gate: 4, generate: 100, execute: 50 } },
-    facts: { traceId: over.traceId === undefined ? "b".repeat(32) : over.traceId, decision: over.decision === undefined ? "pr" : over.decision, limitFired: null, limitRole: null },
+    facts: {
+      traceId: over.traceId === undefined ? "b".repeat(32) : over.traceId,
+      decision: over.decision === undefined ? "pr" : over.decision,
+      limitFired: null,
+      limitRole: null,
+      reviewRequired: true,
+      coverageStatus: "pass",
+      coverageMode: "signal",
+      coverageMinRatio: 0.7,
+      ...over.facts,
+    },
     specs: (over.specs ?? ["e2e/login.spec.ts", "e2e/cart.spec.ts"]).map((name) => ({ name })),
   });
-  for (const c of over.cases ?? [{ name: "login works", status: "pass" }, { name: "cart totals", status: "pass" }]) addCase(r.id, c);
+  for (const c of over.cases ?? [{ name: "login works", status: "pass", file: "login.spec.ts" }, { name: "cart totals", status: "pass", file: "cart.spec.ts" }]) addCase(r.id, c);
   const outcome: RunOutcome = {
     runId: r.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict, errorClass: verdict === "infra-error" ? "E-TIME-BUDGET" : null,
     gateSignals: { static: true, coverageRatio: 0.9, valueScore: null, reviewerCorrections: [], reviewerApproved: true, flaky: false, retries: 0 },
@@ -41,7 +55,7 @@ function finishedRun(app: string, over: { verdict?: RunOutcome["verdict"]; decis
   };
   saveRunOutcome(outcome);
   saveAgentTurn({
-    runId: r.id, sessionId: "s", role: "qa-reviewer", round: 0, isRepair: false, ts: "2026-10-17T10:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
+    runId: r.id, sessionId: "s", role: over.reviewerTurn === false ? "qa-generator" : "qa-reviewer", round: 0, isRepair: false, ts: "2026-10-17T10:00:00.000Z", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
     tokensInput: 10, tokensOutput: 5, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.5,
   });
   return r.id;
@@ -117,13 +131,13 @@ test("a regrade job grades the named runs and reports its progress", async () =>
   const sched = manualScheduler();
   const service = createEvaluationService({ schedule: sched.schedule, log: quiet, newId: () => "job-e" });
   const started = service.startRegrade({ runIds: [a, b, "run-ghost"] });
-  assert.deepEqual(started, { jobId: "job-e", runs: 2 });
+  assert.deepEqual(started, { jobId: "job-e", runs: 3 });
   assert.equal(service.regradeJob("job-e")?.status, "pending");
   await sched.flush();
   const job = service.regradeJob("job-e")!;
   assert.equal(job.status, "complete");
   assert.equal(job.graded, 2);
-  assert.deepEqual(job.failed, []);
+  assert.deepEqual(job.failed, [{ runId: "run-ghost", error: "unknown run" }]);
   assert.ok(job.finishedAt);
   assert.equal(service.evaluation(a, false)?.status, "complete");
 });
@@ -147,28 +161,143 @@ test("a regrade job a previous process left open ends failed at boot", () => {
   assert.match(job.failed[0]!.error, /restarted/);
 });
 
-test("the evidence counts the specs a run delivered, valid and passed", async () => {
-  const id = finishedRun("eval-g", { cases: [{ name: "login works", status: "pass" }, { name: "cart totals", status: "fail" }], verdict: "fail", decision: "issue" });
-  const e = await new HistoryEvidenceAdapter(defaultEvidenceDeps).load(id);
-  assert.deepEqual(e?.specs, { generated: 2, valid: 2, passed: 1 }, "the passing case names login, the failing one names cart");
+const evidenceOf = async (id: string) => new HistoryEvidenceAdapter(defaultEvidenceDeps).load(id);
+
+test("the evidence ties each case to the spec its file names and counts the specs that passed", async () => {
+  const id = finishedRun("eval-g", { verdict: "fail", decision: "issue", cases: [{ name: "login works", status: "pass", file: "login.spec.ts" }, { name: "cart totals", status: "fail", file: "cart.spec.ts" }] });
+  const e = await evidenceOf(id);
+  assert.deepEqual(e?.specs, { generated: 2, valid: 2, passed: 1 });
   assert.equal(e?.reviewerTurns, 1);
   assert.equal(e?.decision, "issue");
 });
 
-test("a case is attributed to the spec whose file name it contains", () => {
-  const specs = ["e2e/login.spec.ts", "e2e/cart.spec.ts"];
-  const cases = [{ name: "cart.spec.ts > totals", status: "fail" }, { name: "login.spec.ts > signs in", status: "pass" }];
-  assert.equal(countPassedSpecs(specs, cases, 2, "fail"), 1);
-  assert.equal(countPassedSpecs(specs, [], 2, "pass"), 2);
-  assert.equal(countPassedSpecs(specs, [], 2, "fail"), 0);
-  assert.equal(countPassedSpecs(specs, cases, 0, "pass"), 0);
+test("a case whose name merely contains a spec's name is not attributed to it", async () => {
+  const id = finishedRun("eval-g2", { verdict: "fail", decision: "issue", cases: [{ name: "login works", status: "pass" }, { name: "cart totals", status: "fail" }] });
+  assert.equal((await evidenceOf(id))?.specs.passed, undefined, "no case carries a file, so a failing run cannot say how many specs passed");
+  const passing = finishedRun("eval-g3", { cases: [{ name: "login works", status: "pass" }, { name: "cart totals", status: "pass" }] });
+  assert.equal((await evidenceOf(passing))?.specs.passed, 2, "a run-level pass means every spec passed");
 });
 
-test("an invalid run has no valid spec", async () => {
-  const id = finishedRun("eval-h", { verdict: "invalid", furthest: "validate", decision: "none" });
-  const e = await new HistoryEvidenceAdapter(defaultEvidenceDeps).load(id);
-  assert.equal(e?.specs.valid, 0);
-  assert.equal(e?.specs.generated, 2);
+test("a spec left without cases makes the passed count unknown unless the run passed", async () => {
+  const id = finishedRun("eval-g4", { verdict: "fail", decision: "issue", cases: [{ name: "login works", status: "pass", file: "login.spec.ts" }] });
+  assert.equal((await evidenceOf(id))?.specs.passed, undefined);
+});
+
+test("a file that fits two specs fits neither", () => {
+  const specs = ["e2e/a/x.spec.ts", "e2e/b/x.spec.ts"];
+  assert.equal(countPassedSpecs(specs, [{ name: "t", status: "pass", file: "x.spec.ts" }], 2, "fail"), undefined);
+  assert.equal(countPassedSpecs(specs, [{ name: "t", status: "pass", file: "a/x.spec.ts" }, { name: "u", status: "fail", file: "b/x.spec.ts" }], 2, "fail"), 1);
+});
+
+test("an invalid run has no valid spec, and a run that never got past validation has an unknown count", async () => {
+  const invalid = await evidenceOf(finishedRun("eval-h", { verdict: "invalid", furthest: "validate", decision: "none" }));
+  assert.equal(invalid?.specs.valid, 0);
+  assert.equal(invalid?.specs.generated, 2);
+  const early = await evidenceOf(finishedRun("eval-h2", { verdict: "infra-error", furthest: "generate", decision: "none" }));
+  assert.equal(early?.specs.valid, null);
+  assert.equal(early?.specs.passed, undefined);
+});
+
+test("what the engine decided at run time is read back from the run, whatever the app's configuration says now", async () => {
+  const id = finishedRun("eval-removed-app", { facts: { reviewRequired: false, coverageStatus: "fail", coverageMode: "enforce" } });
+  const e = await evidenceOf(id);
+  assert.equal(e?.reviewRequired, false);
+  assert.equal(e?.signals?.coverageStatus, "fail");
+  assert.equal(e?.signals?.coverageMode, "enforce");
+});
+
+test("a run that recorded no run-time facts reports them unknown", async () => {
+  const r = createRecord({ target: "e2e", app: "eval-old", sha: "abcdef1234", mode: "diff" });
+  updateRecord(r.id, { status: "done", verdict: "pass" });
+  const e = await evidenceOf(r.id);
+  assert.equal(e?.reviewRequired, undefined);
+  assert.equal(e?.reviewerTurns, undefined);
+  assert.equal(e?.decision, null);
+});
+
+test("the reviewer turn is told by the reviewer agent's name", async () => {
+  const id = finishedRun("eval-rt", { reviewerTurn: false });
+  assert.equal((await evidenceOf(id))?.reviewerTurns, 0);
+});
+
+test("a cancelled run is graded as cancelled and for nothing else", async () => {
+  const r = createRecord({ target: "e2e", app: "eval-cx", sha: "abcdef1234", mode: "diff" });
+  updateRecord(r.id, { status: "done", verdict: "infra-error", facts: { cancelled: true } });
+  assert.equal((await evidenceOf(r.id))?.cancelled, true);
+  const sched = manualScheduler();
+  const service = createEvaluationService({ schedule: sched.schedule, log: quiet });
+  service.scheduleGrading(r.id);
+  await sched.flush();
+  assert.deepEqual(service.evaluation(r.id, false)?.scores.map((s) => [s.name, s.value]), [["infra_error", "cancelled"]]);
+  assert.equal(service.evaluation(r.id, false)?.status, "complete");
+});
+
+test("the budget_exhaustion intent is the last step of the limiting turn", async () => {
+  const id = finishedRun("eval-lim", { verdict: "infra-error", furthest: "generate", decision: "none", facts: { limitFired: "step-cap", limitRole: "qa-generator" } });
+  const spans = [
+    { name: "invoke_agent qa-generator", spanId: "t1", parentSpanId: null, attrs: JSON.stringify({ "gen_ai.agent.name": "qa-generator" }) },
+    { name: "chat m", spanId: "c1", parentSpanId: "t1", attrs: JSON.stringify({ "qayaba.step.intent": "explore" }) },
+    { name: "chat m", spanId: "c2", parentSpanId: "t1", attrs: JSON.stringify({ "qayaba.step.intent": "write_spec" }) },
+    { name: "invoke_agent qa-reviewer", spanId: "t2", parentSpanId: null, attrs: JSON.stringify({ "gen_ai.agent.name": "qa-reviewer" }) },
+    { name: "chat m", spanId: "c3", parentSpanId: "t2", attrs: JSON.stringify({ "qayaba.step.intent": "review" }) },
+  ];
+  const e = await new HistoryEvidenceAdapter({ ...defaultEvidenceDeps, runSpans: () => spans }).load(id);
+  assert.deepEqual(e?.limit, { fired: "step-cap", role: "qa-generator", intent: "write_spec" });
+  assert.equal((await evidenceOf(id))?.limit?.intent, undefined);
+});
+
+test("a run graded from its stored facts says unknown for coverage, and a missing reviewer requirement leaves the guard silent", async () => {
+  const id = finishedRun("eval-silent", { facts: { reviewRequired: null, coverageStatus: null } });
+  const sched = manualScheduler();
+  const service = createEvaluationService({ schedule: sched.schedule, log: quiet });
+  service.scheduleGrading(id);
+  await sched.flush();
+  const byName = new Map(service.evaluation(id, false)!.scores.map((s) => [s.name, s]));
+  assert.equal(byName.get("change_coverage")?.value, "unknown");
+  assert.equal(byName.has("empty_output_guard"), false);
+});
+
+test("a full regrade removes a stored score the graders no longer emit, and a subset regrade leaves the others", () => {
+  const id = finishedRun("eval-del");
+  const row = (name: string) => ({ runId: id, name, graderVersion: "1", dataType: "NUMERIC", polarity: "none", source: "deterministic", value: 0.5, comment: null, observationId: null });
+  replaceRunScores([row("retired"), row("step_intent_mix.auth"), row("step_intent_mix"), row("stepXintent_mix.auth"), row("kept")], "t");
+  replaceRunScores([], "t2", { runId: id, graderVersion: "1", baseNames: ["step_intent_mix"] });
+  assert.deepEqual(listRunScoreRows(id).map((r) => r.name).sort(), ["kept", "retired", "stepXintent_mix.auth"]);
+  replaceRunScores([row("fresh")], "t3", { runId: id, graderVersion: "1" });
+  assert.deepEqual(listRunScoreRows(id).map((r) => r.name), ["fresh"]);
+});
+
+test("a corrupt score row is skipped and said, never shipped as an empty value", () => {
+  const id = finishedRun("eval-corrupt");
+  replaceRunScores([{ runId: id, name: "good", graderVersion: "1", dataType: "NUMERIC", polarity: "none", source: "deterministic", value: 1, comment: null, observationId: null }], "t");
+  const raw = new Database(process.env.HISTORY_DB_PATH!);
+  try {
+    raw.prepare("INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, graded_at) VALUES (?, 'bad_json', '1', 'NUMERIC', 'none', 'deterministic', 'not json', 't')").run(id);
+    raw.prepare("INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, graded_at) VALUES (?, 'bad_type', '1', 'NUMERIC', 'none', 'deterministic', '\"text\"', 't')").run(id);
+  } finally {
+    raw.close();
+  }
+  assert.deepEqual(listRunScoreRows(id).map((r) => r.name), ["good"]);
+});
+
+test("a regrade with an invalid since or a pending grader is refused", () => {
+  const service = createEvaluationService({ schedule: () => undefined, log: quiet });
+  assert.throws(() => service.startRegrade({ since: "last week" }), RegradeRequestError);
+  assert.throws(() => service.startRegrade({ runIds: ["x"], graders: ["selector_stability"] }), /selector_stability/);
+});
+
+test("a regrade lists an unknown run id as an unknown run", async () => {
+  const sched = manualScheduler();
+  const service = createEvaluationService({ schedule: sched.schedule, log: quiet, newId: () => "job-unknown" });
+  service.startRegrade({ runIds: ["run-nowhere"] });
+  await sched.flush();
+  assert.deepEqual(service.regradeJob("job-unknown")?.failed, [{ runId: "run-nowhere", error: "unknown run" }]);
+});
+
+test("a case stored with its file keeps it", () => {
+  const r = createRecord({ target: "e2e", app: "eval-file", sha: "abcdef1234", mode: "diff" });
+  addCase(r.id, { name: "t", status: "pass", file: "a.spec.ts" });
+  assert.equal(getRecord(r.id)?.cases[0]?.file, "a.spec.ts");
 });
 
 test("a run still running is not finished", async () => {
@@ -202,7 +331,8 @@ test("the run view links the trace through the template and is null when telemet
 test("a run that a limit ended reports which", () => {
   const r = createRecord({ target: "e2e", app: "eval-l", sha: "abcdef1234", mode: "diff" });
   updateRecord(r.id, { status: "done", verdict: "infra-error", facts: { traceId: null, decision: "none", limitFired: "run-deadline", limitRole: "qa-generator" } });
-  assert.deepEqual(getRunFacts(r.id), { traceId: null, decision: "none", limitFired: "run-deadline", limitRole: "qa-generator" });
+  const { limitFired, limitRole, decision } = getRunFacts(r.id)!;
+  assert.deepEqual({ limitFired, limitRole, decision }, { limitFired: "run-deadline", limitRole: "qa-generator", decision: "none" });
   assert.deepEqual(buildRunViewExtras(r.id, viewDeps(true))?.budgets, { exhausted: true, limit: "run-deadline", role: "qa-generator" });
 });
 

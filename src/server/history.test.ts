@@ -1028,9 +1028,14 @@ test("opening a runs table that predates the run facts adds their columns, and a
 
   const store = (await import(new URL("./history.ts?open=facts", import.meta.url).href)) as typeof import("./history");
   const run = store.createRecord({ target: "e2e", app: "old", sha: "abcdef1", mode: "diff" });
-  assert.deepEqual(store.getRunFacts(run.id), { traceId: null, decision: null, limitFired: null, limitRole: null });
-  store.updateRecord(run.id, { status: "done", facts: { traceId: "c".repeat(32), decision: "pr", limitFired: null, limitRole: null } });
-  assert.deepEqual(store.getRunFacts(run.id), { traceId: "c".repeat(32), decision: "pr", limitFired: null, limitRole: null });
+  assert.equal(store.getRunFacts(run.id)?.traceId, null);
+  assert.equal(store.getRunFacts(run.id)?.reviewRequired, null);
+  store.updateRecord(run.id, { status: "done", facts: { traceId: "c".repeat(32), decision: "pr", reviewRequired: true, coverageStatus: "pass", coverageMode: "enforce", coverageMinRatio: 0.8 } });
+  const facts = store.getRunFacts(run.id)!;
+  assert.deepEqual([facts.traceId, facts.decision, facts.reviewRequired, facts.coverageStatus, facts.coverageMode, facts.coverageMinRatio], ["c".repeat(32), "pr", true, "pass", "enforce", 0.8]);
+  store.updateRecord(run.id, { facts: { cancelled: true } });
+  assert.equal(store.getRunFacts(run.id)?.cancelled, true, "a partial facts patch leaves the other facts alone");
+  assert.equal(store.getRunFacts(run.id)?.decision, "pr");
   assert.equal(store.getRunEvaluationStatus(run.id), null);
 });
 

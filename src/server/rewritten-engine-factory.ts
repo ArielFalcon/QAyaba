@@ -1053,6 +1053,7 @@ export function buildRewrittenCompositionConfig(
      * the policy that measures coverage and the one that decides whether it blocks never diverge.
      */
     coveragePolicyMode: coveragePolicy.mode,
+    coverageMinRatio: coveragePolicy.minRatio,
     agentTimeoutMs: agentTimeout(run.mode),
     ...(app.qa.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: app.qa.wallClockBudgetMs } : {}),
     ...(app.qa.iterationBudget !== undefined ? { iterationBudget: app.qa.iterationBudget } : {}),

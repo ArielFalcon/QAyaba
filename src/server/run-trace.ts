@@ -49,6 +49,8 @@ export interface RunFacts {
   generationEnd?: string | undefined;
   limitFired?: string | undefined;
   limitRole?: string | undefined;
+  reviewRequired?: boolean | undefined;
+  coverage?: { status?: "pass" | "fail" | "unknown" | undefined; mode: string; minRatio?: number | undefined } | undefined;
 }
 
 const DECISION_NAMES: Record<string, string> = { "shadow-log": "shadow", quarantine: "none" };

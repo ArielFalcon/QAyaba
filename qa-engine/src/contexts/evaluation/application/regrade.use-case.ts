@@ -4,7 +4,7 @@
  * run that fails is listed on the job without stopping the rest. A job only fails when it could not run at all.
  */
 
-import { isCatalogName } from "../domain/grader-catalog.ts";
+import { isCatalogName, isGradedName } from "../domain/grader-catalog.ts";
 import type { GradeRunUseCase } from "./grade-run.use-case.ts";
 import type { RegradeJob, RegradeJobStorePort, RunSelectorPort } from "./ports/index.ts";
 
@@ -12,6 +12,14 @@ export type RegradeRequest =
   | { runIds: readonly string[]; graders?: readonly string[] }
   | { campaignId: string; graders?: readonly string[] }
   | { since: string; graders?: readonly string[] };
+
+/* The most runs one regrade job may cover, and the longest error text a job keeps per run. */
+export const MAX_REGRADE_RUNS = 500;
+export const MAX_JOB_ERROR_CHARS = 500;
+/* A job writes its progress this often, and at its end. */
+export const REGRADE_PROGRESS_EVERY = 10;
+
+const ISO_8601 = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 
 /* The request names something the engine cannot grade (an unknown grader): a client error, not a failed job. */
 export class RegradeRequestError extends Error {}
@@ -21,6 +29,8 @@ export interface RegradeDeps {
   jobs: RegradeJobStorePort;
   grade: Pick<GradeRunUseCase, "execute">;
   newId: () => string;
+  /* Makes an error text safe to leave the system (secrets redacted). */
+  sanitize?: (text: string) => string;
   now: () => string;
   /* Lets the process serve other work between two runs. */
   yieldToLoop: () => Promise<void>;
@@ -31,10 +41,13 @@ export class RegradeUseCase {
 
   /* Resolves the runs and records the job; the work itself is `run(jobId)`. */
   start(request: RegradeRequest): { jobId: string; runs: number } {
-    for (const name of request.graders ?? []) {
-      if (!isCatalogName(name)) throw new RegradeRequestError(`unknown grader: ${name}`);
-    }
+    const names = request.graders ?? [];
+    const unknown = names.filter((n) => !isCatalogName(n));
+    if (unknown.length > 0) throw new RegradeRequestError(`unknown grader: ${unknown.join(", ")}`);
+    const pending = names.filter((n) => !isGradedName(n));
+    if (pending.length > 0) throw new RegradeRequestError(`grader not available yet (no data is recorded for it): ${pending.join(", ")}`);
     const runIds = this.resolve(request);
+    if (runIds.length > MAX_REGRADE_RUNS) throw new RegradeRequestError(`the request selects ${runIds.length} runs; a regrade covers at most ${MAX_REGRADE_RUNS}`);
     const job: RegradeJob = {
       jobId: this.deps.newId(),
       status: "pending",
@@ -57,26 +70,36 @@ export class RegradeUseCase {
     try {
       job.status = "running";
       jobs.update(job);
+      let done = 0;
       for (const runId of job.runIds) {
         const result = await grade.execute(runId, job.graders ? { graders: job.graders } : {});
         if (result.status === "complete") job.graded += 1;
-        else job.failed.push({ runId, error: result.status === "failed" ? result.error : result.reason });
-        jobs.update(job);
+        else job.failed.push({ runId, error: this.errorText(result.status === "failed" ? result.error : result.reason === "unknown-run" ? "unknown run" : "run not finished") });
+        done += 1;
+        if (done % REGRADE_PROGRESS_EVERY === 0) jobs.update(job);
         await yieldToLoop();
       }
       job.status = "complete";
     } catch (err) {
       job.status = "failed";
-      job.failed.push({ runId: "", error: err instanceof Error ? err.message : String(err) });
+      job.failed.push({ runId: "", error: this.errorText(err instanceof Error ? err.message : String(err)) });
     }
     job.finishedAt = now();
     jobs.update(job);
   }
 
+  private errorText(text: string): string {
+    return (this.deps.sanitize ? this.deps.sanitize(text) : text).slice(0, MAX_JOB_ERROR_CHARS);
+  }
+
   private resolve(request: RegradeRequest): string[] {
     const { runs } = this.deps;
-    if ("runIds" in request) return [...new Set(request.runIds)].filter((id) => runs.exists(id));
+    if ("runIds" in request) {
+      if (request.runIds.length > MAX_REGRADE_RUNS) throw new RegradeRequestError(`a regrade names at most ${MAX_REGRADE_RUNS} runs, got ${request.runIds.length}`);
+      return [...new Set(request.runIds)];
+    }
     if ("campaignId" in request) return runs.ofCampaign(request.campaignId);
+    if (!ISO_8601.test(request.since) || !Number.isFinite(Date.parse(request.since))) throw new RegradeRequestError(`'since' must be an ISO-8601 date or timestamp, got ${JSON.stringify(request.since.slice(0, 40))}`);
     return runs.finishedSince(request.since);
   }
 }

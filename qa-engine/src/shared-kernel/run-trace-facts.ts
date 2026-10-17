@@ -7,6 +7,10 @@ export interface RunTraceFacts {
   /* A value of the limit vocabulary: "tier-budget" | "run-deadline" | "step-cap". */
   limitFired?: string;
   limitRole?: string;
+  /* Whether the engine ran a reviewer for this run (the same rule the generation applies), decided at run time. */
+  reviewRequired?: boolean;
+  /* The engine's change-coverage decision, absent when the run never measured, and the policy in force. Grading reads these and never the app's current configuration. */
+  coverage?: { status?: "pass" | "fail" | "unknown"; mode: string; minRatio?: number };
 }
 
 const factsOfOutcome = new WeakMap<object, RunTraceFacts>();

@@ -202,3 +202,23 @@ test("the evaluation routes answer 501 with schemaVersion when evaluation is not
     assert.equal(json.schemaVersion, 1, u);
   }
 });
+
+test("GET /runs/:id reports unknown validity and pass counts as null", async () => {
+  const { status, json } = await call("GET", "/api/v1/runs/run-1", undefined, deps({ runExtras: () => ({ ...extras, specCounts: { generated: 2, valid: null, passed: null } }) }));
+  assert.equal(status, 200);
+  assert.deepEqual(json.specCounts, { generated: 2, valid: null, passed: null });
+});
+
+test("POST /evaluations/regrade refuses more than 500 run ids", async () => {
+  const many = Array.from({ length: 501 }, (_, i) => `r${i}`);
+  const { status, json } = await call("POST", "/api/v1/evaluations/regrade", JSON.stringify({ runIds: many }));
+  assert.equal(status, 400);
+  assert.equal(json.schemaVersion, 1);
+});
+
+test("POST /evaluations/regrade answers 400 with the service's reason for a bad since or a pending grader", async () => {
+  const refusing: EvaluationService = { ...evaluation, startRegrade: () => { throw new RegradeRequestError("'since' must be an ISO-8601 date"); } };
+  const { status, json } = await call("POST", "/api/v1/evaluations/regrade", JSON.stringify({ since: "yesterday" }), deps({ evaluation: refusing }));
+  assert.equal(status, 400);
+  assert.match(json.error, /ISO-8601/);
+});

@@ -227,6 +227,8 @@ async function runViaRewrittenEngine(
     generationEnd: traceFacts?.generationEnd,
     limitFired: traceFacts?.limitFired,
     limitRole: traceFacts?.limitRole,
+    reviewRequired: traceFacts?.reviewRequired,
+    coverage: traceFacts?.coverage,
   };
   return {
     facts,
@@ -355,7 +357,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        */
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled before it started`);
-        trace.cancelled();
+        cancelledTrace(record.id, trace);
         return;
       }
 
@@ -401,7 +403,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
          * moment it aborted this signal — this is a NO-OP guard, not a second finalize.
          */
         console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled while waiting for onboarding to clear`);
-        trace.cancelled();
+        cancelledTrace(record.id, trace);
         return;
       }
 
@@ -453,7 +455,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
 
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding stale late resolution for ${req.app}@${req.sha} — record already finalized (cancelled)`);
-        trace.cancelled();
+        cancelledTrace(record.id, trace);
         return;
       }
       deps.runEvents?.publish(record.id, {
@@ -475,7 +477,16 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         retrying: false,
         note: run.note || undefined,
         phases: serializablePhases(run.phases),
-        facts: { traceId: trace.traceId(), decision: run.facts.decision ?? null, limitFired: run.facts.limitFired ?? null, limitRole: run.facts.limitRole ?? null },
+        facts: {
+          traceId: trace.traceId(),
+          decision: run.facts.decision ?? null,
+          limitFired: run.facts.limitFired ?? null,
+          limitRole: run.facts.limitRole ?? null,
+          reviewRequired: run.facts.reviewRequired ?? null,
+          coverageStatus: run.facts.coverage?.status ?? null,
+          coverageMode: run.facts.coverage?.mode ?? null,
+          coverageMinRatio: run.facts.coverage?.minRatio ?? null,
+        },
         /*
          * passed/failed are NOT written here: addCase() is the single source of truth — it dedups
          * by name and recomputes both columns from the cases table on every streamed case.
@@ -490,7 +501,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
 
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding post-cancel crash for ${req.app}@${req.sha} — record already finalized`);
-        trace.cancelled();
+        cancelledTrace(record.id, trace);
         return;
       }
       /*
@@ -523,7 +534,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       /* The engine tells where the run stood when it threw; a failure from anywhere else has nothing to record. Stored with the final status, never apart from it. */
       const reached = phaseSnapshotOf(err);
       const phases = reached?.furthestPhase ? serializablePhases({ furthestPhase: reached.furthestPhase, phaseTimings: reached.phaseTimings as Record<string, number> }) : undefined;
-      updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId(), decision: null, limitFired: null, limitRole: null } });
+      updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId() } });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
       console.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
@@ -551,6 +562,17 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
   }, record.id);
 
   return record.id;
+}
+
+/* The job found its run already finalized by a cancel: the trace says cancelled, and the run keeps the trace id it has (the cancel could not know it). */
+function cancelledTrace(runId: string, trace: RunTrace): void {
+  trace.cancelled();
+  try {
+    const traceId = trace.traceId();
+    if (traceId !== null) updateRecord(runId, { facts: { traceId } });
+  } catch (err) {
+    console.error(`[qa] the trace id of cancelled run ${runId} could not be stored: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /* Hands a finished run to `afterRun` without waiting for it: whatever it does, the queue moves on. */
@@ -581,14 +603,14 @@ function notifyRunFinished(deps: Pick<RunnerDeps, "afterRun">, runId: string): v
  * actually executing against DEV. The boolean return + the now-terminal record together let
  * handleCancelRun answer 200 vs 409 accurately.
  */
-export function cancelTrackedRun(queue: JobQueue, id: string, deps: Pick<RunnerDeps, "runEvents"> = {}): boolean {
+export function cancelTrackedRun(queue: JobQueue, id: string, deps: Pick<RunnerDeps, "runEvents" | "afterRun"> = {}): boolean {
   const record = getRecord(id);
   if (!record) return false;
   if (record.status !== "running" && record.status !== "enqueued") return false;
 
   /* Abort the live job first — succeeds only when this id is the one holding the queue. */
   if (record.status === "running" && queue.cancel(id)) {
-    finalizeUnfinished(id, "cancelled by operator", deps.runEvents);
+    finalizeUnfinished(id, "cancelled by operator", deps, true);
     return true;
   }
 
@@ -599,7 +621,7 @@ export function cancelTrackedRun(queue: JobQueue, id: string, deps: Pick<RunnerD
   const note = record.status === "enqueued"
     ? "cancelled by operator"
     : "cancelled by operator (run was no longer active)";
-  finalizeUnfinished(id, note, deps.runEvents);
+  finalizeUnfinished(id, note, deps, true);
   return false;
 }
 
@@ -609,9 +631,11 @@ export function cancelTrackedRun(queue: JobQueue, id: string, deps: Pick<RunnerD
  * its late resolution once the record is done, so this is the run's only run.verdict; without it
  * a watching client only learns the run is over by reading the record.
  */
-function finalizeUnfinished(id: string, note: string, runEvents: RunEventStore | undefined): void {
-  updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note });
-  runEvents?.publish(id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error"), outcome: note });
+function finalizeUnfinished(id: string, note: string, deps: Pick<RunnerDeps, "runEvents" | "afterRun">, cancelled: boolean): void {
+  /* An operator's cancel is recorded as such, so grading says "cancelled" and nothing else about a run that never ran its pipeline. */
+  updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note, ...(cancelled ? { facts: { cancelled: true } } : {}) });
+  deps.runEvents?.publish(id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error"), outcome: note });
+  notifyRunFinished(deps, id);
 }
 
 /*
@@ -619,7 +643,7 @@ function finalizeUnfinished(id: string, note: string, runEvents: RunEventStore |
  * accepted: a webhook landing during boot creates a legitimate enqueued record that a late sweep
  * would wrongly finalize.
  */
-export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents"> = {}): void {
+export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents" | "afterRun"> = {}): void {
   const zombies = interruptedRecords();
   if (zombies.length === 0) {
     console.log("[qa] no interrupted runs from previous process — queue is clean");
@@ -627,7 +651,7 @@ export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents"> = {}
   }
   console.log(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
   for (const r of zombies) {
-    finalizeUnfinished(r.id, "process restarted — run was interrupted", deps.runEvents);
+    finalizeUnfinished(r.id, "process restarted — run was interrupted", deps, false);
     recordIncident({
       source: "health-check",
       severity: "warn",

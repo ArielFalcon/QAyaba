@@ -15,9 +15,21 @@ test("a run that publishes a PR with zero valid specs fails the empty-output gua
   assert.match(score?.comment ?? "", /no valid spec/);
 });
 
-test("an accepted run without a reviewer turn fails the guard unless review was turned off", () => {
-  assert.equal(find(evidence({ reviewerTurns: 0 }), "empty_output_guard")?.value, false);
-  assert.equal(find(evidence({ reviewerTurns: 0, reviewRequired: false }), "empty_output_guard")?.value, true);
+test("an accepted run with no reviewer verdict and no reviewer turn fails the guard when review was required, and passes when it was not", () => {
+  const noReview = { signals: signals({ reviewerApproved: undefined }), reviewerTurns: 0 };
+  assert.equal(find(evidence(noReview), "empty_output_guard")?.value, false);
+  assert.equal(find(evidence({ ...noReview, reviewRequired: false }), "empty_output_guard")?.value, true);
+});
+
+test("a stored reviewer verdict or a reviewer turn shows that the review happened", () => {
+  assert.equal(find(evidence({ signals: signals({ reviewerApproved: true }), reviewerTurns: 0 }), "empty_output_guard")?.value, true);
+  assert.equal(find(evidence({ signals: signals({ reviewerApproved: undefined }), reviewerTurns: 2 }), "empty_output_guard")?.value, true);
+});
+
+test("the guard says nothing when it cannot know: review requirement unrecorded, turn history gone, or validity unknown", () => {
+  assert.equal(find(evidence({ reviewRequired: undefined }), "empty_output_guard"), undefined);
+  assert.equal(find(evidence({ signals: signals({ reviewerApproved: undefined }), reviewerTurns: undefined }), "empty_output_guard"), undefined);
+  assert.equal(find(evidence({ specs: { generated: 2, valid: null, passed: undefined } }), "empty_output_guard"), undefined);
 });
 
 test("a run that was not accepted cannot fail the empty-output guard", () => {
@@ -42,27 +54,41 @@ test("spec validity and pass rates are shares, and pass rate is absent when no s
   const e = evidence({ specs: { generated: 4, valid: 2, passed: 1 } });
   assert.equal(find(e, "spec_validity_rate")?.value, 0.5);
   assert.equal(find(e, "spec_pass_rate")?.value, 0.5);
-  const none = evidence({ specs: { generated: 3, valid: 0, passed: 0 } });
+  const none = evidence({ verdict: "invalid", decision: "none", furthestPhase: "validate", specs: { generated: 3, valid: 0, passed: 0 } });
   assert.equal(find(none, "spec_validity_rate")?.value, 0);
   assert.equal(find(none, "spec_pass_rate"), undefined);
   assert.equal(find(evidence({ specs: { generated: 0, valid: 0, passed: 0 } }), "spec_validity_rate"), undefined);
 });
 
+test("validity is omitted while it is unknown", () => {
+  assert.equal(find(evidence({ verdict: "infra-error", furthestPhase: "generate", specs: { generated: 2, valid: null, passed: undefined } }), "spec_validity_rate"), undefined);
+});
+
+test("a pass rate needs a run that executed its specs and a passed count it can trust", () => {
+  const base = { specs: { generated: 2, valid: 2, passed: 1 } };
+  assert.equal(find(evidence({ ...base, furthestPhase: "health" }), "spec_pass_rate"), undefined, "never reached execute");
+  assert.equal(find(evidence({ ...base, verdict: "infra-error", furthestPhase: "execute" }), "spec_pass_rate"), undefined, "an infra-error run executed nothing conclusive");
+  assert.equal(find(evidence({ ...base, verdict: "fail", furthestPhase: "execute" }), "spec_pass_rate")?.value, 0.5);
+  assert.equal(find(evidence({ specs: { generated: 2, valid: 2, passed: undefined } }), "spec_pass_rate"), undefined, "cases not tied to specs");
+});
+
 test("budget_exhaustion names the limit, the phase and the role, or none", () => {
   assert.equal(find(evidence(), "budget_exhaustion")?.value, "none");
-  const e = evidence({ furthestPhase: "generate", limit: { fired: "step-cap", role: "qa-generator" } });
-  assert.equal(find(e, "budget_exhaustion")?.value, "step-cap@generate/qa-generator");
+  const e = evidence({ furthestPhase: "generate", limit: { fired: "step-cap", role: "qa-generator", intent: "explore" } });
+  assert.equal(find(e, "budget_exhaustion")?.value, "step-cap@generate/qa-generator/explore");
+  const unknown = evidence({ furthestPhase: null, limit: { fired: "run-deadline", role: undefined, intent: undefined } });
+  assert.equal(find(unknown, "budget_exhaustion")?.value, "run-deadline@unknown/unknown/unknown");
 });
 
 test("an accepted run that a deterministic signal rejected is not approval-consistent", () => {
   assert.equal(find(evidence(), "approval_consistent")?.value, true);
   assert.equal(find(evidence({ signals: signals({ static: false }) }), "approval_consistent")?.value, false);
   assert.equal(find(evidence({ signals: signals({ catalogGateFailClosed: 1 }) }), "approval_consistent")?.value, false);
-  assert.equal(find(evidence({ signals: signals({ coverageRatio: 0.1, coverageMode: "enforce" }) }), "approval_consistent")?.value, false);
+  assert.equal(find(evidence({ signals: signals({ coverageStatus: "fail", coverageMode: "enforce" }) }), "approval_consistent")?.value, false);
 });
 
 test("low coverage only contradicts an approval when the policy enforces it", () => {
-  assert.equal(find(evidence({ signals: signals({ coverageRatio: 0.1, coverageMode: "signal" }) }), "approval_consistent")?.value, true);
+  assert.equal(find(evidence({ signals: signals({ coverageStatus: "fail", coverageMode: "signal" }) }), "approval_consistent")?.value, true);
 });
 
 test("a run that was not accepted is consistent even when a signal said no", () => {
@@ -70,10 +96,11 @@ test("a run that was not accepted is consistent even when a signal said no", () 
   assert.equal(find(e, "approval_consistent")?.value, true);
 });
 
-test("change_coverage is pass or fail against the threshold, and an unmeasured run is unknown, never pass", () => {
-  assert.equal(find(evidence({ signals: signals({ coverageRatio: 0.7 }) }), "change_coverage")?.value, "pass");
-  assert.equal(find(evidence({ signals: signals({ coverageRatio: 0.69 }) }), "change_coverage")?.value, "fail");
-  assert.equal(find(evidence({ signals: signals({ coverageRatio: null }) }), "change_coverage")?.value, "unknown");
+test("change_coverage is the decision the engine recorded, and a run that recorded none is unknown, never pass", () => {
+  assert.equal(find(evidence({ signals: signals({ coverageStatus: "pass" }) }), "change_coverage")?.value, "pass");
+  assert.equal(find(evidence({ signals: signals({ coverageStatus: "fail" }) }), "change_coverage")?.value, "fail");
+  assert.equal(find(evidence({ signals: signals({ coverageStatus: "unknown" }) }), "change_coverage")?.value, "unknown");
+  assert.equal(find(evidence({ signals: signals({ coverageStatus: undefined }) }), "change_coverage")?.value, "unknown");
   assert.equal(find(evidence({ signals: undefined }), "change_coverage"), undefined);
 });
 
@@ -107,4 +134,17 @@ test("an intent outside the closed set counts as other, and a run with no step d
 test("naming graders runs only those", () => {
   const names = gradeEvidence(evidence({ stepIntents: { auth: 1 } }), ["spec_pass_rate"]).map((s) => s.name);
   assert.deepEqual(names, ["spec_pass_rate"]);
+});
+
+test("a cancelled run is graded as cancelled and for nothing else", () => {
+  const scores = gradeEvidence(evidence({ cancelled: true, verdict: "infra-error", decision: null, stepIntents: { auth: 1 } }));
+  assert.deepEqual(scores.map((s) => [s.name, s.value]), [["infra_error", "cancelled"]]);
+});
+
+test("an infra-error run that delivered specs keeps its validity and carries no pass rate", () => {
+  const e = evidence({ verdict: "infra-error", errorClass: "E-TIME-BUDGET", decision: "none", furthestPhase: "execute", specs: { generated: 2, valid: 2, passed: undefined }, reviewerTurns: 0 });
+  assert.equal(find(e, "spec_validity_rate")?.value, 1);
+  assert.equal(find(e, "spec_pass_rate"), undefined);
+  assert.equal(find(e, "infra_error")?.value, "E-TIME-BUDGET");
+  assert.equal(find(e, "empty_output_guard")?.value, true);
 });

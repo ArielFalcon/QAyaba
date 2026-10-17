@@ -731,7 +731,7 @@ const apiDeps: ApiDeps = {
    * leaving a zombie stuck at "0%" answering 409 to every stop press. queue.cancel(id) inside it
    * protects an innocent successor (it aborts only when the id matches the active run).
    */
-  cancelRun: (id) => cancelTrackedRun(queue, id, { runEvents }),
+  cancelRun: (id) => cancelTrackedRun(queue, id, { runEvents, afterRun: (runId) => evaluation.scheduleGrading(runId) }),
   continueRun: (parentId, cases, guidance) => {
     if (shuttingDown) return "";
     const parent = getRecord(parentId);
@@ -904,7 +904,7 @@ const server = createServer(async (req, res) => {
  * landing during boot creates a legitimate `enqueued` record that a late sweep would
  * wrongly finalize as infra-error.
  */
-finalizeInterruptedRuns({ runEvents });
+finalizeInterruptedRuns({ runEvents, afterRun: (runId) => evaluation.scheduleGrading(runId) });
 
 server.on(
   "error",

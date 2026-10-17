@@ -2,8 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
-import { enqueueTrackedRun, type RunnerDeps } from "./runner";
-import { getRecord, getRunFacts } from "./history";
+import { enqueueTrackedRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./runner";
+import { getRecord, getRunFacts, createRecord, updateRecord } from "./history";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
@@ -15,7 +15,7 @@ const cfg = (name: string): AppConfig => ({ name, repo: "org/demo", dev: { baseU
 let n = 0;
 const uniqueApp = (): string => `after-run-${(n += 1)}-${Math.random().toString(36).slice(2, 7)}`;
 
-function port(patch: Partial<RunOutcome> = {}, facts?: { decision: string; limitFired?: string; limitRole?: string }): RunPipelinePort {
+function port(patch: Partial<RunOutcome> = {}, facts?: Parameters<typeof attachTraceFacts>[1]): RunPipelinePort {
   return {
     run: async (input: RunInput) => {
       const outcome: RunOutcome = {
@@ -94,4 +94,66 @@ test("a run with telemetry off stores no trace id", async () => {
   await queue.drain();
   assert.equal(getRunFacts(id)?.traceId, null);
   assert.equal(getRunFacts(id)?.decision, "pr");
+});
+
+test("the engine's run-time decisions are stored with the run and nothing is recomputed later", async () => {
+  const queue = new JobQueue();
+  const id = enqueueTrackedRun(queue, req(uniqueApp()), base(port({}, { decision: "pr", reviewRequired: true, coverage: { status: "fail", mode: "enforce", minRatio: 0.8 } })));
+  await queue.drain();
+  const f = getRunFacts(id)!;
+  assert.deepEqual([f.reviewRequired, f.coverageStatus, f.coverageMode, f.coverageMinRatio], [true, "fail", "enforce", 0.8]);
+});
+
+test("a run whose engine measured no coverage stores no coverage decision", async () => {
+  const queue = new JobQueue();
+  const id = enqueueTrackedRun(queue, req(uniqueApp()), base(port({}, { decision: "none", reviewRequired: false, coverage: { mode: "signal" } })));
+  await queue.drain();
+  const f = getRunFacts(id)!;
+  assert.deepEqual([f.reviewRequired, f.coverageStatus, f.coverageMode], [false, null, "signal"]);
+});
+
+test("cancelling a run that is still enqueued marks it cancelled, hands it to the post-run hook and leaves the queue moving", async () => {
+  const queue = new JobQueue();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const blocking: RunPipelinePort = { run: async (input) => { await gate; return port().run(input); } };
+  const seen: Array<{ id: string; cancelled: boolean | null | undefined }> = [];
+  const afterRun = (runId: string) => { seen.push({ id: runId, cancelled: getRunFacts(runId)?.cancelled }); };
+  const h = traceHarness();
+  const first = enqueueTrackedRun(queue, req(uniqueApp()), base(blocking, { afterRun, telemetry: h.telemetry, clock: h.clock }));
+  const second = enqueueTrackedRun(queue, req(uniqueApp()), base(port(), { afterRun, telemetry: h.telemetry, clock: h.clock }));
+  assert.equal(cancelTrackedRun(queue, second, { afterRun }), false);
+  assert.deepEqual(seen[0], { id: second, cancelled: true });
+  release();
+  await queue.drain();
+  assert.equal(getRecord(first)?.verdict, "pass");
+  assert.equal(getRecord(second)?.verdict, "infra-error");
+  assert.match(getRunFacts(second)?.traceId ?? "", /^[0-9a-f]{32}$/, "the job that found the run cancelled still stores its trace id");
+  assert.equal(getRunFacts(second)?.cancelled, true, "writing the trace id leaves the cancelled mark alone");
+});
+
+test("cancelling a stale running record the queue no longer holds marks it cancelled and hands it to the hook", () => {
+  const queue = new JobQueue();
+  const r = createRecord({ app: uniqueApp(), sha: "abc1234", target: "e2e", mode: "diff" });
+  updateRecord(r.id, { status: "running" });
+  const seen: string[] = [];
+  cancelTrackedRun(queue, r.id, { afterRun: (id) => { seen.push(id); } });
+  assert.deepEqual(seen, [r.id]);
+  assert.equal(getRunFacts(r.id)?.cancelled, true);
+});
+
+test("a run a restart interrupted is handed to the hook but is not marked cancelled", () => {
+  const r = createRecord({ app: uniqueApp(), sha: "abc1234", target: "e2e", mode: "diff" });
+  updateRecord(r.id, { status: "running" });
+  const seen: string[] = [];
+  finalizeInterruptedRuns({ afterRun: (id) => { seen.push(id); } });
+  assert.ok(seen.includes(r.id));
+  assert.equal(getRunFacts(r.id)?.cancelled, null);
+});
+
+test("the spec file of each case the run executed is stored with the case", async () => {
+  const queue = new JobQueue();
+  const id = enqueueTrackedRun(queue, req(uniqueApp()), base(port({ cases: [{ name: "login works", status: "pass", file: "login.spec.ts" }] })));
+  await queue.drain();
+  assert.equal(getRecord(id)?.cases[0]?.file, "login.spec.ts");
 });

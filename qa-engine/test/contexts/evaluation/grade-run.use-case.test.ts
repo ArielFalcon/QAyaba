@@ -74,6 +74,53 @@ test("a sink that fails changes nothing about the stored grade", async () => {
   assert.ok(seen.length === 1 && seen[0]!.length > 0);
 });
 
+test("a regrade that no longer emits a name removes the stored score", async () => {
+  const store = new MemoryScoreStore();
+  store.replace("run-1", [{ name: "retired_score", value: 1, dataType: "NUMERIC", polarity: "none", source: "deterministic", graderVersion: "1" }], "t", { graderVersion: "1" });
+  const grade = new GradeRunUseCase({ evidence: { load: async () => evidence() }, store, now: () => "t", log: quiet });
+  await grade.execute("run-1");
+  assert.equal(store.list("run-1", { allVersions: true }).some((s) => s.name === "retired_score"), false);
+});
+
+test("a subset regrade removes only the named base names and their suffix expansions", async () => {
+  const store = new MemoryScoreStore();
+  const grade = new GradeRunUseCase({ evidence: { load: async () => evidence({ stepIntents: { auth: 1 } }) }, store, now: () => "t", log: quiet });
+  await grade.execute("run-1");
+  const before = store.list("run-1", { allVersions: true }).map((s) => s.name).sort();
+  assert.ok(before.includes("step_intent_mix.auth") && before.includes("spec_pass_rate"));
+  const withoutSteps = new GradeRunUseCase({ evidence: { load: async () => evidence() }, store, now: () => "t", log: quiet });
+  await withoutSteps.execute("run-1", { graders: ["step_intent_mix"] });
+  const after = store.list("run-1", { allVersions: true }).map((s) => s.name);
+  assert.equal(after.some((n) => n.startsWith("step_intent_mix")), false);
+  assert.ok(after.includes("spec_pass_rate") && after.includes("auth_overhead"));
+});
+
+test("a failed regrade keeps a complete evaluation complete", async () => {
+  let fail = false;
+  const store = new MemoryScoreStore();
+  const grade = new GradeRunUseCase({ evidence: { load: async () => { if (fail) throw new Error("transient"); return evidence(); } }, store, now: () => "t", log: quiet });
+  await grade.execute("run-1");
+  fail = true;
+  assert.equal((await grade.execute("run-1")).status, "failed");
+  assert.equal(store.status("run-1"), "complete");
+});
+
+test("two gradings of the same run never overlap", async () => {
+  let active = 0;
+  let overlapped = false;
+  const slow = { load: async () => { active += 1; overlapped ||= active > 1; await new Promise((r) => setTimeout(r, 5)); active -= 1; return evidence(); } };
+  const grade = new GradeRunUseCase({ evidence: slow, store: new MemoryScoreStore(), now: () => "t", log: quiet });
+  await Promise.all([grade.execute("run-1"), grade.execute("run-1")]);
+  assert.equal(overlapped, false);
+});
+
+test("a cancelled run keeps only its cancelled marker", async () => {
+  const store = new MemoryScoreStore();
+  const grade = new GradeRunUseCase({ evidence: { load: async () => evidence({ cancelled: true, verdict: "infra-error" }) }, store, now: () => "t", log: quiet });
+  await grade.execute("run-1");
+  assert.deepEqual(store.list("run-1", { allVersions: true }).map((s) => s.name), ["infra_error"]);
+});
+
 test("naming graders grades only those", async () => {
   const { store, grade } = build({ load: async () => evidence() });
   await grade.execute("run-1", { graders: ["furthest_phase"] });

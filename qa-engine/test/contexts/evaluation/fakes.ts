@@ -6,7 +6,12 @@ export class MemoryScoreStore implements ScoreStorePort {
   readonly rows = new Map<string, Score>();
   readonly statuses = new Map<string, EvaluationStatus>();
 
-  replace(runId: string, scores: readonly Score[]): void {
+  replace(runId: string, scores: readonly Score[], _gradedAt: string, scope: { graderVersion: string; baseNames?: readonly string[] }): void {
+    for (const key of [...this.rows.keys()]) {
+      const [rid, name, version] = key.split("|") as [string, string, string];
+      if (rid !== runId || version !== scope.graderVersion) continue;
+      if (!scope.baseNames || scope.baseNames.some((b) => name === b || name.startsWith(`${b}.`))) this.rows.delete(key);
+    }
     for (const s of scores) this.rows.set(`${runId}|${s.name}|${s.graderVersion}`, s);
   }
 
@@ -44,9 +49,8 @@ export class MemoryJobStore implements RegradeJobStorePort {
   }
 }
 
-export function selector(opts: { existing: string[]; since?: string[]; campaign?: Record<string, string[]> }): RunSelectorPort {
+export function selector(opts: { since?: string[]; campaign?: Record<string, string[]> } = {}): RunSelectorPort {
   return {
-    exists: (id) => opts.existing.includes(id),
     finishedSince: () => opts.since ?? [],
     ofCampaign: (id) => opts.campaign?.[id] ?? [],
   };

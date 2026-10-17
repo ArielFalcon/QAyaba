@@ -16,6 +16,10 @@ export interface Grader {
 }
 
 const ratio = (part: number, whole: number): number => part / whole;
+const rank = (phase: string): number => (RUN_PHASES as readonly string[]).indexOf(phase);
+
+/* The verdicts of a run that executed its specs. */
+const EXECUTED_VERDICTS = ["pass", "fail", "flaky"];
 
 /* The run was let through: it passed, or it chose to publish a PR. */
 function accepted(e: Evidence): boolean {
@@ -25,15 +29,28 @@ function accepted(e: Evidence): boolean {
 /* A run with no verdict has nothing to grade. */
 const finishedOnly = (grade: (e: Evidence) => RawScore[]) => (e: Evidence): RawScore[] => (e.finished && e.verdict !== null ? grade(e) : []);
 
+/*
+ * A tripwire over stored facts only. It says nothing when a fact it needs was never recorded (validity before the validate phase,
+ * whether a reviewer was required, the reviewer's trace), because a guess would read as a verdict about the pipeline.
+ */
 const emptyOutputGuard: Grader = {
   names: ["empty_output_guard"],
   grade: finishedOnly((e) => {
     /* A context run delivers no specs by design. */
     if (e.mode === "context") return [];
+    if (e.specs.valid === null) return [];
     if (!accepted(e)) return [{ name: "empty_output_guard", value: true }];
+    if (e.reviewRequired === undefined) return [];
     const problems: string[] = [];
     if (e.specs.valid === 0) problems.push("accepted with no valid spec delivered by this run");
-    if (e.reviewRequired !== false && e.reviewerTurns === 0) problems.push("accepted without a reviewer turn");
+    if (e.reviewRequired) {
+      const reviewed = e.signals?.reviewerApproved !== undefined || (e.reviewerTurns ?? 0) > 0;
+      if (!reviewed) {
+        /* No verdict stored and no turn history to look in: the review cannot be judged either way. */
+        if (e.reviewerTurns === undefined) return [];
+        problems.push("accepted without a reviewer turn");
+      }
+    }
     return [{ name: "empty_output_guard", value: problems.length === 0, ...(problems.length > 0 ? { comment: problems.join("; ") } : {}) }];
   }),
 };
@@ -45,17 +62,23 @@ const furthestPhase: Grader = {
 
 const specValidityRate: Grader = {
   names: ["spec_validity_rate"],
-  grade: (e) => (e.finished && e.specs.generated > 0 ? [{ name: "spec_validity_rate", value: ratio(e.specs.valid, e.specs.generated), comment: `${e.specs.valid} of ${e.specs.generated}` }] : []),
+  grade: (e) => (e.finished && e.specs.valid !== null && e.specs.generated > 0 ? [{ name: "spec_validity_rate", value: ratio(e.specs.valid, e.specs.generated), comment: `${e.specs.valid} of ${e.specs.generated}` }] : []),
 };
 
+/* Only a run that executed its specs has a pass rate, and only when every delivered spec could be tied to its cases. */
 const specPassRate: Grader = {
   names: ["spec_pass_rate"],
-  grade: (e) => (e.finished && e.specs.valid > 0 ? [{ name: "spec_pass_rate", value: ratio(e.specs.passed, e.specs.valid), comment: `${e.specs.passed} of ${e.specs.valid}` }] : []),
+  grade: (e) => {
+    const { valid, passed } = e.specs;
+    const executed = e.furthestPhase !== null && rank(e.furthestPhase) >= rank("execute") && e.verdict !== null && EXECUTED_VERDICTS.includes(e.verdict);
+    if (!e.finished || !executed || valid === null || valid <= 0 || passed === undefined) return [];
+    return [{ name: "spec_pass_rate", value: ratio(passed, valid), comment: `${passed} of ${valid}` }];
+  },
 };
 
 const budgetExhaustion: Grader = {
   names: ["budget_exhaustion"],
-  grade: finishedOnly((e) => [{ name: "budget_exhaustion", value: e.limit ? `${e.limit.fired}@${e.furthestPhase ?? "unknown"}/${e.limit.role ?? "unknown"}` : "none" }]),
+  grade: finishedOnly((e) => [{ name: "budget_exhaustion", value: e.limit ? `${e.limit.fired}@${e.furthestPhase ?? "unknown"}/${e.limit.role ?? "unknown"}/${e.limit.intent ?? "unknown"}` : "none" }]),
 };
 
 const approvalConsistent: Grader = {
@@ -66,23 +89,17 @@ const approvalConsistent: Grader = {
     if (e.signals) {
       if (!e.signals.static) said.push("static checks failed");
       if ((e.signals.catalogGateFailClosed ?? 0) > 0) said.push("catalog gate failed closed");
-      if (e.signals.coverageMode === "enforce" && coverageClass(e) === "fail") said.push("change-coverage below the enforced threshold");
+      if (e.signals.coverageMode === "enforce" && e.signals.coverageStatus === "fail") said.push("change-coverage failed under the enforced policy");
     }
     const inconsistent = accepted(e) && said.length > 0;
     return [{ name: "approval_consistent", value: !inconsistent, ...(inconsistent ? { comment: `accepted while: ${said.join("; ")}` } : {}) }];
   }),
 };
 
-/* unknown is its own class and never passes: an unmeasured run says nothing about coverage. */
-function coverageClass(e: Evidence): "pass" | "fail" | "unknown" {
-  const ratioValue = e.signals?.coverageRatio;
-  if (ratioValue === null || ratioValue === undefined) return "unknown";
-  return ratioValue >= (e.signals?.coverageMinRatio ?? Number.POSITIVE_INFINITY) ? "pass" : "fail";
-}
-
+/* The engine's own decision at run time; a run that recorded none was not measured, which is `unknown`, never pass. */
 const changeCoverage: Grader = {
   names: ["change_coverage"],
-  grade: (e) => (e.finished && e.signals ? [{ name: "change_coverage", value: coverageClass(e) }] : []),
+  grade: (e) => (e.finished && e.signals ? [{ name: "change_coverage", value: e.signals.coverageStatus ?? "unknown" }] : []),
 };
 
 const mutationValue: Grader = {
@@ -96,7 +113,7 @@ const mutationValue: Grader = {
 
 const infraError: Grader = {
   names: ["infra_error"],
-  grade: finishedOnly((e) => [{ name: "infra_error", value: e.verdict === "infra-error" ? (e.errorClass ?? "unclassified") : "none" }]),
+  grade: finishedOnly((e) => [{ name: "infra_error", value: e.cancelled ? "cancelled" : e.verdict === "infra-error" ? (e.errorClass ?? "unclassified") : "none" }]),
 };
 
 const stepIntent: Grader = {
@@ -133,5 +150,7 @@ export const GRADERS: readonly Grader[] = [
 /* Runs the graders that emit one of `only` (all of them when absent) and returns the catalog-typed scores. A throwing grader is not caught here. */
 export function gradeEvidence(evidence: Evidence, only?: readonly string[]): Score[] {
   const wanted = only ? new Set(only) : undefined;
-  return GRADERS.filter((g) => !wanted || g.names.some((n) => wanted.has(n))).flatMap((g) => g.grade(evidence).map(scoreOf));
+  /* A cancelled run did not run its pipeline: the only thing to say about it is that it was cancelled. */
+  const graders = evidence.cancelled ? [infraError] : GRADERS;
+  return graders.filter((g) => !wanted || g.names.some((n) => wanted.has(n))).flatMap((g) => g.grade(evidence).map(scoreOf));
 }

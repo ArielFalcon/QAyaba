@@ -920,6 +920,15 @@ ingest times.
 | 6 | `GET /evaluations/catalog` | `{schemaVersion, phases: string[]` (canonical `RUN_PHASES` order)`, scores: [{name, dataType, polarity, range?, categories?, suffixes?, graderVersion}]}`. The machine-readable source of phase order and score polarity |
 | 7 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, campaignFreeze: bool, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, scoreSink: {configured, lastError?}}`. Also summarized under `/api/health.telemetry` |
 
+**Facts the graders read.** A grader only reads what the run recorded. Facts the engine decides at run time are stored on the run and never recomputed from the app's current configuration: `review_required`, `coverage_status` (pass|fail|unknown as the objective-signal service decided), `coverage_mode`, `coverage_min_ratio`, `decision`, `limit_fired`/`limit_role`, `trace_id`, `cancelled`, and each case's spec `file`. Where a fact is missing the score is omitted, or `unknown` for `change_coverage`:
+- `specCounts.valid` is **null** until the run got past the `validate` phase (validation gates the whole suite); an `invalid` run has `valid = 0`. `specCounts.passed` is null when `valid` is unknown or a delivered spec cannot be tied to its cases by exact spec path (a run-level `pass` implies all passed).
+- `spec_pass_rate` exists only for a run that reached `execute` with a `pass|fail|flaky` verdict and a known `passed`.
+- `empty_output_guard` emits nothing when validity, `review_required` or the reviewer history is unknown.
+- A cancelled run is graded `infra_error = cancelled` and nothing else.
+- `budget_exhaustion` is `<limit>@<phase>/<role>/<intent>`; any segment the run did not record is `unknown`.
+- A regrade deletes the run's rows it supersedes in the same transaction (all rows of the current `graderVersion`, or only the named base names with their suffixes), so a name no grader emits any more disappears. A failed regrade never turns a `complete` evaluation into `failed`; the failure is listed on the job.
+- Regrade bounds: `since` must be ISO-8601; at most 500 runs per job (and 500 `runIds`); progress is written every 10 runs; a grader that is declared but not graded yet is refused with 400 naming it; an unknown run id is listed in the job's `failed` as `unknown run`; job errors are redacted and capped at 500 chars, and score comments are capped at 500 chars.
+
 **Name deviation.** The counts are `specCounts`, not `specs`: `specs` already exists on `RunRecord` as the list of delivered specs (`SpecRecord[]`, read by the TUI), and a field cannot be both. Everything else in row 2 is additive.
 
 **Contract rules:**

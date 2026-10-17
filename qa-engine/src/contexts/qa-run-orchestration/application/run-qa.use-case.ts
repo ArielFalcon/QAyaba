@@ -136,6 +136,7 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
+import { generationRunsReviewer } from "@contexts/generation/domain/generation-review.ts";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
@@ -208,6 +209,8 @@ export interface RunQaConfig {
    * "enforce" holds the PR on a "fail" status. "unknown" never blocks in any mode.
    */
   coveragePolicyMode: "off" | "signal" | "enforce";
+  /** The change-coverage threshold in force; recorded with the run's coverage decision. */
+  coverageMinRatio?: number;
   /**
    * Per-mode agent session budget (ms). 0 / omitted derives WallClockBudget but
    * MUST NOT enforce it — a zero budget would abort every retry immediately.
@@ -482,6 +485,10 @@ interface RunTrail {
   phases: RunPhaseCursor;
   /** How generation ended, once it did. */
   generationEnd?: string;
+  /** What the engine decided about change-coverage, once it measured. */
+  coverageStatus?: "pass" | "fail" | "unknown";
+  /** Whether a reviewer was due for the run, as the generation decides it. */
+  reviewRequired?: boolean;
   /** The limit that stopped the run, when the run deadline did. */
   limit?: { fired: string; role: string };
   /** The spans of the phases the cursor opens. */
@@ -533,7 +540,7 @@ export class RunQaUseCase {
   private async runInScope(input: RunQaInput, secrets: RedactionScope, signal?: AbortSignal): Promise<RunQaResult> {
     const spans = new PhaseSpans({ telemetry: this.telemetry, secrets, app: input.app, mode: input.mode });
     const phases = new RunPhaseCursor(this.deps.phaseClock ?? SYSTEM_PHASE_CLOCK, spans);
-    const trail: RunTrail = { phases, spans };
+    const trail: RunTrail = { phases, spans, reviewRequired: generationRunsReviewer({ needsReview: { ...DEFAULT_CONFIG, ...this.deps.config }.needsReview, mode: input.mode }) };
     /* A child the launcher starts for this run is a child of whichever phase is open. */
     const scope = activeExecScope();
     if (scope) scope.telemetry = { parent: () => spans.context() };
@@ -558,8 +565,11 @@ export class RunQaUseCase {
     const end = trail.generationEnd;
     const fromEnd = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-generator" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-generator" } : undefined;
     const limit = trail.limit ?? fromEnd;
+    const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     return {
       decision: result.decision.sideEffect,
+      ...(trail.reviewRequired !== undefined ? { reviewRequired: trail.reviewRequired } : {}),
+      coverage: { ...(trail.coverageStatus ? { status: trail.coverageStatus } : {}), mode: cfg.coveragePolicyMode, ...(cfg.coverageMinRatio !== undefined ? { minRatio: cfg.coverageMinRatio } : {}) },
       ...(end !== undefined ? { generationEnd: end } : {}),
       ...(limit ? { limitFired: limit.fired, limitRole: limit.role } : {}),
     };
@@ -1810,6 +1820,7 @@ export class RunQaUseCase {
       );
       coverageRatio = signal.ratio;
       coverageStatus = signal.status;
+      trail.coverageStatus = signal.status;
       valueScore = signal.valueScore ?? null;
       mutantCount = signal.mutantCount ?? undefined;
       killedCount = signal.killedCount ?? undefined;
@@ -1857,6 +1868,7 @@ export class RunQaUseCase {
                 );
                 coverageRatio = signal2.ratio;
                 coverageStatus = signal2.status;
+                trail.coverageStatus = signal2.status;
                 blocksPublish = this.deps.objectiveSignal.blocks(signal2.status);
               }
             }

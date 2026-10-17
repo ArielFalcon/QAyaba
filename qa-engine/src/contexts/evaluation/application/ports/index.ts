@@ -11,8 +11,12 @@ export interface EvidencePort {
 }
 
 export interface ScoreStorePort {
-  /* The store key is (runId, name, graderVersion): a score with that key replaces the stored one. */
-  replace(runId: string, scores: readonly Score[], gradedAt: string): void;
+  /*
+   * Stores the scores in one transaction. First it deletes what the regrade supersedes, so a name the graders no longer emit
+   * does not outlive it: a full regrade (no `baseNames`) deletes every row of the run at `graderVersion`; a subset deletes only
+   * those base names and their `.<suffix>` expansions. Then it inserts; the key is (runId, name, graderVersion).
+   */
+  replace(runId: string, scores: readonly Score[], gradedAt: string, scope: { graderVersion: string; baseNames?: readonly string[] }): void;
   /* Latest grader version per name, or every stored version. */
   list(runId: string, opts: { allVersions: boolean }): Score[];
   setStatus(runId: string, status: EvaluationStatus, at: string): void;
@@ -30,9 +34,8 @@ export const NO_SINK: ScoreSinkPort = { emit: () => undefined };
 /* The finished runs a regrade may cover. */
 export interface RunSelectorPort {
   finishedSince(sinceIso: string): string[];
-  /* Campaign identity arrives with the campaign fields; until a run carries it this answers empty. */
+  /* Campaign identity arrives with the campaign fields (slice S5); until a run carries it this answers empty. */
   ofCampaign(campaignId: string): string[];
-  exists(runId: string): boolean;
 }
 
 export type RegradeJobStatus = "pending" | "running" | "complete" | "failed";

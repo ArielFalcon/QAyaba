@@ -531,7 +531,7 @@ export const EvaluationCatalogSchema = z.object({
 /* Exactly one of runIds, campaignId or since selects the runs; graders optionally narrows the re-run to some base names. */
 export const RegradeRequestSchema = z
   .object({
-    runIds: z.array(z.string()).min(1).optional(),
+    runIds: z.array(z.string()).min(1).max(500).optional(),
     campaignId: z.string().min(1).optional(),
     since: z.string().min(1).optional(),
     graders: z.array(z.string()).min(1).optional(),
@@ -567,8 +567,11 @@ export const RunDetailSchema = RunRecordSchema.extend({
     cacheWriteTokens: z.number().min(0),
     costUsd: z.number().min(0),
   }),
-  /* Counts of the specs this run delivered. (`specs`, the list of those specs, keeps its place on RunRecord.) */
-  specCounts: z.object({ generated: z.number().int().min(0), valid: z.number().int().min(0), passed: z.number().int().min(0) }),
+  /*
+   * Counts of the specs this run delivered. (`specs`, the list of those specs, keeps its place on RunRecord.) `valid` is null until the
+   * run got past the validate phase; `passed` is null when valid is unknown or the cases cannot be tied to the specs.
+   */
+  specCounts: z.object({ generated: z.number().int().min(0), valid: z.number().int().min(0).nullable(), passed: z.number().int().min(0).nullable() }),
   /* "pr" | "issue" | "shadow-log" | "quarantine" | "none"; null for a run that recorded none. */
   decision: z.string().nullable(),
   budgets: z.object({ exhausted: z.boolean(), limit: z.string().optional(), role: z.string().optional() }),

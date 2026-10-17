@@ -221,7 +221,12 @@ function ensureDb(): void {
       trace_id TEXT,
       decision TEXT,
       limit_fired TEXT,
-      limit_role TEXT
+      limit_role TEXT,
+      review_required INTEGER,
+      coverage_status TEXT,
+      coverage_mode TEXT,
+      coverage_min_ratio REAL,
+      cancelled INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS cases (
@@ -229,7 +234,8 @@ function ensureDb(): void {
       run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       status TEXT NOT NULL,
-      detail TEXT
+      detail TEXT,
+      file TEXT
     );
 
     CREATE TABLE IF NOT EXISTS specs (
@@ -454,9 +460,17 @@ function ensureDb(): void {
   if (!columnExists("runs", "phase_timings")) {
     db.exec("ALTER TABLE runs ADD COLUMN phase_timings TEXT");
   }
+  /* The spec file a case ran from, as the parsed report named it (NULL for a case recorded before the column, or one the report gave no file). */
+  if (!columnExists("cases", "file")) {
+    db.exec("ALTER TABLE cases ADD COLUMN file TEXT");
+  }
   /* What the run's trace and decision said about how it ended (NULL for a run that recorded none): the trace id, the publication decision, the limit that stopped it and the role it stopped. */
-  for (const name of ["trace_id", "decision", "limit_fired", "limit_role"]) {
+  for (const name of ["trace_id", "decision", "limit_fired", "limit_role", "coverage_status", "coverage_mode"]) {
     if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} TEXT`);
+  }
+  /* Facts the engine decided at run time and grading must not recompute: whether a reviewer ran, the coverage decision and its policy, and whether an operator cancelled the run. */
+  for (const [name, type] of [["review_required", "INTEGER"], ["coverage_min_ratio", "REAL"], ["cancelled", "INTEGER"]] as const) {
+    if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
   }
   /*
    * Every agent_turns efficiency column
@@ -487,7 +501,7 @@ function ensureDb(): void {
   currentRunStmt = db.prepare("SELECT * FROM runs WHERE status IN ('running', 'enqueued') ORDER BY (status='running') DESC, at ASC, rowid ASC LIMIT 1");
   interruptedStmt = db.prepare("SELECT * FROM runs WHERE status IN ('running', 'enqueued')");
   deleteCaseByName = db.prepare("DELETE FROM cases WHERE run_id = ? AND name = ?");
-  insertCase = db.prepare("INSERT INTO cases (run_id, name, status, detail) VALUES (@runId, @name, @status, @detail)");
+  insertCase = db.prepare("INSERT INTO cases (run_id, name, status, detail, file) VALUES (@runId, @name, @status, @detail, @file)");
   getCasesStmt = db.prepare("SELECT * FROM cases WHERE run_id = ?");
   countCasesStmt = db.prepare("SELECT status, COUNT(*) AS cnt FROM cases WHERE run_id = ? GROUP BY status");
   getSpecsStmt = db.prepare("SELECT * FROM specs WHERE run_id = ?");
@@ -728,12 +742,22 @@ export function getRunPhases(id: string): RunPhases | undefined {
 }
 
 /* What a run recorded about how it ended, beyond its verdict. Undefined: no such run. */
-export function getRunFacts(id: string): RunFactsPatch | undefined {
+export function getRunFacts(id: string): Required<RunFactsPatch> | undefined {
   ensureDb();
-  const row = db.prepare("SELECT trace_id, decision, limit_fired, limit_role FROM runs WHERE id = ?").get(id) as
-    | { trace_id: string | null; decision: string | null; limit_fired: string | null; limit_role: string | null }
-    | undefined;
-  return row ? { traceId: row.trace_id, decision: row.decision, limitFired: row.limit_fired, limitRole: row.limit_role } : undefined;
+  const row = db.prepare(`SELECT ${FACT_COLUMNS.map(([, c]) => c).join(", ")} FROM runs WHERE id = ?`).get(id) as Record<string, string | number | null> | undefined;
+  if (!row) return undefined;
+  const flag = (v: string | number | null): boolean | null => (v === null ? null : v === 1);
+  return {
+    traceId: row.trace_id as string | null,
+    decision: row.decision as string | null,
+    limitFired: row.limit_fired as string | null,
+    limitRole: row.limit_role as string | null,
+    reviewRequired: flag(row.review_required!),
+    coverageStatus: row.coverage_status as string | null,
+    coverageMode: row.coverage_mode as string | null,
+    coverageMinRatio: row.coverage_min_ratio as number | null,
+    cancelled: flag(row.cancelled!),
+  };
 }
 
 export interface RunFunnelRow {
@@ -805,13 +829,29 @@ export function serializablePhases(phases: RunPhasesPatch | undefined): RunPhase
   }
 }
 
-/* What a run's trace and engine said about how it ended; stored in the same statement as the final status. */
+/*
+ * What a run's trace and engine said about how it ended, stored with its final status. A key left out is not touched; null stores
+ * "the run recorded none". Grading reads these columns and never recomputes them from the app's current configuration.
+ */
 export interface RunFactsPatch {
-  traceId: string | null;
-  decision: string | null;
-  limitFired: string | null;
-  limitRole: string | null;
+  traceId?: string | null;
+  decision?: string | null;
+  limitFired?: string | null;
+  limitRole?: string | null;
+  /* Whether the engine ran a reviewer for the run. */
+  reviewRequired?: boolean | null;
+  /* The engine's change-coverage decision (pass|fail|unknown), the policy mode and threshold in force. */
+  coverageStatus?: string | null;
+  coverageMode?: string | null;
+  coverageMinRatio?: number | null;
+  /* An operator cancelled the run. */
+  cancelled?: boolean | null;
 }
+
+const FACT_COLUMNS: ReadonlyArray<[keyof RunFactsPatch, string]> = [
+  ["traceId", "trace_id"], ["decision", "decision"], ["limitFired", "limit_fired"], ["limitRole", "limit_role"], ["reviewRequired", "review_required"],
+  ["coverageStatus", "coverage_status"], ["coverageMode", "coverage_mode"], ["coverageMinRatio", "coverage_min_ratio"], ["cancelled", "cancelled"],
+];
 
 export function updateRecord(id: string, patch: Partial<RunRecord> & { phases?: RunPhasesPatch; facts?: RunFactsPatch }): void {
   ensureDb();
@@ -841,10 +881,11 @@ export function updateRecord(id: string, patch: Partial<RunRecord> & { phases?: 
     add("phase_timings", JSON.stringify(patch.phases.phaseTimings));
   }
   if (patch.facts !== undefined) {
-    add("trace_id", patch.facts.traceId);
-    add("decision", patch.facts.decision);
-    add("limit_fired", patch.facts.limitFired);
-    add("limit_role", patch.facts.limitRole);
+    for (const [key, column] of FACT_COLUMNS) {
+      const v = patch.facts[key];
+      if (v === undefined) continue;
+      add(column, typeof v === "boolean" ? (v ? 1 : 0) : v);
+    }
   }
 
   if (setClauses.length > 0) {
@@ -876,6 +917,7 @@ export function addCase(id: string, c: QaCase): void {
     name: c.name,
     status: c.status,
     detail: c.detail ?? null,
+    file: c.file ?? null,
   });
 
   const { passed, failed } = recalcCounts(id);
@@ -1334,8 +1376,12 @@ export interface ScoreRow {
   observationId: string | null;
 }
 
-/* Stores scores in one transaction; a score with the same (run, name, grader version) replaces the stored one. */
-export function replaceRunScores(rows: readonly ScoreRow[], gradedAt: string): void {
+/*
+ * Stores scores in one transaction. First it deletes what the regrade supersedes (a name the graders no longer emit must not
+ * outlive it): every row of the run at `graderVersion`, or only the given base names and their `.<suffix>` expansions. Then it
+ * inserts. The key is (run, name, grader version).
+ */
+export function replaceRunScores(rows: readonly ScoreRow[], gradedAt: string, scope?: { runId: string; graderVersion: string; baseNames?: readonly string[] }): void {
   ensureDb();
   const upsert = db.prepare(`
     INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, comment, observation_id, graded_at)
@@ -1343,25 +1389,58 @@ export function replaceRunScores(rows: readonly ScoreRow[], gradedAt: string): v
     ON CONFLICT(run_id, name, grader_version) DO UPDATE SET
       data_type = excluded.data_type, polarity = excluded.polarity, source = excluded.source, value = excluded.value,
       comment = excluded.comment, observation_id = excluded.observation_id, graded_at = excluded.graded_at`);
+  const deleteAll = db.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ?");
+  /* substr, not LIKE: the underscore in a score name is a LIKE wildcard. */
+  const deleteNamed = db.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ? AND (name = ? OR substr(name, 1, ?) = ?)");
   db.transaction((batch: readonly ScoreRow[]) => {
+    if (scope) {
+      if (scope.baseNames) {
+        for (const base of scope.baseNames) deleteNamed.run(scope.runId, scope.graderVersion, base, base.length + 1, `${base}.`);
+      } else {
+        deleteAll.run(scope.runId, scope.graderVersion);
+      }
+    }
     for (const r of batch) upsert.run({ ...r, value: JSON.stringify(r.value), gradedAt });
   })(rows);
+}
+
+/* A stored value must be of the type its row declares; a row that is not is skipped and said, never shipped as an empty or wrong value. */
+function scoreValueOf(raw: string, dataType: string): number | boolean | string | undefined {
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (dataType === "NUMERIC") return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  if (dataType === "BOOLEAN") return typeof v === "boolean" ? v : undefined;
+  if (dataType === "CATEGORICAL") return typeof v === "string" ? v : undefined;
+  return undefined;
 }
 
 export function listRunScoreRows(runId: string): ScoreRow[] {
   ensureDb();
   const rows = db.prepare("SELECT * FROM run_scores WHERE run_id = ? ORDER BY name, grader_version").all(runId) as Array<Record<string, unknown>>;
-  return rows.map((r) => ({
-    runId: r.run_id as string,
-    name: r.name as string,
-    graderVersion: r.grader_version as string,
-    dataType: r.data_type as string,
-    polarity: r.polarity as string,
-    source: r.source as string,
-    value: safeJsonParse<number | boolean | string>(r.value as string, ""),
-    comment: (r.comment as string | null) ?? null,
-    observationId: (r.observation_id as string | null) ?? null,
-  }));
+  const out: ScoreRow[] = [];
+  for (const r of rows) {
+    const value = scoreValueOf(r.value as string, r.data_type as string);
+    if (value === undefined) {
+      console.error(`[evaluation] skipping a corrupt score row: run ${runId}, ${String(r.name)}@${String(r.grader_version)} (${String(r.data_type)})`);
+      continue;
+    }
+    out.push({
+      runId: r.run_id as string,
+      name: r.name as string,
+      graderVersion: r.grader_version as string,
+      dataType: r.data_type as string,
+      polarity: r.polarity as string,
+      source: r.source as string,
+      value,
+      comment: (r.comment as string | null) ?? null,
+      observationId: (r.observation_id as string | null) ?? null,
+    });
+  }
+  return out;
 }
 
 export function setRunEvaluationStatus(runId: string, status: string, at: string): void {

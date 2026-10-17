@@ -4,6 +4,7 @@
  * changes nothing. Callers run it off the queue path (the runner schedules it; it is never awaited by a run).
  */
 
+import { GRADER_VERSION } from "../domain/grader-catalog.ts";
 import { gradeEvidence } from "../domain/graders.ts";
 import type { Score } from "../domain/score.ts";
 import { NO_SINK, type EvidencePort, type ScoreSinkPort, type ScoreStorePort } from "./ports/index.ts";
@@ -25,9 +26,23 @@ export type GradeRunResult =
   | { status: "skipped"; reason: "unknown-run" | "not-finished" };
 
 export class GradeRunUseCase {
+  /* The grading in flight per run: a second request for the same run waits its turn instead of racing the first one's writes. */
+  private readonly tails = new Map<string, Promise<unknown>>();
+
   constructor(private readonly deps: GradeRunDeps) {}
 
-  async execute(runId: string, opts: { graders?: readonly string[] } = {}): Promise<GradeRunResult> {
+  execute(runId: string, opts: { graders?: readonly string[] } = {}): Promise<GradeRunResult> {
+    const previous = this.tails.get(runId) ?? Promise.resolve();
+    const mine = previous.then(() => this.grade(runId, opts));
+    const tail = mine.catch(() => undefined);
+    this.tails.set(runId, tail);
+    void tail.then(() => {
+      if (this.tails.get(runId) === tail) this.tails.delete(runId);
+    });
+    return mine;
+  }
+
+  private async grade(runId: string, opts: { graders?: readonly string[] }): Promise<GradeRunResult> {
     const { evidence, store, now } = this.deps;
     const log = this.deps.log ?? ((m: string) => console.error(m));
     try {
@@ -36,7 +51,7 @@ export class GradeRunUseCase {
       if (!found.finished) return { status: "skipped", reason: "not-finished" };
       const scores: Score[] = gradeEvidence(found, opts.graders);
       const at = now();
-      store.replace(runId, scores, at);
+      store.replace(runId, scores, at, { graderVersion: GRADER_VERSION, ...(opts.graders ? { baseNames: opts.graders } : {}) });
       store.setStatus(runId, "complete", at);
       await this.mirror(runId, scores, found.finishedAt, log);
       return { status: "complete", scores: scores.length };
@@ -44,7 +59,8 @@ export class GradeRunUseCase {
       const error = err instanceof Error ? err.message : String(err);
       log(`[evaluation] grading ${runId} failed: ${error}`);
       try {
-        store.setStatus(runId, "failed", now());
+        /* A failed attempt never takes a complete evaluation away from scores that are still there; the caller records the failure. */
+        if (store.status(runId) !== "complete") store.setStatus(runId, "failed", now());
       } catch (statusErr) {
         log(`[evaluation] could not record the failure of ${runId}: ${statusErr instanceof Error ? statusErr.message : String(statusErr)}`);
       }

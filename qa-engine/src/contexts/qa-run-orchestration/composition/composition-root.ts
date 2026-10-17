@@ -136,6 +136,8 @@ export interface CompositionConfig {
   maxRetries: number;
   isCode: boolean;
   coveragePolicyMode: "off" | "signal" | "enforce";
+  /* The change-coverage threshold of the same policy; recorded with the run's coverage decision. */
+  coverageMinRatio?: number;
   /* Per-mode agent session budget (ms). Factory maps agentTimeout(mode). Optional: omitted fakes keep the use-case default (0 = derived but not enforced). */
   agentTimeoutMs?: number;
   wallClockBudgetMs?: number;
@@ -620,6 +622,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       maxRetries: cfg.maxRetries,
       isCode: cfg.isCode,
       coveragePolicyMode: cfg.coveragePolicyMode,
+      ...(cfg.coverageMinRatio !== undefined ? { coverageMinRatio: cfg.coverageMinRatio } : {}),
       ...(cfg.agentTimeoutMs !== undefined ? { agentTimeoutMs: cfg.agentTimeoutMs } : {}),
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
       ...(cfg.iterationBudget !== undefined ? { iterationBudget: cfg.iterationBudget } : {}),
