@@ -51,6 +51,11 @@ export class PhaseSpans implements PhaseObserver {
     return this.open?.span.context();
   }
 
+  /** Wall-clock ms the open phase started at. */
+  startedAt(): number | undefined {
+    return this.open?.since;
+  }
+
   /** Attributes for the phase that is open now. */
   annotate(attrs: Parameters<SpanHandle["setAttrs"]>[0]): void {
     this.open?.span.setAttrs(attrs);

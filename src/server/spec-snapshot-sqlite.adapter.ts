@@ -8,7 +8,7 @@ export class SqliteSpecSnapshotAdapter implements SpecSnapshotPort {
 
   record(snapshots: readonly SpecSnapshot[]): void {
     try {
-      this.commit(snapshots.map((s) => ({ runId: s.runId, path: s.path, sha256: s.sha256, text: s.text, bytes: s.bytes, capturedAt: s.capturedAt })));
+      this.commit(snapshots.map((s) => ({ runId: s.runId, path: s.path, sha256: s.sha256, text: s.text, bytes: s.bytes, capturedAt: s.capturedAt, delivered: s.delivered ? 1 : 0 })));
     } catch (err) {
       console.error(`[qa] spec snapshots could not be stored (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }

@@ -8,7 +8,7 @@
 import { recordContextSpan } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import type { Attrs } from "../../../shared-kernel/telemetry/attribute-registry.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
-import { domItemIds, type DomPageLike } from "../domain/context-item-ids.ts";
+import { domItemIdsBudgeted, type DomPageLike } from "../domain/context-item-ids.ts";
 import { buildRouteCatalog, ROUTE_STATUS } from "./route-catalog.ts";
 import { MAX_NODES_PER_ROUTE, capDomLines, type DomCaptureObserver, type DomCaptureReport, type RouteSnapshot } from "./dom-snapshot.ts";
 
@@ -19,16 +19,18 @@ export function pageOf(snap: RouteSnapshot): { page: DomPageLike; leftOut: numbe
   const testIdOfNode = new Map<string, string>();
   for (const attr of snap.attrs ?? []) if (attr.testId !== undefined) testIdOfNode.set(attr.key, attr.testId);
   return {
-    page: { route: snap.route, nodes: capDomLines(nodes, MAX_NODES_PER_ROUTE).kept, testIdOfNode, testIds: testIds.slice(0, MAX_NODES_PER_ROUTE) },
+    /* A page opened from a template of the map is named by the template, as the map's own route ids are. */
+    page: { route: snap.template ?? snap.route, nodes: capDomLines(nodes, MAX_NODES_PER_ROUTE).kept, testIdOfNode, testIds: testIds.slice(0, MAX_NODES_PER_ROUTE) },
     leftOut: Math.max(0, nodes.length - MAX_NODES_PER_ROUTE) + Math.max(0, testIds.length - MAX_NODES_PER_ROUTE),
   };
 }
 
 /* One route of a capture, as the attributes of its event: whether it was captured or degraded and why, whether the page settled, how much it showed and how long the script took. */
-export function routeEventAttrs(snap: RouteSnapshot): Attrs {
+export function routeEventAttrs(snap: RouteSnapshot, idsOverflow = 0): Attrs {
   const catalog = buildRouteCatalog(snap);
   return {
     "qayaba.route.path": snap.route,
+    ...(snap.template !== undefined ? { "qayaba.route.template": snap.template } : {}),
     "qayaba.route.status": catalog.status,
     ...(catalog.status === ROUTE_STATUS.DEGRADED && catalog.degradeReason !== undefined ? { "qayaba.route.degrade_reason": catalog.degradeReason } : {}),
     "qayaba.route.settled": snap.settled === true,
@@ -36,23 +38,25 @@ export function routeEventAttrs(snap: RouteSnapshot): Attrs {
     "qayaba.route.test_ids": snap.testIds?.size ?? 0,
     "qayaba.route.runtime_errors": snap.runtimeErrors?.length ?? 0,
     ...(snap.ms !== undefined ? { "qayaba.route.ms": snap.ms } : {}),
+    ...(idsOverflow > 0 ? { "qayaba.route.ids_overflow": idsOverflow } : {}),
   };
 }
 
 export function recordDomCapture(telemetry: TelemetryPort, report: DomCaptureReport): void {
   const captured = report.snaps.filter((snap) => snap.error === undefined);
   const pages = captured.map(pageOf);
+  const budgeted = domItemIdsBudgeted(pages.map((p) => p.page));
   recordContextSpan(
     telemetry,
     {
       source: "dom-capture",
-      ids: domItemIds(pages.map((p) => p.page)),
+      ids: budgeted.ids,
       bytes: report.outputChars,
       truncatedItems: pages.reduce((sum, p) => sum + p.leftOut, 0),
     },
     (span) => {
       /* One event per route, in the order the script was asked for them, errored ones included. */
-      for (const snap of report.snaps) span.addEvent("route", routeEventAttrs(snap));
+      for (const snap of report.snaps) span.addEvent("route", routeEventAttrs(snap, budgeted.overflowByRoute.get(snap.template ?? snap.route) ?? 0));
     },
   );
 }

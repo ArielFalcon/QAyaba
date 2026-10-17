@@ -43,48 +43,44 @@ const INFRA = [
   /Protocol error \(/i,
   /Connection closed while reading from the driver/i,
 ];
+/* Auth is read from an HTTP status or from a navigation that ended on a login path; words like "unauthorized" or "session expired" are as likely to be page text an assertion quotes. */
 const AUTH = [
-  /status (code )?(401|403)\b/i,
-  /\b(401|403)\b[^\n]{0,40}(unauthori[sz]ed|forbidden)/i,
-  /\bunauthori[sz]ed\b/i,
-  /session (has )?(expired|invalidated|is gone)/i,
+  /\bstatus(?: code)?:?\s+(401|403)\b/i,
+  /\bReceived:\s+(401|403)\b/,
   /Received (string|pattern|URL):\s+"?[^\s"]*\/(log-?in|sign-?in|auth|sso)\b/i,
-  /redirected to (the )?(log-?in|sign-?in)/i,
 ];
+/* Data state is read from an HTTP status too, never from words in an assertion (an expected text may well say "conflict" or "already exists"). */
+const DATA_STATE = [/\bstatus(?: code)?:?\s+(404|409|422)\b/i, /\bReceived:\s+(404|409|422)\b/];
 const STRICT = /strict mode violation/i;
-const SELECTOR = [
-  STRICT,
-  /Received: <element\(s\) not found>/,
+/* What decides a selector failure whatever else the message says: the element is not there, is hidden, or the locator is ambiguous. */
+const SELECTOR_DECISIVE = [STRICT, /<element\(s\) not found>/, /resolved to hidden/i];
+/* Call-log wording of an action that could not find or use its element. It decides only when the message is no assertion. */
+const SELECTOR_CALL_LOG = [
   /waiting for (getBy\w+|locator|frameLocator)\(/i,
   /element is not (visible|enabled|stable|editable|attached)/i,
-  /resolved to hidden/i,
-  /<element\(s\) not found>/,
   /intercepts pointer events/i,
   /did not find some options/i,
 ];
 const TIMEOUT = [/Test timeout of \d+\s*ms exceeded/i, /Timeout \d+\s*ms exceeded/i, /exceeded while waiting/i, /Test ended\./i, /Navigation timeout/i];
-const DATA_STATE = [
-  /already exists/i,
-  /\bduplicate\b/i,
-  /\bconflict\b/i,
-  /status (code )?(404|409|422)\b/i,
-  /no (data|results|records|items) (found|available)/i,
-  /toHaveCount/,
-];
-const ASSERTION = [/expect\(/, /Expected( string| value| pattern| substring| array)?:/, /Received( string| value| array)?:/, /AssertionError/, /\btoBe\w*\(/, /\btoHave\w*\(/, /\btoContain\w*\(/, /\btoEqual\(/, /\btoMatch\w*\(/];
+/* An assertion announces itself on its first line (expect(...) failed, expect.matcher:, an AssertionError); its Expected/Received labels follow. */
+const ASSERTION_FIRST_LINE = [/\bexpect(\.\w+)?[(:]/, /AssertionError/, /unexpected value/i];
+const ASSERTION_BODY = [/^\s*Expected( string| value| pattern| substring| array)?:/m, /^\s*Received( string| value| array)?:/m];
 
 const any = (rules: readonly RegExp[], text: string): boolean => rules.some((re) => re.test(text));
+const firstLineOf = (text: string): string => text.split("\n").find((line) => line.trim() !== "") ?? "";
 
 export function classifyFailure(message: string, ctx: ClassifyContext = {}): FailureCategory | undefined {
   const text = stripAnsi(message);
   if (text.trim() === "") return undefined;
   if (NET_ERROR.test(text) && (ctx.deniedHosts ?? []).some((host) => host !== "" && text.includes(host))) return FAILURE_CATEGORY.EGRESS;
-  if (any(INFRA, text) || (NET_ERROR.test(text))) return FAILURE_CATEGORY.INFRA;
+  if (any(INFRA, text) || NET_ERROR.test(text)) return FAILURE_CATEGORY.INFRA;
+  if (any(SELECTOR_DECISIVE, text)) return FAILURE_CATEGORY.SELECTOR;
   if (any(AUTH, text)) return FAILURE_CATEGORY.AUTH;
-  if (any(SELECTOR, text)) return FAILURE_CATEGORY.SELECTOR;
-  if (any(TIMEOUT, text)) return FAILURE_CATEGORY.TIMEOUT;
   if (any(DATA_STATE, text)) return FAILURE_CATEGORY.DATA_STATE;
-  if (any(ASSERTION, text)) return FAILURE_CATEGORY.ASSERTION;
+  const isAssertion = any(ASSERTION_FIRST_LINE, firstLineOf(text)) || (any(ASSERTION_BODY, text) && /\bto[A-Z]\w*\(/.test(text));
+  if (isAssertion) return FAILURE_CATEGORY.ASSERTION;
+  if (any(SELECTOR_CALL_LOG, text)) return FAILURE_CATEGORY.SELECTOR;
+  if (any(TIMEOUT, text)) return FAILURE_CATEGORY.TIMEOUT;
   return undefined;
 }
 

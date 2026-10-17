@@ -11,12 +11,12 @@ import { traceHarness } from "./trace-harness";
 
 const SPEC_SOURCE = "await page.goto('/orders');\nawait page.getByTestId('invented-id').click();\nawait page.getByTestId('real-id').click();\n";
 
-function useCase(telemetry: TelemetryPort | undefined, withGrounding = true) {
+function useCase(telemetry: TelemetryPort | undefined, withGrounding = true, validate: RunQaUseCaseDeps["validation"]["validate"] = async () => ({ ok: true, errors: [] })) {
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
     generation: { generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) },
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
-    validation: { validate: async () => ({ ok: true, errors: [] }) },
+    validation: { validate },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
@@ -60,6 +60,16 @@ test("a gate that found nothing says nothing", async () => {
   const h = traceHarness();
   await useCase(h.telemetry, false).run(input);
   assert.equal(h.spans().some((s) => s.events.some((e) => e.name === "catalog_gate" || e.name === "ambiguity_advisory")), false);
+});
+
+test("every validation is told which specs the run has delivered, as its generator reported them", async () => {
+  const told: unknown[] = [];
+  await useCase(undefined, false, async (_dir, _files, run) => {
+    told.push(run);
+    return { ok: true, errors: [] };
+  }).run(input);
+  assert.ok(told.length >= 1);
+  assert.deepEqual(told[0], { deliveredSpecs: ["a.spec.ts"] });
 });
 
 test("the run ends the same whether the gates are traced, not traced, or traced by a port that throws", async () => {

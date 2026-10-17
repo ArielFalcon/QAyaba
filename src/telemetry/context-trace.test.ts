@@ -16,7 +16,7 @@ import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/
 import type { CrossRepoImpact, CurriculumPort, LearningPort, RetrievedRule, SelectedExemplar, ServiceLink, ServiceLinksPort, StructuralSignalPort } from "../../qa-engine/src/contexts/qa-run-orchestration/application/ports/index";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
-import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capture-trace";
+import { domCaptureObserver, recordDomCapture } from "@contexts/generation/infrastructure/dom-capture-trace";
 import { MAX_ITEM_IDS } from "@contexts/generation/domain/context-item-ids";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
@@ -240,6 +240,39 @@ const CAPTURE_OUTPUT = [
     settled: true,
   },
 ];
+
+const snapOf = (route: string, testIds: string[], extra: Record<string, unknown> = {}) => ({ route, nodes: ["button: Go"], testIds: new Map(testIds.map((id) => [id, 1] as [string, number])), settled: true, ...extra });
+
+test("a page opened from a route template is named by the template, in its elements' ids and in the facts", () => {
+  const h = traceHarness();
+  inPhase(h, () => {
+    recordDomCapture(h.telemetry, { asked: ["/orders/42"], outputChars: 10, snaps: [snapOf("/orders/42", ["row-x"], { template: "/orders/:id" })] });
+    telemetryGroundingTrace(h.telemetry).pack?.({
+      text: "pack",
+      domBytes: 1,
+      contractBytes: 0,
+      trace: { rankedRoutes: [], capturablePages: 0, pages: [{ route: "/orders/42", template: "/orders/:id", grounded: true, links: [], testIds: ["row-x"] }], changedTestIds: ["row-x"], contractIds: [], omittedLines: 0 },
+    });
+  });
+  const ids = contextSpan(h, "dom-capture").attributes["qayaba.context.item_ids"] as string[];
+  assert.ok(ids.includes("dom:/orders/:id#row-x"));
+  assert.deepEqual(contextSpan(h, "context-pack").attributes["qayaba.context.item_ids"], ["fact:/orders/:id#row-x:present"]);
+  const event = contextSpan(h, "dom-capture").events[0]!;
+  assert.equal(event.attributes?.["qayaba.route.path"], "/orders/42");
+  assert.equal(event.attributes?.["qayaba.route.template"], "/orders/:id");
+});
+
+test("each captured route gets an even share of the id budget and says how many of its ids were left out", () => {
+  const h = traceHarness();
+  const ids60 = (prefix: string) => Array.from({ length: 60 }, (_, i) => `${prefix}-${i}`);
+  const busy = (route: string) => snapOf(route, ids60(route.slice(1)), { nodes: Array.from({ length: 60 }, (_, i) => `button: ${route.slice(1)} ${i}`) });
+  inPhase(h, () => recordDomCapture(h.telemetry, { asked: ["/a", "/b", "/c"], outputChars: 10, snaps: [busy("/a"), busy("/b"), busy("/c")] }));
+  const span = contextSpan(h, "dom-capture");
+  const ids = span.attributes["qayaba.context.item_ids"] as string[];
+  /* Each route has 60 test ids and 60 unnamed nodes (120 ids); a third of 200 is 66. */
+  for (const route of ["/a", "/b", "/c"]) assert.equal(ids.filter((id) => id.startsWith(`dom:${route}#`)).length, 66);
+  assert.deepEqual(span.events.map((e) => e.attributes?.["qayaba.route.ids_overflow"]), [54, 54, 54]);
+});
 
 /* A run scope that can start the stand-in child, with the open phase as the parent of what it makes. */
 async function inCaptureScope<T>(h: ReturnType<typeof traceHarness>, fn: () => Promise<T>): Promise<T> {

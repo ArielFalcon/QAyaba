@@ -2,6 +2,9 @@
 
 import { GENAI } from "./genai-semconv.ts";
 
+/* The most item ids a context span exports (design §4.4); the engine counts the rest. */
+export const MAX_ITEM_IDS_PER_SPAN = 200;
+
 export type AttrType = "string" | "int" | "double" | "boolean" | "string[]";
 export type Cardinality = "low" | "high";
 export type ContentClass = "none" | "metadata" | "redacted-text" | "content";
@@ -11,9 +14,11 @@ export interface AttrSpec {
   readonly description: string;
   readonly cardinality: Cardinality;
   readonly content: ContentClass;
+  /* The most elements of an array value that leave the process; absent, the adapter's default applies. */
+  readonly arrayCap?: number;
 }
 
-const spec = (type: AttrType, description: string, cardinality: Cardinality = "low", content: ContentClass = "none"): AttrSpec => ({ type, description, cardinality, content });
+const spec = (type: AttrType, description: string, cardinality: Cardinality = "low", content: ContentClass = "none", arrayCap?: number): AttrSpec => ({ type, description, cardinality, content, ...(arrayCap !== undefined ? { arrayCap } : {}) });
 const str = (d: string, c: Cardinality = "low") => spec("string", d, c);
 const int = (d: string, c: Cardinality = "low") => spec("int", d, c);
 const bool = (d: string) => spec("boolean", d);
@@ -156,7 +161,7 @@ export const ATTRIBUTES = {
   "qayaba.context.bytes": int("Bytes the source contributed to what the agent receives."),
   "qayaba.context.truncated": bool("The source was cut to fit a bound."),
   "qayaba.context.truncated_items": int("Items the source left out to fit its bound."),
-  "qayaba.context.item_ids": spec("string[]", "Stable ids of the items the source supplied (design §4.4), at most 200; the rest are counted in qayaba.context.item_ids.overflow.", "high"),
+  "qayaba.context.item_ids": spec("string[]", "Stable ids of the items the source supplied (design §4.4), at most 200; the rest are counted in qayaba.context.item_ids.overflow.", "high", "none", MAX_ITEM_IDS_PER_SPAN),
   "qayaba.context.item_ids.overflow": int("Item ids left out of qayaba.context.item_ids because of its cap."),
 
   /* One route of a DOM capture (an event on qayaba.context.dom-capture). */
@@ -167,6 +172,8 @@ export const ATTRIBUTES = {
   "qayaba.route.nodes": int("Accessibility-tree nodes read from the route."),
   "qayaba.route.test_ids": int("Distinct test ids found on the route."),
   "qayaba.route.runtime_errors": int("Runtime errors the page logged."),
+  "qayaba.route.ids_overflow": int("Element ids of the route left out of the capture span because the route used its share of the id budget."),
+  "qayaba.route.template": str("The route template of the map a page was opened from.", "high"),
   "qayaba.route.ms": int("Milliseconds the capture script spent on the route."),
 
   /* Login attempts (design §6.3). */
@@ -176,7 +183,7 @@ export const ATTRIBUTES = {
   "qayaba.auth.precondition_kind": str("The precondition kind of a login that could not be completed."),
   "qayaba.auth.restored": bool("The login script in use was restored from the suite store."),
   "qayaba.auth.demoted": bool("A restored login was demoted earlier in this run."),
-  "qayaba.auth.demoted_reason": text("Why the restored login was demoted."),
+  "qayaba.auth.demoted_reason": str("Why the restored login was demoted: login-did-not-sign-in or other."),
   "qayaba.egress.denied": spec("string[]", "Hosts the egress filter refused while the login ran, apart from those the app blocks on purpose.", "high", "redacted-text"),
   "qayaba.egress.denied_intentional": spec("string[]", "Refused hosts the app declares as blocked on purpose.", "high", "redacted-text"),
 
@@ -190,7 +197,7 @@ export const ATTRIBUTES = {
   "qayaba.suite_store.dropped": int("Entries removed by a capture."),
   "qayaba.suite_store.skipped": int("Files seen but not admitted by a capture."),
   "qayaba.suite_store.skip_reasons": spec("string[]", "The distinct reasons files were not admitted, from a closed set."),
-  "qayaba.suite_store.reason": text("Why the stored login was demoted."),
+  "qayaba.suite_store.reason": str("Why the stored login was demoted: login-did-not-sign-in or other."),
 
   /* Validation (design §6.2). */
   "qayaba.validate.check": str("The static check: typecheck, lint, list or manifest."),
@@ -203,7 +210,8 @@ export const ATTRIBUTES = {
   "qayaba.preexec.ambiguity_catches": int("Selector ambiguities the pre-execution advisory counted."),
 
   /* Execution, synthesized from the Playwright JSON report (design §6.2). */
-  "qayaba.spec.file": str("A spec file of the suite, relative to the suite directory.", "high"),
+  "qayaba.spec.file": text("A spec file of the suite, relative to the suite directory (the report is written by the test process)."),
+  "qayaba.spans.synthesized_dropped": int("Spans a report would have produced that the per-report and per-run caps left out."),
   "qayaba.test.name": text("A test case's title chain."),
   "qayaba.test.status": str("passed, failed, flaky, skipped, timedOut or interrupted."),
   "qayaba.test.failure_category": str("selector, auth, data_state, timeout, assertion, infra or egress."),

@@ -8,7 +8,7 @@
 
 import { noteSuiteAuth } from "../../../../shared-infrastructure/telemetry/run-auth-notes.ts";
 import { startRunChildSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
-import { SKIP_REASON, type SuiteCaptureInput, SuiteCaptureResult, SuiteRestoreResult, SuiteRoot, SuiteStorePort } from "../../../../shared-kernel/ports/suite-store.port.ts";
+import { SKIP_REASON, classifyDemoteReason, type SuiteCaptureInput, SuiteCaptureResult, SuiteRestoreResult, SuiteRoot, SuiteStorePort } from "../../../../shared-kernel/ports/suite-store.port.ts";
 import type { TelemetryPort } from "../../../../shared-kernel/telemetry/telemetry.port.ts";
 
 export const SKIP_CLASS = ["login-session", "changed-after-run", "login-not-verified", "vanished", "unreadable"] as const;
@@ -82,12 +82,12 @@ export class TracedSuiteStore implements SuiteStorePort {
   }
 
   async demoteAuth(root: SuiteRoot, reason: string): Promise<void> {
-    const span = startRunChildSpan(this.telemetry, "qayaba.suite_store.demote", { "qayaba.suite_store.reason": reason });
+    const span = startRunChildSpan(this.telemetry, "qayaba.suite_store.demote", { "qayaba.suite_store.reason": classifyDemoteReason(reason) });
     try {
       await this.inner.demoteAuth(root, reason);
       noteSuiteAuth((notes) => {
         notes.restored = false;
-        notes.demotedReason = reason;
+        notes.demotedReason = classifyDemoteReason(reason);
       });
       span.end();
     } catch (err) {

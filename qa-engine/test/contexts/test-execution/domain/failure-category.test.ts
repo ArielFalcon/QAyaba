@@ -1,4 +1,9 @@
 /* The failure classifier is pinned to the error wording of Playwright 1.60.0 (the version the image pins). When Playwright moves, these fixtures are re-recorded from the new version's messages (CLAUDE.md, "When Playwright moves"). */
+/* Provenance of the fixtures. Fragments confirmed in the 1.60.0 sources under node_modules/playwright-core and node_modules/playwright: the
+   "strict mode violation: <locator> resolved to N elements:" line, "waiting for <locator>", "unexpected value", "<element(s) not found>",
+   "locator resolved to hidden", "intercepts pointer events", "Timeout Nms exceeded", the "Expected:"/"Received:" labels and "Call log:".
+   The whole-message layouts (line order, indentation, the surrounding Error: prefixes) and the 401/403, redirect-to-login and net::ERR_ messages
+   are written from memory of real runs and are PENDING live re-recording against a Playwright 1.60 run. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FAILURE_CATEGORY, classifyFailure, locatorStrategy, strictModeMatchCount } from "@contexts/test-execution/domain/failure-category.ts";
@@ -20,6 +25,11 @@ const FIXTURES = {
   netOther: `Error: page.goto: net::ERR_NAME_NOT_RESOLVED at https://dev.example.com/`,
   browserGone: `Error: page.click: Target page, context or browser has been closed`,
   launch: `Error: browserType.launch: Executable doesn't exist at /ms-playwright/chromium-1200/chrome-linux/chrome`,
+  /* The reviewer's counterexamples: an assertion that names a locator, quotes words other rules look for, or carries a call log. */
+  textMismatchWithCallLog: `Error: expect(locator).toHaveText(expected) failed\n\nLocator: getByTestId('title')\nExpected string: "Orders"\nReceived string: "Order list"\nTimeout: 5000ms\n\nCall log:\n  - Expect "toHaveText" with timeout 5000ms\n  - waiting for getByTestId('title')\n    9 \u00d7 locator resolved to <h1>Order list</h1>\n      - unexpected value "Order list"`,
+  countMismatch: `Error: expect(locator).toHaveCount(expected) failed\n\nLocator: locator('li')\nExpected: 3\nReceived: 2\nTimeout: 5000ms`,
+  quotedConflict: `Error: expect(locator).toHaveText(expected) failed\n\nLocator: getByRole('status')\nExpected: "Conflict resolved"\nReceived: "Saving"\nTimeout: 5000ms`,
+  quotedUnauthorized: `Error: expect(locator).toHaveText(expected) failed\n\nLocator: getByRole('alert')\nExpected: "You are unauthorized"\nReceived: ""\nTimeout: 5000ms`,
   mystery: `TypeError: Cannot read properties of undefined (reading 'map')`,
   coloured: `\u001b[31mError: expect(locator).toBeVisible() failed\u001b[39m\n\nLocator: getByTestId('banner')\nReceived: <element(s) not found>`,
 };
@@ -84,4 +94,16 @@ test("the kind of locator that failed is read from the first locator the message
   assert.equal(locatorStrategy(FIXTURES.hidden), "css");
   assert.equal(locatorStrategy(`waiting for locator('[data-testid="row"]')`), "testid");
   assert.equal(locatorStrategy(FIXTURES.assertValue), undefined);
+});
+
+test("an expectation that names a locator, carries a call log or quotes words other rules look for is still an assertion failure", () => {
+  for (const name of ["textMismatchWithCallLog", "countMismatch", "quotedConflict", "quotedUnauthorized"] as const) {
+    assert.equal(classifyFailure(FIXTURES[name]), FAILURE_CATEGORY.ASSERTION, name);
+  }
+});
+
+test("data state and auth are read from an HTTP status, never from words in an assertion", () => {
+  assert.equal(classifyFailure("Error: expect(response).toBeOK()\n\nStatus: 409 Conflict"), FAILURE_CATEGORY.DATA_STATE);
+  assert.equal(classifyFailure("Error: apiRequestContext.post: status 409"), FAILURE_CATEGORY.DATA_STATE);
+  assert.equal(classifyFailure("Error: expect(received).toBe(expected)\n\nReceived: 403"), FAILURE_CATEGORY.AUTH);
 });

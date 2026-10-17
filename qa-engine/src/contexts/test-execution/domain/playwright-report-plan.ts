@@ -11,6 +11,10 @@ export const MAX_PLANNED_CASES = 1000;
 export const MAX_PLANNED_ATTEMPTS = 10;
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
+/* A time in a report may precede the phase by this much (clock skew between the child and the host) and no more. */
+export const START_SLACK_MS = 60_000;
+/* How far back a time may reach when the phase's own start is not known. */
+const FALLBACK_WINDOW_MS = 3 * 60 * 60 * 1000;
 
 export type AttemptStatus = "passed" | "failed" | "timedOut" | "interrupted" | "skipped";
 export type CaseStatus = "passed" | "failed" | "flaky" | "skipped" | "timedOut" | "interrupted";
@@ -82,13 +86,14 @@ function caseStatusOf(test: Record<string, unknown>, attempts: PlannedAttempt[])
   }
 }
 
-function planAttempts(test: Record<string, unknown>, fallbackStart: number, deniedHosts: readonly string[]): PlannedAttempt[] {
+function planAttempts(test: Record<string, unknown>, fallbackStart: number, deniedHosts: readonly string[], clamp: (ms: number, floor: number) => number, lo: number): PlannedAttempt[] {
   const attempts: PlannedAttempt[] = [];
   let cursor = fallbackStart;
   for (const raw of list(test.results).slice(0, MAX_PLANNED_ATTEMPTS)) {
     if (!isRecord(raw)) continue;
     const parsed = typeof raw.startTime === "string" ? Date.parse(raw.startTime) : NaN;
-    const startMs = Number.isFinite(parsed) ? parsed : cursor;
+    /* The report is written by the test process: no time in it reaches before the phase or past now. */
+    const startMs = clamp(Number.isFinite(parsed) ? parsed : cursor, lo);
     const duration = typeof raw.duration === "number" && Number.isFinite(raw.duration) ? Math.min(Math.max(0, raw.duration), MAX_DURATION_MS) : 0;
     const status = attemptStatus(raw.status);
     const message = status === "passed" || status === "skipped" ? undefined : errorOf(raw)?.slice(0, MAX_MESSAGE_CHARS);
@@ -99,19 +104,22 @@ function planAttempts(test: Record<string, unknown>, fallbackStart: number, deni
       index: typeof raw.retry === "number" && Number.isSafeInteger(raw.retry) && raw.retry >= 0 ? raw.retry : attempts.length,
       status,
       startMs,
-      endMs: startMs + duration,
+      endMs: clamp(startMs + duration, startMs),
       ...(message !== undefined ? { errorMessage: message } : {}),
       ...(category !== undefined ? { failureCategory: category } : {}),
       ...(strict !== undefined ? { strictMatchCount: strict } : {}),
       ...(strategy !== undefined ? { strategy } : {}),
     });
-    cursor = startMs + duration;
+    cursor = clamp(startMs + duration, startMs);
   }
   return attempts;
 }
 
 /* Walks the report's suites: a top-level suite is a file, and its nested suites add to the title chain of its cases. */
-export function planReport(report: unknown, opts: { deniedHosts?: readonly string[]; nowMs: number }): ReportPlan {
+export function planReport(report: unknown, opts: { deniedHosts?: readonly string[]; nowMs: number; phaseStartMs?: number }): ReportPlan {
+  const lo = (opts.phaseStartMs ?? opts.nowMs - FALLBACK_WINDOW_MS) - START_SLACK_MS;
+  const hi = opts.nowMs;
+  const clamp = (ms: number, floor: number): number => Math.min(hi, Math.max(floor, ms));
   const files: PlannedFile[] = [];
   let cases = 0;
   let omitted = 0;
@@ -125,7 +133,7 @@ export function planReport(report: unknown, opts: { deniedHosts?: readonly strin
           omitted += 1;
           continue;
         }
-        const attempts = planAttempts(rawTest, file.endMs || opts.nowMs, deniedHosts);
+        const attempts = planAttempts(rawTest, file.endMs || opts.nowMs, deniedHosts, clamp, lo);
         const status = caseStatusOf(rawTest, attempts);
         const failing = attempts.find((a) => a.status === "failed" || a.status === "timedOut" || a.status === "interrupted");
         const startMs = attempts[0]?.startMs ?? opts.nowMs;

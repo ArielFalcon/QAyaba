@@ -56,8 +56,7 @@ export const TEXT_CAP_CHARS = 1024;
 export const CONTENT_CAP_CHARS = 32 * 1024;
 /* Caps for the structure of a span: plain string values, array lengths, names, error classes and metric attribute values. */
 export const NONE_CAP_CHARS = 256;
-/* 200 is the cap of a context span's item ids (design §4.4); the engine counts what it leaves out. */
-export const ARRAY_CAP = 200;
+export const ARRAY_CAP = 64;
 export const NAME_CAP_CHARS = 128;
 export const ERROR_TYPE_CAP_CHARS = 128;
 export const METRIC_VALUE_CAP_CHARS = 64;
@@ -319,14 +318,14 @@ export class OtelTelemetry implements TelemetryPort {
       /* Structural strings are not pattern-sanitized (an id or enum would be corrupted), but the run's own known secrets are removed by value. */
       if (typeof value === "string") return this.byValue(value, scope);
       if (Array.isArray(value)) {
-        const items = value.slice(0, ARRAY_CAP);
+        const items = value.slice(0, spec.arrayCap ?? ARRAY_CAP);
         if (!items.every((v) => typeof v === elementType(spec))) return undefined;
         return (typeof items[0] === "string" ? items.map((v) => this.byValue(v as string, scope)) : items) as AttributeValue;
       }
       return undefined;
     }
     const cap = spec.content === "content" ? CONTENT_CAP_CHARS : TEXT_CAP_CHARS;
-    if (Array.isArray(value)) return value.slice(0, ARRAY_CAP).map((v) => this.redactText(String(v), scope, cap));
+    if (Array.isArray(value)) return value.slice(0, spec.arrayCap ?? ARRAY_CAP).map((v) => this.redactText(String(v), scope, cap));
     return this.redactText(String(value), scope, cap);
   }
 

@@ -361,6 +361,7 @@ function ensureDb(): void {
       text TEXT NOT NULL,
       bytes INTEGER NOT NULL,
       captured_at INTEGER NOT NULL,
+      delivered INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (run_id, path, sha256)
     );
     CREATE INDEX IF NOT EXISTS idx_run_spec_snapshots_captured_at ON run_spec_snapshots(captured_at);
@@ -472,6 +473,10 @@ function ensureDb(): void {
   /* Where the run got in the pipeline and the JSON of its time per phase: NULL for a run that recorded none (an older run, a cancelled one). */
   if (!columnExists("runs", "furthest_phase")) {
     db.exec("ALTER TABLE runs ADD COLUMN furthest_phase TEXT");
+  }
+  /* The first build of the snapshot table had no flag; every row it kept is a delivered spec or an unmarked suite spec, and stays visible. */
+  if (!columnExists("run_spec_snapshots", "delivered")) {
+    db.exec("ALTER TABLE run_spec_snapshots ADD COLUMN delivered INTEGER NOT NULL DEFAULT 1");
   }
   if (!columnExists("runs", "phase_timings")) {
     db.exec("ALTER TABLE runs ADD COLUMN phase_timings TEXT");
@@ -1557,14 +1562,16 @@ export interface SpecSnapshotRow {
   bytes: number;
   /* Epoch ms. */
   capturedAt: number;
+  /* 1 when the run delivered the spec. */
+  delivered: number;
 }
 
 /* Keeps the snapshots of a run's specs in ONE transaction. A row already kept (same run, path and bytes) is left as it is. */
 export function commitSpecSnapshots(rows: readonly SpecSnapshotRow[]): void {
   ensureDb();
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO run_spec_snapshots (run_id, path, sha256, text, bytes, captured_at)
-    VALUES (@runId, @path, @sha256, @text, @bytes, @capturedAt)`);
+    INSERT OR IGNORE INTO run_spec_snapshots (run_id, path, sha256, text, bytes, captured_at, delivered)
+    VALUES (@runId, @path, @sha256, @text, @bytes, @capturedAt, @delivered)`);
   db.transaction((batch: readonly SpecSnapshotRow[]) => {
     for (const row of batch) insert.run(row);
   })(rows);
@@ -1580,6 +1587,7 @@ export function listSpecSnapshots(runId: string): SpecSnapshotRow[] {
     text: r.text as string,
     bytes: r.bytes as number,
     capturedAt: r.captured_at as number,
+    delivered: r.delivered as number,
   }));
 }
 

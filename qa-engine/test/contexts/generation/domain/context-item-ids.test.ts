@@ -12,6 +12,7 @@ import {
   changedValueFactIds,
   contextMapItemIds,
   domItemIds,
+  domItemIdsBudgeted,
   hash8,
   itemId,
 } from "@contexts/generation/domain/context-item-ids.ts";
@@ -104,6 +105,16 @@ test("the cap keeps the first ids in order, removes repeats and counts the rest"
   assert.equal(capped.ids.length, MAX_ITEM_IDS);
   assert.equal(capped.overflow, 5);
   assert.equal(capped.ids[0], "rule:0");
+});
+
+test("a budget shared among many pages still leaves each a few ids, and the overflow is counted per route", () => {
+  const pages = Array.from({ length: 100 }, (_, i) => ({ route: `/r${i}`, testIds: Array.from({ length: 10 }, (_t, t) => `t${t}`) }));
+  const { ids, overflowByRoute } = domItemIdsBudgeted(pages);
+  assert.equal(ids.filter((id) => id.startsWith("dom:/r99#")).length, 5);
+  assert.equal(overflowByRoute.get("/r99"), 5);
+  const few = domItemIdsBudgeted([{ route: "/a", testIds: ["x"] }, { route: "/b", testIds: ["y"] }]);
+  assert.deepEqual(few.ids, ["dom:/a#x", "dom:/b#y"]);
+  assert.equal(few.overflowByRoute.size, 0);
 });
 
 test("every kind states whether a spec can be checked against it, and briefs, rules and facts cannot", () => {

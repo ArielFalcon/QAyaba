@@ -1,6 +1,7 @@
 /* What a sandboxed child needs to know about the run it belongs to, carried through the run's async calls (AsyncLocalStorage) like the run's secret scope, so that the many spawn sites do not each take the run's directories and credentials as parameters. The run opens it (`withExecScope`); the launcher reads it. Outside a run there is none, and the launcher refuses to spawn. */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { Attrs } from "../../shared-kernel/telemetry/attribute-registry.ts";
 import type { TelemetryContext } from "../../shared-kernel/telemetry/telemetry.port.ts";
 
 /* What the egress layer made of the run, for the run's gate signals. */
@@ -31,7 +32,13 @@ export interface RunScope {
   /* The mirrors the launcher gave the sandbox's group for this run; the scope's end gives them back. */
   openedMirrors?: Set<string>;
   /* Where the run's trace stands, set by the run: the launcher parents the span of each child to `parent()`, the phase that is open. Absent or undefined: the active context decides. */
-  telemetry?: { parent(): TelemetryContext | undefined };
+  telemetry?: {
+    parent(): TelemetryContext | undefined;
+    /* Wall-clock ms the open phase started at, when known: spans synthesized from what a child reported are kept after it. */
+    phaseStart?(): number | undefined;
+    /* Sets attributes on the open phase's span. */
+    annotate?(attrs: Attrs): void;
+  };
 }
 
 const store = new AsyncLocalStorage<RunScope>();

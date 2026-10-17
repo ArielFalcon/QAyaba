@@ -433,6 +433,18 @@ test("string attributes of every class, array lengths, span names and event name
   assert.equal(s.events[0]!.name.length, 128);
 });
 
+test("an array key keeps its own cap: item ids export 200 while every other array keeps the default", () => {
+  assert.equal(ARRAY_CAP, 64);
+  const { telemetry, byName } = harness();
+  const span = telemetry.startSpan("caps", {
+    attrs: { "qayaba.context.item_ids": Array.from({ length: 300 }, (_, i) => `rule:${i}`), "qayaba.egress.denied_cotemporal": Array.from({ length: 300 }, (_, i) => `h${i}`) },
+  });
+  span.end();
+  const s = byName("caps");
+  assert.equal((s.attributes["qayaba.context.item_ids"] as string[]).length, 200);
+  assert.equal((s.attributes["qayaba.egress.denied_cotemporal"] as string[]).length, ARRAY_CAP);
+});
+
 test("span and event names pass the sanitizer and the bound scope", () => {
   const { telemetry, spans } = harness();
   const span = telemetry.startSpan(`op ${PASSWORD} ops@example.com`, { secrets: seededScope() });

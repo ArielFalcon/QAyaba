@@ -331,6 +331,8 @@ export interface CapturedPage {
   route: string;
   grounded: boolean;
   links: string[];
+  /* For a page opened from a route template of the map, that template: the trace names the page's elements by it. */
+  template?: string;
   /* The test ids the page carries, when it carries any (for the trace's change-value facts). */
   testIds?: string[];
 }
@@ -348,7 +350,7 @@ export async function captureDomForRoutes(
   try {
     const snaps = await deps.render(input.e2eDir, input.baseUrl, asked, input.testIdAttribute);
     warnOnDegradedRoutes(snaps);
-    input.onPages?.(snaps.map((snap) => ({ route: snap.route, grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED, links: snap.links ?? [], ...(snap.testIds && snap.testIds.size > 0 ? { testIds: [...snap.testIds.keys()] } : {}) })));
+    input.onPages?.(snaps.map((snap) => ({ route: snap.route, grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED, links: snap.links ?? [], ...(input.instanceOf?.get(snap.route) !== undefined ? { template: input.instanceOf.get(snap.route)! } : {}), ...(snap.testIds && snap.testIds.size > 0 ? { testIds: [...snap.testIds.keys()] } : {}) })));
     const reported = snaps
       .filter((snap) => !seeds.includes(snap.route))
       .map((snap) => {

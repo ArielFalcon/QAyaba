@@ -24,7 +24,7 @@ export const CONTEXT_SOURCES = [
 export type ContextSource = (typeof CONTEXT_SOURCES)[number];
 
 /* The most ids one span carries; the rest are counted. */
-export const MAX_ITEM_IDS = 200;
+export const MAX_ITEM_IDS = 200; /* the registry's arrayCap for qayaba.context.item_ids says the same */
 /* One id is never longer than this: a longer one keeps its head and ends with a hash of the whole, so it stays unique and stable. */
 export const MAX_ITEM_ID_CHARS = 200;
 
@@ -145,6 +145,22 @@ export function changedValueFactIds(pages: ReadonlyArray<{ route: string; testId
     else for (const p of where) ids.push(itemId.fact(p.route, testId, "present"));
   }
   return ids;
+}
+
+/* The fewest ids a route keeps when the span's budget is shared out among the routes of a capture. */
+export const MIN_DOM_IDS_PER_ROUTE = 5;
+
+/* The same ids, with the span's budget shared out evenly among the pages (at least a few each) so that the last pages of a capture are not the ones that fall off the cap. What a page's share leaves out is counted for it, keyed by the page's route. */
+export function domItemIdsBudgeted(pages: readonly DomPageLike[], total: number = MAX_ITEM_IDS): { ids: string[]; overflowByRoute: Map<string, number> } {
+  const share = Math.max(MIN_DOM_IDS_PER_ROUTE, Math.floor(total / Math.max(1, pages.length)));
+  const ids: string[] = [];
+  const overflowByRoute = new Map<string, number>();
+  for (const page of pages) {
+    const own = [...new Set(domItemIds([page]))];
+    ids.push(...own.slice(0, share));
+    if (own.length > share) overflowByRoute.set(page.route, (overflowByRoute.get(page.route) ?? 0) + own.length - share);
+  }
+  return { ids, overflowByRoute };
 }
 
 export interface BriefLike {

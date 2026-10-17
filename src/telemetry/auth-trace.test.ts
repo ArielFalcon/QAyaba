@@ -9,7 +9,7 @@ import { AuthPreconditionError, PRECONDITION_KIND } from "../../qa-engine/src/co
 import { TracedSuiteStore, classifySkipReason, SKIP_CLASS } from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/suite-store-trace";
 import { SKIP_REASON } from "@kernel/ports/suite-store.port";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
-import type { SuiteStorePort } from "@kernel/ports/suite-store.port";
+import { DEMOTE_REASON, classifyDemoteReason, type SuiteStorePort } from "@kernel/ports/suite-store.port";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { AUTH_MATERIAL_FILES } from "../../qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env";
@@ -148,7 +148,7 @@ test("a login restored from the suite store, and one demoted earlier in the run,
     await withExecScope(scope, async () => {
       await store.restore({ mirrorDir: "/m", specDir: "/m/e2e" });
       await adapter.prepare(REQ);
-      await store.demoteAuth({ mirrorDir: "/m", specDir: "/m/e2e" }, "the restored login did not complete a sign-in before generation");
+      await store.demoteAuth({ mirrorDir: "/m", specDir: "/m/e2e" }, DEMOTE_REASON.LOGIN_DID_NOT_SIGN_IN);
       restoredAuth = false;
       await adapter.prepare(REQ);
       await store.capture({ mirrorDir: "/m", specDir: "/m/e2e", runId: "r", sha: "abc", executedGreen: new Map() });
@@ -159,7 +159,7 @@ test("a login restored from the suite store, and one demoted earlier in the run,
     assert.equal(logins[0]!.attributes["qayaba.auth.demoted"], undefined);
     assert.equal(logins[1]!.attributes["qayaba.auth.restored"], false);
     assert.equal(logins[1]!.attributes["qayaba.auth.demoted"], true);
-    assert.match(String(logins[1]!.attributes["qayaba.auth.demoted_reason"]), /restored login did not complete/);
+    assert.equal(logins[1]!.attributes["qayaba.auth.demoted_reason"], "login-did-not-sign-in");
 
     const restore = h.only("qayaba.suite_store.restore");
     assert.equal(restore.parentSpanContext?.spanId, phase.context().spanId);
@@ -167,7 +167,7 @@ test("a login restored from the suite store, and one demoted earlier in the run,
     const capture = h.only("qayaba.suite_store.capture");
     assert.deepEqual([capture.attributes["qayaba.suite_store.entries"], capture.attributes["qayaba.suite_store.admitted"], capture.attributes["qayaba.suite_store.dropped"], capture.attributes["qayaba.suite_store.skipped"]], [5, 2, 1, 2]);
     assert.deepEqual(capture.attributes["qayaba.suite_store.skip_reasons"], ["changed-after-run", "unreadable"]);
-    assert.match(String(h.only("qayaba.suite_store.demote").attributes["qayaba.suite_store.reason"]), /restored login/);
+    assert.equal(h.only("qayaba.suite_store.demote").attributes["qayaba.suite_store.reason"], "login-did-not-sign-in");
   } finally {
     rmSync(authDir, { recursive: true, force: true });
   }
@@ -179,6 +179,14 @@ test("a skip reason becomes a member of a closed set, whatever the store or the 
   assert.equal(classifySkipReason(SKIP_REASON.VANISHED), "vanished");
   assert.equal(classifySkipReason("anything the confined reader said"), "unreadable");
   for (const reason of [SKIP_REASON.SESSION_STATE, "x"]) assert.ok(SKIP_CLASS.includes(classifySkipReason(reason)));
+});
+
+test("a demotion reason in any other words is exported as other, never as free text", async () => {
+  assert.equal(classifyDemoteReason("some words with a secret hunter2"), "other");
+  const h = traceHarness();
+  const store = new TracedSuiteStore({ restore: async () => ({ restored: 0, trackedWins: 0, overlaid: 0, authRestored: false }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} }, h.telemetry);
+  await store.demoteAuth({ mirrorDir: "/m", specDir: "/m/e2e" }, "some words with a secret hunter2");
+  assert.equal(h.only("qayaba.suite_store.demote").attributes["qayaba.suite_store.reason"], "other");
 });
 
 test("a store call that fails is an error on its span and the failure goes on", async () => {

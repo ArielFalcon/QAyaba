@@ -48,6 +48,18 @@ export interface SuiteCaptureResult {
   skipped: ReadonlyArray<{ path: string; reason: string }>;
 }
 
+/* Why a stored login is demoted, in the words `demoteAuth` is given (they go to logs and the store's manifest). The trace never carries these words: it carries the member of DEMOTE_REASON_CLASS they classify as. */
+export const DEMOTE_REASON = {
+  LOGIN_DID_NOT_SIGN_IN: "the restored login did not complete a sign-in before generation",
+} as const;
+
+export const DEMOTE_REASON_CLASS = ["login-did-not-sign-in", "other"] as const;
+export type DemoteReasonClass = (typeof DEMOTE_REASON_CLASS)[number];
+
+export function classifyDemoteReason(reason: string): DemoteReasonClass {
+  return reason === DEMOTE_REASON.LOGIN_DID_NOT_SIGN_IN ? "login-did-not-sign-in" : "other";
+}
+
 export interface SuiteStorePort {
   /** Puts the stored suite into the working copy, after a checkout and before the project setup. A store with nothing in it restores nothing. */
   restore(root: SuiteRoot): Promise<SuiteRestoreResult>;

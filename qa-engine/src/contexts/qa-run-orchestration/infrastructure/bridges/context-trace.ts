@@ -60,7 +60,7 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort): GroundingTrac
       }
       recordContextSpan(telemetry, {
         source: "context-pack",
-        ids: trace ? [...changedValueFactIds(trace.pages, trace.changedTestIds), ...trace.contractIds.map(itemId.op)] : [],
+        ids: trace ? [...changedValueFactIds(trace.pages.map((page) => ({ route: page.template ?? page.route, ...(page.testIds ? { testIds: page.testIds } : {}) })), trace.changedTestIds), ...trace.contractIds.map(itemId.op)] : [],
         bytes: assembly.text === undefined ? 0 : bytesOf(assembly.text),
         truncatedItems: trace?.omittedLines ?? 0,
       });

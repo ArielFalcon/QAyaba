@@ -131,6 +131,7 @@ import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.ser
 import { RunDecision } from "../domain/run-decision.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
+import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
@@ -543,7 +544,7 @@ export class RunQaUseCase {
     const trail: RunTrail = { phases, spans, reviewRequired: generationRunsReviewer({ needsReview: { ...DEFAULT_CONFIG, ...this.deps.config }.needsReview, mode: input.mode }) };
     /* A child the launcher starts for this run is a child of whichever phase is open. */
     const scope = activeExecScope();
-    if (scope) scope.telemetry = { parent: () => spans.context() };
+    if (scope) scope.telemetry = { parent: () => spans.context(), phaseStart: () => spans.startedAt(), annotate: (attrs) => spans.annotate(attrs) };
     try {
       return this.withPhases(await this.runHandlingEnds(input, signal, trail), trail);
     } catch (err) {
@@ -1475,7 +1476,8 @@ export class RunQaUseCase {
     const validateChangedFiles = classificationIntent?.changedFiles ?? [];
     trail.phases.enter("validate");
     this.deps.observer?.onStep("validate");
-    let validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles);
+    const deliveredNow = (): { deliveredSpecs: string[] } => ({ deliveredSpecs: delivered.map((d) => d.file) });
+    let validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
     let lastGenerated = generated;
     /*
      * Prefer FixLoop's final specMetas when present; otherwise lastGenerated's.
@@ -1503,7 +1505,7 @@ export class RunQaUseCase {
         fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
       });
       await enforceConfinement();
-      validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles);
+      validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
     }
 
     /*
@@ -1723,7 +1725,7 @@ export class RunQaUseCase {
         generation: fixLoopGeneration,
         selectorCheck: fixLoopSelectorCheck,
         /* Re-validate before retry execute so a compile error does not hit live DEV. */
-        revalidate: (specDir) => this.deps.validation.validate(specDir),
+        revalidate: (specDir) => this.deps.validation.validate(specDir, undefined, deliveredNow()),
       });
       /*
        * coverageLikelyMeasured omits the cross-repo conjunct on purpose: a false
@@ -1863,7 +1865,7 @@ export class RunQaUseCase {
           const regen = await regenerate(undefined, { coverageGap: gap });
           await enforceConfinement();
           if (regen.specs.length > 0) {
-            const regenValidation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles);
+            const regenValidation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
             if (regenValidation.ok) {
               const regenNamespace = `${input.runId}-coverage-regen`;
               const regenRun = await this.deps.execution.execute(workspace.specDir, {
@@ -2536,7 +2538,7 @@ export class RunQaUseCase {
    */
   private async replaceRestoredLogin(workspace: { specDir: string; mirrorDir: string }, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed"> {
     try {
-      await this.deps.suiteStore!.demoteAuth(workspace, "the restored login did not complete a sign-in before generation");
+      await this.deps.suiteStore!.demoteAuth(workspace, DEMOTE_REASON.LOGIN_DID_NOT_SIGN_IN);
     } catch (err) {
       rethrowIfUntrusted(err);
       this.announceSuite(`[qa] suite store could not demote the failed login (the failure stands): ${err instanceof Error ? err.message : String(err)}`, "warn");

@@ -10,6 +10,8 @@
 export const MAX_SPEC_SNAPSHOT_TEXT_BYTES = 64 * 1024;
 /* The most specs one capture looks at. */
 export const MAX_SPEC_SNAPSHOTS_PER_CAPTURE = 200;
+/* The most snapshot text one run keeps, all its specs and versions together. */
+export const MAX_SPEC_SNAPSHOT_BYTES_PER_RUN = 2 * 1024 * 1024;
 
 export interface SpecSnapshot {
   runId: string;
@@ -23,6 +25,8 @@ export interface SpecSnapshot {
   bytes: number;
   /* Wall-clock ms. */
   capturedAt: number;
+  /* Whether the run delivered this spec (wrote or changed it) and did not merely find it in the suite. Only delivered specs are kept. */
+  delivered: boolean;
 }
 
 export interface SpecSnapshotPort {

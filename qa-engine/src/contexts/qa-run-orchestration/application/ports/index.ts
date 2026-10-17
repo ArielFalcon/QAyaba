@@ -459,13 +459,18 @@ export interface ReviewPort {
     unavailable?: boolean;
   }>;
 }
+/** What the run knows that a validation may report on. */
+export interface ValidationRunInfo {
+  /** The specs (relative to the suite directory) this run has delivered so far: written by its generator or a sidekick, as reported by them. */
+  deliveredSpecs?: readonly string[];
+}
 export interface ValidationPort {
   /**
    * `changedFiles` scopes the code-target compile gate. Ignored by the e2e
    * static gate. Present so the same call site can pass it for either target.
    * `infra` is optional: a validation failure may be infrastructure, not a code defect.
    */
-  validate(specDir: string, changedFiles?: string[]): Promise<{ ok: boolean; errors: string[]; infra?: boolean }>;
+  validate(specDir: string, changedFiles?: string[], run?: ValidationRunInfo): Promise<{ ok: boolean; errors: string[]; infra?: boolean }>;
 }
 /**
  * Optional execute bag. Also accepts a bare AbortSignal (normalized to
