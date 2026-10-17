@@ -6,8 +6,10 @@
  */
 
 import { recordContextSpan } from "../../../shared-infrastructure/telemetry/run-spans.ts";
+import type { Attrs } from "../../../shared-kernel/telemetry/attribute-registry.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
 import { domItemIds, type DomPageLike } from "../domain/context-item-ids.ts";
+import { buildRouteCatalog, ROUTE_STATUS } from "./route-catalog.ts";
 import { MAX_NODES_PER_ROUTE, capDomLines, type DomCaptureObserver, type DomCaptureReport, type RouteSnapshot } from "./dom-snapshot.ts";
 
 /* What the agent is shown of one route, as the ids' input: the nodes within the per-route bound, the test ids within it, and how many of each were left out. */
@@ -22,15 +24,37 @@ export function pageOf(snap: RouteSnapshot): { page: DomPageLike; leftOut: numbe
   };
 }
 
+/* One route of a capture, as the attributes of its event: whether it was captured or degraded and why, whether the page settled, how much it showed and how long the script took. */
+export function routeEventAttrs(snap: RouteSnapshot): Attrs {
+  const catalog = buildRouteCatalog(snap);
+  return {
+    "qayaba.route.path": snap.route,
+    "qayaba.route.status": catalog.status,
+    ...(catalog.status === ROUTE_STATUS.DEGRADED && catalog.degradeReason !== undefined ? { "qayaba.route.degrade_reason": catalog.degradeReason } : {}),
+    "qayaba.route.settled": snap.settled === true,
+    "qayaba.route.nodes": snap.nodes?.length ?? 0,
+    "qayaba.route.test_ids": snap.testIds?.size ?? 0,
+    "qayaba.route.runtime_errors": snap.runtimeErrors?.length ?? 0,
+    ...(snap.ms !== undefined ? { "qayaba.route.ms": snap.ms } : {}),
+  };
+}
+
 export function recordDomCapture(telemetry: TelemetryPort, report: DomCaptureReport): void {
   const captured = report.snaps.filter((snap) => snap.error === undefined);
   const pages = captured.map(pageOf);
-  recordContextSpan(telemetry, {
-    source: "dom-capture",
-    ids: domItemIds(pages.map((p) => p.page)),
-    bytes: report.outputChars,
-    truncatedItems: pages.reduce((sum, p) => sum + p.leftOut, 0),
-  });
+  recordContextSpan(
+    telemetry,
+    {
+      source: "dom-capture",
+      ids: domItemIds(pages.map((p) => p.page)),
+      bytes: report.outputChars,
+      truncatedItems: pages.reduce((sum, p) => sum + p.leftOut, 0),
+    },
+    (span) => {
+      /* One event per route, in the order the script was asked for them, errored ones included. */
+      for (const snap of report.snaps) span.addEvent("route", routeEventAttrs(snap));
+    },
+  );
 }
 
 /* The observer the shell hands to createCaptureDomDeps. */

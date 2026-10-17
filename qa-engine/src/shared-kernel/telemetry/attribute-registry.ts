@@ -162,7 +162,7 @@ export const ATTRIBUTES = {
   /* One route of a DOM capture (an event on qayaba.context.dom-capture). */
   "qayaba.route.path": str("The route a capture event is about.", "high"),
   "qayaba.route.status": str("captured or degraded."),
-  "qayaba.route.degrade_reason": str("Why a route's capture is degraded: errored, empty or redirected."),
+  "qayaba.route.degrade_reason": str("Why a route's capture is degraded: capture-failed, empty-render or redirected."),
   "qayaba.route.settled": bool("The page reached network idle before it was read."),
   "qayaba.route.nodes": int("Accessibility-tree nodes read from the route."),
   "qayaba.route.test_ids": int("Distinct test ids found on the route."),

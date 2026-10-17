@@ -274,6 +274,33 @@ test("a DOM capture is a context span whose ids are test ids, and roles with a h
   });
 });
 
+test("each route of a capture is an event with its state, what it showed and how long the script took", { timeout: 30_000 }, async () => {
+  const h = traceHarness();
+  const output = [
+    { ...CAPTURE_OUTPUT[0], ms: 1234, runtimeErrors: [{ type: "console", text: "boom" }] },
+    { route: "/gone", error: "net::ERR_ABORTED", ms: 15, runtimeErrors: [] },
+    { route: "/old", yaml: '- heading "Sign in"', finalUrl: "http://localhost/login", testIdRawList: [], settled: false, ms: 77 },
+    { route: "/empty", yaml: "", ms: 5 },
+    { route: "/no-time", yaml: '- link "x"', ms: "soon" },
+  ];
+  await withStandInNode(`process.stdout.write(${JSON.stringify(JSON.stringify(output))});`, async (root) => {
+    const sandbox = testExecSandbox();
+    try {
+      await inCaptureScope(h, () => createCaptureDomDeps(sandbox.exec, undefined, domCaptureObserver(h.telemetry)).render(root, "http://localhost", ["/home", "/gone", "/old", "/empty", "/no-time"]));
+    } finally {
+      sandbox.dispose();
+    }
+  });
+  const events = contextSpan(h, "dom-capture").events.filter((e) => e.name === "route").map((e) => e.attributes ?? {});
+  assert.equal(events.length, 5);
+  assert.deepEqual(events[0], { "qayaba.route.path": "/home", "qayaba.route.status": "captured", "qayaba.route.settled": true, "qayaba.route.nodes": 2, "qayaba.route.test_ids": 1, "qayaba.route.runtime_errors": 1, "qayaba.route.ms": 1234 });
+  assert.deepEqual(events[1], { "qayaba.route.path": "/gone", "qayaba.route.status": "degraded", "qayaba.route.degrade_reason": "capture-failed", "qayaba.route.settled": false, "qayaba.route.nodes": 0, "qayaba.route.test_ids": 0, "qayaba.route.runtime_errors": 0, "qayaba.route.ms": 15 });
+  assert.equal(events[2]!["qayaba.route.degrade_reason"], "redirected");
+  assert.equal(events[2]!["qayaba.route.settled"], false);
+  assert.equal(events[3]!["qayaba.route.degrade_reason"], "empty-render");
+  assert.equal("qayaba.route.ms" in events[4]!, false);
+});
+
 test("a DOM capture returns the same snapshots with and without the observer, and with one that throws", { timeout: 30_000 }, async () => {
   const h = traceHarness();
   await withStandInNode(`process.stdout.write(${JSON.stringify(JSON.stringify(CAPTURE_OUTPUT))});`, async (root) => {

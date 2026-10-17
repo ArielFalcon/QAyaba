@@ -53,6 +53,8 @@ export interface RouteSnapshot {
   links?: string[];
   /* Set on a page opened from a route template of the map: the template `route` is an instance of. */
   template?: string;
+  /* Milliseconds the capture script spent on this route (navigation, settling and reading), as the script measured them. */
+  ms?: number;
 }
 
 export interface CaptureDomInput {
@@ -584,6 +586,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
     page.on("console", function(msg) { if (msg.type() === "error") currentRouteErrors.push({ type: "console", text: msg.text() }); });
     for (const route of routes) {
       currentRouteErrors = [];
+      const routeStartedAt = Date.now();
       try {
         await page.goto(new URL(route, baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: 10000 });
         let settled = false;
@@ -655,8 +658,8 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
             return found;
           }, { origin: new URL(baseUrl).origin, maxLinks: ${MAX_LINKS_PER_PAGE}, maxHrefChars: ${MAX_HREF_CHARS} });
         } catch(_e) { hrefs = []; }
-        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs });
-      } catch (e) { out.push({ route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors }); }
+        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs, ms: Date.now() - routeStartedAt });
+      } catch (e) { out.push({ route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors, ms: Date.now() - routeStartedAt }); }
     }
   } catch (e) { process.stderr.write(String(e)); } finally { if (browser) await browser.close().catch(() => {}); }
   process.stdout.write(JSON.stringify(out));
@@ -669,6 +672,11 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
  * copy in the run's work dir, no account. REQUIRED, with no default: a capture that could start without the launcher
  * would run that package as the orchestrator. A caller that bypasses the type system still gets a loud throw here.
  */
+/* The time the script reports for a route: a whole, non-negative number of milliseconds, within a day. The page cannot reach it, but the output is parsed defensively all the same. */
+function routeMs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 24 * 60 * 60 * 1000 ? Math.round(value) : undefined;
+}
+
 /* What one run of the capture script came to, told to the optional observer once the script is done (or has failed, in which case there are no snapshots): the snapshots it returned, the routes it was asked for, and how much it printed. Read-only; it never changes what the capture returns. */
 export interface DomCaptureReport {
   asked: readonly string[];
@@ -724,11 +732,13 @@ export function createCaptureDomDeps(exec: ExecSandboxPort, maxOutputChars: numb
           if (finished) return;
           try {
             /* The page decides what it shows, and it can show the account's password: the run's secrets are taken out of the document by value before it is read (a JSON-escaped spelling of each is replaced too). */
-            const raw = JSON.parse(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown }>;
+            const raw = JSON.parse(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; ms?: unknown }>;
             done(raw.map((r) => {
               if (r.error) {
                 const errored: RouteSnapshot = { route: r.route, error: r.error };
                 if (r.runtimeErrors && r.runtimeErrors.length > 0) errored.runtimeErrors = r.runtimeErrors;
+                const erroredMs = routeMs(r.ms);
+                if (erroredMs !== undefined) errored.ms = erroredMs;
                 return errored;
               }
               const { nodes, states } = parseAriaSnapshotWithState(r.yaml ?? "");
@@ -744,6 +754,8 @@ export function createCaptureDomDeps(exec: ExecSandboxPort, maxOutputChars: numb
               if (r.finalUrl) snap.finalUrl = r.finalUrl;
               const links = sameOriginPathnames(r.hrefs, baseUrl);
               if (links.length > 0) snap.links = links;
+              const snapMs = routeMs(r.ms);
+              if (snapMs !== undefined) snap.ms = snapMs;
               return snap;
             }));
           } catch {
