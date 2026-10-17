@@ -51,6 +51,7 @@ interface PartLike {
   id?: string;
   type?: string;
   sessionID?: string;
+  messageID?: string;
   callID?: string;
   tool?: string;
   state?: { status?: string; input?: unknown; output?: unknown; error?: unknown; time?: { start?: unknown; end?: unknown } };
@@ -76,6 +77,8 @@ interface StepRecord {
 
 interface TrackedCall {
   callId: string;
+  /** The assistant message the call belongs to, as the stream reported it. */
+  messageId?: string;
   tool: string;
   bucket: CallBucket;
   /** Whether the call went through a shell tool, whatever its command line did. */
@@ -454,6 +457,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       const open = session.openStep;
       call = {
         callId: part.callID,
+        ...(typeof part.messageID === "string" && part.messageID !== "" ? { messageId: part.messageID.slice(0, 200) } : {}),
         tool: part.tool,
         firstSeenAt: this.now(),
         denied: session.deniedIds.has(part.callID),
@@ -529,6 +533,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     }));
     const calls: CallTrace[] = turnCalls.slice(0, TRACE_MAX_ENTRIES).map((call) => ({
       callId: call.callId,
+      ...(call.messageId !== undefined ? { messageId: call.messageId } : {}),
       tool: call.tool,
       bucket: call.bucket,
       status: call.status,

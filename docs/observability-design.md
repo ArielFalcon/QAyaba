@@ -1052,6 +1052,16 @@ through `getAgentTurnTraces`, not through the public turn view) and the turn met
 `tokens.input` is read as excluding the cache and `tokens.output` as including reasoning; both stay unconfirmed against its source
 until spike S0.4, and live in one function (`normalizeOpenCodeUsage`).
 
+**S2b status (tool callbacks).** Delivered: the registry lookup `sessionId -> live attempt span` (`AgentTurnTraces.attemptSpan`), the
+`qayaba.tool.run_spec` / `qayaba.tool.authbrowser` SERVER spans opened inside `inRunContext` with the attempt as explicit parent
+(`bridges/tool-call-trace.ts`), and a scope whose child-parent is the call's span (`withExecScopeParent`), so the launcher's
+`qayaba.exec` spans are grandchildren of the attempt. Lease wait, namespace, spec path and sha256, outcome, refusal code, DEV-busy,
+co-temporal egress denials, browser action, guard block reasons, document status and session invalidation are attributes; no secret
+and no page content. The synthesized `execute_tool run_spec|authbrowser_*` span carries a span LINK to the server span, matched by
+session, tool, message id (when both sides carry it) and time overlap (`generation/domain/tool-link.ts`, pure); a match that cannot
+be made without a guess is not made. The attempt-to-tool-span edge is **connected** (parent/child); the tool-span-to-agent
+`execute_tool` edge is a **link** (correlated by the join above, not by propagated context).
+
 ---
 
 ## 17. Resolved decisions

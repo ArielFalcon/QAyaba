@@ -17,13 +17,15 @@ import { removeTreeBounded } from "../../../../shared-infrastructure/bounded-tre
 import { MAX_SPEC_SOURCE_BYTES, purgeRefusedDirectory, readOwnedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { PROBE_REL_DIR, RUN_SPEC_FLOW_AGENT, RunSpecCapability, loopClosed } from "@contexts/test-execution/domain/run-spec-capability.ts";
-import { RunSpecUseCase } from "@contexts/test-execution/application/run-spec.use-case.ts";
+import { RunSpecUseCase, type RunSpecRequest, type RunSpecResponse } from "@contexts/test-execution/application/run-spec.use-case.ts";
 import type { SpecCleanupPort, SpecExecutorPort } from "@contexts/test-execution/application/ports/run-spec.ports.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { AuthSessionContext, AuthSessionPort } from "../../application/ports/auth-session.port.ts";
 import type { CleanupPort, ClosedLoopHandle, ClosedLoopOpenInput, ClosedLoopPort, ExecutionPort, FlowLoopHandle, FlowLoopOpenInput } from "../../application/ports/index.ts";
 import type { ClosedLoopRegistry } from "../closed-loop-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
+import { traceToolCall, type ToolObserver, type ToolTraceWiring } from "./tool-call-trace.ts";
+import { runSpecOutcome } from "./tool-call-outcome.ts";
 
 /* How many times a run's calls may renew the saved session from inside the authoring loop (trusted-session-renewal.ts). */
 export const MAX_RUN_SPEC_RENEWALS = 1;
@@ -52,6 +54,8 @@ export interface ClosedLoopPortAdapterDeps {
   /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
   redact: (text: string) => string;
   now?: () => number;
+  /* With it, every call is a `qayaba.tool.run_spec` span under the attempt of the session that made it. Absent: nothing is traced. */
+  trace?: ToolTraceWiring;
 }
 
 export class ClosedLoopPortAdapter implements ClosedLoopPort {
@@ -87,6 +91,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       ...(this.deps.deadline ? { deadline: this.deps.deadline } : {}),
       redact: this.deps.redact,
       ...(input.signal ? { signal: input.signal } : {}),
+      ...(this.deps.now ? { now: this.deps.now } : {}),
     });
     /* The run's async context as it is now: the run's sandbox scope and its secret scope. */
     const inRunContext = AsyncLocalStorage.snapshot();
@@ -101,7 +106,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
         mine.add(own);
         running.set(request.sessionId, mine);
         try {
-          return await inRunContext(() => useCase.run(request, own.signal));
+          return await inRunContext(() => this.served(request, (observer) => useCase.run(request, own.signal, observer)));
         } finally {
           mine.delete(own);
           if (mine.size === 0) running.delete(request.sessionId);
@@ -112,6 +117,11 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       },
     });
     return this.handle(input, capability, root, inRunContext, session);
+  }
+
+  /* One call, as a span of the orchestrator's own when tracing is wired; the answer is the use case's, untouched. */
+  private served(request: RunSpecRequest, run: (observer: ToolObserver) => Promise<RunSpecResponse>): Promise<RunSpecResponse> {
+    return traceToolCall(this.deps.trace, { span: "qayaba.tool.run_spec", tool: "run_spec", sessionId: request.sessionId, messageId: request.messageId }, run, runSpecOutcome);
   }
 
   private handle(input: ClosedLoopOpenInput, capability: RunSpecCapability, root: SpecRoot, inRunContext: <R>(fn: () => R) => R, session: ReturnType<typeof trustedSessionRenewal> | undefined): ClosedLoopHandle {
@@ -186,6 +196,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       allowPath: (rel) => normalizeSpecPath(rel) === only,
       allowedDescription: `${this.deps.specRelDir}/${only}`,
       ...(input.signal ? { signal: input.signal } : {}),
+      ...(this.deps.now ? { now: this.deps.now } : {}),
     });
     const running = new Map<string, Set<AbortController>>();
     this.deps.registry.register({
@@ -198,7 +209,7 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
         mine.add(own);
         running.set(request.sessionId, mine);
         try {
-          return await inRunContext(() => useCase.run(request, own.signal));
+          return await inRunContext(() => this.served(request, (observer) => useCase.run(request, own.signal, observer)));
         } finally {
           mine.delete(own);
           if (mine.size === 0) running.delete(request.sessionId);

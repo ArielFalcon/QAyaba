@@ -33,3 +33,19 @@ test("a session heard from recently is kept however old its first turn is", () =
   assert.equal(traces.size(), 2);
   assert.equal(probe.closed, 0);
 });
+
+test("the live attempt of a session is the one its latest turn has open, and a served call is told to that turn", () => {
+  const traces = new AgentTurnTraces();
+  const span = { id: "attempt-span" };
+  const told: unknown[] = [];
+  const probe = { ...fakeProbe(), liveAttempt: () => span, noteToolCall: (call: unknown) => told.push(call) };
+  traces.begin("s", probe as unknown as TurnProbe);
+  assert.equal(traces.attemptSpan("s"), span);
+  assert.equal(traces.attemptSpan("unknown"), undefined);
+  const call = { tool: "run_spec", startedAt: 1, endedAt: 2, context: { traceId: "t", spanId: "x" } };
+  traces.noteToolCall("s", call);
+  traces.noteToolCall("unknown", call);
+  assert.deepEqual(told, [call]);
+  traces.end("s");
+  assert.equal(traces.attemptSpan("s"), undefined);
+});

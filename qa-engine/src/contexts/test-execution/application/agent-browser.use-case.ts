@@ -7,6 +7,7 @@
  */
 
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
+import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import type { AccountLock } from "../domain/account-lock.ts";
 import { AGENT_BROWSER_REFUSAL, type AgentBrowserCapability, type AgentBrowserRefusalCode } from "../domain/agent-browser-capability.ts";
 import type { RouteGuard } from "../domain/agent-browser-route-guard.ts";
@@ -14,6 +15,7 @@ import { detectInvalidation } from "../domain/agent-browser-session-invalidation
 import type { AgentBrowserHostPort, BlockedRequest, BrowserAction, PageState } from "./ports/agent-browser.ports.ts";
 import { BrowserActionError } from "./ports/agent-browser.ports.ts";
 import type { SessionRenewalPort } from "./ports/run-spec.ports.ts";
+import type { CallObserver } from "./run-spec.use-case.ts";
 
 export const MAX_SNAPSHOT_CHARS = 12_000;
 export const MAX_URL_CHARS = 2_000;
@@ -23,7 +25,7 @@ export const MAX_REPORTED_BLOCKS = 5;
 export const LOW_CALLS = 10;
 const REF = /^[A-Za-z][A-Za-z0-9]{0,15}$/;
 
-export type AgentBrowserRequest = { sessionId: string; agent: string } & (
+export type AgentBrowserRequest = { sessionId: string; agent: string; /* The assistant message the tool reported; it only joins this call to the agent's own span of it. */ messageId?: string } & (
   | { action: "navigate"; url: string }
   | { action: "snapshot" }
   | { action: "click"; ref: string }
@@ -64,6 +66,8 @@ export interface AgentBrowserDeps {
   /* A signal that fires once a call has waited this long for the account. Defaults to a timer. */
   leaseWaitSignal?: (ms: number) => AbortSignal;
   signal?: AbortSignal;
+  /* The clock the wait for the account is measured on. Default: the system clock. */
+  now?: () => number;
 }
 
 function cut(text: string, max: number): string {
@@ -91,17 +95,26 @@ export class AgentBrowserUseCase {
   constructor(private readonly deps: AgentBrowserDeps) {}
 
   /* `callSignal` is this call's own cancellation (its session ended); the run's cancellation stops it too. */
-  async call(request: AgentBrowserRequest, callSignal?: AbortSignal): Promise<AgentBrowserResponse> {
+  async call(request: AgentBrowserRequest, callSignal?: AbortSignal, observe?: CallObserver): Promise<AgentBrowserResponse> {
     const { capability } = this.deps;
+    const tell = (attrs: Attrs): void => {
+      try {
+        observe?.setAttrs(attrs);
+      } catch {
+        /* observing never changes the call */
+      }
+    };
     const stop = callSignal && this.deps.signal ? AbortSignal.any([callSignal, this.deps.signal]) : (callSignal ?? this.deps.signal);
     const refused = capability.authorize(request.sessionId, request.agent);
     if (refused) return this.refusal(refused.code, refused.message);
 
     const action = this.actionOf(request);
     if ("message" in action) return this.refusal(AGENT_BROWSER_REFUSAL.INVALID_REQUEST, action.message);
+    tell({ "qayaba.browser.action": action.kind });
     if (action.kind === "navigate") {
       const decision = this.deps.guard.decide({ method: "GET", url: action.url });
       if (!decision.allow) {
+        tell({ "qayaba.browser.blocks": 1, "qayaba.browser.block_reasons": [decision.reason] });
         capability.recordBlocks(1);
         return this.refusal(AGENT_BROWSER_REFUSAL.BLOCKED, `${decision.detail}; the browser does not open it`);
       }
@@ -113,15 +126,20 @@ export class AgentBrowserUseCase {
     const waitSignal = AbortSignal.any([...(stop ? [stop] : []), (this.deps.leaseWaitSignal ?? AbortSignal.timeout.bind(AbortSignal))(capability.limits.leaseWaitMs)]);
     /* Whether the call got the account and began: one that did not is given back, not spent. */
     let began = false;
+    const now = this.deps.now ?? Date.now;
+    const asked = now();
+    let waited = false;
     try {
       return await this.deps.lock.withLock(
         this.deps.account,
         async () => {
+          waited = true;
+          tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
           /* What was true when the call asked may not be true when it gets the account: the run may have ended or run out of time. */
           const gone = capability.authorize(request.sessionId, request.agent);
           if (gone) return this.refusal(gone.code, gone.message);
           began = true;
-          return this.perform(request.sessionId, action, stop);
+          return this.perform(request.sessionId, action, stop, tell);
         },
         waitSignal,
       );
@@ -131,11 +149,12 @@ export class AgentBrowserUseCase {
       console.error(`[qa] authenticated browser call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
       return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, "the browser could not complete the call");
     } finally {
+      if (!waited) tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
       if (!began) capability.refund(request.sessionId);
     }
   }
 
-  private async perform(sessionId: string, action: BrowserAction, stop: AbortSignal | undefined): Promise<AgentBrowserResponse> {
+  private async perform(sessionId: string, action: BrowserAction, stop: AbortSignal | undefined, tell: (attrs: Attrs) => void): Promise<AgentBrowserResponse> {
     const { capability, host } = this.deps;
     const timeoutMs = Math.min(capability.limits.perCallMs, this.deps.deadline?.remainingMs() ?? Number.POSITIVE_INFINITY);
     const signal = AbortSignal.any([...(stop ? [stop] : []), AbortSignal.timeout(Math.max(1, timeoutMs))]);
@@ -149,15 +168,20 @@ export class AgentBrowserUseCase {
     }
 
     capability.recordBlocks(state.blocked.length);
+    tell({
+      ...(state.documentStatus !== undefined ? { "http.response.status_code": state.documentStatus } : {}),
+      "qayaba.browser.blocks": state.blocked.length,
+      ...(state.blocked.length > 0 ? { "qayaba.browser.block_reasons": [...new Set(state.blocked.map((b) => b.reason))] } : {}),
+    });
     const lost = detectInvalidation(
       { url: state.url, requestedPath: state.requestedPath, viaNavigation: action.kind === "navigate", passwordFieldVisible: state.passwordFieldVisible, ...(state.documentStatus !== undefined ? { documentStatus: state.documentStatus } : {}) },
       { ...(this.deps.loginPath !== undefined ? { loginPath: this.deps.loginPath } : {}) },
     );
-    if (lost) return this.invalidated(lost.detail, signal);
+    if (lost) return this.invalidated(lost.detail, signal, tell);
     return this.report(state);
   }
 
-  private async invalidated(detail: string, signal: AbortSignal): Promise<AgentBrowserResponse> {
+  private async invalidated(detail: string, signal: AbortSignal, tell: (attrs: Attrs) => void): Promise<AgentBrowserResponse> {
     const { capability, host, session } = this.deps;
     let renewed: boolean | undefined;
     if (session && capability.canRenew()) {
@@ -170,6 +194,7 @@ export class AgentBrowserUseCase {
       if (renewed) await host.reset();
     }
     capability.recordInvalidation(renewed);
+    tell({ "qayaba.auth.invalidated": true, "qayaba.auth.renewed": renewed === true });
     const next = renewed
       ? "The session was renewed; navigate again to continue."
       : "The session could not be renewed; do not rely on this browser for the rest of the run and use what the task supplies.";

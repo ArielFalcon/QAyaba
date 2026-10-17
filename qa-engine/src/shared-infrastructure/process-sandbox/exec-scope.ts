@@ -47,6 +47,13 @@ export function withExecScope<T>(scope: RunScope, fn: () => T): T {
   return store.run(scope, fn);
 }
 
+/* Runs `fn` in the active scope with the parent of every child's span replaced: a tool call the orchestrator serves for an agent (run_spec) hangs its children under the call's own span, not under the phase that happens to be open. The copy shares the run's report, mirrors and directories (they are references), so nothing a child does is lost to it. Outside a run there is no scope to change. */
+export function withExecScopeParent<T>(parent: TelemetryContext, fn: () => T): T {
+  const scope = store.getStore();
+  if (!scope) return fn();
+  return store.run({ ...scope, telemetry: { parent: () => parent } }, fn);
+}
+
 export function activeExecScope(): RunScope | undefined {
   return store.getStore();
 }

@@ -6,6 +6,8 @@
  * routed to the turn it belongs to and never to the current one.
  */
 import type { TurnLimit } from "@kernel/turn-limit.ts";
+import type { SpanHandle } from "@kernel/telemetry/telemetry.port.ts";
+import type { ServerToolCall, ToolAttemptDirectory } from "../../domain/tool-link.ts";
 import type { AttemptEvent } from "../agent-transport-policy.ts";
 import type { TurnProbe } from "./turn-probe.ts";
 
@@ -22,7 +24,7 @@ interface SessionTurns {
   bound: Map<number, TurnProbe>;
 }
 
-export class AgentTurnTraces {
+export class AgentTurnTraces implements ToolAttemptDirectory {
   private readonly bySession = new Map<string, SessionTurns>();
 
   constructor(private readonly options: { now?: () => number; maxAgeMs?: number } = {}) {}
@@ -88,6 +90,15 @@ export class AgentTurnTraces {
 
   firedBy(sessionId: string, prompt: number): TurnLimit | undefined {
     return this.bySession.get(sessionId)?.bound.get(prompt)?.firedByOuter();
+  }
+
+  /* The attempt span the session's turn is in right now: where a tool call the orchestrator serves for the session hangs. */
+  attemptSpan(sessionId: string): SpanHandle | undefined {
+    return this.bySession.get(sessionId)?.current?.liveAttempt();
+  }
+
+  noteToolCall(sessionId: string, call: ServerToolCall): void {
+    this.bySession.get(sessionId)?.current?.noteToolCall(call);
   }
 
   size(): number {

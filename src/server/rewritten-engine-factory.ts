@@ -1075,7 +1075,7 @@ export function buildRewrittenCompositionConfig(
     generationUseCase,
     ...(stepLimitFor ? { stepLimitFor } : {}),
     runDeadline,
-    ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
+    ...(deps.telemetry ? { telemetry: deps.telemetry, toolAttempts: agentTurnTraces } : {}),
     /* What a run's specs held at validation is kept for after-the-fact grading, as long as the run is traced. */
     ...(deps.telemetry ? { specSnapshots: new SqliteSpecSnapshotAdapter() } : {}),
     ...(deps.clock ? { clock: deps.clock } : {}),

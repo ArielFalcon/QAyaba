@@ -8,6 +8,7 @@ import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { CoordinationSettings } from "@kernel/coordination.ts";
+import type { ToolAttemptDirectory } from "@contexts/generation/domain/tool-link.ts";
 import { ClosedLoopPortAdapter } from "../infrastructure/bridges/closed-loop-port.adapter.ts";
 import type { ClosedLoopRegistry } from "../infrastructure/closed-loop-registry.ts";
 import type { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
@@ -154,6 +155,8 @@ export interface CompositionConfig {
   specSnapshots?: SpecSnapshotPort;
   /* The one wall clock of the run's record: the phase cursor times phases on it and the phase spans start and end on its readings. Absent: the system clock. */
   clock?: TelemetryClock;
+  /* Which attempt of an agent turn a run_spec or browser call hangs under (the registry the turn decorator fills). Absent: such a call hangs under the phase that is open. Needs `telemetry`. */
+  toolAttempts?: ToolAttemptDirectory;
   guidance?: string;
   diff?: string;
   baseUrl?: string;
@@ -389,9 +392,11 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     : undefined;
 
   /* The loop executes through the run's own execution and cleanup ports, so a spec it runs is run exactly as the suite's are. */
+  const toolTrace = cfg.telemetry ? { telemetry: cfg.telemetry, clock: cfg.clock ?? { now: () => Date.now() }, ...(cfg.toolAttempts ? { attempts: cfg.toolAttempts } : {}) } : undefined;
   const closedLoop = cfg.closedLoop && !cfg.isCode
     ? new ClosedLoopPortAdapter({
         ...cfg.closedLoop,
+        ...(toolTrace ? { trace: toolTrace } : {}),
         execution,
         ...(cleanup ? { cleanup } : {}),
         ...(cfg.authSession && cfg.baseUrl ? { authSession: cfg.authSession, authContext: { baseUrl: cfg.baseUrl, ...(cfg.auth ? { auth: cfg.auth } : {}) } } : {}),
@@ -403,6 +408,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
   const agentBrowser = cfg.agentBrowser && !cfg.isCode && cfg.baseUrl
     ? new AgentBrowserPortAdapter({
         ...cfg.agentBrowser,
+        ...(toolTrace ? { trace: toolTrace } : {}),
         baseUrl: cfg.baseUrl,
         material: () => readAgentBrowserSession(cfg.baseUrl!),
         ...(cfg.authSession ? { authSession: cfg.authSession, authContext: { baseUrl: cfg.baseUrl, ...(cfg.auth ? { auth: cfg.auth } : {}) } } : {}),

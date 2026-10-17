@@ -10,6 +10,7 @@ import { MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile, type SpecRoot } from "../../.
 import { dropOpaqueTokens } from "../../../shared-infrastructure/output-token-filter.ts";
 import { importsTestFromFixtures } from "../../../shared-infrastructure/spec-fixtures-import.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
+import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import type { AccountLock } from "../domain/account-lock.ts";
@@ -44,9 +45,16 @@ export const RUN_SPEC_INVALID = {
 
 export type RunSpecRefusalCode = ClosedLoopRefusalCode | (typeof RUN_SPEC_INVALID)[keyof typeof RUN_SPEC_INVALID];
 
+/* Where a call tells its trace what it learned (the span the orchestrator opened for it). Total: a fault in it never reaches the call. */
+export interface CallObserver {
+  setAttrs(attrs: Attrs): void;
+}
+
 export interface RunSpecRequest {
   sessionId: string;
   agent: string;
+  /* The assistant message the tool reported; it only joins this call to the agent's own span of it. */
+  messageId?: string;
   path: string;
   grep?: string;
 }
@@ -98,6 +106,8 @@ export interface RunSpecDeps {
   /* What the refusal says when `allowPath` declines a spec. */
   allowedDescription?: string;
   signal?: AbortSignal;
+  /* The clock the wait for the account is measured on. Default: the system clock. */
+  now?: () => number;
 }
 
 /* A fragment of a test title as a regular expression that matches exactly that text. */
@@ -122,14 +132,22 @@ export class RunSpecUseCase {
   constructor(private readonly deps: RunSpecDeps) {}
 
   /* `callSignal` is this call's own cancellation (its generator session ended); the run's cancellation (`deps.signal`) stops it too. */
-  async run(request: RunSpecRequest, callSignal?: AbortSignal): Promise<RunSpecResponse> {
+  async run(request: RunSpecRequest, callSignal?: AbortSignal, observe?: CallObserver): Promise<RunSpecResponse> {
     const { capability, deadline } = this.deps;
+    const tell = (attrs: Attrs): void => {
+      try {
+        observe?.setAttrs(attrs);
+      } catch {
+        /* observing never changes the call */
+      }
+    };
     const stop = callSignal && this.deps.signal ? AbortSignal.any([callSignal, this.deps.signal]) : (callSignal ?? this.deps.signal);
     const refused = capability.authorize(request.sessionId, request.agent);
     if (refused) return this.refusal(refused.code, refused.message);
 
     const rel = this.confinedPath(request.path);
     if (typeof rel !== "string") return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, rel.message);
+    tell({ "qayaba.spec.path": rel });
     if (this.deps.allowPath && !this.deps.allowPath(rel)) {
       return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, `run_spec may run only ${this.deps.allowedDescription ?? "the spec you were given"}`);
     }
@@ -144,9 +162,11 @@ export class RunSpecUseCase {
       return this.refusal(RUN_SPEC_INVALID.INVALID_REQUEST, `${rel} must import test from the suite's fixtures file (for example: import { test, expect } from "./fixtures"), so that its requests to DEV can be counted.`);
     }
     const sha256 = createHash("sha256").update(read.bytes).digest("hex");
+    tell({ "qayaba.spec.sha256": sha256 });
 
     const reservation = capability.reserve(deadline?.remainingMs());
     if (!reservation.ok) return this.refusal(reservation.code, reservation.message);
+    tell({ "qayaba.namespace": reservation.namespace });
 
     const started = Date.now();
     /* Whether the call got the account and began: one that did not is given back, not spent. */
@@ -157,10 +177,15 @@ export class RunSpecUseCase {
     let devWrites = 0;
     let note: string | undefined;
     let sessionLost = false;
+    const now = this.deps.now ?? Date.now;
+    const asked = now();
+    let waited = false;
     try {
       const outcome = await this.deps.lock.withLock(
         this.deps.account,
         async () => {
+          waited = true;
+          tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
           /* The time the run has left is read when the call gets the account, not when it asked for it. */
           const timeoutMs = capability.timeoutFor(deadline?.remainingMs());
           if (typeof timeoutMs !== "number") return timeoutMs;
@@ -176,6 +201,7 @@ export class RunSpecUseCase {
       devWrites = outcome.devWrites;
       note = outcome.note;
       sessionLost = outcome.sessionLost === true;
+      tell({ "qayaba.tool.dev_writes": devWrites });
       /* The ledger names the bytes that ran. The file is the agent's to change while the call is out, so what it holds now is read again: a pass is recorded only for a file that is still the one hashed before the run. */
       if (this.sha256Now(rel) !== sha256) {
         if (status === RUN_SPEC_STATUS.PASSED) status = RUN_SPEC_STATUS.ERROR;
@@ -185,6 +211,7 @@ export class RunSpecUseCase {
       console.error(`[qa] run_spec call ${reservation.callNumber} failed in the harness: ${err instanceof Error ? err.message : String(err)}`);
       note = "the call could not be completed by the harness; nothing was reported by the spec";
     } finally {
+      if (!waited) tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
       if (began) capability.settle({ path: rel, sha256, status, ms: Date.now() - started, devWrites });
       else capability.cancel();
     }

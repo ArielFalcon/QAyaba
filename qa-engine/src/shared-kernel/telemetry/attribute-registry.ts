@@ -220,6 +220,23 @@ export const ATTRIBUTES = {
   "qayaba.selector.match_count": int("Elements a locator resolved to in a strict mode violation."),
   "qayaba.selector.strategy": str("The kind of locator that failed: testid, role, text or css."),
 
+  /* Tool callbacks (design §5.5): the orchestrator's server span of a run_spec or authenticated-browser call. */
+  "qayaba.tool.outcome": str("How a served tool call ended: for run_spec passed, failed, timedOut or error; for the browser ok; refused when the orchestrator declined it."),
+  "qayaba.tool.refusal": str("The refusal code of a call the orchestrator declined (a closed set per tool)."),
+  "qayaba.tool.message_id": str("The assistant message the tool reported for the call; the join key to the agent's execute_tool span.", "high"),
+  "qayaba.tool.dev_writes": int("Requests a run_spec call sent to DEV that write."),
+  "qayaba.lease.wait_ms": int("Milliseconds the call waited for the test account's lease."),
+  "qayaba.lease.refused": bool("The call was refused because DEV was busy (the account's lease was not obtained)."),
+  "qayaba.namespace": str("The namespace a run_spec call's data was created under.", "high"),
+  "qayaba.spec.path": text("The confined spec path a run_spec call named, relative to the spec directory."),
+  "qayaba.spec.sha256": metaHash("The sha256 of the spec bytes a run_spec call ran."),
+  "qayaba.browser.action": str("The authenticated browser action: navigate, snapshot, click or type."),
+  "qayaba.browser.blocks": int("Requests the route guard blocked during the call."),
+  "qayaba.browser.block_reasons": spec("string[]", "The route guard's reasons for the requests it blocked (a closed set)."),
+  "http.response.status_code": int("The status of the main document a browser call loaded."),
+  "qayaba.auth.invalidated": bool("The call found the saved session gone."),
+  "qayaba.auth.renewed": bool("The session was renewed after the call found it gone."),
+
   /* Langfuse viewing aids, set on the root. */
   "langfuse.trace.name": str("Langfuse trace name."),
   "langfuse.session.id": str("Langfuse session id.", "high"),

@@ -20,6 +20,7 @@ import type { AttemptAnswer, AttemptEvent, AgentTurnEvent } from "../agent-trans
 import { classifyAgentFault, type AgentErrorType } from "../../domain/agent-error-class.ts";
 import type { StepIntentContext } from "../../domain/step-intent.ts";
 import { parseModelRef } from "../agent-transport-policy.ts";
+import type { ServerToolCall } from "../../domain/tool-link.ts";
 import { emitTurnChildren, type ChildModel } from "./turn-children.ts";
 
 export interface TurnIdentity {
@@ -65,6 +66,9 @@ interface AttemptRecord {
   endedAt: number | undefined;
 }
 
+/* The most served calls one turn remembers for its links: a turn's own trace keeps at most this many calls. */
+const MAX_SERVED_CALLS = 500;
+
 function guarded(label: string, fn: () => void): void {
   try {
     fn();
@@ -87,6 +91,8 @@ export class TurnProbe {
   private outerLimit: TurnLimit | undefined;
   private fallbackUsed = false;
   private readonly startedAt: number;
+  /* The calls the orchestrator served for this turn's session while it ran (run_spec, the authenticated browser). */
+  private readonly served: ServerToolCall[] = [];
 
   constructor(
     private readonly deps: TurnProbeDeps,
@@ -134,6 +140,16 @@ export class TurnProbe {
   /* True once the prompt has settled for its caller and no attempt is left open: nothing more will be told. */
   isDone(): boolean {
     return this.settled && [...this.attempts.values()].every((a) => a.spanEnded);
+  }
+
+  /* The attempt span a tool call served right now belongs under: the latest attempt, while its span is open. */
+  liveAttempt(): SpanHandle | undefined {
+    return this.last && !this.last.spanEnded ? this.last.span : undefined;
+  }
+
+  /* The orchestrator served a tool call for this turn's session; its span is linked from the call's synthesized span once the turn is recorded. */
+  noteToolCall(call: ServerToolCall): void {
+    if (this.served.length < MAX_SERVED_CALLS) this.served.push(call);
   }
 
   /* A limit a layer above the transport fired on this turn (the stall watchdog). */
@@ -258,6 +274,7 @@ export class TurnProbe {
         model: this.childModel(),
         stepLimit: this.who.stepLimit,
         intent: this.deps.intent,
+        servers: this.served,
         endedAt,
       }).steps;
     }

@@ -24,6 +24,8 @@ import type { AuthSessionContext, AuthSessionPort } from "../../application/port
 import type { AgentBrowserHandle, AgentBrowserOpenInput, AgentBrowserPort } from "../../application/ports/index.ts";
 import type { AgentBrowserRegistry } from "../agent-browser-registry.ts";
 import { trustedSessionRenewal } from "./trusted-session-renewal.ts";
+import { traceToolCall, type ToolTraceWiring } from "./tool-call-trace.ts";
+import { browserOutcome } from "./tool-call-outcome.ts";
 
 /* How long a capability lives when the run has no deadline armed: far beyond any run, and only a backstop to the revocation the run does itself. */
 const DEFAULT_TTL_MS = 60 * 60 * 1000;
@@ -51,6 +53,8 @@ export interface AgentBrowserPortAdapterDeps {
   /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
   redact: (text: string) => string;
   now?: () => number;
+  /* With it, every call is a `qayaba.tool.authbrowser` span under the attempt of the session that made it. Absent: nothing is traced. */
+  trace?: ToolTraceWiring;
 }
 
 /* The renewal the use case asks for: a sign-in again for the run's suite, only with the login the loop opened with and at most twice per run (trusted-session-renewal.ts). */
@@ -102,6 +106,7 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
       ...(this.deps.deadline ? { deadline: this.deps.deadline } : {}),
       redact: this.deps.redact,
       ...(input.signal ? { signal: input.signal } : {}),
+      ...(this.deps.now ? { now: this.deps.now } : {}),
     });
 
     /* A call belongs to its session: when the session ends nobody reads the answer, and a browser action left running would hold the account. */
@@ -126,7 +131,9 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
         mine.add(own);
         running.set(request.sessionId, mine);
         try {
-          return await inRunContext(() => useCase.call(request, own.signal));
+          return await inRunContext(() =>
+            traceToolCall(this.deps.trace, { span: "qayaba.tool.authbrowser", tool: `authbrowser_${request.action}`, sessionId: request.sessionId, messageId: request.messageId }, (observer) => useCase.call(request, own.signal, observer), browserOutcome),
+          );
         } finally {
           mine.delete(own);
           if (mine.size === 0) running.delete(request.sessionId);

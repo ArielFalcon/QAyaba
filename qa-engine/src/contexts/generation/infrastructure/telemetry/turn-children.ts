@@ -11,6 +11,7 @@ import type { RedactionScope, SpanHandle, TelemetryPort } from "@kernel/telemetr
 import { classifyNavOutcome, isNavigationCall, type NavOutcomeInput } from "../../domain/nav-outcome.ts";
 import { classifyStepIntents, type StepCall, type StepIntentContext } from "../../domain/step-intent.ts";
 import type { CallTrace, StepTrace, TurnTrace } from "../../domain/turn-trace.ts";
+import { matchServerCalls, type ServerToolCall } from "../../domain/tool-link.ts";
 
 /* The metrics a step feeds; the model and provider are the closed sets the instrument table allows. */
 export interface ChildModel {
@@ -29,6 +30,8 @@ export interface ChildrenInput {
   model: ChildModel;
   stepLimit: number | undefined;
   intent: StepIntentContext;
+  /* The calls the orchestrator served for this turn's session (run_spec, the authenticated browser): a tool span that matches one carries a link to its server span. */
+  servers?: readonly ServerToolCall[];
   /* Where an unfinished step or call ends: the moment the attempt did. No child ends after it, so a child never outlives its parent. */
   endedAt: number;
 }
@@ -145,13 +148,16 @@ export function emitTurnChildren(input: ChildrenInput): ChildrenSummary {
     span.end(endedAt);
     recordStepMetrics(step, startedAt, endedAt, input);
   });
+  const served = input.servers && input.servers.length > 0 ? matchServerCalls(trace.calls, input.servers) : undefined;
   for (const call of trace.calls) {
     const startedAt = Math.min(call.startedAt ?? call.firstSeenAt, input.endedAt);
     const endedAt = Math.min(Math.max(startedAt, call.endedAt ?? input.endedAt), input.endedAt);
+    const server = served?.get(call.callId);
     const span = telemetry.startSpan(`${GENAI.operations.executeTool} ${call.tool}`, {
       kind: "internal",
       parent,
       startTime: startedAt,
+      ...(server ? { links: [{ context: server.context }] } : {}),
       ...(secrets ? { secrets } : {}),
       attrs: toolAttrs(call, input),
     });

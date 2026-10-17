@@ -36,6 +36,8 @@ export type CallStatus = "running" | "completed" | "error";
 
 export interface CallTrace {
   callId: string;
+  /* The assistant message the call belongs to; the join key with the orchestrator's server span of a tool call (tool-link.ts). */
+  messageId?: string;
   tool: string;
   bucket: CallBucket;
   status: CallStatus;

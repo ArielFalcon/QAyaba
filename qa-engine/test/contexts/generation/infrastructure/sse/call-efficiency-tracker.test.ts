@@ -1132,6 +1132,15 @@ test("a call keeps the runtime's own start and end times, its status, its step a
   );
 });
 
+test("a call keeps the id of the assistant message it belongs to", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(timedTool("s1", "c1", "run_spec", "running", { start: 1 }, { path: "e2e/a.spec.ts" }));
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.equal(calls[0]!.messageId, "msg_1");
+});
+
 test("a navigation keeps a bounded prefix of its answer for the outcome classifier and no other call does", async () => {
   const tracker = tracked();
   await tracker.prepareAttempt("s1", 0);
