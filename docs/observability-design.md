@@ -917,7 +917,7 @@ ingest times.
 | 4 | `GET /campaigns/:id/runs?variant.<k>=<v>` | `{schemaVersion, campaignId, runs: [{id, variant, replicate, status, verdict?, evaluationStatus}], complete: bool}` |
 | 5 | `POST /evaluations/regrade` | Body `{runIds?\|campaignId?\|since?, graders?: string[]}`. Returns 202 `{schemaVersion, jobId, runs: n}` |
 | 5b | `GET /evaluations/regrade/:jobId` | `{schemaVersion, jobId, status: "pending"\|"running"\|"complete"\|"failed", runs: n, graded: n, failed: [{runId, error}], startedAt, finishedAt?}` |
-| 6 | `GET /evaluations/catalog` | `{schemaVersion, phases: string[]` (canonical `RUN_PHASES` order)`, scores: [{name, dataType, polarity, range?, categories?, graderVersion}]}`. The machine-readable source of phase order and score polarity |
+| 6 | `GET /evaluations/catalog` | `{schemaVersion, phases: string[]` (canonical `RUN_PHASES` order)`, scores: [{name, dataType, polarity, range?, categories?, suffixes?, graderVersion}]}`. The machine-readable source of phase order and score polarity |
 | 7 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, campaignFreeze: bool, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, scoreSink: {configured, lastError?}}`. Also summarized under `/api/health.telemetry` |
 
 **Contract rules:**
@@ -929,6 +929,24 @@ ingest times.
     `prompt.static_hash`, the stitcher, structural-signal, explorer and curriculum settings, and
     `campaignFreeze`.
   - A consumer verifies that its arms really differed by comparing `effectiveConfig`, not labels.
+  - Exact shape. Every key is always present; a setting that does not apply is `null`:
+    ```json
+    "effectiveConfig": {
+      "levers": { "closedLoop": true, "agentBrowser": false, "coordinationMode": "single", "captureMode": "metadata" },
+      "campaignFreeze": true,
+      "runtime": "opencode",
+      "agents": {
+        "qa-generator": { "provider": "opencode-go", "model": "glm-5.3-flash", "reasoningEffort": "low", "stepLimit": 50 },
+        "qa-reviewer":  { "provider": "opencode-go", "model": "minimax-m3", "reasoningEffort": null, "stepLimit": 25 }
+      },
+      "prompt": { "staticHash": "sha256:…" },
+      "grounding": { "explorer": true, "stitcher": "signal", "structuralSignal": "signal", "curriculum": "frozen" },
+      "coverage": { "mode": "signal", "minRatio": 0.7 },
+      "reflector": false
+    }
+    ```
+    `agents` lists only the roles the run actually invoked. Each entry is the resolved value read
+    live from the runtime, not the repo copy of the config.
   - Model and prompt-version variants are config changes, made between arms. They are not request fields.
 - **`captureMode`** is capped by the server's `QA_TELEMETRY_MAX_CAPTURE` (§9.2). The applied value
   is in `effectiveConfig`.
@@ -939,6 +957,13 @@ ingest times.
   - Every BOOLEAN score is pass-oriented: `true` means the check passed and the problem is absent.
   - Score names, types, ranges and polarities are those of §11.2 and `/evaluations/catalog`. They
     are frozen per `graderVersion`. Comparing scores across different `graderVersion`s is invalid.
+  - **Expanded names.** The catalog lists only **base** names. A family entry also declares its
+    closed set of `suffixes`:
+    - `context_utilization`: `route`, `dom`, `op`, `file`
+    - `step_intent_mix`: `auth`, `explore`, `write_spec`, `run_spec`, `review`, `other`
+
+    A score named `<base>.<suffix>` inherits its base's `dataType`, `polarity`, `range` and
+    `graderVersion`. The bare base name (`context_utilization`) is the overall value.
 
 | Score | Polarity |
 |---|---|
