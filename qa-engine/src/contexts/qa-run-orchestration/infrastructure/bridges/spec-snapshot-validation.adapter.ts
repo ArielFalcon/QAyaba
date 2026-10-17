@@ -23,6 +23,9 @@ import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { MAX_SPEC_SNAPSHOTS_PER_CAPTURE, MAX_SPEC_SNAPSHOT_BYTES_PER_RUN, MAX_SPEC_SNAPSHOT_TEXT_BYTES, type SpecSnapshot, type SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
 import type { ValidationPort, ValidationRunInfo } from "../../application/ports/index.ts";
 
+/* How many runs' kept specs a port remembers. */
+export const MAX_REMEMBERED_RUNS = 4;
+
 export interface SpecSnapshotDeps {
   port: SpecSnapshotPort;
   /* The outbound sanitizer (data leaving the system). Injected: the engine never imports the shell. */
@@ -75,6 +78,7 @@ export function snapshotSpecs(specDir: string, runId: string, delivered: readonl
 }
 
 export class SpecSnapshotValidationPort implements ValidationPort {
+  /* The runs this port has kept specs for, newest last. A run is over long before the next few begin, so only the last few are remembered (a run that returns to a forgotten entry only re-keeps its specs). */
   private readonly keptByRun = new Map<string, RunKept>();
 
   constructor(
@@ -96,6 +100,7 @@ export class SpecSnapshotValidationPort implements ValidationPort {
       if (!kept) {
         kept = { seen: new Set(), textBytes: 0 };
         this.keptByRun.set(runId, kept);
+        while (this.keptByRun.size > MAX_REMEMBERED_RUNS) this.keptByRun.delete(this.keptByRun.keys().next().value as string);
       }
       const snapshots = snapshotSpecs(specDir, runId, run?.deliveredSpecs ?? [], this.deps, kept);
       if (snapshots.length > 0) this.deps.port.record(snapshots);

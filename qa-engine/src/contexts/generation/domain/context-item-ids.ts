@@ -3,6 +3,11 @@
  * produced, from what the item is and nothing about the run, so the same item has the same id in every run and a grader can later
  * count which items an agent used. Pure: no clock, no randomness, no environment.
  *
+ * A DOM capture shares the span's budget of MAX_ITEM_IDS evenly among its pages, each keeping at least MIN_DOM_IDS_PER_ROUTE. That per-page
+ * guarantee holds up to MAX_ITEM_IDS / MIN_DOM_IDS_PER_ROUTE = 40 pages; above that the minimums no longer fit, the global cap truncates the pages
+ * at the end, and what it leaves out is counted in `qayaba.context.item_ids.overflow`. (A capture asks for at most a dozen routes, so this is a
+ * bound, not a case.)
+ *
  * Which kinds a spec can be checked against (§11.1) is stated here too, next to the ids, because the extraction and the id forms must
  * agree: a kind marked not extractable is reported as n/a, never as zero.
  */
@@ -150,17 +155,17 @@ export function changedValueFactIds(pages: ReadonlyArray<{ route: string; testId
 /* The fewest ids a route keeps when the span's budget is shared out among the routes of a capture. */
 export const MIN_DOM_IDS_PER_ROUTE = 5;
 
-/* The same ids, with the span's budget shared out evenly among the pages (at least a few each) so that the last pages of a capture are not the ones that fall off the cap. What a page's share leaves out is counted for it, keyed by the page's route. */
-export function domItemIdsBudgeted(pages: readonly DomPageLike[], total: number = MAX_ITEM_IDS): { ids: string[]; overflowByRoute: Map<string, number> } {
+/* The same ids, with the span's budget shared out evenly among the pages (at least a few each) so that the last pages of a capture are not the ones that fall off the cap. What a page's share leaves out is counted for that page alone (`overflow[i]` is page i's), so two pages opened from one template are not added together. */
+export function domItemIdsBudgeted(pages: readonly DomPageLike[], total: number = MAX_ITEM_IDS): { ids: string[]; overflow: number[] } {
   const share = Math.max(MIN_DOM_IDS_PER_ROUTE, Math.floor(total / Math.max(1, pages.length)));
   const ids: string[] = [];
-  const overflowByRoute = new Map<string, number>();
+  const overflow: number[] = [];
   for (const page of pages) {
     const own = [...new Set(domItemIds([page]))];
     ids.push(...own.slice(0, share));
-    if (own.length > share) overflowByRoute.set(page.route, (overflowByRoute.get(page.route) ?? 0) + own.length - share);
+    overflow.push(Math.max(0, own.length - share));
   }
-  return { ids, overflowByRoute };
+  return { ids, overflow };
 }
 
 export interface BriefLike {

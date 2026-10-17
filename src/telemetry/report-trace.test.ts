@@ -241,6 +241,44 @@ test("one report makes at most 500 spans, counts what it left out on the phase, 
   assert.equal(h.measurements.filter((m) => m.name === "qayaba.tests").length, 400);
 });
 
+function fileWith(name: string, cases: number, retries = 0) {
+  return { title: name, file: name, specs: Array.from({ length: cases }, (_, i) => ({ title: `t${i}`, tests: [{ status: "expected", results: Array.from({ length: retries + 1 }, (_r, r) => ({ status: "passed", duration: 1, retry: r, startTime: iso(T0 + i) })) }] })) };
+}
+
+function phaseScope(h: ReturnType<typeof traceHarness>, name: string) {
+  const phase = h.telemetry.startSpan(name);
+  const scope = { runId: "r", workDir: "", egress: { dev: [], install: [] }, report: newSandboxReport(), telemetry: { parent: () => phase.context(), annotate: (attrs: Record<string, unknown>) => phase.setAttrs(attrs as never) } };
+  return { phase, scope };
+}
+
+test("a spec file none of whose cases fit is not a span, and the dropped count is the phase's own", () => {
+  const h = traceHarness();
+  const first = phaseScope(h, "qayaba.phase.execute");
+  withExecScope(first.scope, () => synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, { suites: [fileWith("a.spec.ts", 166, 1), fileWith("b.spec.ts", 3, 1)] }));
+  first.phase.end();
+  assert.deepEqual(h.named("qayaba.spec.execute").map((s) => s.attributes["qayaba.spec.file"]), ["a.spec.ts"]);
+  assert.equal(h.only("qayaba.phase.execute").attributes["qayaba.spans.synthesized_dropped"], 9);
+});
+
+test("the dropped count belongs to the phase it was dropped in: one phase adds its reports, and another phase starts from nothing", () => {
+  const h = traceHarness();
+  /* One scope for the whole run, as in a real run, whose open phase changes. */
+  let open = h.telemetry.startSpan("qayaba.phase.execute");
+  const scope = { runId: "r", workDir: "", egress: { dev: [], install: [] }, report: newSandboxReport(), telemetry: { parent: () => open.context(), annotate: (attrs: Record<string, unknown>) => open.setAttrs(attrs as never) } };
+  withExecScope(scope, () => {
+    synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, manyCases(400, 1));
+    synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, manyCases(400, 1));
+  });
+  const executeSpan = open;
+  open = h.telemetry.startSpan("qayaba.phase.fix_loop");
+  withExecScope(scope, () => synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, manyCases(2)));
+  executeSpan.end();
+  open.end();
+  /* The first report drops 3 * (400 - 166) spans; the second finds the run's tally and drops more, all of it counted on the execute phase. */
+  assert.ok(Number(h.only("qayaba.phase.execute").attributes["qayaba.spans.synthesized_dropped"]) > 702);
+  assert.equal(h.only("qayaba.phase.fix_loop").attributes["qayaba.spans.synthesized_dropped"], undefined);
+});
+
 test("one run makes at most 2000 spans across its reports", () => {
   const h = traceHarness();
   const phase = h.telemetry.startSpan("qayaba.phase.execute");

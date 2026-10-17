@@ -184,6 +184,25 @@ test("a spec already kept in this run in the same bytes is skipped before its te
   }
 });
 
+test("a port remembers only the last few runs, so what it keeps per run cannot grow without end", async () => {
+  const dir = suite({ "flows/a.spec.ts": "test('a', () => {});" });
+  try {
+    let recorded = 0;
+    const deps = { port: { record: (s: readonly SpecSnapshot[]) => { recorded += s.length; } }, sanitize: (t: string) => t };
+    const adapter = new SpecSnapshotValidationPort(inner, deps);
+    await validateIn(dir, "first", deps.port, deps.sanitize, undefined, adapter);
+    await validateIn(dir, "first", deps.port, deps.sanitize, undefined, adapter);
+    assert.equal(recorded, 1);
+    for (let i = 0; i < 6; i += 1) await validateIn(dir, `other-${i}`, deps.port, deps.sanitize, undefined, adapter);
+    assert.equal(recorded, 7);
+    /* "first" was forgotten: it keeps its spec again rather than holding memory for ever. */
+    await validateIn(dir, "first", deps.port, deps.sanitize, undefined, adapter);
+    assert.equal(recorded, 8);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a run keeps at most 2 MB of snapshot text", async () => {
   const files: Record<string, string> = {};
   for (let i = 0; i < 50; i += 1) files[`flows/s${String(i).padStart(2, "0")}.spec.ts`] = `// ${String(i)} ${"x".repeat(60_000)}\n`;

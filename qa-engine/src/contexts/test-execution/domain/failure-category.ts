@@ -44,13 +44,11 @@ const INFRA = [
   /Connection closed while reading from the driver/i,
 ];
 /* Auth is read from an HTTP status or from a navigation that ended on a login path; words like "unauthorized" or "session expired" are as likely to be page text an assertion quotes. */
-const AUTH = [
-  /\bstatus(?: code)?:?\s+(401|403)\b/i,
-  /\bReceived:\s+(401|403)\b/,
-  /Received (string|pattern|URL):\s+"?[^\s"]*\/(log-?in|sign-?in|auth|sso)\b/i,
-];
+const AUTH_STATUS = [/\bstatus(?: code)?:?\s+(401|403)\b/i, /\bReceived:\s+(401|403)\b/];
+/* A navigation that ended on a login path decides even inside an assertion about the URL. */
+const AUTH_LOGIN_PATH = [/Received (string|pattern|URL):\s+"?[^\s"]*\/(log-?in|sign-?in|auth|sso)\b/i];
 /* Data state is read from an HTTP status too, never from words in an assertion (an expected text may well say "conflict" or "already exists"). */
-const DATA_STATE = [/\bstatus(?: code)?:?\s+(404|409|422)\b/i, /\bReceived:\s+(404|409|422)\b/];
+const DATA_STATE_STATUS = [/\bstatus(?: code)?:?\s+(404|409|422)\b/i, /\bReceived:\s+(404|409|422)\b/];
 const STRICT = /strict mode violation/i;
 /* What decides a selector failure whatever else the message says: the element is not there, is hidden, or the locator is ambiguous. */
 const SELECTOR_DECISIVE = [STRICT, /<element\(s\) not found>/, /resolved to hidden/i];
@@ -75,10 +73,14 @@ export function classifyFailure(message: string, ctx: ClassifyContext = {}): Fai
   if (NET_ERROR.test(text) && (ctx.deniedHosts ?? []).some((host) => host !== "" && text.includes(host))) return FAILURE_CATEGORY.EGRESS;
   if (any(INFRA, text) || NET_ERROR.test(text)) return FAILURE_CATEGORY.INFRA;
   if (any(SELECTOR_DECISIVE, text)) return FAILURE_CATEGORY.SELECTOR;
-  if (any(AUTH, text)) return FAILURE_CATEGORY.AUTH;
-  if (any(DATA_STATE, text)) return FAILURE_CATEGORY.DATA_STATE;
-  const isAssertion = any(ASSERTION_FIRST_LINE, firstLineOf(text)) || (any(ASSERTION_BODY, text) && /\bto[A-Z]\w*\(/.test(text));
-  if (isAssertion) return FAILURE_CATEGORY.ASSERTION;
+  if (any(AUTH_LOGIN_PATH, text)) return FAILURE_CATEGORY.AUTH;
+  /* A failure that announces itself as an assertion is one: a status it quotes (Received: 404, Expected: "status 409") is a value compared, not a response the test got. A status decides only for a navigation or a response error. */
+  const firstIsAssertion = any(ASSERTION_FIRST_LINE, firstLineOf(text));
+  if (!firstIsAssertion) {
+    if (any(AUTH_STATUS, text)) return FAILURE_CATEGORY.AUTH;
+    if (any(DATA_STATE_STATUS, text)) return FAILURE_CATEGORY.DATA_STATE;
+  }
+  if (firstIsAssertion || (any(ASSERTION_BODY, text) && /\bto[A-Z]\w*\(/.test(text))) return FAILURE_CATEGORY.ASSERTION;
   if (any(SELECTOR_CALL_LOG, text)) return FAILURE_CATEGORY.SELECTOR;
   if (any(TIMEOUT, text)) return FAILURE_CATEGORY.TIMEOUT;
   return undefined;

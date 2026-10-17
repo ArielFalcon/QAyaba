@@ -29,15 +29,16 @@ export interface ReportSpanDeps {
 /* What a run has synthesized so far, and what it has left out. Outside a run there is nowhere to keep it, and each report gets a fresh count. */
 interface RunTally {
   spans: number;
-  dropped: number;
+  /* What the caps left out, per phase span (a phase can read several reports). */
+  droppedByPhase: Map<string, number>;
 }
 const TALLIES = new WeakMap<RunScope, RunTally>();
 
 function tallyOf(scope: RunScope | undefined): RunTally {
-  if (!scope) return { spans: 0, dropped: 0 };
+  if (!scope) return { spans: 0, droppedByPhase: new Map() };
   let tally = TALLIES.get(scope);
   if (!tally) {
-    tally = { spans: 0, dropped: 0 };
+    tally = { spans: 0, droppedByPhase: new Map() };
     TALLIES.set(scope, tally);
   }
   return tally;
@@ -60,28 +61,37 @@ export function synthesizeReportSpans(deps: ReportSpanDeps, report: unknown): vo
       tally.spans += n;
       return true;
     };
+    const phaseKey = scope?.telemetry?.parent()?.spanId ?? "";
+    let dropped = plan.omitted;
     for (const file of plan.files) {
       const spansOf = (c: PlannedCase): number => 1 + c.attempts.length;
-      if (!take(1)) {
-        tally.dropped += file.cases.reduce((sum, c) => sum + spansOf(c), 1);
-        for (const c of file.cases) countCase(telemetry, c);
-        continue;
+      /* The file's span is made only when one of its cases is: an execute span with nothing under it says nothing. */
+      let fileTaken = false;
+      const fitting: PlannedCase[] = [];
+      for (const c of file.cases) {
+        if (take(spansOf(c) + (fileTaken ? 0 : 1))) {
+          fileTaken = true;
+          fitting.push(c);
+        } else {
+          dropped += spansOf(c);
+        }
+        countCase(telemetry, c);
       }
+      if (!fileTaken) continue;
       const fileSpan = telemetry.startSpan("qayaba.spec.execute", {
         kind: "internal",
         ...options,
         startTime: file.startMs,
         attrs: { "qayaba.spec.file": file.file, "qayaba.span.synthesized": true, "qayaba.time.source": "report" },
       });
-      for (const c of file.cases) {
-        if (take(spansOf(c))) emitCase(telemetry, fileSpan, c, options);
-        else tally.dropped += spansOf(c);
-        countCase(telemetry, c);
-      }
+      for (const c of fitting) emitCase(telemetry, fileSpan, c, options);
       fileSpan.end(file.endMs);
     }
-    tally.dropped += plan.omitted;
-    if (tally.dropped > 0) scope?.telemetry?.annotate?.({ "qayaba.spans.synthesized_dropped": tally.dropped });
+    if (dropped > 0) {
+      const total = (tally.droppedByPhase.get(phaseKey) ?? 0) + dropped;
+      tally.droppedByPhase.set(phaseKey, total);
+      scope?.telemetry?.annotate?.({ "qayaba.spans.synthesized_dropped": total });
+    }
   } catch (err) {
     console.error(`[telemetry] the Playwright report could not be turned into spans (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }

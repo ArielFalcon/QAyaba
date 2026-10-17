@@ -46,6 +46,7 @@ export function recordDomCapture(telemetry: TelemetryPort, report: DomCaptureRep
   const captured = report.snaps.filter((snap) => snap.error === undefined);
   const pages = captured.map(pageOf);
   const budgeted = domItemIdsBudgeted(pages.map((p) => p.page));
+  const overflowOf = new Map<RouteSnapshot, number>(captured.map((snap, i) => [snap, budgeted.overflow[i] ?? 0]));
   recordContextSpan(
     telemetry,
     {
@@ -56,7 +57,7 @@ export function recordDomCapture(telemetry: TelemetryPort, report: DomCaptureRep
     },
     (span) => {
       /* One event per route, in the order the script was asked for them, errored ones included. */
-      for (const snap of report.snaps) span.addEvent("route", routeEventAttrs(snap, budgeted.overflowByRoute.get(snap.template ?? snap.route) ?? 0));
+      for (const snap of report.snaps) span.addEvent("route", routeEventAttrs(snap, overflowOf.get(snap) ?? 0));
     },
   );
 }

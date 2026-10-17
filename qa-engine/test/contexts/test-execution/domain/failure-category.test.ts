@@ -19,8 +19,8 @@ const FIXTURES = {
   assertText: `Error: expect(locator).toHaveText(expected) failed\n\nLocator: locator('h1')\nExpected string: "Orders"\nReceived string: "Order list"\nTimeout: 5000ms`,
   assertValue: `Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: 3\nReceived: 2`,
   authUrl: `Error: expect(page).toHaveURL(expected) failed\n\nExpected pattern: /dashboard/\nReceived string:  "https://dev.example.com/login?next=%2Fdashboard"\nTimeout: 5000ms`,
-  auth401: `Error: expect(response).toBeOK()\n\nReceived: 401 Unauthorized`,
-  data409: `Error: expect(received).toBe(expected) // Object.is equality\n\nStatus code 409: user already exists`,
+  auth401: `Error: apiRequestContext.get: Request failed with status 401 Unauthorized\n  at /api/me`,
+  data409: `Error: apiRequestContext.post: Request failed with status code 409: user already exists`,
   netBlocked: `Error: page.goto: net::ERR_CONNECTION_REFUSED at https://cdn.thirdparty.test/lib.js`,
   netOther: `Error: page.goto: net::ERR_NAME_NOT_RESOLVED at https://dev.example.com/`,
   browserGone: `Error: page.click: Target page, context or browser has been closed`,
@@ -103,7 +103,15 @@ test("an expectation that names a locator, carries a call log or quotes words ot
 });
 
 test("data state and auth are read from an HTTP status, never from words in an assertion", () => {
-  assert.equal(classifyFailure("Error: expect(response).toBeOK()\n\nStatus: 409 Conflict"), FAILURE_CATEGORY.DATA_STATE);
+  assert.equal(classifyFailure("Error: page.goto: response status 409 Conflict"), FAILURE_CATEGORY.DATA_STATE);
   assert.equal(classifyFailure("Error: apiRequestContext.post: status 409"), FAILURE_CATEGORY.DATA_STATE);
-  assert.equal(classifyFailure("Error: expect(received).toBe(expected)\n\nReceived: 403"), FAILURE_CATEGORY.AUTH);
+  assert.equal(classifyFailure("Error: page.goto: response status 403 Forbidden"), FAILURE_CATEGORY.AUTH);
+});
+
+test("an assertion that mentions a status is still an assertion: the status only counts when the failure is no assertion", () => {
+  assert.equal(classifyFailure("Error: expect(locator).toHaveCount(expected) failed\n\nLocator: locator('li')\nExpected: 3\nReceived: 404\nTimeout: 5000ms"), FAILURE_CATEGORY.ASSERTION);
+  assert.equal(classifyFailure('Error: expect(locator).toHaveText(expected) failed\n\nLocator: getByRole(\'alert\')\nExpected: "status 409"\nReceived: ""'), FAILURE_CATEGORY.ASSERTION);
+  assert.equal(classifyFailure("Error: expect(response).toBeOK()\n\nReceived: 401 Unauthorized"), FAILURE_CATEGORY.ASSERTION);
+  /* A selector marker or an infra one still wins over the assertion that carries it. */
+  assert.equal(classifyFailure("Error: expect(locator).toBeVisible() failed\n\nLocator: getByTestId('x')\nReceived: <element(s) not found>"), FAILURE_CATEGORY.SELECTOR);
 });

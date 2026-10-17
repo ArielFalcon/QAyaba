@@ -262,6 +262,19 @@ test("a page opened from a route template is named by the template, in its eleme
   assert.equal(event.attributes?.["qayaba.route.template"], "/orders/:id");
 });
 
+test("two pages opened from one template each report their own overflow, not the sum", () => {
+  const h = traceHarness();
+  const ids = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}-${i}`);
+  const nodes = (n: number) => Array.from({ length: n }, (_, i) => `button: b${i}`);
+  const busy = (route: string, testIds: number, extraNodes: number, template?: string) =>
+    snapOf(route, ids(route.slice(1), testIds), { nodes: nodes(extraNodes), ...(template ? { template } : {}) });
+  /* Three pages share 200: a share of 66. The two instances of one template have 120 and 70 ids; the third page has 11. */
+  inPhase(h, () =>
+    recordDomCapture(h.telemetry, { asked: ["/o1", "/o2", "/x"], outputChars: 10, snaps: [busy("/o1", 60, 60, "/orders/:id"), busy("/o2", 60, 10, "/orders/:id"), busy("/x", 10, 1)] }),
+  );
+  assert.deepEqual(contextSpan(h, "dom-capture").events.map((e) => e.attributes?.["qayaba.route.ids_overflow"]), [54, 4, undefined]);
+});
+
 test("each captured route gets an even share of the id budget and says how many of its ids were left out", () => {
   const h = traceHarness();
   const ids60 = (prefix: string) => Array.from({ length: 60 }, (_, i) => `${prefix}-${i}`);
