@@ -313,7 +313,6 @@ function ensureDb(): void {
     CREATE INDEX IF NOT EXISTS idx_run_spans_trace_id ON run_spans(trace_id);
     CREATE INDEX IF NOT EXISTS idx_run_spans_start_ns ON run_spans(start_ns);
 
-<<<<<<< HEAD
     -- Evaluation scores (docs/observability-design.md section 11): one row per (run, score name, grader version), replaced on a regrade.
     -- Never pruned: they are tiny, and a campaign compares them long after the run's spans are gone. No foreign key to runs, for the same reason.
     CREATE TABLE IF NOT EXISTS run_scores (
@@ -350,7 +349,7 @@ function ensureDb(): void {
       started_at TEXT NOT NULL,
       finished_at TEXT
     );
-=======
+
     -- The text of the specs a run held when it validated them (docs/observability-design.md §11.1), redacted and capped, so
     -- a run can be graded after its working copy is gone. One row per (run, path, bytes): a spec rewritten during the run is
     -- kept in each version. Same retention as run_spans.
@@ -365,7 +364,6 @@ function ensureDb(): void {
       PRIMARY KEY (run_id, path, sha256)
     );
     CREATE INDEX IF NOT EXISTS idx_run_spec_snapshots_captured_at ON run_spec_snapshots(captured_at);
->>>>>>> 86f37727 (feat(observability): trace grounding sources, logins, suite store, validation and execution, and keep spec snapshots)
 
     CREATE TABLE IF NOT EXISTS learning_rules (
       id TEXT PRIMARY KEY,

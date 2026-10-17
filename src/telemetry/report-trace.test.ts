@@ -76,7 +76,7 @@ test("a spec file, each case and each attempt become spans with the report's own
   assert.equal(saves.parentSpanContext?.spanId, orders.spanContext().spanId);
 
   const attempts = h.named("qayaba.attempt").filter((s) => s.parentSpanContext?.spanId === saves.spanContext().spanId);
-  assert.deepEqual(attempts.map((s) => s.attributes["qayaba.attempt"]), [0, 1]);
+  assert.deepEqual(attempts.map((s) => s.attributes["qayaba.test.attempt"]), [0, 1]);
   assert.equal(ms(attempts[0]!.startTime), T0 + 3000);
   assert.equal(ms(attempts[0]!.endTime), T0 + 5000);
   assert.equal(attempts[0]!.attributes["qayaba.test.status"], "failed");

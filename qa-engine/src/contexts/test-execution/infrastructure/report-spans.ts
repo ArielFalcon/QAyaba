@@ -128,7 +128,7 @@ function emitAttempt(telemetry: TelemetryPort, testSpan: ReturnType<TelemetryPor
     parent: testSpan,
     startTime: a.startMs,
     attrs: {
-      "qayaba.attempt": a.index,
+      "qayaba.test.attempt": a.index,
       "qayaba.test.status": a.status,
       "qayaba.span.synthesized": true,
       "qayaba.time.source": "report",

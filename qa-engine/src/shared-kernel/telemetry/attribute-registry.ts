@@ -138,7 +138,7 @@ export const ATTRIBUTES = {
   "qayaba.agent.step": int("The step's number within its turn, from 1."),
   "qayaba.agent.step_budget.remaining": int("Steps left under the cap after this one; absent when no cap was stated."),
   "qayaba.attempt": int("The attempt of a prompt: 1 for the primary model, 2 for the fallback."),
-  "qayaba.time.source": str("Where a span's times come from: receive (when the orchestrator received the events) or state (the runtime's own stamps)."),
+  "qayaba.time.source": str("Where a span's times come from: receive (when the orchestrator received the events), state (the runtime's own stamps) or report (the Playwright JSON report's own times)."),
   "qayaba.usage.input_tokens": int("Input tokens summed over the turn, cached tokens included (the conventions' count)."),
   "qayaba.usage.output_tokens": int("Output tokens summed over the turn."),
   "qayaba.usage.cache_read_tokens": int("Cache-read input tokens summed over the turn."),
@@ -216,8 +216,7 @@ export const ATTRIBUTES = {
   "qayaba.test.status": str("passed, failed, flaky, skipped, timedOut or interrupted."),
   "qayaba.test.failure_category": str("selector, auth, data_state, timeout, assertion, infra or egress."),
   "qayaba.test.retries": int("Retries the case used."),
-  "qayaba.attempt": int("The attempt number of a case (0 is the first run)."),
-  "qayaba.time.source": str("Where the span's times come from: report."),
+  "qayaba.test.attempt": int("The attempt number of a case (0 is the first run)."),
   "qayaba.selector.match_count": int("Elements a locator resolved to in a strict mode violation."),
   "qayaba.selector.strategy": str("The kind of locator that failed: testid, role, text or css."),
 
