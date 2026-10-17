@@ -817,10 +817,10 @@ qa-engine/src/contexts/evaluation/
 | `budget_exhaustion` | CATEGORICAL | `none` or `<limit>@<phase>/<role>/<intent>` | |
 | `step_intent_mix` | NUMERIC per intent (`step_intent_mix.<intent>`) | Share of steps per intent: `auth\|explore\|write_spec\|run_spec\|review\|other` | Classified from the step's tool calls by a pure rule table **fed by config, never by names**. A write under the app's `specRelDir` → write_spec (so code-target runs classify correctly). Navigation to the app's **declared** login URL or origin, or a read of `auth.setup.ts` → auth. OpenCode only: Codex has no steps, so this is `n/a` for it |
 | `auth_overhead` | NUMERIC 0..1 | auth steps / steps | `n/a` for Codex |
-| `approved_against_signals` | BOOLEAN | FAIL if accepted while a deterministic signal said no: coverage `fail` under `enforce`, catalog gate fail-closed, or static failure | B6 |
+| `approval_consistent` | BOOLEAN | `false` when accepted while a deterministic signal said no: coverage `fail` under `enforce`, catalog gate fail-closed, or static failure | B6 |
 | `context_utilization` | NUMERIC 0..1, per source and overall | \|referenced ∩ provided\| / \|provided\|; comment lists referenced-but-not-provided ids | Brief §3 |
-| `context_truncation` | BOOLEAN | Any source truncated; comment lists what was lost | |
-| `noop_contradiction` | BOOLEAN | No-op `unobservable` while the pack facts show the changed element **present**, or the reverse | Q10, F4 |
+| `context_complete` | BOOLEAN | `true` when no source was truncated; comment lists what was lost | |
+| `noop_consistent` | BOOLEAN | `false` when a no-op declared `unobservable` while the pack facts show the changed element **present**, or the reverse | Q10, F4 |
 | `change_coverage` | CATEGORICAL | `pass\|fail\|unknown` (unknown is its own class, never pass) | Existing signal |
 | `mutation_value` | NUMERIC | Killed / mutants, when the oracle ran | Existing |
 | `infra_error` | CATEGORICAL | `error_class` × sub-cause (deploy-unverified, egress-denied, quota, suspend, sandbox…) | |
@@ -883,7 +883,7 @@ These follow Hamel Husain's evals practice.
 | Suite store actions and why (C7) | `suite_store.restore/capture` spans; `auth.demoted` with reason |
 | DOM capture per route, changed element present (C8) | `context.dom-capture` route events; `fact:` ids |
 | Tool calls by family, prompt-provided reads, wasted navigations (C9) | `calls.<bucket>`, `reads.prompt_provided`; `execute_tool` status/HTTP status (F9) |
-| No-op kind versus pack facts (C10) | `noop_kind`; `noop_contradiction` grader |
+| No-op kind versus pack facts (C10) | `noop_kind`; `noop_consistent` grader |
 | Sidekicks: steps, calls, writes, lease wait, escalation (C11) | sidekick `invoke_agent` under `qayaba.fanout` (overlap visible); `lease.wait_ms`; escalation events |
 | Funnel, verdict mix, p50/p95, tokens and cost per role, schema share (C12) | metrics §8.1; `tools_offered.bytes / prompt.bytes` |
 | Context provided versus used (B3–4) | `context.*` spans and the `context_utilization` grader |
@@ -906,19 +906,53 @@ ingest times.
 - **Source of truth:** the zod schemas in `qa-engine/src/shared-kernel/contract/`. Regenerate
   `contract/openapi.json` and the SDK, which `contract:check` enforces.
 
+**Every JSON response of the endpoints below carries `schemaVersion: 1`**: 2xx bodies and their
+4xx/5xx error bodies (`{schemaVersion, error}`). That includes `POST /runs`.
+
 | # | Endpoint | Shape (summary) |
 |---|---|---|
-| 1 | `POST /runs` (extended) | Adds `campaign?: {id, variant: Record<string,string>, replicate: int≥1}` and `captureMode?: off\|metadata\|full`. Returns 202 `{id, …, status:"enqueued"}` |
-| 2 | `GET /runs/:id` (extended) | Adds `telemetry: {traceId, traceUrl?}`, `campaign?`, `phases: [{name, startedAt, durationMs}]`, `usage: {inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, costUsd}`, `specs: {generated, valid, passed}`, `decision`, `budgets: {exhausted: bool, limit?, role?}`, `furthestPhase` |
-| 3 | `GET /runs/:id/evaluation` | `{schemaVersion, runId, traceId, status: "pending"\|"complete"\|"failed", scores: [{name, value, dataType, source, graderVersion, comment?, observationId?}]}` |
+| 1 | `POST /runs` (extended) | Adds `campaign?: {id, variant: Record<string,string>, replicate: int≥1}` and `captureMode?: off\|metadata\|full` to the zod `CreateRunInputSchema`, and so to `openapi.json`. Returns 202 `{schemaVersion, id, …, status:"enqueued"}` |
+| 2 | `GET /runs/:id` (extended) | Adds `telemetry: {traceId, traceUrl?} \| null`, `campaign?`, `phases: [{name, durationMs}]` (in canonical order), `furthestPhase`, `usage: {inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, costUsd}`, `specs: {generated, valid, passed}`, `decision`, `budgets: {exhausted: bool, limit?, role?}` and `effectiveConfig` (below) |
+| 3 | `GET /runs/:id/evaluation[?versions=all]` | `{schemaVersion, runId, traceId, status: "pending"\|"complete"\|"failed", scores: [{name, value, dataType, polarity, source, graderVersion, comment?, observationId?}]}`. By default only the **latest `graderVersion` per name** is returned; `?versions=all` returns every stored version |
 | 4 | `GET /campaigns/:id/runs?variant.<k>=<v>` | `{schemaVersion, campaignId, runs: [{id, variant, replicate, status, verdict?, evaluationStatus}], complete: bool}` |
-| 5 | `POST /evaluations/regrade` | Body `{runIds?\|campaignId?\|since?, graders?: string[]}`. Returns 202 `{jobId, runs: n}` |
-| 6 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, scoreSink: {configured, lastError?}}`. Also summarized under `/api/health.telemetry` |
+| 5 | `POST /evaluations/regrade` | Body `{runIds?\|campaignId?\|since?, graders?: string[]}`. Returns 202 `{schemaVersion, jobId, runs: n}` |
+| 5b | `GET /evaluations/regrade/:jobId` | `{schemaVersion, jobId, status: "pending"\|"running"\|"complete"\|"failed", runs: n, graded: n, failed: [{runId, error}], startedAt, finishedAt?}` |
+| 6 | `GET /evaluations/catalog` | `{schemaVersion, phases: string[]` (canonical `RUN_PHASES` order)`, scores: [{name, dataType, polarity, range?, categories?, graderVersion}]}`. The machine-readable source of phase order and score polarity |
+| 7 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, campaignFreeze: bool, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, scoreSink: {configured, lastError?}}`. Also summarized under `/api/health.telemetry` |
 
-`traceUrl` is built from `QA_TRACE_URL_TEMPLATE` (for example a Grafana or Langfuse URL with
-`{traceId}`), and is absent when that is unset.
+**Contract rules:**
+- **Variant labels never change behaviour.** `campaign.variant` is stored and echoed as data. The
+  engine never reads it, because a label that silently switched behaviour would be hidden coupling.
+  What makes an arm behave differently is **only** the explicit request levers (`closedLoop`,
+  `agentBrowser`, `coordinationMode`, `captureMode`) and the deployment's config.
+  - Every run returns `effectiveConfig`: the levers actually applied, the agent models per role,
+    `prompt.static_hash`, the stitcher, structural-signal, explorer and curriculum settings, and
+    `campaignFreeze`.
+  - A consumer verifies that its arms really differed by comparing `effectiveConfig`, not labels.
+  - Model and prompt-version variants are config changes, made between arms. They are not request fields.
+- **`captureMode`** is capped by the server's `QA_TELEMETRY_MAX_CAPTURE` (§9.2). The applied value
+  is in `effectiveConfig`.
+- **`telemetry`** is `null` only when `QA_TELEMETRY=off`. In `local` mode `traceId` is always
+  present: the ledger mints it whether or not an exporter is configured. `traceUrl` is present only
+  when `QA_TRACE_URL_TEMPLATE` is set (a Grafana or Langfuse URL containing `{traceId}`).
+- **Score polarity.** Every score carries `polarity: higher_better | lower_better | none`.
+  - Every BOOLEAN score is pass-oriented: `true` means the check passed and the problem is absent.
+  - Score names, types, ranges and polarities are those of §11.2 and `/evaluations/catalog`. They
+    are frozen per `graderVersion`. Comparing scores across different `graderVersion`s is invalid.
 
-The exact score names, types and ranges are those of §11.2. They are frozen per `graderVersion`.
+| Score | Polarity |
+|---|---|
+| `spec_validity_rate`, `spec_pass_rate`, `selector_stability`, `context_utilization[.<source>]`, `mutation_value` | higher_better |
+| `empty_output_guard`, `approval_consistent`, `context_complete`, `noop_consistent` (BOOLEAN, `true` = pass) | higher_better |
+| `auth_overhead`, `cost_per_useful_spec` | lower_better |
+| `furthest_phase` (ordinal by `phases`), `budget_exhaustion` (`none` is the clean value), `change_coverage` (`unknown` is its own class), `infra_error`, `step_intent_mix.<intent>` | none |
+
+- **Dataset items.** `description` is metadata only and is never sent to a run. An item that needs
+  focused guidance declares an explicit `guidance` and runs in `manual` mode.
+- **Campaign tooling.** The canonical consumer for pipeline-variant A/B is the external control
+  plane, through this API. `scripts/campaign.ts` remains for the plain-agent baseline arm
+  (`baseline-agent`), which has no API surface. When it triggers pipeline runs, it sends the same
+  `campaign` fields.
 
 ---
 
