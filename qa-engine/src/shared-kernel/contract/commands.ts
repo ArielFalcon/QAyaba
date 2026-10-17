@@ -467,6 +467,17 @@ export const TelemetryHealthSchema = z.object({
     lastError: z.string().optional(),
   }),
   droppedAttributes: z.number().int().min(0),
+  /* Present when the process runs host health (docs/observability-design.md §7). */
+  host: z
+    .object({
+      suspends: z.number().int().min(0),
+      lastSuspendAt: z.string().optional(),
+      lastSuspendMs: z.number().min(0).optional(),
+      blockedLoops: z.number().int().min(0),
+      eventLoopP99Ms: z.number().min(0).optional(),
+      zombies: z.number().int().min(0).optional(),
+    })
+    .optional(),
 });
 
 export type QaCase = z.infer<typeof QaCaseSchema>;

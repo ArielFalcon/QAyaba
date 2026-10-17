@@ -675,6 +675,27 @@ test("GET /api/v1/telemetry/health returns the health with schemaVersion 1, vali
   assert.deepEqual({ ...body, schemaVersion: undefined }, { ...telemetryHealth, schemaVersion: undefined });
 });
 
+test("GET /api/v1/telemetry/health carries the host block when host health is wired, and omits it otherwise", async () => {
+  const host = { suspends: 2, lastSuspendAt: "2026-10-17T09:00:00.000Z", lastSuspendMs: 1_920_000, blockedLoops: 1, eventLoopP99Ms: 42.5, zombies: 0 };
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => host }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(TelemetryHealthSchema.parse(JSON.parse(res.body)).host, host);
+  const bare = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), bare, deps({ telemetryHealth: () => telemetryHealth }));
+  assert.equal(JSON.parse(bare.body).host, undefined);
+  const minimal = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), minimal, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => ({ suspends: 0, blockedLoops: 0 }) }));
+  assert.deepEqual(JSON.parse(minimal.body).host, { suspends: 0, blockedLoops: 0 });
+});
+
+test("a host health that throws does not take the telemetry health down", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => { throw new Error("boom"); } }));
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).host, undefined);
+});
+
 test("GET /api/telemetry/health answers on the unversioned path too", async () => {
   const res = mkRes();
   await handleApi(mkReq("GET", "/api/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth }));

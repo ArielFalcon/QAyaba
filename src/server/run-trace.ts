@@ -14,6 +14,7 @@
 import type { RunVerdict } from "@kernel/run-verdict";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port";
+import { hostListeners as processHostListeners, type HostEventListener, type HostListeners } from "../telemetry/host-listeners";
 
 /* What started a run. `campaign` is reserved for the campaign driver (it enqueues through the API until then). */
 export const RUN_TRIGGERS = ["webhook", "api", "cli", "campaign", "continuation", "context", "login-bootstrap"] as const;
@@ -86,12 +87,16 @@ export class RunTrace {
   private readonly startedAt: number;
   private ending: Ending | undefined;
   private ended = false;
+  private suspendedMs = 0;
+  private eventLoopMaxMs: number | undefined;
+  private readonly unregisterHost: () => void;
 
   constructor(
     telemetry: TelemetryPort,
     private readonly clock: TelemetryClock,
     private readonly identity: RunIdentity,
     enqueued: EnqueueMark,
+    hostListeners: HostListeners = processHostListeners,
   ) {
     this.telemetry = guardTelemetry(telemetry);
     this.startedAt = clock.now();
@@ -108,6 +113,23 @@ export class RunTrace {
         "langfuse.trace.tags": [identity.app, identity.mode],
       },
     });
+    this.unregisterHost = hostListeners.add(this.hostListener());
+  }
+
+  /* What the host did to the process while this run was active (one run at a time: the sequential queue). Registered for the run's length only. */
+  private hostListener(): HostEventListener {
+    return {
+      hostSuspended: (ms, at) => {
+        this.suspendedMs += ms;
+        this.span.addEvent("host_suspended", { "qayaba.host.suspend_ms": Math.round(ms) }, at);
+      },
+      eventLoopBlocked: (ms, at) => {
+        this.span.addEvent("event_loop_blocked", { "qayaba.host.blocked_ms": Math.round(ms) }, at);
+      },
+      eventLoopObserved: (maxMs) => {
+        this.eventLoopMaxMs = Math.max(this.eventLoopMaxMs ?? 0, maxMs);
+      },
+    };
   }
 
   /* Runs the engine call under the root. */
@@ -148,6 +170,7 @@ export class RunTrace {
   end(): void {
     if (this.ended) return;
     this.ended = true;
+    this.unregisterHost();
     const at = this.clock.now();
     const { app, mode } = this.identity;
     let verdict: string | undefined;
@@ -185,6 +208,8 @@ export class RunTrace {
       this.span.setAttrs({ "qayaba.verdict": "infra-error", "qayaba.error_class": ending.errorClass });
       this.span.recordError(ending.error);
     }
+    if (this.suspendedMs > 0) this.span.setAttrs({ "qayaba.host.suspended_ms": Math.round(this.suspendedMs) });
+    if (this.eventLoopMaxMs !== undefined) this.span.setAttrs({ "qayaba.host.event_loop.max_ms": Math.round(this.eventLoopMaxMs) });
     this.span.end(at);
     if (verdict !== undefined) {
       this.telemetry.counter("qayaba.runs")(1, {

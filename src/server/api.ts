@@ -57,6 +57,7 @@ import {
   UpdateAppInputSchema,
   VersionInfoSchema,
   TelemetryHealthSchema,
+  type TelemetryHealthView,
   LoginRequestSchema,
   LoginResponseSchema,
 } from "../contract/commands";
@@ -112,6 +113,8 @@ export interface ApiDeps {
   signals?: () => z.infer<typeof SignalsViewSchema>;
   /* The telemetry stack's health, for GET /telemetry/health and the /health summary. Absent ⇒ the route returns 501 and /health omits the summary. */
   telemetryHealth?: () => TelemetryHealth;
+  /* Host health (suspends, blocked loops, event-loop p99, sandbox zombies), merged into GET /telemetry/health as `host`. */
+  hostHealth?: () => NonNullable<TelemetryHealthView["host"]>;
   /* Read-only multi-agent coordination audit tail. Absent ⇒ the route returns 501. */
   coordinationEvents?: (filter?: { runId?: string; limit?: number }) => z.infer<typeof CoordinationEventsViewSchema>;
   /*
@@ -363,7 +366,13 @@ export async function handleApi(
       json(res, 501, { schemaVersion: 1, error: "telemetry is not configured" });
       return true;
     }
-    contractJson(res, 200, TelemetryHealthSchema, { schemaVersion: 1, ...deps.telemetryHealth() });
+    let host: TelemetryHealthView["host"];
+    try {
+      host = deps.hostHealth?.();
+    } catch (err) {
+      console.error(`[api] host health unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    contractJson(res, 200, TelemetryHealthSchema, { schemaVersion: 1, ...deps.telemetryHealth(), ...(host ? { host } : {}) });
     return true;
   }
 

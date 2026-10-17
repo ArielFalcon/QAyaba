@@ -230,6 +230,10 @@ export class OtelTelemetry implements TelemetryPort {
     return this.instrument(name, "histogram");
   }
 
+  gauge(name: string): RecordMeasurement {
+    return this.instrument(name, "gauge");
+  }
+
   /* ---- used by Handle ---- */
 
   register(object: object, otelCtx: Context): void {
@@ -384,7 +388,7 @@ export class OtelTelemetry implements TelemetryPort {
     }
   }
 
-  private instrument(name: string, type: "counter" | "histogram"): RecordMeasurement {
+  private instrument(name: string, type: "counter" | "histogram" | "gauge"): RecordMeasurement {
     const noop: RecordMeasurement = () => {};
     const declared = this.instruments[name];
     if (!declared || declared.type !== type) {
@@ -406,6 +410,9 @@ export class OtelTelemetry implements TelemetryPort {
           if (type === "counter") {
             const counter = meter.createCounter(name);
             record = (v, a) => counter.add(v, a);
+          } else if (type === "gauge") {
+            const gauge = meter.createGauge(name);
+            record = (v, a) => gauge.record(v, a);
           } else {
             const histogram = meter.createHistogram(name);
             record = (v, a) => histogram.record(v, a);

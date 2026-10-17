@@ -64,4 +64,6 @@ export interface TelemetryPort {
   flush(): void;
   counter(name: string): RecordMeasurement;
   histogram(name: string): RecordMeasurement;
+  /* A last-value instrument: the latest measurement stands until the next one. */
+  gauge(name: string): RecordMeasurement;
 }

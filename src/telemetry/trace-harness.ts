@@ -23,7 +23,7 @@ export class FakeClock implements TelemetryClock {
 
 export interface Measurement {
   readonly name: string;
-  readonly type: "counter" | "histogram";
+  readonly type: "counter" | "histogram" | "gauge";
   readonly value: number;
   readonly attrs: Record<string, unknown>;
 }
@@ -38,6 +38,7 @@ function recordingMeter(into: Measurement[]): Meter {
   return {
     createCounter: (name: string) => instrument(name, "counter"),
     createHistogram: (name: string) => instrument(name, "histogram"),
+    createGauge: (name: string) => instrument(name, "gauge"),
   } as unknown as Meter;
 }
 

@@ -34,4 +34,7 @@ export class NoopTelemetry implements TelemetryPort {
   histogram(_name?: string): RecordMeasurement {
     return NOOP_RECORD;
   }
+  gauge(_name?: string): RecordMeasurement {
+    return NOOP_RECORD;
+  }
 }

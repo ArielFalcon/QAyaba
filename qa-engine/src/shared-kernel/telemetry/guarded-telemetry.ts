@@ -99,6 +99,11 @@ class GuardedTelemetry implements TelemetryPort {
     const record = swallow<RecordMeasurement>(() => {}, () => this.inner.histogram(name));
     return (value, attrs) => swallow(undefined, () => record(value, attrs));
   }
+
+  gauge(name: string): RecordMeasurement {
+    const record = swallow<RecordMeasurement>(() => {}, () => this.inner.gauge(name));
+    return (value, attrs) => swallow(undefined, () => record(value, attrs));
+  }
 }
 
 function unwrap<T extends SpanHandle | TelemetryContext>(parent: T): T | SpanHandle {
@@ -157,6 +162,9 @@ export class ThrowingTelemetry implements TelemetryPort {
     return this.fail();
   }
   histogram(): RecordMeasurement {
+    return this.fail();
+  }
+  gauge(): RecordMeasurement {
     return this.fail();
   }
 }

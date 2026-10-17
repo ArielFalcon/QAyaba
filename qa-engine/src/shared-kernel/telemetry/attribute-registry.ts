@@ -35,6 +35,11 @@ export const ATTRIBUTES = {
   "qayaba.onboarding.wait_ms": int("Milliseconds spent waiting for onboarding before the run started."),
   "qayaba.run.cancelled": bool("The run was cancelled by an operator (never an error)."),
 
+  /* Host health (design §7): what the machine did to the process while a run was active. */
+  "qayaba.host.suspend_ms": int("Milliseconds the process was frozen while wall time moved (VM paused, laptop asleep); on a host_suspended event."),
+  "qayaba.host.blocked_ms": int("Milliseconds the event loop was blocked; on an event_loop_blocked event."),
+  "qayaba.event_loop.stat": str("Which statistic of an event-loop delay window a measurement is: p50, p99 or max."),
+
   /* Configuration in effect for the run. */
   "qayaba.runtime": str("The agent runtime: opencode or codex."),
   "qayaba.coordination.mode": str("single or lead-sidekicks."),
@@ -92,8 +97,8 @@ export const ATTRIBUTES = {
   "exception.message": text("A recorded exception's message, redacted and capped; the stack is never recorded."),
 
   /* Host. */
-  "qayaba.host.suspended_ms": int("Milliseconds the host was suspended during the run."),
-  "qayaba.host.event_loop.max_ms": int("The longest event-loop delay seen during the run."),
+  "qayaba.host.suspended_ms": int("Milliseconds the host was suspended during the run. A forward wall-clock step over 2 s (NTP, a manual change) reads as a suspend."),
+  "qayaba.host.event_loop.max_ms": int("The longest event-loop delay seen during the run. Window-granular: 10 s sample windows can include time just before the run and miss the tail of its last window."),
 
   /* Agent turns. */
   "qayaba.agent.role": str("The agent role."),

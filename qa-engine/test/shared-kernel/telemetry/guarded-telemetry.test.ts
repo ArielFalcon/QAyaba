@@ -19,6 +19,7 @@ test("a span handle from a throwing port accepts every call and hands back a con
   port.flush();
   port.counter("qayaba.runs")(1);
   port.histogram("qayaba.run.duration")(1);
+  port.gauge("qayaba.sandbox.zombies")(1);
   assert.equal(port.activeContext(), undefined);
 });
 

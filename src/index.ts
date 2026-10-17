@@ -54,6 +54,8 @@ import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrast
 import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
+import { HostHealth } from "./telemetry/host-health";
+import { resolveSandbox } from "../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListener } from "./server/port";
 import { createToolsServer, resolveToolsListenHost, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
@@ -77,6 +79,10 @@ const redactionPort = new RedactionPortAdapter();
  * The engine factory takes `telemetry.telemetry` as a dep; the API reports `telemetry.health()`.
  */
 const telemetry = processTelemetry();
+/* Process-wide host health (suspends, blocked loops, sandbox zombies): runs with no run active and is stopped on shutdown. Fail-open and unref'd. */
+const sandboxIdentity = resolveSandbox(process.env);
+const hostHealth = new HostHealth({ telemetry: telemetry.telemetry, ...(sandboxIdentity ? { sandboxUid: sandboxIdentity.uid } : {}) });
+hostHealth.start();
 /*
  * Durable backing lives in createDurableRunEventStore, shared with the CLI so every
  * trigger persists events identically: the live SSE stream survives a restart (e.g. the
@@ -253,6 +259,7 @@ const { triggerMaintainer, confirmSwapAfterBoot, recoverMaintainerState, recover
 process.on("SIGTERM", () => {
   console.log("[qa] SIGTERM received — cancelling in-flight run and draining");
   shuttingDown = true;
+  hostHealth.stop();
   eventStreamController.abort();
 
   /*
@@ -282,6 +289,7 @@ process.on("SIGTERM", () => {
 process.on("SIGINT", () => {
   console.log("[qa] SIGINT received — cancelling in-flight run and draining");
   shuttingDown = true;
+  hostHealth.stop();
   eventStreamController.abort();
   queue.cancel();
   const drainTimer = setTimeout(() => {
@@ -601,6 +609,7 @@ const onboardingJob = createOnboardingJob({
 const apiDeps: ApiDeps = {
   queue,
   telemetryHealth: () => telemetry.health(),
+  hostHealth: () => hostHealth.snapshot(),
   enqueue: enqueueApiRun,
   loadApp: (name) => loadAppConfig(name),
   listApps: () => listAppConfigs(),

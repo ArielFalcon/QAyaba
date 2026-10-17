@@ -23,3 +23,18 @@ test("the denylist matches by name segment, not only by registry class", () => {
   const out = checkInstrumentTable(table);
   for (const key of ["a.url", "b.selector", "c.host", "d.path", "e.id"]) assert.match(out.join("\n"), new RegExp(`${key.replace(".", "\\.")}.*denylist`));
 });
+
+test("the host-health instruments are declared with their types and only the closed stat attribute", () => {
+  const expected = {
+    "qayaba.host.suspend.count": "counter",
+    "qayaba.host.suspend.duration": "histogram",
+    "qayaba.host.event_loop.delay": "histogram",
+    "qayaba.host.event_loop.blocked": "counter",
+    "qayaba.sandbox.zombies": "gauge",
+  } as const;
+  for (const [name, type] of Object.entries(expected)) {
+    const spec = (INSTRUMENTS as InstrumentTable)[name];
+    assert.equal(spec?.type, type, name);
+    assert.deepEqual(spec?.attrs, name === "qayaba.host.event_loop.delay" ? ["qayaba.event_loop.stat"] : [], name);
+  }
+});

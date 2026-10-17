@@ -1319,6 +1319,14 @@ export interface components {
                 lastError?: string;
             };
             droppedAttributes: number;
+            host?: {
+                suspends: number;
+                lastSuspendAt?: string;
+                lastSuspendMs?: number;
+                blockedLoops: number;
+                eventLoopP99Ms?: number;
+                zombies?: number;
+            };
         };
     };
     responses: never;

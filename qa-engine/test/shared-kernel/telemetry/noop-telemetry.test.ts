@@ -24,5 +24,6 @@ test("the null object's handles and instruments accept every call", () => {
   span.end();
   t.counter("qayaba.runs")(1);
   t.histogram("qayaba.run.duration")(1);
+  t.gauge("qayaba.sandbox.zombies")(1);
   assert.ok(span.context());
 });

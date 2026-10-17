@@ -19,6 +19,7 @@ import { commitRunSpans, pruneRunSpans } from "../server/history";
 import { sanitizeText } from "../orchestrator/sanitizer";
 import { resolveTelemetryConfig } from "./config";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
+import { EVENT_LOOP_DELAY_BOUNDARIES_MS, SUSPEND_DURATION_BOUNDARIES_S } from "./host-health";
 import { OtelTelemetry, type CaptureMode } from "./otel-telemetry.adapter";
 
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000;
@@ -129,9 +130,13 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
       meterProvider = new MeterProvider({
         resource,
         readers: [new PeriodicExportingMetricReader({ exporter, exportIntervalMillis: METRIC_EXPORT_INTERVAL_MS })],
-        views: ["qayaba.run.duration", "qayaba.phase.duration"].map((instrumentName) => ({
+        views: [
+          ...["qayaba.run.duration", "qayaba.phase.duration"].map((instrumentName) => ({ instrumentName, boundaries: LONG_DURATION_BOUNDARIES })),
+          { instrumentName: "qayaba.host.suspend.duration", boundaries: SUSPEND_DURATION_BOUNDARIES_S },
+          { instrumentName: "qayaba.host.event_loop.delay", boundaries: EVENT_LOOP_DELAY_BOUNDARIES_MS },
+        ].map(({ instrumentName, boundaries }) => ({
           instrumentName,
-          aggregation: { type: AggregationType.EXPLICIT_BUCKET_HISTOGRAM, options: { boundaries: LONG_DURATION_BOUNDARIES } },
+          aggregation: { type: AggregationType.EXPLICIT_BUCKET_HISTOGRAM, options: { boundaries: [...boundaries] } },
         })),
       });
     }

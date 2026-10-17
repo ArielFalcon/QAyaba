@@ -351,10 +351,10 @@ test("a redaction scope that throws never leaks the unredacted text", () => {
   assert.ok(telemetry.stats().faults > 0);
 });
 
-interface Recorded { kind: "counter" | "histogram"; name: string; value: number; attrs: Record<string, unknown> | undefined }
+interface Recorded { kind: "counter" | "histogram" | "gauge"; name: string; value: number; attrs: Record<string, unknown> | undefined }
 function fakeMeter(recorded: Recorded[]): Meter {
   const make = (kind: Recorded["kind"]) => (name: string) => ({ [kind === "counter" ? "add" : "record"]: (value: number, attrs?: Record<string, unknown>) => recorded.push({ kind, name, value, attrs }) });
-  return { createCounter: make("counter"), createHistogram: make("histogram") } as unknown as Meter;
+  return { createCounter: make("counter"), createHistogram: make("histogram"), createGauge: make("gauge") } as unknown as Meter;
 }
 
 test("a declared instrument records with its declared attribute keys only", () => {
@@ -375,6 +375,16 @@ test("an undeclared instrument, a wrong-type instrument and a non-finite value r
   telemetry.counter("qayaba.runs")(Number.NaN);
   telemetry.counter("qayaba.runs")(-1);
   assert.deepEqual(recorded, []);
+});
+
+test("a gauge records its latest value and accepts zero; a non-finite value or a gauge name used as another type records nothing", () => {
+  const recorded: Recorded[] = [];
+  const { telemetry } = harness({ meter: fakeMeter(recorded) });
+  telemetry.gauge("qayaba.sandbox.zombies")(0);
+  telemetry.gauge("qayaba.sandbox.zombies")(3);
+  telemetry.gauge("qayaba.sandbox.zombies")(Number.NaN);
+  telemetry.counter("qayaba.sandbox.zombies")(1);
+  assert.deepEqual(recorded.map((r) => [r.kind, r.name, r.value]), [["gauge", "qayaba.sandbox.zombies", 0], ["gauge", "qayaba.sandbox.zombies", 3]]);
 });
 
 test("without a meter instruments are silent", () => {

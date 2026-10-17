@@ -3,7 +3,7 @@
 import { lookupAttribute, type RegisteredKey } from "./attribute-registry.ts";
 import { GENAI } from "./genai-semconv.ts";
 
-export type InstrumentType = "counter" | "histogram";
+export type InstrumentType = "counter" | "histogram" | "gauge";
 
 export interface InstrumentSpec {
   readonly type: InstrumentType;
@@ -23,6 +23,12 @@ export const INSTRUMENTS = {
   "qayaba.agent.cost": { type: "counter", attrs: ["qayaba.agent.role", GENAI.attrs.requestModel, "qayaba.app"] },
   "qayaba.provider.errors": { type: "counter", attrs: [...MODEL, "error.type"] },
   "qayaba.egress.denied": { type: "counter", attrs: ["qayaba.exec.profile"] },
+  /* Host health (design §7): process-wide; the only attribute is the closed stat (p50, p99, max). */
+  "qayaba.host.suspend.count": { type: "counter", attrs: [] },
+  "qayaba.host.suspend.duration": { type: "histogram", attrs: [] },
+  "qayaba.host.event_loop.delay": { type: "histogram", attrs: ["qayaba.event_loop.stat"] },
+  "qayaba.host.event_loop.blocked": { type: "counter", attrs: [] },
+  "qayaba.sandbox.zombies": { type: "gauge", attrs: [] },
   [GENAI.metrics.inferenceDuration]: { type: "histogram", attrs: [...MODEL, "error.type"] },
   [GENAI.metrics.inputTokens]: { type: "counter", attrs: [...MODEL, "qayaba.agent.role"] },
   [GENAI.metrics.outputTokens]: { type: "counter", attrs: [...MODEL, "qayaba.agent.role"] },
