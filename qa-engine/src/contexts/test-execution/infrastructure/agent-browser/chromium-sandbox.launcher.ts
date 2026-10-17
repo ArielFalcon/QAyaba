@@ -64,7 +64,7 @@ export class SandboxedChromiumLauncher implements BrowserLauncherPort {
     ];
     const wrapper = this.deps.ttlWrapper;
     const [cmd, argv] = wrapper ? [wrapper.command, ["--signal=KILL", String(wrapper.seconds), executable, ...args]] : [executable, args];
-    const child = this.deps.exec.spawn(cmd, argv, { cwd: dir, profile: "suite", stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] });
+    const child = this.deps.exec.spawn(cmd, argv, { cwd: dir, profile: "suite", commandClass: "browser", stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] });
     /* Whatever the browser prints is drained and dropped: it can carry page content. */
     child.stderr?.resume();
     const toBrowser = child.stdio?.[COMMANDS_FD] as Writable | null | undefined;

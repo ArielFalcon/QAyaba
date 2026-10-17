@@ -1,6 +1,7 @@
 /* What a sandboxed child needs to know about the run it belongs to, carried through the run's async calls (AsyncLocalStorage) like the run's secret scope, so that the many spawn sites do not each take the run's directories and credentials as parameters. The run opens it (`withExecScope`); the launcher reads it. Outside a run there is none, and the launcher refuses to spawn. */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { TelemetryContext } from "../../shared-kernel/telemetry/telemetry.port.ts";
 
 /* What the egress layer made of the run, for the run's gate signals. */
 export interface SandboxReport {
@@ -29,6 +30,8 @@ export interface RunScope {
   report: SandboxReport;
   /* The mirrors the launcher gave the sandbox's group for this run; the scope's end gives them back. */
   openedMirrors?: Set<string>;
+  /* Where the run's trace stands, set by the run: the launcher parents the span of each child to `parent()`, the phase that is open. Absent or undefined: the active context decides. */
+  telemetry?: { parent(): TelemetryContext | undefined };
 }
 
 const store = new AsyncLocalStorage<RunScope>();
@@ -58,8 +61,8 @@ export function sandboxSignal(): { egress: SandboxReport["egress"]; denied: stri
 }
 
 /* A stretch of a run in which the hosts the egress filter refused are collected on their own, apart from the run's list (which keeps each host once, from its first sighting): a caller that must know whether the children it started were refused something asks for one before it starts them. Outside a run it hears nothing. */
-export function openDeniedWindow(): { hosts(): string[]; close(): void } {
-  const report = store.getStore()?.report;
+export function openDeniedWindow(scope?: RunScope): { hosts(): string[]; close(): void } {
+  const report = (scope ?? store.getStore())?.report;
   const heard: string[] = [];
   const watcher = (host: string): void => {
     if (heard.length < MAX_WINDOW_HOSTS && !heard.includes(host)) heard.push(host);

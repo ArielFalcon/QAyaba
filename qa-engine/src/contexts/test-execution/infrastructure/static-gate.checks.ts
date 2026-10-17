@@ -7,7 +7,7 @@ import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifest
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
-import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
+import type { ExecCommandClass, ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import type { SandboxProfile } from "../../../shared-infrastructure/process-sandbox/exec-env.ts";
 import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { CheckResult, ValidationResult } from "../application/ports/index.ts";
@@ -119,10 +119,11 @@ export function runCheck(
   timeoutMs: number = DEFAULT_VALIDATE_CHECK_TIMEOUT_MS,
   exec: ExecSandboxPort,
   profile: SandboxProfile = "offline",
+  commandClass?: ExecCommandClass,
 ): Promise<CheckResult> {
   return new Promise((resolve) => {
     /* The launcher starts the child detached, as the leader of its own process group, so killTree can reap grandchildren (npx forks the real tool as a child of the child). */
-    const child = exec.spawn(cmd, args, { cwd: e2eDir, profile });
+    const child = exec.spawn(cmd, args, { cwd: e2eDir, profile, ...(commandClass ? { commandClass } : {}) });
     const out = new BoundedOutputTail(CHECK_OUTPUT_KEEP_CHARS);
     let settled = false;
     const settle = (res: CheckResult) => {
@@ -163,9 +164,9 @@ const checkManifestFile = async (e2eDir: string): Promise<CheckResult> => {
 /* The static gate's checks over a launcher: there is no default, because every one of them but the manifest check executes agent-influenced code. */
 export function createValidateDeps(exec: ExecSandboxPort): ValidateDeps {
   return {
-    typecheck: (e2eDir) => runCheck("npx", ["tsc", "--noEmit"], e2eDir, undefined, exec, "offline"),
-    lint: (e2eDir) => runCheck("npx", ["eslint", "."], e2eDir, undefined, exec, "offline"),
-    listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir, undefined, exec, "offline"),
+    typecheck: (e2eDir) => runCheck("npx", ["tsc", "--noEmit"], e2eDir, undefined, exec, "offline", "tsc"),
+    lint: (e2eDir) => runCheck("npx", ["eslint", "."], e2eDir, undefined, exec, "offline", "eslint"),
+    listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir, undefined, exec, "offline", "playwright-list"),
     checkManifest: checkManifestFile,
   };
 }

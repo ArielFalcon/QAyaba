@@ -156,3 +156,11 @@ test("health counts attributes the registry dropped", () => {
   handle.telemetry.startSpan("x", { attrs: { ...({ nope: "v" } as Record<string, string>) } }).end();
   assert.equal(handle.health().droppedAttributes, 1);
 });
+
+test("the handle exposes the clock the telemetry was built on, in both modes, so the engine and the runner share it", () => {
+  const injected = { now: () => T0 + 5 };
+  const { base } = deps({}, { clock: injected });
+  assert.equal(createTelemetry(base).clock, injected);
+  const off = createTelemetry(deps({ QA_TELEMETRY: "off" }).base);
+  assert.equal(typeof off.clock.now(), "number");
+});

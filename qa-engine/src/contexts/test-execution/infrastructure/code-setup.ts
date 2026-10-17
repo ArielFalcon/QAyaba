@@ -71,7 +71,7 @@ export function createDefaultCodeSetupDeps(
       new Promise((resolve, reject) => {
         const { cmd, args } = project.install!;
         /* The repo's own install runs its lifecycle scripts: the sandbox's `install` profile, which reaches package registries only. */
-        const child = exec.spawn(cmd, args, { cwd: repoDir, profile: "install" });
+        const child = exec.spawn(cmd, args, { cwd: repoDir, profile: "install", commandClass: "other" });
         /* Drain both pipes as they arrive: an install that writes more than the OS pipe buffer
            (npm's own verbose/warning output easily does) would otherwise block the child on
            write() forever if nobody reads — a stall, not just a discarded log. Only a bounded

@@ -184,7 +184,7 @@ const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(process.env, ROOT);
  * Built at call time: engineFactory and onboardingJob are assigned later in this module.
  */
 function runnerDeps(): RunnerDeps {
-  return { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
+  return { runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
 }
 
 /*
@@ -222,6 +222,8 @@ const toolsServer = createToolsServer({ token: toolsToken.token, registry: close
 toolsServer.on("error", (err: Error & { code?: string }) => logJson("error", `the tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the agents' run_spec and authenticated browser calls will fail`));
 
 engineFactory = createRewrittenEngineFactory({
+  telemetry: telemetry.telemetry,
+  clock: telemetry.clock,
   /* A token this process made up cannot match the agents service's, so a tool the generator is told about would only be refused: no run is granted it. */
   ...(toolsToken.generated ? {} : { closedLoopRegistry, agentBrowserRegistry }),
   getAgentDeps: currentAgentDeps,
@@ -302,14 +304,18 @@ process.on("unhandledRejection", (reason) => {
   recordIncident({ source: "qa-generator", severity: "error", summary: `unhandled rejection: ${msg}` });
 });
 
-function enqueueApiRun(app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode): string {
+/* One path for the control API and the webhook; the trigger is what tells their runs apart in the trace. */
+function enqueueRunFrom(trigger: "api" | "webhook", app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode): string {
   if (shuttingDown) {
     console.warn(`[qa] rejecting run ${app}@${sha} — shutting down`);
     return "";
   }
 
-  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(coordinationMode !== undefined ? { coordinationMode } : {}) }, runnerDeps());
+  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", trigger, triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(coordinationMode !== undefined ? { coordinationMode } : {}) }, runnerDeps());
 }
+
+const enqueueApiRun: ApiDeps["enqueue"] = (...args) => enqueueRunFrom("api", ...args);
+const enqueueWebhookRun: ApiDeps["enqueue"] = (...args) => enqueueRunFrom("webhook", ...args);
 
 /*
  * Orphan-session sweep threshold. Must always exceed the longest possible agent
@@ -737,6 +743,7 @@ const apiDeps: ApiDeps = {
       fixCases: failed,
       parentRunId: parentId,
       source: "manual",
+      trigger: "continuation",
       /*
        * Honor the active agent runtime (Codex/dual) on continuations, exactly like the
        * webhook path above.
@@ -856,7 +863,7 @@ const server = createServer(async (req, res) => {
         if (dispatch.length === 0) logJson("warn", "no config/apps entry for repo; event ignored", { repo });
         for (const d of dispatch) {
           try {
-            enqueueApiRun(d.app, sha, d.target, d.mode, d.guidance, undefined, undefined, d.triggerRepo, d.baseSha);
+            enqueueWebhookRun(d.app, sha, d.target, d.mode, d.guidance, undefined, undefined, d.triggerRepo, d.baseSha);
           } catch (err) {
             logJson("error", "webhook enqueue failed", { error: err instanceof Error ? err.message : String(err), repo, sha });
             res.writeHead(500, { "Content-Type": "application/json" });

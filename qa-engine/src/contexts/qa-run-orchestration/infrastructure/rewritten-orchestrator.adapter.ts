@@ -3,6 +3,7 @@
 import type { RunPipelinePort, RunInput } from "../application/ports/index.ts";
 import { RunQaUseCase, type RunQaUseCaseDeps, type RunQaConfig, type RunQaResult } from "../application/run-qa.use-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import { attachTraceFacts, traceFactsOf } from "@kernel/run-trace-facts.ts";
 
 export interface RewrittenOrchestratorAdapterDeps extends Omit<RunQaUseCaseDeps, "config"> {
   config?: Partial<RunQaConfig>;
@@ -17,7 +18,9 @@ export class RewrittenOrchestratorAdapter implements RunPipelinePort {
 
   async run(input: RunInput, signal?: AbortSignal): Promise<RunOutcome> {
     const result = await this.useCase.run(input, signal);
-    return result.outcome ?? toOutcome(input, result);
+    const outcome = result.outcome ?? toOutcome(input, result);
+    const facts = traceFactsOf(result);
+    return facts ? attachTraceFacts(outcome, facts) : outcome;
   }
 }
 

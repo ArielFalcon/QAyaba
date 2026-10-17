@@ -54,6 +54,7 @@ import { GenerateTestsUseCase } from "@contexts/generation/application/generate-
 import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { RunDeadline } from "@contexts/qa-run-orchestration/domain/run-deadline";
+import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { resolveRunTimeBudgets } from "@contexts/qa-run-orchestration/domain/run-time-budget";
 import { RunDeadlineRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-deadline-runtime.adapter";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter";
@@ -309,7 +310,7 @@ export function githubHttpDeps(fetchFn: typeof fetch = fetch): GitHubHttpDeps {
 export function buildSetupAdapter(exec: ExecSandboxPort, sandbox: Sandbox | null): SetupAdapter {
   return new SetupAdapter({
     fs: nodeFsDeps,
-    runner: createExecBinaryRunner({ exec, profile: "install", processKill: new ProcessKillAdapter() }),
+    runner: createExecBinaryRunner({ exec, profile: "install", commandClass: "npm-ci", processKill: new ProcessKillAdapter() }),
     seedDir: join(qayabaRoot(), "config", "e2e"),
     installGuard: { open: (dir) => openInstallTree(dir, sandbox), seal: (dir) => sealInstallTree(dir, sandbox) },
   });
@@ -473,6 +474,12 @@ export interface RewrittenEngineFactoryDeps {
   env?: Record<string, string | undefined>;
   /* Test seam: the clock the run-level deadline counts down on. Absent: the system clock. */
   now?: () => number;
+  /*
+   * The process's telemetry port (src/telemetry/process-telemetry.ts) and the wall clock it was built on. Absent: nothing is
+   * traced. The clock times the run's phases and starts and ends their spans, so the phase record and the trace cannot disagree.
+   */
+  telemetry?: TelemetryPort;
+  clock?: TelemetryClock;
   /*
    * Where the generator's sessions find the run's run_spec loop. One per process, shared with the tools endpoint that serves the
    * tool's calls. Absent: no run is ever granted the tool.
@@ -758,6 +765,7 @@ export function buildRewrittenCompositionConfig(
     egressOrigins: resolveRunOrigins(app, target, loadRegistryGroups(root)),
     ...(egressGate ? { egress: egressGate } : {}),
     ...(suiteAccount ? { suiteAccount } : {}),
+    ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
   });
   const exec = execWiring.exec;
 
@@ -811,7 +819,7 @@ export function buildRewrittenCompositionConfig(
   const branch = namespace;
 
   const runner = new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() });
-  const loginRunner = createExecBinaryRunner({ exec, profile: "login", processKill: new ProcessKillAdapter() });
+  const loginRunner = createExecBinaryRunner({ exec, profile: "login", commandClass: "login", processKill: new ProcessKillAdapter() });
   /*
    * Cross-repo composition (bug fix): the diff/classify SOURCE is the SERVICE mirror at the event
    * sha for a cross-repo run — never the primary. Same dir formula as mirrorDir above
@@ -1033,6 +1041,8 @@ export function buildRewrittenCompositionConfig(
     generationUseCase,
     ...(stepLimitFor ? { stepLimitFor } : {}),
     runDeadline,
+    ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
+    ...(deps.clock ? { clock: deps.clock } : {}),
     reviewRuntime: {
       runtime: boundedRuntime,
       rendering,

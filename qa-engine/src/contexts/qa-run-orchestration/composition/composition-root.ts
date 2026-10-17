@@ -5,6 +5,7 @@ import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort } from "../application/ports/index.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
+import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { CoordinationSettings } from "@kernel/coordination.ts";
 import { ClosedLoopPortAdapter } from "../infrastructure/bridges/closed-loop-port.adapter.ts";
@@ -141,6 +142,10 @@ export interface CompositionConfig {
   iterationBudget?: number;
   /* The run-level wall-clock deadline the shell built (the same object its bounded agent runtime reads). Optional, no stub: absent omits RunQaUseCaseDeps.runDeadline and nothing arms. */
   runDeadline?: RunDeadlinePort;
+  /* The telemetry port the shell built. Absent: nothing is traced. It never changes a verdict. */
+  telemetry?: TelemetryPort;
+  /* The one wall clock of the run's record: the phase cursor times phases on it and the phase spans start and end on its readings. Absent: the system clock. */
+  clock?: TelemetryClock;
   guidance?: string;
   diff?: string;
   baseUrl?: string;
@@ -572,6 +577,8 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
     /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */
     ...(cfg.runDeadline ? { runDeadline: cfg.runDeadline } : {}),
+    ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
+    ...(cfg.clock ? { phaseClock: cfg.clock } : {}),
     /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */

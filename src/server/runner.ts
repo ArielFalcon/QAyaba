@@ -10,6 +10,7 @@
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { createRecord, updateRecord, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases } from "./history";
+import { traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { recordIncident } from "./maintainer";
 import { testDataNamespace } from "../qa/test-data";
@@ -23,6 +24,10 @@ import { Sha } from "@kernel/sha";
 import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import type { CoordinationMode } from "@kernel/coordination";
+import { RunTrace, SYSTEM_CLOCK, markEnqueued, type RunFacts, type RunIdentity, type RunTrigger } from "./run-trace";
+import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
+import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
+import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { selectEngine } from "@contexts/qa-run-orchestration/composition/pipeline-engine-flag";
 import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 
@@ -50,6 +55,7 @@ export interface RunRequest {
   guidance?: string;
   shadow?: boolean;
   source?: TriggerSource;  /* "webhook" (default) | "manual" */
+  trigger?: RunTrigger;  /* what started the run, for its trace; absent: "api" for a manual source, "webhook" otherwise */
   fixCases?: QaCase[]; 
   parentRunId?: string;  /* continuation: the run this continues */
   triggerRepo?: string;  /* cross-repo runs: the service repo whose commit originated this run */
@@ -64,6 +70,9 @@ export interface RunRequest {
 
 /* Side-effecting collaborators, injected so the funnel is unit-testable with stubs. */
 export interface RunnerDeps {
+  /* The process's telemetry port and the wall clock it was built on. Absent: the run is not traced. */
+  telemetry?: TelemetryPort;
+  clock?: TelemetryClock;
   loadApp?: (name: string) => AppConfig;  /* defaults to the real config loader */
   runEvents?: RunEventStore;
 
@@ -170,7 +179,7 @@ async function runViaRewrittenEngine(
   liveAnnounced?: Map<string, LiveAnnouncedStatus>,
 
   previousNamespace?: string,
-): Promise<QaRunResult & { phases?: { furthestPhase: string; phaseTimings: Record<string, number> } }> {
+): Promise<QaRunResult & { phases?: { furthestPhase: string; phaseTimings: Record<string, number> }; facts: RunFacts }> {
   assertTriggerRepoDeclared(appConfig, req.triggerRepo);
   const input: RunInput = {
     app: req.app,
@@ -204,7 +213,18 @@ async function runViaRewrittenEngine(
       reasons: outcome.gateSignals.reviewerCorrections,
     });
   }
+  const traceFacts = traceFactsOf(outcome);
+  const facts: RunFacts = {
+    verdict: outcome.verdict,
+    errorClass: outcome.errorClass,
+    furthestPhase: outcome.gateSignals.furthestPhase,
+    decision: traceFacts?.decision,
+    generationEnd: traceFacts?.generationEnd,
+    limitFired: traceFacts?.limitFired,
+    limitRole: traceFacts?.limitRole,
+  };
   return {
+    facts,
     sha: outcome.sha,
     verdict: outcome.verdict,
     passed: outcome.verdict === "pass",
@@ -221,7 +241,7 @@ async function runViaRewrittenEngine(
  * context mode cannot be driven from a service repo.
  */
 export function enqueueContextMapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps): string {
-  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual" }, deps);
+  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual", trigger: "context" }, deps);
 }
 
 /*
@@ -274,7 +294,7 @@ function enqueueLoginBootstrapFirst(queue: JobQueue, req: RunRequest, deps: Runn
  */
 export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps): string {
   loginBootstrapAsked.add(app);
-  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "manual", source: "manual", guidance: LOGIN_BOOTSTRAP_GUIDANCE, purpose: RUN_PURPOSE.LOGIN_BOOTSTRAP }, deps);
+  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "manual", source: "manual", guidance: LOGIN_BOOTSTRAP_GUIDANCE, purpose: RUN_PURPOSE.LOGIN_BOOTSTRAP, trigger: "login-bootstrap" }, deps);
 }
 
 /*
@@ -306,7 +326,23 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
   const record = createRecord({ app: req.app, sha: req.sha, target: req.target, mode: req.mode, parentRunId: req.parentRunId, triggerRepo: req.triggerRepo });
   console.log(`[qa] enqueued ${req.app}@${req.sha} mode=${req.mode}${req.parentRunId ? ` (continue of ${req.parentRunId})` : ""} (queue: ${queue.size + 1})`);
 
-  queue.enqueue(async (signal) => {
+  /* The trace of the run: a short span here, in the caller's context, and a root of its own when the queue hands the run its turn (run-trace.ts). */
+  const telemetry = guardTelemetry(deps.telemetry ?? new NoopTelemetry());
+  const clock = deps.clock ?? SYSTEM_CLOCK;
+  const identity: RunIdentity = {
+    runId: record.id,
+    app: req.app,
+    sha: req.sha,
+    mode: req.mode,
+    target: req.target,
+    trigger: req.trigger ?? (req.source === "manual" ? "api" : "webhook"),
+    parentRunId: req.parentRunId,
+    triggerRepo: req.triggerRepo,
+    shadow: req.shadow,
+  };
+  const enqueued = markEnqueued(telemetry, clock, identity);
+
+  const job = async (signal: AbortSignal, trace: RunTrace): Promise<void> => {
     try {
       /*
        * If the run was cancelled while still enqueued, the record is already finalized
@@ -314,6 +350,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        */
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled before it started`);
+        trace.cancelled();
         return;
       }
 
@@ -332,6 +369,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       const onboardingWaitMaxMs = deps.onboardingWaitMaxMs ?? ONBOARDING_WAIT_MAX_MS;
       const waitForOnboarding = deps.sleep ?? sleepWithAbort;
       const waitStart = Date.now();
+      const parkedAt = trace.now();
       let parkLogged = false;
       while (isOnboardingActive()) {
         /*
@@ -351,12 +389,14 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         }
         await waitForOnboarding(onboardingPollMs, { signal });
       }
+      if (parkLogged) trace.onboardingWait(trace.now() - parkedAt);
       if (signal.aborted) {
         /*
          * cancelTrackedRun already finalized the record (status "done", verdict "infra-error") the
          * moment it aborted this signal — this is a NO-OP guard, not a second finalize.
          */
         console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled while waiting for onboarding to clear`);
+        trace.cancelled();
         return;
       }
 
@@ -366,6 +406,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       if (req.shadow !== undefined) {
         appConfig.qa.shadow = req.shadow;
       }
+      if (appConfig.qa.shadow !== undefined) trace.shadow(appConfig.qa.shadow);
 
       selectEngine(process.env);
       if (!deps.engineFactory) {
@@ -407,6 +448,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
 
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding stale late resolution for ${req.app}@${req.sha} — record already finalized (cancelled)`);
+        trace.cancelled();
         return;
       }
       deps.runEvents?.publish(record.id, {
@@ -435,11 +477,14 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
          * that could silently disagree with the table they are supposed to summarize.
          */
       });
+      /* After the record is written, so the trace never says more than the record does (a throw above lands in the catch, which overrides). */
+      trace.finished(run.facts);
       console.log(`[qa] run finished ${req.app}@${req.sha}: verdict=${run.verdict}`);
     } catch (err) {
 
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding post-cancel crash for ${req.app}@${req.sha} — record already finalized`);
+        trace.cancelled();
         return;
       }
       /*
@@ -463,6 +508,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        * model prompt, and the refusal names paths the sandboxed repository controls.
        */
       const refusal = isUntrustedGitTreeError(err);
+      trace.crashed(err, refusal ? "security-refusal" : infra ? "E-INFRA" : "internal-error");
       const note = refusal
         ? `security refusal — the working copy's git dir is not the orchestrator's own, so no git ran: ${msg}`
         : infra
@@ -484,6 +530,16 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       if (!infra && !refusal) {
         recordIncident({ source: "qa-generator", severity: "error", summary: `pipeline crash for ${req.app}: ${msg}` });
       }
+    }
+  };
+
+  queue.enqueue(async (signal) => {
+    /* Opened at dequeue, on a context of its own (see run-trace.ts), and ended on every path out of the job. */
+    const trace = new RunTrace(telemetry, clock, identity, enqueued);
+    try {
+      await trace.within(() => job(signal, trace));
+    } finally {
+      trace.end();
     }
   }, record.id);
 

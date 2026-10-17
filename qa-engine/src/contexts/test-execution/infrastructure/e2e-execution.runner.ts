@@ -525,6 +525,7 @@ export function createDefaultE2eCleanupDeps(processKill: ProcessKillPort = new P
         const child = exec.spawn("npx", cleanupArgs(join(callDir, "results")), {
           cwd: dir,
           profile: "suite",
+          commandClass: "playwright-test",
           extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PW_CLEANUP: "1", ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}) },
           /* Nothing reads the cleanup's output. Piped and unread, it would block the child once the OS pipe buffer fills, and keep the pipes open to any descendant that outlives it. */
           stdio: "ignore",
@@ -650,6 +651,7 @@ export function createDefaultE2eExecuteDeps(
         const child = exec.spawn("npx", playwrightArgs(reporterPath, project, testListPath, join(work, "results"), { retries, grep }), {
           cwd: dir,
           profile: "suite",
+          commandClass: "playwright-test",
           extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) },
         });
 

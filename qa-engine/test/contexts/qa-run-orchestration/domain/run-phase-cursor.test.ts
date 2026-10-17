@@ -89,3 +89,46 @@ test("a snapshot recorded for an error is read back for that error and for no ot
   assert.equal(phaseSnapshotOf(new Error("boom")), undefined);
   assert.equal(phaseSnapshotOf("not an object"), undefined);
 });
+
+test("an observer hears each phase open at the clock reading it opened at and close at the reading it closed at", () => {
+  const clock = fakeClock(5_000);
+  const heard: string[] = [];
+  const cursor = new RunPhaseCursor(clock, {
+    onEnter: (phase, at) => heard.push(`enter ${phase} ${at}`),
+    onExit: (phase, at) => heard.push(`exit ${phase} ${at}`),
+  });
+  cursor.enter("gate");
+  clock.advance(30);
+  cursor.enter("classify");
+  clock.advance(70);
+  cursor.close();
+  assert.deepEqual(heard, ["enter gate 5000", "exit gate 5030", "enter classify 5030", "exit classify 5100"]);
+});
+
+test("a re-entered phase is observed as a new opening each time, and closing twice exits once", () => {
+  const clock = fakeClock();
+  const exits: string[] = [];
+  const enters: string[] = [];
+  const cursor = new RunPhaseCursor(clock, { onEnter: (p) => enters.push(p), onExit: (p) => exits.push(p) });
+  cursor.enter("generate");
+  cursor.enter("validate");
+  cursor.enter("generate");
+  cursor.close();
+  cursor.close();
+  assert.deepEqual(enters, ["generate", "validate", "generate"]);
+  assert.deepEqual(exits, ["generate", "validate", "generate"]);
+});
+
+test("an observer that throws changes neither the timings nor the furthest phase", () => {
+  const clock = fakeClock();
+  const cursor = new RunPhaseCursor(clock, {
+    onEnter: () => { throw new Error("observer fault"); },
+    onExit: () => { throw new Error("observer fault"); },
+  });
+  cursor.enter("gate");
+  clock.advance(12);
+  cursor.enter("workspace");
+  cursor.close();
+  assert.deepEqual(cursor.timings(), { gate: 12, workspace: 0 });
+  assert.equal(cursor.furthest(), "workspace");
+});

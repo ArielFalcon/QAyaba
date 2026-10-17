@@ -50,10 +50,18 @@ const cliAgentRuntime = createAgentRuntimeManager({
   },
   hasOpenSessions: () => getOpenSessionCount() > 0,
 });
-const cliEngineFactory = createRewrittenEngineFactory({
-  getAgentDeps: () => cliAgentRuntime.facade().deps(),
-  getAgentFacade: () => cliAgentRuntime.facade(),
-});
+/* Built on first use, by which time main() has built this process's telemetry (a run that is delegated to the service builds none). */
+let cliFactory: ReturnType<typeof createRewrittenEngineFactory> | undefined;
+const cliEngineFactory: ReturnType<typeof createRewrittenEngineFactory> = (...args) => {
+  const telemetry = processTelemetry();
+  cliFactory ??= createRewrittenEngineFactory({
+    getAgentDeps: () => cliAgentRuntime.facade().deps(),
+    getAgentFacade: () => cliAgentRuntime.facade(),
+    telemetry: telemetry.telemetry,
+    clock: telemetry.clock,
+  });
+  return cliFactory(...args);
+};
 
 /*
  * Probe the local service's unauthenticated liveness endpoint. A 200 means a long-lived
@@ -185,10 +193,11 @@ async function main(): Promise<void> {
       mode: args.mode,
       guidance: args.guidance,
       source: "manual",
+      trigger: "cli",
       ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
       ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
       ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}),
-    }, { runEvents, engineFactory: cliEngineFactory });
+    }, { runEvents, engineFactory: cliEngineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock });
     await queue.drain();
     record = getRecord(id);
     /*

@@ -4,11 +4,16 @@
 
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { buildExecEnv, type SandboxProfile } from "./exec-env.ts";
-import { activeExecScope, type RunScope, type SandboxReport } from "./exec-scope.ts";
+import { activeExecScope, openDeniedWindow, type RunScope, type SandboxReport } from "./exec-scope.ts";
+import { guardTelemetry } from "../../shared-kernel/telemetry/guarded-telemetry.ts";
+import type { SpanHandle, TelemetryPort } from "../../shared-kernel/telemetry/telemetry.port.ts";
+import { activeRunSecretScope } from "../run-secret-redaction.ts";
 import { mirrorTopDir, openMirrorForSandbox, type MirrorFsOps } from "./mirror-access.ts";
 import { allocWorkSubdir, stageAuthMaterial, writeWorkScript } from "./exec-workdir.ts";
 import { sandboxSpawnOptions, type Sandbox } from "./sandbox.ts";
 import { SandboxResidueError, liveSandboxChildren, trackSandboxChild, type SandboxReaper } from "./sandbox-reaper.ts";
+
+const EXIT_GRACE_MS = 2000;
 
 export type ExecSandboxMode = "required" | "best-effort";
 
@@ -68,9 +73,15 @@ export interface EgressGate {
   lease(origins: readonly string[], report?: SandboxReport): EgressLease;
 }
 
+/* What a child is for, named by the call site: a closed set, so the trace can group children without parsing a command line. */
+export const EXEC_COMMAND_CLASSES = ["tsc", "eslint", "playwright-list", "playwright-test", "npm-ci", "login", "dom-capture", "browser", "code-test", "other"] as const;
+export type ExecCommandClass = (typeof EXEC_COMMAND_CLASSES)[number];
+
 export interface ExecSpawnOptions {
   cwd: string;
   profile: SandboxProfile;
+  /* What the child is for, for its span. Absent: other. */
+  commandClass?: ExecCommandClass;
   /* The account, honored by the login profile alone. */
   account?: { user: string; pass: string };
   extraEnv?: Record<string, string>;
@@ -106,6 +117,10 @@ export interface ExecSandboxDeps {
   egressMode?: "enforce" | "warn";
   /* Ends what an earlier child left running as the sandbox uid (sandbox-reaper.ts): before each spawn and when the last live child exits. Absent: nothing is reaped (no sandbox uid, or not Linux). */
   reaper?: SandboxReaper;
+  /* Absent: children are not traced. Present: each child is a `qayaba.exec` span from its spawn to its close. A child is given no trace context (no TRACEPARENT): the sandbox uid cannot reach a collector by design. */
+  telemetry?: TelemetryPort;
+  /* How long after a child's exit its span waits for "close" before ending anyway. */
+  exitGraceMs?: number;
   /* The spawn primitive; a test passes a fake. */
   spawnFn?: typeof nodeSpawn;
   warn?: (line: string) => void;
@@ -114,6 +129,7 @@ export interface ExecSandboxDeps {
 export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
   const spawnFn = deps.spawnFn ?? nodeSpawn;
   const warn = deps.warn ?? ((line: string): void => console.warn(line));
+  const telemetry = deps.telemetry ? guardTelemetry(deps.telemetry) : undefined;
 
   const originsFor = (profile: SandboxProfile, scope: RunScope): readonly string[] =>
     profile === "offline" ? [] : profile === "install" ? scope.egress.install : scope.egress.dev;
@@ -221,6 +237,8 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
         ...(options.extraEnv ? { extraEnv: options.extraEnv } : {}),
       });
       const ids = sandboxSpawnOptions({}, deps.sandbox);
+      /* Whatever goes wrong while the span is set up is dropped here: tracing must not touch the spawn or the lease. */
+      const trace = telemetry ? openExecSpan(telemetry, scope, options) : undefined;
       let child: ChildProcess;
       try {
         child = spawnFn(cmd, [...args], {
@@ -232,6 +250,7 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
         });
       } catch (err) {
         lease?.release();
+        trace?.fail(err);
         throw err;
       }
       if (deps.sandbox !== null && deps.reaper) {
@@ -241,11 +260,23 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
         trackSandboxChild(uid, child, () => {
           if (liveSandboxChildren(uid).size > 0) return;
           try {
-            reaper.reapOrphans();
+            const reaped = reaper.reapOrphans();
+            trace?.reaped(reaped);
           } catch (err) {
             console.error(`[qa] ERROR: ${err instanceof Error ? err.message : String(err)}; the next spawn is refused until they are gone`);
           }
         });
+      }
+      /* No "error" listener: one would swallow a spawn error at call sites that rely on it throwing. A child that fails to start is still followed by "close". */
+      if (trace) {
+        let exited: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+        child.once("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+          exited = { code, signal };
+          /* A grandchild holding the child's streams can keep "close" from coming: the span then ends shortly after the exit. */
+          const timer = setTimeout(() => trace.finish(code, signal), deps.exitGraceMs ?? EXIT_GRACE_MS);
+          timer.unref();
+        });
+        child.once("close", (code: number | null, signal: NodeJS.Signals | null) => trace.finish(exited?.code ?? code, exited?.signal ?? signal));
       }
       if (lease) {
         const held = lease;
@@ -261,4 +292,65 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
       return child;
     },
   };
+}
+
+/* The span of one child. Opened just before the spawn (a refusal opens none), ended once by "close" (or, failing that, shortly after "exit"). The hosts the egress filter refused while the child was alive are collected in a window of their own: every child shares the sandbox uid, so this is co-temporal, never causal. Any fault in setting it up yields no span at all. */
+function openExecSpan(telemetry: TelemetryPort, scope: RunScope, options: ExecSpawnOptions) {
+  let window: ReturnType<typeof openDeniedWindow> | undefined;
+  try {
+    let parent: ReturnType<NonNullable<RunScope["telemetry"]>["parent"]>;
+    try {
+      parent = scope.telemetry?.parent();
+    } catch {
+      parent = undefined;
+    }
+    const secrets = activeRunSecretScope();
+    const span: SpanHandle = telemetry.startSpan("qayaba.exec", {
+      kind: "internal",
+      ...(parent ? { parent } : {}),
+      ...(secrets ? { secrets } : {}),
+      attrs: { "qayaba.exec.profile": options.profile, "qayaba.exec.command_class": options.commandClass ?? "other" },
+    });
+    const opened = openDeniedWindow(scope);
+    window = opened;
+    let killed: number | undefined;
+    let done = false;
+    const conclude = (attrs: Parameters<SpanHandle["setAttrs"]>[0]): void => {
+      done = true;
+      const hosts = opened.hosts();
+      opened.close();
+      span.setAttrs({ ...attrs, ...(killed !== undefined ? { "qayaba.reaper.killed": killed } : {}), ...(hosts.length > 0 ? { "qayaba.egress.denied_cotemporal": hosts } : {}) });
+      if (hosts.length > 0) telemetry.counter("qayaba.egress.denied")(hosts.length, { "qayaba.exec.profile": options.profile });
+    };
+    return {
+      /* Best effort: the reaper runs when the last live child exits, before "close", so the count is on the span only when it was known by then. */
+      reaped(count: number): void {
+        killed = count;
+      },
+      finish(code: number | null, signal: NodeJS.Signals | null): void {
+        if (done) return;
+        try {
+          conclude({ ...(code !== null ? { "process.exit.code": code } : {}), ...(signal !== null ? { "qayaba.exec.signal": signal } : {}) });
+          span.end();
+        } catch {
+          /* tracing never reaches the child */
+        }
+      },
+      /* The spawn itself threw: no child, no "close". */
+      fail(error: unknown): void {
+        if (done) return;
+        try {
+          conclude({});
+          span.recordError(error);
+          span.end();
+        } catch {
+          /* tracing never reaches the spawn error */
+        }
+      },
+    };
+  } catch (err) {
+    window?.close();
+    console.error(`[telemetry] the span of a child could not be set up (the child starts untraced): ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
 }

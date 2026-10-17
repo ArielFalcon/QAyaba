@@ -45,6 +45,8 @@ export interface BootstrapDeps {
 
 export interface TelemetryHandle {
   readonly telemetry: TelemetryPort;
+  /* The wall clock the telemetry was built on. The engine's phase cursor and the runner's enqueue marks read this same clock, so every span time and every duration of a run agree. */
+  readonly clock: TelemetryClock;
   health(): TelemetryHealth;
   /* Flushes the ledger, then the exporters, then stops them, all raced against `timeoutMs`. Never throws. */
   shutdown(timeoutMs?: number): Promise<void>;
@@ -88,7 +90,7 @@ class ObservedExporter implements SpanExporter {
   }
 }
 
-function offHandle(freeze: boolean): TelemetryHandle {
+function offHandle(freeze: boolean, clock: TelemetryClock): TelemetryHandle {
   const health: TelemetryHealth = {
     mode: "off",
     campaignFreeze: freeze,
@@ -97,15 +99,15 @@ function offHandle(freeze: boolean): TelemetryHandle {
     scoreSink: { configured: false },
     droppedAttributes: 0,
   };
-  return { telemetry: new NoopTelemetry(), health: () => health, shutdown: async () => {} };
+  return { telemetry: new NoopTelemetry(), clock, health: () => health, shutdown: async () => {} };
 }
 
 export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
   const config = resolveTelemetryConfig(deps.env);
   const freeze = deps.campaignFreeze ?? resolveCampaignFreeze(deps.env);
-  if (config.mode === "off") return offHandle(freeze);
-
   const clock = deps.clock ?? { now: () => Date.now() };
+  if (config.mode === "off") return offHandle(freeze, clock);
+
   const resource = resourceFromAttributes({ ...config.resourceAttributes, "service.name": config.serviceName });
   const ledger = new LedgerSpanProcessor(deps.store ?? { commit: commitRunSpans, prune: (nowMs) => void pruneRunSpans(config.retentionDays, nowMs) });
   const exporterStatus: ExporterStatus = { dropped: 0 };
@@ -183,5 +185,5 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
     }
   };
 
-  return { telemetry: adapter, health, shutdown };
+  return { telemetry: adapter, clock, health, shutdown };
 }

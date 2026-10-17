@@ -8,6 +8,7 @@ import { createExecScopeProvider } from "../../qa-engine/src/shared-infrastructu
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { resolveEgressMode } from "./egress-wiring";
 import { fileBoundaryGateFor } from "./file-boundary";
+import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { processReaper } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox-reaper";
 
 export interface ExecWiring {
@@ -30,6 +31,8 @@ export interface ExecWiringInput {
   mirrorRoot?: string;
   /* The account handed to the suite children of an app that opted in (e2e.specCredentials: account). */
   suiteAccount?: { user: string; pass: string };
+  /* Each child the launcher starts becomes a span of the run's trace. Absent: children are not traced. */
+  telemetry?: TelemetryPort;
 }
 
 /* Where the per-run work directories live: `/tmp/qa-exec` in the container. */
@@ -45,7 +48,7 @@ export function gateCredsFrom(env: NodeJS.ProcessEnv): { user: string; pass: str
 export function buildExecWiring(input: ExecWiringInput): ExecWiring {
   const mode = resolveExecSandboxMode(input.env);
   const reaper = processReaper(input.sandbox);
-  const exec = createExecSandbox({ sandbox: input.sandbox, mode, egressMode: resolveEgressMode(input.env), baseEnv: input.env, fileBoundary: fileBoundaryGateFor(input.env), ...(input.egress ? { egress: input.egress } : {}), ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}), ...(reaper ? { reaper } : {}) });
+  const exec = createExecSandbox({ sandbox: input.sandbox, mode, egressMode: resolveEgressMode(input.env), baseEnv: input.env, fileBoundary: fileBoundaryGateFor(input.env), ...(input.egress ? { egress: input.egress } : {}), ...(input.mirrorRoot ? { mirrorRoot: input.mirrorRoot } : {}), ...(reaper ? { reaper } : {}), ...(input.telemetry ? { telemetry: input.telemetry } : {}) });
   const gateCreds = gateCredsFrom(input.env);
   const execScope = createExecScopeProvider({
     workRoot: input.workRoot ?? execWorkRoot(input.env),

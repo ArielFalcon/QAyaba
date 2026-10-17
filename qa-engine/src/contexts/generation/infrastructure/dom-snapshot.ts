@@ -680,6 +680,7 @@ export function createCaptureDomDeps(exec: ExecSandboxPort, maxOutputChars: numb
         const child = exec.spawn("node", [script], {
           cwd: e2eDir,
           profile: "suite",
+          commandClass: "dom-capture",
           extraEnv: { PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) },
           /* The result is the JSON on stdout; stderr is never read, and left piped it would block the script once the OS pipe buffer fills. */
           stdio: ["ignore", "pipe", "ignore"],

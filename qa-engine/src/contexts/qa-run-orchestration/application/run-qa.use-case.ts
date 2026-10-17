@@ -25,7 +25,7 @@ import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capabili
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { isSandboxUnavailable, type SandboxUnavailableError } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
-import { refusedScope, sandboxRefused, sandboxSignal, withExecScope, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
+import { activeExecScope, refusedScope, sandboxRefused, sandboxSignal, withExecScope, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { AuthSession, AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
@@ -130,6 +130,12 @@ interface PreconditionFailure {
 import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock } from "../domain/run-phase-cursor.ts";
+import { PhaseSpans } from "./run-phase-spans.ts";
+import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
+import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
+import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
+import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
+import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
@@ -215,6 +221,8 @@ export interface RunQaConfig {
 export interface RunQaUseCaseDeps {
   /** Absent: the system clock. Times each phase of a run (tests inject a fake). */
   phaseClock?: PhaseClock;
+  /** Absent: nothing is traced. Present: each phase of the run is a span under the run's active context (run-phase-spans.ts). Never changes a verdict. */
+  telemetry?: TelemetryPort;
   changeAnalysis: ChangeAnalysisPort;
   generation: GenerationPort;
   review: ReviewPort;
@@ -472,6 +480,12 @@ function printableHost(host: string): string {
 interface RunTrail {
   /** The run's phase cursor, created before anything runs. */
   phases: RunPhaseCursor;
+  /** How generation ended, once it did. */
+  generationEnd?: string;
+  /** The limit that stopped the run, when the run deadline did. */
+  limit?: { fired: string; role: string };
+  /** The spans of the phases the cursor opens. */
+  spans: PhaseSpans;
   mirrorDir?: string;
   rulesRetrieved?: string[];
   /** The run_spec loop, once opened: closed by runInScope however the run ends. */
@@ -489,7 +503,11 @@ class ProbeSweepError extends Error {
 }
 
 export class RunQaUseCase {
-  constructor(private readonly deps: RunQaUseCaseDeps) {}
+  private readonly telemetry: TelemetryPort;
+
+  constructor(private readonly deps: RunQaUseCaseDeps) {
+    this.telemetry = guardTelemetry(deps.telemetry ?? new NoopTelemetry());
+  }
 
   /* What each run came to in the lead/sidekick mode, read when the run's outcome is built. Keyed by the run's input, which every exit has. */
   private readonly coordinationOf = new WeakMap<RunQaInput, CoordinationGateSignal>();
@@ -505,19 +523,25 @@ export class RunQaUseCase {
       return await withRunSecretScope(createRunSecretScope(), () => withExecScope(refusedScope(input.runId, err.reason === "scope" ? "uid" : err.reason), () => this.sandboxUnavailableResult(input, err, {})));
     }
     try {
-      return await withRunSecretScope(createRunSecretScope(), () => (sandbox ? sandbox.run(() => this.runInScope(input, signal)) : this.runInScope(input, signal)));
+      const secrets = createRunSecretScope();
+      return await withRunSecretScope(secrets, () => (sandbox ? sandbox.run(() => this.runInScope(input, secrets, signal)) : this.runInScope(input, secrets, signal)));
     } finally {
       sandbox?.close();
     }
   }
 
-  private async runInScope(input: RunQaInput, signal?: AbortSignal): Promise<RunQaResult> {
-    const phases = new RunPhaseCursor(this.deps.phaseClock ?? SYSTEM_PHASE_CLOCK);
-    const trail: RunTrail = { phases };
+  private async runInScope(input: RunQaInput, secrets: RedactionScope, signal?: AbortSignal): Promise<RunQaResult> {
+    const spans = new PhaseSpans({ telemetry: this.telemetry, secrets, app: input.app, mode: input.mode });
+    const phases = new RunPhaseCursor(this.deps.phaseClock ?? SYSTEM_PHASE_CLOCK, spans);
+    const trail: RunTrail = { phases, spans };
+    /* A child the launcher starts for this run is a child of whichever phase is open. */
+    const scope = activeExecScope();
+    if (scope) scope.telemetry = { parent: () => spans.context() };
     try {
-      return this.withPhases(await this.runHandlingEnds(input, signal, trail), phases);
+      return this.withPhases(await this.runHandlingEnds(input, signal, trail), trail);
     } catch (err) {
       /* An error nothing here handles goes to the caller, which records the run: it is told where the run stood. */
+      spans.fail(err);
       phases.close();
       recordPhaseSnapshot(err, phases.snapshot());
       throw err;
@@ -526,6 +550,31 @@ export class RunQaUseCase {
       await this.closeClosedLoop(trail);
       await this.closeAgentBrowser(trail);
       this.sayDeniedHosts();
+    }
+  }
+
+  /* How the run ended, for its trace: the decision, the end of generation, and the limit that fired (the deadline's own, else the one the generation end names). */
+  private traceFactsOf(result: RunQaResult, trail: RunTrail): RunTraceFacts {
+    const end = trail.generationEnd;
+    const fromEnd = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-generator" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-generator" } : undefined;
+    const limit = trail.limit ?? fromEnd;
+    return {
+      decision: result.decision.sideEffect,
+      ...(end !== undefined ? { generationEnd: end } : {}),
+      ...(limit ? { limitFired: limit.fired, limitRole: limit.role } : {}),
+    };
+  }
+
+  /* The armed deadline, on the phase it was armed in. */
+  private noteDeadlineArmed(trail: RunTrail): void {
+    try {
+      const armed = this.deps.runDeadline?.describe?.();
+      if (!armed) return;
+      const attrs = { "qayaba.deadline.label": armed.label, "qayaba.deadline.budget_ms": armed.budgetMs } as const;
+      trail.spans.annotate(attrs);
+      trail.spans.event("deadline_armed", attrs);
+    } catch (err) {
+      console.error(`[qa] the armed deadline could not be described for the trace (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -549,16 +598,22 @@ export class RunQaUseCase {
    * run persisted was saved earlier and is never touched, so the run history holds no phase data (the run's record does).
    * Observability never changes how a run ended: a fault here returns the result as it was.
    */
-  private withPhases(result: RunQaResult, phases: RunPhaseCursor): RunQaResult {
+  private withPhases(result: RunQaResult, trail: RunTrail): RunQaResult {
     try {
+      const phases = trail.phases;
       phases.close();
       const { furthestPhase, phaseTimings } = phases.snapshot();
-      if (furthestPhase === null) return result;
-      return {
-        ...result,
-        ...(result.outcome ? { outcome: { ...result.outcome, gateSignals: { ...result.outcome.gateSignals, phaseTimings, furthestPhase } } } : {}),
-        gateSignals: { ...result.gateSignals, phaseTimings, furthestPhase },
-      };
+      /* The one channel for the trace's facts: the result this returns. The shell adapter hands them on to whichever outcome it returns. */
+      const traceFacts = this.traceFactsOf(result, trail);
+      if (furthestPhase === null) return attachTraceFacts(result, traceFacts);
+      return attachTraceFacts(
+        {
+          ...result,
+          ...(result.outcome ? { outcome: { ...result.outcome, gateSignals: { ...result.outcome.gateSignals, phaseTimings, furthestPhase } } } : {}),
+          gateSignals: { ...result.gateSignals, phaseTimings, furthestPhase },
+        },
+        traceFacts,
+      );
     } catch (err) {
       console.error(`[qa] the phase record could not be attached (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
       return result;
@@ -628,7 +683,7 @@ export class RunQaUseCase {
    * is learned from it and no Issue is opened, since it says nothing about the app or the tests, and the operator sees
    * why on the record.
    */
-  private async sandboxUnavailableResult(input: RunQaInput, err: SandboxUnavailableError, trail: Omit<RunTrail, "phases">): Promise<RunQaResult> {
+  private async sandboxUnavailableResult(input: RunQaInput, err: SandboxUnavailableError, trail: Omit<RunTrail, "phases" | "spans">): Promise<RunQaResult> {
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     const note = `The run could not execute the tests safely and ended without running them (${ERROR_CLASS.SANDBOX}): ${err.message}`;
     console.error(`[qa] ${note}`);
@@ -660,6 +715,8 @@ export class RunQaUseCase {
    */
   private async deadlineResult(input: RunQaInput, err: RunDeadlineExceededError, trail: RunTrail): Promise<RunQaResult> {
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
+    trail.limit = { fired: "run-deadline", role: err.role };
+    trail.generationEnd ??= GENERATION_END.TIME_BUDGET;
     const note = renderRunDeadlineNote({ budgetMs: err.budgetMs, label: err.label, role: err.role, stop: err.stop });
     console.error(`[qa] ${note}`);
     this.deps.observer?.onEvent({ type: "agent.error", detail: note });
@@ -785,6 +842,7 @@ export class RunQaUseCase {
 
     /* Armed here because a diff run's budget follows the size of its change, known only now; a classify-skip has already returned without spending any agent time. */
     this.deps.runDeadline?.arm({ mode: input.mode, ...(classificationDiff !== undefined ? { diff: classificationDiff } : {}), ...(classificationIntent ? { changedFiles: classificationIntent.changedFiles } : {}) });
+    this.noteDeadlineArmed(trail);
 
     /*
      * Requires both ports. Classify-skip already returned (that path may GC the
@@ -1264,6 +1322,7 @@ export class RunQaUseCase {
      * regression run generates nothing, so it has no end and never lands here.
      */
     if (generated.end !== null) {
+      trail.generationEnd = generated.end;
       const terminal = terminalForGenerationEnd(generated.end);
       if (terminal.action === "continue") {
         if (generated.turn?.exhausted === true) {

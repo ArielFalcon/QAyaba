@@ -46,17 +46,28 @@ export interface PhaseSnapshot {
   phaseTimings: Partial<Record<RunPhase, number>>;
 }
 
+/** Told when a phase opens and closes, with the clock reading the cursor itself took. A fault in an observer never reaches the cursor. */
+export interface PhaseObserver {
+  onEnter(phase: RunPhase, at: number): void;
+  onExit(phase: RunPhase, at: number): void;
+}
+
 export class RunPhaseCursor {
   private readonly totals = new Map<RunPhase, number>();
   private open: { phase: RunPhase; since: number } | undefined;
 
-  constructor(private readonly clock: PhaseClock) {}
+  constructor(
+    private readonly clock: PhaseClock,
+    private readonly observer?: Partial<PhaseObserver>,
+  ) {}
 
   /** Ends the open phase, if any, and opens `phase`. Entering a phase again adds to its total. */
   enter(phase: RunPhase): void {
     this.close();
     this.totals.set(phase, this.totals.get(phase) ?? 0);
-    this.open = { phase, since: this.clock.now() };
+    const since = this.clock.now();
+    this.open = { phase, since };
+    this.observe(() => this.observer?.onEnter?.(phase, since));
   }
 
   /** Ends the open phase. Safe to call when none is open. */
@@ -64,7 +75,18 @@ export class RunPhaseCursor {
     if (!this.open) return;
     const { phase, since } = this.open;
     this.open = undefined;
-    this.totals.set(phase, (this.totals.get(phase) ?? 0) + (this.clock.now() - since));
+    const at = this.clock.now();
+    this.totals.set(phase, (this.totals.get(phase) ?? 0) + (at - since));
+    this.observe(() => this.observer?.onExit?.(phase, at));
+  }
+
+  /* Observability never changes how a run ends: an observer's fault is said and dropped. */
+  private observe(notify: () => void): void {
+    try {
+      notify();
+    } catch (err) {
+      console.error(`[qa] a phase observer failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /** Milliseconds per entered phase; a phase still open counts the time it has run so far. */

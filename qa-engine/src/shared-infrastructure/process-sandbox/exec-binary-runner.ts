@@ -3,11 +3,11 @@
 
 import type { ProcessKillPort } from "../../shared-kernel/process-sandbox/process-kill.port.ts";
 import type { SandboxProfile } from "./exec-env.ts";
-import type { ExecSandboxPort } from "./exec-sandbox.ts";
+import type { ExecCommandClass, ExecSandboxPort } from "./exec-sandbox.ts";
 import { SandboxedBinaryRunnerAdapter } from "./sandboxed-binary-runner.adapter.ts";
 import type { SandboxedBinaryRunner } from "./sandboxed-binary-runner.ts";
 
-export function createExecBinaryRunner(deps: { exec: ExecSandboxPort; profile: SandboxProfile; processKill: ProcessKillPort; maxOutputChars?: number }): SandboxedBinaryRunner {
+export function createExecBinaryRunner(deps: { exec: ExecSandboxPort; profile: SandboxProfile; processKill: ProcessKillPort; maxOutputChars?: number; commandClass?: ExecCommandClass }): SandboxedBinaryRunner {
   return new SandboxedBinaryRunnerAdapter({
     processKill: deps.processKill,
     ...(deps.maxOutputChars !== undefined ? { maxOutputChars: deps.maxOutputChars } : {}),
@@ -16,6 +16,7 @@ export function createExecBinaryRunner(deps: { exec: ExecSandboxPort; profile: S
       return deps.exec.spawn(req.command, req.args, {
         cwd: req.cwd,
         profile: deps.profile,
+        ...(deps.commandClass ? { commandClass: deps.commandClass } : {}),
         ...(Object.keys(extra).length > 0 ? { extraEnv: extra } : {}),
         ...(user !== undefined && pass !== undefined ? { account: { user, pass } } : {}),
       });

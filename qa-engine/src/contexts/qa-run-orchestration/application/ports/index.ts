@@ -424,6 +424,8 @@ export interface ReviewEnrichment {
  */
 export interface RunDeadlinePort {
   arm(scope: { mode: RunMode; diff?: string; changedFiles?: readonly string[] }): void;
+  /** What was armed (the named budget and its length), for the run's trace. Absent or undefined: nothing to say. */
+  describe?(): { label: string; budgetMs: number } | undefined;
 }
 
 /**

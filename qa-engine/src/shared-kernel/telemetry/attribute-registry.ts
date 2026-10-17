@@ -117,6 +117,7 @@ export const ATTRIBUTES = {
   /* Langfuse viewing aids, set on the root. */
   "langfuse.trace.name": str("Langfuse trace name."),
   "langfuse.session.id": str("Langfuse session id.", "high"),
+  "langfuse.trace.tags": spec("string[]", "Langfuse trace tags: the app and the run mode."),
   "langfuse.environment": str("Langfuse environment."),
   "langfuse.observation.type": str("Langfuse observation type."),
 

@@ -491,7 +491,7 @@ export function createDefaultCodeExecuteDeps(
       new Promise((resolve) => {
         const { cmd, args } = project.test;
         /* The watched repo's own test command: the sandbox's `install` profile (toolchain variables, registries as the only network). */
-        const child = exec.spawn(cmd, args, { cwd: repoDir, profile: "install" });
+        const child = exec.spawn(cmd, args, { cwd: repoDir, profile: "install", commandClass: "code-test" });
         const stdout = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
         const stderr = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
         const stdoutEvidence = new TestRunEvidence(project.ecosystem);
@@ -573,7 +573,7 @@ export async function runCodeCoverage(
   const command = coverageCommand(detectCodeProject(repoDir), repoDir, c8Bin);
   if (!command) return;
   await new Promise<void>((resolve) => {
-    const child = exec.spawn(command.cmd, command.args, { cwd: repoDir, profile: "install" });
+    const child = exec.spawn(command.cmd, command.args, { cwd: repoDir, profile: "install", commandClass: "code-test" });
     let done = false;
     const finish = () => {
       if (done) return;
