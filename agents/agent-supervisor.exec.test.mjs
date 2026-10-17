@@ -2,18 +2,19 @@
 // read when the module loads, so it is set before the module is imported.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 const dir = mkdtempSync(join(tmpdir(), "codex-exec-"));
 const bin = join(dir, "fake-codex");
 const eventsFile = join(dir, "events.jsonl");
+const envFile = join(dir, "child-env.json");
 let supervisor;
 let previous;
 
 before(async () => {
-  writeFileSync(bin, `#!/usr/bin/env node\nprocess.stdin.resume();\nprocess.stdin.on("end", () => { process.stdout.write(require("node:fs").readFileSync(${JSON.stringify(eventsFile)}, "utf8")); });\n`);
+  writeFileSync(bin, `#!/usr/bin/env node\nprocess.stdin.resume();\nprocess.stdin.on("end", () => { require("node:fs").writeFileSync(${JSON.stringify(envFile)}, JSON.stringify({ TRACEPARENT: process.env.TRACEPARENT, TRACESTATE: process.env.TRACESTATE, GITHUB_TOKEN: process.env.GITHUB_TOKEN })); process.stdout.write(require("node:fs").readFileSync(${JSON.stringify(eventsFile)}, "utf8")); });\n`);
   chmodSync(bin, 0o755);
   previous = { bin: process.env.CODEX_BIN, key: process.env.CODEX_API_KEY };
   process.env.CODEX_BIN = bin;
@@ -74,4 +75,62 @@ test("the HTTP handler answers with the message and the usage, and keeps answeri
   const bad = await supervisor.handleCodexExec({ cwd: "relative", prompt: "go" });
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /absolute path/);
+});
+
+/* --- the trace context of an exec --- */
+
+const TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+const childEnv = () => JSON.parse(readFileSync(envFile, "utf8"));
+const ok = [message("done")];
+
+test("a valid traceparent header reaches the child's environment, with a valid tracestate beside it", async () => {
+  writeFileSync(eventsFile, lines(...ok));
+  const answer = await supervisor.handleCodexExec({ cwd: dir, prompt: "go", sandbox: "read-only" }, { traceparent: TRACEPARENT, tracestate: "vendor=opaque,other=1" });
+  assert.equal(answer.status, 200);
+  assert.equal(childEnv().TRACEPARENT, TRACEPARENT);
+  assert.equal(childEnv().TRACESTATE, "vendor=opaque,other=1");
+});
+
+test("a request with no trace header gives the child no trace context, and neither does an ambient one in the supervisor's own environment", async () => {
+  writeFileSync(eventsFile, lines(...ok));
+  const previous = process.env.TRACEPARENT;
+  process.env.TRACEPARENT = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01";
+  try {
+    await supervisor.handleCodexExec({ cwd: dir, prompt: "go", sandbox: "read-only" }, {});
+  } finally {
+    if (previous === undefined) delete process.env.TRACEPARENT;
+    else process.env.TRACEPARENT = previous;
+  }
+  assert.equal(childEnv().TRACEPARENT, undefined);
+});
+
+test("a trace header that is not a well-formed traceparent is ignored, and its tracestate with it", async () => {
+  for (const traceparent of ["", "garbage", TRACEPARENT.toUpperCase(), `${TRACEPARENT}-extra`, "00-00000000000000000000000000000000-00f067aa0ba902b7-01", "00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01", "ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", `${TRACEPARENT}\nX: y`]) {
+    writeFileSync(eventsFile, lines(...ok));
+    const answer = await supervisor.handleCodexExec({ cwd: dir, prompt: "go", sandbox: "read-only" }, { traceparent, tracestate: "vendor=1" });
+    assert.equal(answer.status, 200, JSON.stringify(traceparent));
+    assert.equal(childEnv().TRACEPARENT, undefined, JSON.stringify(traceparent));
+    assert.equal(childEnv().TRACESTATE, undefined, JSON.stringify(traceparent));
+  }
+});
+
+test("a tracestate that is not plain printable text of a bounded size is dropped and the traceparent still goes", () => {
+  assert.deepEqual(supervisor.traceEnvFromHeaders({ traceparent: TRACEPARENT, tracestate: "a=b\u0000c" }), { TRACEPARENT });
+  assert.deepEqual(supervisor.traceEnvFromHeaders({ traceparent: TRACEPARENT, tracestate: "k=".padEnd(600, "v") }), { TRACEPARENT });
+  assert.deepEqual(supervisor.traceEnvFromHeaders({ traceparent: TRACEPARENT, tracestate: "" }), { TRACEPARENT });
+  assert.deepEqual(supervisor.traceEnvFromHeaders({ tracestate: "a=b" }), {});
+  assert.deepEqual(supervisor.traceEnvFromHeaders(undefined), {});
+});
+
+test("the child still gets none of the supervisor's secrets", async () => {
+  writeFileSync(eventsFile, lines(...ok));
+  const previous = process.env.GITHUB_TOKEN;
+  process.env.GITHUB_TOKEN = "ghp_not_a_secret_here";
+  try {
+    await supervisor.handleCodexExec({ cwd: dir, prompt: "go", sandbox: "read-only" }, { traceparent: TRACEPARENT });
+  } finally {
+    if (previous === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = previous;
+  }
+  assert.equal(childEnv().GITHUB_TOKEN, undefined);
 });

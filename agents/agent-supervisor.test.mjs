@@ -357,3 +357,75 @@ test("ensureCodexConfig: the Codex config holds nothing of the authenticated bro
   assert.doesNotMatch(content, /authbrowser/i);
   assert.doesNotMatch(content, /QA_TOOLS/);
 });
+
+// ─── Codex OTel export: applied only when the operator names an endpoint ───
+
+const OTLP = "http://collector-agents:4319";
+const seed = (content) => {
+  const codexHome = mkdtempSync(join(tmpdir(), "codex-otel-"));
+  if (content !== undefined) writeFileSync(join(codexHome, "config.toml"), content, "utf8");
+  return codexHome;
+};
+const configOf = (codexHome) => readFileSync(join(codexHome, "config.toml"), "utf8");
+
+test("ensureCodexConfig: without QA_AGENT_OTLP_ENDPOINT the config holds nothing about telemetry, a blank value counts as unset, and an existing file is rewritten as it always was", () => {
+  const plain = seed();
+  ensureCodexConfig(plain, { ENGRAM_DATA_DIR: "/data" });
+  assert.doesNotMatch(configOf(plain), /otel|trace_exporter/i);
+
+  const blank = seed();
+  ensureCodexConfig(blank, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: "  " });
+  assert.equal(configOf(blank), configOf(plain));
+
+  const existing = seed('[auth]\napi_key = "sk-test-value"\n\n[otel]\nenvironment = "mine"\n');
+  ensureCodexConfig(existing, { ENGRAM_DATA_DIR: "/data" });
+  assert.match(configOf(existing), /\[otel\]\nenvironment = "mine"/, "an operator's own telemetry table is theirs");
+});
+
+test("ensureCodexConfig: with an endpoint, traces go to it over OTLP/HTTP, nothing goes anywhere else, and prompts are not logged", () => {
+  const codexHome = seed();
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
+  const toml = configOf(codexHome);
+  assert.match(toml, /^\[otel\]$/m);
+  assert.match(toml, /^log_user_prompt = false$/m);
+  assert.match(toml, /^exporter = "none"$/m);
+  assert.match(toml, /^metrics_exporter = "none"$/m);
+  assert.match(toml, /^trace_exporter = \{ otlp-http = \{ endpoint = "http:\/\/collector-agents:4319\/v1\/traces", protocol = "binary" \} \}$/m);
+  assert.ok(toml.includes("[mcp_servers.serena]"), "the MCP tables are still there");
+});
+
+test("ensureCodexConfig: the telemetry block is written once, survives a second boot byte for byte and keeps the rest of the file", () => {
+  const codexHome = seed('[auth]\napi_key = "sk-test-value"\n');
+  const env = { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP };
+  ensureCodexConfig(codexHome, env);
+  const first = configOf(codexHome);
+  ensureCodexConfig(codexHome, env);
+  assert.equal(configOf(codexHome), first);
+  assert.equal(first.match(/^\[otel\]$/gm).length, 1);
+  assert.ok(first.includes('api_key = "sk-test-value"'));
+});
+
+test("ensureCodexConfig: a boot without the endpoint takes the block it wrote earlier out again and leaves the rest as it was", () => {
+  const codexHome = seed('[auth]\napi_key = "sk-test-value"\n');
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+  const toml = configOf(codexHome);
+  assert.doesNotMatch(toml, /otel|trace_exporter/i);
+  assert.ok(toml.includes('api_key = "sk-test-value"') && toml.includes("[mcp_servers.engram]"));
+});
+
+test("ensureCodexConfig: an endpoint that is not a plain http(s) address is not written, whatever it tries to add to the file", () => {
+  for (const endpoint of ["ftp://collector:4319", "collector-agents:4319", "http://user:pw@collector:4319", 'http://x"\n[projects."/"]\ntrust_level = "trusted"', "http://", "not a url"]) {
+    const codexHome = seed();
+    ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: endpoint });
+    assert.doesNotMatch(configOf(codexHome), /otel|trace_exporter|trusted/i, endpoint);
+  }
+});
+
+test("ensureCodexConfig: an operator's own [otel] table wins over the endpoint, which would otherwise define the table twice", () => {
+  const codexHome = seed('[otel]\nenvironment = "mine"\n');
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
+  const toml = configOf(codexHome);
+  assert.equal(toml.match(/^\[otel\]$/gm).length, 1);
+  assert.doesNotMatch(toml, /trace_exporter/);
+});

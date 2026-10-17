@@ -19,6 +19,7 @@ import {
   CodexExecTransport,
   SupervisorExecTransport,
   CODEX_USAGE_AVAILABLE,
+  codexExecEnv,
   type SpawnFn,
   type CodexHeadlessTransport,
   type CodexTransportSession,
@@ -1192,5 +1193,42 @@ describe("extractCodexTokenUsage", () => {
     assert.deepEqual(extractCodexTokenUsage(jsonl), { inputTokens: 30, cachedInputTokens: 9, outputTokens: 5, reasoningOutputTokens: 1 });
     assert.equal(extractCodexTokenUsage(JSON.stringify({ type: "turn.completed" })), undefined);
     assert.equal(extractCodexTokenUsage(""), undefined);
+  });
+});
+
+describe("the trace context of a Codex exec", () => {
+  const TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+  it("the supervised transport sends the traceparent as a header and sends none when the prompt has none", async () => {
+    const headers: Array<Record<string, string> | undefined> = [];
+    const transport = new SupervisorExecTransport({ baseUrl: "http://agents:4097", env: { CODEX_API_KEY: "k" }, fetchImpl: async (_url, init) => (headers.push(init?.headers), { ok: true, status: 200, json: async () => ({ message: "ok" }) }) });
+    const session = await transport.start({ role: "primary", cwd: "/repo" });
+    await session.prompt("go", { traceparent: TRACEPARENT });
+    await session.prompt("go");
+    assert.equal(headers[0]!.traceparent, TRACEPARENT);
+    assert.equal(headers[1]!.traceparent, undefined);
+    assert.equal(headers[1]!["content-type"], "application/json");
+  });
+
+  it("the local transport puts the traceparent in the child's environment, and an ambient one never reaches the child", async () => {
+    const envs: Array<Record<string, string | undefined>> = [];
+    const spawnFn = ((_cmd: string, _args: string[], options: { env?: Record<string, string | undefined> }) => (envs.push(options.env ?? {}), makeSuccessChild(JSON.stringify({ msg: "ok" })))) as unknown as SpawnFn;
+    const previous = process.env.TRACEPARENT;
+    process.env.TRACEPARENT = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01";
+    try {
+      const session = await new CodexExecTransport({ CODEX_API_KEY: "k" }, "codex", spawnFn).start({ role: "primary", cwd: "/repo" });
+      await session.prompt("go", { traceparent: TRACEPARENT });
+      await session.prompt("go");
+    } finally {
+      if (previous === undefined) delete process.env.TRACEPARENT;
+      else process.env.TRACEPARENT = previous;
+    }
+    assert.equal(envs[0]!.TRACEPARENT, TRACEPARENT);
+    assert.equal(envs[1]!.TRACEPARENT, undefined);
+  });
+
+  it("the exec environment forwards the two trace names and still nothing else it did not already forward", () => {
+    const env = codexExecEnv({ PATH: "/bin", TRACEPARENT, TRACESTATE: "vendor=1", OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318", GITHUB_TOKEN: "ghp_x", QA_TOOLS_TOKEN: "t" });
+    assert.deepEqual(Object.keys(env).sort(), ["PATH", "TRACEPARENT", "TRACESTATE"]);
   });
 });

@@ -31,6 +31,8 @@ For production drop `docker-compose.override.yml`, as for the base stack.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | set by the telemetry file on the orchestrator (`http://collector:4318`) | Where the orchestrator exports. |
 | `OTEL_SERVICE_NAME` | set by the telemetry file (`qayaba-orchestrator`) | Resource service name. |
 | `QA_TELEMETRY` | `.env` | `local` (default) or `off`. |
+| `QA_AGENT_OTLP_ENDPOINT` | set by the telemetry file on the agents service (`http://collector-agents:4319`) | The supervisor then gives Codex a trace exporter (`[otel]` in its `config.toml`) pointed at the untrusted receiver, and the orchestrator passes the attempt's `traceparent` so Codex's spans hang under it. Unset (plain compose): Codex exports nothing and its config is unchanged. |
+| `QA_TELEMETRY_OBSERVE_UNWATCHED` | set by the telemetry file on the orchestrator (`true`) | Track the explorer's calls for its trace without registering, watching or waiting for its session. Off when unset. |
 | `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BSP_MAX_QUEUE_SIZE`, `OTEL_BSP_MAX_EXPORT_BATCH_SIZE`, `OTEL_BSP_EXPORT_TIMEOUT`, `OTEL_RESOURCE_ATTRIBUTES` | `.env` | Optional exporter tuning. |
 
 ## Where to look

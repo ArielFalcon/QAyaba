@@ -22,6 +22,8 @@ import type { AttemptEvent } from "@contexts/generation/infrastructure/agent-tra
 import { classifyAgentFault, type AgentErrorType } from "@contexts/generation/domain/agent-error-class";
 import { codexUsageAsRuntime, type CodexTokenUsage } from "@kernel/telemetry/genai-semconv";
 import type { TimeLimitSource, TurnLimit } from "@kernel/turn-limit";
+import type { SpanHandle } from "@kernel/telemetry/telemetry.port";
+import { traceparentOf } from "@kernel/telemetry/trace-context";
 import type { RunEventBody } from "../contract/events";
 import {
   AGENT_NAME_FOR_ROLE,
@@ -144,6 +146,8 @@ export interface CodexTransportStartInput {
 export interface CodexTransportPromptOpts {
   /** The longest this prompt may run. Absent: the session's limit stands. */
   timeoutMs?: number;
+  /** The W3C traceparent of the attempt this prompt is: `codex exec` parents its own spans on it. Only ever a value built from a real span. */
+  traceparent?: string;
   /** Told what the exec reported it spent, when it reported anything. Never called otherwise; a transport that cannot read usage ignores it. */
   onUsage?: (usage: CodexTokenUsage) => void;
 }
@@ -169,6 +173,8 @@ interface CodexRuntimeStrategyOptions {
   onAttempt?: (sessionId: string, event: AttemptEvent) => void;
   /* The limit a layer above the transport fired on a prompt, by session and prompt number. Default: the same registry. */
   outerLimit?: (sessionId: string, prompt: number) => TurnLimit | undefined;
+  /* The attempt span a session's prompt is in. Default: the same registry. */
+  attemptSpan?: (sessionId: string) => SpanHandle | undefined;
 }
 
 /*
@@ -188,14 +194,16 @@ export const CODEX_MODELS: AgentModelInfo[] = [
   { id: "gpt-5.5", label: "GPT-5.5" },
 ];
 
-const CODEX_EXEC_ENV_EXACT = new Set([
+export const CODEX_EXEC_ENV_EXACT: ReadonlySet<string> = new Set([
   "PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "TMPDIR", "TEMPDIR", "TMP", "TEMP",
   "CI", "NO_COLOR", "FORCE_COLOR", "DEBUG", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
   "https_proxy", "http_proxy", "no_proxy", "CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_HOME", "CODEX_BIN",
+  /* The W3C trace context of the attempt the exec belongs to: `codex exec` parents its own spans on it. Exact names, since the prefix list does not match them; only a value built from a real span reaches them (see traceEnv). */
+  "TRACEPARENT", "TRACESTATE",
 ]);
 /* DEV_ENV_* (the HTTP Basic gate of DEV) reaches the agent; DEV_TEST_* (the app's test account) never does:
    the login is the orchestrator's, and the agent only ever gets the session it saves. */
-const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_(?!TEST_)|AGENT_)/;
+export const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_(?!TEST_)|AGENT_)/;
 
 /*
  * Subscription-vs-API-key precedence (prefer a ChatGPT login over a stale/quota'd env key) is handled
@@ -203,6 +211,16 @@ const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_(?!TEST_)|AGENT_)/;
  * actually runs. It is intentionally NOT replicated here: this orchestrator-side builder must stay a
  * pure, filesystem-independent env projection so it is deterministic under test.
  */
+/*
+ * The environment an exec is built from, with its trace context decided here and nowhere else: whatever trace context the process
+ * itself happens to hold is dropped (an exec's spans belong under the attempt that asked for it, not under a CI pipeline's), and
+ * the attempt's is set when there is one.
+ */
+export function withTraceContext(env: Record<string, string | undefined>, traceparent: string | undefined): Record<string, string | undefined> {
+  const { TRACEPARENT: _ambient, TRACESTATE: _ambientState, ...rest } = env;
+  return traceparent !== undefined ? { ...rest, TRACEPARENT: traceparent } : rest;
+}
+
 export function codexExecEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
@@ -240,10 +258,12 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
   private readonly promptRoot: string;
   private readonly onAttempt: (sessionId: string, event: AttemptEvent) => void;
   private readonly outerLimit: (sessionId: string, prompt: number) => TurnLimit | undefined;
+  private readonly attemptSpan: (sessionId: string) => SpanHandle | undefined;
 
   constructor(opts: CodexRuntimeStrategyOptions = {}) {
     this.onAttempt = opts.onAttempt ?? ((sessionId, event) => agentTurnTraces.attempt(sessionId, event));
     this.outerLimit = opts.outerLimit ?? ((sessionId, prompt) => agentTurnTraces.firedBy(sessionId, prompt));
+    this.attemptSpan = opts.attemptSpan ?? ((sessionId) => agentTurnTraces.attemptSpan(sessionId));
     this.env = opts.env ?? process.env;
     this.transport = opts.transport ?? defaultCodexTransport(this.env);
     this.promptRoot = opts.promptRoot ?? this.env.AGENT_PROMPT_DIR ?? join(process.cwd(), "agent");
@@ -355,9 +375,18 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
         notify({ kind: "start", prompt: thisRound, attempt: 1, requestedModel: opts?.model, at: startedAt, limitApplied });
         let usage: CodexTokenUsage | undefined;
         let rawOutput: string;
+        /* The attempt the exec belongs to, as a header its own spans can be parented on; none when nothing is traced. */
+        let traceparent: string | undefined;
+        try {
+          const attempt = this.attemptSpan(session.id);
+          traceparent = attempt ? traceparentOf(attempt.context()) : undefined;
+        } catch (err) {
+          console.error(`[qa] attempt trace context failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
+        }
         try {
           rawOutput = await session.prompt(sent, {
             ...(promptOpts?.timeoutMs !== undefined ? { timeoutMs: promptOpts.timeoutMs } : {}),
+            ...(traceparent !== undefined ? { traceparent } : {}),
             onUsage: (reported) => {
               usage = reported;
             },
@@ -524,7 +553,7 @@ export class CodexExecTransport implements CodexHeadlessTransport {
     return new Promise((resolve, reject) => {
       const child = this.spawnFn(this.command, args, {
         cwd: input.cwd,
-        env: codexExecEnv({ ...process.env, ...this.env }),
+        env: codexExecEnv(withTraceContext({ ...process.env, ...this.env }, promptOpts?.traceparent)),
         stdio: ["pipe", "pipe", "pipe"],
         signal: input.signal,
       });
@@ -612,7 +641,7 @@ export class SupervisorExecTransport implements CodexHeadlessTransport {
     const timeoutMs = promptOpts?.timeoutMs ?? input.timeoutMs;
     const res = await this.fetchImpl(`${this.baseUrl}/codex/exec`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(promptOpts?.traceparent !== undefined ? { traceparent: promptOpts.traceparent } : {}) },
       /*
        * `sandbox` is per-role (read-only roles cannot write): the supervisor must pass it through to
        * `codex exec --sandbox`. Sent unconditionally so a read-only role is never silently elevated.

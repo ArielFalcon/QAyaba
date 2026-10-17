@@ -166,10 +166,15 @@ services:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
       OTEL_SERVICE_NAME: qayaba-orchestrator
+      # Track the explorer's calls for its trace without registering, watching or waiting for its session (off in plain compose).
+      QA_TELEMETRY_OBSERVE_UNWATCHED: "true"
 
   agents:
-    # Prepared for runtime span export (a later slice). No OTEL variable is set here yet, and the agents container is
-    # deliberately NOT on telemetry-internal: it can reach only collector-agents, over agent-otlp.
+    # The agents container is deliberately NOT on telemetry-internal: it can reach only collector-agents, over agent-otlp.
+    # QA_AGENT_OTLP_ENDPOINT makes the supervisor give Codex a trace exporter pointed at that receiver (traces only; the
+    # supervisor writes the [otel] table of Codex's config.toml). No OTEL_* variable is set: OpenCode exports nothing yet.
+    environment:
+      QA_AGENT_OTLP_ENDPOINT: http://collector-agents:4319
     networks:
       - default
       - agent-otlp

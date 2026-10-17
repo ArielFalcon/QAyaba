@@ -164,10 +164,15 @@ test("no literal secret or default password appears in the telemetry files", () 
   for (const text of [trusted.text, untrusted.text]) assert.doesNotMatch(text, /langfuse\s*:|otlphttp\/langfuse/i);
 });
 
-test("the orchestrator is pointed at the trusted receiver and the agents get no OTEL variable", () => {
+test("the orchestrator is pointed at the trusted receiver and the agents get no OTEL variable, only the address of the untrusted one", () => {
   assert.equal(svc("orchestrator").environment?.OTEL_EXPORTER_OTLP_ENDPOINT, "http://collector:4318");
   assert.equal(svc("orchestrator").environment?.OTEL_SERVICE_NAME, "qayaba-orchestrator");
-  assert.equal(svc("agents").environment, undefined);
+  assert.deepEqual(Object.keys(svc("agents").environment ?? {}), ["QA_AGENT_OTLP_ENDPOINT"]);
+  assert.equal(svc("agents").environment?.QA_AGENT_OTLP_ENDPOINT, "http://collector-agents:4319");
+});
+
+test("the stack that records telemetry also has the orchestrator observe the explorer's calls, which plain compose leaves off", () => {
+  assert.equal(svc("orchestrator").environment?.QA_TELEMETRY_OBSERVE_UNWATCHED, "true");
 });
 
 test("each collector config is mounted read-only", () => {
@@ -178,8 +183,8 @@ test("each collector config is mounted read-only", () => {
 test("the base compose file carries no telemetry service, network or variable", () => {
   for (const name of ["collector", "collector-agents", "lgtm", "grafana-proxy"]) assert.equal(base.services[name], undefined);
   assert.equal(base.networks, undefined);
-  assert.doesNotMatch(read("docker-compose.yml"), /telemetry|OTEL_|GRAFANA/i);
-  assert.doesNotMatch(read("docker-compose.override.yml"), /telemetry|OTEL_|GRAFANA/i);
+  assert.doesNotMatch(read("docker-compose.yml"), /telemetry|OTEL_|GRAFANA|QA_AGENT_OTLP/i);
+  assert.doesNotMatch(read("docker-compose.override.yml"), /telemetry|OTEL_|GRAFANA|QA_AGENT_OTLP/i);
 });
 
 test("every pipeline of both collectors redacts, limits memory first and batches", () => {

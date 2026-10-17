@@ -26,14 +26,17 @@ const RUNTIME_ENV_KEYS = new Set([
 
 // Mirrors src/agent-runtime/codex-strategy.ts codexExecEnv: never hand the agent
 // the orchestrator's secrets (GITHUB_TOKEN, WEBHOOK_SECRET, QA_API_TOKEN, …).
-const CODEX_EXEC_ENV_EXACT = new Set([
+export const CODEX_EXEC_ENV_EXACT = new Set([
   "PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "TMPDIR", "TEMPDIR", "TMP", "TEMP",
   "CI", "NO_COLOR", "FORCE_COLOR", "DEBUG", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
   "https_proxy", "http_proxy", "no_proxy", "CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_HOME", "CODEX_BIN",
+  // The W3C trace context of the attempt the exec belongs to: `codex exec` parents its own spans on it. Exact names, since the
+  // prefix list does not match them. Only a value built from a validated request header reaches them (see traceEnvFromHeaders).
+  "TRACEPARENT", "TRACESTATE",
 ]);
 // DEV_ENV_* (the HTTP Basic gate of DEV) reaches the agent; DEV_TEST_* (the app's test account) never does:
 // the login is the orchestrator's, and the agent only ever gets the session it saves.
-const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_(?!TEST_)|AGENT_)/;
+export const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_(?!TEST_)|AGENT_)/;
 const MAX_PROMPT_BYTES = 2 * 1024 * 1024;
 
 // When codex has a stored login (auth.json — e.g. a ChatGPT subscription created by `codex login`),
@@ -42,6 +45,17 @@ const MAX_PROMPT_BYTES = 2 * 1024 * 1024;
 function codexHasStoredAuth(env = process.env) {
   const home = env.CODEX_HOME || `${env.HOME || "/root"}/.codex`;
   return existsSync(`${home}/auth.json`);
+}
+
+// The trace context of an exec comes from its request header and from nowhere else: a TRACEPARENT the supervisor's own process
+// happens to hold is dropped, so an exec's spans never hang under something that is not the attempt that asked for it.
+const TRACEPARENT_RE = /^00-(?!0{32})[0-9a-f]{32}-(?!0{16})[0-9a-f]{16}-[0-9a-f]{2}$/;
+const TRACESTATE_RE = /^[\x20-\x7e]{1,512}$/;
+export function traceEnvFromHeaders(headers) {
+  const traceparent = headers?.traceparent;
+  if (typeof traceparent !== "string" || !TRACEPARENT_RE.test(traceparent)) return {};
+  const tracestate = headers.tracestate;
+  return { TRACEPARENT: traceparent, ...(typeof tracestate === "string" && TRACESTATE_RE.test(tracestate) ? { TRACESTATE: tracestate } : {}) };
 }
 
 export function codexExecEnv(env = process.env) {
@@ -331,7 +345,7 @@ export function buildCodexExecArgs({ cwd, model, sandbox }) {
 // final assistant message and the usage it reported for the turn (absent when it
 // reported none). This is the execution half of the orchestrator's
 // CodexRuntimeStrategy → SupervisorExecTransport HTTP boundary.
-export function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }) {
+export function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }, traceEnv = {}) {
   return new Promise((resolve, reject) => {
     if (!process.env.CODEX_API_KEY) return reject(new Error("CODEX_API_KEY is not configured"));
     if (typeof cwd !== "string" || !cwd.startsWith("/") || !existsSync(cwd)) return reject(new Error("cwd must be an existing absolute path"));
@@ -348,9 +362,10 @@ export function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }) {
     } catch (err) {
       return reject(err);
     }
+    const { TRACEPARENT: _ambient, TRACESTATE: _ambientState, ...ambient } = process.env;
     const child = spawn(CODEX_BIN, args, {
       cwd,
-      env: codexExecEnv(process.env),
+      env: codexExecEnv({ ...ambient, ...traceEnv }),
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -428,9 +443,9 @@ function json(res, status, body) {
 }
 
 // One POST /codex/exec: the final message and the usage on success, the (redacted) reason on failure.
-export async function handleCodexExec(body) {
+export async function handleCodexExec(body, headers) {
   try {
-    const { message, usage } = await runCodexExec(body);
+    const { message, usage } = await runCodexExec(body, traceEnvFromHeaders(headers));
     return { status: 200, body: { message, ...(usage ? { usage } : {}) } };
   } catch (err) {
     return { status: 400, body: { error: redactForResponse(err instanceof Error ? err.message : String(err)) } };
@@ -471,7 +486,7 @@ const server = createServer(async (req, res) => {
       json(res, 400, { error: redactForResponse(err instanceof Error ? err.message : String(err)) });
       return;
     }
-    const answer = await handleCodexExec(body);
+    const answer = await handleCodexExec(body, req.headers);
     json(res, answer.status, answer.body);
     return;
   }
@@ -483,6 +498,41 @@ async function shutdown() {
   shuttingDown = true;
   await Promise.all(PROVIDERS.map((provider) => stopProvider(provider)));
   server.close(() => process.exit(0));
+}
+
+// Codex's own trace export, applied ONLY when the operator names an OTLP/HTTP endpoint (QA_AGENT_OTLP_ENDPOINT; the telemetry
+// compose file sets it, plain compose does not). Traces only: the metrics exporter defaults to a vendor endpoint and the log
+// exporter is switched off, and prompt text is never logged. The block sits between two comment markers so a boot without the
+// endpoint can take it out again without touching anything else; a table the operator wrote themselves is left alone.
+const OTEL_BEGIN = "# BEGIN qayaba-otel (written by the supervisor from QA_AGENT_OTLP_ENDPOINT)";
+const OTEL_END = "# END qayaba-otel";
+const OTEL_REGION = new RegExp(`\\n?${OTEL_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${OTEL_END}\\n?`);
+
+// The traces URL of a plain http(s) address without credentials, or undefined for anything else. Built from the parsed URL, so
+// nothing of the operator's text reaches the file but a scheme, a host, a port and a path.
+export function codexTracesUrl(endpoint) {
+  if (typeof endpoint !== "string" || endpoint.trim() === "") return undefined;
+  let url;
+  try {
+    url = new URL(endpoint.trim());
+  } catch {
+    return undefined;
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.hostname === "" || url.username !== "" || url.password !== "") return undefined;
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}/v1/traces`;
+}
+
+function codexOtelToml(tracesUrl) {
+  return [
+    OTEL_BEGIN,
+    "[otel]",
+    "log_user_prompt = false",
+    'exporter = "none"',
+    'metrics_exporter = "none"',
+    `trace_exporter = { otlp-http = { endpoint = ${JSON.stringify(tracesUrl)}, protocol = "binary" } }`,
+    OTEL_END,
+    "",
+  ].join("\n");
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────
@@ -600,6 +650,13 @@ export function ensureCodexConfig(codexHome, env = process.env) {
   // Ensure the directory exists (codex-data volume may not have pre-created it).
   mkdirSync(codexHome, { recursive: true });
 
+  // Our own telemetry block, when the operator asked for one and it can be written safely. It is appended after the MCP tables.
+  const endpoint = typeof env.QA_AGENT_OTLP_ENDPOINT === "string" ? env.QA_AGENT_OTLP_ENDPOINT.trim() : "";
+  const tracesUrl = codexTracesUrl(endpoint);
+  if (endpoint !== "" && tracesUrl === undefined) {
+    console.warn("[agent-supervisor] QA_AGENT_OTLP_ENDPOINT is not a plain http(s) address without credentials: Codex trace export stays off");
+  }
+
   if (existsSync(configPath)) {
     // Preserve any non-mcp_servers content (e.g. [auth] from the codex-data volume).
     // Strip all existing [mcp_servers.*] sections from the file and append fresh ones.
@@ -607,7 +664,9 @@ export function ensureCodexConfig(codexHome, env = process.env) {
     // Strategy: split the file into "blocks" by top-level section headers (lines that
     // start with "[" but are NOT continuation lines of a value). Each block starts at a
     // section header line. Skip any block whose header starts with [mcp_servers.
-    const existing = readFileSync(configPath, "utf8");
+    const original = readFileSync(configPath, "utf8");
+    // Our telemetry block from an earlier boot goes out first, so the file converges whether or not the endpoint is still set.
+    const existing = original.replace(OTEL_REGION, "\n");
     const lines = existing.split(/\r?\n/);
     const blocks = []; // [{header: string|null, body: string[]}]
     let current = { header: null, body: [] };
@@ -635,14 +694,18 @@ export function ensureCodexConfig(codexHome, env = process.env) {
       return parts.join("\n");
     }).join("\n").trimEnd();
 
+    // A table of the operator's own would be defined twice by ours, which TOML rejects: theirs wins.
+    const ownOtel = kept.some((b) => b.header !== null && /^\[otel[\].]/.test(b.header));
+    if (tracesUrl !== undefined && ownOtel) console.warn("[agent-supervisor] config.toml already has an [otel] table of its own: QA_AGENT_OTLP_ENDPOINT is not applied");
+    const otelBlock = tracesUrl !== undefined && !ownOtel ? "\n" + codexOtelToml(tracesUrl) : "";
     const mcpBlock = mcpToml.trimEnd() + "\n";
-    const merged = (retained ? retained + "\n\n" : "") + mcpBlock;
-    // Idempotent: only write if content differs.
-    if (merged !== existing) {
+    const merged = (retained ? retained + "\n\n" : "") + mcpBlock + otelBlock;
+    // Idempotent: only write if content differs from what is on disk.
+    if (merged !== original) {
       writeFileSync(configPath, merged, "utf8");
     }
   } else {
-    writeFileSync(configPath, mcpToml.trimEnd() + "\n", "utf8");
+    writeFileSync(configPath, mcpToml.trimEnd() + "\n" + (tracesUrl !== undefined ? "\n" + codexOtelToml(tracesUrl) : ""), "utf8");
   }
 }
 

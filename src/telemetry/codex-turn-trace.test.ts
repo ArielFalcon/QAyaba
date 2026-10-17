@@ -12,6 +12,7 @@ import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
+import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { CodexTokenUsage } from "@kernel/telemetry/genai-semconv";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { traceHarness } from "./trace-harness";
@@ -52,6 +53,7 @@ function rig(transportPrompt: (text: string, opts: CodexTransportPromptOpts | un
     promptRoot: "/nonexistent-prompt-root",
     onAttempt: (sessionId, event) => (over.onAttempt ?? ((id: string, e: Parameters<AgentTurnTraces["attempt"]>[1]) => traces.attempt(id, e)))(sessionId, event as never),
     outerLimit: (sessionId, prompt) => traces.firedBy(sessionId, prompt),
+    attemptSpan: (sessionId) => traces.attemptSpan(sessionId),
   });
   const base: AgentDeps = { open: async (agent, cwd, opts) => strategy.openSession(roleForLegacyAgent(agent), cwd, { ...opts, onTurn: (t) => events.push(t) }) };
   const deps = withTurnTelemetry(base, { telemetry: over.telemetry ?? h.telemetry, clock: h.clock, intent: INTENT, traces });
@@ -175,4 +177,25 @@ test("classifyCodexFault reads the failure the exec reported, not the words of t
   assert.equal(classifyCodexFault(codexErrorToInfra(new Error("codex exec exited 1: 402 payment required"))), "quota_exceeded");
   assert.equal(classifyCodexFault(codexErrorToInfra(new Error("codex exec exited 1: 403 forbidden"))), "auth");
   assert.equal(classifyCodexFault("not an error"), "unknown");
+});
+
+test("the transport is handed the traceparent of the attempt span, so Codex's own spans can hang under it", async () => {
+  const seen: Array<string | undefined> = [];
+  const r = rig(async (_text, opts) => {
+    seen.push(opts?.traceparent);
+    return "done";
+  });
+  await turn(r);
+  const attempt = r.h.only("qayaba.agent.attempt");
+  assert.equal(seen[0], `00-${attempt.spanContext().traceId}-${attempt.spanContext().spanId}-01`);
+});
+
+test("a prompt with no attempt span, because nothing is traced, hands the transport no traceparent", async () => {
+  const seen: Array<string | undefined> = [];
+  const r = rig(async (_text, opts) => {
+    seen.push(opts?.traceparent);
+    return "done";
+  }, { telemetry: new NoopTelemetry() });
+  await turn(r);
+  assert.deepEqual(seen, [undefined]);
 });

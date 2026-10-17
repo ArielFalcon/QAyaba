@@ -1074,6 +1074,14 @@ reads the same signals as `codexErrorToInfra` from the exec's own text. The expl
 call tracker, it is not registered for the live feed, never feeds a watchdog and its attempts never wait for the stream; a parity test
 runs the same explorer turn with tracking on and off.
 
+**Codex native spans (S0.3 status).** Wired, not yet proven live: the orchestrator sends the attempt's `traceparent` as a header on
+`POST /codex/exec` (only when the attempt span is real), the supervisor validates it and gives the child `TRACEPARENT`/`TRACESTATE`
+(both names are in the exact-name allowlist of the supervisor and of the orchestrator's builder, pinned equal by a test; an ambient value
+in either process is dropped), and `QA_AGENT_OTLP_ENDPOINT` (set only in `docker-compose.telemetry.yml`) makes the supervisor write
+an `[otel]` table with `trace_exporter = otlp-http`, `exporter = "none"`, `metrics_exporter = "none"` and `log_user_prompt = false`.
+Whether Codex 0.139.0 parents its spans on the environment's `TRACEPARENT` and exports them to the untrusted receiver is the
+S0.3 smoke; until it runs, Codex spans are neither connected nor correlated by anything but the trace id the header carries.
+
 ---
 
 ## 17. Resolved decisions
