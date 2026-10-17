@@ -33,6 +33,8 @@ export const MAX_TOOLS_BODY_BYTES = 8 * 1024;
 const MAX_ID_CHARS = 200;
 const MAX_PATH_CHARS = 512;
 const MAX_GREP_CHARS = 400;
+/* An OpenCode message id (`msg_` and letters and digits). The tool reports it for the trace's sake alone. */
+const MESSAGE_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 
 export interface ToolsRequest {
   method: string;
@@ -145,8 +147,19 @@ function bearerMatches(header: string | undefined, token: string): boolean {
 interface ParsedCall {
   sessionID: string;
   agent: string;
+  /* Absent when the caller sent none or sent something that is not a plain identifier. */
+  messageId?: string;
   path: string;
   grep?: string;
+}
+
+/*
+ * The message id a body carries, or undefined. It joins the orchestrator's span of a call to the agent's own span of it and decides
+ * nothing, so a value that is not a short plain identifier is dropped and the call is served without it, never refused for it.
+ */
+function messageIdOf(parsed: Record<string, unknown>): string | undefined {
+  const { messageID } = parsed;
+  return typeof messageID === "string" && MESSAGE_ID.test(messageID) ? messageID : undefined;
 }
 
 function parseObject(body: string): Record<string, unknown> | undefined {
@@ -169,7 +182,8 @@ function parseCall(body: string): ParsedCall | undefined {
   if (typeof agent !== "string" || agent === "" || agent.length > MAX_ID_CHARS) return undefined;
   if (typeof path !== "string" || path === "" || path.length > MAX_PATH_CHARS) return undefined;
   if (grep !== undefined && (typeof grep !== "string" || grep.length > MAX_GREP_CHARS)) return undefined;
-  return { sessionID, agent, path, ...(grep !== undefined ? { grep } : {}) };
+  const messageId = messageIdOf(parsed);
+  return { sessionID, agent, ...(messageId !== undefined ? { messageId } : {}), path, ...(grep !== undefined ? { grep } : {}) };
 }
 
 /* The browser call a body names, built from its known keys alone (a key the caller adds is dropped), or undefined when it is not one. The use case judges the values. */
@@ -179,7 +193,8 @@ function parseBrowserCall(body: string): AgentBrowserRequest | undefined {
   const { sessionID, agent, action, url, ref, text, submit } = parsed;
   if (typeof sessionID !== "string" || sessionID === "" || sessionID.length > MAX_ID_CHARS) return undefined;
   if (typeof agent !== "string" || agent === "" || agent.length > MAX_ID_CHARS) return undefined;
-  const envelope = { sessionId: sessionID, agent };
+  const messageId = messageIdOf(parsed);
+  const envelope = { sessionId: sessionID, agent, ...(messageId !== undefined ? { messageId } : {}) };
   switch (action) {
     case "snapshot":
       return { ...envelope, action };
@@ -230,7 +245,7 @@ export async function handleToolsRequest(request: ToolsRequest, deps: ToolsHandl
   const loop = deps.registry.find(call.sessionID);
   if (!loop) return { status: 403, body: { ok: false, code: "unknown-session", message: "run_spec is not available to this session" } };
   try {
-    const response = await loop.call({ sessionId: call.sessionID, agent: call.agent, path: call.path, ...(call.grep !== undefined ? { grep: call.grep } : {}) });
+    const response = await loop.call({ sessionId: call.sessionID, agent: call.agent, ...(call.messageId !== undefined ? { messageId: call.messageId } : {}), path: call.path, ...(call.grep !== undefined ? { grep: call.grep } : {}) });
     if (response.ok) return { status: 200, body: response };
     return { status: REFUSAL_STATUS[response.code], body: response };
   } catch (err) {

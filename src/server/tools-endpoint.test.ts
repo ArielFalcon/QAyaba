@@ -294,3 +294,36 @@ test("the tools listener binds to the container's one network interface when LIS
   assert.equal(resolveToolsListenHost({ QA_TOOLS_LISTEN_HOST: "172.19.0.4" }, "0.0.0.0", two), "172.19.0.4");
   assert.equal(resolveToolsListenHost({}, "0.0.0.0", {}), "0.0.0.0");
 });
+
+/* --- the message id: a join key for the trace, never an input to a decision --- */
+
+test("a run_spec call carries the message id the tool reported, and a call without one is served as before", async () => {
+  const seen: RunSpecRequest[] = [];
+  const registry = liveRegistry(async (call) => (seen.push(call), { ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } }));
+  await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-generator", path: "flows/a.spec.ts", messageID: "msg_0e8f672fd0016ECRQbc2r1kiBB" }) }), registry);
+  await handle(request(), registry);
+  assert.equal(seen[0]!.messageId, "msg_0e8f672fd0016ECRQbc2r1kiBB");
+  assert.equal(seen[1]!.messageId, undefined);
+});
+
+test("a browser call carries the message id the tool reported", async () => {
+  const seen: AgentBrowserRequest[] = [];
+  await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "snapshot", messageID: "msg_abc123" }), liveBrowsers(async (call) => (seen.push(call), PAGE_OK)));
+  assert.equal(seen[0]!.messageId, "msg_abc123");
+});
+
+test("a message id that is not a short plain identifier is dropped and the call is served without it", async () => {
+  const seenSpec: RunSpecRequest[] = [];
+  const seenBrowser: AgentBrowserRequest[] = [];
+  const registry = liveRegistry(async (call) => (seenSpec.push(call), { ok: true, report: { status: "passed", tests: [], passedTests: 0, budget: { callsLeft: 1, msLeft: undefined, devWritesLeft: 1 } } }));
+  const browsers = liveBrowsers(async (call) => (seenBrowser.push(call), PAGE_OK));
+  for (const messageID of [7, "", "x".repeat(201), "msg 1", "msg\n1", "msg/../1", { id: "m" }, ["m"]]) {
+    const spec = await handle(request({ body: JSON.stringify({ sessionID: "ses-1", agent: "qa-generator", path: "flows/a.spec.ts", messageID }) }), registry);
+    const browser = await handleBrowser(browserRequest({ sessionID: "ses-1", agent: "qa-generator", action: "snapshot", messageID }), browsers);
+    assert.equal(spec.status, 200, JSON.stringify(messageID));
+    assert.equal(browser.status, 200, JSON.stringify(messageID));
+  }
+  assert.ok(seenSpec.length > 0 && seenBrowser.length > 0);
+  assert.ok(seenSpec.every((call) => call.messageId === undefined));
+  assert.ok(seenBrowser.every((call) => call.messageId === undefined));
+});

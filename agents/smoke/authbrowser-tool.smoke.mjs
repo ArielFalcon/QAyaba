@@ -157,6 +157,7 @@ try {
   check(fromGenerator?.method === "POST" && fromGenerator.url === "/internal/authbrowser", "the generator's call is POST /internal/authbrowser");
   check(fromGenerator?.authorization === `Bearer ${TOKEN}`, "the call carries the service token");
   check(fromGenerator?.body.agent === "qa-generator", "the call names the agent the runtime reports (ToolContext.agent)");
+  check(typeof fromGenerator?.body.messageID === "string" && fromGenerator.body.messageID.startsWith("msg_"), "the call names the assistant message the runtime reports (ToolContext.messageID), which joins it to the trace");
   check(fromGenerator?.body.action === "navigate" && fromGenerator?.body.url === "/orders?page=2", "the call carries the action and the model's arguments");
   const fromSidekick = orchestratorCalls.find((c) => c.body.sessionID === sidekick.session.id);
   check(fromSidekick?.body.agent === "qa-sidekick" && fromSidekick?.body.action === "type" && fromSidekick?.body.ref === "e7" && fromSidekick?.body.text === "hello" && fromSidekick?.body.submit === true, "the sidekick's call names its own agent and carries ref, text and submit");

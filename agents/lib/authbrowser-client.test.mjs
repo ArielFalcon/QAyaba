@@ -26,6 +26,14 @@ test("a call carries the session and agent the runtime reports, the action and i
   assert.deepEqual(JSON.parse(out), { ok: true, page: { url: "https://dev/x", snapshot: "- heading" } });
 });
 
+test("the call names the assistant message the runtime reports, and sends none when it reports none", async () => {
+  const { fn, calls } = fakeFetch(jsonResponse({ ok: true }));
+  await callAuthBrowser({ action: "snapshot", args: {}, context: { ...context, messageID: "msg_1" }, env, fetchFn: fn });
+  await callAuthBrowser({ action: "snapshot", args: {}, context, env, fetchFn: fn });
+  assert.equal(JSON.parse(calls[0].init.body).messageID, "msg_1");
+  assert.equal("messageID" in JSON.parse(calls[1].init.body), false);
+});
+
 test("each action sends only the arguments it has", async () => {
   const { fn, calls } = fakeFetch(jsonResponse({ ok: true }));
   await callAuthBrowser({ action: "snapshot", args: {}, context, env, fetchFn: fn });

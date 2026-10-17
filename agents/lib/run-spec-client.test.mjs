@@ -27,6 +27,14 @@ test("the call carries the session and agent the runtime reports, the model's pa
   assert.deepEqual(JSON.parse(out), { ok: true, report: { status: "passed", tests: [] } });
 });
 
+test("the call names the assistant message the runtime reports, and sends none when it reports none", async () => {
+  const { fn, calls } = fakeFetch(jsonResponse({ ok: true, report: {} }));
+  await callRunSpec({ args: { path: "a.spec.ts" }, context: { ...context, messageID: "msg_1" }, env, fetchFn: fn });
+  await callRunSpec({ args: { path: "a.spec.ts" }, context, env, fetchFn: fn });
+  assert.equal(JSON.parse(calls[0].init.body).messageID, "msg_1");
+  assert.equal("messageID" in JSON.parse(calls[1].init.body), false);
+});
+
 test("a call with no filter sends none", async () => {
   const { fn, calls } = fakeFetch(jsonResponse({ ok: true, report: {} }));
   await callRunSpec({ args: { path: "a.spec.ts" }, context, env, fetchFn: fn });

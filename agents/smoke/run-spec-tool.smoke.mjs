@@ -133,6 +133,7 @@ try {
   check(call?.authorization === `Bearer ${TOKEN}`, "the call carries the service token");
   check(call?.body.sessionID === session.id, "the call names the session the runtime opened (ToolContext.sessionID)");
   check(call?.body.agent === "qa-generator", "the call names the agent the runtime reports (ToolContext.agent)");
+  check(typeof call?.body.messageID === "string" && call.body.messageID.startsWith("msg_"), "the call names the assistant message the runtime reports (ToolContext.messageID), which joins it to the trace");
   check(call?.body.path === "e2e/flows/a.spec.ts" && call?.body.grep === "adds (one)", "the call carries the model's path and grep");
   check(modelRequests.at(-1)?.roles.includes("tool"), "the orchestrator's answer went back to the model as a tool result");
   check(answer.parts?.some((p) => p.type === "text" && p.text === "done"), "the turn ended on the model's final text");

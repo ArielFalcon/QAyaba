@@ -24,6 +24,12 @@ function asText(body) {
   return JSON.stringify(body);
 }
 
+// The assistant message the tool call belongs to, when the runtime reports one: the orchestrator records it on its own span of the
+// call so a trace can join the two. It is never used to decide anything.
+export function messageIdOf(context) {
+  return typeof context.messageID === "string" && context.messageID !== "" ? { messageID: context.messageID } : {};
+}
+
 export async function callRunSpec({ args, context, env, fetchFn = fetch, timeoutMs = CLIENT_TIMEOUT_MS }) {
   const token = (env[TOKEN_ENV] ?? "").trim();
   if (token === "") {
@@ -36,7 +42,7 @@ export async function callRunSpec({ args, context, env, fetchFn = fetch, timeout
     response = await fetchFn(endpointOf(env), {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ sessionID: context.sessionID, agent: context.agent, path: args.path, ...(args.grep ? { grep: args.grep } : {}) }),
+      body: JSON.stringify({ sessionID: context.sessionID, agent: context.agent, ...messageIdOf(context), path: args.path, ...(args.grep ? { grep: args.grep } : {}) }),
       signal: AbortSignal.any(signals),
     });
   } catch (err) {

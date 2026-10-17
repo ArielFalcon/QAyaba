@@ -8,7 +8,7 @@
 // arguments the model chose, and the service token. It never carries the token into what it returns, and it forwards only the
 // arguments each action declares.
 
-import { endpointOf } from "./run-spec-client.mjs";
+import { endpointOf, messageIdOf } from "./run-spec-client.mjs";
 
 export const TOKEN_ENV = "QA_TOOLS_TOKEN";
 export const AUTHBROWSER_PATH = "/internal/authbrowser";
@@ -42,7 +42,7 @@ export async function callAuthBrowser({ action, args, context, env, fetchFn = fe
     response = await fetchFn(endpointOf(env, AUTHBROWSER_PATH), {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ sessionID: context.sessionID, agent: context.agent, action, ...declared }),
+      body: JSON.stringify({ sessionID: context.sessionID, agent: context.agent, ...messageIdOf(context), action, ...declared }),
       signal: AbortSignal.any(signals),
     });
   } catch (err) {
