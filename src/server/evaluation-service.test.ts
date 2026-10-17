@@ -248,15 +248,24 @@ test("the budget_exhaustion intent is the last step of the limiting turn", async
   assert.equal((await evidenceOf(id))?.limit?.intent, undefined);
 });
 
-test("a run graded from its stored facts says unknown for coverage, and a missing reviewer requirement leaves the guard silent", async () => {
+test("a run from before the run-time facts were recorded gets no coverage score, and a missing reviewer requirement leaves the guard silent", async () => {
   const id = finishedRun("eval-silent", { facts: { reviewRequired: null, coverageStatus: null } });
   const sched = manualScheduler();
   const service = createEvaluationService({ schedule: sched.schedule, log: quiet });
   service.scheduleGrading(id);
   await sched.flush();
   const byName = new Map(service.evaluation(id, false)!.scores.map((s) => [s.name, s]));
-  assert.equal(byName.get("change_coverage")?.value, "unknown");
+  assert.equal(byName.has("change_coverage"), false);
   assert.equal(byName.has("empty_output_guard"), false);
+});
+
+test("a coverage decision recorded as unknown is graded unknown", async () => {
+  const id = finishedRun("eval-cov-unknown", { facts: { coverageStatus: "unknown" } });
+  const sched = manualScheduler();
+  const service = createEvaluationService({ schedule: sched.schedule, log: quiet });
+  service.scheduleGrading(id);
+  await sched.flush();
+  assert.equal(service.evaluation(id, false)!.scores.find((s) => s.name === "change_coverage")?.value, "unknown");
 });
 
 test("a full regrade removes a stored score the graders no longer emit, and a subset regrade leaves the others", () => {

@@ -96,10 +96,10 @@ const approvalConsistent: Grader = {
   }),
 };
 
-/* The engine's own decision at run time; a run that recorded none was not measured, which is `unknown`, never pass. */
+/* The engine's own decision at run time. `unknown` is a decision the engine recorded; a run that recorded none (an older run) has no score, never a pass. */
 const changeCoverage: Grader = {
   names: ["change_coverage"],
-  grade: (e) => (e.finished && e.signals ? [{ name: "change_coverage", value: e.signals.coverageStatus ?? "unknown" }] : []),
+  grade: (e) => (e.finished && e.signals?.coverageStatus !== undefined ? [{ name: "change_coverage", value: e.signals.coverageStatus }] : []),
 };
 
 const mutationValue: Grader = {
@@ -113,7 +113,8 @@ const mutationValue: Grader = {
 
 const infraError: Grader = {
   names: ["infra_error"],
-  grade: finishedOnly((e) => [{ name: "infra_error", value: e.cancelled ? "cancelled" : e.verdict === "infra-error" ? (e.errorClass ?? "unclassified") : "none" }]),
+  /* Only an infra-error run (or a cancelled one) has an infra error to name; `unclassified` is an infra-error run that recorded no class. */
+  grade: finishedOnly((e) => (e.cancelled ? [{ name: "infra_error", value: "cancelled" }] : e.verdict === "infra-error" ? [{ name: "infra_error", value: e.errorClass ?? "unclassified" }] : [])),
 };
 
 const stepIntent: Grader = {

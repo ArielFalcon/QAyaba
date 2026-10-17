@@ -96,11 +96,11 @@ test("a run that was not accepted is consistent even when a signal said no", () 
   assert.equal(find(e, "approval_consistent")?.value, true);
 });
 
-test("change_coverage is the decision the engine recorded, and a run that recorded none is unknown, never pass", () => {
+test("change_coverage is the decision the engine recorded, and a run that recorded none has no score, never pass", () => {
   assert.equal(find(evidence({ signals: signals({ coverageStatus: "pass" }) }), "change_coverage")?.value, "pass");
   assert.equal(find(evidence({ signals: signals({ coverageStatus: "fail" }) }), "change_coverage")?.value, "fail");
   assert.equal(find(evidence({ signals: signals({ coverageStatus: "unknown" }) }), "change_coverage")?.value, "unknown");
-  assert.equal(find(evidence({ signals: signals({ coverageStatus: undefined }) }), "change_coverage")?.value, "unknown");
+  assert.equal(find(evidence({ signals: signals({ coverageStatus: undefined }) }), "change_coverage"), undefined, "a run from before the decision was recorded says nothing");
   assert.equal(find(evidence({ signals: undefined }), "change_coverage"), undefined);
 });
 
@@ -111,10 +111,17 @@ test("mutation_value is the kill share and exists only when the oracle ran", () 
 });
 
 test("infra_error carries the error class of an infra-error run and none otherwise", () => {
-  assert.equal(find(evidence(), "infra_error")?.value, "none");
   assert.equal(find(evidence({ verdict: "infra-error", decision: "none", errorClass: "E-TIME-BUDGET" }), "infra_error")?.value, "E-TIME-BUDGET");
   assert.equal(find(evidence({ verdict: "infra-error", errorClass: null }), "infra_error")?.value, "unclassified");
 });
+test("infra_error says nothing for a verdict other than infra-error, unless the run was cancelled", () => {
+  for (const verdict of ["pass", "fail", "flaky", "invalid", "skipped"]) {
+    assert.equal(find(evidence({ verdict }), "infra_error"), undefined, verdict);
+  }
+  assert.equal(find(evidence({ verdict: "infra-error", cancelled: true }), "infra_error")?.value, "cancelled");
+  assert.equal(find(evidence({ verdict: "infra-error", errorClass: "E-SANDBOX" }), "infra_error")?.value, "E-SANDBOX");
+});
+
 
 test("step intent shares add to one and auth_overhead is the auth share", () => {
   const scores = gradeEvidence(evidence({ stepIntents: { auth: 1, explore: 1, write_spec: 2 } }));
