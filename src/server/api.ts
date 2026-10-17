@@ -58,6 +58,12 @@ import {
   VersionInfoSchema,
   TelemetryHealthSchema,
   type TelemetryHealthView,
+  RunDetailSchema,
+  RunEvaluationSchema,
+  EvaluationCatalogSchema,
+  RegradeRequestSchema,
+  RegradeStartedSchema,
+  RegradeJobSchema,
   LoginRequestSchema,
   LoginResponseSchema,
 } from "../contract/commands";
@@ -66,6 +72,9 @@ import { handshake } from "./version";
 import { reportToCsv, trendsToCsv } from "./report-view";
 import type { RunEventStore } from "./run-events";
 import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
+import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
+import { catalogView, type EvaluationService } from "./evaluation-service";
+import type { RunViewExtras } from "./run-view";
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
@@ -156,6 +165,11 @@ export interface ApiDeps {
 
   getAgentTurns?: (runId: string) => AgentTurnRecord[];
 
+  /* What GET /runs/:id adds to the record (trace, phases, usage, spec counts, decision, budgets). Undefined return: no such run. Absent: the answer is the plain record. */
+  runExtras?: (runId: string) => RunViewExtras | undefined;
+  /* The evaluation context (scores, catalog, regrade). Absent: those routes answer 501. */
+  evaluation?: EvaluationService;
+
   telemetryAnalysis?: (app: string, windowDays?: number) => TelemetryAnalysis;
   /*
    * Cadence (ms) of the SSE durable-poll loop in handleRunEvents. Injected so tests can drive
@@ -202,6 +216,11 @@ function contractJson(res: ServerResponse, status: number, schema: z.ZodTypeAny,
   json(res, status, result.data);
 }
 
+/* An error body of the public contract: schemaVersion first, on every status. */
+function apiError(res: ServerResponse, status: number, error: string): void {
+  json(res, status, { schemaVersion: 1, error });
+}
+
 function sseWrite(res: ServerResponse, event: unknown): void {
   /*
    * Guard the write-after-close race: the bus is synchronous, so an event emitted
@@ -238,6 +257,21 @@ export async function handleApi(
 
   if (req.method === "POST" && path === "/api/runs") {
     return handleCreateRun(req, res, deps);
+  }
+
+  const evaluationMatch = path.match(/^\/api\/runs\/([^/]+)\/evaluation$/);
+  if (req.method === "GET" && evaluationMatch) {
+    return handleRunEvaluation(res, deps, evaluationMatch[1]!, url.searchParams.get("versions"));
+  }
+  if (req.method === "GET" && path === "/api/evaluations/catalog") {
+    return handleEvaluationCatalog(res, deps);
+  }
+  if (req.method === "POST" && path === "/api/evaluations/regrade") {
+    return await handleRegrade(req, res, deps);
+  }
+  const regradeJobMatch = path.match(/^\/api\/evaluations\/regrade\/([^/]+)$/);
+  if (req.method === "GET" && regradeJobMatch) {
+    return handleRegradeJob(res, deps, regradeJobMatch[1]!);
   }
 
   const eventMatch = path.match(/^\/api\/runs\/([^/]+)\/events$/);
@@ -424,13 +458,13 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   try {
     body = JSON.parse(await readBody(req));
   } catch {
-    json(res, 400, { error: "invalid JSON" });
+    apiError(res, 400, "invalid JSON");
     return true;
   }
 
   const appName = typeof body.app === "string" ? body.app : null;
   if (!appName) {
-    json(res, 400, { error: "'app' is required (config/apps/<app>.yaml name)" });
+    apiError(res, 400, "'app' is required (config/apps/<app>.yaml name)");
     return true;
   }
 
@@ -438,7 +472,7 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   try {
     appConfig = deps.loadApp(appName);
   } catch {
-    json(res, 404, { error: `app not found: '${appName}'` });
+    apiError(res, 404, `app not found: '${appName}'`);
     return true;
   }
 
@@ -461,7 +495,7 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   if (typeof body.sha === "string" && /^[0-9a-f]{7,40}$/i.test(body.sha)) {
     sha = body.sha;
   } else if (typeof body.sha === "string" && body.sha.length > 0) {
-    json(res, 400, { error: "'sha' must be 7–40 hex characters" });
+    apiError(res, 400, "'sha' must be 7–40 hex characters");
     return true;
   } else {
     /*
@@ -474,7 +508,7 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
     try {
       sha = await deps.resolveRef(appConfig.repo, ref);
     } catch (err) {
-      json(res, 400, { error: redactionPort.redactError(err) });
+      apiError(res, 400, redactionPort.redactError(err));
       return true;
     }
   }
@@ -483,26 +517,26 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   let baseSha: string | undefined;
   if (typeof body.baseSha === "string" && body.baseSha.length > 0) {
     if (!/^[0-9a-f]{7,40}$/i.test(body.baseSha)) {
-      json(res, 400, { error: "'baseSha' must be 7–40 hex characters" });
+      apiError(res, 400, "'baseSha' must be 7–40 hex characters");
       return true;
     }
     baseSha = body.baseSha;
   }
 
   if (body.closedLoop !== undefined && typeof body.closedLoop !== "boolean") {
-    json(res, 400, { error: "'closedLoop' must be a boolean" });
+    apiError(res, 400, "'closedLoop' must be a boolean");
     return true;
   }
   const closedLoop = typeof body.closedLoop === "boolean" ? body.closedLoop : undefined;
 
   if (body.agentBrowser !== undefined && typeof body.agentBrowser !== "boolean") {
-    json(res, 400, { error: "'agentBrowser' must be a boolean" });
+    apiError(res, 400, "'agentBrowser' must be a boolean");
     return true;
   }
   const agentBrowser = typeof body.agentBrowser === "boolean" ? body.agentBrowser : undefined;
 
   if (body.coordinationMode !== undefined && !isCoordinationMode(body.coordinationMode)) {
-    json(res, 400, { error: "'coordinationMode' must be \"single\" or \"lead-sidekicks\"" });
+    apiError(res, 400, "'coordinationMode' must be \"single\" or \"lead-sidekicks\"");
     return true;
   }
   const coordinationMode = isCoordinationMode(body.coordinationMode) ? body.coordinationMode : undefined;
@@ -511,14 +545,14 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   try {
     id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, coordinationMode);
   } catch (err) {
-    json(res, 500, { error: `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}` });
+    apiError(res, 500, `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}`);
     return true;
   }
   if (!id) {
-    json(res, 503, { error: "service shutting down" });
+    apiError(res, 503, "service shutting down");
     return true;
   }
-  contractJson(res, 202, CreateRunResultSchema, { id, app: appConfig.name, sha, target, mode, status: "enqueued" });
+  contractJson(res, 202, CreateRunResultSchema, { schemaVersion: 1, id, app: appConfig.name, sha, target, mode, status: "enqueued" });
   return true;
 }
 
@@ -554,10 +588,85 @@ function sanitizeRecord(record: RunRecord): RunRecord {
 function handleGetRun(res: ServerResponse, deps: ApiDeps, id: string): boolean {
   const record = deps.getRecord(id);
   if (!record) {
-    json(res, 404, { error: `run not found: ${id}` });
+    apiError(res, 404, `run not found: ${id}`);
     return true;
   }
-  contractJson(res, 200, RunRecordSchema, sanitizeRecord(record));
+  const extras = deps.runExtras?.(id);
+  if (extras) {
+    contractJson(res, 200, RunDetailSchema, { schemaVersion: 1, ...sanitizeRecord(record), ...extras });
+  } else {
+    contractJson(res, 200, RunRecordSchema.extend({ schemaVersion: z.literal(1) }), { schemaVersion: 1, ...sanitizeRecord(record) });
+  }
+  return true;
+}
+
+function handleRunEvaluation(res: ServerResponse, deps: ApiDeps, id: string, versions: string | null): boolean {
+  if (!deps.evaluation) {
+    apiError(res, 501, "evaluation is not configured");
+    return true;
+  }
+  if (versions !== null && versions !== "all") {
+    apiError(res, 400, "'versions' must be \"all\" or absent");
+    return true;
+  }
+  const view = deps.evaluation.evaluation(id, versions === "all");
+  if (!view) {
+    apiError(res, 404, `run not found: ${id}`);
+    return true;
+  }
+  contractJson(res, 200, RunEvaluationSchema, { schemaVersion: 1, ...view });
+  return true;
+}
+
+function handleEvaluationCatalog(res: ServerResponse, deps: ApiDeps): boolean {
+  if (!deps.evaluation) {
+    apiError(res, 501, "evaluation is not configured");
+    return true;
+  }
+  contractJson(res, 200, EvaluationCatalogSchema, { schemaVersion: 1, ...catalogView() });
+  return true;
+}
+
+async function handleRegrade(req: IncomingMessage, res: ServerResponse, deps: ApiDeps): Promise<boolean> {
+  if (!deps.evaluation) {
+    apiError(res, 501, "evaluation is not configured");
+    return true;
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    apiError(res, 400, "invalid JSON");
+    return true;
+  }
+  const parsed = RegradeRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    apiError(res, 400, parsed.error.issues.map((i) => i.message).join("; "));
+    return true;
+  }
+  const { runIds, campaignId, since, graders } = parsed.data;
+  const g = graders ? { graders } : {};
+  try {
+    const started = deps.evaluation.startRegrade(runIds ? { runIds, ...g } : campaignId ? { campaignId, ...g } : { since: since!, ...g });
+    contractJson(res, 202, RegradeStartedSchema, { schemaVersion: 1, ...started });
+  } catch (err) {
+    if (err instanceof RegradeRequestError) apiError(res, 400, err.message);
+    else apiError(res, 500, `failed to start the regrade: ${redactionPort.redactError(err)}`);
+  }
+  return true;
+}
+
+function handleRegradeJob(res: ServerResponse, deps: ApiDeps, jobId: string): boolean {
+  if (!deps.evaluation) {
+    apiError(res, 501, "evaluation is not configured");
+    return true;
+  }
+  const job = deps.evaluation.regradeJob(jobId);
+  if (!job) {
+    apiError(res, 404, `regrade job not found: ${jobId}`);
+    return true;
+  }
+  contractJson(res, 200, RegradeJobSchema, { schemaVersion: 1, ...job });
   return true;
 }
 

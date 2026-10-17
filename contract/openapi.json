@@ -115,6 +115,26 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "app not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       },
@@ -158,6 +178,7 @@
     "/api/v1/runs/{id}": {
       "get": {
         "operationId": "getRun",
+        "summary": "A run with its trace, phase timings, usage, spec counts, decision and budget outcome",
         "parameters": [
           {
             "name": "id",
@@ -174,7 +195,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RunRecord"
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -197,6 +228,188 @@
         "responses": {
           "200": {
             "description": "cancelled"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{id}/evaluation": {
+      "get": {
+        "operationId": "getRunEvaluation",
+        "summary": "The run's scores: the latest grader version per name by default, every stored version with ?versions=all",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "versions",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the run's evaluation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEvaluation"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "evaluation is not wired in this process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations/catalog": {
+      "get": {
+        "operationId": "getEvaluationCatalog",
+        "summary": "The canonical phase order and every score a grader can emit, with type, range, categories, polarity and suffix families",
+        "responses": {
+          "200": {
+            "description": "the catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationCatalog"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "evaluation is not wired in this process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations/regrade": {
+      "post": {
+        "operationId": "regrade",
+        "summary": "Re-grade finished runs with the current graders, as a background job",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegradeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "job accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegradeStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "evaluation is not wired in this process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations/regrade/{jobId}": {
+      "get": {
+        "operationId": "getRegradeJob",
+        "summary": "Progress of a regrade job",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegradeJob"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "evaluation is not wired in this process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -2109,6 +2322,12 @@
       "CreateRunResult": {
         "type": "object",
         "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -2140,6 +2359,7 @@
           }
         },
         "required": [
+          "schemaVersion",
           "id",
           "app",
           "sha",
@@ -4792,6 +5012,606 @@
           "ledger",
           "scoreSink",
           "droppedAttributes"
+        ],
+        "additionalProperties": false
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Score": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "dataType": {
+            "type": "string",
+            "enum": [
+              "NUMERIC",
+              "BOOLEAN",
+              "CATEGORICAL"
+            ]
+          },
+          "polarity": {
+            "type": "string",
+            "enum": [
+              "higher_better",
+              "lower_better",
+              "none"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "deterministic",
+              "llm_judge",
+              "human"
+            ]
+          },
+          "graderVersion": {
+            "type": "string"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "observationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "value",
+          "dataType",
+          "polarity",
+          "source",
+          "graderVersion"
+        ],
+        "additionalProperties": false
+      },
+      "RunEvaluation": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "runId": {
+            "type": "string"
+          },
+          "traceId": {
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "complete",
+              "failed"
+            ]
+          },
+          "scores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Score"
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "runId",
+          "traceId",
+          "status",
+          "scores"
+        ],
+        "additionalProperties": false
+      },
+      "EvaluationCatalog": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "phases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scores": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "dataType": {
+                  "type": "string",
+                  "enum": [
+                    "NUMERIC",
+                    "BOOLEAN",
+                    "CATEGORICAL"
+                  ]
+                },
+                "polarity": {
+                  "type": "string",
+                  "enum": [
+                    "higher_better",
+                    "lower_better",
+                    "none"
+                  ]
+                },
+                "range": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "min"
+                  ],
+                  "additionalProperties": false
+                },
+                "categories": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "suffixes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "graderVersion": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "dataType",
+                "polarity",
+                "graderVersion"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "phases",
+          "scores"
+        ],
+        "additionalProperties": false
+      },
+      "RegradeRequest": {
+        "type": "object",
+        "properties": {
+          "runIds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "campaignId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "since": {
+            "type": "string",
+            "minLength": 1
+          },
+          "graders": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RegradeStarted": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "jobId": {
+            "type": "string"
+          },
+          "runs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "jobId",
+          "runs"
+        ],
+        "additionalProperties": false
+      },
+      "RegradeJob": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "jobId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "complete",
+              "failed"
+            ]
+          },
+          "runs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "graded": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "runId",
+                "error"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "jobId",
+          "status",
+          "runs",
+          "graded",
+          "failed",
+          "startedAt"
+        ],
+        "additionalProperties": false
+      },
+      "RunDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "e2e",
+              "code"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "diff",
+              "complete",
+              "exhaustive",
+              "manual",
+              "context"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "enqueued",
+              "running",
+              "done"
+            ]
+          },
+          "step": {
+            "type": "string"
+          },
+          "stepDetail": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "flaky",
+              "invalid",
+              "infra-error",
+              "skipped"
+            ]
+          },
+          "engineStatus": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ]
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "note": {
+            "type": "string"
+          },
+          "retrying": {
+            "type": "boolean"
+          },
+          "parentRunId": {
+            "type": "string"
+          },
+          "triggerRepo": {
+            "type": "string"
+          },
+          "cases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QaCase"
+            }
+          },
+          "specs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SpecRecord"
+            }
+          },
+          "logs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "activity": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentActivity"
+            }
+          },
+          "stepStartedAt": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "telemetry": {
+            "nullable": true,
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "traceUrl": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId"
+            ],
+            "additionalProperties": false
+          },
+          "phases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "durationMs": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "name",
+                "durationMs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "furthestPhase": {
+            "nullable": true,
+            "type": "string"
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "inputTokens": {
+                "type": "number",
+                "minimum": 0
+              },
+              "outputTokens": {
+                "type": "number",
+                "minimum": 0
+              },
+              "reasoningTokens": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cacheReadTokens": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cacheWriteTokens": {
+                "type": "number",
+                "minimum": 0
+              },
+              "costUsd": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "inputTokens",
+              "outputTokens",
+              "reasoningTokens",
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "costUsd"
+            ],
+            "additionalProperties": false
+          },
+          "specCounts": {
+            "type": "object",
+            "properties": {
+              "generated": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "valid": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "passed": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "generated",
+              "valid",
+              "passed"
+            ],
+            "additionalProperties": false
+          },
+          "decision": {
+            "nullable": true,
+            "type": "string"
+          },
+          "budgets": {
+            "type": "object",
+            "properties": {
+              "exhausted": {
+                "type": "boolean"
+              },
+              "limit": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "exhausted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "app",
+          "sha",
+          "target",
+          "mode",
+          "status",
+          "cases",
+          "logs",
+          "at",
+          "schemaVersion",
+          "telemetry",
+          "phases",
+          "furthestPhase",
+          "usage",
+          "specCounts",
+          "decision",
+          "budgets"
         ],
         "additionalProperties": false
       }

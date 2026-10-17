@@ -25,6 +25,7 @@ import {
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
   ArchitectureContextSchema, ContextMapViewSchema,
   AgentTurnViewSchema, AppTelemetryViewSchema, TelemetryHealthSchema,
+  ApiErrorSchema, ScoreSchema, RunEvaluationSchema, EvaluationCatalogSchema, RegradeRequestSchema, RegradeStartedSchema, RegradeJobSchema, RunDetailSchema,
 } from "./commands";
 
 export const API_VERSION = "1.0.0";
@@ -92,6 +93,14 @@ const NAMED_SCHEMAS = {
   AgentTurnView: AgentTurnViewSchema,
   AppTelemetryView: AppTelemetryViewSchema,
   TelemetryHealth: TelemetryHealthSchema,
+  ApiError: ApiErrorSchema,
+  Score: ScoreSchema,
+  RunEvaluation: RunEvaluationSchema,
+  EvaluationCatalog: EvaluationCatalogSchema,
+  RegradeRequest: RegradeRequestSchema,
+  RegradeStarted: RegradeStartedSchema,
+  RegradeJob: RegradeJobSchema,
+  RunDetail: RunDetailSchema,
 } as const;
 
 function componentSchemas(): Record<string, unknown> {
@@ -154,7 +163,11 @@ function paths(): Record<string, unknown> {
       post: {
         operationId: "createRun", summary: "Enqueue a run",
         requestBody: { required: true, content: jsonBody("CreateRunInput") },
-        responses: { "202": { description: "enqueued", content: jsonBody("CreateRunResult") } },
+        responses: {
+          "202": { description: "enqueued", content: jsonBody("CreateRunResult") },
+          "400": { description: "invalid request", content: jsonBody("ApiError") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+        },
       },
       get: {
         operationId: "listRuns", summary: "List recent runs for an app",
@@ -166,8 +179,62 @@ function paths(): Record<string, unknown> {
       },
     },
     "/api/v1/runs/{id}": {
-      get: { operationId: "getRun", parameters: [idParam], responses: { "200": { description: "run", content: jsonBody("RunRecord") } } },
+      get: {
+        operationId: "getRun",
+        summary: "A run with its trace, phase timings, usage, spec counts, decision and budget outcome",
+        parameters: [idParam],
+        responses: {
+          "200": { description: "run", content: jsonBody("RunDetail") },
+          "404": { description: "no such run", content: jsonBody("ApiError") },
+        },
+      },
       delete: { operationId: "cancelRun", summary: "Cancel a run", parameters: [idParam], responses: { "200": { description: "cancelled" } } },
+    },
+    "/api/v1/runs/{id}/evaluation": {
+      get: {
+        operationId: "getRunEvaluation",
+        summary: "The run's scores: the latest grader version per name by default, every stored version with ?versions=all",
+        parameters: [idParam, { name: "versions", in: "query", schema: { type: "string", enum: ["all"] } }],
+        responses: {
+          "200": { description: "the run's evaluation", content: jsonBody("RunEvaluation") },
+          "404": { description: "no such run", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/evaluations/catalog": {
+      get: {
+        operationId: "getEvaluationCatalog",
+        summary: "The canonical phase order and every score a grader can emit, with type, range, categories, polarity and suffix families",
+        responses: {
+          "200": { description: "the catalog", content: jsonBody("EvaluationCatalog") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/evaluations/regrade": {
+      post: {
+        operationId: "regrade",
+        summary: "Re-grade finished runs with the current graders, as a background job",
+        requestBody: { required: true, content: jsonBody("RegradeRequest") },
+        responses: {
+          "202": { description: "job accepted", content: jsonBody("RegradeStarted") },
+          "400": { description: "invalid request", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/evaluations/regrade/{jobId}": {
+      get: {
+        operationId: "getRegradeJob",
+        summary: "Progress of a regrade job",
+        parameters: [{ name: "jobId", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": { description: "the job", content: jsonBody("RegradeJob") },
+          "404": { description: "no such job", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
     },
     "/api/v1/runs/{id}/events": {
       get: {

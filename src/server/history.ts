@@ -217,7 +217,11 @@ function ensureDb(): void {
       step_started_at TEXT,
       logs TEXT DEFAULT '',
       furthest_phase TEXT,
-      phase_timings TEXT
+      phase_timings TEXT,
+      trace_id TEXT,
+      decision TEXT,
+      limit_fired TEXT,
+      limit_role TEXT
     );
 
     CREATE TABLE IF NOT EXISTS cases (
@@ -302,6 +306,43 @@ function ensureDb(): void {
     CREATE INDEX IF NOT EXISTS idx_run_spans_run_id ON run_spans(run_id);
     CREATE INDEX IF NOT EXISTS idx_run_spans_trace_id ON run_spans(trace_id);
     CREATE INDEX IF NOT EXISTS idx_run_spans_start_ns ON run_spans(start_ns);
+
+    -- Evaluation scores (docs/observability-design.md section 11): one row per (run, score name, grader version), replaced on a regrade.
+    -- Never pruned: they are tiny, and a campaign compares them long after the run's spans are gone. No foreign key to runs, for the same reason.
+    CREATE TABLE IF NOT EXISTS run_scores (
+      run_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      grader_version TEXT NOT NULL,
+      data_type TEXT NOT NULL,
+      polarity TEXT NOT NULL,
+      source TEXT NOT NULL,
+      value TEXT NOT NULL,
+      comment TEXT,
+      observation_id TEXT,
+      graded_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, name, grader_version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_scores_name ON run_scores(name);
+
+    -- Whether a run's evaluation is pending, complete or failed. A run with no row was never graded: pending.
+    CREATE TABLE IF NOT EXISTS run_evaluations (
+      run_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    -- Regrade jobs (POST /evaluations/regrade): the request's runs, progress and the runs that failed.
+    CREATE TABLE IF NOT EXISTS regrade_jobs (
+      job_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      run_ids TEXT NOT NULL,
+      graders TEXT,
+      runs INTEGER NOT NULL,
+      graded INTEGER NOT NULL DEFAULT 0,
+      failed TEXT NOT NULL DEFAULT '[]',
+      started_at TEXT NOT NULL,
+      finished_at TEXT
+    );
 
     CREATE TABLE IF NOT EXISTS learning_rules (
       id TEXT PRIMARY KEY,
@@ -412,6 +453,10 @@ function ensureDb(): void {
   }
   if (!columnExists("runs", "phase_timings")) {
     db.exec("ALTER TABLE runs ADD COLUMN phase_timings TEXT");
+  }
+  /* What the run's trace and decision said about how it ended (NULL for a run that recorded none): the trace id, the publication decision, the limit that stopped it and the role it stopped. */
+  for (const name of ["trace_id", "decision", "limit_fired", "limit_role"]) {
+    if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} TEXT`);
   }
   /*
    * Every agent_turns efficiency column
@@ -682,6 +727,15 @@ export function getRunPhases(id: string): RunPhases | undefined {
   };
 }
 
+/* What a run recorded about how it ended, beyond its verdict. Undefined: no such run. */
+export function getRunFacts(id: string): RunFactsPatch | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT trace_id, decision, limit_fired, limit_role FROM runs WHERE id = ?").get(id) as
+    | { trace_id: string | null; decision: string | null; limit_fired: string | null; limit_role: string | null }
+    | undefined;
+  return row ? { traceId: row.trace_id, decision: row.decision, limitFired: row.limit_fired, limitRole: row.limit_role } : undefined;
+}
+
 export interface RunFunnelRow {
   furthestPhase: string | null;
   verdict: string | null;
@@ -751,7 +805,15 @@ export function serializablePhases(phases: RunPhasesPatch | undefined): RunPhase
   }
 }
 
-export function updateRecord(id: string, patch: Partial<RunRecord> & { phases?: RunPhasesPatch }): void {
+/* What a run's trace and engine said about how it ended; stored in the same statement as the final status. */
+export interface RunFactsPatch {
+  traceId: string | null;
+  decision: string | null;
+  limitFired: string | null;
+  limitRole: string | null;
+}
+
+export function updateRecord(id: string, patch: Partial<RunRecord> & { phases?: RunPhasesPatch; facts?: RunFactsPatch }): void {
   ensureDb();
   const setClauses: string[] = [];
   const params: Array<unknown> = [];
@@ -777,6 +839,12 @@ export function updateRecord(id: string, patch: Partial<RunRecord> & { phases?: 
   if (patch.phases !== undefined) {
     add("furthest_phase", patch.phases.furthestPhase);
     add("phase_timings", JSON.stringify(patch.phases.phaseTimings));
+  }
+  if (patch.facts !== undefined) {
+    add("trace_id", patch.facts.traceId);
+    add("decision", patch.facts.decision);
+    add("limit_fired", patch.facts.limitFired);
+    add("limit_role", patch.facts.limitRole);
   }
 
   if (setClauses.length > 0) {
@@ -1251,6 +1319,121 @@ export function listRunSpans(runId: string): RunSpanRow[] {
     events: r.events as string,
     links: r.links as string,
   }));
+}
+
+/* A stored score as the evaluation store reads and writes it; `value` is the typed value, serialized as JSON in the table. */
+export interface ScoreRow {
+  runId: string;
+  name: string;
+  graderVersion: string;
+  dataType: string;
+  polarity: string;
+  source: string;
+  value: number | boolean | string;
+  comment: string | null;
+  observationId: string | null;
+}
+
+/* Stores scores in one transaction; a score with the same (run, name, grader version) replaces the stored one. */
+export function replaceRunScores(rows: readonly ScoreRow[], gradedAt: string): void {
+  ensureDb();
+  const upsert = db.prepare(`
+    INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, comment, observation_id, graded_at)
+    VALUES (@runId, @name, @graderVersion, @dataType, @polarity, @source, @value, @comment, @observationId, @gradedAt)
+    ON CONFLICT(run_id, name, grader_version) DO UPDATE SET
+      data_type = excluded.data_type, polarity = excluded.polarity, source = excluded.source, value = excluded.value,
+      comment = excluded.comment, observation_id = excluded.observation_id, graded_at = excluded.graded_at`);
+  db.transaction((batch: readonly ScoreRow[]) => {
+    for (const r of batch) upsert.run({ ...r, value: JSON.stringify(r.value), gradedAt });
+  })(rows);
+}
+
+export function listRunScoreRows(runId: string): ScoreRow[] {
+  ensureDb();
+  const rows = db.prepare("SELECT * FROM run_scores WHERE run_id = ? ORDER BY name, grader_version").all(runId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    runId: r.run_id as string,
+    name: r.name as string,
+    graderVersion: r.grader_version as string,
+    dataType: r.data_type as string,
+    polarity: r.polarity as string,
+    source: r.source as string,
+    value: safeJsonParse<number | boolean | string>(r.value as string, ""),
+    comment: (r.comment as string | null) ?? null,
+    observationId: (r.observation_id as string | null) ?? null,
+  }));
+}
+
+export function setRunEvaluationStatus(runId: string, status: string, at: string): void {
+  ensureDb();
+  db.prepare(
+    "INSERT INTO run_evaluations (run_id, status, updated_at) VALUES (?, ?, ?) ON CONFLICT(run_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at",
+  ).run(runId, status, at);
+}
+
+/* Null: the run was never graded. */
+export function getRunEvaluationStatus(runId: string): string | null {
+  ensureDb();
+  const row = db.prepare("SELECT status FROM run_evaluations WHERE run_id = ?").get(runId) as { status: string } | undefined;
+  return row?.status ?? null;
+}
+
+export function runExists(runId: string): boolean {
+  ensureDb();
+  return db.prepare("SELECT 1 FROM runs WHERE id = ?").get(runId) !== undefined;
+}
+
+/* Ids of the runs that finished (status done) at or after `sinceIso`, oldest first. */
+export function listFinishedRunIdsSince(sinceIso: string): string[] {
+  ensureDb();
+  const rows = db.prepare("SELECT id FROM runs WHERE status = 'done' AND datetime(at) >= datetime(?) ORDER BY at, rowid").all(sinceIso) as Array<{ id: string }>;
+  return rows.map((r) => r.id);
+}
+
+export interface RegradeJobRow {
+  jobId: string;
+  status: string;
+  runIds: string[];
+  graders: string[] | null;
+  runs: number;
+  graded: number;
+  failed: Array<{ runId: string; error: string }>;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export function saveRegradeJob(job: RegradeJobRow): void {
+  ensureDb();
+  db.prepare(`
+    INSERT INTO regrade_jobs (job_id, status, run_ids, graders, runs, graded, failed, started_at, finished_at)
+    VALUES (@jobId, @status, @runIds, @graders, @runs, @graded, @failed, @startedAt, @finishedAt)
+    ON CONFLICT(job_id) DO UPDATE SET status = excluded.status, graded = excluded.graded, failed = excluded.failed, finished_at = excluded.finished_at`)
+    .run({ ...job, runIds: JSON.stringify(job.runIds), graders: job.graders ? JSON.stringify(job.graders) : null, failed: JSON.stringify(job.failed) });
+}
+
+export function getRegradeJob(jobId: string): RegradeJobRow | undefined {
+  ensureDb();
+  const r = db.prepare("SELECT * FROM regrade_jobs WHERE job_id = ?").get(jobId) as Record<string, unknown> | undefined;
+  if (!r) return undefined;
+  return {
+    jobId: r.job_id as string,
+    status: r.status as string,
+    runIds: safeJsonParse<string[]>(r.run_ids as string, []),
+    graders: typeof r.graders === "string" ? safeJsonParse<string[] | null>(r.graders, null) : null,
+    runs: r.runs as number,
+    graded: r.graded as number,
+    failed: safeJsonParse<Array<{ runId: string; error: string }>>(r.failed as string, []),
+    startedAt: r.started_at as string,
+    finishedAt: (r.finished_at as string | null) ?? null,
+  };
+}
+
+/* A job a previous process left pending or running will never finish: it ends failed, with the reason. Returns how many. */
+export function failInterruptedRegradeJobs(at: string): number {
+  ensureDb();
+  return db
+    .prepare("UPDATE regrade_jobs SET status = 'failed', finished_at = ?, failed = json_insert(failed, '$[#]', json_object('runId', '', 'error', 'process restarted while the job was open')) WHERE status IN ('pending', 'running')")
+    .run(at).changes;
 }
 
 export function countRunSpans(): number {

@@ -912,13 +912,15 @@ ingest times.
 | # | Endpoint | Shape (summary) |
 |---|---|---|
 | 1 | `POST /runs` (extended) | Adds `campaign?: {id, variant: Record<string,string>, replicate: int≥1}` and `captureMode?: off\|metadata\|full` to the zod `CreateRunInputSchema`, and so to `openapi.json`. Returns 202 `{schemaVersion, id, …, status:"enqueued"}` |
-| 2 | `GET /runs/:id` (extended) | Adds `telemetry: {traceId, traceUrl?} \| null`, `campaign?`, `phases: [{name, durationMs}]` (in canonical order), `furthestPhase`, `usage: {inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, costUsd}`, `specs: {generated, valid, passed}`, `decision`, `budgets: {exhausted: bool, limit?, role?}` and `effectiveConfig` (below) |
+| 2 | `GET /runs/:id` (extended) | Adds `telemetry: {traceId, traceUrl?} \| null`, `campaign?`, `phases: [{name, durationMs}]` (in canonical order), `furthestPhase`, `usage: {inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, costUsd}`, `specCounts: {generated, valid, passed}`, `decision`, `budgets: {exhausted: bool, limit?, role?}` and `effectiveConfig` (below) |
 | 3 | `GET /runs/:id/evaluation[?versions=all]` | `{schemaVersion, runId, traceId, status: "pending"\|"complete"\|"failed", scores: [{name, value, dataType, polarity, source, graderVersion, comment?, observationId?}]}`. By default only the **latest `graderVersion` per name** is returned; `?versions=all` returns every stored version |
 | 4 | `GET /campaigns/:id/runs?variant.<k>=<v>` | `{schemaVersion, campaignId, runs: [{id, variant, replicate, status, verdict?, evaluationStatus}], complete: bool}` |
 | 5 | `POST /evaluations/regrade` | Body `{runIds?\|campaignId?\|since?, graders?: string[]}`. Returns 202 `{schemaVersion, jobId, runs: n}` |
 | 5b | `GET /evaluations/regrade/:jobId` | `{schemaVersion, jobId, status: "pending"\|"running"\|"complete"\|"failed", runs: n, graded: n, failed: [{runId, error}], startedAt, finishedAt?}` |
 | 6 | `GET /evaluations/catalog` | `{schemaVersion, phases: string[]` (canonical `RUN_PHASES` order)`, scores: [{name, dataType, polarity, range?, categories?, suffixes?, graderVersion}]}`. The machine-readable source of phase order and score polarity |
 | 7 | `GET /telemetry/health` | `{schemaVersion, mode: off\|local, campaignFreeze: bool, otlp: {configured, lastExportAt?, lastError?, dropped}, ledger: {ok, spans}, scoreSink: {configured, lastError?}}`. Also summarized under `/api/health.telemetry` |
+
+**Name deviation.** The counts are `specCounts`, not `specs`: `specs` already exists on `RunRecord` as the list of delivered specs (`SpecRecord[]`, read by the TUI), and a field cannot be both. Everything else in row 2 is additive.
 
 **Contract rules:**
 - **Variant labels never change behaviour.** `campaign.variant` is stored and echoed as data. The

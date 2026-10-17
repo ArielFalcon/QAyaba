@@ -28,6 +28,8 @@ import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
 import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
+import { createEvaluationService } from "./server/evaluation-service";
+import { buildRunViewExtras, defaultRunViewDeps } from "./server/run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
 import { appAuthDir, appSuiteStoreDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
 import { deleteSuiteStoreDir } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
@@ -81,6 +83,10 @@ const redactionPort = new RedactionPortAdapter();
 const telemetry = processTelemetry();
 /* Process-wide host health (suspends, blocked loops, sandbox zombies): runs with no run active and is stopped on shutdown. Fail-open and unref'd. */
 const sandboxIdentity = resolveSandbox(process.env);
+/* Scores and regrade jobs. Grading is scheduled off the queue by the runner's post-run hook; a regrade job left open by a previous process ends failed at boot. */
+const evaluation = createEvaluationService();
+evaluation.recoverInterrupted();
+const runViewDeps = defaultRunViewDeps(() => telemetry.health().mode !== "off");
 const hostHealth = new HostHealth({ telemetry: telemetry.telemetry, ...(sandboxIdentity ? { sandboxUid: sandboxIdentity.uid } : {}) });
 hostHealth.start();
 /*
@@ -190,7 +196,7 @@ const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(process.env, ROOT);
  * Built at call time: engineFactory and onboardingJob are assigned later in this module.
  */
 function runnerDeps(): RunnerDeps {
-  return { runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
+  return { runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun: (runId) => evaluation.scheduleGrading(runId), isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
 }
 
 /*
@@ -637,6 +643,8 @@ const apiDeps: ApiDeps = {
   },
 
   getAgentTurns: (runId) => getAgentTurns(runId),
+  runExtras: (runId) => buildRunViewExtras(runId, runViewDeps),
+  evaluation,
 
   telemetryAnalysis: (app, windowDays) => computeTelemetryAnalysis(app, windowDays),
   resolveRef: (repo, ref) => resolveRef(repo, ref, defaultMirrorDeps),
@@ -788,7 +796,7 @@ const server = createServer(async (req, res) => {
     const isPublic = isPublicControlPlaneRoute(req.method ?? "GET", apiPath);
     if (!isPublic && !authorized(req)) {
       res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "unauthorized" }));
+      res.end(JSON.stringify({ schemaVersion: 1, error: "unauthorized" }));
       return;
     }
     /*

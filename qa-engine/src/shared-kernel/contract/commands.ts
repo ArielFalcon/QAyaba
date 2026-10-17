@@ -130,6 +130,7 @@ export const CreateRunInputSchema = z.object({
 });
 
 export const CreateRunResultSchema = z.object({
+  schemaVersion: z.literal(1),
   id: z.string(),
   app: z.string(),
   sha: z.string(),
@@ -483,6 +484,96 @@ export const TelemetryHealthSchema = z.object({
 export type QaCase = z.infer<typeof QaCaseSchema>;
 export type SpecRecord = z.infer<typeof SpecRecordSchema>;
 export type AgentActivity = z.infer<typeof AgentActivitySchema>;
+/* Public evaluation contract (docs/observability-design.md section 14). Every body below carries schemaVersion 1, errors included. */
+
+/* The body of every non-2xx answer of the evaluation and run endpoints. */
+export const ApiErrorSchema = z.object({ schemaVersion: z.literal(1), error: z.string() });
+
+export const ScoreSchema = z.object({
+  name: z.string(),
+  value: z.union([z.number(), z.boolean(), z.string()]),
+  dataType: z.enum(["NUMERIC", "BOOLEAN", "CATEGORICAL"]),
+  polarity: z.enum(["higher_better", "lower_better", "none"]),
+  source: z.enum(["deterministic", "llm_judge", "human"]),
+  graderVersion: z.string(),
+  comment: z.string().optional(),
+  observationId: z.string().optional(),
+});
+
+export const RunEvaluationSchema = z.object({
+  schemaVersion: z.literal(1),
+  runId: z.string(),
+  /* Null when the run was not traced (QA_TELEMETRY=off). */
+  traceId: z.string().nullable(),
+  status: z.enum(["pending", "complete", "failed"]),
+  /* Latest grader version per name by default; every stored version with ?versions=all. */
+  scores: z.array(ScoreSchema),
+});
+
+export const EvaluationCatalogSchema = z.object({
+  schemaVersion: z.literal(1),
+  /* The canonical pipeline phase order: the ordinal of furthest_phase and the order of GET /runs/:id phases. */
+  phases: z.array(z.string()),
+  /* Base names only; a family entry lists its closed set of suffixes (a score `<base>.<suffix>` inherits the base). */
+  scores: z.array(
+    z.object({
+      name: z.string(),
+      dataType: z.enum(["NUMERIC", "BOOLEAN", "CATEGORICAL"]),
+      polarity: z.enum(["higher_better", "lower_better", "none"]),
+      range: z.object({ min: z.number(), max: z.number().optional() }).optional(),
+      categories: z.array(z.string()).optional(),
+      suffixes: z.array(z.string()).optional(),
+      graderVersion: z.string(),
+    }),
+  ),
+});
+
+/* Exactly one of runIds, campaignId or since selects the runs; graders optionally narrows the re-run to some base names. */
+export const RegradeRequestSchema = z
+  .object({
+    runIds: z.array(z.string()).min(1).optional(),
+    campaignId: z.string().min(1).optional(),
+    since: z.string().min(1).optional(),
+    graders: z.array(z.string()).min(1).optional(),
+  })
+  .refine((r) => [r.runIds, r.campaignId, r.since].filter((v) => v !== undefined).length === 1, { message: "give exactly one of runIds, campaignId or since" });
+
+export const RegradeStartedSchema = z.object({ schemaVersion: z.literal(1), jobId: z.string(), runs: z.number().int().min(0) });
+
+export const RegradeJobSchema = z.object({
+  schemaVersion: z.literal(1),
+  jobId: z.string(),
+  status: z.enum(["pending", "running", "complete", "failed"]),
+  runs: z.number().int().min(0),
+  graded: z.number().int().min(0),
+  failed: z.array(z.object({ runId: z.string(), error: z.string() })),
+  startedAt: z.string(),
+  finishedAt: z.string().optional(),
+});
+
+/* GET /runs/:id: the run record plus what observability knows about how it ended. Fields only add to RunRecord. */
+export const RunDetailSchema = RunRecordSchema.extend({
+  schemaVersion: z.literal(1),
+  /* Null only when telemetry is off. traceUrl is present when QA_TRACE_URL_TEMPLATE is set. */
+  telemetry: z.object({ traceId: z.string(), traceUrl: z.string().optional() }).nullable(),
+  /* Time per phase the run entered, in canonical pipeline order. */
+  phases: z.array(z.object({ name: z.string(), durationMs: z.number().min(0) })),
+  furthestPhase: z.string().nullable(),
+  usage: z.object({
+    inputTokens: z.number().min(0),
+    outputTokens: z.number().min(0),
+    reasoningTokens: z.number().min(0),
+    cacheReadTokens: z.number().min(0),
+    cacheWriteTokens: z.number().min(0),
+    costUsd: z.number().min(0),
+  }),
+  /* Counts of the specs this run delivered. (`specs`, the list of those specs, keeps its place on RunRecord.) */
+  specCounts: z.object({ generated: z.number().int().min(0), valid: z.number().int().min(0), passed: z.number().int().min(0) }),
+  /* "pr" | "issue" | "shadow-log" | "quarantine" | "none"; null for a run that recorded none. */
+  decision: z.string().nullable(),
+  budgets: z.object({ exhausted: z.boolean(), limit: z.string().optional(), role: z.string().optional() }),
+});
+
 export type RunRecord = z.infer<typeof RunRecordSchema>;
 export type AppView = z.infer<typeof AppViewSchema>;
 export type QueueStatus = z.infer<typeof QueueStatusSchema>;
@@ -906,3 +997,11 @@ export const AppTelemetryViewSchema = z.object({
 });
 
 export type AppTelemetryView = z.infer<typeof AppTelemetryViewSchema>;
+export type ApiError = z.infer<typeof ApiErrorSchema>;
+export type Score = z.infer<typeof ScoreSchema>;
+export type RunEvaluation = z.infer<typeof RunEvaluationSchema>;
+export type EvaluationCatalog = z.infer<typeof EvaluationCatalogSchema>;
+export type RegradeRequest = z.infer<typeof RegradeRequestSchema>;
+export type RegradeStarted = z.infer<typeof RegradeStartedSchema>;
+export type RegradeJob = z.infer<typeof RegradeJobSchema>;
+export type RunDetail = z.infer<typeof RunDetailSchema>;

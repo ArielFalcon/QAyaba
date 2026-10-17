@@ -1012,6 +1012,28 @@ test("opening a runs table that predates the phase columns adds them, and a run 
   assert.deepEqual(store.getRunPhases(run.id), { furthestPhase: "setup", phaseTimings: { setup: 4 } });
 });
 
+test("opening a runs table that predates the run facts adds their columns, and a run on it stores its trace id and decision", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "history-legacy-runs-facts-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const legacyPath = join(dir, "legacy.db");
+  const legacy = new Database(legacyPath);
+  legacy.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '', furthest_phase TEXT, phase_timings TEXT)");
+  legacy.close();
+  const previousPath = process.env.HISTORY_DB_PATH;
+  process.env.HISTORY_DB_PATH = legacyPath;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
+    else process.env.HISTORY_DB_PATH = previousPath;
+  });
+
+  const store = (await import(new URL("./history.ts?open=facts", import.meta.url).href)) as typeof import("./history");
+  const run = store.createRecord({ target: "e2e", app: "old", sha: "abcdef1", mode: "diff" });
+  assert.deepEqual(store.getRunFacts(run.id), { traceId: null, decision: null, limitFired: null, limitRole: null });
+  store.updateRecord(run.id, { status: "done", facts: { traceId: "c".repeat(32), decision: "pr", limitFired: null, limitRole: null } });
+  assert.deepEqual(store.getRunFacts(run.id), { traceId: "c".repeat(32), decision: "pr", limitFired: null, limitRole: null });
+  assert.equal(store.getRunEvaluationStatus(run.id), null);
+});
+
 function finishedRun(app: string, verdict: RunOutcome["verdict"], furthestPhase: string | null, errorClass: string | null, at?: string): string {
   const r = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
   updateRecord(r.id, { status: "done", verdict });

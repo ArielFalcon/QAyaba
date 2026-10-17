@@ -150,6 +150,12 @@ export class RunTrace {
     return this.clock.now();
   }
 
+  /* The trace id of the root, or null when telemetry is off (the port then hands out an inert context). */
+  traceId(): string | null {
+    const context = this.span.context();
+    return isDead(context) ? null : context.traceId;
+  }
+
   /* The run reached a verdict. */
   finished(facts: RunFacts): void {
     this.ending ??= { kind: "facts", facts };

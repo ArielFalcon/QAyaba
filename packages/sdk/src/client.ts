@@ -10,6 +10,12 @@ import type {
   CreateRunInput,
   CreateRunResult,
   RunRecord,
+  RunDetail,
+  RunEvaluation,
+  EvaluationCatalog,
+  RegradeRequest,
+  RegradeStarted,
+  RegradeJob,
   QueueStatus,
   AppView,
   IntelligenceView,
@@ -45,7 +51,12 @@ export function createClient(opts: ClientOptions) {
       request<VersionInfo>("GET", `/api/v1/version${client ? `?client=${q(client)}` : ""}`),
 
     createRun: (input: CreateRunInput) => request<CreateRunResult>("POST", "/api/v1/runs", input),
-    getRun: (id: string) => request<RunRecord>("GET", `/api/v1/runs/${q(id)}`),
+    getRun: (id: string) => request<RunDetail>("GET", `/api/v1/runs/${q(id)}`),
+    getRunEvaluation: (id: string, versions?: "all") =>
+      request<RunEvaluation>("GET", `/api/v1/runs/${q(id)}/evaluation${versions ? `?versions=${versions}` : ""}`),
+    getEvaluationCatalog: () => request<EvaluationCatalog>("GET", "/api/v1/evaluations/catalog"),
+    regrade: (input: RegradeRequest) => request<RegradeStarted>("POST", "/api/v1/evaluations/regrade", input),
+    getRegradeJob: (jobId: string) => request<RegradeJob>("GET", `/api/v1/evaluations/regrade/${q(jobId)}`),
     listRuns: (app: string, limit = 20) =>
       request<RunRecord[]>("GET", `/api/v1/runs?app=${q(app)}&limit=${limit}`),
     cancelRun: (id: string) => request<void>("DELETE", `/api/v1/runs/${q(id)}`),

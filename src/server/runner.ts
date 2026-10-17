@@ -73,6 +73,11 @@ export interface RunnerDeps {
   /* The process's telemetry port and the wall clock it was built on. Absent: the run is not traced. */
   telemetry?: TelemetryPort;
   clock?: TelemetryClock;
+  /*
+   * Told once per run, after its trace has ended and its record is final (done by the run, a crash or a cancel). The evaluation
+   * grader hangs here. It is never awaited and a fault in it is only said: it can neither delay the next run nor change how this one ended.
+   */
+  afterRun?: (runId: string) => void | Promise<void>;
   loadApp?: (name: string) => AppConfig;  /* defaults to the real config loader */
   runEvents?: RunEventStore;
 
@@ -470,6 +475,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         retrying: false,
         note: run.note || undefined,
         phases: serializablePhases(run.phases),
+        facts: { traceId: trace.traceId(), decision: run.facts.decision ?? null, limitFired: run.facts.limitFired ?? null, limitRole: run.facts.limitRole ?? null },
         /*
          * passed/failed are NOT written here: addCase() is the single source of truth — it dedups
          * by name and recomputes both columns from the cases table on every streamed case.
@@ -517,7 +523,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       /* The engine tells where the run stood when it threw; a failure from anywhere else has nothing to record. Stored with the final status, never apart from it. */
       const reached = phaseSnapshotOf(err);
       const phases = reached?.furthestPhase ? serializablePhases({ furthestPhase: reached.furthestPhase, phaseTimings: reached.phaseTimings as Record<string, number> }) : undefined;
-      updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases });
+      updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId(), decision: null, limitFired: null, limitRole: null } });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
       console.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
@@ -540,10 +546,23 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       await trace.within(() => job(signal, trace));
     } finally {
       trace.end();
+      notifyRunFinished(deps, record.id);
     }
   }, record.id);
 
   return record.id;
+}
+
+/* Hands a finished run to `afterRun` without waiting for it: whatever it does, the queue moves on. */
+function notifyRunFinished(deps: Pick<RunnerDeps, "afterRun">, runId: string): void {
+  try {
+    const pending = deps.afterRun?.(runId);
+    if (pending && typeof pending.catch === "function") {
+      pending.catch((err: unknown) => console.error(`[qa] post-run hook failed for ${runId} (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`));
+    }
+  } catch (err) {
+    console.error(`[qa] post-run hook failed for ${runId} (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /*
