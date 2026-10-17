@@ -76,7 +76,7 @@ test("an endpoint adds one OTLP exporter fed the same spans, with the configured
 
 test("a successful export is reported with its time, a failed one counts dropped spans and the error", async () => {
   const failing: SpanExporter = {
-    export: (spans: ReadableSpan[], cb: (r: ExportResult) => void) => cb({ code: ExportResultCode.FAILED, error: new Error("connect ECONNREFUSED http://collector:4318") }),
+    export: (_spans: ReadableSpan[], cb: (r: ExportResult) => void) => cb({ code: ExportResultCode.FAILED, error: new Error("connect ECONNREFUSED http://collector:4318") }),
     shutdown: async () => {},
     forceFlush: async () => {},
   };
@@ -105,6 +105,64 @@ test("an exporter that throws on export is counted and never reaches the caller"
   assert.doesNotThrow(() => handle.telemetry.withSpan("a", {}, () => {}));
   await handle.shutdown(1000);
   assert.equal(handle.health().otlp.dropped, 1);
+});
+
+/* An exporter whose callback the test holds, standing for a collector that never answers (retrying behind the scenes). */
+function silentExporter(): { exporter: SpanExporter; answerLate: () => void } {
+  const pending: Array<(r: ExportResult) => void> = [];
+  const exporter: SpanExporter = {
+    export: (_spans: ReadableSpan[], cb: (r: ExportResult) => void) => { pending.push(cb); },
+    shutdown: async () => {},
+    forceFlush: async () => {},
+  };
+  return { exporter, answerLate: () => pending.forEach((cb) => cb({ code: ExportResultCode.FAILED, error: new Error("late failure") })) };
+}
+
+test("an export the exporter never answers is counted as dropped once the export timeout passes, and only once", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { exporter, answerLate } = silentExporter();
+  const { base } = deps({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318", OTEL_BSP_EXPORT_TIMEOUT: "4000" }, { traceExporterFactory: () => exporter });
+  const handle = createTelemetry(base);
+  handle.telemetry.withSpan("a", {}, () => {});
+  handle.telemetry.withSpan("b", {}, () => {});
+  const done = handle.shutdown(60_000);
+  await Promise.resolve();
+  assert.equal(handle.health().otlp.dropped, 0, "nothing is counted before the timeout");
+  t.mock.timers.tick(4000);
+  await done;
+  assert.equal(handle.health().otlp.dropped, 2);
+  assert.equal(handle.health().otlp.lastError, "export timed out after 4000 ms");
+  answerLate();
+  assert.equal(handle.health().otlp.dropped, 2, "a late answer does not count the batch again");
+  assert.equal(handle.health().otlp.lastError, "export timed out after 4000 ms");
+});
+
+test("an answer inside the export timeout is not also counted as a timeout", async () => {
+  const { base } = deps({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318", OTEL_BSP_EXPORT_TIMEOUT: "4000" }, { traceExporterFactory: () => new InMemorySpanExporter() });
+  const handle = createTelemetry(base);
+  handle.telemetry.withSpan("a", {}, () => {});
+  await handle.shutdown(60_000);
+  assert.equal(handle.health().otlp.dropped, 0);
+  assert.equal(handle.health().otlp.lastError, undefined);
+});
+
+test("a collector that never answers does not break the run: the span path completes, the ledger keeps the span and health counts the loss", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { exporter } = silentExporter();
+  const { base, commits } = deps({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318" }, { traceExporterFactory: () => exporter });
+  const handle = createTelemetry(base);
+  const outcome = handle.telemetry.withSpan("run", {}, () => "run completed");
+  assert.equal(outcome, "run completed");
+  const done = handle.shutdown(120_000);
+  await Promise.resolve();
+  t.mock.timers.tick(30_000);
+  await done;
+  const health = handle.health();
+  assert.equal(health.otlp.configured, true);
+  assert.equal(health.otlp.dropped, 1);
+  assert.match(health.otlp.lastError ?? "", /timed out/);
+  assert.equal(health.otlp.lastExportAt, undefined);
+  assert.equal(commits.flat().length, 1, "the local ledger still holds the span");
 });
 
 test("an invalid QA_TELEMETRY stops the composition", () => {

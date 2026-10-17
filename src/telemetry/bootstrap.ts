@@ -61,18 +61,29 @@ interface ExporterStatus {
 
 /* Observes an exporter without changing what it does, so health can say when it last succeeded and what it lost. */
 class ObservedExporter implements SpanExporter {
-  constructor(private readonly inner: SpanExporter, private readonly status: ExporterStatus, private readonly clock: TelemetryClock) {}
+  constructor(private readonly inner: SpanExporter, private readonly status: ExporterStatus, private readonly clock: TelemetryClock, private readonly timeoutMs: number) {}
 
+  /* The batch processor gives up on an export after its own timeout and never learns what became of it, so an exporter still retrying then would lose the batch unseen. A timer at that same timeout counts it, once, whichever of the timer and the exporter answers first. */
   export(spans: ReadableSpan[], resultCallback: (result: ExportResult) => void): void {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      this.fail(spans.length, new Error(`export timed out after ${this.timeoutMs} ms`));
+    }, this.timeoutMs);
+    timer.unref?.();
+    const finish = (result: ExportResult): void => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      if (result.code === ExportResultCode.SUCCESS) this.status.lastExportAt = new Date(this.clock.now()).toISOString();
+      else this.fail(spans.length, result.error);
+      resultCallback(result);
+    };
     try {
-      this.inner.export(spans, (result) => {
-        if (result.code === ExportResultCode.SUCCESS) this.status.lastExportAt = new Date(this.clock.now()).toISOString();
-        else this.fail(spans.length, result.error);
-        resultCallback(result);
-      });
+      this.inner.export(spans, finish);
     } catch (error) {
-      this.fail(spans.length, error);
-      resultCallback({ code: ExportResultCode.FAILED, error: error instanceof Error ? error : new Error(String(error)) });
+      finish({ code: ExportResultCode.FAILED, error: error instanceof Error ? error : new Error(String(error)) });
     }
   }
 
@@ -116,7 +127,7 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
 
   if (config.otlp) {
     const inner = (deps.traceExporterFactory ?? ((url: string) => new OTLPTraceExporter({ url })))(config.otlp.url);
-    spanProcessors.push(new BatchSpanProcessor(new ObservedExporter(inner, exporterStatus, clock), config.otlp.batch));
+    spanProcessors.push(new BatchSpanProcessor(new ObservedExporter(inner, exporterStatus, clock, config.otlp.batch.exportTimeoutMillis), config.otlp.batch));
   }
 
   const provider = new NodeTracerProvider({ resource, spanProcessors });
