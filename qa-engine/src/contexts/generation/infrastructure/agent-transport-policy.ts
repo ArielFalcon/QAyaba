@@ -23,6 +23,9 @@ export interface UsageSnapshot {
   cost: number;
 }
 
+/** What an attempt spent, as its runtime reports it. The cost is absent when the runtime reports none (Codex): it is never made up. */
+export type AttemptUsage = Omit<UsageSnapshot, "cost"> & { cost?: number };
+
 /** A single agent prompt/response turn captured at the transport funnel. outputText is sanitized BEFORE emitting (sanitizeText, the qa-engine twin of src/orchestrator/sanitizer.ts). runId is null when the session was opened without a descriptor. */
 export interface AgentTurnEvent {
   runId: string | null;
@@ -89,7 +92,7 @@ export interface AttemptAnswer {
  */
 export type AttemptEvent = { prompt: number } & (
   | { kind: "start"; attempt: number; requestedModel: string | undefined; at: number; limitApplied: { source: TimeLimitSource; ms: number } }
-  | { kind: "end"; attempt: number; at: number; answered?: AttemptAnswer; usage?: UsageSnapshot; errorType?: AgentErrorType; error?: unknown; abandoned?: boolean }
+  | { kind: "end"; attempt: number; at: number; answered?: AttemptAnswer; usage?: AttemptUsage; errorType?: AgentErrorType; error?: unknown; abandoned?: boolean }
   | { kind: "fallback"; model: string; at: number }
   | { kind: "turn"; turn: AgentTurnEvent; at: number }
 );
@@ -107,6 +110,8 @@ export interface AgentOpenDescriptor {
   objective?: string;
   /** `false` keeps the session out of SSE/stall-watchdog registration while its turns still persist under `runId` (mirrors the kernel port's AgentOpenDescriptor). */
   liveObservation?: boolean;
+  /** With `liveObservation: false`: observe the session's calls for its trace without registering, watching or waiting for it (mirrors the kernel port's AgentOpenDescriptor). */
+  observeUnwatched?: boolean;
   /** The flow of a plan the session is opened for, and the tools its run denied it (mirrors the kernel port's AgentOpenDescriptor). */
   delegationId?: string;
   denyTools?: readonly string[];
@@ -727,9 +732,12 @@ export function withSessionRegistration(
     /* Told which agent opened which session for which run, whatever its live-observation choice: the run_spec loop gives its right to the generator's sessions through this. Absent: nothing is told. */
     bind?: (session: { sessionId: string; runId: string; agent: string; delegationId?: string; denyTools?: readonly string[] }) => void;
     unbind?: (sessionId: string) => void;
+    /* A session that opted out of live observation but asks to be observed anyway (`observeUnwatched`): its calls are tracked and nothing else is done for it. Absent: such a session is left exactly as an opted-out one. */
+    observe?: (sessionId: string, cwd: string) => void;
+    unobserve?: (sessionId: string) => void;
   },
 ): AgentDeps {
-  const { register, unregister, bind, unbind } = collaborators;
+  const { register, unregister, bind, unbind, observe, unobserve } = collaborators;
 
   return {
     ...baseDeps,
@@ -740,6 +748,8 @@ export function withSessionRegistration(
          start feeding the stall watchdog and change its liveness window. */
       const runId = opts?.descriptor?.liveObservation === false ? undefined : opts?.descriptor?.runId;
       if (runId) register(inner.id, runId, cwd);
+      const observed = observe !== undefined && opts?.descriptor?.liveObservation === false && opts.descriptor.observeUnwatched === true && opts.descriptor.runId !== undefined;
+      if (observed) observe(inner.id, cwd);
       const boundRunId = opts?.descriptor?.runId;
       if (boundRunId) {
         const { delegationId, denyTools } = opts?.descriptor ?? {};
@@ -750,6 +760,7 @@ export function withSessionRegistration(
         ...inner,
         dispose: async () => {
           if (runId) unregister(inner.id);
+          if (observed) unobserve?.(inner.id);
           if (boundRunId) unbind?.(inner.id);
           await inner.dispose();
         },

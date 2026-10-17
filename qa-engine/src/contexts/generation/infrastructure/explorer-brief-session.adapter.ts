@@ -53,6 +53,11 @@ export interface ExplorerBriefDeps {
    * slow read never holds one. Absent, or no limit for the explorer: the prompt input carries none.
    */
   stepLimitFor?: StepLimitFor;
+  /**
+   * Observe the explorer's session for its trace (its calls are tracked) without registering it for live observation, watching it
+   * or making it wait. The host decides; absent, the session is exactly as it was.
+   */
+  observeUnwatched?: boolean;
 }
 
 export interface ExploreBriefArgs {
@@ -100,6 +105,7 @@ export class ExplorerBriefSessionAdapter {
           role: EXPLORER_AGENT_NAME,
           ...(args.runId ? { runId: args.runId } : {}),
           liveObservation: false,
+          ...(this.deps.observeUnwatched === true ? { observeUnwatched: true } : {}),
         },
       });
       const build = this.deps.buildPrompt ?? buildExplorerPrompt;

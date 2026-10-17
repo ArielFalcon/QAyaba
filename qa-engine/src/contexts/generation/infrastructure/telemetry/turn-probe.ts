@@ -210,7 +210,7 @@ export class TurnProbe {
             "qayaba.usage.cache_read_tokens": usage.cacheRead,
             "qayaba.usage.cache_write_tokens": usage.cacheWrite,
             "qayaba.usage.reasoning_tokens": usage.reasoning,
-            "qayaba.usage.cost": event.usage!.cost,
+            ...(event.usage!.cost !== undefined ? { "qayaba.usage.cost": event.usage!.cost } : {}),
             "qayaba.usage.source": "final-message",
           }
         : {}),

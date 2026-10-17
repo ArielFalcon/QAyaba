@@ -328,9 +328,10 @@ export function buildCodexExecArgs({ cwd, model, sandbox }) {
 }
 
 // Runs one `codex exec` turn in the agent container and resolves with Codex's
-// final assistant message. This is the execution half of the orchestrator's
+// final assistant message and the usage it reported for the turn (absent when it
+// reported none). This is the execution half of the orchestrator's
 // CodexRuntimeStrategy → SupervisorExecTransport HTTP boundary.
-function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }) {
+export function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }) {
   return new Promise((resolve, reject) => {
     if (!process.env.CODEX_API_KEY) return reject(new Error("CODEX_API_KEY is not configured"));
     if (typeof cwd !== "string" || !cwd.startsWith("/") || !existsSync(cwd)) return reject(new Error("cwd must be an existing absolute path"));
@@ -366,8 +367,10 @@ function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }) {
     child.on("error", (err) => { if (timer) clearTimeout(timer); reject(err); });
     child.on("close", (code) => {
       if (timer) clearTimeout(timer);
-      if (code === 0) resolve(extractCodexLastMessage(stdout) || stdout.trim());
-      else reject(new Error(`codex exec exited ${code}: ${stderr.trim() || stdout.trim()}`));
+      if (code === 0) {
+        const usage = extractCodexUsage(stdout);
+        resolve({ message: extractCodexLastMessage(stdout) || stdout.trim(), ...(usage ? { usage } : {}) });
+      } else reject(new Error(`codex exec exited ${code}: ${stderr.trim() || stdout.trim()}`));
     });
     child.stdin.end(prompt);
   });
@@ -393,9 +396,45 @@ function extractCodexLastMessage(jsonl) {
   return last;
 }
 
+// What the turn spent, from the `turn.completed` events of `codex exec --json` (0.139.0):
+// {"type":"turn.completed","usage":{"input_tokens","cached_input_tokens","output_tokens","reasoning_output_tokens"}}.
+// `input_tokens` includes the cached part and `output_tokens` the reasoning part. Several completed turns are added up. A field
+// that is not a plain non-negative count is read as none, so a change in the event's shape under-reports rather than invents.
+// Returns undefined when no turn reported a usage object.
+const USAGE_FIELDS = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"];
+export function extractCodexUsage(jsonl) {
+  let total;
+  for (const line of jsonl.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event?.type !== "turn.completed" || typeof event.usage !== "object" || event.usage === null) continue;
+    total ??= Object.fromEntries(USAGE_FIELDS.map((field) => [field, 0]));
+    for (const field of USAGE_FIELDS) {
+      const value = event.usage[field];
+      if (Number.isSafeInteger(value) && value >= 0) total[field] += value;
+    }
+  }
+  return total;
+}
+
 function json(res, status, body) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+// One POST /codex/exec: the final message and the usage on success, the (redacted) reason on failure.
+export async function handleCodexExec(body) {
+  try {
+    const { message, usage } = await runCodexExec(body);
+    return { status: 200, body: { message, ...(usage ? { usage } : {}) } };
+  } catch (err) {
+    return { status: 400, body: { error: redactForResponse(err instanceof Error ? err.message : String(err)) } };
+  }
 }
 
 async function readJson(req) {
@@ -425,13 +464,15 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (req.method === "POST" && url.pathname === "/codex/exec") {
+    let body;
     try {
-      const body = await readJson(req);
-      const message = await runCodexExec(body);
-      json(res, 200, { message });
+      body = await readJson(req);
     } catch (err) {
       json(res, 400, { error: redactForResponse(err instanceof Error ? err.message : String(err)) });
+      return;
     }
+    const answer = await handleCodexExec(body);
+    json(res, answer.status, answer.body);
     return;
   }
   json(res, 404, { error: "not found" });

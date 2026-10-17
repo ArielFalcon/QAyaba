@@ -442,3 +442,16 @@ test("explore(): with no context map the prompt input carries none", async () =>
 
   assert.equal(built?.contextMap, undefined);
 });
+
+test("explore(): asks for unwatched observation of its session only when its host enables it, and the descriptor is otherwise exactly as before", async () => {
+  const session: AgentSession = { prompt: async () => ({ output: "{}" }), dispose: async () => {} };
+  const run = async (observeUnwatched: boolean | undefined) => {
+    const opens: Array<{ opts?: { descriptor?: Record<string, unknown> } }> = [];
+    const adapter = new ExplorerBriefSessionAdapter(staticCtx, { runtime: fakeRuntime(session, opens), parseBrief: () => null, ...(observeUnwatched !== undefined ? { observeUnwatched } : {}) });
+    await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef", runId: "run-1" });
+    return opens[0]!.opts!.descriptor!;
+  };
+  assert.deepEqual(await run(undefined), { role: "qa-explorer", runId: "run-1", liveObservation: false });
+  assert.deepEqual(await run(false), { role: "qa-explorer", runId: "run-1", liveObservation: false });
+  assert.deepEqual(await run(true), { role: "qa-explorer", runId: "run-1", liveObservation: false, observeUnwatched: true });
+});

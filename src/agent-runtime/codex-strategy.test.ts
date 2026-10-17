@@ -12,6 +12,7 @@ import { getAgentTurns } from "../server/history";
 import {
   codexErrorToInfra,
   extractCodexLastMessage,
+  extractCodexTokenUsage,
   rolePromptName,
   codexPreambleParts,
   CodexRuntimeStrategy,
@@ -1137,5 +1138,59 @@ describe("SupervisorExecTransport — which failures are a deadline", () => {
   it("a timeout the exec's stderr mentions is not the typed timeout", async () => {
     const session = await failing("codex exec exited 1: upstream request timed out after 30000ms").start({ role: "primary", cwd: "/repo" });
     await assert.rejects(session.prompt("x"), (err: unknown) => err instanceof Error && !(err instanceof AgentTimeoutError));
+  });
+});
+
+describe("what an exec reports it spent", () => {
+  const turnCompleted = (usage: unknown) => JSON.stringify({ type: "turn.completed", usage });
+  const answer = JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "done" } });
+
+  it("a local exec's turn.completed usage reaches the prompt's onUsage, and the answer is unchanged", async () => {
+    const jsonl = [answer, turnCompleted({ input_tokens: 500, cached_input_tokens: 400, output_tokens: 20, reasoning_output_tokens: 6 })].join("\n");
+    const transport = new CodexExecTransport({ CODEX_API_KEY: "test" }, "codex", makeSuccessSpawnFn(jsonl));
+    const session = await transport.start({ role: "primary", cwd: "/tmp" });
+    const seen: unknown[] = [];
+    assert.equal(await session.prompt("go", { onUsage: (usage) => seen.push(usage) }), "done");
+    assert.deepEqual(seen, [{ inputTokens: 500, cachedInputTokens: 400, outputTokens: 20, reasoningOutputTokens: 6 }]);
+  });
+
+  it("an exec that reported no usage never calls onUsage", async () => {
+    const transport = new CodexExecTransport({ CODEX_API_KEY: "test" }, "codex", makeSuccessSpawnFn(answer));
+    const session = await transport.start({ role: "primary", cwd: "/tmp" });
+    let called = false;
+    await session.prompt("go", { onUsage: () => { called = true; } });
+    assert.equal(called, false);
+  });
+
+  it("the supervisor's relayed usage reaches onUsage, and a body without one does not", async () => {
+    const respond = (body: unknown) => new SupervisorExecTransport({ baseUrl: "http://agents:4097", env: { CODEX_API_KEY: "k" }, fetchImpl: async () => ({ ok: true, status: 200, json: async () => body }) });
+    const seen: unknown[] = [];
+    const withUsage = await respond({ message: "ok", usage: { input_tokens: 9, cached_input_tokens: 3, output_tokens: 2, reasoning_output_tokens: 1 } }).start({ role: "primary", cwd: "/repo" });
+    assert.equal(await withUsage.prompt("go", { onUsage: (usage) => seen.push(usage) }), "ok");
+    const without = await respond({ message: "ok" }).start({ role: "primary", cwd: "/repo" });
+    await without.prompt("go", { onUsage: (usage) => seen.push(usage) });
+    assert.deepEqual(seen, [{ inputTokens: 9, cachedInputTokens: 3, outputTokens: 2, reasoningOutputTokens: 1 }]);
+  });
+
+  it("a relayed usage whose fields are not plain counts reports those fields as none", async () => {
+    const transport = new SupervisorExecTransport({ baseUrl: "http://agents:4097", env: { CODEX_API_KEY: "k" }, fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ message: "ok", usage: { input_tokens: "9", cached_input_tokens: -1, output_tokens: 2.5, reasoning_output_tokens: 4 } }) }) });
+    const session = await transport.start({ role: "primary", cwd: "/repo" });
+    const seen: unknown[] = [];
+    await session.prompt("go", { onUsage: (usage) => seen.push(usage) });
+    assert.deepEqual(seen, [{ inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 4 }]);
+  });
+});
+
+describe("extractCodexTokenUsage", () => {
+  it("adds up the completed turns of an exec and reads nothing from any other event", () => {
+    const jsonl = [
+      JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 4, output_tokens: 2, reasoning_output_tokens: 1 } }),
+      "stray stderr-like line",
+      JSON.stringify({ type: "item.completed", usage: { input_tokens: 999 } }),
+      JSON.stringify({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 5, output_tokens: 3, reasoning_output_tokens: 0 } }),
+    ].join("\n");
+    assert.deepEqual(extractCodexTokenUsage(jsonl), { inputTokens: 30, cachedInputTokens: 9, outputTokens: 5, reasoningOutputTokens: 1 });
+    assert.equal(extractCodexTokenUsage(JSON.stringify({ type: "turn.completed" })), undefined);
+    assert.equal(extractCodexTokenUsage(""), undefined);
   });
 });

@@ -21,6 +21,8 @@ import {
   withSessionRegistration,
   registerRunSession,
   unregisterRunSession,
+  observeUnwatchedSession,
+  unobserveUnwatchedSession,
   stallMs,
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
@@ -64,7 +66,7 @@ import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/t
 import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
 import { watchSpanForHost } from "../telemetry/host-listeners";
 import { SYSTEM_CLOCK } from "./run-trace";
-import { stepIntentContextFor } from "./turn-telemetry-config";
+import { observeUnwatchedFromEnv, stepIntentContextFor } from "./turn-telemetry-config";
 import { resolveRunTimeBudgets } from "@contexts/qa-run-orchestration/domain/run-time-budget";
 import { RunDeadlineRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-deadline-runtime.adapter";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter";
@@ -1023,7 +1025,7 @@ export function buildRewrittenCompositionConfig(
         ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
         : {}),
     },
-    { runtime: boundedRuntime, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor },
+    { runtime: boundedRuntime, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor, ...(observeUnwatchedFromEnv(deps.env ?? process.env) ? { observeUnwatched: true } : {}) },
   );
 
   return {
@@ -1441,6 +1443,8 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
       withSessionRegistration(deps.getAgentDeps(), {
         register: registerRunSession,
         unregister: unregisterRunSession,
+        observe: observeUnwatchedSession,
+        unobserve: unobserveUnwatchedSession,
         bind: (session) => {
           registry?.bindSession(session);
           browsers?.bindSession(session);

@@ -1062,6 +1062,18 @@ session, tool, message id (when both sides carry it) and time overlap (`generati
 be made without a guess is not made. The attempt-to-tool-span edge is **connected** (parent/child); the tool-span-to-agent
 `execute_tool` edge is a **link** (correlated by the join above, not by propagated context).
 
+**S2c status (Codex parity, explorer tracking).** Delivered: the supervisor returns `{message, usage}` from the `turn.completed` events
+of `codex exec --json` (`extractCodexUsage`, summed, a field that is not a plain count read as none), the direct and the supervised
+transport hand it to the strategy through `onUsage`, and `CodexRuntimeStrategy` opens the same attempt events the OpenCode funnel does
+(`start`, `end`, `turn` into the registry the turn decorator fills), so a Codex prompt is `invoke_agent` plus `qayaba.agent.attempt`
+with `qayaba.usage.source=final-message`. Codex's input is inclusive of its cache and OpenCode's is not; the strategy puts Codex's
+usage in OpenCode's shape (`codexUsageAsRuntime`) so the one normalization serves both and the persisted row holds one convention.
+Cost and cache writes are not reported by Codex and are left absent, never zero. `error.type` comes from `classifyCodexFault`, which
+reads the same signals as `codexErrorToInfra` from the exec's own text. The explorer's session can be observed without being watched
+(`descriptor.observeUnwatched`, set by the host through `QA_TELEMETRY_OBSERVE_UNWATCHED=true`, **off by default**): its calls reach the
+call tracker, it is not registered for the live feed, never feeds a watchdog and its attempts never wait for the stream; a parity test
+runs the same explorer turn with tracking on and off.
+
 ---
 
 ## 17. Resolved decisions

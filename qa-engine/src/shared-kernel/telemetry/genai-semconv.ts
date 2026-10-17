@@ -81,3 +81,27 @@ export function normalizeOpenCodeUsage(usage: RuntimeTokenUsage): ConventionToke
     reasoning: usage.reasoning,
   };
 }
+
+/* What `codex exec --json` reports on its `turn.completed` event, as it names it. */
+export interface CodexTokenUsage {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+}
+
+/*
+ * Codex counts `input_tokens` WITH the tokens served from its cache (`cached_input_tokens` is a part of it) and
+ * `reasoning_output_tokens` as a part of `output_tokens`, which is the conventions' own counting. The rest of the engine holds a
+ * turn's tokens in the shape OpenCode reports (input WITHOUT the cache, see normalizeOpenCodeUsage), so Codex's are put in that
+ * shape here, once, and one normalization serves both runtimes. Codex does not report cache writes: none are claimed.
+ */
+export function codexUsageAsRuntime(usage: CodexTokenUsage): RuntimeTokenUsage {
+  const cached = Math.min(usage.cachedInputTokens, usage.inputTokens);
+  return { input: usage.inputTokens - cached, output: usage.outputTokens, reasoning: usage.reasoningOutputTokens, cacheRead: cached, cacheWrite: 0 };
+}
+
+/* Codex's usage as the conventions count it: the input includes the cache. */
+export function normalizeCodexUsage(usage: CodexTokenUsage): ConventionTokenUsage {
+  return normalizeOpenCodeUsage(codexUsageAsRuntime(usage));
+}

@@ -26,12 +26,14 @@ import {
   activityRouter,
   registerRunSession,
   unregisterRunSession,
+  observeUnwatchedSession,
+  unobserveUnwatchedSession,
   startActivitySink,
   setRawEventStreamOpener,
   type LiveActivity,
   type RawEventStreamOpener,
 } from "@contexts/generation/infrastructure/sse/event-stream";
-export { activityRouter, registerRunSession, unregisterRunSession, startActivitySink };
+export { activityRouter, registerRunSession, unregisterRunSession, observeUnwatchedSession, unobserveUnwatchedSession, startActivitySink };
 export type { LiveActivity };
 
 /* Re-export so control-plane importers keep resolving extractJsonObjects/parseVerdict here. */

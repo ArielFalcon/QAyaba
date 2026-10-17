@@ -17,6 +17,11 @@ export interface AgentOpenDescriptor {
    * Omitted or `true` means "register as usual", as for every other role.
    */
   liveObservation?: boolean;
+  /**
+   * With `liveObservation: false`: the session is still OBSERVED (its calls are tracked for its trace) without being registered,
+   * watched or waited for. Only a host that opted in to it acts on this; absent, the session is exactly as it was.
+   */
+  observeUnwatched?: boolean;
   /** The flow of a plan the session is opened for: the right to run a spec and to use the browser is the flow's own, and its sidekick's session finds it by this. */
   delegationId?: string;
   /** Tool names or patterns the session's prompts are denied, whatever its agent's configuration allows: what the run did not grant it. A runtime with no per-prompt control over tools ignores it. */

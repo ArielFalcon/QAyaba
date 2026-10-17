@@ -35,6 +35,9 @@ export function setRawEventStreamOpener(opener: RawEventStreamOpener): () => voi
 
 export const activityRouter = new ActivityRouter();
 
+/* Sessions that are observed and not watched: their events reach the call tracker and nothing else. */
+const unwatchedSessions = new Set<string>();
+
 /* The event every OpenCode event connection opens with. */
 const SERVER_CONNECTED = "server.connected";
 
@@ -77,7 +80,7 @@ export async function startScopedEventStream(
 
         const rawPart = raw.properties?.part as { sessionID?: string } | undefined;
         /* Notify the liveness watchdog for this session: any event proves the agent is alive. Advisory-only: if the sessionID is not in the registry (no watchdog) this is a no-op. Runs BEFORE the tracker so nothing the measurement does can starve the watchdog (a stall abort would change the run's outcome). */
-        if (rawPart?.sessionID) notifySessionActivity(rawPart.sessionID);
+        if (rawPart?.sessionID && !unwatchedSessions.has(rawPart.sessionID)) notifySessionActivity(rawPart.sessionID);
         /* The first event of every connection: the stream is live (a second one on the same stream means it reconnected and may have lost events). */
         if (raw.type === SERVER_CONNECTED) lifecycle.streamConnected(directory, token);
         /* Call-efficiency tracking; never throws (a fault poisons only that session's metrics) and never disturbs the stream. */
@@ -260,6 +263,23 @@ export function registerRunSession(sessionId: string, runId: string, directory: 
   activityRouter.register(sessionId, runId, workerId);
   eventStreams.attach(sessionId, directory);
   callEfficiencyTracker.attach(sessionId, directory);
+}
+
+/*
+ * Observes a session without registering it: its calls reach the call tracker (so its turn has a trace) and it stays out of the
+ * live activity feed, never feeds a liveness watchdog and never makes an attempt wait for the stream. For a session that opted out
+ * of live observation (the explorer's), whose behaviour observing must not change.
+ */
+export function observeUnwatchedSession(sessionId: string, directory: string): void {
+  unwatchedSessions.add(sessionId);
+  eventStreams.attach(sessionId, directory);
+  callEfficiencyTracker.attachUnwatched(sessionId, directory);
+}
+
+export function unobserveUnwatchedSession(sessionId: string): void {
+  unwatchedSessions.delete(sessionId);
+  eventStreams.detach(sessionId);
+  callEfficiencyTracker.clear(sessionId);
 }
 
 export function unregisterRunSession(sessionId: string): void {
