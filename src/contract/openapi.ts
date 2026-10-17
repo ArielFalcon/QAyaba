@@ -24,7 +24,7 @@ import {
   TrendWindowSchema, CoverageTrendSchema, ValueTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
   ArchitectureContextSchema, ContextMapViewSchema,
-  AgentTurnViewSchema, AppTelemetryViewSchema,
+  AgentTurnViewSchema, AppTelemetryViewSchema, TelemetryHealthSchema,
 } from "./commands";
 
 export const API_VERSION = "1.0.0";
@@ -91,6 +91,7 @@ const NAMED_SCHEMAS = {
   ContextMapView: ContextMapViewSchema,
   AgentTurnView: AgentTurnViewSchema,
   AppTelemetryView: AppTelemetryViewSchema,
+  TelemetryHealth: TelemetryHealthSchema,
 } as const;
 
 function componentSchemas(): Record<string, unknown> {
@@ -378,6 +379,16 @@ function paths(): Record<string, unknown> {
         operationId: "listAgentModels",
         parameters: [{ name: "provider", in: "query", required: true, schema: { type: "string", enum: ["opencode", "codex"] } }],
         responses: { "200": { description: "models for provider", content: jsonBody("AgentModelsResponse") } },
+      },
+    },
+    "/api/v1/telemetry/health": {
+      get: {
+        operationId: "telemetryHealth",
+        summary: "Telemetry stack health: mode, span ledger, OTLP export status and dropped-attribute count (Bearer-protected; counts and flags only)",
+        responses: {
+          "200": { description: "telemetry health", content: jsonBody("TelemetryHealth") },
+          "501": { description: "telemetry is not wired in this process" },
+        },
       },
     },
     "/api/v1/agent/restart": {

@@ -7,6 +7,7 @@
  */
 
 import { describeSandboxHealth } from "./sandbox-health";
+import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { RUN_MODES, RunMode, TestTarget, RunRecord, engineStatus } from "../types";
@@ -55,6 +56,7 @@ import {
   RunReportViewSchema,
   UpdateAppInputSchema,
   VersionInfoSchema,
+  TelemetryHealthSchema,
   LoginRequestSchema,
   LoginResponseSchema,
 } from "../contract/commands";
@@ -108,6 +110,8 @@ export interface ApiDeps {
    * Absent ⇒ the /signals route returns 501.
    */
   signals?: () => z.infer<typeof SignalsViewSchema>;
+  /* The telemetry stack's health, for GET /telemetry/health and the /health summary. Absent ⇒ the route returns 501 and /health omits the summary. */
+  telemetryHealth?: () => TelemetryHealth;
   /* Read-only multi-agent coordination audit tail. Absent ⇒ the route returns 501. */
   coordinationEvents?: (filter?: { runId?: string; limit?: number }) => z.infer<typeof CoordinationEventsViewSchema>;
   /*
@@ -343,7 +347,23 @@ export async function handleApi(
   if (req.method === "GET" && path === "/api/health") {
     /* Still 200 when the sandbox is degraded: the container stays up for the operator to read why. */
     const sandbox = describeSandboxHealth(process.env);
-    json(res, 200, { ok: true, openSessions: getOpenSessionCount(), sandbox });
+    /* Public route: a flag and a count each, never an endpoint or an error text. */
+    const telemetry = deps.telemetryHealth?.();
+    json(res, 200, {
+      ok: true,
+      openSessions: getOpenSessionCount(),
+      sandbox,
+      ...(telemetry ? { telemetry: { mode: telemetry.mode, ledgerOk: telemetry.ledger.ok, otlpConfigured: telemetry.otlp.configured } } : {}),
+    });
+    return true;
+  }
+
+  if (req.method === "GET" && path === "/api/telemetry/health") {
+    if (!deps.telemetryHealth) {
+      json(res, 501, { schemaVersion: 1, error: "telemetry is not configured" });
+      return true;
+    }
+    contractJson(res, 200, TelemetryHealthSchema, { schemaVersion: 1, ...deps.telemetryHealth() });
     return true;
   }
 

@@ -446,6 +446,29 @@ export const AgentRestartResponseSchema = z.object({
   health: AgentProviderHealthSchema,
 });
 
+/* GET /api/v1/telemetry/health (docs/observability-design.md §14). Counts and flags only. */
+export const TelemetryHealthSchema = z.object({
+  schemaVersion: z.literal(1),
+  mode: z.enum(["off", "local"]),
+  campaignFreeze: z.boolean(),
+  otlp: z.object({
+    configured: z.boolean(),
+    lastExportAt: z.string().optional(),
+    lastError: z.string().optional(),
+    dropped: z.number().int().min(0),
+  }),
+  ledger: z.object({
+    ok: z.boolean(),
+    spans: z.number().int().min(0),
+    writeErrors: z.number().int().min(0),
+  }),
+  scoreSink: z.object({
+    configured: z.boolean(),
+    lastError: z.string().optional(),
+  }),
+  droppedAttributes: z.number().int().min(0),
+});
+
 export type QaCase = z.infer<typeof QaCaseSchema>;
 export type SpecRecord = z.infer<typeof SpecRecordSchema>;
 export type AgentActivity = z.infer<typeof AgentActivitySchema>;
@@ -454,6 +477,7 @@ export type AppView = z.infer<typeof AppViewSchema>;
 export type QueueStatus = z.infer<typeof QueueStatusSchema>;
 export type ChatEntry = z.infer<typeof ChatEntrySchema>;
 export type VersionInfo = z.infer<typeof VersionInfoSchema>;
+export type TelemetryHealthView = z.infer<typeof TelemetryHealthSchema>;
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
 export type CreateRunInput = z.infer<typeof CreateRunInputSchema>;

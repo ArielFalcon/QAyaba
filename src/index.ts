@@ -53,6 +53,7 @@ import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrast
 
 import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
+import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
 import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListener } from "./server/port";
 import { createToolsServer, resolveToolsListenHost, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
@@ -71,6 +72,11 @@ const ROOT = qayabaRoot();
 const appCatalog = new YamlAppConfigAdapter({ load: loadAppConfig, list: listAppConfigs });
 
 const redactionPort = new RedactionPortAdapter();
+/*
+ * Telemetry is built once, here, before anything that could emit (QA_TELEMETRY=off|local; a mistyped value stops the boot).
+ * The engine factory takes `telemetry.telemetry` as a dep; the API reports `telemetry.health()`.
+ */
+const telemetry = processTelemetry();
 /*
  * Durable backing lives in createDurableRunEventStore, shared with the CLI so every
  * trigger persists events identically: the live SSE stream survives a restart (e.g. the
@@ -259,11 +265,14 @@ process.on("SIGTERM", () => {
    */
   const drainTimer = setTimeout(() => {
     console.log("[qa] shutdown timeout — forcing exit");
+    /* Synchronous: commit the buffered span ledger rows before the process is cut. */
+    telemetry.telemetry.flush();
     process.exit(1);
   }, SHUTDOWN_TIMEOUT_MS);
-  queue.drain().finally(() => {
+  queue.drain().finally(async () => {
     clearTimeout(drainTimer);
     console.log("[qa] drained — exiting");
+    await telemetry.shutdown(TELEMETRY_SHUTDOWN_TIMEOUT_MS);
     process.exit(0);
   });
 });
@@ -275,11 +284,14 @@ process.on("SIGINT", () => {
   queue.cancel();
   const drainTimer = setTimeout(() => {
     console.log("[qa] shutdown timeout — forcing exit");
+    /* Synchronous: commit the buffered span ledger rows before the process is cut. */
+    telemetry.telemetry.flush();
     process.exit(1);
   }, SHUTDOWN_TIMEOUT_MS);
-  queue.drain().finally(() => {
+  queue.drain().finally(async () => {
     clearTimeout(drainTimer);
     console.log("[qa] drained — exiting");
+    await telemetry.shutdown(TELEMETRY_SHUTDOWN_TIMEOUT_MS);
     process.exit(0);
   });
 });
@@ -582,6 +594,7 @@ const onboardingJob = createOnboardingJob({
 
 const apiDeps: ApiDeps = {
   queue,
+  telemetryHealth: () => telemetry.health(),
   enqueue: enqueueApiRun,
   loadApp: (name) => loadAppConfig(name),
   listApps: () => listAppConfigs(),

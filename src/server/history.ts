@@ -23,6 +23,7 @@ import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/lear
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import { parseRetentionDays, DEFAULT_SPAN_RETENTION_DAYS } from "../telemetry/config";
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
@@ -249,6 +250,29 @@ function ensureDb(): void {
       PRIMARY KEY (run_id, seq)
     );
     CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events(run_id);
+
+    -- The span ledger (docs/observability-design.md §3.3): every span of every run, metadata only. A row is
+    -- written when the span starts (end_ns NULL) and updated when it ends, so a hung or crashed run leaves its
+    -- open spans behind as evidence. Times are epoch nanoseconds, bound as BigInt (they exceed 2^53).
+    CREATE TABLE IF NOT EXISTS run_spans (
+      trace_id TEXT NOT NULL,
+      span_id TEXT NOT NULL,
+      parent_span_id TEXT,
+      run_id TEXT,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      start_ns INTEGER NOT NULL,
+      end_ns INTEGER,
+      status TEXT NOT NULL DEFAULT 'unset',
+      status_message TEXT,
+      attrs TEXT NOT NULL DEFAULT '{}',
+      events TEXT NOT NULL DEFAULT '[]',
+      links TEXT NOT NULL DEFAULT '[]',
+      PRIMARY KEY (trace_id, span_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_spans_run_id ON run_spans(run_id);
+    CREATE INDEX IF NOT EXISTS idx_run_spans_trace_id ON run_spans(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_run_spans_start_ns ON run_spans(start_ns);
 
     CREATE TABLE IF NOT EXISTS learning_rules (
       id TEXT PRIMARY KEY,
@@ -480,6 +504,12 @@ function ensureDb(): void {
    * compare, consistent with run_events (which prunes correctly via its own typed epoch-ms compare).
    */
   db.prepare(`DELETE FROM agent_turns WHERE datetime(ts) < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')`).run();
+  /* The span ledger keeps its own window (QA_TELEMETRY_RETENTION_DAYS, default 30). A malformed value is reported loudly by the telemetry bootstrap; here it must not stop the history from opening. */
+  try {
+    pruneRunSpans(spanRetentionDays(), Date.now());
+  } catch (error) {
+    console.error(`[telemetry] span ledger prune failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   initialized = true;
 }
@@ -1120,6 +1150,91 @@ export function saveRunEvent(event: { runId: string; seq: number; ts: number; bo
     event.ts,
     JSON.stringify(event.body),
   );
+}
+
+/* One row of the span ledger. `startNs`/`endNs` are epoch nanoseconds. */
+export interface RunSpanRow {
+  traceId: string;
+  spanId: string;
+  parentSpanId: string | null;
+  runId: string | null;
+  name: string;
+  kind: string;
+  startNs: bigint;
+  endNs: bigint | null;
+  status: string;
+  statusMessage: string | null;
+  /* JSON text. */
+  attrs: string;
+  events: string;
+  links: string;
+}
+
+function spanRetentionDays(): number {
+  try {
+    return parseRetentionDays(process.env.QA_TELEMETRY_RETENTION_DAYS);
+  } catch (error) {
+    console.error(`[telemetry] ${error instanceof Error ? error.message : String(error)}; keeping ${DEFAULT_SPAN_RETENTION_DAYS} days`);
+    return DEFAULT_SPAN_RETENTION_DAYS;
+  }
+}
+
+/*
+ * Upserts a batch of ledger rows in ONE transaction. A row carries every column, so an update of a span whose
+ * start row was lost (a failed earlier batch) still lands complete.
+ */
+export function commitRunSpans(rows: readonly RunSpanRow[]): void {
+  ensureDb();
+  const upsert = db.prepare(`
+    INSERT INTO run_spans (trace_id, span_id, parent_span_id, run_id, name, kind, start_ns, end_ns, status, status_message, attrs, events, links)
+    VALUES (@traceId, @spanId, @parentSpanId, @runId, @name, @kind, @startNs, @endNs, @status, @statusMessage, @attrs, @events, @links)
+    ON CONFLICT(trace_id, span_id) DO UPDATE SET
+      parent_span_id = excluded.parent_span_id, run_id = excluded.run_id, name = excluded.name, kind = excluded.kind,
+      start_ns = excluded.start_ns, end_ns = excluded.end_ns, status = excluded.status, status_message = excluded.status_message,
+      attrs = excluded.attrs, events = excluded.events, links = excluded.links`);
+  db.transaction((batch: readonly RunSpanRow[]) => {
+    for (const row of batch) upsert.run(row);
+  })(rows);
+}
+
+export function listRunSpans(runId: string): RunSpanRow[] {
+  ensureDb();
+  const rows = db
+    .prepare("SELECT * FROM run_spans WHERE run_id = ? ORDER BY start_ns, span_id")
+    .safeIntegers()
+    .all(runId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    traceId: r.trace_id as string,
+    spanId: r.span_id as string,
+    parentSpanId: (r.parent_span_id as string | null) ?? null,
+    runId: (r.run_id as string | null) ?? null,
+    name: r.name as string,
+    kind: r.kind as string,
+    startNs: r.start_ns as bigint,
+    endNs: (r.end_ns as bigint | null) ?? null,
+    status: r.status as string,
+    statusMessage: (r.status_message as string | null) ?? null,
+    attrs: r.attrs as string,
+    events: r.events as string,
+    links: r.links as string,
+  }));
+}
+
+export function countRunSpans(): number {
+  ensureDb();
+  return (db.prepare("SELECT COUNT(*) AS n FROM run_spans").get() as { n: number }).n;
+}
+
+/* Rows one prune pass may delete, so a large backlog never holds the write lock for long. */
+export const RUN_SPAN_PRUNE_CHUNK = 5000;
+
+/* Drops up to `limit` ledger spans that started more than `days` before `nowMs`, and returns how many. A non-finite cutoff prunes nothing. */
+export function pruneRunSpans(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK): number {
+  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(cutoffMs)) return 0;
+  return db
+    .prepare("DELETE FROM run_spans WHERE rowid IN (SELECT rowid FROM run_spans WHERE start_ns < ? LIMIT ?)")
+    .run(BigInt(Math.floor(cutoffMs)) * 1_000_000n, limit).changes;
 }
 
 export function loadRunEvents(runId: string, afterSeq = -1): Array<{ runId: string; seq: number; ts: number; body: unknown }> {

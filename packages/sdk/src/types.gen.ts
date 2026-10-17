@@ -473,6 +473,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/telemetry/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Telemetry stack health: mode, span ledger, OTLP export status and dropped-attribute count (Bearer-protected; counts and flags only) */
+        get: operations["telemetryHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent/restart": {
         parameters: {
             query?: never;
@@ -1279,6 +1296,29 @@ export interface components {
                 redundantReadRatio: number | null;
                 duplicateRatio: number | null;
             };
+        };
+        TelemetryHealth: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            /** @enum {string} */
+            mode: "off" | "local";
+            campaignFreeze: boolean;
+            otlp: {
+                configured: boolean;
+                lastExportAt?: string;
+                lastError?: string;
+                dropped: number;
+            };
+            ledger: {
+                ok: boolean;
+                spans: number;
+                writeErrors: number;
+            };
+            scoreSink: {
+                configured: boolean;
+                lastError?: string;
+            };
+            droppedAttributes: number;
         };
     };
     responses: never;
@@ -2184,6 +2224,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AgentModelsResponse"];
                 };
+            };
+        };
+    };
+    telemetryHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description telemetry health */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelemetryHealth"];
+                };
+            };
+            /** @description telemetry is not wired in this process */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -1101,6 +1101,27 @@
         }
       }
     },
+    "/api/v1/telemetry/health": {
+      "get": {
+        "operationId": "telemetryHealth",
+        "summary": "Telemetry stack health: mode, span ledger, OTLP export status and dropped-attribute count (Bearer-protected; counts and flags only)",
+        "responses": {
+          "200": {
+            "description": "telemetry health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryHealth"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "telemetry is not wired in this process"
+          }
+        }
+      }
+    },
     "/api/v1/agent/restart": {
       "post": {
         "operationId": "restartAgentProvider",
@@ -4636,6 +4657,105 @@
           "medianWallClockSec",
           "p95WallClockSec",
           "efficiency"
+        ],
+        "additionalProperties": false
+      },
+      "TelemetryHealth": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "local"
+            ]
+          },
+          "campaignFreeze": {
+            "type": "boolean"
+          },
+          "otlp": {
+            "type": "object",
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "lastExportAt": {
+                "type": "string"
+              },
+              "lastError": {
+                "type": "string"
+              },
+              "dropped": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "configured",
+              "dropped"
+            ],
+            "additionalProperties": false
+          },
+          "ledger": {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              },
+              "spans": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "writeErrors": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "ok",
+              "spans",
+              "writeErrors"
+            ],
+            "additionalProperties": false
+          },
+          "scoreSink": {
+            "type": "object",
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "lastError": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "configured"
+            ],
+            "additionalProperties": false
+          },
+          "droppedAttributes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "mode",
+          "campaignFreeze",
+          "otlp",
+          "ledger",
+          "scoreSink",
+          "droppedAttributes"
         ],
         "additionalProperties": false
       }

@@ -18,7 +18,9 @@ import {
   QueueStatusSchema,
   RepoListResponseSchema,
   RunRecordSchema,
+  TelemetryHealthSchema,
 } from "../contract/commands";
+import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
 import { RunEventSchema, RunEvent } from "../contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
 import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
@@ -653,6 +655,53 @@ test("GET /api/health → 200", async () => {
   const res = mkRes();
   await handleApi(mkReq("GET", "/api/health"), res, deps());
   assert.equal(res.status, 200);
+});
+
+const telemetryHealth: TelemetryHealth = {
+  mode: "local",
+  campaignFreeze: false,
+  otlp: { configured: true, lastExportAt: "2026-10-17T10:00:00.000Z", dropped: 3 },
+  ledger: { ok: true, spans: 120, writeErrors: 0 },
+  scoreSink: { configured: false },
+  droppedAttributes: 2,
+};
+
+test("GET /api/v1/telemetry/health returns the health with schemaVersion 1, validated by the contract schema", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth }));
+  assert.equal(res.status, 200);
+  const body = TelemetryHealthSchema.parse(JSON.parse(res.body));
+  assert.equal(body.schemaVersion, 1);
+  assert.deepEqual({ ...body, schemaVersion: undefined }, { ...telemetryHealth, schemaVersion: undefined });
+});
+
+test("GET /api/telemetry/health answers on the unversioned path too", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth }));
+  assert.equal(res.status, 200);
+});
+
+test("GET /api/v1/telemetry/health is 501 with schemaVersion when telemetry is not wired", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps());
+  assert.equal(res.status, 501);
+  assert.equal(JSON.parse(res.body).schemaVersion, 1);
+});
+
+test("GET /api/health carries a telemetry summary without secrets, and omits it when not wired", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/health"), res, deps({ telemetryHealth: () => ({ ...telemetryHealth, otlp: { configured: true, lastError: "ECONNREFUSED http://internal:4318", dropped: 3 } }) }));
+  const body = JSON.parse(res.body);
+  assert.deepEqual(body.telemetry, { mode: "local", ledgerOk: true, otlpConfigured: true });
+  assert.ok(!res.body.includes("internal:4318"));
+  const bare = mkRes();
+  await handleApi(mkReq("GET", "/api/health"), bare, deps());
+  assert.equal(JSON.parse(bare.body).telemetry, undefined);
+});
+
+test("the telemetry health route is not a public control-plane route", async () => {
+  const { isPublicControlPlaneRoute } = await import("./auth");
+  assert.equal(isPublicControlPlaneRoute("GET", "/api/telemetry/health"), false);
 });
 
 const publicAgentConfig = {

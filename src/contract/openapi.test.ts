@@ -137,3 +137,13 @@ test("contract/openapi.json is committed and up to date", () => {
   const committed = JSON.parse(readFileSync(ARTIFACT_PATH, "utf8"));
   assert.deepEqual(committed, buildOpenApiDocument(), "openapi.json is stale — run `npm run contract:gen`");
 });
+
+test("the OpenAPI document documents GET /api/v1/telemetry/health with a named response schema", () => {
+  const doc = buildOpenApiDocument() as Doc;
+  const health = doc.paths["/api/v1/telemetry/health"] as { get?: { responses: Record<string, unknown> } };
+  assert.ok(health?.get, "missing GET /api/v1/telemetry/health");
+  assert.match(JSON.stringify(health.get.responses["200"]), /#\/components\/schemas\/TelemetryHealth/);
+  const schema = doc.components.schemas.TelemetryHealth as { required?: string[]; properties?: Record<string, { enum?: unknown[] }> };
+  assert.ok(schema, "missing component TelemetryHealth");
+  assert.ok(schema.required?.includes("schemaVersion"));
+});

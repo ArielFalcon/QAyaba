@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { JobQueue } from "./server/queue";
 import { qayabaRoot } from "./paths";
 import { enqueueTrackedRun } from "./server/runner";
+import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./server/run-delegate";
 import { discoverApiToken } from "./server/api-token";
@@ -158,39 +159,46 @@ async function main(): Promise<void> {
     return;  /* runViaService always exits the process with the verdict's code */
   }
 
-  const queue = new JobQueue();
-  /*
-   * Persist run events to the SAME durable store the server uses. A standalone CLI run lives in
-   * its own process, so the server's in-process event bus never sees it — persisting here is what
-   * lets the TUI (attached to the server) replay and tail this run's progress instead of freezing
-   * on an empty stream.
-   */
-  const runEvents = createDurableRunEventStore();
-  /*
-   * When --target is not given, derive it from the app config: a `code: true` app must run
-   * code mode (running e2e against it would hit the no-dev defensive infra-error).
-   */
-  const appCfg = loadAppConfig(args.app);
-  const target = args.target ?? (appCfg.code ? "code" : "e2e");
-  const id = enqueueTrackedRun(queue, {
-    app: args.app,
-    sha: args.sha,
-    baseSha: args.baseSha,
-    target,
-    mode: args.mode,
-    guidance: args.guidance,
-    source: "manual",
-    ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
-    ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
-    ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}),
-  }, { runEvents, engineFactory: cliEngineFactory });
-  await queue.drain();
-  const record = getRecord(id);
-  /*
-   * Print the deterministic value signals the run already persisted. In shadow mode there is no
-   * PR/Issue artifact to inspect.
-   */
-  if (record) printRunReport(record, appCfg);
+  /* Built once for this process (a mistyped QA_TELEMETRY stops it here); the engine factory takes `telemetry.telemetry` as a dep. */
+  const telemetry = processTelemetry();
+  let record: ReturnType<typeof getRecord>;
+  try {
+    const queue = new JobQueue();
+    /*
+     * Persist run events to the SAME durable store the server uses. A standalone CLI run lives in
+     * its own process, so the server's in-process event bus never sees it — persisting here is what
+     * lets the TUI (attached to the server) replay and tail this run's progress instead of freezing
+     * on an empty stream.
+     */
+    const runEvents = createDurableRunEventStore();
+    /*
+     * When --target is not given, derive it from the app config: a `code: true` app must run
+     * code mode (running e2e against it would hit the no-dev defensive infra-error).
+     */
+    const appCfg = loadAppConfig(args.app);
+    const target = args.target ?? (appCfg.code ? "code" : "e2e");
+    const id = enqueueTrackedRun(queue, {
+      app: args.app,
+      sha: args.sha,
+      baseSha: args.baseSha,
+      target,
+      mode: args.mode,
+      guidance: args.guidance,
+      source: "manual",
+      ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
+      ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
+      ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}),
+    }, { runEvents, engineFactory: cliEngineFactory });
+    await queue.drain();
+    record = getRecord(id);
+    /*
+     * Print the deterministic value signals the run already persisted. In shadow mode there is no
+     * PR/Issue artifact to inspect.
+     */
+    if (record) printRunReport(record, appCfg);
+  } finally {
+    await telemetry.shutdown(TELEMETRY_SHUTDOWN_TIMEOUT_MS);
+  }
   /*
    * A run SUCCEEDED when the engine produced a trustworthy result — including a real bug found
    * (verdict `fail` → Issue). Only an engine error (infra-error/invalid, or no verdict) exits non-zero.
