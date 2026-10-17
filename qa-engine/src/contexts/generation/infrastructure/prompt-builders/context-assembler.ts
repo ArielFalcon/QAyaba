@@ -1,5 +1,7 @@
 
 
+import { sha256Hex } from "../../../../shared-infrastructure/content-hash.ts";
+import { redactByValue } from "../../../../shared-infrastructure/run-secret-redaction.ts";
 import { ContextAssemblerAdapter } from "@contexts/generation/infrastructure/context-assembler.adapter.ts";
 import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 
@@ -46,6 +48,12 @@ export interface AssembledPrompt {
   claims: Record<string, readonly PromptClaim[]>;
   /* Files whose content the surviving sections already render, by path relative to the working copy. Set by the builder after assembly; absent for prompts that render no file. */
   providedPaths?: readonly string[];
+  /* sha256 of each surviving section's bytes with the run's secrets taken out by value, keyed by section id. Computed when the prompt is assembled, which the use case does inside the run's secret scope; the hash of the whole prompt is the transport's, over the bytes it sends. The text itself is left as it was: the transport redacts it at its own seam. */
+  sectionHashes?: Record<string, string>;
+  /* The sections the byte budget omitted, the ones the prompt's own omission notice names. */
+  droppedSections?: readonly string[];
+  /* The byte budget the prompt was assembled to; absent when none applied. */
+  budgetBytes?: number;
 }
 
 function truncateToValidUtf8(buf: Buffer, maxBytes: number): string {
@@ -195,11 +203,13 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
 
   const parts: string[] = [];
   const sectionSizes: Record<string, number> = {};
+  const sectionHashes: Record<string, string> = {};
   const claims: Record<string, readonly PromptClaim[]> = {};
 
   for (const r of resolved) {
     if (r.dropped || !r.content) continue;
     sectionSizes[r.section.id] = Buffer.byteLength(r.content, "utf8");
+    sectionHashes[r.section.id] = sha256Hex(redactByValue(r.content));
     if (r.section.claims?.length) claims[r.section.id] = r.section.claims;
     parts.push(r.content);
   }
@@ -211,10 +221,14 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
     parts.push(notice);
   }
 
+  const text = parts.join("\n");
   return {
-    text: parts.join("\n"),
+    text,
     sectionSizes,
     claims,
+    sectionHashes,
+    droppedSections: droppedIds,
+    ...(budgetBytes > 0 ? { budgetBytes } : {}),
   };
 }
 

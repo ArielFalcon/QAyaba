@@ -44,6 +44,8 @@ import {
   type ToolSequenceEntry,
 } from "../../domain/tool-sequence.ts";
 import { sanitizeText } from "../sanitize-text.ts";
+import { NAV_OUTCOME_READ_CHARS, isNavigationCall } from "../../domain/nav-outcome.ts";
+import { TRACE_MAX_ENTRIES, type CallStatus, type CallTrace, type StepTrace, type StepUsageTrace, type TurnTrace } from "../../domain/turn-trace.ts";
 
 interface PartLike {
   id?: string;
@@ -51,20 +53,25 @@ interface PartLike {
   sessionID?: string;
   callID?: string;
   tool?: string;
-  state?: { status?: string; input?: unknown; output?: unknown; error?: unknown };
+  state?: { status?: string; input?: unknown; output?: unknown; error?: unknown; time?: { start?: unknown; end?: unknown } };
   /** step-finish parts only. */
+  reason?: unknown;
   tokens?: { input?: unknown; output?: unknown; reasoning?: unknown; cache?: { read?: unknown; write?: unknown } };
   cost?: unknown;
 }
 
 /** What one finished step spent. */
-interface StepUsage {
-  input: number;
-  output: number;
-  reasoning: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cost: number;
+type StepUsage = StepUsageTrace;
+
+/** One step as the stream showed it; the trace of a turn is the records since the previous flush. */
+interface StepRecord {
+  /* The step's number in the session, counted from 0 and never reused. */
+  seq: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  reason: string | null;
+  usage: StepUsage | null;
+  callIds: string[];
 }
 
 interface TrackedCall {
@@ -77,9 +84,16 @@ interface TrackedCall {
   path?: string;
   window?: string;
   /** What the call pointed at, resolved against the session's directory, redacted and capped. */
-  target: { target: string | null; scope?: string };
+  target: { target: string | null; scope?: string; kind: CallTrace["targetKind"]; relPath?: string };
   /** When the call was first seen running or completed, by the tracker's clock. */
   firstSeenAt: number;
+  /** The latest sighting's status, the runtime's own start and end times, and the absolute index (in the session) of the step open when the call was first seen. */
+  status: CallStatus;
+  startedAt: number | null;
+  endedAt: number | null;
+  stepAbs: number | null;
+  /** A bounded prefix of a navigation's answer, kept for the outcome classifier. */
+  navOutput?: string;
   /** Whether the runtime refused the call under a permission rule. */
   denied: boolean;
   /** Up to PROVIDED_CONTEXT_SAMPLE_LINES normalized lines of a completed content read. */
@@ -139,7 +153,21 @@ interface SessionState {
   stepUsage: Map<string, StepUsage>;
   /** The steps already counted by an earlier flush. */
   flushedUsageIds: Set<string>;
+  /** Every step seen, in order, and the one still open; only the turn in flight's records are held, capped at TRACE_MAX_ENTRIES; an earlier turn's are let go when it is flushed. */
+  stepRecords: StepRecord[];
+  openStep: StepRecord | null;
+  finishedParts: Map<string, StepRecord>;
+  /* The number the next step takes, and the number of the first step of the turn in flight. */
+  nextStepSeq: number;
+  turnFirstStepSeq: number;
+  /* More steps happened in the turn than are kept. */
+  stepsTruncated: boolean;
+  /* Navigation answers kept in the turn in flight. */
+  navKept: number;
 }
+
+/* The most navigation answers one turn keeps for the outcome classifier. */
+export const NAV_OUTPUT_MAX_KEPT = 100;
 
 function pathOf(input: unknown, cwd: string): string | undefined {
   const named = toolInputPath(input);
@@ -162,6 +190,13 @@ function newSession(cwd: string, stepsComplete: boolean): SessionState {
     flushedDenied: 0,
     stepUsage: new Map(),
     flushedUsageIds: new Set(),
+    stepRecords: [],
+    openStep: null,
+    finishedParts: new Map(),
+    nextStepSeq: 0,
+    turnFirstStepSeq: 0,
+    stepsTruncated: false,
+    navKept: 0,
   };
 }
 
@@ -218,14 +253,21 @@ function displayPath(raw: string, cwd: string): string {
   return inside !== "" && !inside.startsWith("..") && !isAbsolute(inside) ? inside : absolute;
 }
 
-function describeTarget(input: unknown, cwd: string): { target: string | null; scope?: string } {
+function describeTarget(input: unknown, cwd: string): TrackedCall["target"] {
   const subject = toolCallSubject(input);
-  if (!subject) return { target: null };
+  if (!subject) return { target: null, kind: null };
   const value = subject.kind === "path" ? displayPath(subject.value, cwd) : subject.value;
   return {
     target: safeTarget(value),
+    kind: subject.kind,
+    ...(subject.kind === "path" && !isAbsolute(value) ? { relPath: value } : {}),
     ...(subject.scope !== undefined ? { scope: safeTarget(displayPath(subject.scope, cwd)) } : {}),
   };
+}
+
+/* A runtime-stamped time: a finite, non-negative number of epoch milliseconds, or nothing. */
+function stamp(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 function toCallRecord(call: TrackedCall): CallRecord {
@@ -312,6 +354,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     if (attempt === 0 && session.turnStartedAt === null) session.turnStartedAt = this.now();
     if (attempt > 0) return;
     session.flushedSteps = session.stepStarts.size;
+    this.startTurnRecords(session);
     const stream = this.streams.get(session.cwd);
     if (stream?.state === "live") session.stepsComplete = true;
     else if (stream?.state === "opening") await this.waitForLive(stream, (live) => { session.stepsComplete = live; });
@@ -367,13 +410,16 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
 
   private apply(session: SessionState, part: PartLike): void {
     if (part.type === "step-start") {
+      const seenBefore = part.id !== undefined && session.stepStarts.has(part.id);
       if (part.id) session.stepStarts.add(part.id);
+      if (!seenBefore) session.openStep = this.addStep(session, this.now());
       session.sawEventSinceFlush = true;
       return;
     }
     if (part.type === "step-finish") {
       const usage = stepUsageOf(part);
       if (part.id && usage) session.stepUsage.set(part.id, usage);
+      this.finishStep(session, part, usage);
       session.sawEventSinceFlush = true;
       return;
     }
@@ -405,14 +451,104 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     if (call) {
       Object.assign(call, seen);
     } else {
-      call = { callId: part.callID, tool: part.tool, firstSeenAt: this.now(), denied: session.deniedIds.has(part.callID), ...seen };
+      const open = session.openStep;
+      call = {
+        callId: part.callID,
+        tool: part.tool,
+        firstSeenAt: this.now(),
+        denied: session.deniedIds.has(part.callID),
+        status,
+        startedAt: null,
+        endedAt: null,
+        stepAbs: open ? open.seq : null,
+        ...seen,
+      };
+      open?.callIds.push(part.callID);
       session.calls.set(part.callID, call);
       session.order.push(part.callID);
+    }
+    call.status = status;
+    call.startedAt = stamp(part.state?.time?.start) ?? call.startedAt;
+    call.endedAt = stamp(part.state?.time?.end) ?? call.endedAt;
+    if (status !== "running" && isNavigationCall(part.tool) && (call.navOutput !== undefined || session.navKept < NAV_OUTPUT_MAX_KEPT)) {
+      const answer = status === "completed" ? part.state?.output : part.state?.error;
+      if (typeof answer === "string") {
+        if (call.navOutput === undefined) session.navKept += 1;
+        call.navOutput = answer.slice(0, NAV_OUTCOME_READ_CHARS);
+      }
     }
 
     if (status === "completed" && isContentReadTool(part.tool) && typeof part.state?.output === "string") {
       call.sample = sampleReadOutput(part.state.output);
     }
+  }
+
+  /* Closes the step that is open (or records one whose start was not seen); a finish seen again updates its step, never adds one. */
+  private finishStep(session: SessionState, part: PartLike, usage: StepUsage | undefined): void {
+    const again = part.id !== undefined ? session.finishedParts.get(part.id) : undefined;
+    const record = again ?? session.openStep ?? this.unopenedStep(session);
+    if (!again) record.finishedAt = this.now();
+    record.reason = typeof part.reason === "string" ? part.reason : record.reason;
+    record.usage = usage ?? record.usage;
+    if (part.id) session.finishedParts.set(part.id, record);
+    if (session.openStep === record) session.openStep = null;
+  }
+
+  /* A step the turn keeps; past the cap it is counted as truncated and not kept (a record nobody holds is still returned so a finish has something to close). */
+  private addStep(session: SessionState, startedAt: number | null): StepRecord {
+    const record: StepRecord = { seq: session.nextStepSeq++, startedAt, finishedAt: null, reason: null, usage: null, callIds: [] };
+    if (session.stepRecords.length < TRACE_MAX_ENTRIES) session.stepRecords.push(record);
+    else session.stepsTruncated = true;
+    return record;
+  }
+
+  private unopenedStep(session: SessionState): StepRecord {
+    return this.addStep(session, null);
+  }
+
+  /* The turn about to start owns no step or answer of an earlier one; the records of those are let go. */
+  private startTurnRecords(session: SessionState): void {
+    session.stepRecords = [];
+    session.finishedParts = new Map();
+    session.openStep = null;
+    session.turnFirstStepSeq = session.nextStepSeq;
+    session.stepsTruncated = false;
+    session.navKept = 0;
+  }
+
+  /* The turn's steps and calls since the previous flush, with step numbers counted from the turn's first. */
+  private traceOf(session: SessionState, turnCalls: readonly TrackedCall[], startedAt: number | null): TurnTrace {
+    const base = session.turnFirstStepSeq;
+    const steps: StepTrace[] = session.stepRecords.map((record, i) => ({
+      index: i + 1,
+      startedAt: record.startedAt,
+      finishedAt: record.finishedAt,
+      reason: record.reason,
+      usage: record.usage,
+      callIds: [...record.callIds],
+    }));
+    const calls: CallTrace[] = turnCalls.slice(0, TRACE_MAX_ENTRIES).map((call) => ({
+      callId: call.callId,
+      tool: call.tool,
+      bucket: call.bucket,
+      status: call.status,
+      startedAt: call.startedAt,
+      endedAt: call.endedAt,
+      firstSeenAt: call.firstSeenAt,
+      step: call.stepAbs !== null && call.stepAbs >= base && call.stepAbs - base < steps.length ? call.stepAbs - base + 1 : null,
+      denied: call.denied,
+      targetKind: call.target.kind,
+      target: call.target.target,
+      ...(call.target.relPath !== undefined ? { relPath: call.target.relPath } : {}),
+      ...(call.navOutput !== undefined ? { navOutput: call.navOutput } : {}),
+    }));
+    return {
+      startedAt,
+      firstStepAt: steps[0]?.startedAt ?? null,
+      steps,
+      calls,
+      truncated: session.stepsTruncated || turnCalls.length > TRACE_MAX_ENTRIES,
+    };
   }
 
   /**
@@ -453,7 +589,9 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       deniedCallCount: session.deniedIds.size - session.flushedDenied,
       toolSequence: turnCalls.slice(0, TOOL_SEQUENCE_MAX_ENTRIES).map(toSequenceEntry),
       usage: session.stepsComplete && finishedSteps.length > 0 ? sumUsage(finishedSteps.map(([, usage]) => usage)) : null,
+      trace: this.traceOf(session, turnCalls, session.turnStartedAt),
     });
+    this.startTurnRecords(session);
     for (const [id] of finishedSteps) session.flushedUsageIds.add(id);
 
     session.flushedDenied = session.deniedIds.size;

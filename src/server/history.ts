@@ -80,6 +80,22 @@ export interface AgentTurnRecord {
   toolSequence?: ToolSequenceEntry[] | null;
   /* What the turn spent over every step it finished. The tokens_* columns hold the usage of the last assistant message alone (what the blocking prompt answers with), so a many-step turn reads there as one step. Null when the steps were not all observed, none finished, or the row predates the column. */
   usageTotal?: TurnUsage | null;
+  /* What the turn's trace mirrors. Written with the row and read back through `getAgentTurnTraces`; `getAgentTurns` (the public turn view) does not carry them. */
+  /* The model the prompt asked for (null: the agent's configured one), the one that answered, its provider, the attempt that ended the turn (1 primary, 2 fallback) and whether the fallback answered. Null where the runtime cannot say or the row predates the column. */
+  modelRequested?: string | null;
+  modelAnswered?: string | null;
+  provider?: string | null;
+  attempt?: number | null;
+  fallbackUsed?: boolean | null;
+  /* The class of the last failure an attempt of the turn met. */
+  errorType?: string | null;
+  /* Byte sizes and sha256 of the prompt's sections, by section id, and the sha256 of the bytes sent. */
+  sectionSizes?: Record<string, number> | null;
+  sectionHashes?: Record<string, string> | null;
+  promptHash?: string | null;
+  /* The time limit that bound the prompt, and the limit that ended the turn. */
+  limitApplied?: string | null;
+  limitFired?: string | null;
 }
 
 /*
@@ -109,6 +125,19 @@ export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: 
   { name: "tool_sequence", type: "TEXT" },
   /* A JSON-encoded TurnUsage. */
   { name: "usage_total", type: "TEXT" },
+  /* What the turn's trace mirrors (these columns are the record; the spans copy them): the model asked for and the one that answered, the attempt, the error class, the prompt's sizes and hashes and the limits. */
+  { name: "model_requested", type: "TEXT" },
+  { name: "model_answered", type: "TEXT" },
+  { name: "provider", type: "TEXT" },
+  { name: "attempt", type: "INTEGER" },
+  { name: "fallback_used", type: "INTEGER" },
+  { name: "error_type", type: "TEXT" },
+  /* JSON objects keyed by section id: byte sizes, and sha256 of each section as sent. */
+  { name: "section_sizes", type: "TEXT" },
+  { name: "section_hashes", type: "TEXT" },
+  { name: "prompt_hash", type: "TEXT" },
+  { name: "limit_applied", type: "TEXT" },
+  { name: "limit_fired", type: "TEXT" },
 ];
 
 const DELETE_MAX_AGE_DAYS = 30;
@@ -480,7 +509,9 @@ function ensureDb(): void {
        total_calls, steps_used, max_steps, calls_before_first_write, write_count,
        redundant_read_count, duplicate_call_count, prompt_provided_read_count, exhausted, call_buckets,
        path_provided_read_count, ended,
-       duration_ms, time_to_first_call_ms, time_to_first_write_ms, denied_call_count, tool_sequence, usage_total)
+       duration_ms, time_to_first_call_ms, time_to_first_write_ms, denied_call_count, tool_sequence, usage_total,
+       model_requested, model_answered, provider, attempt, fallback_used, error_type,
+       section_sizes, section_hashes, prompt_hash, limit_applied, limit_fired)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
@@ -488,7 +519,9 @@ function ensureDb(): void {
        @totalCalls, @stepsUsed, @maxSteps, @callsBeforeFirstWrite, @writeCount,
        @redundantReadCount, @duplicateCallCount, @promptProvidedReadCount, @exhausted, @callBuckets,
        @pathProvidedReadCount, @ended,
-       @durationMs, @timeToFirstCallMs, @timeToFirstWriteMs, @deniedCallCount, @toolSequence, @usageTotal)
+       @durationMs, @timeToFirstCallMs, @timeToFirstWriteMs, @deniedCallCount, @toolSequence, @usageTotal,
+       @modelRequested, @modelAnswered, @provider, @attempt, @fallbackUsed, @errorType,
+       @sectionSizes, @sectionHashes, @promptHash, @limitApplied, @limitFired)
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
@@ -1287,6 +1320,18 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
     deniedCallCount: turn.deniedCallCount ?? null,
     toolSequence: turn.toolSequence ? JSON.stringify(turn.toolSequence) : null,
     usageTotal: turn.usageTotal ? JSON.stringify(turn.usageTotal) : null,
+    modelRequested: turn.modelRequested ?? null,
+    modelAnswered: turn.modelAnswered ?? null,
+    provider: turn.provider ?? null,
+    attempt: turn.attempt ?? null,
+    /* fallback_used is tri-state like exhausted: NULL = unknown. */
+    fallbackUsed: turn.fallbackUsed == null ? null : turn.fallbackUsed ? 1 : 0,
+    errorType: turn.errorType ?? null,
+    sectionSizes: turn.sectionSizes ? JSON.stringify(turn.sectionSizes) : null,
+    sectionHashes: turn.sectionHashes ? JSON.stringify(turn.sectionHashes) : null,
+    promptHash: turn.promptHash ?? null,
+    limitApplied: turn.limitApplied ?? null,
+    limitFired: turn.limitFired ?? null,
   });
 }
 
@@ -1331,6 +1376,17 @@ export function saveAgentTurnEvent(t: AgentTurnEvent): void {
     deniedCallCount: t.callMetrics?.deniedCallCount ?? null,
     toolSequence: t.callMetrics?.toolSequence ?? null,
     usageTotal: t.callMetrics?.usage ?? null,
+    modelRequested: t.modelRequested ?? null,
+    modelAnswered: t.modelAnswered ?? null,
+    provider: t.provider ?? null,
+    attempt: t.attempt ?? null,
+    fallbackUsed: t.fallbackUsed ?? null,
+    errorType: t.errorType ?? null,
+    sectionSizes: t.sectionSizes,
+    sectionHashes: t.sectionHashes ?? null,
+    promptHash: t.promptHash ?? null,
+    limitApplied: t.limitApplied ?? null,
+    limitFired: t.limitFired ?? null,
   });
 }
 
@@ -1373,6 +1429,43 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
     deniedCallCount: (r.denied_call_count as number | null) ?? null,
     toolSequence: typeof r.tool_sequence === "string" ? toolSequenceOrNull(safeJsonParse<unknown>(r.tool_sequence, null)) : null,
     usageTotal: typeof r.usage_total === "string" ? safeJsonParse<TurnUsage | null>(r.usage_total, null) : null,
+  }));
+}
+
+/* What a turn's trace mirrors, in the order of `getAgentTurns` for the same run (the rows are the same, by id). Separate from the public turn view, which does not carry it. Every field is null for a turn that carried none of it. */
+export interface AgentTurnTraceRecord {
+  sessionId: string;
+  round: number;
+  modelRequested: string | null;
+  modelAnswered: string | null;
+  provider: string | null;
+  attempt: number | null;
+  fallbackUsed: boolean | null;
+  errorType: string | null;
+  sectionSizes: Record<string, number> | null;
+  sectionHashes: Record<string, string> | null;
+  promptHash: string | null;
+  limitApplied: string | null;
+  limitFired: string | null;
+}
+
+export function getAgentTurnTraces(runId: string): AgentTurnTraceRecord[] {
+  ensureDb();
+  const rows = getAgentTurnsStmt.all(runId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    sessionId: r.session_id as string,
+    round: r.round as number,
+    modelRequested: (r.model_requested as string | null) ?? null,
+    modelAnswered: (r.model_answered as string | null) ?? null,
+    provider: (r.provider as string | null) ?? null,
+    attempt: (r.attempt as number | null) ?? null,
+    fallbackUsed: r.fallback_used == null ? null : Boolean(r.fallback_used),
+    errorType: (r.error_type as string | null) ?? null,
+    sectionSizes: typeof r.section_sizes === "string" ? safeJsonParse<Record<string, number> | null>(r.section_sizes, null) : null,
+    sectionHashes: typeof r.section_hashes === "string" ? safeJsonParse<Record<string, string> | null>(r.section_hashes, null) : null,
+    promptHash: (r.prompt_hash as string | null) ?? null,
+    limitApplied: (r.limit_applied as string | null) ?? null,
+    limitFired: (r.limit_fired as string | null) ?? null,
   }));
 }
 

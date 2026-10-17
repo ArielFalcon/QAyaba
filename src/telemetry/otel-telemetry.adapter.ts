@@ -312,7 +312,7 @@ export class OtelTelemetry implements TelemetryPort {
   }
 
   private convert(value: unknown, spec: AttrSpec, scope: RedactionScope | undefined): AttributeValue | undefined {
-    if (spec.content === "none") {
+    if (spec.content === "none" || spec.content === "metadata") {
       if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
       if (typeof value === "boolean") return value;
       /* Structural strings are not pattern-sanitized (an id or enum would be corrupted), but the run's own known secrets are removed by value. */

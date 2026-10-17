@@ -13,6 +13,7 @@ import { parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief }
 import { saveAgentTurnEvent } from "../server/history";
 import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/domain/tool-call-taxonomy";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
+import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
 import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
@@ -85,6 +86,7 @@ import {
   type RawAgentTransport,
   type RawPromptResult,
   type RawAgentErrorPayload,
+  type AttemptAnswer,
 } from "@contexts/generation/infrastructure/agent-transport-policy";
 export {
   parseModelRef,
@@ -100,7 +102,7 @@ export {
 export type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent, UsageSnapshot };
 
 interface AgentsConfig {
-  agent?: Record<string, { steps?: unknown; maxSteps?: unknown } | undefined>;
+  agent?: Record<string, { steps?: unknown; maxSteps?: unknown; model?: unknown; options?: { reasoningEffort?: unknown } } | undefined>;
   model_fallback?: Record<string, unknown>;
 }
 
@@ -180,6 +182,21 @@ export function fallbackModelFromConfig(agent: string, configPath: string = DEFA
 
 function getFallbackModel(agent: string): string | undefined {
   return fallbackModelFromConfig(agent);
+}
+
+/*
+ * The model and the reasoning effort opencode.json configures for `agent`, for the trace of its turns: `agent.<id>.model` (a
+ * `provider/model` name) and `agent.<id>.options.reasoningEffort`. This is the orchestrator's copy of a setting the server
+ * resolves from its own configuration, so it says what is configured, not what the server proved it used (the model that answered
+ * is read from the answer). Each is absent when the file, the agent or the setting is, or when it is not a non-empty string.
+ */
+export function agentConfigFacts(agent: string, configPath: string = DEFAULT_AGENTS_CONFIG_PATH()): { model?: string; reasoningEffort?: string } | undefined {
+  const declared = readAgentsConfigEntry(configPath)?.config?.agent?.[agent];
+  if (!declared) return undefined;
+  const text = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
+  const model = text(declared.model);
+  const reasoningEffort = text(declared.options?.reasoningEffort);
+  return model === undefined && reasoningEffort === undefined ? undefined : { ...(model !== undefined ? { model } : {}), ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) };
 }
 
 /*
@@ -571,10 +588,19 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
        * policy layer's agentErrorToInfra.
        */
       const info = res.data?.info as
-        | { error?: RawAgentErrorPayload; tokens?: { input: number; output: number; reasoning: number; cache: { read: number; write: number } }; cost?: number }
+        | {
+            error?: RawAgentErrorPayload;
+            tokens?: { input: number; output: number; reasoning: number; cache: { read: number; write: number } };
+            cost?: number;
+            modelID?: unknown;
+            providerID?: unknown;
+            finish?: unknown;
+            time?: { created?: unknown; completed?: unknown };
+          }
         | undefined;
       return {
         agentError: info?.error,
+        ...answeredFrom(info),
         parts: (res.data?.parts ?? []) as Array<{ type: string; text?: string }>,
         tokens: info?.tokens
           ? {
@@ -595,6 +621,21 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
       await client.session.delete({ path: { id } });
     },
   };
+}
+
+/* Which model and provider answered, how the runtime says it finished, and the times it stamped on the answer: the fields of the assistant message that were discarded here before. Each is kept only when it has the shape it should. */
+export function answeredFrom(info: { modelID?: unknown; providerID?: unknown; finish?: unknown; time?: { created?: unknown; completed?: unknown } } | undefined): { answered?: AttemptAnswer } {
+  if (!info) return {};
+  const text = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
+  const stamp = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+  const answered: AttemptAnswer = {
+    ...(text(info.modelID) !== undefined ? { modelId: text(info.modelID)! } : {}),
+    ...(text(info.providerID) !== undefined ? { providerId: text(info.providerID)! } : {}),
+    ...(text(info.finish) !== undefined ? { finish: text(info.finish)! } : {}),
+    ...(stamp(info.time?.created) !== undefined ? { createdAt: stamp(info.time?.created)! } : {}),
+    ...(stamp(info.time?.completed) !== undefined ? { completedAt: stamp(info.time?.completed)! } : {}),
+  };
+  return Object.keys(answered).length > 0 ? { answered } : {};
 }
 
 /**
@@ -624,6 +665,8 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
     takeTurnCalls: (sessionId, promptText, providedPaths) => callEfficiencyTracker.take(sessionId, promptText, providedPaths),
     prepareAttempt: (sessionId, attempt) => callEfficiencyTracker.prepareAttempt(sessionId, attempt),
     maxStepsFor: maxStepsFromConfig,
+    onAttempt: (sessionId, event) => agentTurnTraces.attempt(sessionId, event),
+    outerLimit: (sessionId, prompt) => agentTurnTraces.firedBy(sessionId, prompt),
   });
 }
 

@@ -45,7 +45,7 @@ export class RunDeadlineRuntime implements AgentRuntimePort {
     /* The deadline is what ends the turn only when it comes no later than the turn's own limit. */
     const deadlineBinds = own === undefined || left <= own;
     try {
-      return await session.prompt(text, { ...promptOpts, timeoutMs: deadlineBinds ? left : own });
+      return await session.prompt(text, { ...promptOpts, timeoutMs: deadlineBinds ? left : own, ...(deadlineBinds ? { timeLimit: "run-deadline" as const } : {}) });
     } catch (err) {
       if (deadlineBinds && isAgentTimeoutError(err)) throw this.spent(role, "mid-turn", err);
       throw err;

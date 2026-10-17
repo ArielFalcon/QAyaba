@@ -4,10 +4,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   CallEfficiencyTracker,
+  NAV_OUTPUT_MAX_KEPT,
   OBSERVATION_READY_TIMEOUT_MS,
   type StreamToken,
   type TrackerTimer,
 } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
+import { TRACE_MAX_ENTRIES } from "@contexts/generation/domain/turn-trace.ts";
 import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper.ts";
 import { TOOL_SEQUENCE_MAX_ENTRIES, TOOL_TARGET_MAX_CHARS } from "@contexts/generation/domain/tool-sequence.ts";
 
@@ -1055,4 +1057,242 @@ test("a step-finish with malformed numbers poisons nothing and adds nothing", as
   tracker.record({ type: "message.part.updated", properties: { part: { id: "fa", sessionID: "s1", type: "step-finish", tokens: { input: "lots" }, cost: "free" } } });
   tracker.record(stepFinish("s1", "fb", { input: 5, output: 1 }, 0.1));
   assert.deepEqual(tracker.take("s1", "")?.usage, { input: 5, output: 1, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.1, steps: 1 });
+});
+
+/* --- the turn trace: per-step and per-call records the span builder reads --- */
+
+function timedTool(sessionID: string, callID: string, tool: string, status: "running" | "completed" | "error", time: { start: number; end?: number }, input: Record<string, unknown> = {}, output?: string, error?: string): RawOpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: `prt_${callID}`, sessionID, messageID: "msg_1", type: "tool", callID, tool,
+        state: { status, input, time, ...(output !== undefined ? { output } : {}), ...(error !== undefined ? { error } : {}) },
+      },
+    },
+  };
+}
+
+function finishWithReason(sessionID: string, id: string, reason: string, tokens: { input: number; output: number; reasoning?: number; read?: number; write?: number }, cost: number): RawOpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: { part: { id, sessionID, messageID: "msg_1", type: "step-finish", reason, tokens: { total: 0, input: tokens.input, output: tokens.output, reasoning: tokens.reasoning ?? 0, cache: { read: tokens.read ?? 0, write: tokens.write ?? 0 } }, cost } },
+  };
+}
+
+test("each step keeps the receive times of its start and finish, its usage and its finish reason, and the calls made in it", async () => {
+  let now = 1_000;
+  const tracker = new CallEfficiencyTracker({ now: () => now });
+  liveStream(tracker);
+  tracker.attach("s1", CWD);
+  await tracker.prepareAttempt("s1", 0);
+
+  now = 1_100;
+  tracker.record(stepStart("s1", "a"));
+  now = 1_150;
+  tracker.record(timedTool("s1", "c1", "read", "running", { start: 5_000 }, { filePath: `${CWD}/src/a.ts` }));
+  tracker.record(timedTool("s1", "c1", "read", "completed", { start: 5_000, end: 5_040 }, { filePath: `${CWD}/src/a.ts` }, "const a = 1"));
+  now = 1_400;
+  tracker.record(finishWithReason("s1", "fa", "tool-calls", { input: 100, output: 10, reasoning: 4, read: 50, write: 2 }, 0.01));
+  now = 1_450;
+  tracker.record(stepStart("s1", "b"));
+  now = 1_900;
+  tracker.record(finishWithReason("s1", "fb", "stop", { input: 20, output: 5 }, 0.02));
+
+  const trace = tracker.take("s1", "")?.trace;
+  assert.ok(trace);
+  assert.equal(trace.steps.length, 2);
+  assert.deepEqual(
+    trace.steps.map((s) => ({ index: s.index, startedAt: s.startedAt, finishedAt: s.finishedAt, reason: s.reason, calls: s.callIds })),
+    [
+      { index: 1, startedAt: 1_100, finishedAt: 1_400, reason: "tool-calls", calls: ["c1"] },
+      { index: 2, startedAt: 1_450, finishedAt: 1_900, reason: "stop", calls: [] },
+    ],
+  );
+  assert.deepEqual(trace.steps[0]!.usage, { input: 100, output: 10, reasoning: 4, cacheRead: 50, cacheWrite: 2, cost: 0.01 });
+  assert.equal(trace.firstStepAt, 1_100);
+});
+
+test("a call keeps the runtime's own start and end times, its status, its step and a sanitized target", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(timedTool("s1", "c1", "read", "running", { start: 7_000 }, { filePath: `${CWD}/src/a.ts` }));
+  tracker.record(timedTool("s1", "c1", "read", "completed", { start: 7_000, end: 7_250 }, { filePath: `${CWD}/src/a.ts` }, "x"));
+  tracker.record(timedTool("s1", "c2", "bash", "running", { start: 7_300 }, { command: "npm test" }));
+  tracker.record(timedTool("s1", "c2", "bash", "error", { start: 7_300, end: 7_900 }, { command: "npm test" }, undefined, "exit 1"));
+
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.deepEqual(
+    calls.map((c) => ({ id: c.callId, tool: c.tool, status: c.status, startedAt: c.startedAt, endedAt: c.endedAt, step: c.step, target: c.target, kind: c.targetKind, rel: c.relPath })),
+    [
+      { id: "c1", tool: "read", status: "completed", startedAt: 7_000, endedAt: 7_250, step: 1, target: "src/a.ts", kind: "path", rel: "src/a.ts" },
+      { id: "c2", tool: "bash", status: "error", startedAt: 7_300, endedAt: 7_900, step: 1, target: "npm test", kind: "command", rel: undefined },
+    ],
+  );
+});
+
+test("a navigation keeps a bounded prefix of its answer for the outcome classifier and no other call does", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(timedTool("s1", "n1", "playwright_browser_navigate", "completed", { start: 1, end: 2 }, { url: "https://app.example/x" }, `### Page state\n- Page URL: https://app.example/x\n${"y".repeat(100_000)}`));
+  tracker.record(timedTool("s1", "r1", "read", "completed", { start: 3, end: 4 }, { filePath: `${CWD}/a.ts` }, "const secret = 1"));
+
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  const nav = calls.find((c) => c.callId === "n1")!;
+  assert.match(nav.navOutput ?? "", /Page URL: https:\/\/app\.example\/x/);
+  assert.ok((nav.navOutput ?? "").length <= 8_000);
+  assert.equal(calls.find((c) => c.callId === "r1")!.navOutput, undefined);
+});
+
+test("a step-finish that arrives with no open step is still a step, with no start time", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(finishWithReason("s1", "fa", "stop", { input: 1, output: 1 }, 0.1));
+  const steps = tracker.take("s1", "")!.trace!.steps;
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0]!.startedAt, null);
+  assert.equal(steps[0]!.reason, "stop");
+});
+
+test("the trace of one turn does not carry the previous turn's steps or calls", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  tracker.record(finishWithReason("s1", "fa", "stop", { input: 1, output: 1 }, 0.1));
+  assert.equal(tracker.take("s1", "")!.trace!.steps.length, 1);
+
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "b"));
+  runCall(tracker, "s1", "c2", "grep", { pattern: "x" });
+  const second = tracker.take("s1", "")!.trace!;
+  assert.deepEqual(second.steps.map((s) => s.index), [1]);
+  assert.deepEqual(second.calls.map((c) => c.callId), ["c2"]);
+  assert.equal(second.calls[0]!.step, 1);
+});
+
+test("the trace is bounded: past the cap entries are counted, not kept", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES + 25; i++) {
+    tracker.record(stepStart("s1", `s${i}`));
+    runCall(tracker, "s1", `c${i}`, "read", { filePath: `${CWD}/f${i}.ts` });
+  }
+  const trace = tracker.take("s1", "")!.trace!;
+  assert.equal(trace.steps.length, TRACE_MAX_ENTRIES);
+  assert.equal(trace.calls.length, TRACE_MAX_ENTRIES);
+  assert.equal(trace.truncated, true);
+});
+
+test("recording the trace does not change any figure the tracker already reported", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  runCall(tracker, "s1", "c2", "write", { filePath: `${CWD}/e2e/a.spec.ts` });
+  tracker.record(stepFinish("s1", "fa", { input: 10, output: 2 }, 0.1));
+  const { trace, ...metrics } = tracker.take("s1", "")!;
+  assert.ok(trace);
+  assert.equal(metrics.totalCalls, 2);
+  assert.equal(metrics.stepsUsed, 1);
+  assert.equal(metrics.writeCount, 1);
+  assert.deepEqual(metrics.usage, { input: 10, output: 2, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.1, steps: 1 });
+});
+
+test("navigation answers are kept for a bounded number of calls per turn, and a later turn starts afresh", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  for (let i = 0; i < 160; i++) tracker.record(timedTool("s1", `n${i}`, "playwright_browser_navigate", "completed", { start: i, end: i + 1 }, { url: `https://app.example/${i}` }, `Page URL: https://app.example/${i}`));
+  const kept = tracker.take("s1", "")!.trace!.calls.filter((c) => c.navOutput !== undefined).length;
+  assert.ok(kept > 0 && kept < 160, "some answers are kept, not all");
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "b"));
+  tracker.record(timedTool("s1", "again", "playwright_browser_navigate", "completed", { start: 1, end: 2 }, { url: "https://app.example/x" }, "Page URL: https://app.example/x"));
+  assert.ok(tracker.take("s1", "")!.trace!.calls.find((c) => c.callId === "again")!.navOutput);
+});
+
+test("steps past the cap are counted and not kept, and the calls made in them carry no step", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES + 3; i++) tracker.record(stepStart("s1", `s${i}`));
+  runCall(tracker, "s1", "late", "read", { filePath: `${CWD}/a.ts` });
+  const trace = tracker.take("s1", "")!.trace!;
+  assert.equal(trace.steps.length, TRACE_MAX_ENTRIES);
+  assert.equal(trace.truncated, true);
+  assert.equal(trace.calls.find((c) => c.callId === "late")!.step, null);
+});
+
+test("the trace is truncated only when more than the cap happened, and a later turn starts untruncated", async () => {
+  const exact = tracked();
+  await exact.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES; i++) {
+    exact.record(stepStart("s1", `s${i}`));
+    runCall(exact, "s1", `c${i}`, "read", { filePath: `${CWD}/f${i}.ts` });
+  }
+  assert.equal(exact.take("s1", "")!.trace!.truncated, false, "exactly the cap is not truncation");
+
+  const callsOnly = tracked();
+  await callsOnly.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES + 1; i++) runCall(callsOnly, "s1", `c${i}`, "read", { filePath: `${CWD}/f${i}.ts` });
+  assert.equal(callsOnly.take("s1", "")!.trace!.truncated, true, "one call past the cap is");
+
+  const steps = tracked();
+  await steps.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES + 1; i++) steps.record(stepStart("s1", `s${i}`));
+  assert.equal(steps.take("s1", "")!.trace!.truncated, true);
+  await steps.prepareAttempt("s1", 0);
+  steps.record(stepStart("s1", "next"));
+  assert.equal(steps.take("s1", "")!.trace!.truncated, false);
+});
+
+test("a call in the last kept step has that step, and one in the first step past the cap has none", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES; i++) tracker.record(stepStart("s1", `s${i}`));
+  runCall(tracker, "s1", "last-kept", "read", { filePath: `${CWD}/a.ts` });
+  tracker.record(stepStart("s1", "first-dropped"));
+  runCall(tracker, "s1", "dropped", "read", { filePath: `${CWD}/b.ts` });
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.equal(calls.find((c) => c.callId === "last-kept")!.step, TRACE_MAX_ENTRIES);
+  assert.equal(calls.find((c) => c.callId === "dropped")!.step, null);
+});
+
+test("exactly the navigation cap of answers is kept, and the next one is not", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  for (let i = 0; i <= NAV_OUTPUT_MAX_KEPT; i++) tracker.record(timedTool("s1", `n${i}`, "playwright_browser_navigate", "completed", { start: i, end: i + 1 }, { url: "https://app.example/" }, "Page URL: https://app.example/"));
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.equal(calls.filter((c) => c.navOutput !== undefined).length, NAV_OUTPUT_MAX_KEPT);
+  assert.equal(calls.find((c) => c.callId === `n${NAV_OUTPUT_MAX_KEPT}`)!.navOutput, undefined);
+});
+
+test("a step finish seen again does not close the step that opened after it, and a call outside any step has none", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(finishWithReason("s1", "fa", "tool-calls", { input: 1, output: 1 }, 0.1));
+  runCall(tracker, "s1", "outside", "read", { filePath: `${CWD}/a.ts` });
+  tracker.record(stepStart("s1", "b"));
+  tracker.record(finishWithReason("s1", "fa", "tool-calls", { input: 1, output: 2 }, 0.1));
+  runCall(tracker, "s1", "inside-b", "read", { filePath: `${CWD}/b.ts` });
+  const trace = tracker.take("s1", "")!.trace!;
+  assert.equal(trace.calls.find((c) => c.callId === "outside")!.step, null);
+  assert.equal(trace.calls.find((c) => c.callId === "inside-b")!.step, 2);
+  assert.deepEqual(trace.steps.map((s) => s.index), [1, 2]);
+  assert.equal(trace.steps[0]!.usage!.output, 2, "the later sighting of the finish wins");
+});
+
+test("a call keeps the target kind and the path inside the working copy only when it names one", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  runCall(tracker, "s1", "inside", "read", { filePath: `${CWD}/src/a.ts` });
+  runCall(tracker, "s1", "outside", "read", { filePath: "/etc/hosts" });
+  runCall(tracker, "s1", "none", "todowrite", {});
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.deepEqual(calls.map((c) => [c.callId, c.relPath, c.targetKind]), [["inside", "src/a.ts", "path"], ["outside", undefined, "path"], ["none", undefined, null]]);
 });

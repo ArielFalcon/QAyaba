@@ -19,6 +19,7 @@ import { diffStat } from "../domain/diff-stat.ts";
 import { generationRunsReviewer } from "../domain/generation-review.ts";
 import { generatorTimeBudgetMs, type DiffTimeBudgets } from "../domain/generator-time-budget.ts";
 import { isReGenTurn } from "../domain/regen-turn.ts";
+import { promptFactsOpts } from "../domain/prompt-facts.ts";
 import { REPAIR_TURN_TIMEOUT_MS, renderRepairTimeoutNote, repairTurnLimit } from "../domain/repair-turn.ts";
 
 export interface RepairPort {
@@ -95,6 +96,7 @@ export class GenerateTestsUseCase {
     const session = await this.ports.runtime.openSession("primary", input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       timeoutMs: planning.budgetMs,
+      timeLimit: "prompt-budget",
       descriptor: { runId: input.runId, role: "qa-generator" },
     });
     let output = "";
@@ -103,11 +105,13 @@ export class GenerateTestsUseCase {
     try {
       const result = await session.prompt(assembled.text, {
         sectionSizes: assembled.sectionSizes,
+        ...promptFactsOpts(assembled),
         ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
         ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
         finalStepOnly: true,
         withoutWrites: true,
         timeoutMs: planning.budgetMs,
+        timeLimit: "prompt-budget",
         onTurnStats: (stats) => { turn = stats; },
       });
       output = result.output;
@@ -148,15 +152,15 @@ export class GenerateTestsUseCase {
     const now = this.ports.now ?? Date.now;
     const deadline = timeBudgetMs !== undefined ? now() + timeBudgetMs : undefined;
     const remainingMs = (): number | undefined => (deadline !== undefined ? deadline - now() : undefined);
-    const promptTime = (): { timeoutMs?: number } => {
+    const promptTime = (): { timeoutMs?: number; timeLimit?: "tier-budget" } => {
       const left = remainingMs();
-      return left !== undefined ? { timeoutMs: left } : {};
+      return left !== undefined ? { timeoutMs: left, timeLimit: "tier-budget" } : {};
     };
 
     const generatorRole: AgentRole = "primary";
     const session = await runtime.openSession(generatorRole, input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
-      ...(timeBudgetMs !== undefined ? { timeoutMs: timeBudgetMs } : {}),
+      ...(timeBudgetMs !== undefined ? { timeoutMs: timeBudgetMs, timeLimit: "tier-budget" as const } : {}),
       descriptor: { runId: input.runId, role: "qa-generator" },
     });
     let generatorOutput = "";
@@ -174,6 +178,7 @@ export class GenerateTestsUseCase {
       try {
         const result = await session.prompt(assembled.text, {
           sectionSizes: assembled.sectionSizes,
+          ...promptFactsOpts(assembled),
           ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
           ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
           finalStepOnly: true,
@@ -200,7 +205,7 @@ export class GenerateTestsUseCase {
             try {
               const repairResult = await session.prompt(
                 repair.instruction("generator", genCheck.issues, { priorResponseTail: generatorOutput }),
-                { isRepair: true, withoutTools: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, timeoutMs: limit.timeoutMs, onTurnStats: (stats) => { repairTurn = stats; } },
+                { isRepair: true, withoutTools: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, timeoutMs: limit.timeoutMs, timeLimit: limit.boundByCaller ? "tier-budget" : "repair-cap", onTurnStats: (stats) => { repairTurn = stats; } },
               );
               generatorOutput = repairResult.output;
             } catch (err) {
@@ -302,6 +307,7 @@ export class GenerateTestsUseCase {
     try {
       const reviewOut = await reviewerSession.prompt(reviewerAssembled.text, {
         sectionSizes: reviewerAssembled.sectionSizes,
+        ...promptFactsOpts(reviewerAssembled),
         ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}),
       });
       let reviewText = reviewOut.output;
@@ -312,7 +318,7 @@ export class GenerateTestsUseCase {
         try {
           const repaired = await reviewerSession.prompt(
             repair.instruction("reviewer", v.issues, { priorResponseTail: reviewText }),
-            { isRepair: true, withoutTools: true, timeoutMs: repairCapMs, ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}) },
+            { isRepair: true, withoutTools: true, timeoutMs: repairCapMs, timeLimit: "repair-cap", ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}) },
           );
           reviewText = repaired.output;
           v = verdicts.parseReview(reviewText);

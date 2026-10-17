@@ -11,6 +11,14 @@ interface CircuitState {
   lastFailure: number;
 }
 
+/* The breaker refusing a call: an Error like any other to a caller, named so a trace can tell it from a provider fault. */
+export class CircuitOpenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CircuitOpenError";
+  }
+}
+
 const circuits = new Map<string, CircuitState>();
 export const CIRCUIT_THRESHOLD = 5;
 const CIRCUIT_COOLDOWN_MS = 60_000;
@@ -29,7 +37,7 @@ export function checkCircuit(role: string): void {
   if (!s || !s.open) return;
   const elapsed = Date.now() - s.lastFailure;
   if (elapsed < CIRCUIT_COOLDOWN_MS) {
-    throw new Error(`OpenCode circuit breaker is OPEN (cooldown ${Math.round((CIRCUIT_COOLDOWN_MS - elapsed) / 1000)}s remaining)`);
+    throw new CircuitOpenError(`OpenCode circuit breaker is OPEN (cooldown ${Math.round((CIRCUIT_COOLDOWN_MS - elapsed) / 1000)}s remaining)`);
   }
   s.open = false;
   s.failures = 0;

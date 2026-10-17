@@ -727,6 +727,44 @@ test("the composed engine's agent turns are held to the run's deadline: once it 
   assert.equal(opened, 0);
 });
 
+test("the composed engine hands the host the app's own step classification, and the name of the limit a session's time is", async () => {
+  const seen: Array<unknown> = [];
+  const opened: Array<unknown> = [];
+  const host = (turn?: unknown): AgentDeps => {
+    seen.push(turn);
+    return { open: async (_agent, _cwd, opts) => { opened.push(opts); return { id: "s", prompt: async () => "{}", dispose: async () => {} }; } };
+  };
+  const e2e: AppConfig = { ...cfg("factory-turn-intent"), auth: { kind: "form", usernameEnv: "U", passwordEnv: "P", loginPath: "/entrar" }, dev: { baseUrl: "https://dev.example.com" } };
+  const config = buildRewrittenCompositionConfig(e2e, { getAgentDeps: host as never }, "ns-intent", { mode: "manual" });
+  const session = await config.reviewRuntime.runtime.openSession("explorer", "/m", { timeoutMs: 1_000, timeLimit: "explorer-timeout" });
+  await session.dispose();
+  const { specTargets, authFiles, loginUrls, reviewAgents } = (seen[0] as { intent: { specTargets: unknown; authFiles: string[]; loginUrls: string[]; reviewAgents: string[] } }).intent;
+  assert.deepEqual(specTargets, { kind: "dir", relDir: "e2e" });
+  assert.deepEqual([authFiles, loginUrls, reviewAgents], [["e2e/auth.setup.ts"], ["https://dev.example.com/entrar"], ["qa-reviewer"]]);
+  assert.equal((opened[0] as { timeLimit?: string }).timeLimit, "explorer-timeout");
+
+  const code = buildRewrittenCompositionConfig({ ...cfg("factory-turn-intent-code"), code: true, dev: undefined }, { getAgentDeps: host as never }, "ns-intent-code", { mode: "manual", target: "code" });
+  await (await code.reviewRuntime.runtime.openSession("reviewer", "/m")).dispose();
+  assert.deepEqual((seen[1] as { intent: { specTargets: unknown } }).intent.specTargets, { kind: "any-write" });
+});
+
+test("engineAgentDeps traces a prompt as an invoke_agent turn when the host has a telemetry port, and adds nothing when it has none", async () => {
+  const { traceHarness } = await import("../telemetry/trace-harness");
+  const h = traceHarness();
+  const host: AgentDeps = { open: async () => ({ id: "ses-traced", prompt: async () => "answer", dispose: async () => {} }) as never };
+  const traced = engineAgentDeps({ getAgentDeps: () => host, telemetry: h.telemetry, clock: h.clock });
+  const session = await traced.open("qa-generator", "/m", { descriptor: { runId: "run-traced", role: "qa-generator" } });
+  assert.equal(await session.prompt("hello"), "answer");
+  await session.dispose();
+  assert.equal(h.only("invoke_agent qa-generator").attributes["gen_ai.conversation.id"], "ses-traced");
+
+  const quiet = traceHarness();
+  const plain = engineAgentDeps({ getAgentDeps: () => host });
+  const plainSession = await plain.open("qa-generator", "/m", { descriptor: { runId: "run-plain", role: "qa-generator" } });
+  assert.equal(await plainSession.prompt("hello"), "answer");
+  assert.equal(quiet.spans().length, 0);
+});
+
 test("until the use case arms the run's deadline, the composed engine's agent turns are not bounded by it", async () => {
   let opened = 0;
   const fakeAgentDeps: AgentDeps = { open: async () => { opened++; return { id: "s", prompt: async () => "{}", dispose: async () => {} }; } };
@@ -3679,6 +3717,22 @@ test("a session opened with no denied tools installs none", async () => {
 });
 
 /* ── The acceptance harness an experiment arm is judged by ─────────────────────────────────────── */
+
+test("the acceptance harness's reviewer is opened with the same step classification as a run's agents", async () => {
+  const { buildAcceptanceHarness } = await import("./rewritten-engine-factory");
+  const copyDir = mkdtempSync(join(tmpdir(), "acceptance-turn-"));
+  try {
+    const exec = { isolated: false, workDir: () => copyDir, allocDir: () => copyDir, writeScript: () => "", spawn: () => { throw new Error("no process"); } };
+    const app: AppConfig = { ...cfg("accept-turn-app"), auth: { kind: "form", usernameEnv: "U", passwordEnv: "P", loginPath: "/entrar" }, dev: { baseUrl: "https://dev.example.com" } };
+    const seen: unknown[] = [];
+    const harness = buildAcceptanceHarness({ app, copyDir, exec: exec as never, getAgentDeps: ((turn?: unknown) => { seen.push(turn); return { open: async () => { throw new Error("no session in this test"); } }; }) as never });
+    await harness.review!.review(copyDir, [], "");
+    const { loginUrls, reviewAgents } = (seen[0] as { intent: { loginUrls: string[]; reviewAgents: string[] } }).intent;
+    assert.deepEqual([loginUrls, reviewAgents], [["https://dev.example.com/entrar"], ["qa-reviewer"]]);
+  } finally {
+    rmSync(copyDir, { recursive: true, force: true });
+  }
+});
 
 test("buildAcceptanceHarness composes the pipeline's own gate, execution, coverage and review over a throwaway copy", async () => {
   const { buildAcceptanceHarness } = await import("./rewritten-engine-factory");

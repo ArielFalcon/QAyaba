@@ -49,7 +49,7 @@ test("explore(): opens an explorer session, sends the built prompt, and parses t
   assert.equal(disposed, true, "dispose must run on the success path");
   assert.match(promptSeen, /deadbeef/, "the built prompt must carry the given sha");
   assert.deepEqual(opens, [
-    { role: "explorer", cwd: "/mirrors/org__demo", opts: { timeoutMs: 60_000, descriptor: { role: "qa-explorer", liveObservation: false } } },
+    { role: "explorer", cwd: "/mirrors/org__demo", opts: { timeoutMs: 60_000, timeLimit: "explorer-timeout", descriptor: { role: "qa-explorer", liveObservation: false } } },
   ]);
 });
 

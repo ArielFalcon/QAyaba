@@ -1029,6 +1029,18 @@ their own commits.
 | **S5 Campaigns** | Trigger metadata (API #1), datasets, replicate comparison report | B7 |
 | **S6 Judges** | Annotation queues, human-label import, LLM judges, calibration | Trusted LLM scores |
 
+**S2a status (OpenCode agent turns).** Delivered: the `invoke_agent` / `qayaba.agent.attempt` / synthesized `chat` and
+`execute_tool` tree at the `AgentDeps` facade (`generation/infrastructure/telemetry/`), the `onAttempt` hook, per-layer limit
+names (`AgentPromptOpts.timeLimit`, the stall watchdog's `onStall`), the error classifier, section and prompt hashes over the bytes
+sent (a new `metadata` content class: exported in `metadata` and `full`, never in `off`), the `agent_turns` columns (read back
+through `getAgentTurnTraces`, not through the public turn view) and the turn metrics. Not in S2a: Codex attempts and usage
+(S2c), explorer tracking (S2c), the verdict-shape attributes (`qayaba.agent.verdict.*`: the verdict is parsed above the facade),
+`run_spec`/`authbrowser` server spans, tool schema bytes (§5.6), and the S3 attributes of W16 (`context.item_ids.referenced`,
+`selector.strategy`). Reasoning effort and the configured model are read from the orchestrator's copy of `agents/opencode.json`
+(what is configured, not what the server proved it used; the model that answered comes from the answer). OpenCode's
+`tokens.input` is read as excluding the cache and `tokens.output` as including reasoning; both stay unconfirmed against its source
+until spike S0.4, and live in one function (`normalizeOpenCodeUsage`).
+
 ---
 
 ## 17. Resolved decisions

@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
+import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 
@@ -55,6 +55,12 @@ import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-ti
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { RunDeadline } from "@contexts/qa-run-orchestration/domain/run-deadline";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
+import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
+import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
+import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
+import { watchSpanForHost } from "../telemetry/host-listeners";
+import { SYSTEM_CLOCK } from "./run-trace";
+import { stepIntentContextFor } from "./turn-telemetry-config";
 import { resolveRunTimeBudgets } from "@contexts/qa-run-orchestration/domain/run-time-budget";
 import { RunDeadlineRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-deadline-runtime.adapter";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter";
@@ -462,7 +468,8 @@ export interface RewrittenEngineFactoryDeps {
    * Reads the SAME AgentDeps facade the host's currentAgentDeps() resolves (src/index.ts) — the
    * real :4097 supervisor, not a second AgentRuntimeManager instance.
    */
-  getAgentDeps: () => AgentDeps;
+  /* The host's agent sessions. A run passes the context that classifies its agents' steps for the trace; a host that traces nothing ignores it. */
+  getAgentDeps: (turn?: TurnTelemetryContext) => AgentDeps;
   /*
    * The agent runtime's CURRENT facade, resolved once per run: the runtime is switchable, so a facade held any
    * longer could be the wrong runtime's. It is where the step limit each role runs under is read from. Optional:
@@ -629,7 +636,7 @@ export interface AcceptanceHarnessInput {
   /* The launcher the specs run through; its run scope is the caller's (a script opens one, as the pipeline's run does). */
   exec: ExecSandboxPort;
   /* The host's agent sessions, for the reviewer. Absent: no reviewer is composed. */
-  getAgentDeps?: () => AgentDeps;
+  getAgentDeps?: (turn?: TurnTelemetryContext) => AgentDeps;
 }
 
 export interface AcceptanceHarness {
@@ -682,10 +689,14 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   );
 
   const getAgentDeps = input.getAgentDeps;
+  /* The reviewer's steps are classified from the app's own configuration here too. */
+  const acceptanceTurn: TurnTelemetryContext = {
+    intent: stepIntentContextFor({ target: "e2e", e2eRelDir, ...(baseUrl ? { baseUrl } : {}), ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}), reviewAgents: [roleToAgentName("reviewer")] }),
+  };
   const review = getAgentDeps
     ? new ReviewPortAdapter(
         {
-          runtime: new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => getAgentDeps().open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.model ? { model: opts.model } : {}), ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}) }) }, roleToAgentName),
+          runtime: new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => getAgentDeps(acceptanceTurn).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}), ...(opts?.model ? { model: opts.model } : {}), ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}) }) }, roleToAgentName),
           rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow }),
           verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }),
         },
@@ -833,14 +844,25 @@ export function buildRewrittenCompositionConfig(
   const structuralSignalsMode = app.qa.structuralSignals?.mode ?? "signal";
   const structuralSignalsOn = structuralSignalsMode !== "off";
 
+  /* What classifies this run's agent steps in its trace: the app's own configuration, never a name. */
+  const turnTelemetry: TurnTelemetryContext = {
+    intent: stepIntentContextFor({
+      target,
+      e2eRelDir,
+      ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
+      ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}),
+      reviewAgents: [roleToAgentName("reviewer")],
+    }),
+  };
   /* Reuse the host AgentDeps. Forward descriptor so session registration sees the real runId. */
   const runtimeAdapter = new AgentRuntimeAdapter(
     {
       open: async (agent, cwd, opts) => {
-        const real = deps.getAgentDeps();
+        const real = deps.getAgentDeps(turnTelemetry);
         return real.open(agent, cwd, {
           ...(opts?.signal ? { signal: opts.signal } : {}),
           ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+          ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}),
           ...(opts?.model ? { model: opts.model } : {}),
           ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}),
         });
@@ -1387,11 +1409,19 @@ export function buildRewrittenCompositionConfig(
 }
 
 
+/* What the composition tells the agent transport about a run, for its trace: how the app's steps are classified. */
+export interface TurnTelemetryContext {
+  intent: StepIntentContext;
+}
+
+/* The classification of a host that was handed none: an e2e suite in `e2e/`, no login of its own, no judging agent. */
+const DEFAULT_STEP_INTENT: StepIntentContext = { specTargets: { kind: "dir", relDir: "e2e" }, authFiles: [], loginUrls: [], authOnlyOrigins: [], reviewAgents: [] };
+
 /* The agent transport the engine opens its sessions through: the host's, with live observation, the stall watchdog and usage, and the run_spec and agent-browser registries told which sessions the agents open for which run. */
-export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry">): AgentDeps {
+export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry" | "telemetry" | "clock">, turn?: TurnTelemetryContext): AgentDeps {
   const registry = deps.closedLoopRegistry;
   const browsers = deps.agentBrowserRegistry;
-  return withUsageSink(
+  const stack = withUsageSink(
     withStallWatchdog(
       withSessionRegistration(deps.getAgentDeps(), {
         register: registerRunSession,
@@ -1407,9 +1437,19 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
           setSessionToolDeny(sessionId, undefined);
         },
       }),
-      { stallMs: stallMs() },
+      { stallMs: stallMs(), onStall: (sessionId) => agentTurnTraces.fired(sessionId, "stall") },
     ),
   );
+  /* The turn span sits outside the stall watchdog, so it sees a watchdog's abort. Without a telemetry port the stack is returned as it is. */
+  if (!deps.telemetry) return stack;
+  return withTurnTelemetry(stack, {
+    telemetry: deps.telemetry,
+    clock: deps.clock ?? SYSTEM_CLOCK,
+    intent: turn?.intent ?? DEFAULT_STEP_INTENT,
+    watchHost: (span) => watchSpanForHost(span),
+    stepLimitFor: (agent) => maxStepsFromConfig(agent),
+    agentConfig: (agent) => agentConfigFacts(agent),
+  });
 }
 
 export function createRewrittenEngineFactory(
@@ -1418,7 +1458,7 @@ export function createRewrittenEngineFactory(
   const env = deps.env ?? process.env;
   const wrappedDeps: RewrittenEngineFactoryDeps = {
     ...deps,
-    getAgentDeps: () => engineAgentDeps(deps),
+    getAgentDeps: (turn) => engineAgentDeps(deps, turn),
   };
   return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string }, observer?: ObserverPort): RunPipelinePort => {
     const cfg = buildRewrittenCompositionConfig(appConfig, wrappedDeps, namespace, run, observer);

@@ -1,6 +1,7 @@
 /* Kernel session-management seam. Generation depends on AgentRuntimePort from the kernel, decoupled from the agent-runtime context. Shapes are declared locally so the port never imports src/. */
 
 import type { AgentRole, AgentProvider } from "@kernel/agent-role.ts";
+import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 
 export interface UsageSnapshot { inputTokens: number; outputTokens: number; provider: AgentProvider; }
 
@@ -70,6 +71,13 @@ export interface AgentPromptOpts {
   withoutTools?: boolean;
   /** The agent may read and look things up but may not write or edit a file in this prompt: for a turn whose only product is its answer (a plan). A runtime with no per-prompt control over tools ignores it. */
   withoutWrites?: boolean;
+  /** Which limit `timeoutMs` is (a tier's budget, a repair cap, the run's deadline). Only a name for the trace: it changes no behaviour. Absent: a `timeoutMs` is a prompt budget of unstated origin. */
+  timeLimit?: TimeLimitSource;
+  /** sha256 of each section of the prompt, by section id, computed by the assembler over the section with the run's secrets taken out. Only for the trace. The hash of the whole prompt is the transport's, over the exact bytes it sends. */
+  sectionHashes?: Record<string, string> | null;
+  /** How many sections the byte budget omitted, and the budget the prompt was assembled to. Only for the trace. */
+  sectionsDropped?: number;
+  promptBudgetBytes?: number;
 }
 
 export interface AgentSession {
@@ -79,6 +87,8 @@ export interface AgentSession {
 export interface OpenSessionOpts {
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Which limit `timeoutMs` is. Only a name for the trace. */
+  timeLimit?: TimeLimitSource;
   model?: string;
   onUsage?: (u: UsageSnapshot) => void;
   onTurn?: (t: AgentTurnEvent) => void;

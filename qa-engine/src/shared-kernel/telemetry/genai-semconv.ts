@@ -15,6 +15,7 @@ export const GENAI = {
     requestReasoningLevel: "gen_ai.request.reasoning.level",
     responseFinishReasons: "gen_ai.response.finish_reasons",
     toolName: "gen_ai.tool.name",
+    toolCallId: "gen_ai.tool.call.id",
     usageInputTokens: "gen_ai.usage.input_tokens",
     usageOutputTokens: "gen_ai.usage.output_tokens",
     usageCacheReadInputTokens: "gen_ai.usage.cache_read.input_tokens",
@@ -45,3 +46,38 @@ export const GENAI = {
 
 export type GenAiAttrKey = (typeof GENAI.attrs)[keyof typeof GENAI.attrs];
 export type GenAiMetricName = (typeof GENAI.metrics)[keyof typeof GENAI.metrics];
+
+/* Token counts as a runtime reports them for one inference, and as the conventions count them. */
+export interface RuntimeTokenUsage {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+/* The conventions' counts: `input` includes the cache reads and writes, `reasoning` is part of `output`. */
+export interface ConventionTokenUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  reasoning: number;
+}
+
+/*
+ * OpenCode reports `tokens.input` WITHOUT the tokens served from or written to the cache (it subtracts them from the provider's
+ * count before it records the step), and reports cache reads, cache writes and reasoning apart. The conventions' input count
+ * INCLUDES the cache, so the sum is made here, once, for every consumer: a viewer that adds the cache counts to an inclusive
+ * input would count them twice. `output` is passed as reported, and `reasoning` is read as a part of it. Both are the pinned
+ * build's behaviour, read from its step parts and not yet confirmed against its source (spike S0.4).
+ */
+export function normalizeOpenCodeUsage(usage: RuntimeTokenUsage): ConventionTokenUsage {
+  return {
+    input: usage.input + usage.cacheRead + usage.cacheWrite,
+    output: usage.output,
+    cacheRead: usage.cacheRead,
+    cacheWrite: usage.cacheWrite,
+    reasoning: usage.reasoning,
+  };
+}

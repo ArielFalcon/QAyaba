@@ -253,7 +253,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
-      `${GEN}/application/generate-tests.use-case.ts:258-259`,
+      `${GEN}/application/generate-tests.use-case.ts:263-264`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:147-153`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:179-180`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:188-188`,
@@ -392,11 +392,11 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/opencode-strategy.ts:158-166",
       "src/agent-runtime/facades.ts:49-51",
       "src/agent-runtime/facades.ts:103-115",
-      "src/integrations/opencode-client.ts:200-201",
-      "src/integrations/opencode-client.ts:313-315",
-      "src/integrations/opencode-client.ts:323-333",
+      "src/integrations/opencode-client.ts:217-218",
+      "src/integrations/opencode-client.ts:330-332",
+      "src/integrations/opencode-client.ts:340-350",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
-      "src/server/rewritten-engine-factory.ts:556-588",
+      "src/server/rewritten-engine-factory.ts:563-595",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",

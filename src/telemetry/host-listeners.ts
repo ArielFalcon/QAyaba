@@ -1,5 +1,7 @@
 /* Who hears what the host did to the process. HostHealth notifies every registered listener; the active run's root span registers itself for the length of the run (RunTrace), and the active agent-turn span can do the same. A set, not a single slot, so the run and a turn hear the same event. A listener that throws never silences the others and never reaches the notifier. */
 
+import type { SpanHandle } from "@kernel/telemetry/telemetry.port";
+
 export interface HostEventListener {
   /* The process was frozen for `ms` while wall time moved. `at` is wall-clock ms when it was noticed. */
   hostSuspended(ms: number, at: number): void;
@@ -36,3 +38,12 @@ export class HostListeners {
 
 /* The process-wide set: HostHealth and RunTrace default to it. */
 export const hostListeners = new HostListeners();
+
+/* A span that hears what the host does to the process while it is open: a suspend or a blocked event loop becomes an event on it, so a turn that went quiet because the machine slept says so itself. Returns the way to stop listening; the owner of the span calls it when the span ends. */
+export function watchSpanForHost(span: SpanHandle, listeners: HostListeners = hostListeners): () => void {
+  return listeners.add({
+    hostSuspended: (ms, at) => span.addEvent("host_suspended", { "qayaba.host.suspend_ms": Math.round(ms) }, at),
+    eventLoopBlocked: (ms, at) => span.addEvent("event_loop_blocked", { "qayaba.host.blocked_ms": Math.round(ms) }, at),
+    eventLoopObserved: () => {},
+  });
+}

@@ -89,6 +89,7 @@ export class ExplorerBriefSessionAdapter {
       session = await this.deps.runtime.openSession("explorer", cwd, {
         ...(args.signal ? { signal: args.signal } : {}),
         timeoutMs: this.ctx.timeoutMs,
+        timeLimit: "explorer-timeout",
         /*
          * liveObservation: false — the explorer's turns persist
          * (tagged with runId below) but its session must NOT be SSE-registered:

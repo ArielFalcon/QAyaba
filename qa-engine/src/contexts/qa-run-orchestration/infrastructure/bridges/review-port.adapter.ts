@@ -8,6 +8,7 @@ import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generatio
 import type { ReviewInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { renderLearnedRulesForReviewer } from "./generation-port.adapter.ts";
+import { promptFactsOpts } from "@contexts/generation/domain/prompt-facts.ts";
 import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 
 export interface ReviewPortRuntime {
@@ -78,12 +79,12 @@ export class ReviewPortAdapter implements ReviewPort {
     try {
       const session = await runtime.openSession("reviewer", this.ctx.mirrorDir, {
         descriptor: { runId: enrichment?.runId, role: "qa-reviewer" },
-        ...(this.ctx.timeoutMs !== undefined ? { timeoutMs: this.ctx.timeoutMs } : {}),
+        ...(this.ctx.timeoutMs !== undefined ? { timeoutMs: this.ctx.timeoutMs, timeLimit: "session-timeout" as const } : {}),
       });
       let output: string;
       try {
         /* The turn is judged by the limit the prompt states. */
-        const out = await session.prompt(assembled.text, { sectionSizes: assembled.sectionSizes, ...(stepLimit !== undefined ? { stepLimit } : {}) });
+        const out = await session.prompt(assembled.text, { sectionSizes: assembled.sectionSizes, ...promptFactsOpts(assembled), ...(stepLimit !== undefined ? { stepLimit } : {}) });
         output = out.output;
       } finally {
         await session.dispose();

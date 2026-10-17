@@ -42,7 +42,7 @@ test("every registered key and template carries a described, classified spec", (
   for (const spec of specs) {
     assert.ok(spec.description.length > 0);
     assert.ok(["low", "high"].includes(spec.cardinality));
-    assert.ok(["none", "redacted-text", "content"].includes(spec.content));
+    assert.ok(["none", "metadata", "redacted-text", "content"].includes(spec.content));
   }
 });
 

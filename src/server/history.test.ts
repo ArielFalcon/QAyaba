@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel } from "./history";
+import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -697,6 +697,42 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
     { tool: "grep", target: "createUser", scope: "src" },
     { tool: "bash", target: "rm -rf /", denied: true },
   ]);
+});
+
+test("saveAgentTurnEvent keeps the model asked for and the one that answered, the attempt, the error class, the prompt's hashes and the limits", () => {
+  const runId = "run-event-trace-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({
+    runId,
+    sessionId: "s-traced",
+    sectionSizes: { task: 120, "working-rules": 4_000 },
+    modelRequested: "prov/asked",
+    modelAnswered: "answered-model",
+    provider: "prov",
+    attempt: 2,
+    fallbackUsed: true,
+    errorType: "socket_closed",
+    sectionHashes: { task: "a".repeat(64), "working-rules": "b".repeat(64) },
+    promptHash: "c".repeat(64),
+    limitApplied: "tier-budget",
+    limitFired: "step-cap",
+  }));
+  saveAgentTurnEvent(makeTurnEvent({ runId, sessionId: "s-untraced" }));
+  const turns = getAgentTurnTraces(runId);
+  assert.equal(getAgentTurns(runId).length, 2, "the public turn view still lists both rows");
+  const traced = turns.find((t) => t.sessionId === "s-traced")!;
+  assert.deepEqual(
+    [traced.modelRequested, traced.modelAnswered, traced.provider, traced.attempt, traced.fallbackUsed, traced.errorType, traced.limitApplied, traced.limitFired],
+    ["prov/asked", "answered-model", "prov", 2, true, "socket_closed", "tier-budget", "step-cap"],
+  );
+  assert.deepEqual(traced.sectionSizes, { task: 120, "working-rules": 4_000 });
+  assert.deepEqual(traced.sectionHashes, { task: "a".repeat(64), "working-rules": "b".repeat(64) });
+  assert.equal(traced.promptHash, "c".repeat(64));
+  const untraced = turns.find((t) => t.sessionId === "s-untraced")!;
+  assert.deepEqual(
+    [untraced.modelRequested, untraced.modelAnswered, untraced.provider, untraced.attempt, untraced.fallbackUsed, untraced.errorType, untraced.sectionSizes, untraced.sectionHashes, untraced.promptHash, untraced.limitApplied, untraced.limitFired],
+    [null, null, null, null, null, null, null, null, null, null, null],
+    "a turn that carries none of it reads back as unknown, never as an empty value",
+  );
 });
 
 test("a turn that wrote nothing keeps its unknown time to first write and an empty tool sequence apart from a turn that was not measured", () => {

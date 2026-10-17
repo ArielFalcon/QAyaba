@@ -75,7 +75,17 @@ test("every other option of the prompt reaches the session untouched", async () 
   const h = harness(60_000);
   const session = await h.runtime.openSession("primary", "/w");
   await session.prompt("hi", { isRepair: true, withoutTools: true, stepLimit: 7, finalStepOnly: true });
-  assert.deepEqual({ ...h.prompts[0]!.opts, timeoutMs: undefined }, { isRepair: true, withoutTools: true, stepLimit: 7, finalStepOnly: true, timeoutMs: undefined });
+  assert.deepEqual({ ...h.prompts[0]!.opts, timeoutMs: undefined, timeLimit: undefined }, { isRepair: true, withoutTools: true, stepLimit: 7, finalStepOnly: true, timeoutMs: undefined, timeLimit: undefined });
+});
+
+test("a time the run's deadline sets is named as the run's deadline, and one the turn's own limit sets keeps the caller's name", async () => {
+  const h = harness(60_000);
+  const session = await h.runtime.openSession("primary", "/w");
+  await session.prompt("deadline binds");
+  assert.equal(h.prompts[0]!.opts?.timeLimit, "run-deadline");
+  await session.prompt("own limit binds", { timeoutMs: 5_000, timeLimit: "repair-cap" });
+  assert.equal(h.prompts[1]!.opts?.timeoutMs, 5_000);
+  assert.equal(h.prompts[1]!.opts?.timeLimit, "repair-cap");
 });
 
 test("a prompt that finds no time left is not sent: the run's deadline error names the role and that it never started", async () => {

@@ -8,6 +8,7 @@ import { CALL_BUCKETS, type CallBucket } from "./tool-call-taxonomy.ts";
 import type { CallSequenceSummary } from "./call-sequence.ts";
 import { stepExhaustionState, type StepExhaustionInput } from "./step-exhaustion.ts";
 import type { ToolSequenceEntry } from "./tool-sequence.ts";
+import type { TurnTrace } from "./turn-trace.ts";
 
 export { CALL_BUCKETS };
 export type { CallBucket };
@@ -56,6 +57,8 @@ export interface TurnCallMetrics {
   toolSequence: ToolSequenceEntry[];
   /** Usage summed over the turn's finished steps; null unless every step was observed and at least one finished. A step still running when a turn timed out is not in the sum. */
   usage: TurnUsage | null;
+  /** The turn step by step and call by call, for its trace. Held in memory for the turn; never persisted. Absent from a turn that was not observed. */
+  trace?: TurnTrace;
 }
 
 const ZERO_BUCKETS: Record<CallBucket, number> = {
@@ -90,6 +93,7 @@ export interface BuildTurnCallMetricsInput {
   deniedCallCount: number;
   toolSequence: ToolSequenceEntry[];
   usage: TurnUsage | null;
+  trace?: TurnTrace;
 }
 
 /** Assembles the pinned `TurnCallMetrics` shape from a `CallSequenceSummary`
@@ -113,6 +117,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     deniedCallCount: input.deniedCallCount,
     toolSequence: input.toolSequence,
     usage: input.usage,
+    ...(input.trace ? { trace: input.trace } : {}),
   };
 }
 

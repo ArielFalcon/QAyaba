@@ -7,7 +7,7 @@ import { OtelTelemetry, type CaptureMode } from "./otel-telemetry.adapter";
 import { createRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import type { TelemetryClock } from "@kernel/telemetry/telemetry.port";
 import { GENAI } from "@kernel/telemetry/genai-semconv";
-import { lookupAttribute } from "@kernel/telemetry/attribute-registry";
+import { attrKey, lookupAttribute } from "@kernel/telemetry/attribute-registry";
 import { LedgerSpanProcessor } from "./ledger";
 import type { RunSpanRow } from "../server/history";
 
@@ -286,6 +286,18 @@ test("in off capture mode text keys are dropped too, structure stays", () => {
   const { telemetry, byName } = harness({ captureMode: "off" });
   telemetry.startSpan("o", { attrs: { "qayaba.tool.target": "x", "qayaba.app": "a" } }).end();
   assert.deepEqual({ ...byName("o").attributes }, { "qayaba.app": "a" });
+});
+
+test("hashes and sizes of content are exported in metadata and full mode and never in off mode", () => {
+  const attrs = { "qayaba.prompt.hash": "abc", "qayaba.prompt.bytes": 12, [attrKey.promptSectionHash("task")]: "def", [attrKey.promptSectionBytes("task")]: 5, "qayaba.app": "a" };
+  for (const mode of ["metadata", "full"] as const) {
+    const h = harness({ captureMode: mode });
+    h.telemetry.startSpan("m", { attrs }).end();
+    assert.deepEqual({ ...h.byName("m").attributes }, attrs, mode);
+  }
+  const off = harness({ captureMode: "off" });
+  off.telemetry.startSpan("m", { attrs }).end();
+  assert.deepEqual({ ...off.byName("m").attributes }, { "qayaba.app": "a" });
 });
 
 test("events are filtered like attributes and take explicit time", () => {

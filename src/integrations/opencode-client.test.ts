@@ -18,6 +18,8 @@ import {
   AgentDeps,
   askAssistant,
   maxStepsFromConfig,
+  agentConfigFacts,
+  answeredFrom,
   fallbackModelFromConfig,
   createRawEventStreamOpener,
   openCodePromptBody,
@@ -1087,6 +1089,28 @@ function writeAgentsConfig(config: unknown): { path: string; cleanup: () => void
   writeFileSync(path, typeof config === "string" ? config : JSON.stringify(config));
   return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
+
+test("agentConfigFacts reads the model and the reasoning effort an agent is configured with, and nothing it is not", (t) => {
+  const { path, cleanup } = writeAgentsConfig({
+    agent: {
+      "qa-full": { model: "prov/some-model", options: { reasoningEffort: "low" } },
+      "qa-model-only": { model: "prov/other" },
+      "qa-bad": { model: 7, options: { reasoningEffort: "" } },
+    },
+  });
+  t.after(cleanup);
+  assert.deepEqual(agentConfigFacts("qa-full", path), { model: "prov/some-model", reasoningEffort: "low" });
+  assert.deepEqual(agentConfigFacts("qa-model-only", path), { model: "prov/other" });
+  assert.equal(agentConfigFacts("qa-bad", path), undefined, "a setting that is not a non-empty string is absent");
+  assert.equal(agentConfigFacts("qa-unknown", path), undefined);
+});
+
+test("answeredFrom keeps the model, provider, finish reason and times the runtime stamped on the answer, and drops anything of another shape", () => {
+  assert.deepEqual(answeredFrom({ modelID: "m", providerID: "p", finish: "stop", time: { created: 10, completed: 20 } }), { answered: { modelId: "m", providerId: "p", finish: "stop", createdAt: 10, completedAt: 20 } });
+  assert.deepEqual(answeredFrom({ modelID: "m", providerID: "", finish: 3, time: { created: "soon" } }), { answered: { modelId: "m" } });
+  assert.deepEqual(answeredFrom({}), {});
+  assert.deepEqual(answeredFrom(undefined), {});
+});
 
 test("maxStepsFromConfig reads the configured step limit of the acting agent", (t) => {
   const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-reviewer": { maxSteps: 10 } } });

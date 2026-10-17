@@ -1,10 +1,10 @@
-/* Every attribute key the engine may put on a span, with its type, meaning, cardinality and content class. Typed: `Attrs` accepts only registered keys, so an unregistered key fails to compile; at run time the adapter drops an unknown key and counts it. `cardinality: "high"` keys (ids, hashes, shas) may sit on spans but never on a metric. `content` says what leaves the process: `none` (ids, enums, counts), `redacted-text` (free text, passed through the span's redaction scope and the outbound sanitizer) or `content` (message bodies, dropped unless the capture mode allows them). The GenAI keys are spelled only in genai-semconv.ts. */
+/* Every attribute key the engine may put on a span, with its type, meaning, cardinality and content class. Typed: `Attrs` accepts only registered keys, so an unregistered key fails to compile; at run time the adapter drops an unknown key and counts it. `cardinality: "high"` keys (ids, hashes, shas) may sit on spans but never on a metric. `content` says what leaves the process: `none` (ids, enums, counts), `metadata` (hashes and sizes of content: structural values, but exported only when the capture mode is `metadata` or `full`), `redacted-text` (free text, passed through the span's redaction scope and the outbound sanitizer) or `content` (message bodies, dropped unless the capture mode allows them). The GenAI keys are spelled only in genai-semconv.ts. */
 
 import { GENAI } from "./genai-semconv.ts";
 
 export type AttrType = "string" | "int" | "double" | "boolean" | "string[]";
 export type Cardinality = "low" | "high";
-export type ContentClass = "none" | "redacted-text" | "content";
+export type ContentClass = "none" | "metadata" | "redacted-text" | "content";
 
 export interface AttrSpec {
   readonly type: AttrType;
@@ -19,6 +19,8 @@ const int = (d: string, c: Cardinality = "low") => spec("int", d, c);
 const bool = (d: string) => spec("boolean", d);
 const dbl = (d: string) => spec("double", d);
 const text = (d: string) => spec("string", d, "high", "redacted-text");
+const metaHash = (d: string) => spec("string", d, "high", "metadata");
+const metaInt = (d: string) => spec("int", d, "low", "metadata");
 
 export const ATTRIBUTES = {
   /* Identity of the run (root span). */
@@ -72,7 +74,9 @@ export const ATTRIBUTES = {
   "qayaba.specs.valid": int("Delivered specs that passed validation."),
   "qayaba.specs.passed": int("Delivered specs that passed execution."),
   "qayaba.reviewer.turn_happened": bool("A reviewer turn took place."),
-  "qayaba.limit.fired": str("The limit that ended the run or turn: tier-budget, run-deadline, repair-cap, explorer-timeout, host-cap, stall, step-cap, cancel or none."),
+  "qayaba.limit.fired": str("The limit that ended the run or turn: tier-budget, run-deadline, repair-cap, explorer-timeout, session-timeout, prompt-budget, host-cap, stall, step-cap, cancel or none."),
+  "qayaba.limit.applied": str("The time limit that bound the turn (the smallest that applied), named like the limit that fires."),
+  "qayaba.limit.applied_ms": int("The time limit that bound the turn, in milliseconds."),
   "qayaba.cost.total": dbl("Total agent cost in USD."),
   "qayaba.agent.turns": int("Agent turns in the run."),
   "qayaba.agent.steps": int("Agent steps in the run."),
@@ -102,21 +106,48 @@ export const ATTRIBUTES = {
 
   /* Agent turns. */
   "qayaba.agent.role": str("The agent role."),
-  "qayaba.agent.round": str("The generation round kind."),
+  "qayaba.agent.round": int("The prompt's round number within its session, from 0."),
   "qayaba.agent.repair": bool("The turn is a contract repair."),
   "qayaba.agent.fallback_used": bool("The fallback model answered."),
   "qayaba.agent.abandoned": bool("The attempt kept running after its turn was abandoned."),
-  "qayaba.agent.end": str("completed, exhausted, timeout or aborted."),
+  "qayaba.agent.end": str("How the turn ended: completed, exhausted, timeout, aborted or failed."),
   "qayaba.delegation.id": str("The sidekick delegation id.", "high"),
   "qayaba.usage.source": str("How complete the token sum is: steps, final-message or none."),
   "qayaba.agent.steps.used": int("Steps the turn used."),
-  "qayaba.agent.steps.limit": int("The step cap the runtime enforced."),
+  "qayaba.agent.steps.limit": int("The step cap the prompt stated, read live from the runtime's resolved agent list. Never taken from the repository copy of the configuration."),
+  "qayaba.config.source": str("Where the qayaba.config.* values come from: repo-copy, the orchestrator's copy of the agent configuration file (what is configured, not what the server proved it used)."),
+  "qayaba.config.model": str("The model the repository copy of the agent configuration names for the agent."),
+  "qayaba.config.reasoning_effort": str("The reasoning effort the repository copy of the agent configuration names for the agent."),
+  "qayaba.config.steps_limit": int("The step cap the repository copy of the agent configuration declares for the agent."),
   "qayaba.agent.calls.denied": int("Tool calls the runtime denied."),
   "qayaba.agent.writes": int("File writes in the turn."),
-  "qayaba.prompt.hash": str("Hash of the redacted prompt bytes sent.", "high"),
-  "qayaba.prompt.bytes": int("Size of the prompt in bytes."),
+  "qayaba.prompt.hash": metaHash("Hash of the redacted prompt bytes sent."),
+  "qayaba.prompt.bytes": metaInt("Size of the prompt in bytes."),
   "qayaba.prompt.sections.dropped": int("Prompt sections dropped to fit the budget."),
+  "qayaba.prompt.budget_bytes": int("The byte budget the prompt was assembled to."),
   "qayaba.tool.target": text("The sanitized, capped target of a tool call."),
+  "qayaba.tool.bucket": str("The call bucket: code_read, browser, write, validate_run, script_run, memory, subagent or other."),
+  "qayaba.tool.status": str("How the call ended: completed, error or running (never finished)."),
+  "qayaba.nav.outcome": str("What a browser navigation came to: ok, auth_challenge, http_error, blocked or unknown."),
+  "qayaba.step.intent": str("What a step was for: write_spec, auth, run_spec, explore, review or other."),
+  "qayaba.agent.step": int("The step's number within its turn, from 1."),
+  "qayaba.agent.step_budget.remaining": int("Steps left under the cap after this one; absent when no cap was stated."),
+  "qayaba.attempt": int("The attempt of a prompt: 1 for the primary model, 2 for the fallback."),
+  "qayaba.time.source": str("Where a span's times come from: receive (when the orchestrator received the events) or state (the runtime's own stamps)."),
+  "qayaba.usage.input_tokens": int("Input tokens summed over the turn, cached tokens included (the conventions' count)."),
+  "qayaba.usage.output_tokens": int("Output tokens summed over the turn."),
+  "qayaba.usage.cache_read_tokens": int("Cache-read input tokens summed over the turn."),
+  "qayaba.usage.cache_write_tokens": int("Cache-write input tokens summed over the turn."),
+  "qayaba.usage.reasoning_tokens": int("Reasoning tokens summed over the turn."),
+  "qayaba.usage.cost": dbl("Cost in USD summed over the turn."),
+  "qayaba.agent.observation_complete": bool("Every step and call of the turn was observed."),
+  "qayaba.agent.ms_to_first_step": int("Milliseconds from the turn's start to its first step."),
+  "qayaba.agent.ms_to_first_call": int("Milliseconds from the turn's start to its first tool call."),
+  "qayaba.agent.ms_to_first_write": int("Milliseconds from the turn's start to its first write."),
+  "qayaba.agent.reasoning_tokens_before_first_call": int("Reasoning tokens spent in the steps up to and including the one that made the first call."),
+  "qayaba.agent.reads.redundant": int("Reads of content the turn already had."),
+  "qayaba.agent.reads.prompt_provided": int("Reads of content the prompt already contained."),
+  "qayaba.agent.trace_truncated": bool("The turn made more steps or calls than its trace keeps."),
   "qayaba.error.message": text("A redacted, capped failure message."),
 
   /* Langfuse viewing aids, set on the root. */
@@ -131,11 +162,12 @@ export const ATTRIBUTES = {
   [GENAI.attrs.agentName]: str("The agent's name."),
   [GENAI.attrs.conversationId]: str("The provider's real session id, never synthesized.", "high"),
   [GENAI.attrs.providerName]: str("The model provider."),
-  [GENAI.attrs.requestModel]: str("The model asked for."),
+  [GENAI.attrs.requestModel]: str("The model the prompt named; absent when it named none and the agent's configured model applied."),
   [GENAI.attrs.responseModel]: str("The model that answered."),
   [GENAI.attrs.requestReasoningLevel]: str("The requested reasoning effort."),
   [GENAI.attrs.responseFinishReasons]: spec("string[]", "Why the model stopped."),
   [GENAI.attrs.toolName]: str("The tool called."),
+  [GENAI.attrs.toolCallId]: str("The runtime's id of one tool call.", "high"),
   [GENAI.attrs.usageInputTokens]: int("Input tokens, cached tokens included."),
   [GENAI.attrs.usageOutputTokens]: int("Output tokens."),
   [GENAI.attrs.usageCacheReadInputTokens]: int("Input tokens read from cache (a subset of input tokens)."),
@@ -149,8 +181,8 @@ export type RegisteredKey = keyof typeof ATTRIBUTES;
 
 /* Keys with one variable segment. `{x}` matches a single non-empty segment without dots. */
 export const ATTRIBUTE_TEMPLATES = [
-  { template: "qayaba.prompt.section.{x}.bytes", spec: int("Size in bytes of one prompt section, by section id.") },
-  { template: "qayaba.prompt.section.{x}.hash", spec: str("Hash of one prompt section, by section id.", "high") },
+  { template: "qayaba.prompt.section.{x}.bytes", spec: metaInt("Size in bytes of one prompt section, by section id.") },
+  { template: "qayaba.prompt.section.{x}.hash", spec: metaHash("Hash of one prompt section, by section id.") },
   { template: "qayaba.campaign.variant.{x}", spec: str("A campaign variant label, by key (stored and echoed, never read by behaviour).", "high") },
   { template: "qayaba.agent.calls.{x}", spec: int("Tool calls in one bucket, by bucket name.") },
 ].map((t) => ({ ...t, pattern: new RegExp(`^${t.template.split("{x}").map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^.]+")}$`) }));
