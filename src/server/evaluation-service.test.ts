@@ -235,11 +235,13 @@ test("a cancelled run is graded as cancelled and for nothing else", async () => 
 test("the budget_exhaustion intent is the last step of the limiting turn", async () => {
   const id = finishedRun("eval-lim", { verdict: "infra-error", furthest: "generate", decision: "none", facts: { limitFired: "step-cap", limitRole: "qa-generator" } });
   const spans = [
-    { name: "invoke_agent qa-generator", spanId: "t1", parentSpanId: null, attrs: JSON.stringify({ "gen_ai.agent.name": "qa-generator" }) },
-    { name: "chat m", spanId: "c1", parentSpanId: "t1", attrs: JSON.stringify({ "qayaba.step.intent": "explore" }) },
-    { name: "chat m", spanId: "c2", parentSpanId: "t1", attrs: JSON.stringify({ "qayaba.step.intent": "write_spec" }) },
+    { name: "invoke_agent qa-generator", spanId: "t1", parentSpanId: null, attrs: JSON.stringify({ "gen_ai.agent.name": "qa-generator", "qayaba.limit.fired": "step-cap" }) },
+    { name: "qayaba.agent.attempt", spanId: "a1", parentSpanId: "t1", attrs: "{}" },
+    { name: "chat m", spanId: "c1", parentSpanId: "a1", attrs: JSON.stringify({ "qayaba.step.intent": "explore" }) },
+    { name: "chat m", spanId: "c2", parentSpanId: "a1", attrs: JSON.stringify({ "qayaba.step.intent": "write_spec" }) },
     { name: "invoke_agent qa-reviewer", spanId: "t2", parentSpanId: null, attrs: JSON.stringify({ "gen_ai.agent.name": "qa-reviewer" }) },
-    { name: "chat m", spanId: "c3", parentSpanId: "t2", attrs: JSON.stringify({ "qayaba.step.intent": "review" }) },
+    { name: "qayaba.agent.attempt", spanId: "a2", parentSpanId: "t2", attrs: "{}" },
+    { name: "chat m", spanId: "c3", parentSpanId: "a2", attrs: JSON.stringify({ "qayaba.step.intent": "review" }) },
   ];
   const e = await new HistoryEvidenceAdapter({ ...defaultEvidenceDeps, runSpans: () => spans }).load(id);
   assert.deepEqual(e?.limit, { fired: "step-cap", role: "qa-generator", intent: "write_spec" });

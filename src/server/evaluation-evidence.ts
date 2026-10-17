@@ -42,6 +42,8 @@ export const defaultEvidenceDeps: EvidenceDeps = {
 
 const STEP_INTENT_ATTR = "qayaba.step.intent";
 const AGENT_NAME_ATTR = "gen_ai.agent.name";
+const AGENT_ROLE_ATTR = "qayaba.agent.role";
+const LIMIT_FIRED_ATTR = "qayaba.limit.fired";
 const REVIEWER_AGENT = AGENT_NAME_FOR_ROLE.reviewer;
 const rank = (phase: string): number => (RUN_PHASES as readonly string[]).indexOf(phase);
 
@@ -97,14 +99,30 @@ function stepIntentsOf(spans: readonly LedgerSpan[]): Record<string, number> | u
   return Object.keys(counts).length > 0 ? counts : undefined;
 }
 
-/* The intent of the last step of the last turn of the role that hit the limit, when the ledger holds it. */
+/*
+ * The intent of the last step of the turn that hit the limit, read from the agent-turn span model: `invoke_agent <agent>` turn spans
+ * (`gen_ai.agent.name`, `qayaba.agent.role`, and `qayaba.limit.fired` once the turn ended), `qayaba.agent.attempt` children, and
+ * `chat <model>` step spans under an attempt carrying `qayaba.step.intent`. Of the turns of the limiting role the one that fired a
+ * limit wins, else the last. Undefined when the ledger holds none of it.
+ */
 function limitIntentOf(spans: readonly LedgerSpan[], role: string | undefined): string | undefined {
   if (!role) return undefined;
-  const turns = spans.filter((s) => isTurn(s) && attrsOf(s)[AGENT_NAME_ATTR] === role);
-  const turn = turns[turns.length - 1];
+  const ofRole = spans.filter((s) => {
+    if (!isTurn(s)) return false;
+    const a = attrsOf(s);
+    return a[AGENT_NAME_ATTR] === role || a[AGENT_ROLE_ATTR] === role;
+  });
+  const fired = ofRole.filter((s) => {
+    const limit = attrsOf(s)[LIMIT_FIRED_ATTR];
+    return typeof limit === "string" && limit !== "none";
+  });
+  const turn = (fired.length > 0 ? fired : ofRole).at(-1);
   if (!turn) return undefined;
-  const steps = spans.filter((s) => isChat(s) && s.parentSpanId === turn.spanId);
-  const intent = steps.length > 0 ? attrsOf(steps[steps.length - 1]!)[STEP_INTENT_ATTR] : undefined;
+  const byId = new Map(spans.map((s) => [s.spanId, s]));
+  /* A step hangs under its attempt, which hangs under the turn. */
+  const steps = spans.filter((s) => isChat(s) && s.parentSpanId !== null && (s.parentSpanId === turn.spanId || byId.get(s.parentSpanId)?.parentSpanId === turn.spanId));
+  const last = steps.at(-1);
+  const intent = last ? attrsOf(last)[STEP_INTENT_ATTR] : undefined;
   return typeof intent === "string" ? intent : undefined;
 }
 
