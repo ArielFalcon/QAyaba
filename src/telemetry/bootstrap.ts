@@ -158,6 +158,7 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
     contextManager,
     clock,
     captureMode: deps.captureMode,
+    maxCaptureMode: config.maxCapture,
     meter: meterProvider?.getMeter("qayaba"),
     flush: () => ledger.flush(),
   });

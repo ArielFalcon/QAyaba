@@ -28,14 +28,19 @@ import { INSTRUMENTS, type InstrumentTable } from "@kernel/telemetry/instrument-
 import type { RecordMeasurement, RedactionScope, SpanHandle, SpanKind, StartSpanOptions, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { sanitizeText } from "../orchestrator/sanitizer";
 
-export type CaptureMode = "off" | "metadata" | "full";
+import { capCaptureMode, isCaptureMode, DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode";
+
+export type { CaptureMode };
 
 export interface OtelTelemetryDeps {
   readonly tracer: Tracer;
   /* The same manager the provider is registered with, used directly so nothing depends on global API state. */
   readonly contextManager: ContextManager;
   readonly clock: TelemetryClock;
+  /* The mode of a span that is not in a run that chose its own. Default: metadata. */
   readonly captureMode?: CaptureMode;
+  /* The most content any span may carry, whatever a run asks for (QA_TELEMETRY_MAX_CAPTURE). Default: full, so only a configured server narrows it. */
+  readonly maxCaptureMode?: CaptureMode;
   /* Absent: instruments record nothing. */
   readonly meter?: Meter;
   readonly instruments?: InstrumentTable;
@@ -63,6 +68,8 @@ export const METRIC_VALUE_CAP_CHARS = 64;
 const MAX_FAULT_LOGS = 5;
 
 const SCOPE_KEY = createContextKey("qayaba.redaction-scope");
+/* The capture mode of the run a span belongs to: set where the run's root is opened and inherited by every span under it, like the redaction scope. */
+const CAPTURE_KEY = createContextKey("qayaba.capture-mode");
 const ZERO_TRACE = "00000000000000000000000000000000";
 const ZERO_SPAN = "0000000000000000";
 
@@ -115,6 +122,7 @@ function errorText(error: unknown): string {
 
 export class OtelTelemetry implements TelemetryPort {
   private readonly captureMode: CaptureMode;
+  private readonly maxCaptureMode: CaptureMode;
   private readonly instruments: InstrumentTable;
   private readonly sanitize: (text: string) => string;
   private readonly resolved = new WeakMap<object, Resolved>();
@@ -124,7 +132,8 @@ export class OtelTelemetry implements TelemetryPort {
   private faults = 0;
 
   constructor(private readonly deps: OtelTelemetryDeps) {
-    this.captureMode = deps.captureMode ?? "metadata";
+    this.maxCaptureMode = deps.maxCaptureMode ?? "full";
+    this.captureMode = capCaptureMode(deps.captureMode ?? DEFAULT_CAPTURE_MODE, this.maxCaptureMode);
     this.instruments = deps.instruments ?? INSTRUMENTS;
     this.sanitize = deps.sanitize ?? ((text) => sanitizeText(text, "issue").text);
   }
@@ -137,17 +146,20 @@ export class OtelTelemetry implements TelemetryPort {
     try {
       const parentCtx = this.parentContext(opts);
       const scope = opts.secrets ?? (parentCtx.getValue(SCOPE_KEY) as RedactionScope | undefined);
+      const inherited = parentCtx.getValue(CAPTURE_KEY);
+      /* A span names its own mode (the run's root does), or takes its parent's; neither may exceed the server's ceiling. */
+      const capture = capCaptureMode(opts.captureMode ?? (isCaptureMode(inherited) ? inherited : this.captureMode), this.maxCaptureMode);
       const links: Link[] = [];
       for (const link of opts.links ?? []) {
         const context = this.spanContextOf(link.context);
-        if (context) links.push({ context, attributes: this.filterAttrs(link.attrs, scope) });
+        if (context) links.push({ context, attributes: this.filterAttrs(link.attrs, scope, capture) });
       }
       const span = this.deps.tracer.startSpan(
         this.safeName(name, scope),
         {
           kind: KINDS[opts.kind ?? "internal"],
           startTime: this.hr(opts.startTime),
-          attributes: this.filterAttrs(opts.attrs, scope),
+          attributes: this.filterAttrs(opts.attrs, scope, capture),
           links,
           ...(opts.root ? { root: true } : {}),
         },
@@ -156,7 +168,8 @@ export class OtelTelemetry implements TelemetryPort {
       const spanContext = span.spanContext();
       let otelCtx = trace.setSpan(parentCtx, span);
       if (scope) otelCtx = otelCtx.setValue(SCOPE_KEY, scope);
-      return new Handle(this, span, { traceId: spanContext.traceId, spanId: spanContext.spanId }, otelCtx, scope);
+      otelCtx = otelCtx.setValue(CAPTURE_KEY, capture);
+      return new Handle(this, span, { traceId: spanContext.traceId, spanId: spanContext.spanId }, otelCtx, scope, capture);
     } catch (error) {
       this.fault("startSpan", error);
       return new DeadHandle();
@@ -255,14 +268,14 @@ export class OtelTelemetry implements TelemetryPort {
     }
   }
 
-  filterAttrs(attrs: object | undefined, scope: RedactionScope | undefined): Attributes {
+  filterAttrs(attrs: object | undefined, scope: RedactionScope | undefined, capture: CaptureMode = this.captureMode): Attributes {
     const out: Attributes = {};
     if (!attrs) return out;
     for (const [key, value] of Object.entries(attrs) as Array<[string, unknown]>) {
       if (value === undefined) continue;
       try {
         const spec = lookupAttribute(key);
-        if (!spec || !this.allows(spec)) {
+        if (!spec || !this.allows(spec, capture)) {
           this.droppedAttributes += 1;
           continue;
         }
@@ -300,9 +313,9 @@ export class OtelTelemetry implements TelemetryPort {
 
   /* ---- internals ---- */
 
-  private allows(spec: AttrSpec): boolean {
-    if (this.captureMode === "full") return true;
-    if (this.captureMode === "metadata") return spec.content !== "content";
+  private allows(spec: AttrSpec, capture: CaptureMode): boolean {
+    if (capture === "full") return true;
+    if (capture === "metadata") return spec.content !== "content";
     return spec.content === "none";
   }
 
@@ -455,6 +468,7 @@ class Handle implements SpanHandle {
     private readonly ids: TelemetryContext,
     otelCtx: Context,
     private readonly scope: RedactionScope | undefined,
+    private readonly capture: CaptureMode,
   ) {
     owner.register(this, otelCtx);
     owner.register(ids, otelCtx);
@@ -462,7 +476,7 @@ class Handle implements SpanHandle {
 
   setAttrs(attrs: object): void {
     try {
-      this.span.setAttributes(this.owner.filterAttrs(attrs, this.scope));
+      this.span.setAttributes(this.owner.filterAttrs(attrs, this.scope, this.capture));
     } catch (error) {
       this.owner.fault("setAttrs", error);
     }
@@ -470,7 +484,7 @@ class Handle implements SpanHandle {
 
   addEvent(name: string, attrs?: object, time?: number): void {
     try {
-      this.span.addEvent(this.owner.safeName(name, this.scope), this.owner.filterAttrs(attrs, this.scope), this.owner.hr(time));
+      this.span.addEvent(this.owner.safeName(name, this.scope), this.owner.filterAttrs(attrs, this.scope, this.capture), this.owner.hr(time));
     } catch (error) {
       this.owner.fault("addEvent", error);
     }
@@ -481,10 +495,10 @@ class Handle implements SpanHandle {
       const type = this.owner.safeText(errorType(error), this.scope, ERROR_TYPE_CAP_CHARS) ?? "unknown";
       const message = this.owner.safeText(errorText(error), this.scope);
       const merged: Record<string, unknown> = { "error.type": type, ...(attrs ?? {}) };
-      this.span.setAttributes(this.owner.filterAttrs(merged, this.scope));
+      this.span.setAttributes(this.owner.filterAttrs(merged, this.scope, this.capture));
       this.span.addEvent(
         "exception",
-        this.owner.filterAttrs({ "exception.type": type, ...(message === undefined ? {} : { "exception.message": message }) }, this.scope),
+        this.owner.filterAttrs({ "exception.type": type, ...(message === undefined ? {} : { "exception.message": message }) }, this.scope, this.capture),
         this.owner.hr(undefined),
       );
       this.span.setStatus(message === undefined ? { code: SpanStatusCode.ERROR } : { code: SpanStatusCode.ERROR, message });

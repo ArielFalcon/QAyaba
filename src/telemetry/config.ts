@@ -1,5 +1,7 @@
 /* Telemetry configuration, read once from the environment at composition. No OpenTelemetry import: the history store reads the retention window from here too. A mistyped value fails loudly, as the other operator switches do. */
 
+import { DEFAULT_CAPTURE_MODE, isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
+
 export const DEFAULT_SPAN_RETENTION_DAYS = 30;
 export const DEFAULT_SERVICE_NAME = "qayaba-orchestrator";
 
@@ -17,6 +19,8 @@ export interface TelemetryConfig {
   readonly serviceName: string;
   readonly resourceAttributes: Readonly<Record<string, string>>;
   readonly retentionDays: number;
+  /* The most content a run's trace may carry, whatever a request asks for (QA_TELEMETRY_MAX_CAPTURE, default metadata). */
+  readonly maxCapture: CaptureMode;
   /* Present only when an OTLP endpoint is configured. */
   readonly otlp?: { readonly url: string; readonly metricsUrl?: string; readonly batch: BatchProcessorOptions };
 }
@@ -36,6 +40,14 @@ export function parseRetentionDays(raw: string | undefined): number {
   const days = positiveInt({ QA_TELEMETRY_RETENTION_DAYS: raw }, "QA_TELEMETRY_RETENTION_DAYS", DEFAULT_SPAN_RETENTION_DAYS);
   if (days > MAX_SPAN_RETENTION_DAYS) throw new Error(`QA_TELEMETRY_RETENTION_DAYS must be at most ${MAX_SPAN_RETENTION_DAYS}, got ${days}`);
   return days;
+}
+
+/* The server's ceiling on content capture. A mistyped value fails loudly, as the other operator switches do. */
+export function parseMaxCapture(raw: string | undefined): CaptureMode {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (value === "") return DEFAULT_CAPTURE_MODE;
+  if (isCaptureMode(value)) return value;
+  throw new Error(`QA_TELEMETRY_MAX_CAPTURE must be off, metadata or full, got ${JSON.stringify(raw)}`);
 }
 
 function resolveMode(env: Env): TelemetryMode {
@@ -93,5 +105,6 @@ export function resolveTelemetryConfig(env: Env): TelemetryConfig {
   const serviceName = (env.OTEL_SERVICE_NAME ?? "").trim() || fromAttrs || DEFAULT_SERVICE_NAME;
   const retentionDays = parseRetentionDays(env.QA_TELEMETRY_RETENTION_DAYS);
   const otlp = mode === "local" ? resolveOtlp(env) : undefined;
-  return { mode, serviceName, resourceAttributes, retentionDays, ...(otlp ? { otlp } : {}) };
+  const maxCapture = parseMaxCapture(env.QA_TELEMETRY_MAX_CAPTURE);
+  return { mode, serviceName, resourceAttributes, retentionDays, maxCapture, ...(otlp ? { otlp } : {}) };
 }

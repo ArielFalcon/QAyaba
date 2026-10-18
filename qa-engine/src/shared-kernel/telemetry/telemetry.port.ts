@@ -1,6 +1,7 @@
 /* The engine's view of tracing and metrics. No SDK types cross this port: the OpenTelemetry SDK lives only in src/telemetry/ (rule `no-telemetry-sdk-in-engine`). Every method is total: an adapter fault is counted in its health and swallowed, never thrown into a run. */
 
 import type { Attrs } from "./attribute-registry.ts";
+import type { CaptureMode } from "./capture-mode.ts";
 
 export type SpanKind = "internal" | "server" | "client" | "producer" | "consumer";
 
@@ -37,6 +38,8 @@ export interface StartSpanOptions {
   readonly root?: boolean;
   /* The scope the span's text attributes, events and errors are redacted through. Inherited from an explicit parent handle when absent. */
   readonly secrets?: RedactionScope;
+  /* How much content this span and every span under it may carry. Set where a run's root is opened (a run can ask for less than the process default, or more up to the server's ceiling). Without it the span takes its parent's mode. */
+  readonly captureMode?: CaptureMode;
 }
 
 export interface SpanHandle {

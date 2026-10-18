@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveTelemetryConfig, parseRetentionDays, DEFAULT_SPAN_RETENTION_DAYS } from "./config";
+import { resolveTelemetryConfig, parseRetentionDays, parseMaxCapture, DEFAULT_SPAN_RETENTION_DAYS } from "./config";
 
 test("telemetry defaults to local with no exporter and the default service name", () => {
   const c = resolveTelemetryConfig({});
@@ -87,4 +87,14 @@ test("retention days parse as a positive whole number and reject the rest", () =
 
 test("retention days are capped at ten years", () => {
   assert.equal(parseRetentionDays("3650"), 3650);
+});
+
+test("the capture ceiling defaults to metadata and a mistyped value stops the boot", () => {
+  assert.equal(parseMaxCapture(undefined), "metadata");
+  assert.equal(parseMaxCapture(""), "metadata");
+  assert.equal(parseMaxCapture("FULL"), "full");
+  assert.equal(parseMaxCapture(" off "), "off");
+  assert.throws(() => parseMaxCapture("everything"), /QA_TELEMETRY_MAX_CAPTURE/);
+  assert.equal(resolveTelemetryConfig({}).maxCapture, "metadata");
+  assert.equal(resolveTelemetryConfig({ QA_TELEMETRY_MAX_CAPTURE: "full" }).maxCapture, "full");
 });

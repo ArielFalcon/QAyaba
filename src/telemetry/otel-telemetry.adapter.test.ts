@@ -25,12 +25,12 @@ class FakeClock implements TelemetryClock {
 
 const hrMs = (t: [number, number]): number => t[0] * 1000 + t[1] / 1e6;
 
-function harness(opts: { captureMode?: CaptureMode; meter?: Meter; tracer?: Tracer } = {}) {
+function harness(opts: { captureMode?: CaptureMode; maxCaptureMode?: CaptureMode; meter?: Meter; tracer?: Tracer } = {}) {
   const exporter = new InMemorySpanExporter();
   const provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
   const contextManager = new AsyncLocalStorageContextManager().enable();
   const clock = new FakeClock();
-  const telemetry = new OtelTelemetry({ tracer: opts.tracer ?? provider.getTracer("t"), contextManager, clock, captureMode: opts.captureMode, meter: opts.meter });
+  const telemetry = new OtelTelemetry({ tracer: opts.tracer ?? provider.getTracer("t"), contextManager, clock, captureMode: opts.captureMode, maxCaptureMode: opts.maxCaptureMode, meter: opts.meter });
   const spans = (): ReadableSpan[] => exporter.getFinishedSpans();
   const byName = (name: string): ReadableSpan => {
     const span = spans().find((s) => s.name === name);
@@ -272,6 +272,37 @@ test("content keys are dropped in metadata mode and kept, capped, in full mode",
   full.telemetry.startSpan("f", { attrs: { [GENAI.attrs.inputMessages]: "y".repeat(40_000) } }).end();
   const kept = String(full.byName("f").attributes[GENAI.attrs.inputMessages]);
   assert.ok(kept.length > 0 && kept.length <= 32 * 1024);
+});
+
+test("a run's root can ask for its own capture mode and every span under it inherits it, whatever the process default", () => {
+  const { telemetry, byName } = harness({ captureMode: "metadata", maxCaptureMode: "full" });
+  const root = telemetry.startSpan("full-run", { root: true, captureMode: "full" });
+  telemetry.withParent(root, () => telemetry.startSpan("full-child", { attrs: { [GENAI.attrs.inputMessages]: "hello" } }).end());
+  root.setAttrs({ [GENAI.attrs.inputMessages]: "root body" });
+  root.end();
+  const other = telemetry.startSpan("plain-run", { root: true });
+  telemetry.withParent(other, () => telemetry.startSpan("plain-child", { attrs: { [GENAI.attrs.inputMessages]: "hello" } }).end());
+  other.end();
+  assert.equal(byName("full-child").attributes[GENAI.attrs.inputMessages], "hello");
+  assert.equal(byName("full-run").attributes[GENAI.attrs.inputMessages], "root body");
+  assert.equal(byName("plain-child").attributes[GENAI.attrs.inputMessages], undefined);
+});
+
+test("a run cannot ask for more content than the server's ceiling allows, even in its own root", () => {
+  const { telemetry, byName } = harness({ maxCaptureMode: "metadata" });
+  const root = telemetry.startSpan("greedy", { root: true, captureMode: "full", attrs: { [GENAI.attrs.inputMessages]: "x" } });
+  telemetry.withParent(root, () => telemetry.startSpan("greedy-child", { attrs: { [GENAI.attrs.inputMessages]: "x" } }).end());
+  root.end();
+  assert.equal(byName("greedy").attributes[GENAI.attrs.inputMessages], undefined);
+  assert.equal(byName("greedy-child").attributes[GENAI.attrs.inputMessages], undefined);
+});
+
+test("a run that asks for off drops text keys under it while another run keeps them", () => {
+  const { telemetry, byName } = harness();
+  const quiet = telemetry.startSpan("quiet", { root: true, captureMode: "off" });
+  telemetry.withParent(quiet, () => telemetry.startSpan("quiet-child", { attrs: { "qayaba.tool.target": "x", "qayaba.app": "a" } }).end());
+  quiet.end();
+  assert.deepEqual({ ...byName("quiet-child").attributes }, { "qayaba.app": "a" });
 });
 
 test("the default capture mode is metadata", () => {
