@@ -31,6 +31,7 @@
     "warm-suite": "tsx scripts/warm-suite.ts",
     "campaign": "tsx scripts/campaign.ts",
     "learning:quarantine": "tsx scripts/learning-quarantine.ts",
+    "langfuse:labels": "tsx scripts/langfuse-labels.ts",
     "arch:check": "depcruise --config qa-engine/.dependency-cruiser.cjs qa-engine/src"
   },
   "dependencies": {

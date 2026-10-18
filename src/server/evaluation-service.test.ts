@@ -5,7 +5,7 @@ import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from ".
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
 import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
-import { createRecord, updateRecord, addCase, saveRunOutcome, replaceRunScores, getRunFacts, saveAgentTurn, listRunScoreRows, getRegradeJob, saveRegradeJob, failInterruptedRegradeJobs, getRecord } from "./history";
+import { createRecord, updateRecord, addCase, saveRunOutcome, replaceRunScores, getRunFacts, saveAgentTurn, getRunIdByTraceId, listRunScoreRows, getRegradeJob, saveRegradeJob, failInterruptedRegradeJobs, getRecord } from "./history";
 import type { RunOutcome } from "../types";
 
 const quiet = () => undefined;
@@ -360,3 +360,18 @@ function viewDeps(on: boolean, template?: string): RunViewDeps {
 
 import { defaultRunViewDeps } from "./run-view";
 const defaultViewDeps = defaultRunViewDeps(() => true, {});
+
+test("a human label of a score the graders also emit is listed beside it, never in its place", () => {
+  const id = finishedRun("labels-shadow");
+  const service = createEvaluationService({ log: quiet });
+  const row = (source: string, graderVersion: string, value: number) => ({ runId: id, name: "spec_pass_rate", graderVersion, dataType: "NUMERIC", polarity: "higher_better", source, value, comment: null, observationId: null });
+  replaceRunScores([row("deterministic", "1", 0.5), row("human", "human", 1)], "t");
+  const listed = service.evaluation(id, false)!.scores.filter((s) => s.name === "spec_pass_rate");
+  assert.deepEqual(listed.map((s) => [s.source, s.graderVersion, s.value]).sort(), [["deterministic", "1", 0.5], ["human", "human", 1]]);
+});
+
+test("a run is found by its trace id, and an unknown trace is not guessed at", () => {
+  const id = finishedRun("trace-lookup", { traceId: "c".repeat(32) });
+  assert.equal(getRunIdByTraceId("c".repeat(32)), id);
+  assert.equal(getRunIdByTraceId("d".repeat(32)), undefined);
+});

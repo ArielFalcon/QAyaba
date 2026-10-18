@@ -762,6 +762,13 @@ export function getRunPhases(id: string): RunPhases | undefined {
 }
 
 /* What a run recorded about how it ended, beyond its verdict. Undefined: no such run. */
+/* The run whose trace has this id; the join from a Langfuse score back to the run store. Undefined for an unknown trace. */
+export function getRunIdByTraceId(traceId: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT id FROM runs WHERE trace_id = ? LIMIT 1").get(traceId) as { id: string } | undefined;
+  return row?.id;
+}
+
 export function getRunFacts(id: string): Required<RunFactsPatch> | undefined {
   ensureDb();
   const row = db.prepare(`SELECT ${FACT_COLUMNS.map(([, c]) => c).join(", ")} FROM runs WHERE id = ?`).get(id) as Record<string, string | number | null> | undefined;
