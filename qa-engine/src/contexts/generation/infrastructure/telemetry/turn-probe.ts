@@ -13,6 +13,7 @@
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import { attrKey } from "@kernel/telemetry/attribute-registry.ts";
 import { GENAI, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.ts";
+import { LANGFUSE, langfuseObservationType } from "@kernel/telemetry/langfuse-mapping.ts";
 import type { RedactionScope, SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import { StalledAgentError } from "@kernel/domain-error.ts";
 import type { TurnLimit } from "@kernel/turn-limit.ts";
@@ -131,7 +132,7 @@ export class TurnProbe {
         ...(prompt.sectionsDropped !== undefined ? { "qayaba.prompt.sections.dropped": prompt.sectionsDropped } : {}),
         ...(prompt.budgetBytes !== undefined ? { "qayaba.prompt.budget_bytes": prompt.budgetBytes } : {}),
         ...sectionAttrs(prompt.sectionSizes, prompt.sectionHashes),
-        "langfuse.observation.type": "agent",
+        [LANGFUSE.attrs.observationType]: langfuseObservationType(GENAI.operations.invokeAgent),
       },
     });
     this.unwatchHost = deps.watchHost ? safeWatch(deps.watchHost, this.span) : undefined;

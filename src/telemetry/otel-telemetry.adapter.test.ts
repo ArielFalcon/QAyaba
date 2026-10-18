@@ -516,3 +516,16 @@ test("with the ledger as a second processor, neither sink holds a seeded secret"
   assert.ok(!String(exception.attrs["exception.message"]).includes(PASSWORD));
   assert.ok(!JSON.stringify(exporter.getFinishedSpans().map((s) => [s.name, s.attributes, s.events, s.status])).includes(PASSWORD));
 });
+
+test("Langfuse input and output are content: dropped in metadata mode, kept capped and redacted in full mode", () => {
+  const big = "z".repeat(40_000);
+  const meta = harness({ captureMode: "metadata" });
+  meta.telemetry.startSpan("m", { attrs: { "langfuse.observation.input": "hello", "langfuse.observation.output": big, "langfuse.observation.usage_details": "{\"input\":1}" } }).end();
+  assert.equal("langfuse.observation.input" in meta.byName("m").attributes, false);
+  assert.equal("langfuse.observation.output" in meta.byName("m").attributes, false);
+  assert.equal(meta.byName("m").attributes["langfuse.observation.usage_details"], "{\"input\":1}");
+  const full = harness({ captureMode: "full" });
+  full.telemetry.startSpan("f", { attrs: { "langfuse.observation.input": "hello", "langfuse.observation.output": big } }).end();
+  assert.equal(full.byName("f").attributes["langfuse.observation.input"], "hello");
+  assert.ok(String(full.byName("f").attributes["langfuse.observation.output"]).length <= 32 * 1024 + 64);
+});

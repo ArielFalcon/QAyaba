@@ -488,3 +488,18 @@ test("a step still open when the turn ends is clamped to the attempt's end", asy
   assert.ok(hrMs(chat.endTime) <= hrMs(attempt.endTime));
   assert.deepEqual(r.h.unended(), []);
 });
+
+test("a chat span carries Langfuse's exclusive usage buckets and the provider's cost; a tool span is a tool observation", async () => {
+  const r = rig({ promptSession: twoSteps });
+  await twoStepTurn(r);
+  const [first, second] = r.h.named("chat m-answer").sort((a, b) => Number(attr(a, "qayaba.agent.step")) - Number(attr(b, "qayaba.agent.step")));
+  /* Step 1 reported input 100, output 10 (4 of them reasoning), cache read 5000 and write 10: the conventions' input is 5110, Langfuse's is 100 plus the two cache buckets. */
+  assert.deepEqual(JSON.parse(String(attr(first!, "langfuse.observation.usage_details"))), { input: 100, output: 6, cache_read_input_tokens: 5_000, cache_creation_input_tokens: 10, output_reasoning_tokens: 4 });
+  assert.deepEqual(JSON.parse(String(attr(first!, "langfuse.observation.cost_details"))), { total: 0.02 });
+  assert.deepEqual(JSON.parse(String(attr(second!, "langfuse.observation.cost_details"))), { total: 0.03 });
+  for (const tool of r.h.spans().filter((s) => s.name.startsWith("execute_tool "))) assert.equal(attr(tool, "langfuse.observation.type"), "tool", tool.name);
+  /* Usage and cost sit on generations only: the turn's span keeps its sums under qayaba.usage.*, so Langfuse cannot count a step twice. */
+  const turn = r.h.only("invoke_agent qa-generator");
+  assert.equal(attr(turn, "langfuse.observation.usage_details"), undefined);
+  assert.equal(attr(turn, "langfuse.observation.cost_details"), undefined);
+});

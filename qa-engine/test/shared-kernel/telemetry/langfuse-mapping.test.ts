@@ -1,0 +1,57 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { LANGFUSE, langfuseCostDetails, langfuseInputOutput, langfuseObservationType, langfuseUsageDetails } from "@kernel/telemetry/langfuse-mapping.ts";
+import { GENAI, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.ts";
+import { lookupAttribute } from "@kernel/telemetry/attribute-registry.ts";
+
+test("each GenAI operation maps to the Langfuse observation type that gives it the right view", () => {
+  assert.equal(langfuseObservationType(GENAI.operations.invokeAgent), "agent");
+  assert.equal(langfuseObservationType(GENAI.operations.chat), "generation");
+  assert.equal(langfuseObservationType(GENAI.operations.executeTool), "tool");
+  assert.equal(langfuseObservationType(undefined), "span");
+  assert.equal(langfuseObservationType("anything else"), "span");
+});
+
+test("usage details are Langfuse's EXCLUSIVE buckets: the conventions' inclusive input and output are taken apart", () => {
+  const convention = normalizeOpenCodeUsage({ input: 100, output: 10, reasoning: 4, cacheRead: 5_000, cacheWrite: 10 });
+  assert.equal(convention.input, 5_110);
+  assert.deepEqual(JSON.parse(langfuseUsageDetails(convention)), { input: 100, output: 6, cache_read_input_tokens: 5_000, cache_creation_input_tokens: 10, output_reasoning_tokens: 4 });
+});
+
+test("the exclusive buckets add up to what the conventions count, so Langfuse prices every token exactly once", () => {
+  const convention = normalizeOpenCodeUsage({ input: 7, output: 30, reasoning: 12, cacheRead: 300, cacheWrite: 20 });
+  const buckets = JSON.parse(langfuseUsageDetails(convention)) as Record<string, number>;
+  assert.equal(Object.values(buckets).reduce((a, b) => a + b, 0), convention.input + convention.output);
+});
+
+test("a count the runtime reported inconsistently is clamped, never negative", () => {
+  const buckets = JSON.parse(langfuseUsageDetails({ input: 10, output: 2, cacheRead: 50, cacheWrite: 0, reasoning: 9 })) as Record<string, number>;
+  for (const value of Object.values(buckets)) assert.ok(value >= 0);
+  assert.equal(buckets.input, 0);
+  assert.equal(buckets.output, 0);
+});
+
+test("cost details carry the provider-reported cost, and nothing when there is none to report", () => {
+  assert.deepEqual(JSON.parse(langfuseCostDetails(0.05) ?? "null"), { total: 0.05 });
+  assert.equal(langfuseCostDetails(0), undefined);
+  assert.equal(langfuseCostDetails(Number.NaN), undefined);
+  assert.equal(langfuseCostDetails(-1), undefined);
+});
+
+test("input and output become the content keys of both conventions, and only a defined side is emitted", () => {
+  assert.deepEqual(langfuseInputOutput({ input: "in", output: "out" }), {
+    [GENAI.attrs.inputMessages]: "in",
+    [GENAI.attrs.outputMessages]: "out",
+    [LANGFUSE.attrs.observationInput]: "in",
+    [LANGFUSE.attrs.observationOutput]: "out",
+  });
+  assert.deepEqual(langfuseInputOutput({ output: "out" }), { [GENAI.attrs.outputMessages]: "out", [LANGFUSE.attrs.observationOutput]: "out" });
+});
+
+test("every Langfuse key is registered; input and output are content, so they leave only in full capture", () => {
+  for (const key of Object.values(LANGFUSE.attrs)) assert.ok(lookupAttribute(key), `${key} is not registered`);
+  assert.equal(lookupAttribute(LANGFUSE.attrs.observationInput)?.content, "content");
+  assert.equal(lookupAttribute(LANGFUSE.attrs.observationOutput)?.content, "content");
+  assert.equal(lookupAttribute(LANGFUSE.attrs.usageDetails)?.content, "none");
+  assert.equal(lookupAttribute(LANGFUSE.attrs.costDetails)?.content, "none");
+});

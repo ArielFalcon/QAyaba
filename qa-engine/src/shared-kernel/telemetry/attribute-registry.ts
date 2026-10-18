@@ -242,7 +242,11 @@ export const ATTRIBUTES = {
   "langfuse.session.id": str("Langfuse session id.", "high"),
   "langfuse.trace.tags": spec("string[]", "Langfuse trace tags: the app and the run mode."),
   "langfuse.environment": str("Langfuse environment."),
-  "langfuse.observation.type": str("Langfuse observation type."),
+  "langfuse.observation.type": str("Langfuse observation type: agent, generation, tool or span."),
+  "langfuse.observation.usage_details": spec("string", "Langfuse usage buckets of a generation, as JSON (exclusive: input excludes the cache, output excludes reasoning)."),
+  "langfuse.observation.cost_details": spec("string", "The provider-reported cost of a generation, as JSON."),
+  "langfuse.observation.input": spec("string", "Langfuse observation input (the request messages).", "high", "content"),
+  "langfuse.observation.output": spec("string", "Langfuse observation output (the response messages).", "high", "content"),
 
   /* GenAI semantic conventions, spelled in genai-semconv.ts only. */
   [GENAI.attrs.operationName]: str("The GenAI operation: invoke_agent, chat or execute_tool."),
