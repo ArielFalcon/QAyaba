@@ -64,6 +64,7 @@ test("scores are read through the public API, polarity comes from the catalog an
   assert.equal(first.scores.find((x) => x.name === "auth_overhead")!.polarity, "lower_better");
   assert.equal(first.scores.find((x) => x.name === "context_utilization.dom")!.polarity, "higher_better");
   assert.ok(s.gets.every((g) => g.startsWith("/api/v1/")));
+  assert.ok(s.gets.every((g) => !g.includes("versions")), "the default view is the graders' rows only; human labels need versions=all and are never compared");
 });
 
 test("the report compares the arms against the baseline, and lower_better makes a drop a lift", async () => {

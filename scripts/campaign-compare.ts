@@ -98,6 +98,7 @@ export async function collectCampaign(campaignId: string, deps: Pick<CompareDeps
   const worker = async (): Promise<void> => {
     for (let i = next++; i < graded.length; i = next++) {
       const r = graded[i]!;
+      /* The default view: the latest grader version per name. Human labels (graderVersion "human") only appear with versions=all, which this never asks for. */
       const evaluation = RunEvaluationSchema.parse(await deps.get(`/api/v1/runs/${encode(r.id)}/evaluation`));
       const scores: RunScore[] = evaluation.scores.map((s) => {
         const entry = catalogEntry(catalog, s.name);
