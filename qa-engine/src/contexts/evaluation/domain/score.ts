@@ -24,6 +24,8 @@ export interface Score {
   comment?: string;
   /* The span the score is about, when it is about one. */
   observationId?: string;
+  /* `llm_judge` scores only: the model that answered, recorded beside the prompt version in `graderVersion`. */
+  judgeModel?: string;
 }
 
 /* What a grader returns: the catalog supplies everything but the value and the comment. */

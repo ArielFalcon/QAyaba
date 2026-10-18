@@ -367,6 +367,40 @@ function ensureDb(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_run_spec_snapshots_captured_at ON run_spec_snapshots(captured_at);
 
+    -- LLM-judge bookkeeping (docs/observability-design.md section 11.3). One row per judge attempt: what was asked, how it ended and the
+    -- tokens it spent (the day's budget is the sum of a day's rows). Never pruned, like run_scores: they are tiny.
+    CREATE TABLE IF NOT EXISTS judge_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      judge TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      model TEXT,
+      outcome TEXT NOT NULL,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      detail TEXT,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_judge_attempts_run ON judge_attempts(run_id, judge, prompt_version);
+    CREATE INDEX IF NOT EXISTS idx_judge_attempts_at ON judge_attempts(at);
+
+    -- Calibration reports of a judge against human labels: one row per computation, the newest of a (judge, prompt version) is in force.
+    CREATE TABLE IF NOT EXISTS judge_calibrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      judge TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      model TEXT NOT NULL,
+      train_n INTEGER NOT NULL,
+      dev_n INTEGER NOT NULL,
+      test_n INTEGER NOT NULL,
+      tpr REAL,
+      tnr REAL,
+      agreement REAL,
+      status TEXT NOT NULL,
+      report TEXT NOT NULL,
+      computed_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_judge_calibrations_judge ON judge_calibrations(judge, prompt_version);
+
     CREATE TABLE IF NOT EXISTS learning_rules (
       id TEXT PRIMARY KEY,
       app TEXT NOT NULL,
@@ -503,6 +537,8 @@ function ensureDb(): void {
     if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_runs_campaign_id ON runs(campaign_id)");
+  /* The model an LLM judge answered with, beside the prompt version in grader_version (NULL for every other score). */
+  if (!columnExists("run_scores", "judge_model")) db.exec("ALTER TABLE run_scores ADD COLUMN judge_model TEXT");
   /*
    * Every agent_turns efficiency column
    * is added by this guarded ALTER (fresh and pre-existing DBs alike), so the
@@ -1498,6 +1534,8 @@ export interface ScoreRow {
   value: number | boolean | string;
   comment: string | null;
   observationId: string | null;
+  /* LLM-judge scores only. */
+  judgeModel?: string | null;
 }
 
 /*
@@ -1508,11 +1546,11 @@ export interface ScoreRow {
 export function replaceRunScores(rows: readonly ScoreRow[], gradedAt: string, scope?: { runId: string; graderVersion: string; baseNames?: readonly string[] }): void {
   ensureDb();
   const upsert = db.prepare(`
-    INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, comment, observation_id, graded_at)
-    VALUES (@runId, @name, @graderVersion, @dataType, @polarity, @source, @value, @comment, @observationId, @gradedAt)
+    INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, comment, observation_id, graded_at, judge_model)
+    VALUES (@runId, @name, @graderVersion, @dataType, @polarity, @source, @value, @comment, @observationId, @gradedAt, @judgeModel)
     ON CONFLICT(run_id, name, grader_version) DO UPDATE SET
       data_type = excluded.data_type, polarity = excluded.polarity, source = excluded.source, value = excluded.value,
-      comment = excluded.comment, observation_id = excluded.observation_id, graded_at = excluded.graded_at`);
+      comment = excluded.comment, observation_id = excluded.observation_id, graded_at = excluded.graded_at, judge_model = excluded.judge_model`);
   const deleteAll = db.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ?");
   /* substr, not LIKE: the underscore in a score name is a LIKE wildcard. */
   const deleteNamed = db.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ? AND (name = ? OR substr(name, 1, ?) = ?)");
@@ -1524,7 +1562,7 @@ export function replaceRunScores(rows: readonly ScoreRow[], gradedAt: string, sc
         deleteAll.run(scope.runId, scope.graderVersion);
       }
     }
-    for (const r of batch) upsert.run({ ...r, value: JSON.stringify(r.value), gradedAt });
+    for (const r of batch) upsert.run({ ...r, judgeModel: r.judgeModel ?? null, value: JSON.stringify(r.value), gradedAt });
   })(rows);
 }
 
@@ -1562,9 +1600,128 @@ export function listRunScoreRows(runId: string): ScoreRow[] {
       value,
       comment: (r.comment as string | null) ?? null,
       observationId: (r.observation_id as string | null) ?? null,
+      judgeModel: (r.judge_model as string | null) ?? null,
     });
   }
   return out;
+}
+
+export interface JudgeAttemptRow {
+  runId: string;
+  judge: string;
+  promptVersion: string;
+  model: string | null;
+  outcome: string;
+  tokens: number;
+  detail: string | null;
+  at: string;
+}
+
+export function insertJudgeAttempt(row: JudgeAttemptRow): void {
+  ensureDb();
+  db.prepare(
+    "INSERT INTO judge_attempts (run_id, judge, prompt_version, model, outcome, tokens, detail, at) VALUES (@runId, @judge, @promptVersion, @model, @outcome, @tokens, @detail, @at)",
+  ).run(row);
+}
+
+/* The newest outcome recorded for the run, judge and prompt version; undefined when never attempted. */
+export function lastJudgeOutcome(runId: string, judge: string, promptVersion: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT outcome FROM judge_attempts WHERE run_id = ? AND judge = ? AND prompt_version = ? ORDER BY id DESC LIMIT 1").get(runId, judge, promptVersion) as { outcome: string } | undefined;
+  return row?.outcome;
+}
+
+/* The model that answered the judge's newest scored attempt of the prompt version; undefined when it has none. */
+export function latestJudgeModel(judge: string, promptVersion: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT model FROM judge_attempts WHERE judge = ? AND prompt_version = ? AND outcome = 'scored' AND model IS NOT NULL ORDER BY id DESC LIMIT 1").get(judge, promptVersion) as { model: string } | undefined;
+  return row?.model;
+}
+
+/* Tokens the judge attempts of a UTC day (YYYY-MM-DD) used. */
+export function judgeTokensUsedOn(day: string): number {
+  ensureDb();
+  const row = db.prepare("SELECT COALESCE(SUM(tokens), 0) AS used FROM judge_attempts WHERE substr(at, 1, 10) = ?").get(day) as { used: number };
+  return row.used;
+}
+
+/* How many attempts ended each way over the window starting at `sinceIso`: the count of unparseable replies is what a judge's prompt author reads. */
+export function judgeOutcomeCounts(judge: string, sinceIso: string): Record<string, number> {
+  ensureDb();
+  const rows = db.prepare("SELECT outcome, COUNT(*) AS n FROM judge_attempts WHERE judge = ? AND at >= ? GROUP BY outcome").all(judge, sinceIso) as Array<{ outcome: string; n: number }>;
+  return Object.fromEntries(rows.map((r) => [r.outcome, r.n]));
+}
+
+export interface JudgeCalibrationRow {
+  judge: string;
+  promptVersion: string;
+  model: string;
+  trainN: number;
+  devN: number;
+  testN: number;
+  tpr: number | null;
+  tnr: number | null;
+  agreement: number | null;
+  status: string;
+  /* The full report as JSON. */
+  report: string;
+  computedAt: string;
+}
+
+export function insertJudgeCalibration(row: JudgeCalibrationRow): void {
+  ensureDb();
+  db.prepare(
+    `INSERT INTO judge_calibrations (judge, prompt_version, model, train_n, dev_n, test_n, tpr, tnr, agreement, status, report, computed_at)
+     VALUES (@judge, @promptVersion, @model, @trainN, @devN, @testN, @tpr, @tnr, @agreement, @status, @report, @computedAt)`,
+  ).run(row);
+}
+
+/* The newest calibration of the judge for exactly this prompt version. */
+export function latestJudgeCalibration(judge: string, promptVersion: string): JudgeCalibrationRow | undefined {
+  ensureDb();
+  const r = db.prepare("SELECT * FROM judge_calibrations WHERE judge = ? AND prompt_version = ? ORDER BY id DESC LIMIT 1").get(judge, promptVersion) as Record<string, unknown> | undefined;
+  if (!r) return undefined;
+  return {
+    judge: r.judge as string,
+    promptVersion: r.prompt_version as string,
+    model: r.model as string,
+    trainN: r.train_n as number,
+    devN: r.dev_n as number,
+    testN: r.test_n as number,
+    tpr: (r.tpr as number | null) ?? null,
+    tnr: (r.tnr as number | null) ?? null,
+    agreement: (r.agreement as number | null) ?? null,
+    status: r.status as string,
+    report: r.report as string,
+    computedAt: r.computed_at as string,
+  };
+}
+
+/*
+ * The scores of the judge's newest (grader version, model) group paired with the human labels of the same runs. "Newest" is the group
+ * with the latest graded_at: a judge whose prompt or model changed is calibrated for what it is now, never for what it was.
+ */
+export function listJudgeLabelPairs(judge: string): { graderVersion: string; model: string; pairs: Array<{ runId: string; human: number | boolean | string; judge: number | boolean | string }> } | undefined {
+  ensureDb();
+  const newest = db
+    .prepare("SELECT grader_version, judge_model FROM run_scores WHERE name = ? AND source = 'llm_judge' ORDER BY graded_at DESC, rowid DESC LIMIT 1")
+    .get(judge) as { grader_version: string; judge_model: string | null } | undefined;
+  if (!newest) return undefined;
+  const judged = db
+    .prepare("SELECT run_id, value, data_type FROM run_scores WHERE name = ? AND source = 'llm_judge' AND grader_version = ? AND judge_model IS ?")
+    .all(judge, newest.grader_version, newest.judge_model) as Array<{ run_id: string; value: string; data_type: string }>;
+  const labels = new Map(
+    (db.prepare("SELECT run_id, value, data_type FROM run_scores WHERE name = ? AND source = 'human'").all(judge) as Array<{ run_id: string; value: string; data_type: string }>).map((r) => [r.run_id, r]),
+  );
+  const pairs: Array<{ runId: string; human: number | boolean | string; judge: number | boolean | string }> = [];
+  for (const j of judged) {
+    const human = labels.get(j.run_id);
+    if (!human) continue;
+    const humanValue = scoreValueOf(human.value, human.data_type);
+    const judgeValue = scoreValueOf(j.value, j.data_type);
+    if (humanValue !== undefined && judgeValue !== undefined) pairs.push({ runId: j.run_id, human: humanValue, judge: judgeValue });
+  }
+  return { graderVersion: newest.grader_version, model: newest.judge_model ?? "unknown", pairs };
 }
 
 export function setRunEvaluationStatus(runId: string, status: string, at: string): void {

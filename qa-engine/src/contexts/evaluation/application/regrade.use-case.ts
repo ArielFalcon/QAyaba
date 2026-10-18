@@ -5,8 +5,10 @@
  */
 
 import { isCatalogName, isGradedName } from "../domain/grader-catalog.ts";
+import { isJudgeName, type JudgeName } from "../domain/judges.ts";
 import type { GradeRunUseCase } from "./grade-run.use-case.ts";
 import type { RegradeJob, RegradeJobStorePort, RunSelectorPort } from "./ports/index.ts";
+import type { JudgeRegradePort } from "./ports/judge-ports.ts";
 
 export type RegradeRequest =
   | { runIds: readonly string[]; graders?: readonly string[] }
@@ -28,6 +30,8 @@ export interface RegradeDeps {
   runs: RunSelectorPort;
   jobs: RegradeJobStorePort;
   grade: Pick<GradeRunUseCase, "execute">;
+  /* The LLM judges. A request names one to have it re-run on the low-priority job; absent, a judge name is refused. */
+  judges?: JudgeRegradePort;
   newId: () => string;
   /* Makes an error text safe to leave the system (secrets redacted). */
   sanitize?: (text: string) => string;
@@ -41,7 +45,13 @@ export class RegradeUseCase {
 
   /* Resolves the runs and records the job; the work itself is `run(jobId)`. */
   start(request: RegradeRequest): { jobId: string; runs: number } {
-    const names = request.graders ?? [];
+    const requested = request.graders ?? [];
+    const judgeNames = requested.filter(isJudgeName);
+    if (judgeNames.length > 0) {
+      const why = this.deps.judges ? this.deps.judges.unavailable() : "the LLM judges are not wired in this deployment";
+      if (why !== undefined) throw new RegradeRequestError(`cannot regrade with a judge (${judgeNames.join(", ")}): ${why}`);
+    }
+    const names = requested.filter((n) => !isJudgeName(n));
     const unknown = names.filter((n) => !isCatalogName(n));
     if (unknown.length > 0) throw new RegradeRequestError(`unknown grader: ${unknown.join(", ")}`);
     const pending = names.filter((n) => !isGradedName(n));
@@ -71,10 +81,19 @@ export class RegradeUseCase {
       job.status = "running";
       jobs.update(job);
       let done = 0;
+      /* The deterministic graders and the judges are separate work: a request naming only judges grades nothing deterministically. */
+      const judges: JudgeName[] = job.graders?.filter(isJudgeName) ?? [];
+      const graders = job.graders?.filter((n) => !isJudgeName(n));
+      const gradesDeterministically = graders === undefined || graders.length > 0;
       for (const runId of job.runIds) {
-        const result = await grade.execute(runId, job.graders ? { graders: job.graders } : {});
-        if (result.status === "complete") job.graded += 1;
-        else job.failed.push({ runId, error: this.errorText(result.status === "failed" ? result.error : result.reason === "unknown-run" ? "unknown run" : "run not finished") });
+        let error: string | undefined;
+        if (gradesDeterministically) {
+          const result = await grade.execute(runId, graders ? { graders } : {});
+          if (result.status !== "complete") error = result.status === "failed" ? result.error : result.reason === "unknown-run" ? "unknown run" : "run not finished";
+        }
+        if (error === undefined && judges.length > 0 && this.deps.judges?.request(runId, judges) !== "scheduled") error = "run not finished or unknown to the judges";
+        if (error === undefined) job.graded += 1;
+        else job.failed.push({ runId, error: this.errorText(error) });
         done += 1;
         if (done % REGRADE_PROGRESS_EVERY === 0) jobs.update(job);
         await yieldToLoop();

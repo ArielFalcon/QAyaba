@@ -29,6 +29,7 @@ import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
 import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getRunFacts, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
 import { createEvaluationService } from "./server/evaluation-service";
+import { composeJudges } from "./server/judges-composition";
 import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
 import { guardRequestHandler, guardResponse } from "./server/guarded-handler";
 import { hashStaticPrompts, type RunConfigEnvironment } from "./server/effective-config";
@@ -89,13 +90,32 @@ const redactionPort = new RedactionPortAdapter();
 const telemetry = processTelemetry();
 /* Process-wide host health (suspends, blocked loops, sandbox zombies): runs with no run active and is stopped on shutdown. Fail-open and unref'd. */
 const sandboxIdentity = resolveSandbox(process.env);
+const queue = new JobQueue((e) => {
+  console.error("[qa] run failed:", e);
+  /*
+   * Incidents are recorded by the runner (with infra-vs-code classification).
+   * This handler only fires for truly unhandled rejections that escape the job's
+   * own catch — duplicates there would create maintainer noise for infra blips.
+   */
+});
+
 /* Scores and regrade jobs. Grading is scheduled off the queue by the runner's post-run hook; a regrade job left open by a previous process ends failed at boot. */
 /* The Langfuse mirror of the scores: built only when LANGFUSE_BASE_URL and both keys are set (docker-compose.langfuse.yml). Fail-open: stored scores never depend on it. */
 const langfuseConfig = resolveLangfuseConfig(process.env);
 const langfuseSink = langfuseConfig
   ? new LangfuseScoreSink({ config: langfuseConfig, traceIdOf: (runId) => getRunFacts(runId)?.traceId ?? null, sanitize: (text) => redactionPort.redact(text) })
   : undefined;
-const evaluation = createEvaluationService({ ...(langfuseSink ? { sink: langfuseSink } : {}) });
+/*
+ * The LLM judges (docs/observability-design.md section 11.3): off unless QA_JUDGES_ENABLED=true. They run as low-priority work on the same
+ * sequential queue, so never beside a run, and only for a campaign run or a regrade that names a judge. They never gate anything.
+ */
+const judges = composeJudges({ env: process.env, root: ROOT, queue, mirrorsRoot: workdirRoot() });
+const evaluation = createEvaluationService({ judges: judges.service, ...(langfuseSink ? { sink: langfuseSink } : {}) });
+/* Hands a finished run to the deterministic graders and, for a campaign run, to the judges' low-priority job. Neither blocks the queue. */
+const afterRun = (runId: string): void => {
+  evaluation.scheduleGrading(runId);
+  judges.service.scheduleForRun(runId);
+};
 evaluation.recoverInterrupted();
 /* Score configs are ensured in the background at boot; the sink also retries before its first score. */
 void langfuseSink?.ensureScoreConfigs();
@@ -166,14 +186,6 @@ if (!secret && !ALLOW_UNSIGNED_WEBHOOK) {
   );
 }
 
-const queue = new JobQueue((e) => {
-  console.error("[qa] run failed:", e);
-  /*
-   * Incidents are recorded by the runner (with infra-vs-code classification).
-   * This handler only fires for truly unhandled rejections that escape the job's
-   * own catch — duplicates there would create maintainer noise for infra blips.
-   */
-});
 
 let shuttingDown = false;
 const SHUTDOWN_TIMEOUT_MS = 25_000;
@@ -212,7 +224,7 @@ const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(process.env, ROOT);
  * Built at call time: engineFactory and onboardingJob are assigned later in this module.
  */
 function runnerDeps(): RunnerDeps {
-  return { runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun: (runId) => evaluation.scheduleGrading(runId), isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
+  return { runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
 }
 
 /*
@@ -758,7 +770,7 @@ const apiDeps: ApiDeps = {
    * leaving a zombie stuck at "0%" answering 409 to every stop press. queue.cancel(id) inside it
    * protects an innocent successor (it aborts only when the id matches the active run).
    */
-  cancelRun: (id) => cancelTrackedRun(queue, id, { runEvents, afterRun: (runId) => evaluation.scheduleGrading(runId) }),
+  cancelRun: (id) => cancelTrackedRun(queue, id, { runEvents, afterRun }),
   continueRun: (parentId, cases, guidance) => {
     if (shuttingDown) return "";
     const parent = getRecord(parentId);
@@ -931,7 +943,7 @@ const server = createServer(guardRequestHandler(async (req, res) => {
  * landing during boot creates a legitimate `enqueued` record that a late sweep would
  * wrongly finalize as infra-error.
  */
-finalizeInterruptedRuns({ runEvents, afterRun: (runId) => evaluation.scheduleGrading(runId) });
+finalizeInterruptedRuns({ runEvents, afterRun });
 
 server.on(
   "error",

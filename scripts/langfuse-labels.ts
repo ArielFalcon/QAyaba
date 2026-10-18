@@ -14,6 +14,7 @@
  */
 import { pathToFileURL } from "node:url";
 import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreSpec } from "../qa-engine/src/contexts/evaluation/domain/grader-catalog.ts";
+import { judgeLabelSpec } from "../qa-engine/src/contexts/evaluation/domain/judges.ts";
 import type { ScoreDataType, ScorePolarity } from "../qa-engine/src/contexts/evaluation/domain/score.ts";
 
 export type Parsed = { ok: true; session?: string; since?: string; name?: string; dryRun: boolean } | { ok: false; problem: string };
@@ -45,6 +46,9 @@ const USAGE = [
   "  Copies Langfuse annotation scores (human labels) of runs this orchestrator recorded into run_scores as source=human rows.",
   "  Idempotent. --dry-run counts and writes nothing. Needs LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY.",
 ].join("\n");
+
+/* What a label must conform to: a catalog score's type, or an LLM judge's (a human label of a judge's score is how the judge is calibrated). */
+type LabelSpec = Pick<ScoreSpec, "dataType" | "polarity" | "range" | "categories">;
 
 export interface LabelRow {
   runId: string;
@@ -187,7 +191,7 @@ export async function importLabels(deps: LabelDeps, filter: LabelFilter, opts: {
       result.unmatched += 1;
       continue;
     }
-    const spec = score.name.length <= MAX_NAME_CHARS ? specOfScore(score.name) : undefined;
+    const spec: LabelSpec | undefined = score.name.length <= MAX_NAME_CHARS ? (specOfScore(score.name) ?? judgeLabelSpec(score.name)) : undefined;
     const typed = spec ? typedValue(score, spec) : undefined;
     if (!spec || typed === undefined) {
       result.unsupported += 1;
@@ -218,7 +222,7 @@ export async function importLabels(deps: LabelDeps, filter: LabelFilter, opts: {
 }
 
 /* The score as the catalog types it: a label whose type disagrees with its spec, or whose number is outside the spec's range, is refused. */
-function typedValue(score: LangfuseScore, spec: ScoreSpec): { value: number | boolean | string } | undefined {
+function typedValue(score: LangfuseScore, spec: LabelSpec): { value: number | boolean | string } | undefined {
   if (score.dataType !== spec.dataType) return undefined;
   if (spec.dataType === "NUMERIC") {
     if (typeof score.value !== "number" || !Number.isFinite(score.value)) return undefined;

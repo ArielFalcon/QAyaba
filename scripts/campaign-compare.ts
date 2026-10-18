@@ -100,7 +100,9 @@ export async function collectCampaign(campaignId: string, deps: Pick<CompareDeps
       const r = graded[i]!;
       /* The default view: the latest grader version per name. Human labels (graderVersion "human") only appear with versions=all, which this never asks for. */
       const evaluation = RunEvaluationSchema.parse(await deps.get(`/api/v1/runs/${encode(r.id)}/evaluation`));
-      const scores: RunScore[] = evaluation.scores.map((s) => {
+      /* A judge is an opinion until it is calibrated against human labels: an experimental judge's score is never compared across arms. */
+      const comparable = evaluation.scores.filter((s) => s.source !== "llm_judge" || catalogEntry(catalog, s.name)?.status === "calibrated");
+      const scores: RunScore[] = comparable.map((s) => {
         const entry = catalogEntry(catalog, s.name);
         return { name: s.name, value: s.value, dataType: entry?.dataType ?? s.dataType, polarity: entry?.polarity ?? s.polarity, graderVersion: s.graderVersion };
       });

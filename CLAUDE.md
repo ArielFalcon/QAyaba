@@ -61,6 +61,7 @@ npm run typecheck && npm run arch:check && npm run sdk:typecheck && npm run cont
 
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
 npm run sandbox:smoke       # IN the running orchestrator container: proves the execution sandbox holds (docs/execution-sandbox.md)
+npm run judge-calibrate -- --judge <name> [--min-n 20] # calibrate an LLM judge against human labels and persist the report (inside the orchestrator container; docs/observability-design.md §11.3)
 npm run efficiency-benchmark # agent step/call telemetry over real runs; never a gate (needs the stack up; docs/efficiency-benchmark.md)
 npm run probe-report -- <runId...> # one run's phases, turns, tool use, tokens and cost (inside the orchestrator container)
 npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> # experiment only: a plain agent on a throwaway copy, same metrics as probe-report
@@ -436,6 +437,10 @@ threat-model header first) and a canary-before-promote hot-swap.
   `qa-engine/src/shared-infrastructure/spec-path-confinement.ts` (nothing outside the spec
   directory is reached through a link, only regular files are read, a named pipe is never waited
   on, reads are capped; its header lists what it covers), never a bare `fs` call.
+- **LLM judges are opinions, never gates.** `source=llm_judge` scores (`spec_relevance`, `failure_root_cause`) read stored evidence only, run
+  as low-priority work on the sequential queue (`JobQueue.enqueueIdle`) and only with `QA_JUDGES_ENABLED=true`, and nothing reads them,
+  or their `experimental|calibrated` status, to decide a verdict, a PR or an Issue. The `qa-judge` role is tool-less and is not in the
+  role table; adding it to `agents/opencode.json` needs a live re-record of the agent-list fixture (docs/observability-design.md §19).
 - **Governance-sensitive changes ship alone** — security invariants, agent write
   authority, production activation switches: their own PR.
 - **Sequential queue** — one run at a time; runs never overlap against DEV. Within a run, every DEV action (a spec

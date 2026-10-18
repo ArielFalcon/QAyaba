@@ -13,7 +13,7 @@ const catalog = {
 };
 
 type Row = { id: string; arm: string; replicate: number; evaluationStatus?: "pending" | "complete"; pass: number; auth: number };
-function service(rows: Row[], complete = true): { deps: CompareDeps; out: string[]; written: Map<string, string>; gets: string[] } {
+function service(rows: Row[], complete = true, judgeStatus?: "experimental" | "calibrated"): { deps: CompareDeps; out: string[]; written: Map<string, string>; gets: string[] } {
   const out: string[] = [];
   const written = new Map<string, string>();
   const gets: string[] = [];
@@ -23,7 +23,9 @@ function service(rows: Row[], complete = true): { deps: CompareDeps; out: string
       if (path === "/api/v1/campaigns/c1/runs") {
         return { schemaVersion: 1, campaignId: "c1", complete, runs: rows.map((r) => ({ id: r.id, variant: { arm: r.arm }, replicate: r.replicate, status: "done", evaluationStatus: r.evaluationStatus ?? "complete" })) };
       }
-      if (path === "/api/v1/evaluations/catalog") return catalog;
+      if (path === "/api/v1/evaluations/catalog") {
+        return judgeStatus ? { ...catalog, scores: [...catalog.scores, { name: "spec_relevance", dataType: "BOOLEAN", polarity: "higher_better", graderVersion: "judge-spec_relevance@1", status: judgeStatus }] } : catalog;
+      }
       const m = /^\/api\/v1\/runs\/([^/]+)\/evaluation$/.exec(path);
       const row = rows.find((r) => r.id === m?.[1]);
       if (!row) throw new Error(`GET ${path} answered HTTP 404`);
@@ -33,6 +35,7 @@ function service(rows: Row[], complete = true): { deps: CompareDeps; out: string
           { name: "spec_pass_rate", value: row.pass, dataType: "NUMERIC", polarity: "none", source: "deterministic", graderVersion: "1" },
           { name: "auth_overhead", value: row.auth, dataType: "NUMERIC", polarity: "none", source: "deterministic", graderVersion: "1" },
           { name: "context_utilization.dom", value: 0.5, dataType: "NUMERIC", polarity: "none", source: "deterministic", graderVersion: "1" },
+          ...(judgeStatus ? [{ name: "spec_relevance", value: true, dataType: "BOOLEAN", polarity: "higher_better", source: "llm_judge", graderVersion: "judge-spec_relevance@1", judgeModel: "m" }] : []),
         ],
       };
     },
@@ -102,4 +105,11 @@ test("without --out the markdown and the JSON go to the output", async () => {
   assert.equal(await runCompare(["--campaign", "c1", "--iterations", "50"], s.deps), 0);
   assert.ok(s.out.some((l) => l.startsWith("# Campaign c1")));
   assert.ok(s.out.some((l) => l.includes('"runsCompared": 6')));
+});
+
+test("an LLM judge's score is compared only once the catalog says the judge is calibrated; an experimental one is left out of the report", async () => {
+  const experimental = await collectCampaign("c1", service(rows(), true, "experimental").deps);
+  assert.ok(experimental.runs.every((r) => !r.scores.some((x) => x.name === "spec_relevance")));
+  const calibrated = await collectCampaign("c1", service(rows(), true, "calibrated").deps);
+  assert.ok(calibrated.runs.every((r) => r.scores.some((x) => x.name === "spec_relevance")));
 });

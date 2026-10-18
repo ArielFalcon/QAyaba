@@ -5176,6 +5176,9 @@
           },
           "observationId": {
             "type": "string"
+          },
+          "judgeModel": {
+            "type": "string"
           }
         },
         "required": [
@@ -5296,6 +5299,13 @@
                 },
                 "graderVersion": {
                   "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "experimental",
+                    "calibrated"
+                  ]
                 }
               },
               "required": [

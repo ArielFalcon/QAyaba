@@ -146,3 +146,71 @@ test("an unexpected fault ends the job failed instead of leaving it running", as
   assert.equal(jobs.get("job-x")?.status, "failed");
   assert.match(jobs.get("job-x")!.failed[0]!.error, /store gone/);
 });
+
+/* A regrade naming a judge hands the runs to the low-priority judge job; the deterministic graders are untouched. */
+function buildWithJudges(judges: { unavailable?: string; unfinished?: string[] } = {}) {
+  const jobs = new MemoryJobStore();
+  const graded: Array<{ id: string; graders: readonly string[] | undefined }> = [];
+  const requested: Array<{ id: string; judges: readonly string[] }> = [];
+  let n = 0;
+  const useCase = new RegradeUseCase({
+    runs: selector(),
+    jobs,
+    grade: { execute: async (id, opts) => { graded.push({ id, graders: opts?.graders }); return { status: "complete", scores: 1 }; } },
+    judges: {
+      unavailable: () => judges.unavailable,
+      request: (id, names) => {
+        requested.push({ id, judges: names });
+        return judges.unfinished?.includes(id) ? "unavailable-run" : "scheduled";
+      },
+    },
+    newId: () => `job-${++n}`,
+    now: () => "t",
+    yieldToLoop: async () => undefined,
+  });
+  return { useCase, jobs, graded, requested };
+}
+
+test("a regrade naming only a judge asks the judges for each run and grades nothing deterministically", async () => {
+  const { useCase, jobs, graded, requested } = buildWithJudges();
+  const { jobId } = useCase.start({ runIds: ["a", "b"], graders: ["spec_relevance"] });
+  await useCase.run(jobId);
+  assert.deepEqual(graded, []);
+  assert.deepEqual(requested.map((r) => [r.id, r.judges]), [["a", ["spec_relevance"]], ["b", ["spec_relevance"]]]);
+  assert.equal(jobs.get(jobId)?.graded, 2);
+});
+
+test("a regrade naming a judge and a grader does both, each only with its own names", async () => {
+  const { useCase, graded, requested } = buildWithJudges();
+  const { jobId } = useCase.start({ runIds: ["a"], graders: ["spec_relevance", "approval_consistent"] });
+  await useCase.run(jobId);
+  assert.deepEqual(graded[0]?.graders, ["approval_consistent"]);
+  assert.deepEqual(requested[0]?.judges, ["spec_relevance"]);
+});
+
+test("a regrade that names no grader never asks the judges: they cost tokens and are requested by name", async () => {
+  const { useCase, requested } = buildWithJudges();
+  const { jobId } = useCase.start({ runIds: ["a"] });
+  await useCase.run(jobId);
+  assert.deepEqual(requested, []);
+});
+
+test("a request naming a judge is refused as a client error when judges cannot run, with the reason", () => {
+  const { useCase } = buildWithJudges({ unavailable: "judges are off (QA_JUDGES_ENABLED is not true)" });
+  assert.throws(() => useCase.start({ runIds: ["a"], graders: ["spec_relevance"] }), (err: unknown) => err instanceof RegradeRequestError && /QA_JUDGES_ENABLED/.test(err.message));
+  assert.doesNotThrow(() => useCase.start({ runIds: ["a"], graders: ["approval_consistent"] }));
+});
+
+test("without any judge wiring a judge name is refused, not mistaken for an unknown grader", () => {
+  const { useCase } = build({});
+  assert.throws(() => useCase.start({ runIds: ["a"], graders: ["spec_relevance"] }), (err: unknown) => err instanceof RegradeRequestError && /judge/.test(err.message));
+});
+
+test("a run the judges cannot take is listed on the job as failed and the others go on", async () => {
+  const { useCase, jobs } = buildWithJudges({ unfinished: ["a"] });
+  const { jobId } = useCase.start({ runIds: ["a", "b"], graders: ["failure_root_cause"] });
+  await useCase.run(jobId);
+  const job = jobs.get(jobId)!;
+  assert.equal(job.graded, 1);
+  assert.deepEqual(job.failed.map((f) => f.runId), ["a"]);
+});

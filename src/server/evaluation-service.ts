@@ -9,6 +9,8 @@ import { RegradeUseCase, MAX_REGRADE_RUNS, type RegradeRequest } from "@contexts
 import type { EvaluationStatus, RegradeJob, RegradeJobStorePort, RunSelectorPort, ScoreSinkPort, ScoreStorePort, EvidencePort } from "@contexts/evaluation/application/ports/index";
 import { campaignRunsView, type CampaignRunRow, type CampaignRunView } from "@contexts/evaluation/domain/campaign-runs";
 import { GRADER_CATALOG } from "@contexts/evaluation/domain/grader-catalog";
+import type { JudgeCatalogEntry } from "@contexts/evaluation/domain/judges";
+import type { JudgeRegradePort } from "@contexts/evaluation/application/ports/judge-ports";
 import type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "@contexts/evaluation/domain/score";
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import {
@@ -50,6 +52,7 @@ export class SqliteScoreStore implements ScoreStorePort {
         value: s.value,
         comment: s.comment ?? null,
         observationId: s.observationId ?? null,
+        judgeModel: s.judgeModel ?? null,
       })),
       gradedAt,
       { runId, ...scope },
@@ -66,6 +69,7 @@ export class SqliteScoreStore implements ScoreStorePort {
       graderVersion: r.graderVersion,
       ...(r.comment !== null ? { comment: r.comment } : {}),
       ...(r.observationId !== null ? { observationId: r.observationId } : {}),
+      ...(r.judgeModel ? { judgeModel: r.judgeModel } : {}),
     }));
     if (opts.allVersions) return scores;
     /* The default view is the graders' (design §14): a human label (graderVersion "human", never a version number) shows only with all versions. */
@@ -124,20 +128,33 @@ export interface CatalogScoreView {
   categories?: string[];
   suffixes?: string[];
   graderVersion: string;
+  /* LLM judges only (additive, section 14). */
+  status?: "experimental" | "calibrated";
 }
 
-export function catalogView(): { phases: string[]; scores: CatalogScoreView[] } {
+/* The graders, then the LLM judges (when the pinned judge prompt declares a version): the machine-readable source of names, types, polarity and judge status. */
+export function catalogView(judges: readonly JudgeCatalogEntry[] = []): { phases: string[]; scores: CatalogScoreView[] } {
   return {
     phases: [...RUN_PHASES],
-    scores: GRADER_CATALOG.map((s) => ({
-      name: s.name,
-      dataType: s.dataType,
-      polarity: s.polarity,
-      ...(s.range ? { range: { ...s.range } } : {}),
-      ...(s.categories ? { categories: [...s.categories] } : {}),
-      ...(s.suffixes ? { suffixes: [...s.suffixes] } : {}),
-      graderVersion: s.graderVersion,
-    })),
+    scores: [
+      ...GRADER_CATALOG.map((s) => ({
+        name: s.name,
+        dataType: s.dataType,
+        polarity: s.polarity,
+        ...(s.range ? { range: { ...s.range } } : {}),
+        ...(s.categories ? { categories: [...s.categories] } : {}),
+        ...(s.suffixes ? { suffixes: [...s.suffixes] } : {}),
+        graderVersion: s.graderVersion,
+      })),
+      ...judges.map((j) => ({
+        name: j.name,
+        dataType: j.dataType,
+        polarity: j.polarity,
+        ...(j.categories ? { categories: [...j.categories] } : {}),
+        graderVersion: j.graderVersion,
+        status: j.status,
+      })),
+    ],
   };
 }
 
@@ -176,6 +193,8 @@ export interface EvaluationService {
   campaignRuns(campaignId: string, variant: Readonly<Record<string, string>>): CampaignRunsView;
   /* Boot: ends the jobs a previous process left open. */
   recoverInterrupted(): number;
+  /* The score catalog: the graders, then the LLM judges with their status. */
+  catalog(): { phases: string[]; scores: CatalogScoreView[] };
 }
 
 export interface EvaluationServiceDeps {
@@ -186,6 +205,8 @@ export interface EvaluationServiceDeps {
   /* Every run of a campaign with its grading status. Default: the history. */
   campaignRows?: (campaignId: string) => CampaignRunRow[];
   sink?: ScoreSinkPort;
+  /* The LLM judges the catalog lists and a regrade may name. Absent: no judge is listed and a regrade naming one is refused. */
+  judges?: JudgeRegradePort & { catalog(): JudgeCatalogEntry[] };
   now?: () => string;
   newId?: () => string;
   /* Runs `fn` after the current call stack, off the caller's path. */
@@ -213,6 +234,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
     runs: deps.runs ?? new HistoryRunSelector(),
     jobs,
     grade,
+    ...(deps.judges ? { judges: deps.judges } : {}),
     sanitize: deps.sanitize ?? ((text: string) => redaction.redact(text)),
     newId: deps.newId ?? (() => `regrade-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`),
     now,
@@ -262,6 +284,9 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
     },
     recoverInterrupted() {
       return failInterruptedRegradeJobs(now());
+    },
+    catalog() {
+      return catalogView(deps.judges?.catalog() ?? []);
     },
   };
 }

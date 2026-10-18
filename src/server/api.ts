@@ -79,7 +79,7 @@ import type { RunEventStore } from "./run-events";
 import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
 import { CampaignCaptureMismatchError } from "./campaign-capture";
 import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
-import { catalogView, type EvaluationService } from "./evaluation-service";
+import type { EvaluationService } from "./evaluation-service";
 import type { RunViewExtras } from "./run-view";
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
@@ -698,7 +698,7 @@ function handleEvaluationCatalog(res: ServerResponse, deps: ApiDeps): boolean {
     apiError(res, 501, "evaluation is not configured");
     return true;
   }
-  contractJson(res, 200, EvaluationCatalogSchema, { schemaVersion: 1, ...catalogView() });
+  contractJson(res, 200, EvaluationCatalogSchema, { schemaVersion: 1, ...deps.evaluation.catalog() });
   return true;
 }
 

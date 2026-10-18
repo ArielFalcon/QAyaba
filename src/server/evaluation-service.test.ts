@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createEvaluationService } from "./evaluation-service";
+import { judgeCatalog } from "@contexts/evaluation/domain/judges";
 import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from "./evaluation-evidence";
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
@@ -459,4 +460,28 @@ test("the campaign listing carries the labels, replicate, status and grading sta
 test("a run that is not part of a campaign is never listed in one", () => {
   const r = createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff" });
   assert.equal(createEvaluationService({ log: quiet }).campaignRuns("anything", {}).runs.some((x) => x.id === r.id), false);
+});
+
+test("the catalog lists the judges after the graders only when judges are wired, and a regrade naming a judge reaches them", async () => {
+  const requested: string[] = [];
+  const judges = {
+    catalog: () => judgeCatalog("1", () => "experimental"),
+    unavailable: () => undefined,
+    request: (runId: string) => {
+      requested.push(runId);
+      return "scheduled" as const;
+    },
+  };
+  const sched = manualScheduler();
+  const without = createEvaluationService({ schedule: sched.schedule, log: quiet });
+  assert.ok(!without.catalog().scores.some((s) => s.name === "spec_relevance"));
+  const withJudges = createEvaluationService({ schedule: sched.schedule, log: quiet, newId: () => "job-j", judges });
+  const names = withJudges.catalog().scores.map((s) => s.name);
+  assert.ok(names.indexOf("spec_relevance") > names.indexOf("spec_pass_rate"));
+  const run = finishedRun("eval-judge-regrade");
+  withJudges.startRegrade({ runIds: [run], graders: ["spec_relevance"] });
+  await sched.flush();
+  assert.deepEqual(requested, [run]);
+  assert.equal(withJudges.regradeJob("job-j")?.graded, 1);
+  assert.throws(() => without.startRegrade({ runIds: [run], graders: ["spec_relevance"] }), RegradeRequestError);
 });

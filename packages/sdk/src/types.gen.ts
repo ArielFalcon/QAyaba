@@ -1444,6 +1444,7 @@ export interface components {
             graderVersion: string;
             comment?: string;
             observationId?: string;
+            judgeModel?: string;
         };
         RunEvaluation: {
             /** @enum {number} */
@@ -1471,6 +1472,8 @@ export interface components {
                 categories?: string[];
                 suffixes?: string[];
                 graderVersion: string;
+                /** @enum {string} */
+                status?: "experimental" | "calibrated";
             }[];
         };
         RegradeRequest: {

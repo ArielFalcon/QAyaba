@@ -290,3 +290,24 @@ test("the bytes imported by one run of the script are bounded across all its req
     await lf.close();
   }
 });
+
+test("a human label of an LLM judge's score is imported as the judge's type, so the judge can be calibrated against it", async () => {
+  const lf = await fakeLangfuse({
+    scores: [
+      annotation({ id: "j1", traceId: "a".repeat(32), name: "spec_relevance", dataType: "BOOLEAN", value: 0, comment: "tests another page" }),
+      annotation({ id: "j2", traceId: "b".repeat(32), name: "failure_root_cause", dataType: "CATEGORICAL", value: 0, stringValue: "selector" }),
+      annotation({ id: "j3", traceId: "b".repeat(32), name: "failure_root_cause", dataType: "CATEGORICAL", value: 0, stringValue: "not_a_category", timestamp: "2026-10-17T13:00:00.000Z" }),
+      annotation({ id: "j4", traceId: "a".repeat(32), name: "spec_relevance", dataType: "NUMERIC", value: 0.5 }),
+    ],
+  });
+  try {
+    const { d, saved } = deps(lf.baseUrl);
+    const result = await importLabels(d, { since: "2026-10-01" });
+    const relevance = saved.find((r) => r.name === "spec_relevance");
+    assert.deepEqual([relevance?.value, relevance?.dataType, relevance?.graderVersion, relevance?.source], [false, "BOOLEAN", "human", "human"]);
+    assert.equal(saved.find((r) => r.name === "failure_root_cause")?.value, "selector");
+    assert.equal(result.unsupported, 2, "a category outside the closed set and a wrong data type are refused");
+  } finally {
+    await lf.close();
+  }
+});

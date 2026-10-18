@@ -522,6 +522,8 @@ export const ScoreSchema = z.object({
   graderVersion: z.string(),
   comment: z.string().optional(),
   observationId: z.string().optional(),
+  /* Additive (section 14): present on `llm_judge` scores only, the model that answered. The prompt version is in `graderVersion`. */
+  judgeModel: z.string().optional(),
 });
 
 export const RunEvaluationSchema = z.object({
@@ -548,6 +550,8 @@ export const EvaluationCatalogSchema = z.object({
       categories: z.array(z.string()).optional(),
       suffixes: z.array(z.string()).optional(),
       graderVersion: z.string(),
+      /* Additive (section 14): present on LLM-judge entries only. `experimental` is every judge's default; `calibrated` needs a passing calibration against human labels for the prompt version and model in force. No gate reads it. */
+      status: z.enum(["experimental", "calibrated"]).optional(),
     }),
   ),
 });

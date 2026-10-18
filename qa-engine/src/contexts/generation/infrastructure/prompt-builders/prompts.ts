@@ -172,6 +172,9 @@ function diffSectionMode(filePath: string): SanitizeMode {
 
 const DIFF_HEADER_RE = /^diff --git /;
 
+/* The heading of the diff section of a prompt. The judges read the diff back out of a stored prompt by it (src/server/judge-evidence.ts), so the heading is one constant. */
+export const COMMIT_DIFF_HEADING = "## Commit diff";
+
 function cappedDiffText(diff: string): string {
   const capped = capDiff(diff);
   const sections = capped.split(/^(?=diff --git )/m);
@@ -259,7 +262,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
     `## Commit message (the author's intent — subject + body)`,
     renderCommitMessage(input.intent, true),
     ``,
-    `## Commit diff`,
+    COMMIT_DIFF_HEADING,
     "```diff",
     cappedDiffText(input.diff),
     "```",
@@ -1179,7 +1182,7 @@ function buildCodeTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     `Cross-check against the diff: if the code does more than the message claims, test what the code`,
     `actually changes, not just what the message promises.`,
     ``,
-    `## Commit diff`,
+    COMMIT_DIFF_HEADING,
     "```diff",
     cappedDiffText(input.diff),
     "```",
@@ -1388,7 +1391,7 @@ function buildDiffSection(input: OpencodeRunInput): string {
   if (isReGenTurn(input)) return "";
   /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
   return [
-    `## Commit diff`,
+    COMMIT_DIFF_HEADING,
     "```diff",
     cappedDiffText(input.diff),
     "```",
@@ -1420,7 +1423,7 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
   }
   const commitDiffObjective = () => ({
     subject: "this commit",
-    heading: `## Commit diff`,
+    heading: COMMIT_DIFF_HEADING,
     /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
     body: ["```diff", cappedDiffText(input.diff), "```"],
     targetNoun: "the change",

@@ -32,3 +32,10 @@ export const WARM_SNAPSHOTS_DIR = ".warm";
  * run that made a workspace removes it, and the sweep at boot and at the start of a run removes what a crash left.
  */
 export const DELEGATIONS_DIR = ".qa-delegations";
+
+/*
+ * The empty directory under the mirrors root that the tool-less LLM-judge role opens its sessions in (src/server/judge-agent.ts).
+ * It holds no repo and no file the judge could read; it exists because a session needs a directory the agents container can see.
+ * It is not a repo's mirror, so the mirror pruning must leave it alone.
+ */
+export const JUDGE_WORKDIR = ".qa-judge";
