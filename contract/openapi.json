@@ -4905,11 +4905,6 @@
               "configured": {
                 "type": "boolean"
               },
-              "faults": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 9007199254740991
-              },
               "lastExportAt": {
                 "type": "string"
               },
@@ -4957,6 +4952,11 @@
             "properties": {
               "configured": {
                 "type": "boolean"
+              },
+              "faults": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
               },
               "lastExportAt": {
                 "type": "string"

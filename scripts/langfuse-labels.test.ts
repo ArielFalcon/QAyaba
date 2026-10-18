@@ -247,3 +247,46 @@ test("a response over the size cap, or more pages than the cap, stops the import
     await new Promise<void>((resolve) => endless.close(() => resolve()));
   }
 });
+
+test("a label is stored with the catalog's data type, and one whose type or range disagrees with the catalog is refused", async () => {
+  const lf = await fakeLangfuse({
+    scores: [
+      annotation({ traceId: "a".repeat(32), name: "spec_pass_rate", dataType: "BOOLEAN", value: 1 }),
+      annotation({ traceId: "a".repeat(32), name: "approval_consistent", dataType: "NUMERIC", value: 1 }),
+      annotation({ traceId: "a".repeat(32), name: "spec_validity_rate", value: 1.5 }),
+      annotation({ traceId: "a".repeat(32), name: "auth_overhead", value: -0.1 }),
+      annotation({ traceId: "a".repeat(32), name: "mutation_value", value: 0.75 }),
+      annotation({ traceId: "a".repeat(32), name: "empty_output_guard", dataType: "BOOLEAN", value: 0 }),
+    ],
+  });
+  try {
+    const { d, saved } = deps(lf.baseUrl);
+    const result = await importLabels(d, { since: "2026-10-01" });
+    assert.deepEqual(saved.map((r) => [r.name, r.dataType, r.value]), [["mutation_value", "NUMERIC", 0.75], ["empty_output_guard", "BOOLEAN", false]]);
+    assert.equal(result.unsupported, 4);
+  } finally {
+    await lf.close();
+  }
+});
+
+test("a number above a catalog range with no maximum is accepted, and below its minimum is not", async () => {
+  const lf = await fakeLangfuse({ scores: [annotation({ traceId: "a".repeat(32), name: "cost_per_useful_spec", value: 12 })] });
+  try {
+    const { d, saved } = deps(lf.baseUrl);
+    await importLabels(d, { since: "2026-10-01" });
+    assert.deepEqual(saved.map((r) => r.name), ["cost_per_useful_spec"]);
+  } finally {
+    await lf.close();
+  }
+});
+
+test("the bytes imported by one run of the script are bounded across all its requests", async () => {
+  const lf = await fakeLangfuse({ scores: Array.from({ length: 5 }, (_, i) => annotation({ id: `s${i}`, traceId: "a".repeat(32), name: "spec_pass_rate", value: 1, comment: "c".repeat(200) })) });
+  try {
+    const { d } = deps(lf.baseUrl);
+    d.maxTotalBytes = 1_000;
+    await assert.rejects(importLabels(d, { since: "2026-10-01" }), /imported more than 1000 bytes/);
+  } finally {
+    await lf.close();
+  }
+});

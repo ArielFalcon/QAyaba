@@ -144,6 +144,7 @@ export class LangfuseScoreSink implements ScoreSinkPort {
   private ensured = false;
   private ensuring: Promise<EnsureConfigsResult> | undefined;
   private nextEnsureAt = 0;
+  private ensureAttempts = 0;
   private faults = 0;
   private lastExportAt: string | undefined;
   private lastError: string | undefined;
@@ -168,9 +169,11 @@ export class LangfuseScoreSink implements ScoreSinkPort {
         return;
       }
       /* A score goes only after the configs exist, so one name never lands both with and without its configId. */
+      const attemptsBefore = this.ensureAttempts;
       if (!(await this.ensureOnce())) {
         this.faults += 1;
-        this.lastError ??= "score configs are not ensured: scores were held back";
+        /* An attempt made for this very emission has just recorded the cause; a skip inside the backoff window has none to show. */
+        if (this.ensureAttempts === attemptsBefore || !this.lastError) this.lastError = "score configs are not ensured: scores were held back";
         this.log(`[langfuse] score configs are not ensured: ${scores.length} score(s) of ${runId} were not mirrored`);
         return;
       }
@@ -190,8 +193,16 @@ export class LangfuseScoreSink implements ScoreSinkPort {
     }
   }
 
-  /* Creates the catalog's score configs that Langfuse lacks. Idempotent: an existing name is left alone, and a lost race is not an error. Never throws. */
-  async ensureScoreConfigs(): Promise<EnsureConfigsResult> {
+  /* Creates the catalog's score configs that Langfuse lacks. Idempotent: an existing name is left alone, and a lost race is not an error. Never throws. One attempt runs at a time: the boot call and an emission share it. */
+  ensureScoreConfigs(): Promise<EnsureConfigsResult> {
+    this.ensuring ??= this.runEnsure().finally(() => {
+      this.ensuring = undefined;
+    });
+    return this.ensuring;
+  }
+
+  private async runEnsure(): Promise<EnsureConfigsResult> {
+    this.ensureAttempts += 1;
     const result: EnsureConfigsResult = { created: 0, skipped: 0, failed: 0 };
     try {
       const existing = await this.listConfigs();
@@ -228,10 +239,7 @@ export class LangfuseScoreSink implements ScoreSinkPort {
   private async ensureOnce(): Promise<boolean> {
     if (this.ensured) return true;
     if (Date.parse(this.now()) < this.nextEnsureAt) return false;
-    this.ensuring ??= this.ensureScoreConfigs().finally(() => {
-      this.ensuring = undefined;
-    });
-    await this.ensuring;
+    await this.ensureScoreConfigs();
     return this.ensured;
   }
 

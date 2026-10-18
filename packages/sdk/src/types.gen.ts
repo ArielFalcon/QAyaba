@@ -1376,7 +1376,6 @@ export interface components {
             campaignFreeze: boolean;
             otlp: {
                 configured: boolean;
-                faults?: number;
                 lastExportAt?: string;
                 lastError?: string;
                 dropped: number;
@@ -1388,6 +1387,7 @@ export interface components {
             };
             scoreSink: {
                 configured: boolean;
+                faults?: number;
                 lastExportAt?: string;
                 lastError?: string;
             };

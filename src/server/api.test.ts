@@ -675,6 +675,15 @@ test("GET /api/v1/telemetry/health returns the health with schemaVersion 1, vali
   assert.deepEqual({ ...body, schemaVersion: undefined }, { ...telemetryHealth, schemaVersion: undefined });
 });
 
+test("GET /api/v1/telemetry/health serves the score sink's faults and last export, and the otlp block advertises no faults", async () => {
+  const sink = { configured: true, faults: 4, lastExportAt: "2026-10-17T10:05:00.000Z", lastError: "score configs are not ensured" };
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => ({ ...telemetryHealth, scoreSink: sink }) }));
+  const raw = JSON.parse(res.body) as { scoreSink: Record<string, unknown>; otlp: Record<string, unknown> };
+  assert.deepEqual(raw.scoreSink, sink);
+  assert.equal("faults" in raw.otlp, false);
+});
+
 test("GET /api/v1/telemetry/health carries the host block when host health is wired, and omits it otherwise", async () => {
   const host = { suspends: 2, lastSuspendAt: "2026-10-17T09:00:00.000Z", lastSuspendMs: 1_920_000, blockedLoops: 1, eventLoopP99Ms: 42.5, zombies: 0 };
   const res = mkRes();

@@ -275,3 +275,21 @@ test("the health of an unconfigured sink says so and carries nothing else", () =
   assert.deepEqual(scoreSinkHealthOf(undefined), { configured: false });
   assert.deepEqual(scoreSinkHealthOf(rig().sink), { configured: true });
 });
+
+test("the boot call and the first emission share one ensure: Langfuse is listed once", async () => {
+  const { sink, calls } = rig((call) => (call.method === "GET" ? { status: 200, body: { data: [], meta: { totalPages: 1 } } } : { status: 200, body: { id: "x" } }));
+  await Promise.all([sink.ensureScoreConfigs(), sink.emit("run-1", [score({ name: "spec_pass_rate", value: 1, dataType: "NUMERIC" })], RUN_END)]);
+  assert.equal(calls.filter((c) => c.method === "GET").length, 1);
+  assert.equal(posted(calls).length, 1);
+});
+
+test("lastError is the latest failure, not the first", async () => {
+  const { sink, time } = rig(() => new Error("connect ECONNREFUSED first"));
+  await sink.emit("run-1", [score({ name: "a", value: 1, dataType: "NUMERIC" })], RUN_END);
+  assert.match(sink.status().lastError ?? "", /first/);
+  time.ms += 61_000;
+  await sink.emit("run-2", [score({ name: "a", value: 1, dataType: "NUMERIC" })], RUN_END);
+  /* Inside the new backoff window the emission is held back, and that is now the latest error. */
+  await sink.emit("run-3", [score({ name: "a", value: 1, dataType: "NUMERIC" })], RUN_END);
+  assert.match(sink.status().lastError ?? "", /not ensured/);
+});

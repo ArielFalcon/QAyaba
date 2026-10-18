@@ -13,7 +13,7 @@
  * Nothing in the service calls it. The project keys come from LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY.
  */
 import { pathToFileURL } from "node:url";
-import { MAX_SCORE_COMMENT_CHARS, specOfScore } from "../qa-engine/src/contexts/evaluation/domain/grader-catalog.ts";
+import { MAX_SCORE_COMMENT_CHARS, specOfScore, type ScoreSpec } from "../qa-engine/src/contexts/evaluation/domain/grader-catalog.ts";
 import type { ScoreDataType, ScorePolarity } from "../qa-engine/src/contexts/evaluation/domain/score.ts";
 
 export type Parsed = { ok: true; session?: string; since?: string; name?: string; dryRun: boolean } | { ok: false; problem: string };
@@ -66,6 +66,8 @@ export interface LabelDeps {
   now: () => string;
   out: (line: string) => void;
   fetch?: typeof fetch;
+  /* The most bytes one run of the import may read in all (default MAX_TOTAL_BYTES). */
+  maxTotalBytes?: number;
 }
 
 export interface LabelFilter {
@@ -86,6 +88,7 @@ export interface LabelResult {
 const PAGE_LIMIT = 100;
 /* What one response may weigh and how many pages one listing may have: Langfuse is trusted with the keys, not with the memory of the orchestrator. */
 export const MAX_RESPONSE_BYTES = 5_000_000;
+export const MAX_TOTAL_BYTES = 50_000_000;
 const MAX_PAGES = 200;
 const MAX_NAME_CHARS = 128;
 const MAX_CATEGORY_CHARS = 256;
@@ -97,7 +100,7 @@ interface Page<T> {
   meta?: { totalPages?: number };
 }
 
-async function pages<T>(deps: LabelDeps, path: string, params: Record<string, string>): Promise<T[]> {
+async function pages<T>(deps: LabelDeps, budget: { left: number }, path: string, params: Record<string, string>): Promise<T[]> {
   const auth = `Basic ${Buffer.from(`${deps.config.publicKey}:${deps.config.secretKey}`).toString("base64")}`;
   const out: T[] = [];
   for (let page = 1; page <= MAX_PAGES; page += 1) {
@@ -109,7 +112,7 @@ async function pages<T>(deps: LabelDeps, path: string, params: Record<string, st
       throw new Error(`GET ${path}: ${keyless(deps, error instanceof Error ? error.message : String(error))}`);
     }
     if (!response.ok) throw new Error(`GET ${path}: HTTP ${response.status}`);
-    const body = JSON.parse(await boundedText(response, path)) as Page<T>;
+    const body = JSON.parse(await boundedText(response, path, budget, deps.maxTotalBytes ?? MAX_TOTAL_BYTES)) as Page<T>;
     out.push(...(body.data ?? []));
     if (page >= (body.meta?.totalPages ?? 1)) return out;
   }
@@ -117,7 +120,7 @@ async function pages<T>(deps: LabelDeps, path: string, params: Record<string, st
 }
 
 /* The body as text, refused as soon as it passes the cap (a declared length is checked first, a streamed one as it arrives). */
-async function boundedText(response: Response, path: string): Promise<string> {
+async function boundedText(response: Response, path: string, budget: { left: number }, total: number): Promise<string> {
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) throw new Error(`GET ${path}: response too large`);
   const reader = response.body?.getReader();
@@ -128,6 +131,11 @@ async function boundedText(response: Response, path: string): Promise<string> {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
+    budget.left -= value.byteLength;
+    if (budget.left < 0) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error(`GET ${path}: imported more than ${total} bytes in one run`);
+    }
     if (size > MAX_RESPONSE_BYTES) {
       await reader.cancel().catch(() => undefined);
       throw new Error(`GET ${path}: response too large`);
@@ -156,8 +164,9 @@ interface LangfuseScore {
 
 /* Reads the annotations and, unless `dryRun`, stores them. The counts are the same either way. */
 export async function importLabels(deps: LabelDeps, filter: LabelFilter, opts: { dryRun?: boolean } = {}): Promise<LabelResult> {
-  const sessionTraces = filter.session ? new Set((await pages<{ id?: string }>(deps, "/api/public/traces", { sessionId: filter.session })).flatMap((t) => (t.id ? [t.id] : []))) : undefined;
-  const scores = await pages<LangfuseScore>(deps, "/api/public/v2/scores", {
+  const budget = { left: deps.maxTotalBytes ?? MAX_TOTAL_BYTES };
+  const sessionTraces = filter.session ? new Set((await pages<{ id?: string }>(deps, budget, "/api/public/traces", { sessionId: filter.session })).flatMap((t) => (t.id ? [t.id] : []))) : undefined;
+  const scores = await pages<LangfuseScore>(deps, budget, "/api/public/v2/scores", {
     source: "ANNOTATION",
     ...(filter.since ? { fromTimestamp: filter.since } : {}),
     ...(filter.name ? { name: filter.name } : {}),
@@ -179,7 +188,7 @@ export async function importLabels(deps: LabelDeps, filter: LabelFilter, opts: {
       continue;
     }
     const spec = score.name.length <= MAX_NAME_CHARS ? specOfScore(score.name) : undefined;
-    const typed = spec ? typedValue(score, spec.categories) : undefined;
+    const typed = spec ? typedValue(score, spec) : undefined;
     if (!spec || typed === undefined) {
       result.unsupported += 1;
       continue;
@@ -188,7 +197,7 @@ export async function importLabels(deps: LabelDeps, filter: LabelFilter, opts: {
       runId,
       name: score.name,
       graderVersion: "human",
-      dataType: typed.dataType,
+      dataType: spec.dataType,
       polarity: spec.polarity,
       source: "human",
       value: typed.value,
@@ -208,15 +217,19 @@ export async function importLabels(deps: LabelDeps, filter: LabelFilter, opts: {
   return result;
 }
 
-function typedValue(score: LangfuseScore, categories: readonly string[] | undefined): { dataType: ScoreDataType; value: number | boolean | string } | undefined {
-  if (score.dataType === "NUMERIC" && typeof score.value === "number" && Number.isFinite(score.value)) return { dataType: "NUMERIC", value: score.value };
-  if (score.dataType === "BOOLEAN" && (score.value === 0 || score.value === 1)) return { dataType: "BOOLEAN", value: score.value === 1 };
-  if (score.dataType === "CATEGORICAL" && typeof score.stringValue === "string" && score.stringValue !== "" && score.stringValue.length <= MAX_CATEGORY_CHARS) {
-    /* A catalog score with a closed set takes nothing outside it. */
-    if (categories && !categories.includes(score.stringValue)) return undefined;
-    return { dataType: "CATEGORICAL", value: score.stringValue };
+/* The score as the catalog types it: a label whose type disagrees with its spec, or whose number is outside the spec's range, is refused. */
+function typedValue(score: LangfuseScore, spec: ScoreSpec): { value: number | boolean | string } | undefined {
+  if (score.dataType !== spec.dataType) return undefined;
+  if (spec.dataType === "NUMERIC") {
+    if (typeof score.value !== "number" || !Number.isFinite(score.value)) return undefined;
+    if (spec.range && (score.value < spec.range.min || (spec.range.max !== undefined && score.value > spec.range.max))) return undefined;
+    return { value: score.value };
   }
-  return undefined;
+  if (spec.dataType === "BOOLEAN") return score.value === 0 || score.value === 1 ? { value: score.value === 1 } : undefined;
+  if (typeof score.stringValue !== "string" || score.stringValue === "" || score.stringValue.length > MAX_CATEGORY_CHARS) return undefined;
+  /* A catalog score with a closed set takes nothing outside it. */
+  if (spec.categories && !spec.categories.includes(score.stringValue)) return undefined;
+  return { value: score.stringValue };
 }
 
 /** Returns the process exit code. A bad argument prints the usage and returns 2; anything the import could not do throws. */
