@@ -1,0 +1,287 @@
+# OPT-IN Langfuse v4 (self-hosted) on top of the telemetry stack: a second compose profile, `langfuse`. Plain
+# `docker compose up` and the telemetry file alone behave exactly as before. Start it with:
+#
+#   docker compose \
+#     -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.telemetry.yml -f docker-compose.langfuse.yml \
+#     --profile telemetry --profile langfuse up --build
+#
+# This file is ONLY ever loaded together with docker-compose.telemetry.yml (it reuses `telemetry-internal` and the
+# `collector`, `orchestrator` services defined there) and with BOTH profiles, and every compose command that loads it needs
+# the variables listed in docs/telemetry-local.md (compose interpolates the whole file; there is no default for any secret).
+#
+# What it adds (docs/observability-design.md §9.2, §10):
+#   - the Langfuse web UI/API and worker, Postgres 17, ClickHouse 25.12, Redis 7 and MinIO, following Langfuse's own compose;
+#   - a second collector config (config/otel/collector-langfuse.yaml) selected by overriding the trusted `collector`'s
+#     command: the compose file cannot make a pipeline conditional, so the profile swaps the whole config. It is the plain
+#     one plus an `otlphttp/langfuse` exporter. The untrusted `collector-agents` is untouched: agent-origin traces never
+#     go to Langfuse;
+#   - the Langfuse API address and project keys on the orchestrator (score sink, score configs, label import).
+#
+# Networks. Network isolation is per container:
+#   langfuse-internal  (internal)  the stores, the worker, the web service and the UI proxy talk here. The orchestrator and
+#                                  the collector are NOT on it, so neither can reach Postgres, ClickHouse, Redis or MinIO.
+#   telemetry-internal (internal)  only langfuse-web joins it, so the orchestrator and the trusted collector reach exactly
+#                                  one Langfuse port (web :3000: the OTLP endpoint and the public API).
+#   langfuse-ui                    the only non-internal network of this file; langfuse-proxy is its only member, because a
+#                                  container attached only to internal networks cannot publish a port. It carries 127.0.0.1:3002.
+# The agents container is on none of these (default + agent-otlp only), so it cannot reach Langfuse at all.
+#
+# Keys. LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (Doppler) are the one project key pair: Langfuse creates the project with
+# them at first boot (LANGFUSE_INIT_*, headless), the orchestrator signs API calls with them and the trusted collector signs
+# OTLP exports with them. They are not in the agents container, not on any sandbox allowlist, and never logged.
+#
+# Resources. Langfuse recommends 4 cores and 16 GiB for the host; the limits below add up to about 5.5 GiB of containers.
+# It is for campaign review sessions, not always-on.
+
+x-langfuse-logging: &langfuse-logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+x-langfuse-env: &langfuse-env
+  NEXTAUTH_URL: http://localhost:3002
+  DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD:?set LANGFUSE_POSTGRES_PASSWORD to start the langfuse profile}@postgres:5432/langfuse
+  SALT: ${LANGFUSE_SALT:?set LANGFUSE_SALT to start the langfuse profile}
+  # `openssl rand -hex 32`
+  ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?set LANGFUSE_ENCRYPTION_KEY to start the langfuse profile}
+  TELEMETRY_ENABLED: "false"
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_USER: langfuse
+  CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?set LANGFUSE_CLICKHOUSE_PASSWORD to start the langfuse profile}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${LANGFUSE_REDIS_AUTH:?set LANGFUSE_REDIS_AUTH to start the langfuse profile}
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_ROOT_PASSWORD:?set LANGFUSE_MINIO_ROOT_PASSWORD to start the langfuse profile}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_ROOT_PASSWORD:?set LANGFUSE_MINIO_ROOT_PASSWORD to start the langfuse profile}
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+
+x-langfuse-depends-on: &langfuse-depends-on
+  postgres:
+    condition: service_healthy
+  minio:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  clickhouse:
+    condition: service_healthy
+
+services:
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:4.63.0
+    profiles: [langfuse]
+    restart: unless-stopped
+    depends_on: *langfuse-depends-on
+    # No published port. langfuse-internal reaches the stores and the proxy; telemetry-internal is how the orchestrator
+    # (public API) and the trusted collector (OTLP) reach this one port.
+    networks:
+      - langfuse-internal
+      - telemetry-internal
+    environment:
+      <<: *langfuse-env
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?set LANGFUSE_NEXTAUTH_SECRET to start the langfuse profile}
+      # Headless init: the organization, project, key pair and first user exist at first boot, so the keys the orchestrator
+      # and the collector hold are the project's own. The keys must look like pk-lf-... and sk-lf-... .
+      LANGFUSE_INIT_ORG_ID: qayaba
+      LANGFUSE_INIT_ORG_NAME: qayaba
+      LANGFUSE_INIT_PROJECT_ID: qayaba
+      LANGFUSE_INIT_PROJECT_NAME: qayaba
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY to start the langfuse profile}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY to start the langfuse profile}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:?set LANGFUSE_INIT_USER_EMAIL to start the langfuse profile}
+      LANGFUSE_INIT_USER_NAME: qayaba
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:?set LANGFUSE_INIT_USER_PASSWORD to start the langfuse profile}
+      AUTH_DISABLE_SIGNUP: "true"
+    logging: *langfuse-logging
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:4.63.0
+    profiles: [langfuse]
+    restart: unless-stopped
+    depends_on: *langfuse-depends-on
+    networks:
+      - langfuse-internal
+    environment:
+      <<: *langfuse-env
+    logging: *langfuse-logging
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:25.12.11
+    profiles: [langfuse]
+    restart: unless-stopped
+    user: "101:101"
+    networks:
+      - langfuse-internal
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?set LANGFUSE_CLICKHOUSE_PASSWORD to start the langfuse profile}
+    volumes:
+      - langfuse-clickhouse-data:/var/lib/clickhouse
+      - langfuse-clickhouse-logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    logging: *langfuse-logging
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  postgres:
+    image: docker.io/library/postgres:17.11-alpine
+    profiles: [langfuse]
+    restart: unless-stopped
+    networks:
+      - langfuse-internal
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD:?set LANGFUSE_POSTGRES_PASSWORD to start the langfuse profile}
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    logging: *langfuse-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  redis:
+    image: docker.io/library/redis:7.4.11-alpine
+    profiles: [langfuse]
+    restart: unless-stopped
+    networks:
+      - langfuse-internal
+    command: ["redis-server", "--requirepass", "${LANGFUSE_REDIS_AUTH:?set LANGFUSE_REDIS_AUTH to start the langfuse profile}", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - langfuse-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    logging: *langfuse-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  minio:
+    # MinIO no longer publishes community images to Docker Hub or Quay; this is the image Langfuse's own compose uses, pinned by digest.
+    image: cgr.dev/chainguard/minio@sha256:709099319add48dfb44aa596a7070d3ddd8dd04d7ae881765719aec29df9e510
+    profiles: [langfuse]
+    restart: unless-stopped
+    networks:
+      - langfuse-internal
+    entrypoint: sh
+    # Creates the `langfuse` bucket before the server starts. No published port: the browser's media upload (which would
+    # need one) is not used; traces and events go through the worker.
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_ROOT_PASSWORD:?set LANGFUSE_MINIO_ROOT_PASSWORD to start the langfuse profile}
+    volumes:
+      - langfuse-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 3s
+    logging: *langfuse-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  langfuse-proxy:
+    image: nginxinc/nginx-unprivileged:1.27.5-alpine
+    profiles: [langfuse]
+    restart: unless-stopped
+    depends_on:
+      langfuse-web:
+        condition: service_started
+    # langfuse-internal reaches langfuse-web; langfuse-ui carries the loopback-published port. The only member of langfuse-ui.
+    networks:
+      - langfuse-internal
+      - langfuse-ui
+    ports:
+      # The Langfuse UI only, loopback only.
+      - "127.0.0.1:3002:8080"
+    volumes:
+      - ./config/otel/langfuse-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # The trusted collector runs the Langfuse-aware config instead of the plain one (same service, same networks). The
+  # exporter signs with the project key pair through the basicauth extension, so no pre-encoded header is kept anywhere.
+  collector:
+    command: ["--config=/etc/otelcol/collector-langfuse.yaml"]
+    environment:
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY to start the langfuse profile}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY to start the langfuse profile}
+    volumes:
+      - ./config/otel/collector-langfuse.yaml:/etc/otelcol/collector-langfuse.yaml:ro
+
+  orchestrator:
+    environment:
+      # The score sink, the score-config bootstrap and the label import call the Langfuse public API. Configured only when
+      # all three are set; the keys come from Doppler and are never logged.
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY to start the langfuse profile}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY to start the langfuse profile}
+
+networks:
+  langfuse-internal:
+    internal: true
+  langfuse-ui:
+
+volumes:
+  langfuse-clickhouse-data:
+  langfuse-clickhouse-logs:
+  langfuse-postgres-data:
+  langfuse-redis-data:
+  langfuse-minio-data:

@@ -1,0 +1,99 @@
+# TRUSTED collector of the local telemetry stack, Langfuse variant. Selected by docker-compose.langfuse.yml (which overrides
+# the collector's command): it is collector.yaml plus the `basicauth/langfuse` extension, the `otlphttp/langfuse` exporter and
+# that exporter in the traces pipeline. A test pins that nothing else differs. Metrics never go to Langfuse (it discards OTLP metrics).
+#
+# TRUSTED collector of the local telemetry stack (docs/telemetry-local.md, docs/observability-design.md §9.2, §10).
+#
+# It runs as its own service on telemetry-internal ONLY and hosts the single receiver the orchestrator writes to
+# (:4318). The agents container is never on a network that reaches it. The untrusted receiver lives in a separate
+# service with its own config (collector-agents.yaml): network isolation is per container, so one collector holding
+# both receivers on both networks would expose this port to the agents.
+
+receivers:
+  otlp/orchestrator:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+  # Second redaction layer (the first is the orchestrator's own sanitizer, applied when an attribute is created).
+  # Coarse on purpose: it blocks values that look like credentials, whatever key carries them. Key patterns are anchored
+  # on separators so ordinary names (gen_ai.usage.input_tokens, max_tokens, author) are left alone.
+  redaction:
+    allow_all_keys: true
+    summary: info
+    ignored_key_patterns:
+      - '^gen_ai\.usage\..*'
+    blocked_key_patterns:
+      - '(?i)(^|[._-])(password|passwd|secret|api[_-]?key|authorization|auth[_-]?token|access[_-]?token|refresh[_-]?token|cookie|set[_-]?cookie)($|[._-])'
+    blocked_values:
+      - '(?i)bearer\s+[a-z0-9._~+/=-]{8,}'
+      - '(?i)basic\s+[a-z0-9+/=]{8,}'
+      - '(?i)(password|passwd|pwd|secret|token|api[_-]?key)\s*[=:]\s*\S+'
+      - '(?i)(set-)?cookie\s*:\s*\S+'
+      - '[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@]+:[^\s/@]+@'
+      - 'gh[pousr]_[A-Za-z0-9]{20,}'
+      - 'github_pat_[A-Za-z0-9_]{20,}'
+      - 'sk-[A-Za-z0-9_-]{16,}'
+      - 'AKIA[0-9A-Z]{16}'
+      - 'AIza[0-9A-Za-z_-]{30,}'
+      - 'xox[abp]-[A-Za-z0-9-]{10,}'
+      - 'npm_[A-Za-z0-9]{30,}'
+      - 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
+      - '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+
+extensions:
+  # Basic pk:sk from the environment (the project key pair): the extension encodes it, so no pre-encoded secret exists.
+  basicauth/langfuse:
+    client_auth:
+      username: ${env:LANGFUSE_PUBLIC_KEY}
+      password: ${env:LANGFUSE_SECRET_KEY}
+
+exporters:
+  # Langfuse v4 OTLP ingestion: HTTP only, the exporter appends /v1/traces. The ingestion-version header makes spans
+  # visible immediately instead of up to ten minutes late.
+  otlphttp/langfuse:
+    endpoint: http://langfuse-web:3000/api/public/otel
+    headers:
+      x-langfuse-ingestion-version: "4"
+    auth:
+      authenticator: basicauth/langfuse
+
+  # Tempo (traces) and Prometheus (metrics) live inside the grafana/otel-lgtm container.
+  otlphttp/lgtm:
+    endpoint: http://lgtm:4318
+
+  # Rotating on-disk copy of the traces, for debugging the collector itself. The path is a named volume.
+  file/debug:
+    path: /var/lib/otel-debug/traces.jsonl
+    rotation:
+      max_megabytes: 100
+      max_backups: 3
+
+  # Off by default: not referenced by any pipeline. Add it to a pipeline's exporters to print spans to the collector log.
+  debug:
+    verbosity: basic
+
+service:
+  extensions: [basicauth/langfuse]
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces/orchestrator:
+      receivers: [otlp/orchestrator]
+      processors: [memory_limiter, redaction, batch]
+      exporters: [otlphttp/lgtm, otlphttp/langfuse, file/debug]
+    metrics/orchestrator:
+      receivers: [otlp/orchestrator]
+      processors: [memory_limiter, redaction, batch]
+      exporters: [otlphttp/lgtm]

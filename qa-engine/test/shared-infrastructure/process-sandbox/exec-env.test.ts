@@ -16,6 +16,9 @@ const SECRETS: NodeJS.ProcessEnv = {
   OPENCODE_SERVER_PASSWORD: "oc-pass",
   CODEX_API_KEY: "cx-key",
   DOPPLER_TOKEN: "dp",
+  LANGFUSE_PUBLIC_KEY: "pk-lf-orchestrator",
+  LANGFUSE_SECRET_KEY: "sk-lf-orchestrator",
+  LANGFUSE_BASE_URL: "http://langfuse-web:3000",
   DEV_TEST_USER: "orchestrator-user",
   DEV_TEST_PASS: "orchestrator-pass",
   DEV_ENV_USER: "gate-user-from-env",
@@ -34,7 +37,7 @@ function input(profile: ExecEnvInput["profile"], more: Partial<ExecEnvInput> = {
   return { profile, base: SECRETS, sandbox: SANDBOX, workDir: "/tmp/qa-exec/run-1", ...more };
 }
 
-const FORBIDDEN = ["GITHUB_TOKEN", "QA_API_TOKEN", "QA_TOOLS_TOKEN", "WEBHOOK_SECRET", "OPENCODE_API_KEY", "OPENCODE_SERVER_PASSWORD", "CODEX_API_KEY", "DOPPLER_TOKEN", "NODE_OPTIONS", "NODE_PATH"];
+const FORBIDDEN = ["GITHUB_TOKEN", "QA_API_TOKEN", "QA_TOOLS_TOKEN", "WEBHOOK_SECRET", "OPENCODE_API_KEY", "OPENCODE_SERVER_PASSWORD", "CODEX_API_KEY", "DOPPLER_TOKEN", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_BASE_URL", "NODE_OPTIONS", "NODE_PATH"];
 
 test("no profile ever hands the child an orchestrator secret, however the account and gate are supplied", () => {
   for (const profile of SANDBOX_PROFILES) {
