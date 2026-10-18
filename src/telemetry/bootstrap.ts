@@ -17,7 +17,7 @@ import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.
 import { resolveCampaignFreeze } from "../server/campaign-freeze";
 import { commitRunSpans, pruneRunSpans, pruneSpecSnapshots } from "../server/history";
 import { sanitizeText } from "../orchestrator/sanitizer";
-import { resolveTelemetryConfig } from "./config";
+import { resolveTelemetryConfig, type TelemetryConfig } from "./config";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
 import { EVENT_LOOP_DELAY_BOUNDARIES_MS, SUSPEND_DURATION_BOUNDARIES_S } from "./host-health";
 import { OtelTelemetry, type CaptureMode } from "./otel-telemetry.adapter";
@@ -114,6 +114,19 @@ function offHandle(freeze: boolean, clock: TelemetryClock): TelemetryHandle {
   return { telemetry: new NoopTelemetry(), clock, health: () => health, shutdown: async () => {} };
 }
 
+export interface PruneFns {
+  pruneRunSpans: typeof pruneRunSpans;
+  pruneSpecSnapshots: typeof pruneSpecSnapshots;
+}
+
+/* The ledger's periodic prune: the ordinary window, with a campaign run's records kept for the campaign window (R4). */
+export function retentionPrune(config: Pick<TelemetryConfig, "retentionDays" | "campaignRetentionDays">, fns: PruneFns = { pruneRunSpans, pruneSpecSnapshots }): (nowMs: number) => void {
+  return (nowMs) => {
+    fns.pruneRunSpans(config.retentionDays, nowMs, undefined, config.campaignRetentionDays);
+    fns.pruneSpecSnapshots(config.retentionDays, nowMs, undefined, config.campaignRetentionDays);
+  };
+}
+
 export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
   const config = resolveTelemetryConfig(deps.env);
   const freeze = deps.campaignFreeze ?? resolveCampaignFreeze(deps.env);
@@ -121,7 +134,7 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
   if (config.mode === "off") return offHandle(freeze, clock);
 
   const resource = resourceFromAttributes({ ...config.resourceAttributes, "service.name": config.serviceName });
-  const ledger = new LedgerSpanProcessor(deps.store ?? { commit: commitRunSpans, prune: (nowMs) => { pruneRunSpans(config.retentionDays, nowMs, undefined, config.campaignRetentionDays); pruneSpecSnapshots(config.retentionDays, nowMs, undefined, config.campaignRetentionDays); } });
+  const ledger = new LedgerSpanProcessor(deps.store ?? { commit: commitRunSpans, prune: retentionPrune(config) });
   const exporterStatus: ExporterStatus = { dropped: 0 };
   const spanProcessors: Array<LedgerSpanProcessor | BatchSpanProcessor> = [ledger];
 

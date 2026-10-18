@@ -165,12 +165,14 @@ function newerVersion(a: string, b: string): boolean {
   return Number.isFinite(na) && Number.isFinite(nb) ? na > nb : a.localeCompare(b, undefined, { numeric: true }) > 0;
 }
 
+/* Enough to call a difference: at least MIN_REPLICATES values AND at least MIN_REPLICATES distinct replicate numbers. */
+const enough = (stat: ArmStat): boolean => stat.n >= MIN_REPLICATES && stat.replicates >= MIN_REPLICATES;
+
 function assess(delta: number, ci: Interval | null, polarity: Polarity, treatment: ArmStat, baseline: ArmStat): Assessment {
   if (ci === null) return "insufficient-replicates";
   const excludesZero = ci.low > 0 || ci.high < 0;
-  if (!excludesZero) return treatment.replicates < MIN_REPLICATES || baseline.replicates < MIN_REPLICATES ? "insufficient-replicates" : "no-detectable-difference";
-  /* A difference that clears zero on fewer than MIN_REPLICATES replicates is still not a lift. */
-  if (treatment.replicates < MIN_REPLICATES || baseline.replicates < MIN_REPLICATES) return "insufficient-replicates";
+  if (!enough(treatment) || !enough(baseline)) return "insufficient-replicates";
+  if (!excludesZero) return "no-detectable-difference";
   if (polarity === "none") return "shift";
   const better = polarity === "higher_better" ? delta > 0 : delta < 0;
   return better ? "lift" : "regression";
@@ -300,6 +302,7 @@ export function renderComparisonMarkdown(c: CampaignComparison, options: RenderO
   lines.push(`# Campaign ${c.campaignId}`, "");
   lines.push(`Mean with a bootstrap 95% confidence interval per score (${c.iterations} resamples, seed ${c.seed}). The unit is a run; n counts runs, replicates counts distinct replicate numbers. A difference is a lift only when its interval excludes zero in the better direction and both arms have at least ${c.minReplicates} replicates.`, "");
   if (options.complete === false) lines.push("> The campaign is not complete: some runs are not done or not graded yet. The figures below cover the graded runs only.", "");
+  lines.push("> The replicate count is a proxy: the API does not say which item a run replayed, so there is no paired per-item analysis, and a replicate number says nothing about whether two runs replayed the same item. Read a lift as a signal about the arm, not as an item-by-item comparison.", "");
   lines.push("> Known confound: engram (the agents' memory) is not isolated between replicates, so a replicate can learn from the one before it.", "");
   lines.push("## Arms", "", "| Arm | Runs | Replicates |", "|---|---|---|");
   for (const arm of c.arms) lines.push(`| ${arm.key}${arm.key === c.baseline ? " (baseline)" : ""} | ${arm.runs} | ${arm.replicates} |`);

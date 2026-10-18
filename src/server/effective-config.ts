@@ -12,7 +12,9 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveCoordinationSettings, type CoordinationMode } from "@kernel/coordination";
+import type { TestTarget } from "@kernel/run-mode";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
+import { serviceTopologyWired, structuralSignalsMode, toolsApply } from "./run-config-gates";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { EffectiveConfig } from "../contract/commands";
 import type { AgentRoleFacts } from "./history";
@@ -44,21 +46,20 @@ export interface RunConfigRequest {
 /* The engine's defaults for the change-coverage policy, restated by the composition root's own `??` chain. */
 const DEFAULT_COVERAGE_MODE = "signal";
 const DEFAULT_COVERAGE_MIN_RATIO = 0.7;
-const DEFAULT_STRUCTURAL_SIGNAL_MODE = "signal";
 
-export function resolveRunConfig(app: AppConfig, request: RunConfigRequest, captureMode: CaptureMode, env: RunConfigEnvironment): StoredRunConfig {
-  const isCode = app.code === true;
-  /* The tools are granted to an e2e app with a DEV address when the service token is configured; otherwise the lever cannot take effect, whatever was asked. */
-  const toolsApply = !isCode && Boolean(app.dev?.baseUrl);
+export function resolveRunConfig(app: AppConfig, target: TestTarget, request: RunConfigRequest, captureMode: CaptureMode, env: RunConfigEnvironment): StoredRunConfig {
+  const isCode = target === "code";
+  /* Same predicates as the engine factory's wiring (run-config-gates.ts). The tools also need the service token; otherwise the lever cannot take effect, whatever was asked. */
+  const tools = toolsApply(target, app);
   const closedLoopAsked = request.closedLoop ?? app.qa.closedLoop?.enabled === true;
   const agentBrowserAsked = request.agentBrowser ?? app.qa.agentBrowser?.enabled === true;
-  const structuralMode = app.qa.structuralSignals?.mode ?? DEFAULT_STRUCTURAL_SIGNAL_MODE;
+  const structuralMode = structuralSignalsMode(app);
   const services = (app.services?.length ?? 0) > 0;
-  const stitched = structuralMode !== "off" && services && (app.boundaries?.length ?? 0) > 0;
+  const stitched = serviceTopologyWired(app);
   return {
     levers: {
-      closedLoop: toolsApply ? env.toolsGranted && closedLoopAsked : null,
-      agentBrowser: toolsApply ? env.toolsGranted && agentBrowserAsked : null,
+      closedLoop: tools ? env.toolsGranted && closedLoopAsked : null,
+      agentBrowser: tools ? env.toolsGranted && agentBrowserAsked : null,
       coordinationMode: isCode ? null : (request.coordinationMode ?? resolveCoordinationSettings(app.qa.coordination).mode),
       captureMode,
     },

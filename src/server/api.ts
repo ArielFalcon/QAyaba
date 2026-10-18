@@ -8,7 +8,7 @@
 
 import { describeSandboxHealth } from "./sandbox-health";
 import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
-import type { CampaignIdentity } from "@kernel/campaign";
+import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "@kernel/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
@@ -287,7 +287,18 @@ export async function handleApi(
 
   const campaignMatch = path.match(/^\/api\/campaigns\/([^/]+)\/runs$/);
   if (req.method === "GET" && campaignMatch) {
-    return handleCampaignRuns(res, deps, decodeURIComponent(campaignMatch[1]!), url.searchParams);
+    let campaignId: string;
+    try {
+      campaignId = decodeURIComponent(campaignMatch[1]!);
+    } catch {
+      apiError(res, 400, "the campaign id is not valid URL encoding");
+      return true;
+    }
+    if (!CAMPAIGN_ID_PATTERN.test(campaignId)) {
+      apiError(res, 400, "the campaign id must be 1-100 characters of A-Z a-z 0-9 _ . : -");
+      return true;
+    }
+    return handleCampaignRuns(res, deps, campaignId, url.searchParams);
   }
 
   const eventMatch = path.match(/^\/api\/runs\/([^/]+)\/events$/);

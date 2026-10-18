@@ -125,3 +125,12 @@ test("the markdown names the arms, the interval, the assessment and the engram c
   assert.match(md, /not complete/);
   assert.doesNotMatch(renderComparisonMarkdown(cmp, { complete: true }), /not complete/);
 });
+
+test("three values that are all replicate 1 are not three replicates, and the report says the count is a proxy without a paired analysis", () => {
+  const same = (name: string, values: number[]) => values.map((v) => run(name, 1, [score("spec_pass_rate", v)]));
+  const cmp = compareCampaign([...same("control", [0.1, 0.2, 0.15]), ...same("treatment", [0.8, 0.9, 0.85])], opts);
+  assert.equal(cmp.scores[0]!.versusBaseline["arm=treatment"]!.assessment, "insufficient-replicates");
+  const md = renderComparisonMarkdown(cmp);
+  assert.match(md, /proxy/);
+  assert.match(md, /no paired per-item analysis/);
+});

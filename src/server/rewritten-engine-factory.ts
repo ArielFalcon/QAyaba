@@ -156,6 +156,7 @@ import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-ru
 import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
+import { serviceTopologyWired, structuralSignalsOn as structuralSignalsOnFor, toolsApply } from "./run-config-gates";
 import { resolveReflectorEnabled } from "./reflector-switch";
 import { attributableRules, preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
@@ -847,8 +848,9 @@ export function buildRewrittenCompositionConfig(
   const vcs = new GitMirrorReadAdapter(vcsDir, runner);
 
 
-  const structuralSignalsMode = app.qa.structuralSignals?.mode ?? "signal";
-  const structuralSignalsOn = structuralSignalsMode !== "off";
+  const structuralSignalsOn = structuralSignalsOnFor(app);
+  const serviceTopologyOn = serviceTopologyWired(app);
+  const toolsApplyToRun = toolsApply(target, app);
 
   /* What classifies this run's agent steps in its trace: the app's own configuration, never a name. */
   const turnTelemetry: TurnTelemetryContext = {
@@ -1145,7 +1147,7 @@ export function buildRewrittenCompositionConfig(
 
     ...(structuralSignalsOn ? { codebaseMemory: new CodebaseMemoryClient(runner) } : {}),
 
-    ...(structuralSignalsOn && app.services?.length && app.boundaries?.length
+    ...(serviceTopologyOn && app.services
       ? {
           serviceTopology: {
             appName: app.name,
@@ -1158,7 +1160,7 @@ export function buildRewrittenCompositionConfig(
         }
       : {}),
 
-    ...(structuralSignalsOn && app.services?.length && app.boundaries?.length
+    ...(serviceTopologyOn
       ? { crossRepoImpact: { mirrorRoot, codebaseMemory: new CodebaseMemoryClient(runner), runner } }
       : {}),
 
@@ -1186,7 +1188,7 @@ export function buildRewrittenCompositionConfig(
      * facade as it is now (the runtime is switchable): only OpenCode can call a custom tool, and a host that cannot say is
      * not assumed to be. The account lock is the process's, since the key is the app's login and the processes share nothing else.
      */
-    ...(deps.closedLoopRegistry && !isCode && app.dev?.baseUrl
+    ...(deps.closedLoopRegistry && toolsApplyToRun
       ? {
           closedLoop: {
             registry: deps.closedLoopRegistry,
@@ -1213,7 +1215,7 @@ export function buildRewrittenCompositionConfig(
      * orchestrator forgot, because it was restarted in place, ends by itself. The generator's runtime is read as it is now, and a
      * host that cannot say is not assumed to be OpenCode: only OpenCode can call a custom tool, and a Codex role never gets one.
      */
-    ...(deps.agentBrowserRegistry && !isCode && app.dev?.baseUrl
+    ...(deps.agentBrowserRegistry && toolsApplyToRun
       ? {
           agentBrowser: {
             registry: deps.agentBrowserRegistry,

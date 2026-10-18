@@ -294,3 +294,13 @@ test("GET /campaigns/:id/runs refuses a parameter that is not a variant filter",
     assert.equal(json.schemaVersion, 1);
   }
 });
+
+test("GET /campaigns/:id/runs answers 400 with schemaVersion for an id that does not decode or is not a campaign id", async () => {
+  for (const id of ["%zz", "bad%20id", "a%2Fb", "x".repeat(101), "%E0%A4%A"]) {
+    const { status, json } = await call("GET", `/api/v1/campaigns/${id}/runs`);
+    assert.equal(status, 400, id);
+    assert.equal(json.schemaVersion, 1);
+    assert.equal(typeof json.error, "string");
+  }
+  assert.equal((await call("GET", "/api/v1/campaigns/ab-1.x%3Ay/runs")).status, 200);
+});

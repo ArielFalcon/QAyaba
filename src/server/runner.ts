@@ -593,7 +593,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
  */
 function recordRunConfig(runId: string, app: AppConfig, req: RunRequest, captureMode: CaptureMode, env: RunConfigEnvironment, trace: RunTrace): void {
   try {
-    const config = resolveRunConfig(app, req, captureMode, env);
+    const config = resolveRunConfig(app, req.target, req, captureMode, env);
     recordEffectiveConfig(runId, JSON.stringify(config));
     trace.configInEffect(configInEffect(config));
   } catch (err) {

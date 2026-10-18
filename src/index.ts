@@ -30,6 +30,7 @@ import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents 
 import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getRunFacts, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
 import { createEvaluationService } from "./server/evaluation-service";
 import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
+import { guardRequestHandler } from "./server/guarded-handler";
 import { hashStaticPrompts, type RunConfigEnvironment } from "./server/effective-config";
 import { resolveTelemetryConfig } from "./telemetry/config";
 import { resolveReflectorEnabled } from "./server/reflector-switch";
@@ -246,6 +247,7 @@ const toolsPort = resolveToolsPort(process.env);
 const toolsToken = resolveToolsToken(process.env);
 if (toolsToken.generated) logJson("warn", "QA_TOOLS_TOKEN is not set: no run is granted the run_spec or authenticated browser tools until the same value is set on the orchestrator and agents services");
 /* What every run records of the process around it (its effectiveConfig): the agent runtime, the prompt layers, the tool grants and the operator switches, each read where it is configured. */
+/* Memoised for the process's life: editing a prompt file needs a restart to show in later runs' effectiveConfig (docs/observability-design.md section 14). */
 let staticPromptHash: string | null | undefined;
 runConfigEnvironment = {
   runtime: () => agentRuntime.current().assignments.primary.provider,
@@ -794,7 +796,7 @@ const apiDeps: ApiDeps = {
   },
 };
 
-const server = createServer(async (req, res) => {
+const server = createServer(guardRequestHandler(async (req, res) => {
   const path = (req.url ?? "/").split("?")[0] ?? "/";
   const traceId = req.headers["x-trace-id"] as string | undefined;
   const startTime = Date.now();
@@ -922,7 +924,7 @@ const server = createServer(async (req, res) => {
 
   res.writeHead(404, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ error: "not found" }));
-});
+}, (message) => logJson("error", message)));
 
 /*
  * Finalize zombie runs from a previous process BEFORE accepting traffic: a webhook

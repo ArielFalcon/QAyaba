@@ -222,3 +222,23 @@ test("the handle exposes the clock the telemetry was built on, in both modes, so
   const off = createTelemetry(deps({ QA_TELEMETRY: "off" }).base);
   assert.equal(typeof off.clock.now(), "number");
 });
+
+test("the ledger prune hands the campaign retention window to both prunes", async () => {
+  const { retentionPrune } = await import("./bootstrap");
+  const calls: unknown[][] = [];
+  retentionPrune({ retentionDays: 30, campaignRetentionDays: 180 }, {
+    pruneRunSpans: (...a: unknown[]) => { calls.push(["spans", ...a]); return 0; },
+    pruneSpecSnapshots: (...a: unknown[]) => { calls.push(["snapshots", ...a]); return 0; },
+  } as never)(1234);
+  assert.deepEqual(calls, [["spans", 30, 1234, undefined, 180], ["snapshots", 30, 1234, undefined, 180]]);
+});
+
+test("the ledger prune hands the campaign retention window to both prunes", async () => {
+  const { retentionPrune } = await import("./bootstrap");
+  const calls: unknown[][] = [];
+  retentionPrune({ retentionDays: 30, campaignRetentionDays: 180 }, {
+    pruneRunSpans: (...a: unknown[]) => { calls.push(["spans", ...a]); return 0; },
+    pruneSpecSnapshots: (...a: unknown[]) => { calls.push(["snapshots", ...a]); return 0; },
+  } as never)(1234);
+  assert.deepEqual(calls, [["spans", 30, 1234, undefined, 180], ["snapshots", 30, 1234, undefined, 180]]);
+});

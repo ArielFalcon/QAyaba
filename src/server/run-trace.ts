@@ -58,7 +58,7 @@ export interface RunConfigInEffect {
 function campaignAttrs(campaign: CampaignIdentity | undefined): Record<string, string | number> {
   if (!campaign) return {};
   const out: Record<string, string | number> = { "qayaba.campaign.id": campaign.id, "qayaba.campaign.replicate": campaign.replicate };
-  /* A registry template key is one dot-free segment, and a label key may hold dots: the attribute spells them as underscores (the stored variant keeps the key as given). */
+  /* A registry template key is one dot-free segment, and a label key may hold dots: the attribute spells them as underscores (the stored variant keeps the key as given; keys differing only by '.' versus '_' collapse onto one attribute). */
   for (const [key, value] of Object.entries(campaign.variant)) out[attrKey.campaignVariant(key.replaceAll(".", "_"))] = value;
   return out;
 }
