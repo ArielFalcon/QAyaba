@@ -31,11 +31,12 @@ test("every Langfuse service runs only under the langfuse profile", () => {
   for (const name of NEW_SERVICES) assert.deepEqual(svc(name).profiles, ["langfuse"], name);
 });
 
-test("images are pinned to an exact version or digest", () => {
+test("images are pinned to an exact version tag and a digest", () => {
   for (const name of NEW_SERVICES) {
     const image = String(svc(name).image);
-    assert.doesNotMatch(image, /:latest$|^[^:@]+$/, `${name} has no tag`);
-    assert.ok(/@sha256:[0-9a-f]{64}$/.test(image) || /:\d+\.\d+(\.\d+)?(-[a-z]+)?$/.test(image), `${name}: ${image} is not an exact pin`);
+    assert.match(image, /@sha256:[0-9a-f]{64}$/, `${name}: ${image} has no digest`);
+    assert.match(image, /:(\d+\.\d+(\.\d+)?(-[a-z]+)?|latest)@/, `${name}: ${image} has no exact tag`);
+    assert.doesNotMatch(image, /:\d+@/, `${name}: ${image} is a bare major tag`);
   }
 });
 
@@ -50,14 +51,25 @@ test("the stores and the worker are on langfuse-internal only, which is internal
   for (const name of [...STORES, "langfuse-worker"]) assert.deepEqual(svc(name).networks, ["langfuse-internal"], name);
 });
 
-test("langfuse-web has no non-internal network; the orchestrator and the collector reach it, and nothing else of Langfuse", () => {
+test("langfuse-web is on internal networks only, and the only way in is langfuse-api, which three services share", () => {
   const web = svc("langfuse-web").networks ?? [];
-  assert.deepEqual([...web].sort(), ["langfuse-internal", "telemetry-internal"]);
+  assert.deepEqual([...web].sort(), ["langfuse-api", "langfuse-internal"]);
   for (const network of web) assert.equal(internal(network), true, network);
+  assert.equal(internal("langfuse-api"), true);
+  assert.deepEqual(allNames.filter((name) => mergedNetworks(name).includes("langfuse-api")).sort(), ["collector", "langfuse-web", "orchestrator"]);
   const onTelemetry = NEW_SERVICES.filter((name) => (svc(name).networks ?? []).includes("telemetry-internal"));
-  assert.deepEqual(onTelemetry, ["langfuse-web"]);
+  assert.deepEqual(onTelemetry, [], "no Langfuse service is on telemetry-internal");
   assert.ok(!mergedNetworks("orchestrator").includes("langfuse-internal"), "the orchestrator must not reach the stores");
   assert.ok(!mergedNetworks("collector").includes("langfuse-internal"), "the collector must not reach the stores");
+});
+
+test("the untrusted collector shares no network with any Langfuse service", () => {
+  const untrusted = mergedNetworks("collector-agents");
+  assert.ok(untrusted.length > 0);
+  for (const name of NEW_SERVICES) {
+    const shared = mergedNetworks(name).filter((network) => untrusted.includes(network));
+    assert.deepEqual(shared, [], `${name} shares ${shared.join(",")} with collector-agents`);
+  }
 });
 
 test("the proxy is the only member of the non-internal langfuse-ui network", () => {

@@ -111,9 +111,14 @@ How the keys flow: Doppler/`.env` -> compose -> (a) `langfuse-web` as `LANGFUSE_
 prefix in `scrub-env.ts` and on no sandbox profile's allowlist, and the sink never logs them.
 
 Networks: the stores, the worker and the web service share the internal `langfuse-internal`, which the orchestrator and the
-collector are **not** on; `langfuse-web` is also on `telemetry-internal` (so the orchestrator and the trusted collector reach
-exactly that one port) and `langfuse-proxy` is the only member of the non-internal `langfuse-ui`, publishing
-`127.0.0.1:3002`. The agents container shares no network with any of it.
+collector are **not** on. `langfuse-web` is also on the dedicated internal `langfuse-api`, joined only by `langfuse-web`, the
+orchestrator and the trusted `collector`: that is the one path to Langfuse's port 3000. It is deliberately **not** on
+`telemetry-internal`, which the untrusted `collector-agents` shares, so the agent-facing receiver cannot reach Langfuse.
+`langfuse-proxy` is the only member of the non-internal `langfuse-ui`, publishing `127.0.0.1:3002`. The agents container shares
+no network with any of it. Every image is pinned by tag and digest.
+
+The score sink sends the project keys only to the `langfuse-web` host, loopback or an https address. Any other host leaves the
+sink unconfigured with a startup warning, unless `LANGFUSE_ALLOW_EXTERNAL=true` is set.
 
 Traces: the file swaps the trusted collector's config for `config/otel/collector-langfuse.yaml` (the plain config plus an
 `otlphttp/langfuse` exporter to `/api/public/otel`, header `x-langfuse-ingestion-version: 4`). A compose file cannot make a

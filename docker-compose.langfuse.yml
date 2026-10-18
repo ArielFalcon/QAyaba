@@ -20,8 +20,9 @@
 # Networks. Network isolation is per container:
 #   langfuse-internal  (internal)  the stores, the worker, the web service and the UI proxy talk here. The orchestrator and
 #                                  the collector are NOT on it, so neither can reach Postgres, ClickHouse, Redis or MinIO.
-#   telemetry-internal (internal)  only langfuse-web joins it, so the orchestrator and the trusted collector reach exactly
-#                                  one Langfuse port (web :3000: the OTLP endpoint and the public API).
+#   langfuse-api       (internal)  joined ONLY by langfuse-web, the orchestrator and the trusted collector: the one path to
+#                                  Langfuse's port 3000 (the OTLP endpoint and the public API). telemetry-internal is not
+#                                  used for it, because collector-agents (the untrusted receiver) is on that network.
 #   langfuse-ui                    the only non-internal network of this file; langfuse-proxy is its only member, because a
 #                                  container attached only to internal networks cannot publish a port. It carries 127.0.0.1:3002.
 # The agents container is on none of these (default + agent-otlp only), so it cannot reach Langfuse at all.
@@ -81,15 +82,16 @@ x-langfuse-depends-on: &langfuse-depends-on
 
 services:
   langfuse-web:
-    image: docker.io/langfuse/langfuse:4.63.0
+    image: docker.io/langfuse/langfuse:4.63.0@sha256:67f48d12a190e4ad585249c75ae1ce172b449de3dbbe7486b8179cd28e21408e
     profiles: [langfuse]
     restart: unless-stopped
     depends_on: *langfuse-depends-on
-    # No published port. langfuse-internal reaches the stores and the proxy; telemetry-internal is how the orchestrator
-    # (public API) and the trusted collector (OTLP) reach this one port.
+    # No published port. langfuse-internal reaches the stores and the proxy; langfuse-api is how the orchestrator (public
+    # API) and the trusted collector (OTLP) reach this one port. It is NOT on telemetry-internal, which collector-agents
+    # shares, so the untrusted collector cannot reach Langfuse.
     networks:
       - langfuse-internal
-      - telemetry-internal
+      - langfuse-api
     environment:
       <<: *langfuse-env
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?set LANGFUSE_NEXTAUTH_SECRET to start the langfuse profile}
@@ -112,7 +114,7 @@ services:
           memory: 1G
 
   langfuse-worker:
-    image: docker.io/langfuse/langfuse-worker:4.63.0
+    image: docker.io/langfuse/langfuse-worker:4.63.0@sha256:ca32a8fb2a214c7b5f42dd9c540c8072e41db659cb621f317911ce695ad6bca2
     profiles: [langfuse]
     restart: unless-stopped
     depends_on: *langfuse-depends-on
@@ -127,7 +129,7 @@ services:
           memory: 1G
 
   clickhouse:
-    image: docker.io/clickhouse/clickhouse-server:25.12.11
+    image: docker.io/clickhouse/clickhouse-server:25.12.11@sha256:8a790dd3468db22b1d4e7b18a176f378ff5ff6053b9c48dd4ea1fa71a24c5ba6
     profiles: [langfuse]
     restart: unless-stopped
     user: "101:101"
@@ -153,7 +155,7 @@ services:
           memory: 2G
 
   postgres:
-    image: docker.io/library/postgres:17.11-alpine
+    image: docker.io/library/postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     profiles: [langfuse]
     restart: unless-stopped
     networks:
@@ -176,7 +178,7 @@ services:
           memory: 512M
 
   redis:
-    image: docker.io/library/redis:7.4.11-alpine
+    image: docker.io/library/redis:7.4.11-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     profiles: [langfuse]
     restart: unless-stopped
     networks:
@@ -197,7 +199,7 @@ services:
 
   minio:
     # MinIO no longer publishes community images to Docker Hub or Quay; this is the image Langfuse's own compose uses, pinned by digest.
-    image: cgr.dev/chainguard/minio@sha256:709099319add48dfb44aa596a7070d3ddd8dd04d7ae881765719aec29df9e510
+    image: cgr.dev/chainguard/minio:latest@sha256:709099319add48dfb44aa596a7070d3ddd8dd04d7ae881765719aec29df9e510
     profiles: [langfuse]
     restart: unless-stopped
     networks:
@@ -224,7 +226,7 @@ services:
           memory: 256M
 
   langfuse-proxy:
-    image: nginxinc/nginx-unprivileged:1.27.5-alpine
+    image: nginxinc/nginx-unprivileged:1.27.5-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0
     profiles: [langfuse]
     restart: unless-stopped
     depends_on:
@@ -260,6 +262,9 @@ services:
   # exporter signs with the project key pair through the basicauth extension, so no pre-encoded header is kept anywhere.
   collector:
     command: ["--config=/etc/otelcol/collector-langfuse.yaml"]
+    # Joins langfuse-api next to the telemetry-internal the telemetry file gives it (compose merges the two lists).
+    networks:
+      - langfuse-api
     environment:
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY to start the langfuse profile}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY to start the langfuse profile}
@@ -267,6 +272,8 @@ services:
       - ./config/otel/collector-langfuse.yaml:/etc/otelcol/collector-langfuse.yaml:ro
 
   orchestrator:
+    networks:
+      - langfuse-api
     environment:
       # The score sink, the score-config bootstrap and the label import call the Langfuse public API. Configured only when
       # all three are set; the keys come from Doppler and are never logged.
@@ -276,6 +283,9 @@ services:
 
 networks:
   langfuse-internal:
+    internal: true
+  # Joined only by langfuse-web, the orchestrator and the trusted collector: the one path to Langfuse's port 3000.
+  langfuse-api:
     internal: true
   langfuse-ui:
 
