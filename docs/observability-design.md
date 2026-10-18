@@ -857,13 +857,19 @@ These follow Hamel Husain's evals practice.
 
 - **Trigger.** `POST /api/v1/runs` accepts `campaign {id, variant: Record<string,string>, replicate}` and `captureMode`.
   - These are persisted on the run, which closes the "campaign identity is client-side only" gap.
-  - `scripts/campaign.ts` sends them. `QA_CAMPAIGN_FREEZE` is still required.
-- **Dataset.** `config/benchmarks/datasets/<name>@<version>.json`: items `(app, sha, description, expected labels?)`.
+  - `scripts/campaign.ts` sends them for its pipeline arm's diff runs (the label is the id; the arm and the levers it was given are the variant). A cross-repo case is triggered through the webhook, which has no campaign field, so it carries none. `QA_CAMPAIGN_FREEZE` is still required.
+  - Stored on `runs` (`campaign_id`, `campaign_variant` as JSON, `campaign_replicate`, `capture_mode`, `effective_config`). A run with a campaign has trigger `campaign`, `langfuse.session.id` = the campaign id, and the variant values among its tags.
+  - Retention (R4): a campaign run keeps its record, agent turns, spans and spec snapshots for `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` (default 180); an ordinary run keeps them 30 days.
+- **Dataset.** `config/benchmarks/datasets/<name>@<version>.json`: `{name, version, description?, items: [{app, sha, description, guidance?, mode?}]}`.
+  - `description` is metadata and never reaches a run. An item with `guidance` runs in `manual` mode (the default when guidance is given); without it, `diff`. Validation: `qa-engine/src/contexts/evaluation/domain/benchmark-dataset.ts`; loader: `scripts/benchmark-datasets.ts`. `config/benchmarks/datasets/example@1.json` is the template.
   - Seeded from real failures: the F-catalog runs and `reference-cases.json`.
-  - Versioned by file name.
+  - Versioned by file name: a new version is a new file.
 - **Replicates.** N ≥ 3 per item and variant. Comparison reports mean ± a bootstrap 95% CI per
   grader, plus the difference against the baseline arm with its CI. A single-run difference is never
   reported as a lift.
+  - `npm run campaign-report -- --campaign <id> [--baseline variant.<k>=<v> ...] [--out <dir>]` (`scripts/campaign-compare.ts`; `scripts/campaign-report.ts` is the plain-agent campaign's record writer) reads the scores through the public API and writes markdown and JSON.
+  - The unit is a run. The API does not say which item a run replayed, so there is no paired analysis. An arm needs at least 3 distinct replicate numbers to be compared; below that the difference is reported as `insufficient-replicates`, never as a lift.
+  - Bootstrap: 2000 resamples of the runs, a seeded generator (`--seed`), so the same runs give the same report. Scores are compared only across runs of the same `graderVersion` (the newest seen); the others are counted as excluded. Polarity comes from `/evaluations/catalog`; categorical scores are listed, not averaged.
 - **KPIs** derived from scores:
   - useful-spec yield per run
   - cost per useful spec
@@ -921,7 +927,7 @@ ingest times.
 | 1 | `POST /runs` (extended) | Adds `campaign?: {id, variant: Record<string,string>, replicate: int≥1}` and `captureMode?: off\|metadata\|full` to the zod `CreateRunInputSchema`, and so to `openapi.json`. Returns 202 `{schemaVersion, id, …, status:"enqueued"}` |
 | 2 | `GET /runs/:id` (extended) | Adds `telemetry: {traceId, traceUrl?} \| null`, `campaign?`, `phases: [{name, durationMs}]` (in canonical order), `furthestPhase`, `usage: {inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, costUsd}`, `specCounts: {generated, valid, passed}`, `decision`, `budgets: {exhausted: bool, limit?, role?}` and `effectiveConfig` (below) |
 | 3 | `GET /runs/:id/evaluation[?versions=all]` | `{schemaVersion, runId, traceId, status: "pending"\|"complete"\|"failed", scores: [{name, value, dataType, polarity, source, graderVersion, comment?, observationId?}]}`. By default only the **latest `graderVersion` per name** is returned; `?versions=all` returns every stored version, including human labels (`source=human`, `graderVersion: "human"`) imported from Langfuse |
-| 4 | `GET /campaigns/:id/runs?variant.<k>=<v>` | `{schemaVersion, campaignId, runs: [{id, variant, replicate, status, verdict?, evaluationStatus}], complete: bool}` |
+| 4 | `GET /campaigns/:id/runs?variant.<k>=<v>` | `{schemaVersion, campaignId, runs: [{id, variant, replicate, status, verdict?, evaluationStatus}], complete: bool}`. `variant.<k>=<v>` filters are ANDed; any other query parameter is a 400. `complete` is true when the campaign holds at least one run (after the filter) and every one is `done` with `evaluationStatus=complete`. The server never sees the (item × variant × replicate) matrix the client requested, so it cannot check that every requested run exists: a client that queued N runs also compares `runs.length` with N |
 | 5 | `POST /evaluations/regrade` | Body `{runIds?\|campaignId?\|since?, graders?: string[]}`. Returns 202 `{schemaVersion, jobId, runs: n}` |
 | 5b | `GET /evaluations/regrade/:jobId` | `{schemaVersion, jobId, status: "pending"\|"running"\|"complete"\|"failed", runs: n, graded: n, failed: [{runId, error}], startedAt, finishedAt?}` |
 | 6 | `GET /evaluations/catalog` | `{schemaVersion, phases: string[]` (canonical `RUN_PHASES` order)`, scores: [{name, dataType, polarity, range?, categories?, suffixes?, graderVersion}]}`. The machine-readable source of phase order and score polarity |
@@ -966,8 +972,17 @@ ingest times.
     `agents` lists only the roles the run actually invoked. Each entry is the resolved value read
     live from the runtime, not the repo copy of the config.
   - Model and prompt-version variants are config changes, made between arms. They are not request fields.
-- **`captureMode`** is capped by the server's `QA_TELEMETRY_MAX_CAPTURE` (§9.2). The applied value
+  - How each key is filled. It is resolved once, when the run starts, and stored on the run (`runs.effective_config`); a read never recomputes it from the current configuration. A run that predates the field answers every leaf as `null`.
+    - `levers.closedLoop` / `agentBrowser`: the request's choice, else the app's setting, and `false` when the tools cannot be granted (no `QA_TOOLS_TOKEN`); `null` for a `code` target or an app with no DEV address. `coordinationMode`: the request's choice, else the app's; `null` for a `code` target. These are the settings in force at the start: a downgrade the engine makes during the run (a sidekick excluded, a plan refused) is recorded in `gateSignals.coordination`, not here. `captureMode` is the applied value, after the ceiling.
+    - `campaignFreeze`: `QA_CAMPAIGN_FREEZE`. `runtime`: the provider of the primary (authoring) role assignment at the start. `reflector`: the reflector switch and not frozen.
+    - `agents`: from the run's own recorded agent turns. `provider` and `model` (the model that answered, else the one asked for) are what the runtime reported on the last turn that said; `stepLimit` is the largest step cap a prompt of that role stated (the live read). `reasoningEffort` is always `null`: OpenCode's live agent list (`GET /agent`) does not carry it, and the repo copy of the config is not a substitute.
+    - `prompt.staticHash`: sha256 over `agents/AGENTS.md` and each `agents/agent/*.md`, in name order, read from the orchestrator's own copy of the repository. The agents container mounts the same folder read-only, so it is what it serves unless the two checkouts differ; `null` when the files cannot be read.
+    - `grounding.explorer`: `qa.explorer`, else whether the app has services. `structuralSignal`: `qa.structuralSignals.mode` (default `signal`). `stitcher`: the same mode for an app with services and declared boundaries (the service-topology collaborator is one of the two advisory structural signals), else `null`. `curriculum`: `frozen` under a campaign freeze, else `learning`.
+    - `coverage`: the policy the engine reported when the run ended (`runs.coverage_mode`, `coverage_min_ratio`), else the one the run started with (`qa.changeCoverage`).
+  - On the trace root, `qayaba.campaign.variant.<key>` spells a dot in a label key as an underscore (a registry template key is one dot-free segment); the stored and echoed variant keeps the key as given. Label values and keys are limited to `[A-Za-z0-9_.:-]`, up to 64 characters, 16 keys, and `__proto__` is refused.
+- **`captureMode`** is capped by the server's `QA_TELEMETRY_MAX_CAPTURE` (§9.2): `off`, `metadata` (the default) or `full`; a mistyped value stops the boot. The applied value
   is in `effectiveConfig`.
+  - Mechanism: the run funnel applies the cap for every door and stores the result; the run's root span asks the adapter for that mode (`StartSpanOptions.captureMode`) and every span under it inherits it through the OpenTelemetry context, like the redaction scope, so concurrent runs and the process default never interfere. The adapter clamps again at the same ceiling (`maxCaptureMode`), so no caller can exceed it. A run that asks for nothing takes the process default (`metadata`, or the ceiling if lower).
 - **`telemetry`** is `null` only when `QA_TELEMETRY=off`. In `local` mode `traceId` is always
   present: the ledger mints it whether or not an exporter is configured. `traceUrl` is present only
   when `QA_TRACE_URL_TEMPLATE` is set (a Grafana or Langfuse URL containing `{traceId}`).

@@ -27,6 +27,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { CoordinationMode } from "@kernel/coordination.ts";
+import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "@kernel/campaign.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { detectFakeSpec } from "./fake-pass-detector.ts";
@@ -113,6 +114,8 @@ export interface PipelineRequest {
   agentBrowser?: boolean;
   /** The run's own choice of coordination mode (an A/B), overriding the app's setting; absent: the app's setting decides. */
   coordinationMode?: CoordinationMode;
+  /** The campaign replicate this run is, sent with the request so the service stores it on the run. Labels only: they change nothing the run does. */
+  campaign?: CampaignIdentity;
 }
 
 export interface BaselineRequest {
@@ -362,6 +365,20 @@ function writeOutputs(deps: CampaignDeps, dir: string, record: CampaignRecord): 
   deps.writeText(join(dir, "rubric.csv"), renderRubricCsv(record));
 }
 
+/*
+ * The identity this arm-run has in the service: the campaign's label is the id, the arm and the levers it was given are the variant, the
+ * replicate is the replicate. A label the service would refuse as an id sends no campaign (the run is then an ordinary run).
+ */
+export function campaignOf(args: Pick<CampaignArguments, "label" | "closedLoop" | "agentBrowser" | "coordinationMode">, arm: Arm, replicate: number): CampaignIdentity | undefined {
+  if (!CAMPAIGN_ID_PATTERN.test(args.label)) return undefined;
+  const lever = (value: boolean | undefined): string => (value === undefined ? "default" : value ? "on" : "off");
+  return {
+    id: args.label,
+    variant: { arm: armToken(arm), closedLoop: lever(args.closedLoop), agentBrowser: lever(args.agentBrowser), coordination: args.coordinationMode ?? "default" },
+    replicate,
+  };
+}
+
 async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm, replicate: number, position: number): Promise<ArmRunResult> {
   const { args, app, snapshot } = plan;
   const label = `${args.label}-${c.id}-${armToken(arm)}${replicate}`;
@@ -387,7 +404,8 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
   let rejected: DeltaFile[] = [];
   try {
     if (arm === ARM.PIPELINE) {
-      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}) });
+      const campaign = campaignOf(args, arm, replicate);
+      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth, ...(campaign ? { campaign } : {}), ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}) });
       /* Read right after the run and before anything restores the mirror: the files are the only evidence of what the pipeline accepted. */
       const delta = await deps.pipelineDelta(app, snapshot);
       if (pipelineAccepted(outcome.report, app) && !outcome.capped && !outcome.lost) files = delta.files;
@@ -588,7 +606,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       let runId: string | null = null;
       try {
         if (req.kind === CASE_KIND.DIFF) {
-          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true, ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}), ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}), ...(req.coordinationMode !== undefined ? { coordinationMode: req.coordinationMode } : {}) }) });
+          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true, ...(req.campaign ? { campaign: req.campaign } : {}), ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}), ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}), ...(req.coordinationMode !== undefined ? { coordinationMode: req.coordinationMode } : {}) }) });
           const body = await json(res);
           if (!res.ok || typeof body.id !== "string") throw new Error(`the service rejected the run: ${typeof body.error === "string" ? body.error : `HTTP ${res.status}`}`);
           runId = body.id;

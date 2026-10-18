@@ -5,7 +5,7 @@ import type { LoadedSnapshot } from "./warm-suite.ts";
 import type { DeltaFile, SuiteDelta } from "./campaign-suite.ts";
 import type { ProbeReport } from "./probe-metrics.ts";
 import type { CampaignRecord } from "./campaign-report.ts";
-import { cleanupRunOptions, judgeCleanup, noRetryConfig, runCampaign, type AppFacts, type ArmOutcome, type CampaignDeps, type PipelineRequest, type BaselineRequest, type ValidationRequest } from "./campaign.ts";
+import { campaignOf, cleanupRunOptions, judgeCleanup, noRetryConfig, runCampaign, type AppFacts, type ArmOutcome, type CampaignDeps, type PipelineRequest, type BaselineRequest, type ValidationRequest } from "./campaign.ts";
 
 const SHA = "abc1234def";
 const GOOD_SPEC = 'import { test, expect } from "@playwright/test";\ntest("refuses", async ({ page }) => {\n await page.goto("/x");\n await expect(page.getByRole("alert")).toBeVisible();\n});\n';
@@ -199,6 +199,21 @@ test("the arm runs get the same wall cap, and the pipeline is always asked for s
   assert.equal(h.pipelineRequests[0]!.shadow, true);
   assert.equal(h.baselineRequests[0]!.timeoutMin, 7);
   assert.equal(h.baselineRequests[0]!.warm, "warm-1");
+});
+
+test("the pipeline arm is sent as a replicate of the campaign: the label is the id, the arm and its levers the variant", async () => {
+  const h = harness();
+  assert.equal(await runCampaign(argv("--arms", "A,B", "--replicas", "2", "--closed-loop", "on"), h.deps), 0);
+  assert.deepEqual(h.pipelineRequests.map((r) => r.campaign), [
+    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", coordination: "default" }, replicate: 1 },
+    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", coordination: "default" }, replicate: 2 },
+  ]);
+});
+
+test("a label the service would refuse as a campaign id sends no campaign", () => {
+  assert.equal(campaignOf({ label: "has space" }, "B", 1), undefined);
+  assert.equal(campaignOf({ label: "x".repeat(101) }, "B", 1), undefined);
+  assert.equal(campaignOf({ label: "ok.label-1" }, "B", 3)?.replicate, 3);
 });
 
 test("the plain agent keeps its files where the campaign will read them back, and a cross-repo case reaches both arms as the service's commit", async () => {

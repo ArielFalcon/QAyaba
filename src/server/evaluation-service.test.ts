@@ -351,7 +351,10 @@ function viewDeps(on: boolean, template?: string): RunViewDeps {
   return {
     getRunFacts: (id) => getRunFacts(id),
     getRunPhases: (id) => defaultViewDeps.getRunPhases(id),
+    getRunCampaign: (id) => defaultViewDeps.getRunCampaign(id),
+    getStoredEffectiveConfig: (id) => defaultViewDeps.getStoredEffectiveConfig(id),
     getAgentTurns: (id) => defaultViewDeps.getAgentTurns(id),
+    getAgentRoleFacts: (id) => defaultViewDeps.getAgentRoleFacts(id),
     evidence: new HistoryEvidenceAdapter(defaultEvidenceDeps),
     telemetryOn: () => on,
     traceUrlTemplate: () => template,
@@ -394,4 +397,66 @@ test("the trace-id lookup is served by an index on runs", () => {
   } finally {
     raw.close();
   }
+});
+
+function campaignRun(campaignId: string, variant: Record<string, string>, replicate: number, done = true): string {
+  const r = createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff", campaign: { id: campaignId, variant, replicate } });
+  if (done) updateRecord(r.id, { status: "done", verdict: "pass", step: "done" });
+  return r.id;
+}
+
+test("a regrade by campaign grades exactly the finished runs of that campaign", async () => {
+  const campaign = `regrade-camp-${Date.now()}`;
+  const a = campaignRun(campaign, { arm: "x" }, 1);
+  const b = campaignRun(campaign, { arm: "y" }, 1);
+  const running = campaignRun(campaign, { arm: "y" }, 2, false);
+  campaignRun(`other-${campaign}`, { arm: "x" }, 1);
+  const sched = manualScheduler();
+  const service = createEvaluationService({ schedule: sched.schedule, log: quiet, newId: () => "job-campaign" });
+  const started = service.startRegrade({ campaignId: campaign });
+  assert.equal(started.runs, 2);
+  await sched.flush();
+  const job = service.regradeJob("job-campaign")!;
+  assert.equal(job.status, "complete");
+  assert.equal(job.runs, 2);
+  assert.deepEqual([a, b].map((id) => service.evaluation(id, false)?.status), ["complete", "complete"]);
+  assert.equal(service.evaluation(running, false)?.status, "pending");
+});
+
+test("a regrade by a campaign that holds no run covers none", () => {
+  const service = createEvaluationService({ schedule: () => undefined, log: quiet, newId: () => "job-empty" });
+  assert.equal(service.startRegrade({ campaignId: `nothing-${Date.now()}` }).runs, 0);
+});
+
+test("a regrade by a campaign larger than the cap is refused instead of covering part of it", () => {
+  const campaign = `big-camp-${Date.now()}`;
+  for (let i = 0; i < 501; i++) campaignRun(campaign, { arm: "x" }, i + 1);
+  const service = createEvaluationService({ schedule: () => undefined, log: quiet });
+  assert.throws(() => service.startRegrade({ campaignId: campaign }), RegradeRequestError);
+});
+
+test("the campaign listing carries the labels, replicate, status and grading state, and is complete only once every run is graded", async () => {
+  const campaign = `list-camp-${Date.now()}`;
+  const a = campaignRun(campaign, { arm: "x", model: "m1" }, 1);
+  const b = campaignRun(campaign, { arm: "y", model: "m1" }, 1);
+  const sched = manualScheduler();
+  const service = createEvaluationService({ schedule: sched.schedule, log: quiet });
+  const before = service.campaignRuns(campaign, {});
+  assert.deepEqual(before.runs.map((r) => [r.id, r.variant, r.replicate, r.status, r.verdict, r.evaluationStatus]), [
+    [a, { arm: "x", model: "m1" }, 1, "done", "pass", "pending"],
+    [b, { arm: "y", model: "m1" }, 1, "done", "pass", "pending"],
+  ]);
+  assert.equal(before.complete, false);
+  service.scheduleGrading(a);
+  service.scheduleGrading(b);
+  await sched.flush();
+  const after = service.campaignRuns(campaign, {});
+  assert.deepEqual(after.runs.map((r) => r.evaluationStatus), ["complete", "complete"]);
+  assert.equal(after.complete, true);
+  assert.deepEqual(service.campaignRuns(campaign, { arm: "y" }).runs.map((r) => r.id), [b]);
+});
+
+test("a run that is not part of a campaign is never listed in one", () => {
+  const r = createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff" });
+  assert.equal(createEvaluationService({ log: quiet }).campaignRuns("anything", {}).runs.some((x) => x.id === r.id), false);
 });

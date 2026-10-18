@@ -5,7 +5,7 @@ import { handleApi, type ApiDeps } from "./api";
 import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
 import { GRADER_CATALOG } from "@contexts/evaluation/domain/grader-catalog";
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
-import { CreateRunResultSchema, EvaluationCatalogSchema, RegradeJobSchema, RunDetailSchema, RunEvaluationSchema } from "../contract/commands";
+import { CampaignRunsSchema, CreateRunResultSchema, EvaluationCatalogSchema, RegradeJobSchema, RunDetailSchema, RunEvaluationSchema } from "../contract/commands";
 import type { RunRecord } from "../types";
 import type { EvaluationService } from "./evaluation-service";
 import type { RunViewExtras } from "./run-view";
@@ -45,6 +45,17 @@ const extras: RunViewExtras = {
   specCounts: { generated: 2, valid: 2, passed: 1 },
   decision: "pr",
   budgets: { exhausted: false },
+  campaign: { id: "ab-1", variant: { arm: "treatment" }, replicate: 2 },
+  effectiveConfig: {
+    levers: { closedLoop: true, agentBrowser: false, coordinationMode: "single", captureMode: "metadata" },
+    campaignFreeze: true,
+    runtime: "opencode",
+    agents: { "qa-generator": { provider: "opencode-go", model: "m1", reasoningEffort: null, stepLimit: 50 } },
+    prompt: { staticHash: "sha256:abc" },
+    grounding: { explorer: true, stitcher: "signal", structuralSignal: "signal", curriculum: "frozen" },
+    coverage: { mode: "signal", minRatio: 0.7 },
+    reflector: false,
+  },
 };
 
 const evaluation: EvaluationService = {
@@ -66,6 +77,13 @@ const evaluation: EvaluationService = {
     return { jobId: "job-1", runs: "runIds" in req ? req.runIds.length : 0 };
   },
   regradeJob: (id) => (id === "job-1" ? { jobId: id, status: "running", runs: 2, graded: 1, failed: [{ runId: "r2", error: "boom" }], startedAt: "2026-10-17T10:00:00.000Z" } : undefined),
+  campaignRuns: (campaignId, variant) => {
+    const rows = [
+      { id: "run-1", variant: { arm: "control" }, replicate: 1, status: "done" as const, evaluationStatus: "complete" as const, verdict: "pass" },
+      { id: "run-2", variant: { arm: "treatment" }, replicate: 1, status: "done" as const, evaluationStatus: "pending" as const },
+    ].filter((r) => Object.entries(variant).every(([k, v]) => (r.variant as Record<string, string>)[k] === v));
+    return { campaignId, runs: rows, complete: rows.length > 0 && rows.every((r) => r.evaluationStatus === "complete") };
+  },
   recoverInterrupted: () => 0,
 };
 
@@ -221,4 +239,58 @@ test("POST /evaluations/regrade answers 400 with the service's reason for a bad 
   const { status, json } = await call("POST", "/api/v1/evaluations/regrade", JSON.stringify({ since: "yesterday" }), deps({ evaluation: refusing }));
   assert.equal(status, 400);
   assert.match(json.error, /ISO-8601/);
+});
+
+test("GET /runs/:id carries the campaign and the effectiveConfig exactly in the contract's shape", async () => {
+  const { json } = await call("GET", "/api/v1/runs/run-1");
+  assert.deepEqual(json.campaign, { id: "ab-1", variant: { arm: "treatment" }, replicate: 2 });
+  assert.deepEqual(Object.keys(json.effectiveConfig), ["levers", "campaignFreeze", "runtime", "agents", "prompt", "grounding", "coverage", "reflector"]);
+  assert.deepEqual(json.effectiveConfig.levers, { closedLoop: true, agentBrowser: false, coordinationMode: "single", captureMode: "metadata" });
+});
+
+test("POST /runs hands the campaign and the requested capture mode to the enqueue, and nothing else of them", async () => {
+  const seen: unknown[] = [];
+  const d = deps({ enqueue: (...args) => { seen.push(args); return "run-new"; } });
+  const campaign = { id: "ab-1", variant: { arm: "treatment", model: "m1" }, replicate: 2 };
+  const ok = await call("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", campaign, captureMode: "full" }), d);
+  assert.equal(ok.status, 202);
+  const args = seen[0] as unknown[];
+  assert.deepEqual(args[12], { campaign, captureMode: "full" });
+  await call("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234" }), d);
+  assert.deepEqual((seen[1] as unknown[])[12], {});
+});
+
+test("POST /runs refuses a malformed campaign or capture mode with a 400 that carries schemaVersion", async () => {
+  const bodies = [
+    { campaign: { id: "bad id", variant: {}, replicate: 1 } },
+    { campaign: { id: "ok", variant: { k: "v" }, replicate: 0 } },
+    { campaign: { id: "ok", variant: { k: "v" } } },
+    { campaign: "ab-1" },
+    { captureMode: "everything" },
+  ];
+  for (const extra of bodies) {
+    const { status, json } = await call("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", ...extra }));
+    assert.equal(status, 400, JSON.stringify(extra));
+    assert.equal(json.schemaVersion, 1);
+  }
+});
+
+test("GET /campaigns/:id/runs lists the runs, filters by variant labels and says whether the campaign is complete", async () => {
+  const all = await call("GET", "/api/v1/campaigns/ab-1/runs");
+  assert.equal(all.status, 200);
+  CampaignRunsSchema.parse(all.json);
+  assert.equal(all.json.campaignId, "ab-1");
+  assert.equal(all.json.runs.length, 2);
+  assert.equal(all.json.complete, false);
+  const control = await call("GET", "/api/v1/campaigns/ab-1/runs?variant.arm=control");
+  assert.deepEqual(control.json.runs.map((r: { id: string }) => r.id), ["run-1"]);
+  assert.equal(control.json.complete, true);
+});
+
+test("GET /campaigns/:id/runs refuses a parameter that is not a variant filter", async () => {
+  for (const q of ["?foo=bar", "?variant.=x", "?variant.a=1&variant.a=2"]) {
+    const { status, json } = await call("GET", `/api/v1/campaigns/ab-1/runs${q}`);
+    assert.equal(status, 400, q);
+    assert.equal(json.schemaVersion, 1);
+  }
 });

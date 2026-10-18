@@ -3,6 +3,8 @@ import { z } from "zod";
 import { TURN_ENDS } from "../turn-end";
 import { LoginPathSchema } from "../login-path";
 import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "./events";
+import { CAMPAIGN_ID_PATTERN, CAMPAIGN_LABEL_PATTERN, MAX_CAMPAIGN_REPLICATE, MAX_VARIANT_KEYS } from "../campaign";
+import { CAPTURE_MODES } from "../telemetry/capture-mode";
 
 export const CaseStatusSchema = z.enum(["pass", "fail", "flaky"]);
 
@@ -109,6 +111,22 @@ export const LoginResponseSchema = z.object({
   expiresAt: z.string(),
 });
 
+/* How much content a run's trace may carry (docs/observability-design.md section 9.2). The server caps what a caller asks for. */
+export const CaptureModeSchema = z.enum(CAPTURE_MODES);
+
+/*
+ * The campaign a run belongs to: stored and echoed as data. The variant labels never change what a run does (section 14):
+ * only the explicit levers and the deployment's configuration do.
+ */
+export const CampaignInputSchema = z.object({
+  id: z.string().regex(CAMPAIGN_ID_PATTERN, { error: "campaign.id must be 1-100 characters of A-Z a-z 0-9 _ . : -" }),
+  variant: z
+    .record(z.string().regex(CAMPAIGN_LABEL_PATTERN, { error: "campaign.variant keys must be 1-64 characters of A-Z a-z 0-9 _ . : -" }), z.string().regex(CAMPAIGN_LABEL_PATTERN, { error: "campaign.variant values must be 1-64 characters of A-Z a-z 0-9 _ . : -" }))
+    .refine((v) => Object.keys(v).length <= MAX_VARIANT_KEYS, { error: `campaign.variant has at most ${MAX_VARIANT_KEYS} keys` })
+    .refine((v) => !Object.hasOwn(v, "__proto__"), { error: "campaign.variant must not use the key __proto__" }),
+  replicate: z.number().int().min(1).max(MAX_CAMPAIGN_REPLICATE),
+});
+
 export const CreateRunInputSchema = z.object({
   app: z.string(),
   target: TestTargetSchema,
@@ -127,6 +145,10 @@ export const CreateRunInputSchema = z.object({
   agentBrowser: z.boolean().optional(),
   /* The run's own choice of coordination mode (an A/B arm), overriding the app's qa.coordination.mode: "single" (the lead authors the change alone) or "lead-sidekicks" (the lead plans, sidekicks author the flows in parallel). Absent: the app's setting decides. */
   coordinationMode: z.enum(["single", "lead-sidekicks"]).optional(),
+  /* The campaign this run is a replicate of. Absent: an ordinary run. */
+  campaign: CampaignInputSchema.optional(),
+  /* The content capture the run's trace may carry, capped by the server's QA_TELEMETRY_MAX_CAPTURE (default metadata). The applied value is in the run's effectiveConfig. */
+  captureMode: CaptureModeSchema.optional(),
 });
 
 export const CreateRunResultSchema = z.object({
@@ -553,6 +575,57 @@ export const RegradeJobSchema = z.object({
   finishedAt: z.string().optional(),
 });
 
+/*
+ * What a run actually ran with, recorded at run time (docs/observability-design.md section 14). Every key is always present; a setting
+ * that does not apply, or that the run did not record, is null. `agents` lists only the roles the run invoked.
+ */
+export const EffectiveConfigSchema = z.object({
+  levers: z.object({
+    closedLoop: z.boolean().nullable(),
+    agentBrowser: z.boolean().nullable(),
+    coordinationMode: z.enum(["single", "lead-sidekicks"]).nullable(),
+    captureMode: CaptureModeSchema.nullable(),
+  }),
+  campaignFreeze: z.boolean().nullable(),
+  runtime: z.string().nullable(),
+  agents: z.record(
+    z.string(),
+    z.object({
+      provider: z.string().nullable(),
+      model: z.string().nullable(),
+      reasoningEffort: z.string().nullable(),
+      stepLimit: z.number().int().min(0).nullable(),
+    }),
+  ),
+  prompt: z.object({ staticHash: z.string().nullable() }),
+  grounding: z.object({
+    explorer: z.boolean().nullable(),
+    stitcher: z.string().nullable(),
+    structuralSignal: z.string().nullable(),
+    curriculum: z.string().nullable(),
+  }),
+  coverage: z.object({ mode: z.string().nullable(), minRatio: z.number().nullable() }),
+  reflector: z.boolean().nullable(),
+});
+
+/* GET /campaigns/:id/runs: the campaign's runs, optionally narrowed by variant labels. */
+export const CampaignRunsSchema = z.object({
+  schemaVersion: z.literal(1),
+  campaignId: z.string(),
+  runs: z.array(
+    z.object({
+      id: z.string(),
+      variant: z.record(z.string(), z.string()),
+      replicate: z.number().int().min(1),
+      status: RunStatusSchema,
+      verdict: RunVerdictSchema.optional(),
+      evaluationStatus: z.enum(["pending", "complete", "failed"]),
+    }),
+  ),
+  /* True when every run of the campaign is done and graded (the server does not know the matrix the client requested). */
+  complete: z.boolean(),
+});
+
 /* GET /runs/:id: the run record plus what observability knows about how it ended. Fields only add to RunRecord. */
 export const RunDetailSchema = RunRecordSchema.extend({
   schemaVersion: z.literal(1),
@@ -577,6 +650,9 @@ export const RunDetailSchema = RunRecordSchema.extend({
   /* "pr" | "issue" | "shadow-log" | "quarantine" | "none"; null for a run that recorded none. */
   decision: z.string().nullable(),
   budgets: z.object({ exhausted: z.boolean(), limit: z.string().optional(), role: z.string().optional() }),
+  /* Present only for a run that belongs to a campaign. */
+  campaign: z.object({ id: z.string(), variant: z.record(z.string(), z.string()), replicate: z.number().int().min(1) }).optional(),
+  effectiveConfig: EffectiveConfigSchema,
 });
 
 export type RunRecord = z.infer<typeof RunRecordSchema>;
@@ -1009,4 +1085,7 @@ export type EvaluationCatalog = z.infer<typeof EvaluationCatalogSchema>;
 export type RegradeRequest = z.infer<typeof RegradeRequestSchema>;
 export type RegradeStarted = z.infer<typeof RegradeStartedSchema>;
 export type RegradeJob = z.infer<typeof RegradeJobSchema>;
+export type EffectiveConfig = z.infer<typeof EffectiveConfigSchema>;
+export type CampaignRuns = z.infer<typeof CampaignRunsSchema>;
+export type CampaignInput = z.infer<typeof CampaignInputSchema>;
 export type RunDetail = z.infer<typeof RunDetailSchema>;

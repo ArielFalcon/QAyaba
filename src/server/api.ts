@@ -8,6 +8,8 @@
 
 import { describeSandboxHealth } from "./sandbox-health";
 import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
+import type { CampaignIdentity } from "@kernel/campaign";
+import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { RUN_MODES, RunMode, TestTarget, RunRecord, engineStatus } from "../types";
@@ -35,6 +37,9 @@ import {
   CreateAppInputSchema,
   CreateAppResultSchema,
   CreateRunResultSchema,
+  CampaignInputSchema,
+  CampaignRunsSchema,
+  CaptureModeSchema,
   LoginBootstrapResultSchema,
   DeleteAppResultSchema,
   PublicAgentConfig,
@@ -96,9 +101,15 @@ export type LoginOutcome =
   | { ok: true; token: string; username: string; expiresAt: string }
   | { ok: false; reason: "identity" | "forbidden" };
 
+/* What a run request adds for the evaluation side: the campaign replicate it is, and the content capture it asks for (the funnel caps it). Neither changes what the run does. */
+export interface RunObservabilityRequest {
+  campaign?: CampaignIdentity;
+  captureMode?: CaptureMode;
+}
+
 export interface ApiDeps {
   queue: { readonly size: number };
-  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode): string;
+  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode, observability?: RunObservabilityRequest): string;
   loadApp(name: string): AppConfig;  /* throws if the app is not configured */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
@@ -272,6 +283,11 @@ export async function handleApi(
   const regradeJobMatch = path.match(/^\/api\/evaluations\/regrade\/([^/]+)$/);
   if (req.method === "GET" && regradeJobMatch) {
     return handleRegradeJob(res, deps, regradeJobMatch[1]!);
+  }
+
+  const campaignMatch = path.match(/^\/api\/campaigns\/([^/]+)\/runs$/);
+  if (req.method === "GET" && campaignMatch) {
+    return handleCampaignRuns(res, deps, decodeURIComponent(campaignMatch[1]!), url.searchParams);
   }
 
   const eventMatch = path.match(/^\/api\/runs\/([^/]+)\/events$/);
@@ -541,9 +557,29 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   }
   const coordinationMode = isCoordinationMode(body.coordinationMode) ? body.coordinationMode : undefined;
 
+  let campaign: CampaignIdentity | undefined;
+  if (body.campaign !== undefined) {
+    const parsed = CampaignInputSchema.safeParse(body.campaign);
+    if (!parsed.success) {
+      apiError(res, 400, `'campaign' is invalid: ${parsed.error.issues.map((i) => i.message).join("; ")}`);
+      return true;
+    }
+    campaign = parsed.data;
+  }
+  let captureMode: CaptureMode | undefined;
+  if (body.captureMode !== undefined) {
+    const parsed = CaptureModeSchema.safeParse(body.captureMode);
+    if (!parsed.success) {
+      apiError(res, 400, "'captureMode' must be \"off\", \"metadata\" or \"full\"");
+      return true;
+    }
+    captureMode = parsed.data;
+  }
+  const observability: RunObservabilityRequest = { ...(campaign ? { campaign } : {}), ...(captureMode ? { captureMode } : {}) };
+
   let id: string;
   try {
-    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, coordinationMode);
+    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, coordinationMode, observability);
   } catch (err) {
     apiError(res, 500, `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}`);
     return true;
@@ -615,6 +651,29 @@ function handleRunEvaluation(res: ServerResponse, deps: ApiDeps, id: string, ver
     return true;
   }
   contractJson(res, 200, RunEvaluationSchema, { schemaVersion: 1, ...view });
+  return true;
+}
+
+/* GET /campaigns/:id/runs?variant.<k>=<v>: the campaign's runs, narrowed to those carrying every label named in the query. */
+function handleCampaignRuns(res: ServerResponse, deps: ApiDeps, campaignId: string, query: URLSearchParams): boolean {
+  if (!deps.evaluation) {
+    apiError(res, 501, "evaluation is not configured");
+    return true;
+  }
+  const filter: Record<string, string> = {};
+  for (const [name, value] of query) {
+    if (!name.startsWith("variant.")) {
+      apiError(res, 400, `unknown query parameter '${name}': only 'variant.<key>=<value>' filters are accepted`);
+      return true;
+    }
+    const key = name.slice("variant.".length);
+    if (key === "" || Object.hasOwn(filter, key)) {
+      apiError(res, 400, key === "" ? "a variant filter needs a key: variant.<key>=<value>" : `variant filter '${key}' is given more than once`);
+      return true;
+    }
+    filter[key] = value;
+  }
+  contractJson(res, 200, CampaignRunsSchema, { schemaVersion: 1, ...deps.evaluation.campaignRuns(campaignId, filter) });
   return true;
 }
 

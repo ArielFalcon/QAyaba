@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveTelemetryConfig, parseRetentionDays, parseMaxCapture, DEFAULT_SPAN_RETENTION_DAYS } from "./config";
+import { resolveTelemetryConfig, parseRetentionDays, parseCampaignRetentionDays, parseMaxCapture, DEFAULT_SPAN_RETENTION_DAYS, DEFAULT_CAMPAIGN_RETENTION_DAYS } from "./config";
 
 test("telemetry defaults to local with no exporter and the default service name", () => {
   const c = resolveTelemetryConfig({});
@@ -87,6 +87,14 @@ test("retention days parse as a positive whole number and reject the rest", () =
 
 test("retention days are capped at ten years", () => {
   assert.equal(parseRetentionDays("3650"), 3650);
+});
+
+test("campaign runs keep their records 180 days unless QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS says otherwise", () => {
+  assert.equal(parseCampaignRetentionDays(undefined), DEFAULT_CAMPAIGN_RETENTION_DAYS);
+  assert.equal(DEFAULT_CAMPAIGN_RETENTION_DAYS, 180);
+  assert.equal(parseCampaignRetentionDays("365"), 365);
+  for (const bad of ["0", "-1", "1.5", "year", "3651"]) assert.throws(() => parseCampaignRetentionDays(bad), /QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS/, bad);
+  assert.equal(resolveTelemetryConfig({ QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS: "30" }).campaignRetentionDays, 30);
 });
 
 test("the capture ceiling defaults to metadata and a mistyped value stops the boot", () => {

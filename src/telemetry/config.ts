@@ -3,6 +3,7 @@
 import { DEFAULT_CAPTURE_MODE, isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
 
 export const DEFAULT_SPAN_RETENTION_DAYS = 30;
+export const DEFAULT_CAMPAIGN_RETENTION_DAYS = 180;
 export const DEFAULT_SERVICE_NAME = "qayaba-orchestrator";
 
 export type TelemetryMode = "off" | "local";
@@ -19,6 +20,8 @@ export interface TelemetryConfig {
   readonly serviceName: string;
   readonly resourceAttributes: Readonly<Record<string, string>>;
   readonly retentionDays: number;
+  /* How long a campaign-tagged run keeps its turns and spans (R4). */
+  readonly campaignRetentionDays: number;
   /* The most content a run's trace may carry, whatever a request asks for (QA_TELEMETRY_MAX_CAPTURE, default metadata). */
   readonly maxCapture: CaptureMode;
   /* Present only when an OTLP endpoint is configured. */
@@ -39,6 +42,12 @@ export const MAX_SPAN_RETENTION_DAYS = 3650;
 export function parseRetentionDays(raw: string | undefined): number {
   const days = positiveInt({ QA_TELEMETRY_RETENTION_DAYS: raw }, "QA_TELEMETRY_RETENTION_DAYS", DEFAULT_SPAN_RETENTION_DAYS);
   if (days > MAX_SPAN_RETENTION_DAYS) throw new Error(`QA_TELEMETRY_RETENTION_DAYS must be at most ${MAX_SPAN_RETENTION_DAYS}, got ${days}`);
+  return days;
+}
+
+export function parseCampaignRetentionDays(raw: string | undefined): number {
+  const days = positiveInt({ QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS: raw }, "QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS", DEFAULT_CAMPAIGN_RETENTION_DAYS);
+  if (days > MAX_SPAN_RETENTION_DAYS) throw new Error(`QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS must be at most ${MAX_SPAN_RETENTION_DAYS}, got ${days}`);
   return days;
 }
 
@@ -105,6 +114,7 @@ export function resolveTelemetryConfig(env: Env): TelemetryConfig {
   const serviceName = (env.OTEL_SERVICE_NAME ?? "").trim() || fromAttrs || DEFAULT_SERVICE_NAME;
   const retentionDays = parseRetentionDays(env.QA_TELEMETRY_RETENTION_DAYS);
   const otlp = mode === "local" ? resolveOtlp(env) : undefined;
+  const campaignRetentionDays = parseCampaignRetentionDays(env.QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS);
   const maxCapture = parseMaxCapture(env.QA_TELEMETRY_MAX_CAPTURE);
-  return { mode, serviceName, resourceAttributes, retentionDays, maxCapture, ...(otlp ? { otlp } : {}) };
+  return { mode, serviceName, resourceAttributes, retentionDays, campaignRetentionDays, maxCapture, ...(otlp ? { otlp } : {}) };
 }

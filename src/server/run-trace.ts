@@ -12,11 +12,14 @@
  */
 
 import type { RunVerdict } from "@kernel/run-verdict";
+import type { CampaignIdentity } from "@kernel/campaign";
+import type { CaptureMode } from "@kernel/telemetry/capture-mode";
+import { attrKey } from "@kernel/telemetry/attribute-registry";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { SpanHandle, TelemetryClock, TelemetryContext, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { hostListeners as processHostListeners, type HostEventListener, type HostListeners } from "../telemetry/host-listeners";
 
-/* What started a run. `campaign` is reserved for the campaign driver (it enqueues through the API until then). */
+/* What started a run. `campaign` is a run that names the campaign it is a replicate of. */
 export const RUN_TRIGGERS = ["webhook", "api", "cli", "campaign", "continuation", "context", "login-bootstrap"] as const;
 export type RunTrigger = (typeof RUN_TRIGGERS)[number];
 
@@ -32,6 +35,32 @@ export interface RunIdentity {
   parentRunId?: string | undefined;
   triggerRepo?: string | undefined;
   shadow?: boolean | undefined;
+  /* The campaign replicate this run is: recorded on the trace as data, never read to decide anything. */
+  campaign?: CampaignIdentity | undefined;
+  /* The content capture the run asked for, already capped by the server's ceiling. Absent: the run takes the process default. */
+  captureMode?: CaptureMode | undefined;
+}
+
+/* The configuration a run started with, as the trace records it (the run's effectiveConfig carries the same facts). */
+export interface RunConfigInEffect {
+  runtime: string | null;
+  coordinationMode: string | null;
+  closedLoop: boolean | null;
+  agentBrowser: boolean | null;
+  coveragePolicy: string | null;
+  reflector: boolean | null;
+  campaignFreeze: boolean | null;
+  staticPromptHash: string | null;
+  captureMode: string | null;
+}
+
+/* The campaign's identity as root attributes: the id, the replicate and one attribute per variant label. */
+function campaignAttrs(campaign: CampaignIdentity | undefined): Record<string, string | number> {
+  if (!campaign) return {};
+  const out: Record<string, string | number> = { "qayaba.campaign.id": campaign.id, "qayaba.campaign.replicate": campaign.replicate };
+  /* A registry template key is one dot-free segment, and a label key may hold dots: the attribute spells them as underscores (the stored variant keeps the key as given). */
+  for (const [key, value] of Object.entries(campaign.variant)) out[attrKey.campaignVariant(key.replaceAll(".", "_"))] = value;
+  return out;
 }
 
 /* The enqueue span's position, kept with the job. */
@@ -68,7 +97,8 @@ function identityAttrs(identity: RunIdentity) {
     ...(identity.parentRunId ? { "qayaba.parent_run.id": identity.parentRunId } : {}),
     ...(identity.triggerRepo ? { "qayaba.trigger_repo": identity.triggerRepo } : {}),
     ...(identity.shadow !== undefined ? { "qayaba.shadow": identity.shadow } : {}),
-  } as const;
+    ...campaignAttrs(identity.campaign),
+  };
 }
 
 /* Opens and ends the enqueue span in the caller's context (it is a child of an active request span, when there is one). */
@@ -106,13 +136,15 @@ export class RunTrace {
       kind: "internal",
       root: true,
       startTime: this.startedAt,
+      ...(identity.captureMode ? { captureMode: identity.captureMode } : {}),
       ...(enqueued.context ? { links: [{ context: enqueued.context }] } : {}),
       attrs: {
         ...identityAttrs(identity),
         "qayaba.queue.wait_ms": Math.max(0, this.startedAt - enqueued.at),
         "langfuse.trace.name": "qayaba.run",
-        "langfuse.session.id": identity.app,
-        "langfuse.trace.tags": [identity.app, identity.mode],
+        /* A campaign's runs are one session, so the viewer groups the replicates of every arm together. */
+        "langfuse.session.id": identity.campaign?.id ?? identity.app,
+        "langfuse.trace.tags": [identity.app, identity.mode, ...Object.values(identity.campaign?.variant ?? {})],
       },
     });
     this.unregisterHost = hostListeners.add(this.hostListener());
@@ -142,6 +174,21 @@ export class RunTrace {
   /* Known once the app's config is loaded (a request may leave it to the app's own setting). */
   shadow(shadow: boolean): void {
     this.span.setAttrs({ "qayaba.shadow": shadow });
+  }
+
+  /* Known once the run's settings are resolved (the app's config and the request's own levers). */
+  configInEffect(config: RunConfigInEffect): void {
+    const attrs: Record<string, string | boolean> = {};
+    if (config.runtime !== null) attrs["qayaba.runtime"] = config.runtime;
+    if (config.coordinationMode !== null) attrs["qayaba.coordination.mode"] = config.coordinationMode;
+    if (config.closedLoop !== null) attrs["qayaba.closed_loop.enabled"] = config.closedLoop;
+    if (config.agentBrowser !== null) attrs["qayaba.agent_browser.enabled"] = config.agentBrowser;
+    if (config.coveragePolicy !== null) attrs["qayaba.coverage.policy"] = config.coveragePolicy;
+    if (config.reflector !== null) attrs["qayaba.reflector.enabled"] = config.reflector;
+    if (config.campaignFreeze !== null) attrs["qayaba.campaign.freeze"] = config.campaignFreeze;
+    if (config.staticPromptHash !== null) attrs["qayaba.prompt.static_hash"] = config.staticPromptHash;
+    if (config.captureMode !== null) attrs["qayaba.capture_mode"] = config.captureMode;
+    this.span.setAttrs(attrs);
   }
 
   onboardingWait(ms: number): void {

@@ -6,14 +6,18 @@
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import type { RunDetail, RunRecord } from "../contract/commands";
 import { HistoryEvidenceAdapter } from "./evaluation-evidence";
-import { getAgentTurns, getRunFacts, getRunPhases, type AgentTurnRecord } from "./history";
+import { getAgentRoleFacts, getAgentTurns, getRunCampaign, getRunFacts, getRunPhases, getStoredEffectiveConfig, type AgentTurnRecord } from "./history";
+import { buildEffectiveConfig, parseStoredRunConfig } from "./effective-config";
 
 export type RunViewExtras = Omit<RunDetail, keyof RunRecord | "schemaVersion">;
 
 export interface RunViewDeps {
   getRunFacts: typeof getRunFacts;
   getRunPhases: typeof getRunPhases;
+  getRunCampaign: typeof getRunCampaign;
+  getStoredEffectiveConfig: typeof getStoredEffectiveConfig;
   getAgentTurns(id: string): AgentTurnRecord[];
+  getAgentRoleFacts: typeof getAgentRoleFacts;
   evidence: Pick<HistoryEvidenceAdapter, "assemble">;
   /* False when QA_TELEMETRY=off: the run view then says null, whatever the history holds. */
   telemetryOn: () => boolean;
@@ -25,7 +29,10 @@ export function defaultRunViewDeps(telemetryOn: () => boolean, env: Record<strin
   return {
     getRunFacts,
     getRunPhases,
+    getRunCampaign,
+    getStoredEffectiveConfig,
     getAgentTurns,
+    getAgentRoleFacts,
     evidence: new HistoryEvidenceAdapter(),
     telemetryOn,
     traceUrlTemplate: () => env.QA_TRACE_URL_TEMPLATE?.trim() || undefined,
@@ -56,6 +63,9 @@ export function buildRunViewExtras(runId: string, deps: RunViewDeps): RunViewExt
   const template = deps.traceUrlTemplate();
   const traceId = facts?.traceId ?? null;
   const timings = phases?.phaseTimings ?? {};
+  const turns = deps.getAgentTurns(runId);
+  const campaign = deps.getRunCampaign(runId);
+  const storedConfig = deps.getStoredEffectiveConfig(runId);
   return {
     telemetry:
       deps.telemetryOn() && traceId !== null
@@ -63,11 +73,17 @@ export function buildRunViewExtras(runId: string, deps: RunViewDeps): RunViewExt
         : null,
     phases: RUN_PHASES.filter((p) => timings[p] !== undefined).map((p) => ({ name: p, durationMs: Math.max(0, timings[p] ?? 0) })),
     furthestPhase: phases?.furthestPhase ?? null,
-    usage: usageOf(deps.getAgentTurns(runId)),
+    usage: usageOf(turns),
     specCounts: { generated: evidence.specs.generated, valid: evidence.specs.valid, passed: evidence.specs.passed ?? null },
     decision: facts?.decision ?? null,
     budgets: facts?.limitFired
       ? { exhausted: true, limit: facts.limitFired, ...(facts.limitRole ? { role: facts.limitRole } : {}) }
       : { exhausted: false },
+    ...(campaign ? { campaign: { id: campaign.id, variant: { ...campaign.variant }, replicate: campaign.replicate } } : {}),
+    effectiveConfig: buildEffectiveConfig(parseStoredRunConfig(storedConfig?.json), deps.getAgentRoleFacts(runId), {
+      coverageMode: facts?.coverageMode ?? null,
+      coverageMinRatio: facts?.coverageMinRatio ?? null,
+      captureMode: storedConfig?.captureMode ?? null,
+    }),
   };
 }

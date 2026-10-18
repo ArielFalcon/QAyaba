@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import { SpanStatusCode, ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
-import { commitRunSpans, listRunSpans, pruneRunSpans, countRunSpans, type RunSpanRow } from "../server/history";
+import { commitRunSpans, listRunSpans, pruneRunSpans, countRunSpans, createRecord, type RunSpanRow } from "../server/history";
 
 function fakeStore(): RunSpanStore & { commits: RunSpanRow[][]; failNext: boolean } {
   const store = {
@@ -268,4 +268,22 @@ test("pruning deletes in bounded chunks", () => {
 test("a non-finite cutoff prunes nothing", () => {
   assert.equal(pruneRunSpans(Number.NaN, Date.now()), 0);
   assert.equal(pruneRunSpans(30, Number.POSITIVE_INFINITY), 0);
+});
+
+test("the spans of a campaign run outlive the ordinary window and go with the campaign window", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const campaign = createRecord({ target: "e2e", app: "retention-app", sha: "abcdef1234", mode: "diff", campaign: { id: "retention-camp", variant: {}, replicate: 1 } });
+  const ordinary = createRecord({ target: "e2e", app: "retention-app", sha: "abcdef1234", mode: "diff" });
+  const stale = (runId: string, now: number): RunSpanRow => ({ traceId: runId.padEnd(32, "0").slice(0, 32), spanId: "s1", parentSpanId: null, runId, name: "x", kind: "internal", startNs: BigInt(now - 40 * day) * 1_000_000n, endNs: null, status: "unset", statusMessage: null, attrs: "{}", events: "[]", links: "[]" });
+
+  const early = Date.now() + 100 * day;
+  commitRunSpans([stale(campaign.id, early), stale(ordinary.id, early)]);
+  pruneRunSpans(30, early, 100, 180);
+  assert.equal(listRunSpans(campaign.id).length, 1, "a campaign run within its window keeps its spans");
+  assert.equal(listRunSpans(ordinary.id).length, 0);
+
+  const late = Date.now() + 200 * day;
+  commitRunSpans([stale(campaign.id, late)]);
+  pruneRunSpans(30, late, 100, 180);
+  assert.equal(listRunSpans(campaign.id).length, 0, "past the campaign window the spans go too");
 });

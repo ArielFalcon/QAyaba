@@ -14,6 +14,7 @@ export type EvaluationCatalog = S["EvaluationCatalog"];
 export type RegradeRequest = S["RegradeRequest"];
 export type RegradeStarted = S["RegradeStarted"];
 export type RegradeJob = S["RegradeJob"];
+export type CampaignRuns = S["CampaignRuns"];
 export type QaCase = S["QaCase"];
 export type SpecRecord = S["SpecRecord"];
 export type AgentActivity = S["AgentActivity"];

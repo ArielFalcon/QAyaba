@@ -23,7 +23,9 @@ import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/lear
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
-import { parseRetentionDays, DEFAULT_SPAN_RETENTION_DAYS } from "../telemetry/config";
+import { parseRetentionDays, parseCampaignRetentionDays, DEFAULT_SPAN_RETENTION_DAYS, DEFAULT_CAMPAIGN_RETENTION_DAYS } from "../telemetry/config";
+import type { CampaignIdentity } from "@kernel/campaign";
+import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
@@ -494,6 +496,14 @@ function ensureDb(): void {
     if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
   }
   /*
+   * The campaign a run is a replicate of, how much content its trace may carry, and what it actually ran with (section 14). Stored as the
+   * request named them and as the run resolved them; nothing reads the labels to decide what a run does. NULL for an ordinary run.
+   */
+  for (const [name, type] of [["campaign_id", "TEXT"], ["campaign_variant", "TEXT"], ["campaign_replicate", "INTEGER"], ["capture_mode", "TEXT"], ["effective_config", "TEXT"]] as const) {
+    if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_campaign_id ON runs(campaign_id)");
+  /*
    * Every agent_turns efficiency column
    * is added by this guarded ALTER (fresh and pre-existing DBs alike), so the
    * column list has a single source of truth. All are nullable: they stay NULL
@@ -514,8 +524,8 @@ function ensureDb(): void {
   db.exec("UPDATE learning_rules SET status = 'candidate' WHERE status = 'pending'");
 
   insertRun = db.prepare(`
-    INSERT INTO runs (id, app, sha, ref, target, mode, status, step, step_detail, verdict, passed, failed, note, retrying, parent_run_id, trigger_repo, at, logs)
-    VALUES (@id, @app, @sha, @ref, @target, @mode, @status, @step, @stepDetail, @verdict, @passed, @failed, @note, @retrying, @parentRunId, @triggerRepo, @at, @logs)
+    INSERT INTO runs (id, app, sha, ref, target, mode, status, step, step_detail, verdict, passed, failed, note, retrying, parent_run_id, trigger_repo, at, logs, campaign_id, campaign_variant, campaign_replicate, capture_mode)
+    VALUES (@id, @app, @sha, @ref, @target, @mode, @status, @step, @stepDetail, @verdict, @passed, @failed, @note, @retrying, @parentRunId, @triggerRepo, @at, @logs, @campaignId, @campaignVariant, @campaignReplicate, @captureMode)
   `);
   getRunStmt = db.prepare("SELECT * FROM runs WHERE id = ?");
   listRunsStmt = db.prepare("SELECT * FROM runs WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
@@ -606,7 +616,12 @@ function ensureDb(): void {
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
   /* Prune old runs once on first use. */
-  db.prepare(`DELETE FROM runs WHERE at < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')`).run();
+  /*
+   * Campaign-tagged runs are the baselines later graders and judges re-score (R4): they keep the run row, its agent turns and its spans
+   * for the campaign window (QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS, default 180) instead of the ordinary one.
+   */
+  const campaignDays = campaignRetentionDays();
+  db.prepare(`DELETE FROM runs WHERE at < datetime('now', '-${DELETE_MAX_AGE_DAYS} days') AND (campaign_id IS NULL OR datetime(at) < datetime('now', '-' || ? || ' days'))`).run(campaignDays);
   /* Bound the durable event log: drop events older than the run retention window (ts is epoch ms). */
   db.prepare("DELETE FROM run_events WHERE ts < ?").run(Date.now() - DELETE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
   /*
@@ -616,11 +631,14 @@ function ensureDb(): void {
    * Wrap ts in datetime() so BOTH sides are SQLite's canonical datetime form: a correct boundary
    * compare, consistent with run_events (which prunes correctly via its own typed epoch-ms compare).
    */
-  db.prepare(`DELETE FROM agent_turns WHERE datetime(ts) < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')`).run();
+  db.prepare(
+    `DELETE FROM agent_turns WHERE datetime(ts) < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')
+       AND (run_id IS NULL OR run_id NOT IN (SELECT id FROM runs WHERE campaign_id IS NOT NULL AND datetime(at) >= datetime('now', '-' || ? || ' days')))`,
+  ).run(campaignDays);
   /* The span ledger keeps its own window (QA_TELEMETRY_RETENTION_DAYS, default 30). A malformed value is reported loudly by the telemetry bootstrap; here it must not stop the history from opening. */
   try {
-    pruneRunSpans(spanRetentionDays(), Date.now());
-    pruneSpecSnapshots(spanRetentionDays(), Date.now());
+    pruneRunSpans(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
+    pruneSpecSnapshots(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
   } catch (error) {
     console.error(`[telemetry] span ledger prune failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -699,6 +717,8 @@ function rowToRecord(row: Record<string, unknown>): RunRecord {
 
 export function createRecord(opts: {
   app: string; sha: string; ref?: string; target: TestTarget; mode: RunMode; parentRunId?: string; triggerRepo?: string;
+  /* The campaign replicate this run is, and the content capture its trace was granted (already capped by the server). */
+  campaign?: CampaignIdentity; captureMode?: CaptureMode;
 }): RunRecord {
   ensureDb();
   const id = `run-${opts.sha.slice(0, 7)}-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
@@ -723,6 +743,10 @@ export function createRecord(opts: {
     triggerRepo: opts.triggerRepo ?? null,
     at,
     logs: "",
+    campaignId: opts.campaign?.id ?? null,
+    campaignVariant: opts.campaign ? JSON.stringify(opts.campaign.variant) : null,
+    campaignReplicate: opts.campaign?.replicate ?? null,
+    captureMode: opts.captureMode ?? null,
   });
 
   return {
@@ -787,6 +811,61 @@ export function getRunFacts(id: string): Required<RunFactsPatch> | undefined {
     coverageMinRatio: row.coverage_min_ratio as number | null,
     cancelled: flag(row.cancelled!),
   };
+}
+
+/* The campaign a run belongs to, or undefined for an ordinary run (or no such run). */
+export function getRunCampaign(id: string): CampaignIdentity | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT campaign_id, campaign_variant, campaign_replicate FROM runs WHERE id = ?").get(id) as { campaign_id: string | null; campaign_variant: string | null; campaign_replicate: number | null } | undefined;
+  if (!row || row.campaign_id === null) return undefined;
+  return { id: row.campaign_id, variant: safeJsonParse<Record<string, string>>(row.campaign_variant ?? "{}", {}), replicate: row.campaign_replicate ?? 1 };
+}
+
+export interface CampaignRunRecord {
+  id: string;
+  variant: Record<string, string>;
+  replicate: number;
+  status: string;
+  verdict: string | null;
+  evaluationStatus: string | null;
+}
+
+/* Every run of a campaign, oldest first, with its grading status (null: never graded). */
+export function listCampaignRuns(campaignId: string): CampaignRunRecord[] {
+  ensureDb();
+  const rows = db
+    .prepare(
+      `SELECT r.id, r.campaign_variant, r.campaign_replicate, r.status, r.verdict, e.status AS evaluation_status
+       FROM runs r LEFT JOIN run_evaluations e ON e.run_id = r.id
+       WHERE r.campaign_id = ? ORDER BY r.at ASC, r.rowid ASC`,
+    )
+    .all(campaignId) as Array<{ id: string; campaign_variant: string | null; campaign_replicate: number | null; status: string; verdict: string | null; evaluation_status: string | null }>;
+  return rows.map((r) => ({
+    id: r.id,
+    variant: safeJsonParse<Record<string, string>>(r.campaign_variant ?? "{}", {}),
+    replicate: r.campaign_replicate ?? 1,
+    status: r.status,
+    verdict: r.verdict,
+    evaluationStatus: r.evaluation_status,
+  }));
+}
+
+/* The finished runs of a campaign (a regrade covers only runs that are over). One more than `limit` is returned at most, so the caller can tell it was exceeded. */
+export function listFinishedCampaignRunIds(campaignId: string, limit: number): string[] {
+  ensureDb();
+  return (db.prepare("SELECT id FROM runs WHERE campaign_id = ? AND status = 'done' ORDER BY at ASC, rowid ASC LIMIT ?").all(campaignId, limit + 1) as Array<{ id: string }>).map((r) => r.id);
+}
+
+/* What the run recorded about the configuration it ran with at run time (JSON text; undefined: none recorded, or no such run), and the capture mode it applied. */
+export function recordEffectiveConfig(id: string, json: string): void {
+  ensureDb();
+  db.prepare("UPDATE runs SET effective_config = ? WHERE id = ?").run(json, id);
+}
+
+export function getStoredEffectiveConfig(id: string): { json: string | null; captureMode: string | null } | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT effective_config, capture_mode FROM runs WHERE id = ?").get(id) as { effective_config: string | null; capture_mode: string | null } | undefined;
+  return row ? { json: row.effective_config, captureMode: row.capture_mode } : undefined;
 }
 
 export interface RunFunnelRow {
@@ -1342,6 +1421,15 @@ export interface RunSpanRow {
   links: string;
 }
 
+function campaignRetentionDays(): number {
+  try {
+    return parseCampaignRetentionDays(process.env.QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS);
+  } catch (error) {
+    console.error(`[telemetry] ${error instanceof Error ? error.message : String(error)}; keeping ${DEFAULT_CAMPAIGN_RETENTION_DAYS} days`);
+    return DEFAULT_CAMPAIGN_RETENTION_DAYS;
+  }
+}
+
 function spanRetentionDays(): number {
   try {
     return parseRetentionDays(process.env.QA_TELEMETRY_RETENTION_DAYS);
@@ -1553,12 +1641,22 @@ export function countRunSpans(): number {
 export const RUN_SPAN_PRUNE_CHUNK = 5000;
 
 /* Drops up to `limit` ledger spans that started more than `days` before `nowMs`, and returns how many. A non-finite cutoff prunes nothing. */
-export function pruneRunSpans(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK): number {
+export function pruneRunSpans(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK, campaignDays?: number): number {
   const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
   if (!Number.isFinite(cutoffMs)) return 0;
+  const keep = campaignKeepClause("run_id", nowMs, campaignDays);
   return db
-    .prepare("DELETE FROM run_spans WHERE rowid IN (SELECT rowid FROM run_spans WHERE start_ns < ? LIMIT ?)")
-    .run(BigInt(Math.floor(cutoffMs)) * 1_000_000n, limit).changes;
+    .prepare(`DELETE FROM run_spans WHERE rowid IN (SELECT rowid FROM run_spans WHERE start_ns < ? ${keep.sql} LIMIT ?)`)
+    .run(BigInt(Math.floor(cutoffMs)) * 1_000_000n, ...keep.params, limit).changes;
+}
+
+/* The rows of a campaign run younger than the campaign window are exempt from the ordinary window (R4). */
+function campaignKeepClause(column: string, nowMs: number, campaignDays: number | undefined): { sql: string; params: string[] } {
+  if (campaignDays === undefined || !Number.isFinite(nowMs - campaignDays * 86_400_000)) return { sql: "", params: [] };
+  return {
+    sql: `AND (${column} IS NULL OR ${column} NOT IN (SELECT id FROM runs WHERE campaign_id IS NOT NULL AND at >= ?))`,
+    params: [new Date(nowMs - campaignDays * 86_400_000).toISOString()],
+  };
 }
 
 export interface SpecSnapshotRow {
@@ -1599,12 +1697,13 @@ export function listSpecSnapshots(runId: string): SpecSnapshotRow[] {
 }
 
 /* Drops up to `limit` snapshots kept more than `days` before `nowMs`, and returns how many: the window of the span ledger. */
-export function pruneSpecSnapshots(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK): number {
+export function pruneSpecSnapshots(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK, campaignDays?: number): number {
   const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
   if (!Number.isFinite(cutoffMs)) return 0;
+  const keep = campaignKeepClause("run_id", nowMs, campaignDays);
   return db
-    .prepare("DELETE FROM run_spec_snapshots WHERE rowid IN (SELECT rowid FROM run_spec_snapshots WHERE captured_at < ? LIMIT ?)")
-    .run(Math.floor(cutoffMs), limit).changes;
+    .prepare(`DELETE FROM run_spec_snapshots WHERE rowid IN (SELECT rowid FROM run_spec_snapshots WHERE captured_at < ? ${keep.sql} LIMIT ?)`)
+    .run(Math.floor(cutoffMs), ...keep.params, limit).changes;
 }
 
 export function loadRunEvents(runId: string, afterSeq = -1): Array<{ runId: string; seq: number; ts: number; body: unknown }> {
@@ -1784,6 +1883,27 @@ export interface AgentTurnTraceRecord {
   promptHash: string | null;
   limitApplied: string | null;
   limitFired: string | null;
+}
+
+/* What each turn of a run says about the role that ran it: the model asked for and the one that answered, its provider and the step limit the prompt stated. In turn order. */
+export interface AgentRoleFacts {
+  role: string;
+  provider: string | null;
+  modelRequested: string | null;
+  modelAnswered: string | null;
+  maxSteps: number | null;
+}
+
+export function getAgentRoleFacts(runId: string): AgentRoleFacts[] {
+  ensureDb();
+  const rows = db.prepare("SELECT role, provider, model_requested, model_answered, max_steps FROM agent_turns WHERE run_id = ? ORDER BY id ASC").all(runId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    role: r.role as string,
+    provider: (r.provider as string | null) ?? null,
+    modelRequested: (r.model_requested as string | null) ?? null,
+    modelAnswered: (r.model_answered as string | null) ?? null,
+    maxSteps: (r.max_steps as number | null) ?? null,
+  }));
 }
 
 export function getAgentTurnTraces(runId: string): AgentTurnTraceRecord[] {

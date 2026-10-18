@@ -290,6 +290,54 @@
         }
       }
     },
+    "/api/v1/campaigns/{id}/runs": {
+      "get": {
+        "operationId": "getCampaignRuns",
+        "summary": "The runs of a campaign with their variant labels, replicate, status and grading state; variant.<key>=<value> query parameters narrow them to the runs carrying every label named",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the campaign's runs; complete is true when every one of them is done and graded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignRuns"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "a query parameter that is not a variant filter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "evaluation is not wired in this process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/evaluations/catalog": {
       "get": {
         "operationId": "getEvaluationCatalog",
@@ -2309,6 +2357,41 @@
             "enum": [
               "single",
               "lead-sidekicks"
+            ]
+          },
+          "campaign": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,100}$"
+              },
+              "variant": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+                }
+              },
+              "replicate": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              }
+            },
+            "required": [
+              "id",
+              "variant",
+              "replicate"
+            ],
+            "additionalProperties": false
+          },
+          "captureMode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "metadata",
+              "full"
             ]
           }
         },
@@ -5603,6 +5686,188 @@
               "exhausted"
             ],
             "additionalProperties": false
+          },
+          "campaign": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "variant": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "replicate": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "id",
+              "variant",
+              "replicate"
+            ],
+            "additionalProperties": false
+          },
+          "effectiveConfig": {
+            "type": "object",
+            "properties": {
+              "levers": {
+                "type": "object",
+                "properties": {
+                  "closedLoop": {
+                    "nullable": true,
+                    "type": "boolean"
+                  },
+                  "agentBrowser": {
+                    "nullable": true,
+                    "type": "boolean"
+                  },
+                  "coordinationMode": {
+                    "nullable": true,
+                    "type": "string",
+                    "enum": [
+                      "single",
+                      "lead-sidekicks"
+                    ]
+                  },
+                  "captureMode": {
+                    "nullable": true,
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "metadata",
+                      "full"
+                    ]
+                  }
+                },
+                "required": [
+                  "closedLoop",
+                  "agentBrowser",
+                  "coordinationMode",
+                  "captureMode"
+                ],
+                "additionalProperties": false
+              },
+              "campaignFreeze": {
+                "nullable": true,
+                "type": "boolean"
+              },
+              "runtime": {
+                "nullable": true,
+                "type": "string"
+              },
+              "agents": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "model": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "reasoningEffort": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "stepLimit": {
+                      "nullable": true,
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "model",
+                    "reasoningEffort",
+                    "stepLimit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "prompt": {
+                "type": "object",
+                "properties": {
+                  "staticHash": {
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "staticHash"
+                ],
+                "additionalProperties": false
+              },
+              "grounding": {
+                "type": "object",
+                "properties": {
+                  "explorer": {
+                    "nullable": true,
+                    "type": "boolean"
+                  },
+                  "stitcher": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "structuralSignal": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "curriculum": {
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "explorer",
+                  "stitcher",
+                  "structuralSignal",
+                  "curriculum"
+                ],
+                "additionalProperties": false
+              },
+              "coverage": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "minRatio": {
+                    "nullable": true,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "mode",
+                  "minRatio"
+                ],
+                "additionalProperties": false
+              },
+              "reflector": {
+                "nullable": true,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "levers",
+              "campaignFreeze",
+              "runtime",
+              "agents",
+              "prompt",
+              "grounding",
+              "coverage",
+              "reflector"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -5622,7 +5887,89 @@
           "usage",
           "specCounts",
           "decision",
-          "budgets"
+          "budgets",
+          "effectiveConfig"
+        ],
+        "additionalProperties": false
+      },
+      "CampaignRuns": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "campaignId": {
+            "type": "string"
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "variant": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "replicate": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "enqueued",
+                    "running",
+                    "done"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "flaky",
+                    "invalid",
+                    "infra-error",
+                    "skipped"
+                  ]
+                },
+                "evaluationStatus": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "complete",
+                    "failed"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "variant",
+                "replicate",
+                "status",
+                "evaluationStatus"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "campaignId",
+          "runs",
+          "complete"
         ],
         "additionalProperties": false
       }

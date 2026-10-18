@@ -108,6 +108,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/campaigns/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The runs of a campaign with their variant labels, replicate, status and grading state; variant.<key>=<value> query parameters narrow them to the runs carrying every label named */
+        get: operations["getCampaignRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/evaluations/catalog": {
         parameters: {
             query?: never;
@@ -793,6 +810,15 @@ export interface components {
             agentBrowser?: boolean;
             /** @enum {string} */
             coordinationMode?: "single" | "lead-sidekicks";
+            campaign?: {
+                id: string;
+                variant: {
+                    [key: string]: string;
+                };
+                replicate: number;
+            };
+            /** @enum {string} */
+            captureMode?: "off" | "metadata" | "full";
         };
         CreateRunResult: {
             /** @enum {number} */
@@ -1533,6 +1559,66 @@ export interface components {
                 limit?: string;
                 role?: string;
             };
+            campaign?: {
+                id: string;
+                variant: {
+                    [key: string]: string;
+                };
+                replicate: number;
+            };
+            effectiveConfig: {
+                levers: {
+                    closedLoop: boolean | null;
+                    agentBrowser: boolean | null;
+                    /** @enum {string|null} */
+                    coordinationMode: "single" | "lead-sidekicks" | null;
+                    /** @enum {string|null} */
+                    captureMode: "off" | "metadata" | "full" | null;
+                };
+                campaignFreeze: boolean | null;
+                runtime: string | null;
+                agents: {
+                    [key: string]: {
+                        provider: string | null;
+                        model: string | null;
+                        reasoningEffort: string | null;
+                        stepLimit: number | null;
+                    };
+                };
+                prompt: {
+                    staticHash: string | null;
+                };
+                grounding: {
+                    explorer: boolean | null;
+                    stitcher: string | null;
+                    structuralSignal: string | null;
+                    curriculum: string | null;
+                };
+                coverage: {
+                    mode: string | null;
+                    minRatio: number | null;
+                };
+                reflector: boolean | null;
+            };
+        };
+        CampaignRuns: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            campaignId: string;
+            runs: {
+                id: string;
+                variant: {
+                    [key: string]: string;
+                };
+                replicate: number;
+                /** @enum {string} */
+                status: "enqueued" | "running" | "done";
+                /** @enum {string} */
+                verdict?: "pass" | "fail" | "flaky" | "invalid" | "infra-error" | "skipped";
+                /** @enum {string} */
+                evaluationStatus: "pending" | "complete" | "failed";
+            }[];
+            complete: boolean;
         };
     };
     responses: never;
@@ -1777,6 +1863,46 @@ export interface operations {
             };
             /** @description no such run */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description evaluation is not wired in this process */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getCampaignRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description the campaign's runs; complete is true when every one of them is done and graded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignRuns"];
+                };
+            };
+            /** @description a query parameter that is not a variant filter */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

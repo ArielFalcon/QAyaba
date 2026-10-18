@@ -14,7 +14,7 @@ import { loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
 
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./server/webhook-routing";
-import { handleApi, ApiDeps } from "./server/api";
+import { handleApi, ApiDeps, type RunObservabilityRequest } from "./server/api";
 import { authorizeBearer, createLocalConsoleLogin, issueSession, isPublicControlPlaneRoute } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
@@ -30,6 +30,10 @@ import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents 
 import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getRunFacts, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
 import { createEvaluationService } from "./server/evaluation-service";
 import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
+import { hashStaticPrompts, type RunConfigEnvironment } from "./server/effective-config";
+import { resolveTelemetryConfig } from "./telemetry/config";
+import { resolveReflectorEnabled } from "./server/reflector-switch";
+import { resolveCampaignFreeze } from "./server/campaign-freeze";
 import { buildRunViewExtras, defaultRunViewDeps } from "./server/run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
 import { appAuthDir, appSuiteStoreDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
@@ -195,6 +199,9 @@ function currentAgentDeps(): AgentDeps {
  */
 let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
 
+/* Assigned once the tools token is known, below; read when a run starts. */
+let runConfigEnvironment: RunConfigEnvironment;
+
 /* The question behind the automatic login bootstrap; absent under QA_CAMPAIGN_FREEZE (a mistyped value throws here, at boot, like the engine's own read of it). */
 const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(process.env, ROOT);
 
@@ -204,7 +211,7 @@ const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(process.env, ROOT);
  * Built at call time: engineFactory and onboardingJob are assigned later in this module.
  */
 function runnerDeps(): RunnerDeps {
-  return { runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun: (runId) => evaluation.scheduleGrading(runId), isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
+  return { runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun: (runId) => evaluation.scheduleGrading(runId), isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
 }
 
 /*
@@ -238,6 +245,16 @@ void new FsDelegationWorkspaceAdapter({ root: join(workdirRoot(), DELEGATIONS_DI
 const toolsPort = resolveToolsPort(process.env);
 const toolsToken = resolveToolsToken(process.env);
 if (toolsToken.generated) logJson("warn", "QA_TOOLS_TOKEN is not set: no run is granted the run_spec or authenticated browser tools until the same value is set on the orchestrator and agents services");
+/* What every run records of the process around it (its effectiveConfig): the agent runtime, the prompt layers, the tool grants and the operator switches, each read where it is configured. */
+let staticPromptHash: string | null | undefined;
+runConfigEnvironment = {
+  runtime: () => agentRuntime.current().assignments.primary.provider,
+  staticPromptHash: () => (staticPromptHash === undefined ? (staticPromptHash = hashStaticPrompts(ROOT)) : staticPromptHash),
+  toolsGranted: !toolsToken.generated,
+  reflectorEnabled: resolveReflectorEnabled(process.env),
+  campaignFrozen: resolveCampaignFreeze(process.env),
+  maxCapture: resolveTelemetryConfig(process.env).maxCapture,
+};
 const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry, browsers: agentBrowserRegistry });
 toolsServer.on("error", (err: Error & { code?: string }) => logJson("error", `the tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the agents' run_spec and authenticated browser calls will fail`));
 
@@ -327,13 +344,13 @@ process.on("unhandledRejection", (reason) => {
 });
 
 /* One path for the control API and the webhook; the trigger is what tells their runs apart in the trace. */
-function enqueueRunFrom(trigger: "api" | "webhook", app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode): string {
+function enqueueRunFrom(trigger: "api" | "webhook", app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode, observability?: RunObservabilityRequest): string {
   if (shuttingDown) {
     console.warn(`[qa] rejecting run ${app}@${sha} — shutting down`);
     return "";
   }
 
-  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", trigger, triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(coordinationMode !== undefined ? { coordinationMode } : {}) }, runnerDeps());
+  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", trigger, triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(coordinationMode !== undefined ? { coordinationMode } : {}), ...(observability?.campaign ? { campaign: observability.campaign } : {}), ...(observability?.captureMode ? { captureMode: observability.captureMode } : {}) }, runnerDeps());
 }
 
 const enqueueApiRun: ApiDeps["enqueue"] = (...args) => enqueueRunFrom("api", ...args);

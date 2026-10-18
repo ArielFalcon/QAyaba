@@ -121,7 +121,7 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
   if (config.mode === "off") return offHandle(freeze, clock);
 
   const resource = resourceFromAttributes({ ...config.resourceAttributes, "service.name": config.serviceName });
-  const ledger = new LedgerSpanProcessor(deps.store ?? { commit: commitRunSpans, prune: (nowMs) => { pruneRunSpans(config.retentionDays, nowMs); pruneSpecSnapshots(config.retentionDays, nowMs); } });
+  const ledger = new LedgerSpanProcessor(deps.store ?? { commit: commitRunSpans, prune: (nowMs) => { pruneRunSpans(config.retentionDays, nowMs, undefined, config.campaignRetentionDays); pruneSpecSnapshots(config.retentionDays, nowMs, undefined, config.campaignRetentionDays); } });
   const exporterStatus: ExporterStatus = { dropped: 0 };
   const spanProcessors: Array<LedgerSpanProcessor | BatchSpanProcessor> = [ledger];
 

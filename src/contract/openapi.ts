@@ -25,7 +25,7 @@ import {
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
   ArchitectureContextSchema, ContextMapViewSchema,
   AgentTurnViewSchema, AppTelemetryViewSchema, TelemetryHealthSchema,
-  ApiErrorSchema, ScoreSchema, RunEvaluationSchema, EvaluationCatalogSchema, RegradeRequestSchema, RegradeStartedSchema, RegradeJobSchema, RunDetailSchema,
+  ApiErrorSchema, ScoreSchema, RunEvaluationSchema, EvaluationCatalogSchema, RegradeRequestSchema, RegradeStartedSchema, RegradeJobSchema, RunDetailSchema, CampaignRunsSchema,
 } from "./commands";
 
 export const API_VERSION = "1.0.0";
@@ -101,6 +101,7 @@ const NAMED_SCHEMAS = {
   RegradeStarted: RegradeStartedSchema,
   RegradeJob: RegradeJobSchema,
   RunDetail: RunDetailSchema,
+  CampaignRuns: CampaignRunsSchema,
 } as const;
 
 function componentSchemas(): Record<string, unknown> {
@@ -198,6 +199,18 @@ function paths(): Record<string, unknown> {
         responses: {
           "200": { description: "the run's evaluation", content: jsonBody("RunEvaluation") },
           "404": { description: "no such run", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/campaigns/{id}/runs": {
+      get: {
+        operationId: "getCampaignRuns",
+        summary: "The runs of a campaign with their variant labels, replicate, status and grading state; variant.<key>=<value> query parameters narrow them to the runs carrying every label named",
+        parameters: [idParam],
+        responses: {
+          "200": { description: "the campaign's runs; complete is true when every one of them is done and graded", content: jsonBody("CampaignRuns") },
+          "400": { description: "a query parameter that is not a variant filter", content: jsonBody("ApiError") },
           "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
         },
       },

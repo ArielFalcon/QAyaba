@@ -9,7 +9,7 @@
 
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
-import { createRecord, updateRecord, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases } from "./history";
+import { createRecord, updateRecord, recordEffectiveConfig, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases } from "./history";
 import { traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { recordIncident } from "./maintainer";
@@ -24,6 +24,9 @@ import { Sha } from "@kernel/sha";
 import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import type { CoordinationMode } from "@kernel/coordination";
+import type { CampaignIdentity } from "@kernel/campaign";
+import { capCaptureMode, DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode";
+import { configInEffect, resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
 import { RunTrace, SYSTEM_CLOCK, markEnqueued, type RunFacts, type RunIdentity, type RunTrigger } from "./run-trace";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
@@ -36,6 +39,9 @@ type RunStep = RunStepEvent["step"];
 
 
 const redactionPort = new RedactionPortAdapter();
+
+/* What a run records of the process around it when the composition root gave none: nothing known, no tool grants. */
+const UNKNOWN_RUN_CONFIG_ENV: RunConfigEnvironment = { runtime: () => null, staticPromptHash: () => null, toolsGranted: false, reflectorEnabled: false, campaignFrozen: false, maxCapture: DEFAULT_CAPTURE_MODE };
 
 
 const ONBOARDING_POLL_MS = 5_000;
@@ -66,6 +72,10 @@ export interface RunRequest {
   closedLoop?: boolean;  /* the run's own choice about the run_spec loop (an A/B arm), overriding the app's setting */
   agentBrowser?: boolean;  /* the run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting */
   coordinationMode?: CoordinationMode;  /* the run's own choice of coordination mode (an A/B arm), overriding the app's setting */
+  /* The campaign replicate this run is. Stored and traced as data; never passed to the engine, so it cannot change what the run does. */
+  campaign?: CampaignIdentity;
+  /* The content capture the run's trace was granted: the request's choice already capped by the server's ceiling. Absent: the process default. */
+  captureMode?: CaptureMode;
 }
 
 /* Side-effecting collaborators, injected so the funnel is unit-testable with stubs. */
@@ -78,6 +88,8 @@ export interface RunnerDeps {
    * grader hangs here. It is never awaited and a fault in it is only said: it can neither delay the next run nor change how this one ended.
    */
   afterRun?: (runId: string) => void | Promise<void>;
+  /* The process-level facts a run's effectiveConfig records (agent runtime, static prompt hash, tool grants, switches). Absent: those are recorded as unknown. */
+  runConfig?: RunConfigEnvironment;
   loadApp?: (name: string) => AppConfig;  /* defaults to the real config loader */
   runEvents?: RunEventStore;
 
@@ -311,6 +323,9 @@ export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: stri
 export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: RunnerDeps = {}): string {
   const loadApp = deps.loadApp ?? loadAppConfig;
   enqueueLoginBootstrapFirst(queue, req, deps);
+  /* The capture a run gets is decided here, for every door: what it asked for, never above the server's ceiling. */
+  const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
+  const captureMode = capCaptureMode(req.captureMode, runConfigEnv.maxCapture);
 
   /*
    * Orphan-data cleanup runs through the SINGLE funnel so EVERY trigger (webhook, CLI,
@@ -330,7 +345,11 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
     }
   }
 
-  const record = createRecord({ app: req.app, sha: req.sha, target: req.target, mode: req.mode, parentRunId: req.parentRunId, triggerRepo: req.triggerRepo });
+  const record = createRecord({
+    app: req.app, sha: req.sha, target: req.target, mode: req.mode, parentRunId: req.parentRunId, triggerRepo: req.triggerRepo,
+    ...(req.campaign ? { campaign: req.campaign } : {}),
+    captureMode,
+  });
   console.log(`[qa] enqueued ${req.app}@${req.sha} mode=${req.mode}${req.parentRunId ? ` (continue of ${req.parentRunId})` : ""} (queue: ${queue.size + 1})`);
 
   /* The trace of the run: a short span here, in the caller's context, and a root of its own when the queue hands the run its turn (run-trace.ts). */
@@ -342,10 +361,13 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
     sha: req.sha,
     mode: req.mode,
     target: req.target,
-    trigger: req.trigger ?? (req.source === "manual" ? "api" : "webhook"),
+    /* A run that names its campaign is a campaign run, whichever door it came through. */
+    trigger: req.campaign ? "campaign" : (req.trigger ?? (req.source === "manual" ? "api" : "webhook")),
     parentRunId: req.parentRunId,
     triggerRepo: req.triggerRepo,
     shadow: req.shadow,
+    campaign: req.campaign,
+    captureMode: req.captureMode === undefined ? undefined : captureMode,
   };
   const enqueued = markEnqueued(telemetry, clock, identity);
 
@@ -414,6 +436,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         appConfig.qa.shadow = req.shadow;
       }
       if (appConfig.qa.shadow !== undefined) trace.shadow(appConfig.qa.shadow);
+      recordRunConfig(record.id, appConfig, req, captureMode, runConfigEnv, trace);
 
       selectEngine(process.env);
       if (!deps.engineFactory) {
@@ -562,6 +585,20 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
   }, record.id);
 
   return record.id;
+}
+
+/*
+ * Resolves what the run starts with and keeps it on the run (and on its trace root). Observability never changes how a run ends: a fault
+ * here is said loudly and the run goes on, its effectiveConfig then answering unknown.
+ */
+function recordRunConfig(runId: string, app: AppConfig, req: RunRequest, captureMode: CaptureMode, env: RunConfigEnvironment, trace: RunTrace): void {
+  try {
+    const config = resolveRunConfig(app, req, captureMode, env);
+    recordEffectiveConfig(runId, JSON.stringify(config));
+    trace.configInEffect(configInEffect(config));
+  } catch (err) {
+    console.error(`[qa] the effective configuration of run ${runId} could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /* The job found its run already finalized by a cancel: the trace says cancelled, and the run keeps the trace id it has (the cancel could not know it). */

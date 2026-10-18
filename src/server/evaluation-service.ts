@@ -5,8 +5,9 @@
 
 import { randomBytes } from "node:crypto";
 import { GradeRunUseCase } from "@contexts/evaluation/application/grade-run.use-case";
-import { RegradeUseCase, type RegradeRequest } from "@contexts/evaluation/application/regrade.use-case";
+import { RegradeUseCase, MAX_REGRADE_RUNS, type RegradeRequest } from "@contexts/evaluation/application/regrade.use-case";
 import type { EvaluationStatus, RegradeJob, RegradeJobStorePort, RunSelectorPort, ScoreSinkPort, ScoreStorePort, EvidencePort } from "@contexts/evaluation/application/ports/index";
+import { campaignRunsView, type CampaignRunRow, type CampaignRunView } from "@contexts/evaluation/domain/campaign-runs";
 import { GRADER_CATALOG } from "@contexts/evaluation/domain/grader-catalog";
 import type { Score, ScoreDataType, ScorePolarity, ScoreSource } from "@contexts/evaluation/domain/score";
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
@@ -15,6 +16,8 @@ import {
   getRegradeJob,
   getRunEvaluationStatus,
   getRunFacts,
+  listCampaignRuns,
+  listFinishedCampaignRunIds,
   listFinishedRunIdsSince,
   listRunScoreRows,
   replaceRunScores,
@@ -106,9 +109,9 @@ export class HistoryRunSelector implements RunSelectorPort {
     return listFinishedRunIdsSince(sinceIso);
   }
 
-  /* Runs carry no campaign identity until slice S5 adds the campaign fields; a campaign filter covers nothing until then. */
-  ofCampaign(_campaignId: string): string[] {
-    return [];
+  /* The campaign's finished runs. One more than a regrade may cover is returned at most, so the use case can refuse an oversized campaign instead of silently grading part of it. */
+  ofCampaign(campaignId: string): string[] {
+    return listFinishedCampaignRunIds(campaignId, MAX_REGRADE_RUNS);
   }
 }
 
@@ -155,6 +158,12 @@ export interface RegradeJobView {
   finishedAt?: string;
 }
 
+export interface CampaignRunsView {
+  campaignId: string;
+  runs: CampaignRunView[];
+  complete: boolean;
+}
+
 /* What the runner and the API see of the evaluation context. */
 export interface EvaluationService {
   /* Grades the run later, off the caller's path. Never throws, never blocks. */
@@ -163,6 +172,8 @@ export interface EvaluationService {
   evaluation(runId: string, allVersions: boolean): RunEvaluationView | undefined;
   startRegrade(request: RegradeRequest): { jobId: string; runs: number };
   regradeJob(jobId: string): RegradeJobView | undefined;
+  /* The campaign's runs (narrowed to those carrying every label of `variant`) and whether they are all done and graded. */
+  campaignRuns(campaignId: string, variant: Readonly<Record<string, string>>): CampaignRunsView;
   /* Boot: ends the jobs a previous process left open. */
   recoverInterrupted(): number;
 }
@@ -172,6 +183,8 @@ export interface EvaluationServiceDeps {
   store?: ScoreStorePort;
   jobs?: RegradeJobStorePort;
   runs?: RunSelectorPort;
+  /* Every run of a campaign with its grading status. Default: the history. */
+  campaignRows?: (campaignId: string) => CampaignRunRow[];
   sink?: ScoreSinkPort;
   now?: () => string;
   newId?: () => string;
@@ -243,6 +256,9 @@ export function createEvaluationService(deps: EvaluationServiceDeps = {}): Evalu
         startedAt: job.startedAt,
         ...(job.finishedAt !== undefined ? { finishedAt: job.finishedAt } : {}),
       };
+    },
+    campaignRuns(campaignId, variant) {
+      return { campaignId, ...campaignRunsView((deps.campaignRows ?? listCampaignRuns)(campaignId), variant) };
     },
     recoverInterrupted() {
       return failInterruptedRegradeJobs(now());

@@ -16,6 +16,7 @@ import type {
   RegradeRequest,
   RegradeStarted,
   RegradeJob,
+  CampaignRuns,
   QueueStatus,
   AppView,
   IntelligenceView,
@@ -57,6 +58,11 @@ export function createClient(opts: ClientOptions) {
     getEvaluationCatalog: () => request<EvaluationCatalog>("GET", "/api/v1/evaluations/catalog"),
     regrade: (input: RegradeRequest) => request<RegradeStarted>("POST", "/api/v1/evaluations/regrade", input),
     getRegradeJob: (jobId: string) => request<RegradeJob>("GET", `/api/v1/evaluations/regrade/${q(jobId)}`),
+    /* The runs of a campaign, narrowed to those carrying every variant label given. */
+    getCampaignRuns: (campaignId: string, variant: Record<string, string> = {}) => {
+      const query = Object.entries(variant).map(([k, v]) => `variant.${q(k)}=${q(v)}`).join("&");
+      return request<CampaignRuns>("GET", `/api/v1/campaigns/${q(campaignId)}/runs${query ? `?${query}` : ""}`);
+    },
     listRuns: (app: string, limit = 20) =>
       request<RunRecord[]>("GET", `/api/v1/runs?app=${q(app)}&limit=${limit}`),
     cancelRun: (id: string) => request<void>("DELETE", `/api/v1/runs/${q(id)}`),
