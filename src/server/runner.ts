@@ -323,12 +323,13 @@ export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: stri
  */
 export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: RunnerDeps = {}): string {
   const loadApp = deps.loadApp ?? loadAppConfig;
-  enqueueLoginBootstrapFirst(queue, req, deps);
   /* The capture a run gets is decided here, for every door: what it asked for, never above the server's ceiling. */
   const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
   const captureMode = capCaptureMode(req.captureMode, runConfigEnv.maxCapture);
-  /* A run joins a campaign only with the capture mode its siblings have; refused before the run, or its login bootstrap, exists. */
+  /* A run joins a campaign only with the capture mode its siblings have; refused before anything is queued or marked. */
   if (req.campaign) assertUniformCapture(req.campaign.id, captureMode, getCampaignCaptureMode(req.campaign.id));
+  /* After every refusal: a refused request must leave nothing behind, a queued bootstrap or a marked app included. */
+  enqueueLoginBootstrapFirst(queue, req, deps);
 
   /*
    * Orphan-data cleanup runs through the SINGLE funnel so EVERY trigger (webhook, CLI,

@@ -228,3 +228,21 @@ test("a run joins a campaign only with the capture mode its siblings have, and a
   assert.doesNotThrow(() => enqueueTrackedRun(queue, request(uniqueApp(), { campaign: { id: `${id}-other`, variant: {}, replicate: 1 }, captureMode: "off" }), deps(h, { run: async (i) => outcomeOf(i) })));
   await queue.drain();
 });
+
+test("a refused campaign run has no side effects: no login bootstrap is queued and the app is not marked as asked", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const id = `sidefx-${Math.random().toString(36).slice(2, 8)}`;
+  const app = uniqueApp();
+  const withLogin = (): AppConfig => ({ ...cfg(app), auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } }) as AppConfig;
+  const live = (e: RunConfigEnvironment = env): RunnerDeps => deps(h, { run: async (i) => outcomeOf(i) }, { runConfig: e, suiteHoldsVerifiedLogin: () => false }, withLogin);
+  /* A sibling of the campaign already runs with metadata (another app, so this app's bootstrap has not been asked). */
+  enqueueTrackedRun(queue, request(uniqueApp(), { campaign: { id, variant: {}, replicate: 1 } }), deps(h, { run: async (i) => outcomeOf(i) }));
+  const sizeBefore = queue.size;
+  assert.throws(() => enqueueTrackedRun(queue, request(app, { campaign: { id, variant: {}, replicate: 2 }, captureMode: "full" }), live({ ...env, maxCapture: "full" })), CampaignCaptureMismatchError);
+  assert.equal(queue.size, sizeBefore, "nothing was queued by the refused request");
+  /* The app was not marked: an ordinary run of it still gets its bootstrap queued first. */
+  enqueueTrackedRun(queue, request(app), live());
+  assert.equal(queue.size, sizeBefore + 2, "the bootstrap and the run");
+  await queue.drain();
+});
