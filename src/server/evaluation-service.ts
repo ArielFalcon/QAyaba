@@ -65,12 +65,12 @@ export class SqliteScoreStore implements ScoreStorePort {
       ...(r.observationId !== null ? { observationId: r.observationId } : {}),
     }));
     if (opts.allVersions) return scores;
-    /* A human label is a judgment of its own, not a grader version: it sits beside the grader's score of the same name instead of outranking it. */
+    /* The default view is the graders' (design §14): a human label (graderVersion "human", never a version number) shows only with all versions. */
     const latest = new Map<string, Score>();
     for (const s of scores) {
-      const key = s.source === "human" ? `human\u0000${s.name}` : s.name;
-      const cur = latest.get(key);
-      if (!cur || newer(s.graderVersion, cur.graderVersion)) latest.set(key, s);
+      if (s.source === "human") continue;
+      const cur = latest.get(s.name);
+      if (!cur || newer(s.graderVersion, cur.graderVersion)) latest.set(s.name, s);
     }
     return [...latest.values()];
   }

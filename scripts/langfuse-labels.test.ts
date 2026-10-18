@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { importLabels, main, parseArguments, type LabelDeps, type LabelRow } from "./langfuse-labels.ts";
+import { importLabels, main, MAX_RESPONSE_BYTES, parseArguments, type LabelDeps, type LabelRow } from "./langfuse-labels.ts";
 
 const AUTH = `Basic ${Buffer.from("pk-lf-test:sk-lf-test").toString("base64")}`;
 const NOW = "2026-10-18T09:00:00.000Z";
@@ -148,5 +148,102 @@ test("main prints the counts, writes nothing on a dry run and returns 2 on a bad
     assert.match(bad.logs.join("\n"), /usage: npm run langfuse:labels/);
   } finally {
     await lf.close();
+  }
+});
+
+test("only catalog names are imported: a made-up name, a family member and a family base behave as the catalog says", async () => {
+  const lf = await fakeLangfuse({
+    scores: [
+      annotation({ traceId: "a".repeat(32), name: "invented_score", value: 1 }),
+      annotation({ traceId: "a".repeat(32), name: "step_intent_mix.explore", value: 0.5 }),
+      annotation({ traceId: "a".repeat(32), name: "step_intent_mix.nope", value: 0.5 }),
+      annotation({ traceId: "a".repeat(32), name: "x".repeat(129), value: 1 }),
+    ],
+  });
+  try {
+    const { d, saved } = deps(lf.baseUrl);
+    const result = await importLabels(d, { since: "2026-10-01" });
+    assert.deepEqual(saved.map((r) => r.name), ["step_intent_mix.explore"]);
+    assert.equal(result.unsupported, 3);
+  } finally {
+    await lf.close();
+  }
+});
+
+test("a categorical value must belong to the catalog's closed set when it has one, and is capped otherwise", async () => {
+  const lf = await fakeLangfuse({
+    scores: [
+      annotation({ traceId: "a".repeat(32), name: "furthest_phase", dataType: "CATEGORICAL", value: 0, stringValue: "not-a-phase" }),
+      annotation({ traceId: "b".repeat(32), name: "furthest_phase", dataType: "CATEGORICAL", value: 0, stringValue: "execute" }),
+      annotation({ traceId: "a".repeat(32), name: "infra_error", dataType: "CATEGORICAL", value: 0, stringValue: "e".repeat(257) }),
+      annotation({ traceId: "b".repeat(32), name: "infra_error", dataType: "CATEGORICAL", value: 0, stringValue: "E-SANDBOX" }),
+    ],
+  });
+  try {
+    const { d, saved } = deps(lf.baseUrl);
+    const result = await importLabels(d, { since: "2026-10-01" });
+    assert.deepEqual(saved.map((r) => [r.runId, r.name, r.value]), [["run-2", "furthest_phase", "execute"], ["run-2", "infra_error", "E-SANDBOX"]]);
+    assert.equal(result.unsupported, 2);
+  } finally {
+    await lf.close();
+  }
+});
+
+test("an observation id longer than 200 characters is dropped, not stored", async () => {
+  const lf = await fakeLangfuse({ scores: [annotation({ traceId: "a".repeat(32), name: "spec_pass_rate", value: 1, observationId: "o".repeat(201) }), annotation({ traceId: "b".repeat(32), name: "spec_pass_rate", value: 1, observationId: "o".repeat(200) })] });
+  try {
+    const { d, saved } = deps(lf.baseUrl);
+    await importLabels(d, { since: "2026-10-01" });
+    assert.deepEqual(saved.map((r) => r.observationId?.length ?? null), [null, 200]);
+  } finally {
+    await lf.close();
+  }
+});
+
+test("the latest annotation is chosen by parsed time, not by string order, and by arrival order when a time cannot be parsed", async () => {
+  const lf = await fakeLangfuse({
+    scores: [
+      /* As text "2026-10-17T09:00:00+02:00" sorts after "2026-10-17T08:30:00Z", yet it is the earlier instant (07:00Z). */
+      annotation({ traceId: "a".repeat(32), name: "spec_pass_rate", value: 0.1, timestamp: "2026-10-17T09:00:00+02:00" }),
+      annotation({ traceId: "a".repeat(32), name: "spec_pass_rate", value: 0.2, timestamp: "2026-10-17T08:30:00Z" }),
+      annotation({ traceId: "b".repeat(32), name: "spec_pass_rate", value: 0.3, timestamp: "garbage" }),
+      annotation({ traceId: "b".repeat(32), name: "spec_pass_rate", value: 0.4, timestamp: "also garbage" }),
+    ],
+  });
+  try {
+    const { d, saved } = deps(lf.baseUrl);
+    await importLabels(d, { since: "2026-10-01" });
+    assert.deepEqual(saved.map((r) => [r.runId, r.value]), [["run-1", 0.2], ["run-2", 0.4]]);
+  } finally {
+    await lf.close();
+  }
+});
+
+test("a trace is resolved to its run once per import, however many labels it has", async () => {
+  const lf = await fakeLangfuse({ scores: ["spec_pass_rate", "auth_overhead", "spec_validity_rate"].map((name) => annotation({ traceId: "a".repeat(32), name, value: 1 })).concat([annotation({ traceId: "z".repeat(32), name: "spec_pass_rate", value: 1 }), annotation({ traceId: "z".repeat(32), name: "auth_overhead", value: 1 })]) });
+  try {
+    const { d } = deps(lf.baseUrl);
+    const lookups: string[] = [];
+    const inner = d.runIdOfTrace;
+    d.runIdOfTrace = (traceId) => (lookups.push(traceId), inner(traceId));
+    await importLabels(d, { since: "2026-10-01" });
+    assert.deepEqual(lookups.sort(), ["a".repeat(32), "z".repeat(32)], "an unknown trace is not looked up again either");
+  } finally {
+    await lf.close();
+  }
+});
+
+test("a response over the size cap, or more pages than the cap, stops the import loudly", async () => {
+  const big = createServer((_req, res) => void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [], pad: "p".repeat(MAX_RESPONSE_BYTES + 1), meta: { totalPages: 1 } })));
+  await new Promise<void>((resolve) => big.listen(0, "127.0.0.1", resolve));
+  const endless = createServer((req, res) => void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [], meta: { totalPages: 1_000_000, page: Number(new URL(req.url ?? "/", "http://x").searchParams.get("page")) } })));
+  await new Promise<void>((resolve) => endless.listen(0, "127.0.0.1", resolve));
+  try {
+    const url = (server: Server): string => `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    await assert.rejects(importLabels(deps(url(big)).d, { since: "x" }), /too large/);
+    await assert.rejects(importLabels(deps(url(endless)).d, { since: "x" }), /more than \d+ pages/);
+  } finally {
+    await new Promise<void>((resolve) => big.close(() => resolve()));
+    await new Promise<void>((resolve) => endless.close(() => resolve()));
   }
 });

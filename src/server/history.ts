@@ -487,6 +487,8 @@ function ensureDb(): void {
   for (const name of ["trace_id", "decision", "limit_fired", "limit_role", "coverage_status", "coverage_mode"]) {
     if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} TEXT`);
   }
+  /* A Langfuse score finds its run by trace id (getRunIdByTraceId). */
+  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_trace_id ON runs(trace_id)");
   /* Facts the engine decided at run time and grading must not recompute: whether a reviewer ran, the coverage decision and its policy, and whether an operator cancelled the run. */
   for (const [name, type] of [["review_required", "INTEGER"], ["coverage_min_ratio", "REAL"], ["cancelled", "INTEGER"]] as const) {
     if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
@@ -761,7 +763,6 @@ export function getRunPhases(id: string): RunPhases | undefined {
   };
 }
 
-/* What a run recorded about how it ended, beyond its verdict. Undefined: no such run. */
 /* The run whose trace has this id; the join from a Langfuse score back to the run store. Undefined for an unknown trace. */
 export function getRunIdByTraceId(traceId: string): string | undefined {
   ensureDb();
@@ -769,6 +770,7 @@ export function getRunIdByTraceId(traceId: string): string | undefined {
   return row?.id;
 }
 
+/* What a run recorded about how it ended, beyond its verdict. Undefined: no such run. */
 export function getRunFacts(id: string): Required<RunFactsPatch> | undefined {
   ensureDb();
   const row = db.prepare(`SELECT ${FACT_COLUMNS.map(([, c]) => c).join(", ")} FROM runs WHERE id = ?`).get(id) as Record<string, string | number | null> | undefined;

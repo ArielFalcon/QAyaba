@@ -525,6 +525,9 @@ Either way, the turn span's `error.type` (§5.3) already covers what reaches the
   S0.3 shrinks to a live smoke of that hop.
 - **Persisted rows.** Codex turn rows in `agent_turns` now also carry what the OpenCode funnel's carry: tokens (input without the cache, as every row holds it), prompt hash, section hashes, applied and fired limits, `ended`, the requested model and provider. Cost, cache writes, model answered, step budget and call metrics stay null. Run-level `gateSignals.usage` is still not fed by Codex.
 - **Assumption to verify live.** A `turn.completed` usage is read as the spend of that turn alone (a delta). One exec is one turn, so the sum over an exec's events is right either way; the fixture-level check against a real capture is still open.
+- **Langfuse shows no usage or cost for Codex turns.** A Codex turn has no `chat` child span (only the turn's final usage), and
+  Langfuse prices `generation` observations only. The run store and the API still carry Codex's tokens (`agent_turns`,
+  `qayaba.usage.*` on the turn). No fake generation is synthesized to fill the gap.
 - Set `metrics_exporter="none"`, because the default is `statsig`, an OpenAI endpoint, which would
   break the "no SaaS" rule.
 
@@ -657,7 +660,7 @@ Every instrument is declared in one table with its allowed attribute keys. A tes
 |---|---|---|
 | `off` | Structure only: names, timings, counts, ids. No hashes of content | — |
 | `metadata` | Plus prompt and section **hashes and sizes**, tool targets (sanitized and capped, as `toolSequence` already does), error messages (redacted, capped at 1 KB) | **default** |
-| `full` | Plus `gen_ai.input.messages`, `gen_ai.output.messages` and tool arguments/results, capped at 32 KB per attribute, redacted. Also mapped explicitly to `langfuse.observation.input/output`: Langfuse documents no mapping for the new `gen_ai.*.messages` keys | campaigns, on request |
+| `full` | Plus `gen_ai.input.messages`, `gen_ai.output.messages` and tool arguments/results, capped at 32 KB per attribute, redacted. Langfuse documents no mapping for the new `gen_ai.*.messages` keys, so when content capture is wired it must also be mapped explicitly to `langfuse.observation.input/output` (not registered until then) | campaigns, on request |
 
 The full text is **already** stored redacted in `agent_turns`. In `metadata` mode, the span carries
 `qayaba.content.ref=agent_turn:<id>`. This is the spec's "store externally and reference" option.
@@ -758,6 +761,8 @@ services:
     OTel `input_tokens` is **inclusive**. Without this, cost is double-counted.
   - Cost attaches only to `generation` observations, so `chat` spans set
     `langfuse.observation.type=generation`.
+- **Codex turns have no usage or cost in Langfuse.** Usage and cost sit on `chat` spans (generations) only, and a Codex turn has
+  none (§5.8). Its tokens remain in the run store and the API. Do not synthesize a generation for it.
 - **Resources.** The Langfuse docs recommend 4 cores and 16 GiB. On the owner's Mac, Langfuse is
   for campaign review sessions, not always-on.
 - **Score configs** are created idempotently at boot by the score sink (§11.3).
@@ -915,7 +920,7 @@ ingest times.
 |---|---|---|
 | 1 | `POST /runs` (extended) | Adds `campaign?: {id, variant: Record<string,string>, replicate: int≥1}` and `captureMode?: off\|metadata\|full` to the zod `CreateRunInputSchema`, and so to `openapi.json`. Returns 202 `{schemaVersion, id, …, status:"enqueued"}` |
 | 2 | `GET /runs/:id` (extended) | Adds `telemetry: {traceId, traceUrl?} \| null`, `campaign?`, `phases: [{name, durationMs}]` (in canonical order), `furthestPhase`, `usage: {inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens, costUsd}`, `specCounts: {generated, valid, passed}`, `decision`, `budgets: {exhausted: bool, limit?, role?}` and `effectiveConfig` (below) |
-| 3 | `GET /runs/:id/evaluation[?versions=all]` | `{schemaVersion, runId, traceId, status: "pending"\|"complete"\|"failed", scores: [{name, value, dataType, polarity, source, graderVersion, comment?, observationId?}]}`. By default only the **latest `graderVersion` per name** is returned; `?versions=all` returns every stored version |
+| 3 | `GET /runs/:id/evaluation[?versions=all]` | `{schemaVersion, runId, traceId, status: "pending"\|"complete"\|"failed", scores: [{name, value, dataType, polarity, source, graderVersion, comment?, observationId?}]}`. By default only the **latest `graderVersion` per name** is returned; `?versions=all` returns every stored version, including human labels (`source=human`, `graderVersion: "human"`) imported from Langfuse |
 | 4 | `GET /campaigns/:id/runs?variant.<k>=<v>` | `{schemaVersion, campaignId, runs: [{id, variant, replicate, status, verdict?, evaluationStatus}], complete: bool}` |
 | 5 | `POST /evaluations/regrade` | Body `{runIds?\|campaignId?\|since?, graders?: string[]}`. Returns 202 `{schemaVersion, jobId, runs: n}` |
 | 5b | `GET /evaluations/regrade/:jobId` | `{schemaVersion, jobId, status: "pending"\|"running"\|"complete"\|"failed", runs: n, graded: n, failed: [{runId, error}], startedAt, finishedAt?}` |
@@ -1166,3 +1171,13 @@ both.
 - Sandbox children are traced from the orchestrator's side only.
 - Suspend detection on Docker Desktop is unproven until S0.1.
 - LLM judges stay `experimental` until calibrated.
+- **Langfuse assumptions to prove in spike S0.5** (S4b is built on them, none is checked on a real instance):
+  - Langfuse prefers the explicit `langfuse.observation.usage_details` (exclusive buckets) over the inclusive `gen_ai.usage.*` on
+    the same `chat` span. If it does not, cost is double-counted and the OTel keys must be dropped from the Langfuse path.
+  - Whether `POST /api/public/scores` honours a body `timestamp`. If not, a score is stamped with its ingestion time, so "same
+    id replaces" holds only within one day and the "timestamp = run end" idempotency in §11.1 is wrong; the fallback is a
+    `score-create` event on `/api/public/ingestion`, whose envelope carries the timestamp.
+  - The field shapes of `/api/public/score-configs` (create, list and its paging), of the score body, and of the annotation
+    scores read by `scripts/langfuse-labels.ts` (`/api/public/v2/scores?source=ANNOTATION`, `/api/public/traces?sessionId=`).
+  - The usage bucket key names (`cache_read_input_tokens`, `cache_creation_input_tokens`, `output_reasoning_tokens`).
+  - `LANGFUSE_INIT_*` headless creation and the key format it accepts.

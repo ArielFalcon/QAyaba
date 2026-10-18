@@ -7,8 +7,6 @@ export const LANGFUSE = {
     observationType: "langfuse.observation.type",
     usageDetails: "langfuse.observation.usage_details",
     costDetails: "langfuse.observation.cost_details",
-    observationInput: "langfuse.observation.input",
-    observationOutput: "langfuse.observation.output",
   },
 } as const;
 
@@ -46,12 +44,4 @@ export function langfuseUsageDetails(usage: ConventionTokenUsage): string {
 /* The provider-reported cost of one generation. Absent when the provider reported none (zero or unknown): Langfuse then prices it from its model table or leaves it blank, rather than recording a false zero. */
 export function langfuseCostDetails(cost: number): string | undefined {
   return Number.isFinite(cost) && cost > 0 ? JSON.stringify({ total: cost }) : undefined;
-}
-
-/* The content of an observation under both conventions: Langfuse documents no mapping for the conventions' new message keys, so the same text is also its own input and output. All four keys are `content`: they leave only in `full` capture mode, redacted and capped by the adapter. */
-export function langfuseInputOutput(io: { input?: string; output?: string }): Record<string, string> {
-  return {
-    ...(io.input !== undefined ? { [GENAI.attrs.inputMessages]: io.input, [LANGFUSE.attrs.observationInput]: io.input } : {}),
-    ...(io.output !== undefined ? { [GENAI.attrs.outputMessages]: io.output, [LANGFUSE.attrs.observationOutput]: io.output } : {}),
-  };
 }

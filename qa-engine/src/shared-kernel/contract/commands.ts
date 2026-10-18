@@ -454,6 +454,7 @@ export const TelemetryHealthSchema = z.object({
   campaignFreeze: z.boolean(),
   otlp: z.object({
     configured: z.boolean(),
+    faults: z.number().int().min(1).optional(),
     lastExportAt: z.string().optional(),
     lastError: z.string().optional(),
     dropped: z.number().int().min(0),

@@ -4,6 +4,11 @@
  * graders, the API and calibration read that, never Langfuse. So it is fail-open all the way: a timeout, an outage or a rejected
  * score is counted in the health and logged, and never reaches the grade. The project keys come from the environment (Doppler), sign
  * every request and appear nowhere else: not in a log line, not in the health, not in a recorded error.
+ *
+ * Unproven against a real instance (spike S0.5, docs/observability-design.md §19): the field shapes of `/api/public/score-configs`
+ * and of the score body, and whether `POST /api/public/scores` honours `timestamp`. If it does not, a score is stamped with its
+ * ingestion time and "same id replaces" holds only within one day; the fallback is a `score-create` event on
+ * `/api/public/ingestion`, whose envelope carries the timestamp.
  */
 
 import { createHash } from "node:crypto";
@@ -17,8 +22,19 @@ export interface LangfuseConfig {
   secretKey: string;
 }
 
-/* Configured only when the address and both keys are set; an address that is not http(s) stops the boot, since the keys would be sent to it. */
-export function resolveLangfuseConfig(env: Record<string, string | undefined>): LangfuseConfig | undefined {
+/* The hosts the keys may be sent to without an explicit opt-in: the compose service, loopback, or anything over https. */
+function trustedTarget(url: URL): boolean {
+  const host = url.hostname.toLowerCase();
+  if (url.protocol === "https:") return true;
+  return host === "langfuse-web" || host === "localhost" || host === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
+/*
+ * Configured only when the address and both keys are set. The keys sign every request, so the address must be one they may go to:
+ * the `langfuse-web` service, loopback or https; any other host needs LANGFUSE_ALLOW_EXTERNAL=true. A rejected address leaves the
+ * sink unconfigured with a warning (it never stops the boot, and the keys are never sent).
+ */
+export function resolveLangfuseConfig(env: Record<string, string | undefined>, warn: (message: string) => void = (m) => console.warn(m)): LangfuseConfig | undefined {
   const baseUrl = env.LANGFUSE_BASE_URL?.trim();
   const publicKey = env.LANGFUSE_PUBLIC_KEY?.trim();
   const secretKey = env.LANGFUSE_SECRET_KEY?.trim();
@@ -27,9 +43,21 @@ export function resolveLangfuseConfig(env: Record<string, string | undefined>): 
   try {
     parsed = new URL(baseUrl);
   } catch {
-    throw new Error("LANGFUSE_BASE_URL is not a valid URL");
+    warn("[langfuse] LANGFUSE_BASE_URL is not a valid URL: the score sink is not configured");
+    return undefined;
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("LANGFUSE_BASE_URL must be an http(s) URL");
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    warn("[langfuse] LANGFUSE_BASE_URL must be an http(s) URL: the score sink is not configured");
+    return undefined;
+  }
+  if (parsed.username || parsed.password) {
+    warn("[langfuse] LANGFUSE_BASE_URL must not carry credentials: the score sink is not configured");
+    return undefined;
+  }
+  if (!trustedTarget(parsed) && env.LANGFUSE_ALLOW_EXTERNAL !== "true") {
+    warn(`[langfuse] LANGFUSE_BASE_URL host ${parsed.hostname} is not langfuse-web, loopback or https: the project keys would be sent there, so the score sink is not configured. Set LANGFUSE_ALLOW_EXTERNAL=true to allow it.`);
+    return undefined;
+  }
   return { baseUrl: baseUrl.replace(/\/+$/, ""), publicKey, secretKey };
 }
 
@@ -79,6 +107,8 @@ export interface LangfuseSinkDeps {
 
 export interface ScoreSinkHealth {
   configured: boolean;
+  /* Emissions that failed or were held back (configs not ensured); present once the sink has seen one. */
+  faults?: number;
   lastExportAt?: string;
   lastError?: string;
 }
@@ -96,6 +126,8 @@ export interface EnsureConfigsResult {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_ERROR_CHARS = 300;
+/* After a failed attempt to ensure the score configs, the next attempt waits this long. */
+const ENSURE_BACKOFF_MS = 60_000;
 const PAGE_LIMIT = 100;
 const MAX_PAGES = 50;
 
@@ -111,6 +143,8 @@ export class LangfuseScoreSink implements ScoreSinkPort {
   private configIds = new Map<string, string>();
   private ensured = false;
   private ensuring: Promise<EnsureConfigsResult> | undefined;
+  private nextEnsureAt = 0;
+  private faults = 0;
   private lastExportAt: string | undefined;
   private lastError: string | undefined;
 
@@ -123,7 +157,7 @@ export class LangfuseScoreSink implements ScoreSinkPort {
   }
 
   status(): ScoreSinkHealth {
-    return { configured: true, ...(this.lastExportAt ? { lastExportAt: this.lastExportAt } : {}), ...(this.lastError ? { lastError: this.lastError } : {}) };
+    return { configured: true, ...(this.faults > 0 ? { faults: this.faults } : {}), ...(this.lastExportAt ? { lastExportAt: this.lastExportAt } : {}), ...(this.lastError ? { lastError: this.lastError } : {}) };
   }
 
   async emit(runId: string, scores: readonly Score[], at: string): Promise<void> {
@@ -133,17 +167,25 @@ export class LangfuseScoreSink implements ScoreSinkPort {
         this.log(`[langfuse] ${runId} has no trace id: its ${scores.length} score(s) were not mirrored`);
         return;
       }
-      await this.ensureOnce();
+      /* A score goes only after the configs exist, so one name never lands both with and without its configId. */
+      if (!(await this.ensureOnce())) {
+        this.faults += 1;
+        this.lastError ??= "score configs are not ensured: scores were held back";
+        this.log(`[langfuse] score configs are not ensured: ${scores.length} score(s) of ${runId} were not mirrored`);
+        return;
+      }
       for (const score of scores) {
         try {
           await this.post("/api/public/scores", this.scoreBody(runId, traceId, score, at));
           this.lastExportAt = this.now();
         } catch (error) {
+          this.faults += 1;
           this.record(error);
           if (error instanceof NetworkFault) return;
         }
       }
     } catch (error) {
+      this.faults += 1;
       this.record(error);
     }
   }
@@ -178,16 +220,19 @@ export class LangfuseScoreSink implements ScoreSinkPort {
       result.failed += 1;
       this.record(error);
     }
+    if (result.failed > 0) this.nextEnsureAt = Date.parse(this.now()) + ENSURE_BACKOFF_MS;
     return result;
   }
 
-  /* The configs are ensured before the first score, and again until one attempt succeeds; Langfuse may come up after the orchestrator. */
-  private async ensureOnce(): Promise<void> {
-    if (this.ensured) return;
+  /* Whether the configs are ensured, trying again only when the backoff after the last failed attempt has passed (Langfuse may come up after the orchestrator). */
+  private async ensureOnce(): Promise<boolean> {
+    if (this.ensured) return true;
+    if (Date.parse(this.now()) < this.nextEnsureAt) return false;
     this.ensuring ??= this.ensureScoreConfigs().finally(() => {
       this.ensuring = undefined;
     });
     await this.ensuring;
+    return this.ensured;
   }
 
   private async listConfigs(): Promise<Map<string, string>> {

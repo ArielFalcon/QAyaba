@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LANGFUSE, langfuseCostDetails, langfuseInputOutput, langfuseObservationType, langfuseUsageDetails } from "@kernel/telemetry/langfuse-mapping.ts";
-import { GENAI, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.ts";
+import { LANGFUSE, langfuseCostDetails, langfuseObservationType, langfuseUsageDetails } from "@kernel/telemetry/langfuse-mapping.ts";
+import { GENAI, normalizeCodexUsage, normalizeOpenCodeUsage } from "@kernel/telemetry/genai-semconv.ts";
 import { lookupAttribute } from "@kernel/telemetry/attribute-registry.ts";
 
 test("each GenAI operation maps to the Langfuse observation type that gives it the right view", () => {
@@ -38,20 +38,21 @@ test("cost details carry the provider-reported cost, and nothing when there is n
   assert.equal(langfuseCostDetails(-1), undefined);
 });
 
-test("input and output become the content keys of both conventions, and only a defined side is emitted", () => {
-  assert.deepEqual(langfuseInputOutput({ input: "in", output: "out" }), {
-    [GENAI.attrs.inputMessages]: "in",
-    [GENAI.attrs.outputMessages]: "out",
-    [LANGFUSE.attrs.observationInput]: "in",
-    [LANGFUSE.attrs.observationOutput]: "out",
-  });
-  assert.deepEqual(langfuseInputOutput({ output: "out" }), { [GENAI.attrs.outputMessages]: "out", [LANGFUSE.attrs.observationOutput]: "out" });
-});
-
-test("every Langfuse key is registered; input and output are content, so they leave only in full capture", () => {
+test("every Langfuse key is registered and carries no content", () => {
   for (const key of Object.values(LANGFUSE.attrs)) assert.ok(lookupAttribute(key), `${key} is not registered`);
-  assert.equal(lookupAttribute(LANGFUSE.attrs.observationInput)?.content, "content");
-  assert.equal(lookupAttribute(LANGFUSE.attrs.observationOutput)?.content, "content");
   assert.equal(lookupAttribute(LANGFUSE.attrs.usageDetails)?.content, "none");
   assert.equal(lookupAttribute(LANGFUSE.attrs.costDetails)?.content, "none");
+});
+
+test("Codex-shaped usage gives non-negative buckets that add up to the conventions' input plus output", () => {
+  const usage = normalizeCodexUsage({ inputTokens: 12_000, cachedInputTokens: 9_000, outputTokens: 40, reasoningOutputTokens: 15 });
+  const buckets = JSON.parse(langfuseUsageDetails(usage)) as Record<string, number>;
+  assert.deepEqual(buckets, { input: 3_000, output: 25, cache_read_input_tokens: 9_000, cache_creation_input_tokens: 0, output_reasoning_tokens: 15 });
+  for (const value of Object.values(buckets)) assert.ok(value >= 0);
+  assert.equal(Object.values(buckets).reduce((a, b) => a + b, 0), usage.input + usage.output);
+});
+
+test("Codex usage whose cache exceeds its input is clamped and still never negative", () => {
+  const buckets = JSON.parse(langfuseUsageDetails(normalizeCodexUsage({ inputTokens: 100, cachedInputTokens: 500, outputTokens: 1, reasoningOutputTokens: 5 }))) as Record<string, number>;
+  for (const value of Object.values(buckets)) assert.ok(value >= 0);
 });

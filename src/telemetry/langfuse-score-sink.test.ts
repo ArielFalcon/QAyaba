@@ -27,35 +27,64 @@ function rig(respond: Responder = () => ({ status: 200, body: {} }), over: { tra
     if (out instanceof Error) throw out;
     return new Response(JSON.stringify(out.body ?? {}), { status: out.status, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  let clock = Date.parse("2026-10-17T12:00:00.000Z");
+  const time = { ms: Date.parse("2026-10-17T12:00:00.000Z") };
   const sink = new LangfuseScoreSink({
     config: over.config ?? CONFIG,
     traceIdOf: () => (over.traceId === undefined ? "a".repeat(32) : over.traceId),
     sanitize: (text) => text.replaceAll("hunter2", "[redacted]"),
     fetch: fetchImpl,
-    now: () => new Date(clock++).toISOString(),
+    now: () => new Date(time.ms++).toISOString(),
     timeoutMs: 1_000,
     log: (m) => logs.push(m),
   });
-  return { sink, calls, logs };
+  return { sink, calls, logs, time };
 }
 
 const score = (over: Partial<Score> & Pick<Score, "name" | "value" | "dataType">): Score => ({ polarity: "none", source: "deterministic", graderVersion: "1", ...over });
 const posted = (calls: Call[]): Call[] => calls.filter((c) => c.method === "POST" && c.url.endsWith("/api/public/scores"));
 
+const env = (url: string, extra: Record<string, string> = {}): Record<string, string> => ({ LANGFUSE_BASE_URL: url, LANGFUSE_PUBLIC_KEY: "pk", LANGFUSE_SECRET_KEY: "sk", ...extra });
+const resolve = (e: Record<string, string>) => {
+  const warnings: string[] = [];
+  return { config: resolveLangfuseConfig(e, (m) => warnings.push(m)), warnings };
+};
+
 test("the sink is configured only when the base URL and both keys are set", () => {
-  assert.deepEqual(resolveLangfuseConfig({ LANGFUSE_BASE_URL: "http://langfuse-web:3000/", LANGFUSE_PUBLIC_KEY: "pk", LANGFUSE_SECRET_KEY: "sk" }), { baseUrl: "http://langfuse-web:3000", publicKey: "pk", secretKey: "sk" });
+  assert.deepEqual(resolve(env("http://langfuse-web:3000/")).config, { baseUrl: "http://langfuse-web:3000", publicKey: "pk", secretKey: "sk" });
   for (const missing of ["LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]) {
-    const env: Record<string, string> = { LANGFUSE_BASE_URL: "http://x", LANGFUSE_PUBLIC_KEY: "pk", LANGFUSE_SECRET_KEY: "sk" };
-    delete env[missing];
-    assert.equal(resolveLangfuseConfig(env), undefined, missing);
+    const e = env("http://langfuse-web:3000");
+    delete e[missing];
+    const r = resolve(e);
+    assert.equal(r.config, undefined, missing);
+    assert.deepEqual(r.warnings, [], "an unset sink is the normal case, not a warning");
   }
-  assert.equal(resolveLangfuseConfig({ LANGFUSE_BASE_URL: "", LANGFUSE_PUBLIC_KEY: "pk", LANGFUSE_SECRET_KEY: "sk" }), undefined);
+  assert.equal(resolve(env("")).config, undefined);
 });
 
-test("a base URL that is not http(s) stops the boot instead of sending the keys somewhere else", () => {
-  assert.throws(() => resolveLangfuseConfig({ LANGFUSE_BASE_URL: "ftp://x", LANGFUSE_PUBLIC_KEY: "pk", LANGFUSE_SECRET_KEY: "sk" }), /LANGFUSE_BASE_URL/);
-  assert.throws(() => resolveLangfuseConfig({ LANGFUSE_BASE_URL: "not a url", LANGFUSE_PUBLIC_KEY: "pk", LANGFUSE_SECRET_KEY: "sk" }), /LANGFUSE_BASE_URL/);
+test("the keys are sent only to the langfuse-web host, loopback, or an https address", () => {
+  for (const url of ["http://langfuse-web:3000", "http://localhost:3002", "http://127.0.0.1:3002", "http://127.4.5.6:3000", "http://[::1]:3000", "https://langfuse.example.com", "HTTP://LANGFUSE-WEB:3000"]) {
+    assert.ok(resolve(env(url)).config, url);
+  }
+});
+
+test("any other host leaves the sink unconfigured with a clear warning, unless external hosts are explicitly allowed", () => {
+  for (const url of ["http://langfuse.example.com", "http://10.0.0.5:3000", "http://langfuse-web.evil.com:3000", "http://localhost.evil.com"]) {
+    const r = resolve(env(url));
+    assert.equal(r.config, undefined, url);
+    assert.equal(r.warnings.length, 1, url);
+    assert.match(r.warnings[0]!, /LANGFUSE_ALLOW_EXTERNAL/);
+    assert.ok(!r.warnings[0]!.includes("sk"), "the warning names no key");
+    assert.ok(resolve(env(url, { LANGFUSE_ALLOW_EXTERNAL: "true" })).config, `${url} with the opt-in`);
+  }
+  assert.equal(resolve(env("http://langfuse.example.com", { LANGFUSE_ALLOW_EXTERNAL: "yes" })).config, undefined, "only the exact value true opts in");
+});
+
+test("an address that is not a URL or not http(s) leaves the sink unconfigured with a warning, even with the opt-in", () => {
+  for (const url of ["ftp://langfuse-web", "not a url", "http://user:pw@langfuse-web:3000"]) {
+    const r = resolve(env(url, { LANGFUSE_ALLOW_EXTERNAL: "true" }));
+    assert.equal(r.config, undefined, url);
+    assert.match(r.warnings[0] ?? "", /LANGFUSE_BASE_URL/);
+  }
 });
 
 test("a score is posted with Basic auth, a deterministic id, the run's trace and the run's end as its timestamp", async () => {
@@ -150,14 +179,52 @@ test("existing configs are read across pages", async () => {
   assert.deepEqual(pages, [1, 2]);
 });
 
-test("a Langfuse outage never throws, is counted in the health, and stops the batch at the first network failure", async () => {
+test("a Langfuse outage never throws and is counted in the health; no score is posted while the configs are not ensured", async () => {
   const { sink, calls } = rig(() => new Error("connect ECONNREFUSED 10.0.0.2:3000"));
-  await sink.emit("run-1", [score({ name: "a", value: 1, dataType: "NUMERIC" }), score({ name: "b", value: 1, dataType: "NUMERIC" }), score({ name: "c", value: 1, dataType: "NUMERIC" })], RUN_END);
-  assert.equal(posted(calls).length, 1, "the rest of the batch is not tried against a dead server");
+  await sink.emit("run-1", [score({ name: "spec_pass_rate", value: 1, dataType: "NUMERIC" }), score({ name: "auth_overhead", value: 1, dataType: "NUMERIC" })], RUN_END);
+  assert.equal(posted(calls).length, 0, "no score goes before its config exists");
   const health = sink.status();
   assert.equal(health.configured, true);
   assert.match(health.lastError ?? "", /ECONNREFUSED/);
+  assert.equal(health.faults, 1);
   assert.equal(health.lastExportAt, undefined);
+});
+
+test("while the configs are not ensured, retries are limited to one attempt per 60 seconds", async () => {
+  let up = false;
+  const { sink, calls, time } = rig((call) => (up ? { status: 200, body: call.method === "GET" ? { data: [], meta: { totalPages: 1 } } : { id: "x" } } : new Error("connect ECONNREFUSED")));
+  const one = [score({ name: "spec_pass_rate", value: 1, dataType: "NUMERIC" })];
+  await sink.emit("run-1", one, RUN_END);
+  const afterFirst = calls.length;
+  assert.ok(afterFirst >= 1);
+  await sink.emit("run-2", one, RUN_END);
+  time.ms += 59_000;
+  await sink.emit("run-3", one, RUN_END);
+  assert.equal(calls.length, afterFirst, "no request inside the backoff window");
+  assert.equal(sink.status().faults, 3, "each skipped emission is a fault");
+  up = true;
+  time.ms += 2_000;
+  await sink.emit("run-4", one, RUN_END);
+  assert.equal(posted(calls).length, 1, "the first attempt after the window ensures the configs and posts");
+  assert.ok(calls.some((c) => c.url.includes("/api/public/score-configs") && c.method === "POST"));
+});
+
+test("a partial ensure keeps scores back, so no score of one name lands both with and without its config", async () => {
+  let failing = true;
+  const { sink, calls, time } = rig((call) => {
+    if (call.method === "GET" && call.url.includes("score-configs")) return { status: 200, body: { data: [], meta: { totalPages: 1 } } };
+    if (call.url.endsWith("/api/public/score-configs")) return failing && call.body!.name === "auth_overhead" ? { status: 400, body: { message: "bad" } } : { status: 200, body: { id: `cfg-${String(call.body!.name)}` } };
+    return { status: 200 };
+  });
+  const scores = [score({ name: "spec_pass_rate", value: 1, dataType: "NUMERIC" }), score({ name: "auth_overhead", value: 0.1, dataType: "NUMERIC" })];
+  await sink.emit("run-1", scores, RUN_END);
+  assert.equal(posted(calls).length, 0, "one config failed, so nothing is posted");
+  failing = false;
+  time.ms += 61_000;
+  await sink.emit("run-2", scores, RUN_END);
+  const sent = posted(calls);
+  assert.equal(sent.length, 2);
+  for (const call of sent) assert.ok(call.body!.configId, `${String(call.body!.name)} went without its config`);
 });
 
 test("an HTTP error on one score is recorded and the other scores still go", async () => {

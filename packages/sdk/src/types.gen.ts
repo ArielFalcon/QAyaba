@@ -1376,6 +1376,7 @@ export interface components {
             campaignFreeze: boolean;
             otlp: {
                 configured: boolean;
+                faults?: number;
                 lastExportAt?: string;
                 lastError?: string;
                 dropped: number;

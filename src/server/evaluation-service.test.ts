@@ -361,17 +361,37 @@ function viewDeps(on: boolean, template?: string): RunViewDeps {
 import { defaultRunViewDeps } from "./run-view";
 const defaultViewDeps = defaultRunViewDeps(() => true, {});
 
-test("a human label of a score the graders also emit is listed beside it, never in its place", () => {
+test("by default only grader rows are returned, one per name; human labels appear with versions=all", () => {
   const id = finishedRun("labels-shadow");
   const service = createEvaluationService({ log: quiet });
   const row = (source: string, graderVersion: string, value: number) => ({ runId: id, name: "spec_pass_rate", graderVersion, dataType: "NUMERIC", polarity: "higher_better", source, value, comment: null, observationId: null });
   replaceRunScores([row("deterministic", "1", 0.5), row("human", "human", 1)], "t");
-  const listed = service.evaluation(id, false)!.scores.filter((s) => s.name === "spec_pass_rate");
-  assert.deepEqual(listed.map((s) => [s.source, s.graderVersion, s.value]).sort(), [["deterministic", "1", 0.5], ["human", "human", 1]]);
+  const byDefault = service.evaluation(id, false)!.scores.filter((s) => s.name === "spec_pass_rate");
+  assert.deepEqual(byDefault.map((s) => [s.source, s.graderVersion, s.value]), [["deterministic", "1", 0.5]]);
+  const all = service.evaluation(id, true)!.scores.filter((s) => s.name === "spec_pass_rate");
+  assert.deepEqual(all.map((s) => s.source).sort(), ["deterministic", "human"]);
+});
+
+test("a name only a human labelled is not in the default view", () => {
+  const id = finishedRun("labels-only");
+  const service = createEvaluationService({ log: quiet });
+  replaceRunScores([{ runId: id, name: "furthest_phase", graderVersion: "human", dataType: "CATEGORICAL", polarity: "none", source: "human", value: "learn", comment: null, observationId: null }], "t");
+  assert.equal(service.evaluation(id, false)!.scores.some((s) => s.name === "furthest_phase" && s.source === "human"), false);
 });
 
 test("a run is found by its trace id, and an unknown trace is not guessed at", () => {
   const id = finishedRun("trace-lookup", { traceId: "c".repeat(32) });
   assert.equal(getRunIdByTraceId("c".repeat(32)), id);
   assert.equal(getRunIdByTraceId("d".repeat(32)), undefined);
+});
+
+test("the trace-id lookup is served by an index on runs", () => {
+  finishedRun("trace-index");
+  const raw = new Database(process.env.HISTORY_DB_PATH!, { readonly: true });
+  try {
+    const plan = raw.prepare("EXPLAIN QUERY PLAN SELECT id FROM runs WHERE trace_id = ? LIMIT 1").all("x") as Array<{ detail: string }>;
+    assert.match(plan.map((p) => p.detail).join(" "), /idx_runs_trace_id/);
+  } finally {
+    raw.close();
+  }
 });

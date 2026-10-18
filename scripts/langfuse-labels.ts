@@ -84,7 +84,12 @@ export interface LabelResult {
 }
 
 const PAGE_LIMIT = 100;
-const MAX_PAGES = 1_000;
+/* What one response may weigh and how many pages one listing may have: Langfuse is trusted with the keys, not with the memory of the orchestrator. */
+export const MAX_RESPONSE_BYTES = 5_000_000;
+const MAX_PAGES = 200;
+const MAX_NAME_CHARS = 128;
+const MAX_CATEGORY_CHARS = 256;
+const MAX_OBSERVATION_ID_CHARS = 200;
 const TIMEOUT_MS = 30_000;
 
 interface Page<T> {
@@ -104,11 +109,32 @@ async function pages<T>(deps: LabelDeps, path: string, params: Record<string, st
       throw new Error(`GET ${path}: ${keyless(deps, error instanceof Error ? error.message : String(error))}`);
     }
     if (!response.ok) throw new Error(`GET ${path}: HTTP ${response.status}`);
-    const body = (await response.json()) as Page<T>;
+    const body = JSON.parse(await boundedText(response, path)) as Page<T>;
     out.push(...(body.data ?? []));
-    if (page >= (body.meta?.totalPages ?? 1)) break;
+    if (page >= (body.meta?.totalPages ?? 1)) return out;
   }
-  return out;
+  throw new Error(`GET ${path}: more than ${MAX_PAGES} pages`);
+}
+
+/* The body as text, refused as soon as it passes the cap (a declared length is checked first, a streamed one as it arrives). */
+async function boundedText(response: Response, path: string): Promise<string> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) throw new Error(`GET ${path}: response too large`);
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_RESPONSE_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error(`GET ${path}: response too large`);
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 /* Neither key is ever printed, whatever a transport error echoes. */
@@ -137,32 +163,42 @@ export async function importLabels(deps: LabelDeps, filter: LabelFilter, opts: {
     ...(filter.name ? { name: filter.name } : {}),
   });
   const result: LabelResult = { fetched: scores.length, imported: 0, unmatched: 0, unsupported: 0 };
-  const latest = new Map<string, { row: LabelRow; at: string }>();
+  const latest = new Map<string, { row: LabelRow; at: number }>();
+  /* One lookup per trace for the whole import, a miss included. */
+  const runs = new Map<string, string | undefined>();
+  const runOf = (traceId: string): string | undefined => {
+    if (!runs.has(traceId)) runs.set(traceId, deps.runIdOfTrace(traceId));
+    return runs.get(traceId);
+  };
+  let order = 0;
   for (const score of scores) {
-    const runId = score.traceId && (!sessionTraces || sessionTraces.has(score.traceId)) ? deps.runIdOfTrace(score.traceId) : undefined;
+    order += 1;
+    const runId = score.traceId && (!sessionTraces || sessionTraces.has(score.traceId)) ? runOf(score.traceId) : undefined;
     if (!runId || !score.name) {
       result.unmatched += 1;
       continue;
     }
-    const typed = typedValue(score);
-    if (typed === undefined) {
+    const spec = score.name.length <= MAX_NAME_CHARS ? specOfScore(score.name) : undefined;
+    const typed = spec ? typedValue(score, spec.categories) : undefined;
+    if (!spec || typed === undefined) {
       result.unsupported += 1;
       continue;
     }
-    const spec = specOfScore(score.name);
     const row: LabelRow = {
       runId,
       name: score.name,
       graderVersion: "human",
       dataType: typed.dataType,
-      polarity: spec?.polarity ?? "none",
+      polarity: spec.polarity,
       source: "human",
       value: typed.value,
       comment: score.comment ? deps.sanitize(score.comment).slice(0, MAX_SCORE_COMMENT_CHARS) : null,
-      observationId: score.observationId ?? null,
+      observationId: score.observationId && score.observationId.length <= MAX_OBSERVATION_ID_CHARS ? score.observationId : null,
     };
     const key = `${runId}\u0000${score.name}`;
-    const at = score.timestamp ?? "";
+    /* The latest instant wins; a time that cannot be parsed ranks below any dated annotation and, among such, by arrival. */
+    const parsed = Date.parse(score.timestamp ?? "");
+    const at = Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
     const kept = latest.get(key);
     if (!kept || at >= kept.at) latest.set(key, { row, at });
   }
@@ -172,10 +208,14 @@ export async function importLabels(deps: LabelDeps, filter: LabelFilter, opts: {
   return result;
 }
 
-function typedValue(score: LangfuseScore): { dataType: ScoreDataType; value: number | boolean | string } | undefined {
+function typedValue(score: LangfuseScore, categories: readonly string[] | undefined): { dataType: ScoreDataType; value: number | boolean | string } | undefined {
   if (score.dataType === "NUMERIC" && typeof score.value === "number" && Number.isFinite(score.value)) return { dataType: "NUMERIC", value: score.value };
   if (score.dataType === "BOOLEAN" && (score.value === 0 || score.value === 1)) return { dataType: "BOOLEAN", value: score.value === 1 };
-  if (score.dataType === "CATEGORICAL" && typeof score.stringValue === "string" && score.stringValue !== "") return { dataType: "CATEGORICAL", value: score.stringValue };
+  if (score.dataType === "CATEGORICAL" && typeof score.stringValue === "string" && score.stringValue !== "" && score.stringValue.length <= MAX_CATEGORY_CHARS) {
+    /* A catalog score with a closed set takes nothing outside it. */
+    if (categories && !categories.includes(score.stringValue)) return undefined;
+    return { dataType: "CATEGORICAL", value: score.stringValue };
+  }
   return undefined;
 }
 
