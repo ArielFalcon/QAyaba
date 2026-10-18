@@ -30,7 +30,7 @@ import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents 
 import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getRunFacts, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
 import { createEvaluationService } from "./server/evaluation-service";
 import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
-import { guardRequestHandler } from "./server/guarded-handler";
+import { guardRequestHandler, guardResponse } from "./server/guarded-handler";
 import { hashStaticPrompts, type RunConfigEnvironment } from "./server/effective-config";
 import { resolveTelemetryConfig } from "./telemetry/config";
 import { resolveReflectorEnabled } from "./server/reflector-switch";
@@ -883,7 +883,7 @@ const server = createServer(guardRequestHandler(async (req, res) => {
         req.destroy();
       }
     });
-    req.on("end", async () => {
+    req.on("end", () => void guardResponse(res, async () => {
       if (aborted) return;
       const sig = typeof req.headers["x-hub-signature-256"] === "string" ? req.headers["x-hub-signature-256"] : undefined;
       const result = handleWebhook(body, sig, { secret });
@@ -918,7 +918,7 @@ const server = createServer(guardRequestHandler(async (req, res) => {
       }
       res.writeHead(result.status, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ message: result.message }));
-    });
+    }, (message) => logJson("error", message)));
     return;
   }
 

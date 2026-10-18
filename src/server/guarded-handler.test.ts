@@ -31,3 +31,14 @@ test("a handler that answers is left alone", async () => {
   assert.equal(r.status, 200);
   assert.equal(r.body, "ok");
 });
+
+test("a webhook body that throws is answered 500 in the schemaVersion shape, logged, with no message leaked", async () => {
+  const { guardResponse } = await import("./guarded-handler");
+  const logged: string[] = [];
+  const r = res();
+  await guardResponse(r as never, async () => { throw new Error("handleWebhook exploded"); }, (m) => logged.push(m));
+  assert.equal(r.status, 500);
+  assert.deepEqual(JSON.parse(r.body), { schemaVersion: 1, error: "internal error" });
+  assert.equal(r.body.includes("exploded"), false);
+  assert.ok(logged[0]!.includes("exploded"));
+});
