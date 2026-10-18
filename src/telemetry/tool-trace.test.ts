@@ -27,6 +27,8 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { createExecSandbox, resetExecSandboxWarnings } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
 import { activeExecScope, newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { openRunWorkDir } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir";
+import { synthesizeReportSpans } from "../../qa-engine/src/contexts/test-execution/infrastructure/report-spans";
+import { noteSuiteAuth, suiteAuthNotes } from "../../qa-engine/src/shared-infrastructure/telemetry/run-auth-notes";
 import { traceHarness, T0, type FakeClock } from "./trace-harness";
 
 const CWD = "/mirrors/org__app";
@@ -375,4 +377,21 @@ test("a call that arrives after its attempt and session are over hangs under the
   assert.equal(parentOf(tool), r.scope.telemetry!.parent()!.spanId);
   assert.equal(r.h.named("execute_tool run_spec").length, 0);
   assert.deepEqual(r.h.unended(), []);
+});
+
+test("inside a run_spec call the report's spans hang under the call, and what is kept per run is still the run's", async (t) => {
+  const r = rig(t);
+  const report = { suites: [{ title: "a.spec.ts", file: "flows/a.spec.ts", specs: [{ title: "loads", tests: [{ status: "expected", results: [{ status: "passed", duration: 100, retry: 0, startTime: new Date(T0 + 50).toISOString() }] }] }], suites: [] }] };
+  const registry = await openLoop(r, {
+    execute: async () => {
+      synthesizeReportSpans({ telemetry: r.h.telemetry, now: () => T0 + 1_000 }, report);
+      noteSuiteAuth((notes) => { notes.restored = true; });
+    },
+  });
+  await r.turn(async () => {
+    await registry.find(SESSION)!.call({ sessionId: SESSION, agent: "qa-generator", path: "flows/a.spec.ts" });
+  });
+  const tool = r.h.only("qayaba.tool.run_spec");
+  assert.equal(parentOf(r.h.only("qayaba.spec.execute")), idOf(tool));
+  assert.equal(withExecScope(r.scope, () => suiteAuthNotes())?.restored, true);
 });

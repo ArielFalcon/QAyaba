@@ -31,6 +31,8 @@ export interface RunScope {
   report: SandboxReport;
   /* The mirrors the launcher gave the sandbox's group for this run; the scope's end gives them back. */
   openedMirrors?: Set<string>;
+  /* Set on a scope derived from the run's (withExecScopeParent): the run's own scope, which anything kept per run is keyed by. */
+  base?: RunScope;
   /* Where the run's trace stands, set by the run: the launcher parents the span of each child to `parent()`, the phase that is open. Absent or undefined: the active context decides. */
   telemetry?: {
     parent(): TelemetryContext | undefined;
@@ -47,11 +49,28 @@ export function withExecScope<T>(scope: RunScope, fn: () => T): T {
   return store.run(scope, fn);
 }
 
-/* Runs `fn` in the active scope with the parent of every child's span replaced: a tool call the orchestrator serves for an agent (run_spec) hangs its children under the call's own span, not under the phase that happens to be open. The copy shares the run's report, mirrors and directories (they are references), so nothing a child does is lost to it. Outside a run there is no scope to change. */
-export function withExecScopeParent<T>(parent: TelemetryContext, fn: () => T): T {
+/* The scope anything kept per run is keyed by: the run's own, whether the active scope is it or one derived from it. */
+export function runScopeKey(scope: RunScope): RunScope {
+  return scope.base ?? scope;
+}
+
+/*
+ * Runs `fn` in the active scope with the parent of every child's span replaced: a tool call the orchestrator serves for an agent
+ * (run_spec) hangs its children under the call's own span, not under the phase that happens to be open. The phase's other hooks stay
+ * (`phaseStart`, `annotate`) unless the call gives its own: a report read inside the call is placed after the call's start and what
+ * it annotates goes on the call's span. The copy shares the run's report, mirrors and directories (they are references) and names
+ * the run's scope as its `base`, so state kept per run is still the run's. Outside a run there is no scope to change.
+ */
+export function withExecScopeParent<T>(parent: TelemetryContext, fn: () => T, own: { startedAt?: number; annotate?: (attrs: Attrs) => void } = {}): T {
   const scope = store.getStore();
   if (!scope) return fn();
-  return store.run({ ...scope, telemetry: { parent: () => parent } }, fn);
+  const phase = scope.telemetry;
+  const telemetry: NonNullable<RunScope["telemetry"]> = {
+    parent: () => parent,
+    ...(own.startedAt !== undefined ? { phaseStart: () => own.startedAt } : phase?.phaseStart ? { phaseStart: () => phase.phaseStart!() } : {}),
+    ...(own.annotate ? { annotate: own.annotate } : phase?.annotate ? { annotate: (attrs: Attrs) => phase.annotate!(attrs) } : {}),
+  };
+  return store.run({ ...scope, base: scope.base ?? scope, telemetry }, fn);
 }
 
 export function activeExecScope(): RunScope | undefined {

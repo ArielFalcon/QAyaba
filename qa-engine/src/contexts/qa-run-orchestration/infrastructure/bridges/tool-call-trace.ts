@@ -81,7 +81,7 @@ export function traceToolCall<T>(
       const window = quietly("denied window", undefined, () => openDeniedWindow());
       const observer: ToolObserver = { setAttrs: (attrs) => span.setAttrs(attrs) };
       try {
-        const answer = await withExecScopeParent(span.context(), () => serve(observer));
+        const answer = await withExecScopeParent(span.context(), () => serve(observer), { startedAt, annotate: (attrs) => span.setAttrs(attrs) });
         quietly("outcome", undefined, () => span.setAttrs(describe(answer)));
         return answer;
       } finally {

@@ -11,7 +11,7 @@
  * ends the synthesis.
  */
 
-import { activeExecScope, type RunScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
+import { activeExecScope, runScopeKey, type RunScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { runChildOptions } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import { guardTelemetry } from "../../../shared-kernel/telemetry/guarded-telemetry.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
@@ -52,7 +52,7 @@ export function synthesizeReportSpans(deps: ReportSpanDeps, report: unknown): vo
     const phaseStartMs = scope?.telemetry?.phaseStart?.();
     const plan = planReport(report, { deniedHosts: scope?.report.denied ?? [], nowMs, ...(phaseStartMs !== undefined ? { phaseStartMs } : {}) });
     const options = runChildOptions();
-    const tally = tallyOf(scope);
+    const tally = tallyOf(scope ? runScopeKey(scope) : undefined);
     let inReport = 0;
     /* Whether `n` more spans fit under both caps; when they do they are taken. */
     const take = (n: number): boolean => {
