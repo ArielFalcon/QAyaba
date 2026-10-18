@@ -304,3 +304,12 @@ test("GET /campaigns/:id/runs answers 400 with schemaVersion for an id that does
   }
   assert.equal((await call("GET", "/api/v1/campaigns/ab-1.x%3Ay/runs")).status, 200);
 });
+
+test("POST /runs answers 409 naming the campaign's capture mode when the run's applied mode differs", async () => {
+  const { CampaignCaptureMismatchError } = await import("./campaign-capture");
+  const d = deps({ enqueue: () => { throw new CampaignCaptureMismatchError("ab-1", "metadata", "full"); } });
+  const { status, json } = await call("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", campaign: { id: "ab-1", variant: {}, replicate: 1 }, captureMode: "full" }), d);
+  assert.equal(status, 409);
+  assert.equal(json.schemaVersion, 1);
+  assert.match(json.error, /metadata/);
+});

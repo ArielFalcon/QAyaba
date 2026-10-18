@@ -77,6 +77,7 @@ import { handshake } from "./version";
 import { reportToCsv, trendsToCsv } from "./report-view";
 import type { RunEventStore } from "./run-events";
 import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
+import { CampaignCaptureMismatchError } from "./campaign-capture";
 import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
 import { catalogView, type EvaluationService } from "./evaluation-service";
 import type { RunViewExtras } from "./run-view";
@@ -592,6 +593,10 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   try {
     id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, coordinationMode, observability);
   } catch (err) {
+    if (err instanceof CampaignCaptureMismatchError) {
+      apiError(res, 409, err.message);
+      return true;
+    }
     apiError(res, 500, `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}`);
     return true;
   }

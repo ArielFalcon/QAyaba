@@ -821,6 +821,13 @@ export function getRunCampaign(id: string): CampaignIdentity | undefined {
   return { id: row.campaign_id, variant: safeJsonParse<Record<string, string>>(row.campaign_variant ?? "{}", {}), replicate: row.campaign_replicate ?? 1 };
 }
 
+/* The capture mode the campaign's runs were granted (they all share one), or undefined when it has no run yet. */
+export function getCampaignCaptureMode(campaignId: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT capture_mode FROM runs WHERE campaign_id = ? AND capture_mode IS NOT NULL ORDER BY at ASC, rowid ASC LIMIT 1").get(campaignId) as { capture_mode: string } | undefined;
+  return row?.capture_mode;
+}
+
 export interface CampaignRunRecord {
   id: string;
   variant: Record<string, string>;

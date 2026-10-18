@@ -713,7 +713,7 @@ Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or t
 - **Capture ceiling.** `captureMode` from the API is capped by server config
   (`QA_TELEMETRY_MAX_CAPTURE`, default `metadata`). A caller with a token cannot turn `full` content
   export on by itself, because that would be an exfiltration lever. Within a campaign, all arms are
-  forced to the same mode.
+  forced to the same mode (a run that would apply a different one is refused with a 409, section 14).
 - **Codex env.** `TRACEPARENT`/`TRACESTATE` go into the **exact-name** allowlist
   `CODEX_EXEC_ENV_EXACT`, mirrored in `agents/agent-supervisor.mjs:29` and `codex-strategy.ts:165`.
   The prefix list would not match them.
@@ -985,6 +985,7 @@ ingest times.
   - On the trace root, `qayaba.campaign.variant.<key>` spells a dot in a label key as an underscore (a registry template key is one dot-free segment); the stored and echoed variant keeps the key as given. Two keys that differ only by `.` versus `_` (`a.b`, `a_b`) collapse onto the same attribute on the trace, so keep a campaign's variant keys free of that ambiguity; the API response is exact. Label values and keys are limited to `[A-Za-z0-9_.:-]`, up to 64 characters, 16 keys, and `__proto__` is refused.
 - **`captureMode`** is capped by the server's `QA_TELEMETRY_MAX_CAPTURE` (§9.2): `off`, `metadata` (the default) or `full`; a mistyped value stops the boot. The applied value
   is in `effectiveConfig`.
+  - Uniform within a campaign (enforced): a run that names a campaign must apply the same capture mode as the campaign's existing runs, after the ceiling. Otherwise the request is refused with `409 {schemaVersion, error}`, the error naming the expected mode, and no run is created. The first run of a campaign sets the mode; a request for `full` that the ceiling caps to the campaign's `metadata` is accepted, because the applied modes agree.
   - Mechanism: the run funnel applies the cap for every door and stores the result; the run's root span asks the adapter for that mode (`StartSpanOptions.captureMode`) and every span under it inherits it through the OpenTelemetry context, like the redaction scope, so concurrent runs and the process default never interfere. The adapter clamps again at the same ceiling (`maxCaptureMode`), so no caller can exceed it. A run that asks for nothing takes the process default (`metadata`, or the ceiling if lower).
 - **`telemetry`** is `null` only when `QA_TELEMETRY=off`. In `local` mode `traceId` is always
   present: the ledger mints it whether or not an exporter is configured. `traceUrl` is present only

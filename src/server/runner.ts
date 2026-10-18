@@ -9,7 +9,8 @@
 
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
-import { createRecord, updateRecord, recordEffectiveConfig, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases } from "./history";
+import { assertUniformCapture } from "./campaign-capture";
+import { createRecord, updateRecord, recordEffectiveConfig, getCampaignCaptureMode, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases } from "./history";
 import { traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { recordIncident } from "./maintainer";
@@ -326,6 +327,8 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
   /* The capture a run gets is decided here, for every door: what it asked for, never above the server's ceiling. */
   const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
   const captureMode = capCaptureMode(req.captureMode, runConfigEnv.maxCapture);
+  /* A run joins a campaign only with the capture mode its siblings have; refused before the run, or its login bootstrap, exists. */
+  if (req.campaign) assertUniformCapture(req.campaign.id, captureMode, getCampaignCaptureMode(req.campaign.id));
 
   /*
    * Orphan-data cleanup runs through the SINGLE funnel so EVERY trigger (webhook, CLI,

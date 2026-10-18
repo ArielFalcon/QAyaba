@@ -10,6 +10,7 @@ import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/a
 import type { RunOutcome } from "@kernel/run-outcome";
 import type { CampaignIdentity } from "@kernel/campaign";
 import { traceHarness } from "../telemetry/trace-harness";
+import { CampaignCaptureMismatchError } from "./campaign-capture";
 import type { RunConfigEnvironment } from "./effective-config";
 
 const cfg = (name: string, qa: Record<string, unknown> = {}): AppConfig =>
@@ -208,4 +209,22 @@ test("a run that recorded no configuration answers every key as null", async () 
   assert.deepEqual(detail.levers, { closedLoop: null, agentBrowser: null, coordinationMode: null, captureMode: "metadata" });
   assert.deepEqual([detail.campaignFreeze, detail.runtime, detail.prompt.staticHash, detail.reflector], [null, null, null, null]);
   assert.deepEqual(detail.coverage, { mode: null, minRatio: null });
+});
+
+test("a run joins a campaign only with the capture mode its siblings have, and a refused run leaves no record", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const id = `uniform-${Math.random().toString(36).slice(2, 8)}`;
+  const joined = (extra: Partial<RunRequest>, e: RunConfigEnvironment = env) =>
+    enqueueTrackedRun(queue, request(uniqueApp(), { campaign: { id, variant: { arm: "x" }, replicate: 1 }, ...extra }), deps(h, { run: async (i) => outcomeOf(i) }, { runConfig: e }));
+  const first = joined({});
+  assert.equal(getStoredEffectiveConfig(first)?.captureMode, "metadata");
+  const before = listCampaignRuns(id).length;
+  assert.throws(() => joined({ captureMode: "full" }, { ...env, maxCapture: "full" }), (err: unknown) => err instanceof CampaignCaptureMismatchError && err.expected === "metadata" && err.applied === "full" && /metadata/.test(err.message));
+  assert.equal(listCampaignRuns(id).length, before);
+  assert.doesNotThrow(() => joined({ captureMode: "metadata" }));
+  /* The ceiling counts: a request for full that the ceiling caps to metadata is the same applied mode. */
+  assert.doesNotThrow(() => joined({ captureMode: "full" }));
+  assert.doesNotThrow(() => enqueueTrackedRun(queue, request(uniqueApp(), { campaign: { id: `${id}-other`, variant: {}, replicate: 1 }, captureMode: "off" }), deps(h, { run: async (i) => outcomeOf(i) })));
+  await queue.drain();
 });
