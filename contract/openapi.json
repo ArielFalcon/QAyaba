@@ -4953,6 +4953,9 @@
               "configured": {
                 "type": "boolean"
               },
+              "lastExportAt": {
+                "type": "string"
+              },
               "lastError": {
                 "type": "string"
               }

@@ -465,6 +465,7 @@ export const TelemetryHealthSchema = z.object({
   }),
   scoreSink: z.object({
     configured: z.boolean(),
+    lastExportAt: z.string().optional(),
     lastError: z.string().optional(),
   }),
   droppedAttributes: z.number().int().min(0),

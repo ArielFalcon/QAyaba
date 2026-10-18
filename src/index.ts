@@ -27,8 +27,9 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
+import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getRunFacts, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
 import { createEvaluationService } from "./server/evaluation-service";
+import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
 import { buildRunViewExtras, defaultRunViewDeps } from "./server/run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
 import { appAuthDir, appSuiteStoreDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
@@ -84,8 +85,15 @@ const telemetry = processTelemetry();
 /* Process-wide host health (suspends, blocked loops, sandbox zombies): runs with no run active and is stopped on shutdown. Fail-open and unref'd. */
 const sandboxIdentity = resolveSandbox(process.env);
 /* Scores and regrade jobs. Grading is scheduled off the queue by the runner's post-run hook; a regrade job left open by a previous process ends failed at boot. */
-const evaluation = createEvaluationService();
+/* The Langfuse mirror of the scores: built only when LANGFUSE_BASE_URL and both keys are set (docker-compose.langfuse.yml). Fail-open: stored scores never depend on it. */
+const langfuseConfig = resolveLangfuseConfig(process.env);
+const langfuseSink = langfuseConfig
+  ? new LangfuseScoreSink({ config: langfuseConfig, traceIdOf: (runId) => getRunFacts(runId)?.traceId ?? null, sanitize: (text) => redactionPort.redact(text) })
+  : undefined;
+const evaluation = createEvaluationService({ ...(langfuseSink ? { sink: langfuseSink } : {}) });
 evaluation.recoverInterrupted();
+/* Score configs are ensured in the background at boot; the sink also retries before its first score. */
+void langfuseSink?.ensureScoreConfigs();
 const runViewDeps = defaultRunViewDeps(() => telemetry.health().mode !== "off");
 const hostHealth = new HostHealth({ telemetry: telemetry.telemetry, ...(sandboxIdentity ? { sandboxUid: sandboxIdentity.uid } : {}) });
 hostHealth.start();
@@ -614,7 +622,7 @@ const onboardingJob = createOnboardingJob({
 
 const apiDeps: ApiDeps = {
   queue,
-  telemetryHealth: () => telemetry.health(),
+  telemetryHealth: () => ({ ...telemetry.health(), scoreSink: scoreSinkHealthOf(langfuseSink) }),
   hostHealth: () => hostHealth.snapshot(),
   enqueue: enqueueApiRun,
   loadApp: (name) => loadAppConfig(name),

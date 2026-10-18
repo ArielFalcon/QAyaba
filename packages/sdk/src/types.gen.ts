@@ -1387,6 +1387,7 @@ export interface components {
             };
             scoreSink: {
                 configured: boolean;
+                lastExportAt?: string;
                 lastError?: string;
             };
             droppedAttributes: number;
