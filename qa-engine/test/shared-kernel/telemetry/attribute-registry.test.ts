@@ -76,6 +76,24 @@ test("the evaluation metric keys are structural, low-cardinality attributes", ()
   }
 });
 
+test("the context span label keys are closed-set, low-cardinality strings", () => {
+  for (const key of [
+    "qayaba.context.stage",
+    "qayaba.context.status",
+    "qayaba.context.reason",
+    "qayaba.context.cut_class",
+    "qayaba.context.cut_reason",
+    "qayaba.context.stale_reason",
+    "qayaba.context.recapture.outcome",
+  ] as const) {
+    const spec = lookupAttribute(key);
+    assert.ok(spec, key);
+    assert.equal(spec.type, "string", key);
+    assert.equal(spec.cardinality, "low", key);
+    assert.equal(spec.content, "none", key);
+  }
+});
+
 test("an unregistered literal key fails to compile, a registered and a template key do not", () => {
   const ok: Attrs = { "qayaba.app": "shop", "qayaba.prompt.section.grounding.bytes": 4, "qayaba.agent.calls.read": 2 };
   // @ts-expect-error "qayaba.not.a.key" is not in the registry

@@ -57,10 +57,17 @@ export interface ContextRecord {
   bytes: number;
   /* produced (what a source supplied) or delivered (what the kept assembly actually gave the agent). */
   stage?: "produced" | "delivered";
+  /* What a produced source came to, and why (closed sets: delivered|empty|skipped|failed). Degradation is a status, never a cut. */
+  status?: "delivered" | "empty" | "skipped" | "failed";
+  reason?: string;
   truncated?: boolean;
   truncatedItems?: number;
   /* Items a delivered source left out (selection + truncation). */
   omitted?: number;
+  /* Each cut, classed and with its closed reason, for the cut/cut_items metrics. */
+  cuts?: readonly { class: "selection" | "truncation"; reason: string; count: number }[];
+  /* Provenance/freshness (observe-only); stale is never derived from a cut. */
+  freshness?: { ageMs?: number; stale?: boolean; staleReason?: string; recapture?: string };
   /* Item count when it differs from the ids (ids are deduplicated and capped). */
   count?: number;
   /* Extra attributes for the span. */
@@ -84,6 +91,8 @@ export function recordContextSpan(telemetry: TelemetryPort, record: ContextRecor
       "qayaba.context.item_ids": ids,
       ...(overflow > 0 ? { "qayaba.context.item_ids.overflow": overflow } : {}),
       ...(record.omitted !== undefined && record.omitted > 0 ? { "qayaba.context.omitted": record.omitted } : {}),
+      ...(record.status !== undefined ? { "qayaba.context.status": record.status } : {}),
+      ...(record.reason !== undefined ? { "qayaba.context.reason": record.reason } : {}),
       ...record.attrs,
     });
     try {
@@ -91,7 +100,26 @@ export function recordContextSpan(telemetry: TelemetryPort, record: ContextRecor
     } finally {
       span.end();
     }
-    guardTelemetry(telemetry).histogram("qayaba.context.bytes")(bytes, { "qayaba.context.source": record.source });
+    const guarded = guardTelemetry(telemetry);
+    const items = record.count ?? ids.length + overflow;
+    guarded.histogram("qayaba.context.bytes")(bytes, { "qayaba.context.source": record.source, "qayaba.context.stage": stage });
+    guarded.histogram("qayaba.context.items")(items, { "qayaba.context.source": record.source, "qayaba.context.stage": stage });
+    for (const cut of record.cuts ?? []) {
+      const attrs = { "qayaba.context.source": record.source, "qayaba.context.cut_class": cut.class, "qayaba.context.cut_reason": cut.reason };
+      guarded.counter("qayaba.context.cut")(1, attrs);
+      guarded.histogram("qayaba.context.cut_items")(cut.count, attrs);
+    }
+    if (record.freshness) {
+      if (record.freshness.ageMs !== undefined && record.freshness.ageMs >= 0) {
+        guarded.histogram("qayaba.context.freshness.age")(record.freshness.ageMs, { "qayaba.context.source": record.source });
+      }
+      if (record.freshness.stale === true) {
+        guarded.counter("qayaba.context.stale")(1, { "qayaba.context.source": record.source, "qayaba.context.stale_reason": record.freshness.staleReason ?? "none" });
+      }
+      if (record.freshness.recapture !== undefined) {
+        guarded.counter("qayaba.context.recapture")(1, { "qayaba.context.source": record.source, "qayaba.context.recapture.outcome": record.freshness.recapture });
+      }
+    }
   } catch (err) {
     console.error(`[telemetry] a context span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
