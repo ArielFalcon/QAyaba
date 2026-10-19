@@ -304,3 +304,18 @@ test("a run deadline that ends a run after generation delivered keeps the genera
   assert.equal(traceFactsOf(result!)?.limitFired, "run-deadline");
   assert.equal(traceFactsOf(result!)?.limitRole, "reviewer");
 });
+
+test("an error the engine does not handle carries how the run ended, so the shell's root can state it", async () => {
+  const h = traceHarness();
+  const useCase = new RunQaUseCase({
+    ...baseDeps(h.clock),
+    telemetry: h.telemetry,
+    review: { review: async () => { throw new Error("reviewer fell over"); } },
+  });
+  const out = await runUnderRoot(h, useCase);
+
+  assert.ok(out.threw, "the engine error goes on to the caller that records the run");
+  const facts = traceFactsOf(out.threw as object);
+  assert.equal(facts?.generationEnd, "delivered");
+  assert.equal(facts?.decision, undefined, "the run never reached a decision, so none is claimed");
+});

@@ -19,6 +19,10 @@ export const ERROR_CLASSES = [
   "E-TIME-BUDGET",
   "E-REVIEWER-UNAVAILABLE",
   "E-SANDBOX",
+  /* The shell's own classes: a run it ended itself, not one the engine classified. They are here so the two copies of the
+     taxonomy stay identical; the learning gates decide they teach nothing. */
+  "internal-error",
+  "security-refusal",
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];

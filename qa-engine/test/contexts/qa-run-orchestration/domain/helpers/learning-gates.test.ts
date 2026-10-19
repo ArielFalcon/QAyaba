@@ -26,6 +26,8 @@ const CLASS_LEARNS: Record<ErrorClass, boolean> = {
   "E-TIME-BUDGET": false,
   "E-REVIEWER-UNAVAILABLE": false,
   "E-SANDBOX": false,
+  "internal-error": false,
+  "security-refusal": false,
 };
 
 const VERDICTS: readonly RunVerdict[] = ["pass", "fail", "flaky", "invalid", "infra-error", "skipped"];

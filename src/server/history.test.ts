@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel } from "./history";
+import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel, saveCrashedRunOutcome } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -546,6 +546,31 @@ test("getRunOutcome returns the single run's outcome and round-trips the reviewe
     assert.equal(got!.gateSignals.reviewerApproved, true);
     assert.equal(got!.gateSignals.reviewerRationale, "covers the new validation branch");
     assert.equal(getRunOutcome("does-not-exist"), undefined);
+  } finally {
+    deleteAppHistory(app);
+  }
+});
+
+test("a crash reclassifies the outcome the engine persisted, keeping the evidence it carried, and writes one where none was", () => {
+  const app = "hist-crashed-class";
+  try {
+    const withEvidence = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+    saveRunOutcome({
+      runId: withEvidence.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict: "infra-error", errorClass: "E-INFRA",
+      gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, mutantCount: 7 },
+      rulesRetrieved: [], at: "2026-10-19T00:00:00.000Z",
+    });
+
+    saveCrashedRunOutcome(getRecord(withEvidence.id)!, "internal-error");
+    const reclassified = getRunOutcome(withEvidence.id)!;
+    assert.equal(reclassified.errorClass, "internal-error");
+    assert.equal(reclassified.verdict, "infra-error");
+    assert.equal(reclassified.gateSignals.mutantCount, 7, "the evidence the engine kept is not replaced with a bare row");
+
+    const bare = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+    saveCrashedRunOutcome(getRecord(bare.id)!, "internal-error");
+    assert.equal(getRunOutcome(bare.id)?.verdict, "infra-error");
+    assert.equal(getRunOutcome(bare.id)?.errorClass, "internal-error");
   } finally {
     deleteAppHistory(app);
   }

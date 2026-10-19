@@ -3,7 +3,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, type RunnerDeps, type RunRequest } from "./runner";
-import { getRecord, listRunSpans } from "./history";
+import { commitSpecSnapshots, getRecord, getRunOutcome, listRunSpans } from "./history";
+import { HistoryEvidenceAdapter, defaultEvidenceDeps } from "./evaluation-evidence";
+import { gradeEvidence } from "@contexts/evaluation/domain/graders";
+import { recordPhaseSnapshot } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome";
@@ -239,6 +242,39 @@ test("an unexpected internal error is an error root too, not a benign outcome", 
   await queue.drain();
   assert.equal(h.only("qayaba.run").status.code, SpanStatusCode.ERROR);
   assert.deepEqual(h.unended(), []);
+});
+
+test("a crash carries on its root the facts the run reached, and one error class names it on the record, the root, the metric and the grader", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const app = uniqueApp();
+  const failure = new TypeError("x is not a function");
+  recordPhaseSnapshot(failure, { furthestPhase: "execute", phaseTimings: { execute: 40 } });
+  attachTraceFacts(failure, { generationEnd: "delivered" });
+  const port: RunPipelinePort = {
+    run: async (input) => {
+      commitSpecSnapshots([{ runId: input.runId, path: "flows/restaurant-list-change-filters.spec.ts", sha256: "a".repeat(64), text: "test('filters', () => {});", bytes: 26, capturedAt: 1, delivered: 1 }]);
+      throw failure;
+    },
+  };
+  const id = enqueueTrackedRun(queue, request(app), deps(h, port));
+  await queue.drain();
+
+  const root = h.only("qayaba.run");
+  assert.equal(attr(root, "qayaba.verdict"), "infra-error");
+  assert.equal(attr(root, "qayaba.error_class"), "internal-error");
+  assert.equal(attr(root, "qayaba.furthest_phase"), "execute");
+  assert.equal(attr(root, "qayaba.generation.end"), "delivered");
+  assert.equal(attr(root, "qayaba.specs.generated"), 1);
+  assert.equal(attr(root, "qayaba.specs.valid"), 1);
+  assert.equal(attr(root, "qayaba.specs.passed"), undefined, "the run never executed its specs");
+
+  assert.equal(getRunOutcome(id)?.errorClass, "internal-error");
+  const infra = h.measurements.find((m) => m.name === "qayaba.infra_errors");
+  assert.equal(infra?.attrs["qayaba.error_class"], "internal-error");
+  const evidence = (await new HistoryEvidenceAdapter(defaultEvidenceDeps).load(id))!;
+  assert.deepEqual(evidence.specs, { generated: 1, valid: 1, passed: undefined });
+  assert.equal(gradeEvidence(evidence).find((s) => s.name === "infra_error")?.value, "internal-error");
 });
 
 test("a missing engine factory still ends the root", async () => {

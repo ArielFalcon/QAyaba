@@ -18,6 +18,9 @@ export const ERROR_CLASSES = [
   "E-TIME-BUDGET",
   "E-REVIEWER-UNAVAILABLE",
   "E-SANDBOX",
+  /* The shell's own classes: a run it ended itself, not one the engine classified. */
+  "internal-error",
+  "security-refusal",
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
@@ -151,8 +154,16 @@ const COLLABORATOR_GLOSS: Readonly<Record<string, string>> = {
 const SANDBOX_GLOSS: Readonly<Record<string, string>> = {
   "E-SANDBOX": "the execution sandbox was unavailable, so the tests were not run (no sandbox uid, or the egress filter is down) — a deployment condition, not a fault of the app",
 };
+/*
+ * The shell's own classes, for a run it had to end itself: an unexpected internal error is a defect to investigate (never worded as
+ * infrastructure), and an untrusted git tree is refused before anything runs. Neither is a fault of the app.
+ */
+const SHELL_END_GLOSS: Readonly<Record<string, string>> = {
+  "internal-error": "an unexpected internal error in the orchestrator — a defect to investigate, not infrastructure and not a fault of the app",
+  "security-refusal": "the working copy's git directory is not the orchestrator's own, so no git ran — refused for safety, not a fault of the app",
+};
 const NEUTRAL_INFRA_GLOSS = "the run could not reach a verdict — infrastructure, not a code fault";
 
 export function infraErrorGloss(errorClass: string | null | undefined): string {
-  return (errorClass ? (ENGINE_SIDE_GLOSS[errorClass] ?? PRECONDITION_GLOSS[errorClass] ?? COLLABORATOR_GLOSS[errorClass] ?? SANDBOX_GLOSS[errorClass]) : undefined) ?? NEUTRAL_INFRA_GLOSS;
+  return (errorClass ? (ENGINE_SIDE_GLOSS[errorClass] ?? PRECONDITION_GLOSS[errorClass] ?? COLLABORATOR_GLOSS[errorClass] ?? SANDBOX_GLOSS[errorClass] ?? SHELL_END_GLOSS[errorClass]) : undefined) ?? NEUTRAL_INFRA_GLOSS;
 }

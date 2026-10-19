@@ -80,6 +80,8 @@ export interface RunFacts {
   limitRole?: string | undefined;
   reviewRequired?: boolean | undefined;
   coverage?: { status?: "pass" | "fail" | "unknown" | undefined; mode: string; minRatio?: number | undefined } | undefined;
+  /* Delivered specs and how many of them validated/passed; absent when the run recorded none. */
+  specs?: { generated: number; valid: number | null; passed?: number | undefined } | undefined;
 }
 
 const DECISION_NAMES: Record<string, string> = { "shadow-log": "shadow", quarantine: "none" };
@@ -111,7 +113,7 @@ export function markEnqueued(telemetry: TelemetryPort, clock: TelemetryClock, id
   return { context: isDead(context) ? undefined : context, at };
 }
 
-type Ending = { kind: "facts"; facts: RunFacts } | { kind: "cancelled" } | { kind: "crashed"; error: unknown; errorClass: string };
+type Ending = { kind: "facts"; facts: RunFacts } | { kind: "cancelled" } | { kind: "crashed"; error: unknown; facts: RunFacts };
 
 export class RunTrace {
   private readonly telemetry: TelemetryPort;
@@ -215,10 +217,35 @@ export class RunTrace {
     this.ending = { kind: "cancelled" };
   }
 
-  /* An exception out of the engine or the runner's own recording of the run. It outranks a verdict set earlier (the record says infra-error then, and the trace must say the same), but never a cancel. */
-  crashed(error: unknown, errorClass: string): void {
+  /* An exception out of the engine or the runner's own recording of the run. It outranks a verdict set earlier (the record says infra-error then, and the trace must say the same), but never a cancel. The facts the caller knows by then are set exactly as the normal exit sets them. */
+  crashed(error: unknown, errorClass: string, facts: Omit<RunFacts, "verdict" | "errorClass"> = {}): void {
     if (this.ending?.kind === "cancelled") return;
-    this.ending = { kind: "crashed", error, errorClass };
+    this.ending = { kind: "crashed", error, facts: { ...facts, verdict: "infra-error", errorClass } };
+  }
+
+  /* The root's final facts, whether the run returned a verdict or crashed: one place, so the two cannot disagree. */
+  private applyFacts(f: RunFacts, error?: unknown): void {
+    this.span.setAttrs({
+      "qayaba.verdict": f.verdict,
+      ...(f.errorClass ? { "qayaba.error_class": f.errorClass } : {}),
+      ...(f.generationEnd ? { "qayaba.generation.end": f.generationEnd } : {}),
+      ...(f.decision ? { "qayaba.decision": DECISION_NAMES[f.decision] ?? f.decision } : {}),
+      ...(f.furthestPhase ? { "qayaba.furthest_phase": f.furthestPhase } : {}),
+      ...(f.limitFired ? { "qayaba.limit.fired": f.limitFired } : {}),
+      ...(f.specs
+        ? {
+            "qayaba.specs.generated": f.specs.generated,
+            ...(f.specs.valid !== null ? { "qayaba.specs.valid": f.specs.valid } : {}),
+            ...(f.specs.passed !== undefined ? { "qayaba.specs.passed": f.specs.passed } : {}),
+          }
+        : {}),
+    });
+    if (f.verdict === "infra-error") {
+      this.span.recordError(error ?? Object.assign(new Error(f.errorClass ?? "infra-error"), { name: f.errorClass ?? "infra-error" }));
+    }
+    if (f.limitFired) {
+      this.telemetry.counter("qayaba.budget.exhausted")(1, { "qayaba.limit.fired": f.limitFired, ...(f.limitRole ? { "qayaba.agent.role": f.limitRole } : {}) });
+    }
   }
 
   /* Ends the root on whatever path got here, once, then records the run's metrics and commits the local ledger. */
@@ -233,35 +260,16 @@ export class RunTrace {
     let furthest: string | undefined;
     let infraFailure = false;
     const ending = this.ending;
-    if (ending?.kind === "facts") {
-      const f = ending.facts;
-      verdict = f.verdict;
-      errorClass = f.errorClass ?? undefined;
-      furthest = f.furthestPhase;
-      this.span.setAttrs({
-        "qayaba.verdict": f.verdict,
-        ...(f.errorClass ? { "qayaba.error_class": f.errorClass } : {}),
-        ...(f.generationEnd ? { "qayaba.generation.end": f.generationEnd } : {}),
-        ...(f.decision ? { "qayaba.decision": DECISION_NAMES[f.decision] ?? f.decision } : {}),
-        ...(f.furthestPhase ? { "qayaba.furthest_phase": f.furthestPhase } : {}),
-        ...(f.limitFired ? { "qayaba.limit.fired": f.limitFired } : {}),
-      });
-      if (f.verdict === "infra-error") {
-        infraFailure = true;
-        this.span.recordError(Object.assign(new Error(f.errorClass ?? "infra-error"), { name: f.errorClass ?? "infra-error" }));
-      }
-      if (f.limitFired) {
-        this.telemetry.counter("qayaba.budget.exhausted")(1, { "qayaba.limit.fired": f.limitFired, ...(f.limitRole ? { "qayaba.agent.role": f.limitRole } : {}) });
-      }
+    if (ending?.kind === "facts" || ending?.kind === "crashed") {
+      const facts = ending.facts;
+      verdict = facts.verdict;
+      errorClass = facts.errorClass ?? undefined;
+      furthest = facts.furthestPhase;
+      infraFailure = facts.verdict === "infra-error";
+      this.applyFacts(facts, ending.kind === "crashed" ? ending.error : undefined);
     } else if (ending?.kind === "cancelled") {
       verdict = "cancelled";
       this.span.setAttrs({ "qayaba.run.cancelled": true });
-    } else if (ending?.kind === "crashed") {
-      verdict = "infra-error";
-      errorClass = ending.errorClass;
-      infraFailure = true;
-      this.span.setAttrs({ "qayaba.verdict": "infra-error", "qayaba.error_class": ending.errorClass });
-      this.span.recordError(ending.error);
     }
     if (this.suspendedMs > 0) this.span.setAttrs({ "qayaba.host.suspended_ms": Math.round(this.suspendedMs) });
     if (this.eventLoopMaxMs !== undefined) this.span.setAttrs({ "qayaba.host.event_loop.max_ms": Math.round(this.eventLoopMaxMs) });

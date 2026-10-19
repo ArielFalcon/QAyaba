@@ -548,10 +548,15 @@ export class RunQaUseCase {
     try {
       return this.withPhases(await this.runHandlingEnds(input, signal, trail), trail);
     } catch (err) {
-      /* An error nothing here handles goes to the caller, which records the run: it is told where the run stood. */
+      /* An error nothing here handles goes to the caller, which records the run: it is told where the run stood and how generation ended, so its root span carries the same facts a returned verdict would. */
       spans.fail(err);
       phases.close();
       recordPhaseSnapshot(err, phases.snapshot());
+      try {
+        if (typeof err === "object" && err !== null) attachTraceFacts(err, this.traceFactsOf(undefined, trail));
+      } catch (traceErr) {
+        console.error(`[qa] the crash could not be described for the trace (the run's failure stands): ${traceErr instanceof Error ? traceErr.message : String(traceErr)}`);
+      }
       throw err;
     } finally {
       phases.close();
@@ -561,14 +566,14 @@ export class RunQaUseCase {
     }
   }
 
-  /* How the run ended, for its trace: the decision, the end of generation, and the limit that fired (the deadline's own, else the one the generation end names). */
-  private traceFactsOf(result: RunQaResult, trail: RunTrail): RunTraceFacts {
+  /* How the run ended, for its trace: the decision, the end of generation, and the limit that fired (the deadline's own, else the one the generation end names). A run that threw before a result was built has no decision. */
+  private traceFactsOf(result: RunQaResult | undefined, trail: RunTrail): RunTraceFacts {
     const end = trail.generationEnd;
     const fromEnd = end === GENERATION_END.EXHAUSTED ? { fired: "step-cap", role: "qa-generator" } : end === GENERATION_END.TIME_BUDGET ? { fired: "tier-budget", role: "qa-generator" } : undefined;
     const limit = trail.limit ?? fromEnd;
     const cfg: RunQaConfig = { ...DEFAULT_CONFIG, ...this.deps.config };
     return {
-      decision: result.decision.sideEffect,
+      ...(result ? { decision: result.decision.sideEffect } : {}),
       ...(trail.reviewRequired !== undefined ? { reviewRequired: trail.reviewRequired } : {}),
       coverage: { ...(trail.coverageStatus ? { status: trail.coverageStatus } : {}), mode: cfg.coveragePolicyMode, ...(cfg.coverageMinRatio !== undefined ? { minRatio: cfg.coverageMinRatio } : {}) },
       ...(end !== undefined ? { generationEnd: end } : {}),

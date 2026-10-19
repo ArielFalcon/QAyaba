@@ -10,9 +10,10 @@
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
 import { assertUniformCapture } from "./campaign-capture";
-import { createRecord, updateRecord, recordEffectiveConfig, getCampaignCaptureMode, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases } from "./history";
+import { createRecord, updateRecord, recordEffectiveConfig, getCampaignCaptureMode, addCase, getRecord, appendActivity, listRecords, interruptedRecords, serializablePhases, listSpecSnapshots, saveCrashedRunOutcome } from "./history";
 import { traceFactsOf } from "@kernel/run-trace-facts";
 import { phaseSnapshotOf } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
+import { specCountsOf } from "./evaluation-evidence";
 import { recordIncident } from "./maintainer";
 import { testDataNamespace } from "../qa/test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus } from "../types";
@@ -185,6 +186,18 @@ function recordCase(runId: string, c: QaCase, runEvents: RunEventStore | undefin
     : c.status === "fail"
       ? { type: "test.failed", name: c.name, detail: c.detail, ...(c.durationMs !== undefined ? { durationMs: c.durationMs } : {}) }
       : { type: "test.flaky", name: c.name, attempts: 2 });
+}
+
+/* What the run delivered, for the root span: the same counts the run view and the graders read. Fail-open: observability never changes how a run ends. */
+function specCountsForTrace(runId: string, furthestPhase: string | null): RunFacts["specs"] {
+  try {
+    const current = getRecord(runId);
+    if (!current) return undefined;
+    return specCountsOf(current, listSpecSnapshots(runId), furthestPhase);
+  } catch (err) {
+    console.error(`[qa] the spec counts of run ${runId} could not be read for its trace (the run is unaffected): ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
 }
 
 async function runViaRewrittenEngine(
@@ -522,7 +535,8 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
          */
       });
       /* After the record is written, so the trace never says more than the record does (a throw above lands in the catch, which overrides). */
-      trace.finished(run.facts);
+      const specs = specCountsForTrace(record.id, run.facts.furthestPhase ?? null);
+      trace.finished(specs ? { ...run.facts, specs } : run.facts);
       console.log(`[qa] run finished ${req.app}@${req.sha}: verdict=${run.verdict}`);
     } catch (err) {
 
@@ -552,19 +566,35 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        * model prompt, and the refusal names paths the sandboxed repository controls.
        */
       const refusal = isUntrustedGitTreeError(err);
-      trace.crashed(err, refusal ? "security-refusal" : infra ? "E-INFRA" : "internal-error");
+      /* One class for the run's record, its outcome, its trace root and the metric: a genuine infrastructure fault says E-INFRA, a refusal says so, anything else is the internal error it is. */
+      const errorClass = refusal ? "security-refusal" : infra ? "E-INFRA" : "internal-error";
+      /* The engine tells where the run stood and how generation ended when it threw, on the error itself; a failure from anywhere else has nothing to add. */
+      const reached = phaseSnapshotOf(err);
+      const crashFacts = typeof err === "object" && err !== null ? traceFactsOf(err) : undefined;
+      const specs = specCountsForTrace(record.id, reached?.furthestPhase ?? null);
+      trace.crashed(err, errorClass, {
+        ...(reached?.furthestPhase ? { furthestPhase: reached.furthestPhase } : {}),
+        ...(crashFacts?.decision ? { decision: crashFacts.decision } : {}),
+        ...(crashFacts?.generationEnd ? { generationEnd: crashFacts.generationEnd } : {}),
+        ...(crashFacts?.limitFired ? { limitFired: crashFacts.limitFired } : {}),
+        ...(crashFacts?.limitRole ? { limitRole: crashFacts.limitRole } : {}),
+        ...(crashFacts?.reviewRequired !== undefined ? { reviewRequired: crashFacts.reviewRequired } : {}),
+        ...(crashFacts?.coverage ? { coverage: crashFacts.coverage } : {}),
+        ...(specs ? { specs } : {}),
+      });
       const note = refusal
         ? `security refusal — the working copy's git dir is not the orchestrator's own, so no git ran: ${msg}`
         : infra
           ? msg
           : `unexpected internal error (not infrastructure — investigate): ${msg}`;
-      /* The engine tells where the run stood when it threw; a failure from anywhere else has nothing to record. Stored with the final status, never apart from it. */
-      const reached = phaseSnapshotOf(err);
+      /* Where the run stood, stored with the final status, never apart from it. */
       const phases = reached?.furthestPhase ? serializablePhases({ furthestPhase: reached.furthestPhase, phaseTimings: reached.phaseTimings as Record<string, number> }) : undefined;
       updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note, phases, facts: { traceId: trace.traceId() } });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
       console.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
+      /* The outcome row is what the graders and the value report read: it carries the same class the trace root and the metric just did. */
+      saveCrashedRunOutcome(record, errorClass);
 
       /*
        * Only a genuine infrastructure condition or a security refusal is exempt from a maintainer-eligible incident

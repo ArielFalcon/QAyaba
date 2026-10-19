@@ -1150,6 +1150,30 @@ export function saveRunOutcome(outcome: RunOutcome): void {
   });
 }
 
+/*
+ * A run that ended on an unhandled error keeps the class the shell reports. The engine may already have persisted an outcome
+ * carrying the evidence the sandbox saw, with a placeholder class: that row is reclassified, never replaced, and a run that has
+ * no outcome row gets the minimal one. The run's record, its outcome, the trace root, the run metric and the infra_error grader
+ * then name one class, and the outcome says the verdict the record does.
+ */
+export function saveCrashedRunOutcome(record: RunRecord, errorClass: ErrorClass): void {
+  ensureDb();
+  const reclassified = db.prepare("UPDATE run_outcomes SET verdict = 'infra-error', error_class = ? WHERE id = ?").run(errorClass, record.id).changes;
+  if (reclassified > 0) return;
+  saveRunOutcome({
+    runId: record.id,
+    app: record.app,
+    sha: record.sha,
+    mode: record.mode,
+    target: record.target,
+    verdict: "infra-error",
+    errorClass,
+    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: [],
+    at: new Date().toISOString(),
+  });
+}
+
 function rowToOutcome(row: Record<string, unknown>): RunOutcome {
   return {
     runId: row.id as string,
