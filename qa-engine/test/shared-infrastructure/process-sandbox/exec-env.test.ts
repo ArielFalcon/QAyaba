@@ -87,6 +87,20 @@ test("the DEV gate credentials come from the run's scope, only to profiles that 
   assert.equal("DEV_ENV_USER" in buildExecEnv(input("suite")), false, "the orchestrator's own DEV_ENV_USER is not forwarded");
 });
 
+test("the app's geolocation reaches the page-opening profiles and only them", () => {
+  const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+  for (const profile of ["suite", "login"] as const) {
+    const env = buildExecEnv(input(profile, { geolocation }));
+    assert.equal(env.PW_GEO_LAT, "40.4818");
+    assert.equal(env.PW_GEO_LNG, "-3.3643");
+  }
+  for (const profile of ["offline", "install"] as const) {
+    const env = buildExecEnv(input(profile, { geolocation }));
+    assert.equal("PW_GEO_LAT" in env, false);
+    assert.equal("PW_GEO_LNG" in env, false);
+  }
+});
+
 test("a suite gets the staged session, a login never does (it produces one)", () => {
   const staged = { storageState: "/tmp/qa-exec/run-1/auth/user.json", clientCert: "/tmp/qa-exec/run-1/auth/client.p12", certPass: "pw-of-cert" };
   const suite = buildExecEnv(input("suite", { staged }));

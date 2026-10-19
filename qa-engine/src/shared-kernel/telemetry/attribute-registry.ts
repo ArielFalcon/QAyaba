@@ -47,6 +47,10 @@ export const ATTRIBUTES = {
   "qayaba.host.blocked_ms": int("Milliseconds the event loop was blocked; on an event_loop_blocked event."),
   "qayaba.event_loop.stat": str("Which statistic of an event-loop delay window a measurement is: p50, p99 or max."),
 
+  /* The app's browser position, when it declares one. */
+  "qayaba.geo.lat": dbl("The browser latitude a sandboxed child was given."),
+  "qayaba.geo.lng": dbl("The browser longitude a sandboxed child was given."),
+
   /* Configuration in effect for the run. */
   "qayaba.runtime": str("The agent runtime: opencode or codex."),
   "qayaba.coordination.mode": str("single or lead-sidekicks."),

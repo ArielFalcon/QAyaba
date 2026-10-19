@@ -60,6 +60,30 @@ test("a child is a qayaba.exec span under the phase that is open, from its spawn
   }
 });
 
+test("a page-opening child carries the app's geolocation in its span and its environment", () => {
+  const t = launcher();
+  try {
+    const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+    t.port.spawn("npx", ["playwright", "test"], {
+      cwd: "/m/e2e",
+      profile: "suite",
+      commandClass: "playwright-test",
+      geolocation,
+      scope: t.scope,
+    });
+    t.children[0]!.emit("exit", 0, null);
+    t.children[0]!.emit("close", 0, null);
+
+    const exec = t.h.only("qayaba.exec");
+    assert.equal(exec.attributes["qayaba.geo.lat"], 40.4818);
+    assert.equal(exec.attributes["qayaba.geo.lng"], -3.3643);
+    assert.equal(t.envs[0]!.PW_GEO_LAT, "40.4818");
+    assert.equal(t.envs[0]!.PW_GEO_LNG, "-3.3643");
+  } finally {
+    t.dispose();
+  }
+});
+
 test("a call site that names no command class is recorded as other", () => {
   const t = launcher();
   try {

@@ -66,6 +66,8 @@ export interface CaptureDomInput {
 
 export interface CaptureDomDeps {
   render(e2eDir: string, baseUrl: string, routes: string[], testIdAttribute?: string): Promise<RouteSnapshot[]>;
+  /* The browser position the capture opens pages with, when the app declares one. */
+  readonly geolocation?: { latitude: number; longitude: number };
 }
 
 /* How a route that structurally failed to render is stated in the snapshot: a plain state, no directive and no opinion about the app. */
@@ -572,6 +574,13 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
       ? { username: user, password: pass ?? "", origin: new URL(baseUrl).origin }
       : undefined;
     const contextOptions = {};
+    /* The app's browser position, when it declares one: the same names the seed's playwright.config.ts reads. */
+    const geoLat = Number(process.env.PW_GEO_LAT);
+    const geoLng = Number(process.env.PW_GEO_LNG);
+    if (Number.isFinite(geoLat) && Number.isFinite(geoLng)) {
+      contextOptions.geolocation = { latitude: geoLat, longitude: geoLng };
+      contextOptions.permissions = ["geolocation"];
+    }
     if (httpCredentials) contextOptions.httpCredentials = httpCredentials;
     if (process.env.PW_STORAGE_STATE) contextOptions.storageState = process.env.PW_STORAGE_STATE;
     if (process.env.PW_CLIENT_CERT_PATH) {
@@ -687,11 +696,17 @@ export interface DomCaptureReport {
 }
 export type DomCaptureObserver = (report: DomCaptureReport) => void;
 
-export function createCaptureDomDeps(exec: ExecSandboxPort, maxOutputChars: number = MAX_CAPTURE_OUTPUT_CHARS, observer?: DomCaptureObserver): CaptureDomDeps {
+export function createCaptureDomDeps(
+  exec: ExecSandboxPort,
+  maxOutputChars: number = MAX_CAPTURE_OUTPUT_CHARS,
+  observer?: DomCaptureObserver,
+  geolocation?: { latitude: number; longitude: number },
+): CaptureDomDeps {
   if (!exec) {
     throw new Error("[qa] createCaptureDomDeps requires an execution launcher — there is no safe default (the capture loads a package from the agent-writable e2e project).");
   }
   return {
+    ...(geolocation ? { geolocation } : {}),
     render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid") =>
       new Promise<RouteSnapshot[]>((resolve) => {
         /* routes + baseUrl come from AGENT-AUTHORED specs (untrusted in this threat model). They are passed to the child via an ENV var and parsed there, NOT interpolated into the script source — JSON.stringify does not escape U+2028/U+2029, so interpolating untrusted strings into JS source could inject. The require() path is a derived LOCAL path (not agent input), so its interpolation is safe. */
@@ -702,6 +717,7 @@ export function createCaptureDomDeps(exec: ExecSandboxPort, maxOutputChars: numb
           cwd: e2eDir,
           profile: "suite",
           commandClass: "dom-capture",
+          ...(geolocation ? { geolocation } : {}),
           extraEnv: { PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) },
           /* The result is the JSON on stdout; stderr is never read, and left piped it would block the script once the OS pipe buffer fills. */
           stdio: ["ignore", "pipe", "ignore"],

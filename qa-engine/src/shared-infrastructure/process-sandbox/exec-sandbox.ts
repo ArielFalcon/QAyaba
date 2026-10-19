@@ -3,7 +3,7 @@
    Nothing here reads process.env: the composition root passes the environment in. */
 
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { buildExecEnv, type SandboxProfile } from "./exec-env.ts";
+import { buildExecEnv, type GeoPoint, type SandboxProfile } from "./exec-env.ts";
 import { activeExecScope, openDeniedWindow, type RunScope, type SandboxReport } from "./exec-scope.ts";
 import { guardTelemetry } from "../../shared-kernel/telemetry/guarded-telemetry.ts";
 import type { SpanHandle, TelemetryPort } from "../../shared-kernel/telemetry/telemetry.port.ts";
@@ -82,6 +82,8 @@ export interface ExecSpawnOptions {
   profile: SandboxProfile;
   /* What the child is for, for its span. Absent: other. */
   commandClass?: ExecCommandClass;
+  /* The browser position a suite or login child opens pages with. Absent: the seed's default. */
+  geolocation?: GeoPoint;
   /* The account, honored by the login profile alone. */
   account?: { user: string; pass: string };
   extraEnv?: Record<string, string>;
@@ -230,6 +232,7 @@ export function createExecSandbox(deps: ExecSandboxDeps): ExecSandboxPort {
         base: deps.baseEnv,
         sandbox: deps.sandbox,
         workDir: scope.workDir,
+        ...(options.geolocation ? { geolocation: options.geolocation } : {}),
         ...(scope.gateCreds ? { gateCreds: scope.gateCreds } : {}),
         ...(scope.suiteAccount ? { suiteAccount: scope.suiteAccount } : {}),
         staged,
@@ -309,7 +312,11 @@ function openExecSpan(telemetry: TelemetryPort, scope: RunScope, options: ExecSp
       kind: "internal",
       ...(parent ? { parent } : {}),
       ...(secrets ? { secrets } : {}),
-      attrs: { "qayaba.exec.profile": options.profile, "qayaba.exec.command_class": options.commandClass ?? "other" },
+      attrs: {
+        "qayaba.exec.profile": options.profile,
+        "qayaba.exec.command_class": options.commandClass ?? "other",
+        ...(options.geolocation ? { "qayaba.geo.lat": options.geolocation.latitude, "qayaba.geo.lng": options.geolocation.longitude } : {}),
+      },
     });
     const opened = openDeniedWindow(scope);
     window = opened;

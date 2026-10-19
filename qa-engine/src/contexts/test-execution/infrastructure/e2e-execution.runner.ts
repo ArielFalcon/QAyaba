@@ -127,10 +127,13 @@ export interface E2eRunOutput {
 }
 
 export interface E2eExecuteDeps {
+  /* The app's browser position, handed to every suite child. Absent: the suite's own default. */
+  geolocation?: { latitude: number; longitude: number };
   runSuite(args: {
     dir: string;
     baseUrl: string;
     namespace: string;
+    geolocation?: { latitude: number; longitude: number };
     testIdAttribute?: string;
     faultInject?: boolean;
     project?: string;
@@ -225,6 +228,7 @@ export async function runE2E(
     dir: specDir,
     baseUrl: opts.baseUrl,
     namespace: opts.namespace,
+    ...(deps.geolocation ? { geolocation: deps.geolocation } : {}),
     faultInject: opts.faultInject,
     /* No project unless one is configured: the repo owns its playwright.config.ts, so every project it defines runs. The seed keeps its login setup project out of a suite run itself (it is defined only under PW_AUTH_SETUP). */
     project: opts.project,
@@ -628,7 +632,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, testIdAttribute, faultInject, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
+    runSuite: ({ dir, baseUrl, namespace, geolocation, testIdAttribute, faultInject, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
       new Promise((resolve, reject) => {
         /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
         const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
@@ -659,6 +663,7 @@ export function createDefaultE2eExecuteDeps(
           cwd: dir,
           profile: "suite",
           commandClass: "playwright-test",
+          ...(geolocation ? { geolocation } : {}),
           extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) },
         });
 

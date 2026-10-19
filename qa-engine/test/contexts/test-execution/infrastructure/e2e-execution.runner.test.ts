@@ -986,6 +986,29 @@ async function seenByChild(run: (deps: ReturnType<typeof createDefaultE2eExecute
   return seen!;
 }
 
+test("runE2E hands the app's geolocation to the runner", async () => {
+  const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+  let seen: { latitude: number; longitude: number } | undefined;
+  const deps: E2eExecuteDeps = {
+    geolocation,
+    runSuite: async (args) => {
+      seen = args.geolocation;
+      return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
+    },
+  };
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns" }, deps);
+  assert.deepEqual(seen, geolocation);
+});
+
+test("a Playwright suite child receives the app's geolocation", async () => {
+  const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+  const { env } = await seenByChild((deps, root) =>
+    deps.runSuite({ dir: root, baseUrl: "https://dev.example", namespace: "ns-1", geolocation }).then(() => undefined),
+  );
+  assert.equal(env.PW_GEO_LAT, "40.4818");
+  assert.equal(env.PW_GEO_LNG, "-3.3643");
+});
+
 test("a Playwright suite child gets neither the test account nor an orchestrator secret, and the run's data prefix", async () => {
   const { env } = await seenByChild((deps, root) => deps.runSuite({ dir: root, baseUrl: "https://dev.example", namespace: "ns-1" }).then(() => undefined));
   assert.equal(env.DEV_TEST_PASS, undefined);

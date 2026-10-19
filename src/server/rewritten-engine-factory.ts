@@ -679,7 +679,11 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   };
   const validation = new ValidationPortAdapter({ e2e: staticGate, code: { validate: async () => refuseCode() } as never }, { target: "e2e" });
 
-  const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), exec, env.PW_ACTION_TIMEOUT_MS), recordAudit };
+  const e2eExecuteDeps: E2eExecuteDeps = {
+    ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), exec, env.PW_ACTION_TIMEOUT_MS),
+    ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
+    recordAudit,
+  };
   const execution = new ExecutionPortAdapter(
     { e2e: new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps)), code: { run: async () => refuseCode() } as never },
     { target: "e2e", namespace: `${app.qa.testDataPrefix}-acceptance`, baseUrl, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}) },
@@ -926,13 +930,14 @@ export function buildRewrittenCompositionConfig(
 
   const e2eExecuteDeps: E2eExecuteDeps = {
     ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs),
+    ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
     recordAudit,
     /* The Playwright report as spans (spec files, cases, attempts) under the phase that executes. */
     ...(deps.telemetry ? { onReport: (report: unknown) => synthesizeReportSpans({ telemetry: deps.telemetry! }, report) } : {}),
   };
   const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), exec);
   /* One launcher-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
-  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined);
+  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev?.geolocation);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
   const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(exec), recordAudit };

@@ -1430,6 +1430,20 @@ test("buildCaptureScript applies PW_STORAGE_STATE and PW_CLIENT_CERT_PATH on new
   assert.match(script, /clientCertificates/);
 });
 
+test("buildCaptureScript reads PW_GEO_LAT/LNG into the browser context's geolocation", () => {
+  const script = buildCaptureScript();
+  assert.match(script, /process\.env\.PW_GEO_LAT/);
+  assert.match(script, /process\.env\.PW_GEO_LNG/);
+  assert.match(script, /contextOptions\.geolocation = \{ latitude: geoLat, longitude: geoLng \}/);
+  assert.match(script, /contextOptions\.permissions = \["geolocation"\]/);
+});
+
+test("createCaptureDomDeps carries the app's geolocation", () => {
+  const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+  const deps = createCaptureDomDeps(sharedTestExec(), undefined, undefined, geolocation);
+  assert.deepEqual(deps.geolocation, geolocation);
+});
+
 test("buildCaptureScript wires DEV_ENV_USER/DEV_ENV_PASS into httpCredentials on newContext()", () => {
   const script = buildCaptureScript();
   assert.match(script, /process\.env\.DEV_ENV_USER/, "must read DEV_ENV_USER from the child's env");

@@ -330,6 +330,26 @@ test("dev.blockedOrigins accepts origins and wildcard origins, and a bad one is 
   }
 });
 
+test("dev.geolocation accepts a browser position and refuses one out of range", () => {
+  const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+  const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation } });
+  assert.deepEqual(cfg.dev?.geolocation, geolocation);
+  for (const bad of [
+    { latitude: 90.1, longitude: 0 },
+    { latitude: -90.1, longitude: 0 },
+    { latitude: 0, longitude: 180.1 },
+    { latitude: 0, longitude: -180.1 },
+    { latitude: Number.NaN, longitude: 0 },
+  ]) {
+    assert.throws(
+      () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: bad } }),
+      (err: unknown) => /geolocation|latitude|longitude/.test(String(err)),
+      JSON.stringify(bad),
+    );
+  }
+  assert.doesNotThrow(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: { latitude: -90, longitude: 180 } } }));
+});
+
 test("an origin cannot be both allowed and left blocked on purpose, the app's own included", () => {
   const contradictions: Array<[string[], string[]]> = [
     [["https://stats.shop.io"], ["https://stats.shop.io"]],

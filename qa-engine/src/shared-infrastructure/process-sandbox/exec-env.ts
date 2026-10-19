@@ -17,12 +17,20 @@ export interface StagedAuth {
   certPass?: string;
 }
 
+/* The browser position an app declares for its e2e suite and its Context Pack. */
+export interface GeoPoint {
+  latitude: number;
+  longitude: number;
+}
+
 export interface ExecEnvInput {
   profile: SandboxProfile;
   /* The environment the orchestrator runs in. Only the names allowlisted below are read from it. */
   base: NodeJS.ProcessEnv;
   sandbox: Sandbox | null;
   workDir: string;
+  /* The app's browser position, honored only by profiles that open pages. */
+  geolocation?: GeoPoint;
   gateCreds?: { user: string; pass: string };
   /* The session and certificate copies the launcher staged inside the work dir. */
   staged?: StagedAuth;
@@ -84,6 +92,12 @@ export function buildExecEnv(input: ExecEnvInput): Record<string, string> {
   raw.TEMP = tmp;
 
   Object.assign(raw, checkedExtra(input));
+
+  /* Playwright's config and the DOM-capture script read the app's position from these names. Only a profile that opens pages gets it. */
+  if (input.geolocation && (input.profile === "suite" || input.profile === "login")) {
+    raw.PW_GEO_LAT = String(input.geolocation.latitude);
+    raw.PW_GEO_LNG = String(input.geolocation.longitude);
+  }
 
   if (input.profile === "suite" || input.profile === "login") {
     if (input.gateCreds) {

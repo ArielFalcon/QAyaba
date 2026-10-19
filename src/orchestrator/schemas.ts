@@ -128,6 +128,16 @@ export const AppConfigSchema = z
          * and a refusal of one is never taken as the reason a login failed. Declaring one does not open it.
          */
         blockedOrigins: OriginListSchema.optional(),
+        /*
+         * The browser position a suite and the Context Pack are given (Playwright's geolocation). Optional: an app that does not
+         * depend on where the user is keeps the seed's default. The position is app data, never a fact the engine infers.
+         */
+        geolocation: z
+          .object({
+            latitude: z.number().min(-90, { error: "dev.geolocation.latitude must be between -90 and 90" }).max(90, { error: "dev.geolocation.latitude must be between -90 and 90" }),
+            longitude: z.number().min(-180, { error: "dev.geolocation.longitude must be between -180 and 180" }).max(180, { error: "dev.geolocation.longitude must be between -180 and 180" }),
+          })
+          .optional(),
       })
       .superRefine((dev, ctx) => {
         if (dev.blockedOrigins === undefined) return;
