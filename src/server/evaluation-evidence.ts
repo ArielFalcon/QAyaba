@@ -10,7 +10,7 @@ import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-curs
 import type { EvidencePort } from "@contexts/evaluation/application/ports/index";
 import type { RunEvaluationEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
-import { getRecord, getRunFacts, getRunOutcome, getRunPhases, getAgentTurns, listRunSpans, type AgentTurnRecord, type RunFactsPatch, type RunPhases } from "./history";
+import { getRecord, getRunFacts, getRunOutcome, getRunPhases, getAgentTurns, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
 import type { RunOutcome, RunRecord } from "../types";
 
 /* The slice of a ledger span the evidence reads. */
@@ -29,6 +29,7 @@ export interface EvidenceDeps {
   getRunOutcome(id: string): RunOutcome | undefined;
   getAgentTurns(id: string): AgentTurnRecord[];
   runSpans(id: string): LedgerSpan[];
+  listSpecSnapshots(id: string): SpecSnapshotRow[];
 }
 
 export const defaultEvidenceDeps: EvidenceDeps = {
@@ -38,6 +39,7 @@ export const defaultEvidenceDeps: EvidenceDeps = {
   getRunOutcome,
   getAgentTurns,
   runSpans: (id) => listRunSpans(id).map((s) => ({ name: s.name, spanId: s.spanId, parentSpanId: s.parentSpanId, attrs: s.attrs })),
+  listSpecSnapshots,
 };
 
 const STEP_INTENT_ATTR = "qayaba.step.intent";
@@ -88,6 +90,32 @@ export function countPassedSpecs(specNames: readonly string[], cases: ReadonlyAr
     return specNames.filter((s) => bySpec.get(s)!.every((st) => st === "pass")).length;
   }
   return verdict === "pass" ? valid : undefined;
+}
+
+export interface SpecCounts {
+  generated: number;
+  valid: number | null;
+  passed: number | undefined;
+}
+
+/*
+ * The specs a run delivered: the record's own list when it holds one, else the delivered snapshots. The validate phase keeps a
+ * snapshot of every delivered spec whatever path the run takes afterwards (the run record's list is written only by the normal
+ * exit), so a run that fails after validation still says what it produced. The record's list wins whole: a run that recorded it
+ * never counts a snapshot on top.
+ */
+export function deliveredSpecNames(record: Pick<RunRecord, "specs">, snapshots: ReadonlyArray<Pick<SpecSnapshotRow, "path" | "delivered">>): string[] {
+  const named = (record.specs ?? []).map((s) => s.name);
+  if (named.length > 0) return named;
+  return [...new Set(snapshots.filter((s) => s.delivered === 1).map((s) => s.path))].sort();
+}
+
+/* The counts the run record, the run view, the graders and the run's own trace all report. Validation gates the whole suite: it is a measurement only once the run got past it. */
+export function specCountsOf(record: Pick<RunRecord, "specs" | "cases" | "verdict">, snapshots: ReadonlyArray<Pick<SpecSnapshotRow, "path" | "delivered">>, furthestPhase: string | null): SpecCounts {
+  const specNames = deliveredSpecNames(record, snapshots);
+  const generated = specNames.length;
+  const valid = record.verdict === "invalid" ? 0 : furthestPhase !== null && rank(furthestPhase) > rank("validate") ? generated : null;
+  return { generated, valid, passed: valid === null ? undefined : countPassedSpecs(specNames, record.cases, valid, record.verdict ?? null) };
 }
 
 function stepIntentsOf(spans: readonly LedgerSpan[]): Record<string, number> | undefined {
@@ -146,10 +174,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
     const spans = d.runSpans(runId);
     const turns = d.getAgentTurns(runId);
 
-    const specNames = (record.specs ?? []).map((s) => s.name);
-    const generated = specNames.length;
-    /* Validation gates the whole suite: it is a measurement once the run got past it, and a failure when the run is invalid. */
-    const valid: number | null = verdict === "invalid" ? 0 : furthestPhase !== null && rank(furthestPhase) > rank("validate") ? generated : null;
+    const specs = specCountsOf(record, d.listSpecSnapshots(runId), furthestPhase);
     const g = outcome?.gateSignals;
     const coverageStatus = COVERAGE_STATUSES.find((c) => c === facts?.coverageStatus);
 
@@ -163,7 +188,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
       errorClass: outcome?.errorClass ?? null,
       decision: facts?.decision ?? null,
       furthestPhase,
-      specs: { generated, valid, passed: valid === null ? undefined : countPassedSpecs(specNames, record.cases, valid, verdict) },
+      specs,
       reviewerTurns: turns.length === 0 ? undefined : turns.filter((t) => t.role === REVIEWER_AGENT).length,
       reviewRequired: facts?.reviewRequired ?? undefined,
       signals: g
