@@ -184,6 +184,7 @@ export const ATTRIBUTES = {
   "qayaba.context.recapture.outcome": str("What a recapture request came to: not-needed, requested, completed, failed or skipped."),
   "qayaba.context.dom_changed": bool("The change-relevant DOM differed between two captures of the same page."),
   "qayaba.context.omitted": int("Items a delivered source left out (selection + truncation)."),
+  "qayaba.context.omissions": spec("string[]", "Per-reason omissions of a delivered source, as class:reason:count[:route], at most 200.", "high", "none", 200),
   "qayaba.context.items.count": int("Items the source supplied."),
   "qayaba.context.bytes": int("Bytes the source contributed to what the agent receives."),
   "qayaba.context.truncated": bool("The source was cut to fit a bound."),

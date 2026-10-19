@@ -95,8 +95,8 @@ function packItemIds(assembly: ContextPackAssembly, delivered: boolean): { ids: 
   const opIds = trace.contractIds.map(itemId.op);
   const omissions: Omission[] = [];
   for (const p of deliveries) {
-    if (p.nodeCapOmitted > 0) omissions.push({ class: "truncation", reason: "node-cap", count: p.nodeCapOmitted });
-    if (delivered && p.lineCapOmitted > 0) omissions.push({ class: "truncation", reason: "line-cap", count: p.lineCapOmitted });
+    if (p.nodeCapOmitted > 0) omissions.push({ class: "truncation", reason: "node-cap", count: p.nodeCapOmitted, route: p.route });
+    if (delivered && p.lineCapOmitted > 0) omissions.push({ class: "truncation", reason: "line-cap", count: p.lineCapOmitted, route: p.route });
   }
   return { ids: [...domIds, ...factIds, ...opIds], omissions };
 }

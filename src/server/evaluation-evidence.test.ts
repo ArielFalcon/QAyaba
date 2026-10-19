@@ -104,6 +104,24 @@ test("the evidence exposes the delivered sources, the changed element and the sn
   assert.deepEqual(evidence.context?.snapshots.map((s) => s.path), ["flows/restaurants.spec.ts"]);
 });
 
+test("the delivered span's per-reason omissions are read back with their page", async () => {
+  const span = {
+    name: "qayaba.delivered.context-pack",
+    spanId: "pack",
+    parentSpanId: null,
+    attrs: JSON.stringify({
+      "qayaba.context.source": "context-pack",
+      "qayaba.context.stage": "delivered",
+      "qayaba.context.item_ids": ["dom:/restaurantes#card"],
+      "qayaba.context.bytes": 100,
+      "qayaba.context.omitted": 34,
+      "qayaba.context.omissions": ["truncation:node-cap:34:/home"],
+    }),
+  };
+  const evidence = (await new HistoryEvidenceAdapter(deps({ runSpans: () => [span] })).load("run-1"))!;
+  assert.deepEqual(evidence.context?.delivered[0]?.omissions, [{ class: "truncation", reason: "node-cap", count: 34, route: "/home" }]);
+});
+
 test("a label-only change with no fact ids reads as an unknown changed element", async () => {
   const evidence = (await new HistoryEvidenceAdapter(
     deps({ runSpans: () => [deliveredSpan("context-pack", ["dom:/restaurantes#card"], 0)] }),

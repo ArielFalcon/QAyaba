@@ -15,6 +15,8 @@ export interface Omission {
   class: "selection" | "truncation";
   reason: string;
   count: number;
+  /* The page a DOM truncation happened on, when the omission is page-scoped. */
+  route?: string;
 }
 
 /* What a surviving section supplied and lost. `capped` is the assembler's own fact: the section's content was cut to a bound, so

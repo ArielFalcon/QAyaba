@@ -146,13 +146,12 @@ function deliveredSourcesOf(spans: readonly LedgerSpan[]): DeliveredContextSourc
     const omissions: DeliveredOmission[] = (() => {
       if (!Array.isArray(rawOmissions)) return [];
       const result: DeliveredOmission[] = [];
-      for (const o of rawOmissions) {
-        if (o === null || typeof o !== "object") continue;
-        const cls = (o as { class?: unknown }).class;
-        const reason = (o as { reason?: unknown }).reason;
-        const count = (o as { count?: unknown }).count;
-        if ((cls !== "truncation" && cls !== "selection") || typeof reason !== "string" || typeof count !== "number") continue;
-        result.push({ class: cls, reason, count });
+      for (const entry of rawOmissions) {
+        if (typeof entry !== "string") continue;
+        const [cls, reason, countText, ...routeParts] = entry.split(":");
+        const count = Number(countText);
+        if ((cls !== "truncation" && cls !== "selection") || reason === undefined || reason === "" || !Number.isFinite(count)) continue;
+        result.push({ class: cls, reason, count, ...(routeParts.length > 0 ? { route: routeParts.join(":") } : {}) });
       }
       return result;
     })();

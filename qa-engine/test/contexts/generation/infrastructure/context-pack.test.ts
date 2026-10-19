@@ -78,7 +78,7 @@ test("packDeliveredItemIds: delivered ids come from the kept lines, with the nod
   assert.ok(ids.includes("fact:/home#save-btn:present"), "the change fact is delivered");
   assert.ok(ids.includes("op:listOrders"), "the contract is delivered");
   assert.equal(ids.some((id) => id.includes("button")), false, "a node that already has a test id is not double-counted as a role id");
-  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 2 }]);
+  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 2, route: "/home" }]);
 });
 
 test("packDeliveredItemIds: a node the node-cap cut is neither delivered nor in the ids", () => {
@@ -107,7 +107,7 @@ test("packDeliveredItemIds: a node the node-cap cut is neither delivered nor in 
   const { ids, omissions } = packDeliveredItemIds(assembly);
   assert.equal(ids.some((id) => id.startsWith("dom:")), true, "the kept node is a dom id");
   assert.ok(!ids.some((id) => id.includes("Cut")), "the cut node never reaches the ids");
-  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 1 }]);
+  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 1, route: "/home" }]);
 });
 
 test("packDeliveredItemIds: a page opened from a template is named by the template in its delivered ids and facts", () => {
@@ -170,7 +170,7 @@ test("packProducedItemIds vs packDeliveredItemIds: the line cap makes delivered 
   assert.ok(delivered.ids.every((id) => produced.ids.includes(id)), "delivered ⊆ produced");
   assert.ok(produced.ids.length > delivered.ids.length, "the line cap separates produced from delivered");
   assert.deepEqual(produced.omissions, [], "the produced set counts no line cap");
-  assert.deepEqual(delivered.omissions, [{ class: "truncation", reason: "line-cap", count: 2 }]);
+  assert.deepEqual(delivered.omissions, [{ class: "truncation", reason: "line-cap", count: 2, route: "/home" }]);
 });
 
 test("buildContextPack: the global line cap trims the delivered ids to the lines the agent actually saw", async () => {

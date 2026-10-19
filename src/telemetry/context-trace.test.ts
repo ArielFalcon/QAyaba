@@ -205,6 +205,17 @@ test("a context source records where it came from and how fresh it was", async (
   assert.equal(span.attributes["qayaba.context.recapture.outcome"], "requested");
 });
 
+test("the delivered span keeps the per-reason omissions for context_complete", () => {
+  const h = traceHarness();
+  recordDeliveredContextSpans(
+    h.telemetry,
+    { "context-pack": { itemIds: ["dom:/home#card"], omissions: [{ class: "truncation", reason: "node-cap", count: 2, route: "/home" }], capped: false } },
+    { "context-pack": 10 },
+  );
+  const span = h.only("qayaba.delivered.context-pack");
+  assert.deepEqual(span.attributes["qayaba.context.omissions"], ["truncation:node-cap:2:/home"]);
+});
+
 /* ---- the grounding adapter: context map, brief, route ranking and pack ---- */
 
 const MAP = {

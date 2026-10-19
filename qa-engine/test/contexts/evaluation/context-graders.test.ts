@@ -85,6 +85,34 @@ test("a truncation on a change-relevant page is incomplete, with source:reason:c
   assert.match(s?.comment ?? "", /context-pack:node-cap:40/);
 });
 
+test("a section cap makes context_complete false even when the section delivered no ids", () => {
+  const e = evidence({
+    context: {
+      ...r4Context(),
+      delivered: [{ source: "context-pack", ids: [], bytes: 0, omitted: 10, omissions: [{ class: "truncation", reason: "section-cap", count: 10 }] }],
+    },
+  });
+  const s = score(e, "context_complete");
+  assert.equal(s?.value, false);
+  assert.match(s?.comment ?? "", /context-pack:section-cap:10/);
+});
+
+test("focused operations count the change-filtered pack contracts, not every map operation", () => {
+  const e = evidence({
+    context: {
+      ...r4Context(),
+      delivered: [
+        { source: "context-map", ids: [route("/restaurantes"), "op:listOrders"], bytes: 1, omitted: 0, omissions: [] },
+        { source: "context-pack", ids: ["op:getRestaurants"], bytes: 1, omitted: 0, omissions: [] },
+      ],
+      snapshots: [{ path: "flows/restaurants.spec.ts", text: "await page.getByText('getRestaurants');" }],
+      changedTestIds: [],
+      changedElement: "unknown",
+    },
+  });
+  assert.equal(score(e, "context_utilization_focused.op")?.value, 1, "the pack's one contract is the focused set");
+});
+
 test("context_complete is omitted when nothing was delivered", () => {
   assert.equal(score(evidence(), "context_complete"), undefined);
   assert.equal(score(evidence({ context: { ...r4Context(), delivered: [] } }), "context_complete"), undefined);

@@ -188,7 +188,8 @@ const completenessLosses = (ctx: ContextEvidence): string[] => {
   for (const source of ctx.delivered) {
     for (const omission of source.omissions) {
       if (omission.class !== "truncation") continue;
-      const relevant = omission.route !== undefined ? relevantPaths.has(omission.route) : source.ids.some((id) => relevantIds.has(id));
+      const section = omission.reason === "section-cap" || omission.reason === "section-shed";
+      const relevant = section || (omission.route !== undefined ? relevantPaths.has(omission.route) : source.ids.some((id) => relevantIds.has(id)));
       if (relevant) losses.push(`${source.source}:${omission.reason}:${omission.count}`);
     }
   }
@@ -241,7 +242,9 @@ const contextUtilizationFocused: Grader = {
     const routeValue = groups.size > 0 ? ratio(usedGroups, groups.size) : undefined;
 
     const domValue = focusedDomRatio(ctx, refs);
-    const opValue = delivered.op.length > 0 ? ratio(delivered.op.filter((id) => referenced.op.has(id)).length, delivered.op.length) : undefined;
+    /* The focused operation set is the change-filtered contracts the pack delivered, never every operation the map lists. */
+    const packOps = ctx.delivered.find((source) => source.source === "context-pack")?.ids.filter((id) => id.startsWith("op:")) ?? [];
+    const opValue = packOps.length > 0 ? ratio(packOps.filter((id) => referenced.op.has(id)).length, packOps.length) : undefined;
 
     const measured = [routeValue, domValue, opValue].filter((v): v is number => v !== undefined);
     const scores: RawScore[] = [];

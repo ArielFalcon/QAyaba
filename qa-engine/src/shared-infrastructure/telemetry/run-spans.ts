@@ -64,6 +64,8 @@ export interface ContextRecord {
   truncatedItems?: number;
   /* Items a delivered source left out (selection + truncation). */
   omitted?: number;
+  /* The per-reason omissions, for context_complete. Each becomes a `class:reason:count[:route]` string in the span. */
+  omissions?: readonly { class: "selection" | "truncation"; reason: string; count: number; route?: string }[];
   /* Each cut, classed and with its closed reason, for the cut/cut_items metrics. */
   cuts?: readonly { class: "selection" | "truncation"; reason: string; count: number }[];
   /* Provenance/freshness (observe-only); stale is never derived from a cut. */
@@ -101,6 +103,9 @@ export function recordContextSpan(telemetry: TelemetryPort, record: ContextRecor
       "qayaba.context.item_ids": ids,
       ...(overflow > 0 ? { "qayaba.context.item_ids.overflow": overflow } : {}),
       ...(record.omitted !== undefined && record.omitted > 0 ? { "qayaba.context.omitted": record.omitted } : {}),
+      ...(record.omissions !== undefined && record.omissions.length > 0
+        ? { "qayaba.context.omissions": record.omissions.slice(0, 200).map((o) => `${o.class}:${o.reason}:${o.count}${o.route !== undefined ? `:${o.route}` : ""}`) }
+        : {}),
       ...(record.status !== undefined ? { "qayaba.context.status": record.status } : {}),
       ...(record.reason !== undefined ? { "qayaba.context.reason": record.reason } : {}),
       ...(record.freshness?.location !== undefined ? { "qayaba.context.location": record.freshness.location } : {}),

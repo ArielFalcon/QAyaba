@@ -90,14 +90,15 @@ export function recordDeliveredContextSpans(
 ): void {
   if (!sections) return;
   guarded("delivered spans", () => {
-    const bySource = new Map<ContextSource, { ids: string[]; bytes: number; omitted: number }>();
+    const bySource = new Map<ContextSource, { ids: string[]; bytes: number; omitted: number; omissions: Array<{ class: "selection" | "truncation"; reason: string; count: number; route?: string }> }>();
     for (const [sectionId, meta] of Object.entries(sections)) {
       const source = SECTION_SOURCE[sectionId as keyof typeof SECTION_SOURCE];
       if (source === undefined) continue;
-      const entry = bySource.get(source) ?? { ids: [], bytes: 0, omitted: 0 };
+      const entry = bySource.get(source) ?? { ids: [], bytes: 0, omitted: 0, omissions: [] };
       entry.ids.push(...meta.itemIds);
       entry.bytes += sectionSizes?.[sectionId] ?? 0;
       entry.omitted += meta.omissions.reduce((sum, o) => sum + o.count, 0);
+      entry.omissions.push(...meta.omissions);
       bySource.set(source, entry);
     }
     for (const [source, entry] of bySource) {
@@ -107,6 +108,7 @@ export function recordDeliveredContextSpans(
         ids: entry.ids,
         bytes: entry.bytes,
         omitted: entry.omitted,
+        omissions: entry.omissions,
       });
     }
   });
