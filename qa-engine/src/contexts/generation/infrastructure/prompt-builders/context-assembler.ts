@@ -4,6 +4,7 @@ import { sha256Hex } from "../../../../shared-infrastructure/content-hash.ts";
 import { redactByValue } from "../../../../shared-infrastructure/run-secret-redaction.ts";
 import { ContextAssemblerAdapter } from "@contexts/generation/infrastructure/context-assembler.adapter.ts";
 import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import type { Omission, SectionMeta } from "@contexts/generation/domain/section-meta.ts";
 
 export interface AssembleOpts {
   /* Global byte budget for the assembled prompt. When provided and positive, the assembler sheds lowest-priority sections until the total fits within this limit. 0 or absent means no global budget enforcement (Phase-1 behaviour, unchanged). */
@@ -37,15 +38,21 @@ export interface Section {
   shedAs?: SectionRole;
   /* What the section provides / frames / directs, for the prompt-contract lint. Reported only while the section survives assembly. */
   claims?: readonly PromptClaim[];
+  /* Stable ids of the grounding items this section supplies (context-item-ids.ts). Absent for a section that supplies none. */
+  itemIds?: readonly string[];
+  /* The items this section chose to leave out, before the assembler's own cap/shed. */
+  omissions?: readonly Omission[];
 }
 
-export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs" | "claims">>;
+export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs" | "claims" | "itemIds" | "omissions">>;
 
 export interface AssembledPrompt {
   text: string;
   sectionSizes: Record<string, number>;
   /* Claims of the sections that survived assembly, keyed by section id; a shed or dropped section contributes none. */
   claims: Record<string, readonly PromptClaim[]>;
+  /* What each grounding section supplied and lost, from the kept assembly: its item ids, its omissions and whether the assembler capped it. Keyed by section id. */
+  sectionItems: Record<string, SectionMeta>;
   /* Files whose content the surviving sections already render, by path relative to the working copy. Set by the builder after assembly; absent for prompts that render no file. */
   providedPaths?: readonly string[];
   /* sha256 of each surviving section's bytes with the run's secrets taken out by value, keyed by section id. Computed when the prompt is assembled, which the use case does inside the run's secret scope; the hash of the whole prompt is the transport's, over the bytes it sends. The text itself is left as it was: the transport redacts it at its own seam. */
@@ -89,6 +96,8 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
     section: Section;
     content: string;
     dropped: boolean;
+    /* The content was cut to a bound (its maxBytes, or the byte budget): the section survives, but its items are not all there. */
+    capped: boolean;
   }
 
   const resolved: ResolvedSection[] = [];
@@ -101,12 +110,12 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
       console.warn(
         `[context-assembler] section '${sec.id}' (${Buffer.byteLength(raw, "utf8")} bytes) exceeds maxBytes ${sec.maxBytes} and overflow='drop' — omitting the whole section.`,
       );
-      resolved.push({ section: sec, content: "", dropped: true });
+      resolved.push({ section: sec, content: "", dropped: true, capped: false });
       continue;
     }
 
-    const capped = capToBytes(raw, sec.maxBytes, sec.id);
-    resolved.push({ section: sec, content: capped, dropped: false });
+    const content = capToBytes(raw, sec.maxBytes, sec.id);
+    resolved.push({ section: sec, content, dropped: false, capped: content !== raw });
   }
 
   const droppedIds: string[] = [];
@@ -186,6 +195,7 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
                   `(overflow='summarize') — total was ${totalBytes()} bytes, budget is ${budgetBytes} bytes.`,
               );
               candidate.content = truncated;
+              candidate.capped = true;
             }
           }
         }
@@ -214,6 +224,18 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
     parts.push(r.content);
   }
 
+  /* A grounding section that the assembler capped or shed delivers no ids: all its declared items are omitted with that reason (conservative, so a grader never over-counts what the agent was given). */
+  const sectionItems: Record<string, SectionMeta> = {};
+  for (const r of resolved) {
+    const declared = r.section.itemIds ?? [];
+    const declaredOmissions = r.section.omissions ?? [];
+    if (declared.length === 0 && declaredOmissions.length === 0) continue;
+    const omissions = [...declaredOmissions];
+    if (r.dropped && declared.length > 0) omissions.push({ class: "truncation", reason: "section-shed", count: declared.length });
+    else if (r.capped && declared.length > 0) omissions.push({ class: "truncation", reason: "section-cap", count: declared.length });
+    sectionItems[r.section.id] = { itemIds: r.dropped || r.capped ? [] : [...declared], omissions, capped: r.capped };
+  }
+
   if (droppedIds.length > 0) {
     const notice =
       `⚠ Budget: these context sections were omitted and are NOT below: ${droppedIds.join(", ")}. ` +
@@ -226,6 +248,7 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
     text,
     sectionSizes,
     claims,
+    sectionItems,
     sectionHashes,
     droppedSections: droppedIds,
     ...(budgetBytes > 0 ? { budgetBytes } : {}),
@@ -249,6 +272,8 @@ function sectionImpl(
     language: opts.language ?? "scaffold",
     ...(opts.shedAs ? { shedAs: opts.shedAs } : {}),
     ...(opts.claims ? { claims: opts.claims } : {}),
+    ...(opts.itemIds ? { itemIds: opts.itemIds } : {}),
+    ...(opts.omissions ? { omissions: opts.omissions } : {}),
   };
 }
 

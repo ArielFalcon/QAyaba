@@ -1,7 +1,7 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, TEMPLATE_LEFT_OUT, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { MAX_ROUTES, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { ROUTE_REASON } from "@kernel/route-capturability.ts";
@@ -48,6 +48,65 @@ test("buildContextPack returns undefined text when all components are absent", a
   assert.equal(result.text, undefined);
   assert.equal(result.domBytes, 0);
   assert.equal(result.contractBytes, 0);
+});
+
+test("packDeliveredItemIds: delivered ids come from the kept lines, with the node cap counted", () => {
+  const assembly: ContextPackAssembly = {
+    text: "pack",
+    domBytes: 10,
+    contractBytes: 0,
+    trace: {
+      rankedRoutes: ["/home"],
+      capturablePages: 1,
+      pages: [{ route: "/home", grounded: true, links: [], testIds: ["save-btn", "other"] }],
+      pageDeliveries: [{
+        route: "/home",
+        keptNodes: ["button: Save"],
+        keptTestIds: ["save-btn"],
+        testIdOfNode: new Map([["button: Save", "save-btn"]]),
+        nodeCapOmitted: 2,
+        lineCapOmitted: 0,
+      }],
+      changedTestIds: ["save-btn"],
+      contractIds: ["listOrders"],
+      omittedLines: 0,
+    },
+  };
+  const { ids, omissions } = packDeliveredItemIds(assembly);
+  assert.ok(ids.includes("dom:/home#save-btn"), "the kept test id is delivered as a dom id");
+  assert.ok(ids.includes("fact:/home#save-btn:present"), "the change fact is delivered");
+  assert.ok(ids.includes("op:listOrders"), "the contract is delivered");
+  assert.equal(ids.some((id) => id.includes("button")), false, "a node that already has a test id is not double-counted as a role id");
+  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 2 }]);
+});
+
+test("packDeliveredItemIds: a node the node-cap cut is neither delivered nor in the ids", () => {
+  const assembly: ContextPackAssembly = {
+    text: "pack",
+    domBytes: 1,
+    contractBytes: 0,
+    trace: {
+      rankedRoutes: ["/home"],
+      capturablePages: 1,
+      pages: [{ route: "/home", grounded: true, links: [], testIds: [] }],
+      pageDeliveries: [{
+        route: "/home",
+        /* Only the kept node is here: the cut node is already gone from keptNodes. */
+        keptNodes: ["button: Keep"],
+        keptTestIds: [],
+        testIdOfNode: new Map(),
+        nodeCapOmitted: 1,
+        lineCapOmitted: 0,
+      }],
+      changedTestIds: [],
+      contractIds: [],
+      omittedLines: 0,
+    },
+  };
+  const { ids, omissions } = packDeliveredItemIds(assembly);
+  assert.equal(ids.some((id) => id.startsWith("dom:")), true, "the kept node is a dom id");
+  assert.ok(!ids.some((id) => id.includes("Cut")), "the cut node never reaches the ids");
+  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 1 }]);
 });
 
 /* The brief owns the distilled blast radius, FE-BE links and risks; the pack carries only what the orchestrator captured or read itself (the live DOM and the API contracts). */

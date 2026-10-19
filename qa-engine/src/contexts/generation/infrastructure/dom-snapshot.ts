@@ -337,6 +337,41 @@ export interface CapturedPage {
   template?: string;
   /* The test ids the page carries, when it carries any (for the trace's change-value facts). */
   testIds?: string[];
+  /* The delivery the trace needs: the kept nodes/test ids and the node→test-id map, for the delivered DOM ids. */
+  keptNodes?: string[];
+  keptTestIds?: string[];
+  testIdOfNode?: Map<string, string>;
+  nodeCapOmitted?: number;
+}
+
+/* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the per-route bound), the node→test-id map, and how many the bound left out. The line cap is the pack's, applied later. */
+export interface PageDelivery {
+  route: string;
+  template?: string;
+  keptNodes: string[];
+  keptTestIds: string[];
+  testIdOfNode: Map<string, string>;
+  nodeCapOmitted: number;
+  lineCapOmitted: number;
+}
+
+/* One captured page as the trace needs it, from its raw snapshot: the nodes and test ids within the per-route bound (the node cap), the node→test-id map, and how many the bound left out. A page opened from a template of the map is named by it. */
+export function pageDeliveryOf(snap: RouteSnapshot, template?: string): PageDelivery {
+  const nodes = snap.nodes ?? [];
+  const testIds = [...(snap.testIds?.keys() ?? [])];
+  const testIdOfNode = new Map<string, string>();
+  for (const attr of snap.attrs ?? []) if (attr.testId !== undefined) testIdOfNode.set(attr.key, attr.testId);
+  const keptNodes = capDomLines(nodes, MAX_NODES_PER_ROUTE).kept;
+  const keptTestIds = testIds.slice(0, MAX_NODES_PER_ROUTE);
+  return {
+    route: template ?? snap.route,
+    ...(template !== undefined ? { template } : {}),
+    keptNodes,
+    keptTestIds,
+    testIdOfNode,
+    nodeCapOmitted: Math.max(0, nodes.length - keptNodes.length) + Math.max(0, testIds.length - keptTestIds.length),
+    lineCapOmitted: 0,
+  };
 }
 
 export async function captureDomForRoutes(
@@ -352,7 +387,21 @@ export async function captureDomForRoutes(
   try {
     const snaps = await deps.render(input.e2eDir, input.baseUrl, asked, input.testIdAttribute);
     warnOnDegradedRoutes(snaps);
-    input.onPages?.(snaps.map((snap) => ({ route: snap.route, grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED, links: snap.links ?? [], ...(input.instanceOf?.get(snap.route) !== undefined ? { template: input.instanceOf.get(snap.route)! } : {}), ...(snap.testIds && snap.testIds.size > 0 ? { testIds: [...snap.testIds.keys()] } : {}) })));
+    input.onPages?.(snaps.map((snap) => {
+      const template = input.instanceOf?.get(snap.route);
+      const delivery = pageDeliveryOf(snap, template);
+      return {
+        route: snap.route,
+        grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED,
+        links: snap.links ?? [],
+        ...(template !== undefined ? { template } : {}),
+        ...(snap.testIds && snap.testIds.size > 0 ? { testIds: [...snap.testIds.keys()] } : {}),
+        keptNodes: delivery.keptNodes,
+        keptTestIds: delivery.keptTestIds,
+        testIdOfNode: delivery.testIdOfNode,
+        nodeCapOmitted: delivery.nodeCapOmitted,
+      };
+    }));
     const reported = snaps
       .filter((snap) => !seeds.includes(snap.route))
       .map((snap) => {

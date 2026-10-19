@@ -169,6 +169,8 @@ export const ATTRIBUTES = {
 
   /* Context spans (design §4.4): one per grounding source, with the ids of what it supplied. */
   "qayaba.context.source": str("The grounding source: learning, curriculum, context-map, route-ranking, dom-capture, context-pack, service-links, structural-signal, cross-repo-impact or explorer-brief."),
+  "qayaba.context.stage": str("Which side of the supply a context span records: produced or delivered."),
+  "qayaba.context.omitted": int("Items a delivered source left out (selection + truncation)."),
   "qayaba.context.items.count": int("Items the source supplied."),
   "qayaba.context.bytes": int("Bytes the source contributed to what the agent receives."),
   "qayaba.context.truncated": bool("The source was cut to fit a bound."),

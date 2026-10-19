@@ -3,7 +3,7 @@
 import type { PreGenerationGroundingPort, GroundingResult, HarnessFacts } from "../../application/ports/index.ts";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
-import { buildContextPack, defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { buildContextPack, defaultContextPackDeps, packDeliveredItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackAssembly, ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
@@ -327,7 +327,12 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
         deps,
       );
       const packResult = signal ? await raceWithAbort(buildPromise, signal) : await buildPromise;
-      if (packResult.text) result.contextPack = packResult.text;
+      if (packResult.text) {
+        result.contextPack = packResult.text;
+        const delivery = packDeliveredItemIds(packResult);
+        result.contextPackItemIds = delivery.ids;
+        result.contextPackOmissions = delivery.omissions;
+      }
       this.tell(() => this.collaborators.trace?.pack?.(packResult));
     } catch (err) {
       if (isAbortError(err)) return result; /* abort: return whatever was gathered so far, never throw — see the note above. */

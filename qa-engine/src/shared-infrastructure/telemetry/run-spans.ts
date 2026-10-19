@@ -55,28 +55,35 @@ export interface ContextRecord {
   ids: readonly string[];
   /* Bytes the source contributed to what the agent receives. */
   bytes: number;
+  /* produced (what a source supplied) or delivered (what the kept assembly actually gave the agent). */
+  stage?: "produced" | "delivered";
   truncated?: boolean;
   truncatedItems?: number;
+  /* Items a delivered source left out (selection + truncation). */
+  omitted?: number;
   /* Item count when it differs from the ids (ids are deduplicated and capped). */
   count?: number;
   /* Extra attributes for the span. */
   attrs?: Attrs;
 }
 
-/* One `qayaba.context.<source>` span: it starts and ends at once, since a source is a result and not an activity. Returns the span's handle (ended) so a caller can add events before it ends via `build`. */
+/* One `qayaba.context.<source>` span (produced) or `qayaba.delivered.<source>` (delivered): it starts and ends at once, since a source is a result and not an activity. Returns the span's handle (ended) so a caller can add events before it ends via `build`. */
 export function recordContextSpan(telemetry: TelemetryPort, record: ContextRecord, build?: (span: SpanHandle) => void): void {
   try {
     const { ids, overflow } = capItemIds(record.ids);
+    const stage = record.stage ?? "produced";
     const truncatedItems = record.truncatedItems ?? 0;
     const bytes = Math.max(0, Math.round(record.bytes));
-    const span = startRunChildSpan(telemetry, `qayaba.context.${record.source}`, {
+    const span = startRunChildSpan(telemetry, `${stage === "delivered" ? "qayaba.delivered" : "qayaba.context"}.${record.source}`, {
       "qayaba.context.source": record.source,
+      "qayaba.context.stage": stage,
       "qayaba.context.items.count": record.count ?? ids.length + overflow,
       "qayaba.context.bytes": bytes,
       "qayaba.context.truncated": record.truncated ?? truncatedItems > 0,
       "qayaba.context.truncated_items": truncatedItems,
       "qayaba.context.item_ids": ids,
       ...(overflow > 0 ? { "qayaba.context.item_ids.overflow": overflow } : {}),
+      ...(record.omitted !== undefined && record.omitted > 0 ? { "qayaba.context.omitted": record.omitted } : {}),
       ...record.attrs,
     });
     try {

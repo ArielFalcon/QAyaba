@@ -10,18 +10,15 @@ import type { Attrs } from "../../../shared-kernel/telemetry/attribute-registry.
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
 import { domItemIdsBudgeted, type DomPageLike } from "../domain/context-item-ids.ts";
 import { buildRouteCatalog, ROUTE_STATUS } from "./route-catalog.ts";
-import { MAX_NODES_PER_ROUTE, capDomLines, type DomCaptureObserver, type DomCaptureReport, type RouteSnapshot } from "./dom-snapshot.ts";
+import { pageDeliveryOf, type DomCaptureObserver, type DomCaptureReport, type RouteSnapshot } from "./dom-snapshot.ts";
 
 /* What the agent is shown of one route, as the ids' input: the nodes within the per-route bound, the test ids within it, and how many of each were left out. */
 export function pageOf(snap: RouteSnapshot): { page: DomPageLike; leftOut: number } {
-  const nodes = snap.nodes ?? [];
-  const testIds = [...(snap.testIds?.keys() ?? [])];
-  const testIdOfNode = new Map<string, string>();
-  for (const attr of snap.attrs ?? []) if (attr.testId !== undefined) testIdOfNode.set(attr.key, attr.testId);
+  const delivery = pageDeliveryOf(snap, snap.template);
   return {
     /* A page opened from a template of the map is named by the template, as the map's own route ids are. */
-    page: { route: snap.template ?? snap.route, nodes: capDomLines(nodes, MAX_NODES_PER_ROUTE).kept, testIdOfNode, testIds: testIds.slice(0, MAX_NODES_PER_ROUTE) },
-    leftOut: Math.max(0, nodes.length - MAX_NODES_PER_ROUTE) + Math.max(0, testIds.length - MAX_NODES_PER_ROUTE),
+    page: { route: delivery.route, nodes: delivery.keptNodes, testIdOfNode: delivery.testIdOfNode, testIds: delivery.keptTestIds },
+    leftOut: delivery.nodeCapOmitted,
   };
 }
 

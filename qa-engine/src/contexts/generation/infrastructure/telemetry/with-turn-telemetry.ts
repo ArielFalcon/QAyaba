@@ -79,6 +79,7 @@ export function withTurnTelemetry(base: AgentDeps, deps: TurnTelemetryDeps): Age
                   bytes: Buffer.byteLength(redacted, "utf8"),
                   sectionSizes: promptOpts?.sectionSizes ?? null,
                   sectionHashes: promptOpts?.sectionHashes ?? null,
+                  sectionItems: promptOpts?.sectionItems ?? null,
                   sectionsDropped: promptOpts?.sectionsDropped,
                   budgetBytes: promptOpts?.promptBudgetBytes,
                 },

@@ -35,6 +35,7 @@ import type {
   GenerationPort,
   GenerationEnrichment,
   GenerationOutput,
+  GroundingOmission,
   ReviewPort,
   ReviewStats,
   ValidationPort,
@@ -1108,6 +1109,8 @@ export class RunQaUseCase {
      * Fail-open: a misbehaving adapter must never abort the run over grounding.
      */
     let groundingContextPack: string | undefined;
+    let groundingContextPackItemIds: readonly string[] | undefined;
+    let groundingContextPackOmissions: readonly GroundingOmission[] | undefined;
     let groundingExistingSpecFiles: string[] | undefined;
     let groundingContextMap: ArchitectureContext | undefined;
     let groundingContextBrief: ExplorationBrief | undefined;
@@ -1122,6 +1125,8 @@ export class RunQaUseCase {
           { sha: input.sha.toString(), ...(classificationIntent ? { intent: classificationIntent } : {}), runId: input.runId },
         );
         groundingContextPack = grounding.contextPack;
+        groundingContextPackItemIds = grounding.contextPackItemIds;
+        groundingContextPackOmissions = grounding.contextPackOmissions;
         groundingExistingSpecFiles = grounding.existingSpecFiles;
         groundingContextMap = grounding.contextMap;
         groundingContextBrief = grounding.contextBrief;
@@ -1202,6 +1207,8 @@ export class RunQaUseCase {
       ...(classificationIntent ? { intent: classificationIntent } : {}),
       ...(retrievedRules.length ? { learnedRules: retrievedRules } : {}),
       ...(groundingContextPack ? { contextPack: groundingContextPack } : {}),
+      ...(groundingContextPackItemIds ? { contextPackItemIds: groundingContextPackItemIds } : {}),
+      ...(groundingContextPackOmissions ? { contextPackOmissions: groundingContextPackOmissions } : {}),
       ...(groundingExistingSpecFiles?.length ? { existingSpecFiles: groundingExistingSpecFiles } : {}),
       ...(groundingContextMap ? { contextMap: groundingContextMap } : {}),
       ...(groundingContextBrief ? { contextBrief: groundingContextBrief } : {}),

@@ -2,7 +2,7 @@
 
 import { sanitizeText } from "./sanitize-text.ts";
 import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
-import type { CapturedPage, CaptureDomDeps, CaptureRoutesInput } from "./dom-snapshot.ts";
+import type { CapturedPage, CaptureDomDeps, CaptureRoutesInput, PageDelivery } from "./dom-snapshot.ts";
 import { loggableRoute, loggableRoutes } from "./loggable-route.ts";
 import type { ExplorationBrief, ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
@@ -11,6 +11,8 @@ import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import { rankRoutesByChange } from "../domain/route-ranking.ts";
 import { instantiableTemplate, instantiateRoute } from "../domain/route-instantiation.ts";
+import { changedValueFactIds, domItemIds, itemId } from "../domain/context-item-ids.ts";
+import type { Omission } from "../domain/section-meta.ts";
 
 export { PACK_HEADINGS };
 
@@ -68,12 +70,31 @@ export interface ContextPackTrace {
   capturablePages: number;
   /* The pages the capture returned. */
   pages: CapturedPage[];
+  /* Each captured page as it delivered: kept nodes/test ids and the node→test-id map. */
+  pageDeliveries: PageDelivery[];
   /* The test ids the change added (ChangedElement), for the present or absent fact of each. */
   changedTestIds: string[];
   /* The operations whose contracts the pack carries. */
   contractIds: string[];
   /* DOM lines the line cap left out. */
   omittedLines: number;
+}
+
+/* The pack's delivered grounding ids: the kept-line DOM ids (per page, within the node bound), the change-value facts and the contracts. Both the produced and the delivered context-pack spans are built from this, so `delivered.ids ⊆ produced.ids` holds by construction. */
+export function packDeliveredItemIds(assembly: ContextPackAssembly): { ids: string[]; omissions: Omission[] } {
+  const trace = assembly.trace;
+  if (!trace) return { ids: [], omissions: [] };
+  const deliveries = trace.pageDeliveries ?? [];
+  const domIds = domItemIds(deliveries.map((p) => ({ route: p.route, nodes: p.keptNodes, testIdOfNode: p.testIdOfNode, testIds: p.keptTestIds })));
+  const factIds = changedValueFactIds(trace.pages.map((page) => ({ route: page.template ?? page.route, ...(page.testIds ? { testIds: page.testIds } : {}) })), trace.changedTestIds);
+  const opIds = trace.contractIds.map(itemId.op);
+  const omissions: Omission[] = [];
+  for (const p of deliveries) {
+    if (p.nodeCapOmitted > 0) omissions.push({ class: "truncation", reason: "node-cap", count: p.nodeCapOmitted });
+    if (p.lineCapOmitted > 0) omissions.push({ class: "truncation", reason: "line-cap", count: p.lineCapOmitted });
+  }
+  if (trace.omittedLines > 0) omissions.push({ class: "truncation", reason: "line-cap", count: trace.omittedLines });
+  return { ids: [...domIds, ...factIds, ...opIds], omissions };
 }
 
 export interface ContextPackAssembly {
@@ -268,11 +289,12 @@ export async function buildContextPack(
   }
   const reachable = reachableTemplates.length > 0;
   const pages = new Map<string, CapturedPage>();
+  const deliveries = new Map<string, PageDelivery>();
   const captures: PackCapture[] = [];
   let renderedRoutes = 0;
   let omittedLines = 0;
   const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
-    const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) pages.set(page.route, page); } }, deps.domDeps, input.changedElements);
+    const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) { pages.set(page.route, page); deliveries.set(page.route, { route: page.template ?? page.route, ...(page.template !== undefined ? { template: page.template } : {}), keptNodes: page.keptNodes ?? [], keptTestIds: page.keptTestIds ?? [], testIdOfNode: page.testIdOfNode ?? new Map(), nodeCapOmitted: page.nodeCapOmitted ?? 0, lineCapOmitted: 0 }); } } }, deps.domDeps, input.changedElements);
     const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
     if (!raw) return;
     const { grounded, advisory } = splitRedirectSection(raw);
@@ -361,6 +383,7 @@ export async function buildContextPack(
     rankedRoutes: firstPass,
     capturablePages,
     pages: [...pages.values()],
+    pageDeliveries: [...deliveries.values()],
     changedTestIds: (input.changedElements ?? []).flatMap((element) => (element.testId === undefined ? [] : [element.testId])),
     contractIds: relevantOps.map((op) => op.operationId),
     omittedLines,

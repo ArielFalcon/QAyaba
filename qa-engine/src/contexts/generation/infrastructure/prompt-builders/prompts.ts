@@ -28,6 +28,8 @@ import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domai
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
+import { advisoryLineIds, briefItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import type { Omission } from "@contexts/generation/domain/section-meta.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
 import {
@@ -822,18 +824,18 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     return assemble([
       section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
       ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
-      ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
-      ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
+      ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims, ...(archMap ? { itemIds: archMap.itemIds, omissions: archMap.omissions } : {}) })] : []),
+      ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims, ...(input.contextBrief ? { itemIds: briefItemIds(input.contextBrief) } : {}) })] : []),
       ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
       ...(closedLoopContent ? [section(CLOSED_LOOP_SECTION_ID, "semi-stable", closedLoopContent, { priority: 0, claims: [claim.provides("closed-loop")] })] : []),
       ...(agentBrowserContent ? [section(AGENT_BROWSER_SECTION_ID, "semi-stable", agentBrowserContent, { priority: 0, claims: [claim.provides("agent-browser")] })] : []),
       ...(suiteIsListed ? [section(SUITE_LISTING_SECTION_ID, "semi-stable", listingContent, { priority: 2, claims: [claim.provides("existing-suite")], ...(editableListed ? { overflow: "summarize" as const } : {}) })] : []),
-      ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
-      ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
+      ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims, itemIds: advisoryLineIds(staticSignalContent) })] : []),
+      ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims, ...(hasServiceLinks ? { itemIds: orderedLinks.slice(0, MAX_LINKS).map((l) => itemId.svcLink(l)), ...(omittedLinkCount > 0 ? { omissions: [{ class: "selection", reason: "link-selection", count: omittedLinkCount }] } : {}) } : {}) })] : []),
       ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
       ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536, claims: [claim.provides("exemplars")] })] : []),
       ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
-      ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims })] : []),
+      ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims, ...(input.contextPackItemIds ? { itemIds: input.contextPackItemIds } : {}), ...(input.contextPackOmissions ? { omissions: input.contextPackOmissions } : {}) })] : []),
       /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
       ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1, claims: domClaims })] : []),
       ...(selectorContradictionsContent ? [section("selector-contradictions", "volatile", selectorContradictionsContent, { priority: 2, claims: selectorContradictionsClaims })] : []),
@@ -933,12 +935,12 @@ export function renderArchitectureContext(
   return renderArchitectureContextParts(ctx, changedFiles, opts)?.text ?? null;
 }
 
-/** The rendered map plus the claims its content makes: the map itself, its API operations and its FE↔BE links when they were rendered. */
+/** The rendered map plus the claims its content makes: the map itself, its API operations and its FE↔BE links when they were rendered, and the grounding ids the delivered span records. */
 export function renderArchitectureContextParts(
   ctx: ArchitectureContext,
   changedFiles?: string[],
   opts: { suppressFeBeLinks?: boolean; suppressApiOperations?: boolean } = {},
-): { text: string; claims: PromptClaim[] } | null {
+): { text: string; claims: PromptClaim[]; itemIds: string[]; omissions: Omission[] } | null {
   if (!ctx.routes?.length && !ctx.api?.length) return null;
 
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
@@ -998,7 +1000,18 @@ export function renderArchitectureContextParts(
   const claims: PromptClaim[] = [claim.provides("arch-map"), claim.frames("arch-map", "unverified")];
   if (listsApiOperations) claims.push(claim.provides("api-operations"));
   if (relevantLinks.length && !opts.suppressFeBeLinks) claims.push(claim.provides("fe-be-links"));
-  return { text: out.length > MAX_LEN ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims };
+  /* The ids of what the rendered map supplies, in the map's own order. A map truncated past MAX_LEN delivers none of them (conservative). */
+  const truncated = out.length > MAX_LEN;
+  const itemIds = truncated
+    ? []
+    : [
+        ...ctx.routes.slice(0, MAX_ITEMS).map((r) => itemId.route(r.path)),
+        ...(listsApiOperations ? ctx.api.slice(0, MAX_ITEMS).map((o) => itemId.op(o.operationId)) : []),
+        ...(!opts.suppressFeBeLinks ? relevantLinks.map((l) => itemId.link(l.route, l.operationId)) : []),
+        ...(ctx.flows?.length ? ctx.flows.slice(0, MAX_ITEMS).map((f) => itemId.flow(f.id)) : []),
+      ];
+  const omissions: Omission[] = truncated ? [{ class: "truncation", reason: "map-cap", count: ctx.routes.length + ctx.api.length + relevantLinks.length + (ctx.flows?.length ?? 0) }] : [];
+  return { text: truncated ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims, itemIds, omissions };
 }
 
 /* What a rendered brief provides and how it frames it: the blast radius, risks and contracts it distilled are established, its landmark hints (kept only when no DOM tree exists) are not. */

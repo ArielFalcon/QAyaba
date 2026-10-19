@@ -65,6 +65,13 @@ export interface HarnessFacts {
   fixtures?: { file: string; exports: readonly string[] };
 }
 
+/** Port-local mirror of the generation Omission shape (this barrel does not import across contexts). */
+export interface GroundingOmission {
+  class: "selection" | "truncation";
+  reason: string;
+  count: number;
+}
+
 /** Single input → RunOutcome. Production implementation is RewrittenOrchestratorAdapter. */
 export interface RunInput {
   app: string;
@@ -179,6 +186,9 @@ export interface GenerationEnrichment {
    * exploration — never fabricated.
    */
   contextPack?: string;
+  /** The pack's delivered grounding ids and omissions (packDeliveredItemIds), threaded with the pack text. */
+  contextPackItemIds?: readonly string[];
+  contextPackOmissions?: readonly GroundingOmission[];
   /**
    * App login is declared but the suite's auth.setup.ts is still the stock seed and did not
    * sign in, so the generator must author the login first. Set only when true.
@@ -706,6 +716,9 @@ export interface PreExecGroundingPort {
 export interface GroundingResult {
   /** Assembled context-pack text. Absent when the pack build failed or produced nothing. */
   contextPack?: string;
+  /** The pack's delivered grounding ids and omissions, computed from the kept lines (packDeliveredItemIds). Threaded with the pack text so the prompt's delivered span is read from the assembly. */
+  contextPackItemIds?: readonly string[];
+  contextPackOmissions?: readonly GroundingOmission[];
   /**
    * On-disk spec paths enumerated before the first generate(). Absent/empty when
    * the e2e dir does not exist yet or enumeration failed (fail-open).

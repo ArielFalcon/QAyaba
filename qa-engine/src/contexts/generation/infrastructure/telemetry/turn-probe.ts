@@ -23,6 +23,9 @@ import type { StepIntentContext } from "../../domain/step-intent.ts";
 import { parseModelRef } from "../agent-transport-policy.ts";
 import type { ServerToolCall } from "../../domain/tool-link.ts";
 import { emitTurnChildren, type ChildModel } from "./turn-children.ts";
+import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
+import { SECTION_SOURCE, type SectionMeta } from "../../domain/section-meta.ts";
+import type { ContextSource } from "../../domain/context-item-ids.ts";
 
 export interface TurnIdentity {
   agent: string;
@@ -41,6 +44,7 @@ export interface TurnIdentity {
     bytes: number;
     sectionSizes: Record<string, number> | null;
     sectionHashes: Record<string, string> | null;
+    sectionItems: Record<string, SectionMeta> | null;
     sectionsDropped: number | undefined;
     budgetBytes: number | undefined;
   };
@@ -76,6 +80,36 @@ function guarded(label: string, fn: () => void): void {
   } catch (err) {
     console.error(`[qa] turn telemetry (${label}) failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/* The delivered spans of the turn: one `qayaba.delivered.<source>` span per grounding source the kept assembly supplied, with the items it actually gave the agent and how many it left out. Read from the kept assembly's own metadata, never the prompt text. */
+export function recordDeliveredContextSpans(
+  telemetry: TelemetryPort,
+  sections: Readonly<Record<string, SectionMeta>> | null | undefined,
+  sectionSizes: Readonly<Record<string, number>> | null | undefined,
+): void {
+  if (!sections) return;
+  guarded("delivered spans", () => {
+    const bySource = new Map<ContextSource, { ids: string[]; bytes: number; omitted: number }>();
+    for (const [sectionId, meta] of Object.entries(sections)) {
+      const source = SECTION_SOURCE[sectionId];
+      if (source === undefined) continue;
+      const entry = bySource.get(source) ?? { ids: [], bytes: 0, omitted: 0 };
+      entry.ids.push(...meta.itemIds);
+      entry.bytes += sectionSizes?.[sectionId] ?? 0;
+      entry.omitted += meta.omissions.reduce((sum, o) => sum + o.count, 0);
+      bySource.set(source, entry);
+    }
+    for (const [source, entry] of bySource) {
+      recordContextSpan(telemetry, {
+        source,
+        stage: "delivered",
+        ids: entry.ids,
+        bytes: entry.bytes,
+        omitted: entry.omitted,
+      });
+    }
+  });
 }
 
 const providerOf = (requested: string | undefined): string | undefined => (requested ? parseModelRef(requested)?.providerID : undefined);
@@ -136,6 +170,8 @@ export class TurnProbe {
       },
     });
     this.unwatchHost = deps.watchHost ? safeWatch(deps.watchHost, this.span) : undefined;
+    /* The grounding this turn actually handed the agent, as delivered spans beside the produced ones. */
+    recordDeliveredContextSpans(telemetry, prompt.sectionItems, prompt.sectionSizes);
   }
 
   /* True once the prompt has settled for its caller and no attempt is left open: nothing more will be told. */

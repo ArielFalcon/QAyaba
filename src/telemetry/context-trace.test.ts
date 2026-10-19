@@ -26,6 +26,16 @@ import { BlastRadius } from "@kernel/blast-radius";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { traceHarness } from "./trace-harness";
+import { buildPromptAssembled, setExplorationBriefCollaborators } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { recordDeliveredContextSpans } from "@contexts/generation/infrastructure/telemetry/turn-probe";
+import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports";
+import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings";
+
+setExplorationBriefCollaborators({
+  parseExplorationBrief: () => null,
+  coerceExplorationBrief: () => null,
+  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
+});
 
 const rule = (id: string): RetrievedRule => ({ id, trigger: `trigger ${id}`, action: `action ${id}`, errorClass: "selector", status: "active", confidence: "high" });
 
@@ -212,6 +222,47 @@ test("what grounding returns is the same with the trace, without it, and with a 
   }
 });
 
+test("what the kept assembly delivers is a subset of what grounding produced, per source", async () => {
+  const h = traceHarness();
+  const g = groundingFixture(h.telemetry);
+  try {
+    mkdirSync(join(g.e2eDir, "flows"), { recursive: true });
+    await inPhase(h, async () => {
+      const grounding = await g.adapter.ground(g.e2eDir, undefined, DIFF, { sha: "abc1234", runId: "r" });
+      const input: OpencodeRunInput = {
+        repo: "org/app",
+        sha: "abc1234",
+        diff: DIFF,
+        mirrorDir: g.e2eDir,
+        e2eRelDir: "e2e",
+        namespace: "qa-bot-abc1234",
+        needsReview: true,
+        target: "e2e",
+        mode: "diff",
+        appName: "testapp",
+        ...(grounding.contextMap ? { contextMap: grounding.contextMap as never } : {}),
+        ...(grounding.contextBrief ? { contextBrief: grounding.contextBrief as never } : {}),
+        ...(grounding.contextPack ? { contextPack: grounding.contextPack } : {}),
+        ...(grounding.contextPackItemIds ? { contextPackItemIds: grounding.contextPackItemIds } : {}),
+        ...(grounding.contextPackOmissions ? { contextPackOmissions: grounding.contextPackOmissions } : {}),
+      };
+      const assembled = buildPromptAssembled(input);
+      assert.ok(assembled.sectionItems["arch-map"], "the kept assembly records the arch-map's items");
+      recordDeliveredContextSpans(h.telemetry, assembled.sectionItems, assembled.sectionSizes);
+    });
+    for (const source of ["context-map", "explorer-brief", "context-pack"] as const) {
+      const produced = new Set(contextSpan(h, source).attributes["qayaba.context.item_ids"] as string[]);
+      const deliveredSpan = h.only(`qayaba.delivered.${source}`);
+      assert.equal(deliveredSpan.attributes["qayaba.context.stage"], "delivered");
+      const delivered = deliveredSpan.attributes["qayaba.context.item_ids"] as string[];
+      assert.ok(delivered.length > 0, `delivered ${source} is not empty`);
+      for (const id of delivered) assert.ok(produced.has(id), `delivered ${source} id ${id} ⊆ produced`);
+    }
+  } finally {
+    g.dispose();
+  }
+});
+
 /* ---- the DOM capture ---- */
 
 async function withStandInNode<T>(script: string, body: (root: string) => Promise<T>): Promise<T> {
@@ -251,7 +302,7 @@ test("a page opened from a route template is named by the template, in its eleme
       text: "pack",
       domBytes: 1,
       contractBytes: 0,
-      trace: { rankedRoutes: [], capturablePages: 0, pages: [{ route: "/orders/42", template: "/orders/:id", grounded: true, links: [], testIds: ["row-x"] }], changedTestIds: ["row-x"], contractIds: [], omittedLines: 0 },
+      trace: { rankedRoutes: [], capturablePages: 0, pages: [{ route: "/orders/42", template: "/orders/:id", grounded: true, links: [], testIds: ["row-x"] }], pageDeliveries: [], changedTestIds: ["row-x"], contractIds: [], omittedLines: 0 },
     });
   });
   const ids = contextSpan(h, "dom-capture").attributes["qayaba.context.item_ids"] as string[];

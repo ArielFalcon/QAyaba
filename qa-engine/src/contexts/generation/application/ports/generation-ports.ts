@@ -8,6 +8,7 @@ import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { PlanningLimits } from "@kernel/coordination.ts";
 import type { ServiceLink, ContractDrift } from "@contexts/service-topology/domain/index.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
+import type { Omission } from "@contexts/generation/domain/section-meta.ts";
 
 
 export type CommitType =
@@ -143,6 +144,9 @@ export interface OpencodeRunInput {
   reviewerStepLimit?: number;
   contextBrief?: ExplorationBrief; /* the distilled blast radius from the explorer pass (set internally → buildPrompt) */
   contextPack?: string;
+  /* The grounding ids and omissions of the context pack, computed at pack-build time from the kept lines (packDeliveredItemIds). Threaded alongside the pack text so the prompt's delivered span is read from the assembly, never parsed from the text. */
+  contextPackItemIds?: readonly string[];
+  contextPackOmissions?: readonly Omission[];
   /* Facts about the suite's harness (test-id attribute, fixtures exports), rendered as data only. Absent = no section. */
   harnessFacts?: HarnessFacts;
   /* The limits of the run_spec tool this run granted the generator (calls, time per call, DEV writes), stated as facts. Present only when the run granted it, which only an e2e run on the OpenCode runtime does; absent = no section. */
