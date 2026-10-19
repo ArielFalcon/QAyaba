@@ -170,6 +170,12 @@ export const ATTRIBUTES = {
   /* Context spans (design §4.4): one per grounding source, with the ids of what it supplied. */
   "qayaba.context.source": str("The grounding source: learning, curriculum, context-map, route-ranking, dom-capture, context-pack, service-links, structural-signal, cross-repo-impact or explorer-brief."),
   "qayaba.context.stage": str("Which side of the supply a context span records: produced or delivered."),
+  "qayaba.context.status": str("What a produced source came to: delivered, empty, skipped or failed."),
+  "qayaba.context.reason": str("Why a produced source came to that status, from a closed set (no-map, capture-failed, disabled, ...)."),
+  "qayaba.context.cut_class": str("The kind of loss a cut was: selection or truncation."),
+  "qayaba.context.cut_reason": str("The closed reason a cut happened: route-cut, node-cap, section-shed, map-cap, ..."),
+  "qayaba.context.stale_reason": str("Why a source was stale: sha-mismatch, older-than-max-age, dom-changed, ... or none."),
+  "qayaba.context.recapture.outcome": str("What a recapture request came to: not-needed, requested, completed, failed or skipped."),
   "qayaba.context.omitted": int("Items a delivered source left out (selection + truncation)."),
   "qayaba.context.items.count": int("Items the source supplied."),
   "qayaba.context.bytes": int("Bytes the source contributed to what the agent receives."),

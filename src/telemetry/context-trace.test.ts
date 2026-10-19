@@ -18,7 +18,7 @@ import { buildContextPack, type ContextPackDeps } from "@contexts/generation/inf
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { domCaptureObserver, recordDomCapture } from "@contexts/generation/infrastructure/dom-capture-trace";
 import { MAX_ITEM_IDS } from "@contexts/generation/domain/context-item-ids";
-import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
+import { recordContextSpan } from "../../qa-engine/src/shared-infrastructure/telemetry/run-spans";import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import { testExecSandbox } from "../../qa-engine/test/support/exec-sandbox-harness";
 import { Sha } from "@kernel/sha";
@@ -63,7 +63,8 @@ test("the learned rules a run was given are a span under the phase with their id
   assert.equal(span.attributes["qayaba.context.items.count"], 2);
   assert.equal(span.attributes["qayaba.context.source"], "learning");
   assert.equal(span.attributes["qayaba.context.bytes"], Buffer.byteLength("trigger r-1action r-1trigger r-2action r-2"));
-  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.bytes").map((m) => m.attrs), [{ "qayaba.context.source": "learning" }]);
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.bytes").map((m) => m.attrs), [{ "qayaba.context.source": "learning", "qayaba.context.stage": "produced" }]);
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.items").map((m) => m.attrs), [{ "qayaba.context.source": "learning", "qayaba.context.stage": "produced" }]);
 });
 
 test("the same sources in two runs have the same ids", async () => {
@@ -133,6 +134,45 @@ test("recordDeliveredContextSpans fails open when the telemetry throws", () => {
       "context-pack": { itemIds: ["dom:/a#b"], omissions: [], capped: false },
     }, { "context-pack": 12 });
   }, "a broken telemetry must never disturb the turn");
+});
+
+test("a produced source that came to nothing records its status and reason, never a cut", async () => {
+  const h = traceHarness();
+  await inPhase(h, () => recordContextSpan(h.telemetry, { source: "context-map", ids: [], bytes: 0, status: "empty", reason: "no-map" }));
+  const span = contextSpan(h, "context-map");
+  assert.equal(span.attributes["qayaba.context.status"], "empty");
+  assert.equal(span.attributes["qayaba.context.reason"], "no-map");
+  assert.equal(h.measurements.some((m) => m.name === "qayaba.context.cut"), false);
+  assert.equal(h.measurements.some((m) => m.name === "qayaba.context.cut_items"), false);
+});
+
+test("a delivered source's cuts and freshness land on the closed-set metrics", async () => {
+  const h = traceHarness();
+  await inPhase(h, () =>
+    recordContextSpan(h.telemetry, {
+      source: "context-pack",
+      ids: ["dom:/restaurantes#save-btn"],
+      bytes: 1200,
+      stage: "delivered",
+      cuts: [
+        { class: "truncation", reason: "node-cap", count: 34 },
+        { class: "selection", reason: "route-cut", count: 21 },
+      ],
+      freshness: { ageMs: 8 * 86_400_000, stale: true, staleReason: "sha-mismatch", recapture: "requested" },
+    }),
+  );
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.cut").map((m) => m.attrs), [
+    { "qayaba.context.source": "context-pack", "qayaba.context.cut_class": "truncation", "qayaba.context.cut_reason": "node-cap" },
+    { "qayaba.context.source": "context-pack", "qayaba.context.cut_class": "selection", "qayaba.context.cut_reason": "route-cut" },
+  ]);
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.cut_items").map((m) => m.value), [34, 21]);
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.freshness.age").map((m) => m.attrs), [{ "qayaba.context.source": "context-pack" }]);
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.stale").map((m) => m.attrs), [
+    { "qayaba.context.source": "context-pack", "qayaba.context.stale_reason": "sha-mismatch" },
+  ]);
+  assert.deepEqual(h.measurements.filter((m) => m.name === "qayaba.context.recapture").map((m) => m.attrs), [
+    { "qayaba.context.source": "context-pack", "qayaba.context.recapture.outcome": "requested" },
+  ]);
 });
 
 /* ---- the grounding adapter: context map, brief, route ranking and pack ---- */

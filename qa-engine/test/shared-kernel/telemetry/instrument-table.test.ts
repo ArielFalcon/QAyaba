@@ -49,3 +49,20 @@ test("the host-health instruments are declared with their types and only the clo
     assert.deepEqual(spec?.attrs, name === "qayaba.host.event_loop.delay" ? ["qayaba.event_loop.stat"] : [], name);
   }
 });
+
+test("the context metric instruments carry only the closed-set labels the design names", () => {
+  const declared = {
+    "qayaba.context.bytes": { type: "histogram", attrs: ["qayaba.context.source", "qayaba.context.stage"] },
+    "qayaba.context.items": { type: "histogram", attrs: ["qayaba.context.source", "qayaba.context.stage"] },
+    "qayaba.context.cut": { type: "counter", attrs: ["qayaba.context.source", "qayaba.context.cut_class", "qayaba.context.cut_reason"] },
+    "qayaba.context.cut_items": { type: "histogram", attrs: ["qayaba.context.source", "qayaba.context.cut_class", "qayaba.context.cut_reason"] },
+    "qayaba.context.freshness.age": { type: "histogram", attrs: ["qayaba.context.source"] },
+    "qayaba.context.stale": { type: "counter", attrs: ["qayaba.context.source", "qayaba.context.stale_reason"] },
+    "qayaba.context.recapture": { type: "counter", attrs: ["qayaba.context.source", "qayaba.context.recapture.outcome"] },
+  } as const;
+  for (const [name, spec] of Object.entries(declared)) {
+    assert.deepEqual((INSTRUMENTS as InstrumentTable)[name], spec, name);
+  }
+  /* No ids, routes, paths or hosts may become a context metric label. */
+  assert.deepEqual(checkInstrumentTable(INSTRUMENTS), []);
+});

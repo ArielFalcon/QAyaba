@@ -30,7 +30,13 @@ export const INSTRUMENTS = {
   /* What a run's grounding, login and tests came to. */
   "qayaba.tests": { type: "counter", attrs: ["qayaba.test.status", "qayaba.test.failure_category"] },
   "qayaba.auth.attempts": { type: "counter", attrs: ["qayaba.auth.outcome"] },
-  "qayaba.context.bytes": { type: "histogram", attrs: ["qayaba.context.source"] },
+  "qayaba.context.bytes": { type: "histogram", attrs: ["qayaba.context.source", "qayaba.context.stage"] },
+  "qayaba.context.items": { type: "histogram", attrs: ["qayaba.context.source", "qayaba.context.stage"] },
+  "qayaba.context.cut": { type: "counter", attrs: ["qayaba.context.source", "qayaba.context.cut_class", "qayaba.context.cut_reason"] },
+  "qayaba.context.cut_items": { type: "histogram", attrs: ["qayaba.context.source", "qayaba.context.cut_class", "qayaba.context.cut_reason"] },
+  "qayaba.context.freshness.age": { type: "histogram", attrs: ["qayaba.context.source"] },
+  "qayaba.context.stale": { type: "counter", attrs: ["qayaba.context.source", "qayaba.context.stale_reason"] },
+  "qayaba.context.recapture": { type: "counter", attrs: ["qayaba.context.source", "qayaba.context.recapture.outcome"] },
   /* Evaluation scores: a gauge so a regrade replaces the series, and a counter for closed-set classes only (a regrade counts again). */
   "qayaba.eval.score": { type: "gauge", attrs: ["qayaba.eval.name", "qayaba.eval.source", "qayaba.eval.data_type", "qayaba.app", "qayaba.verdict"] },
   "qayaba.eval.class": { type: "counter", attrs: ["qayaba.eval.name", "qayaba.eval.value"] },
