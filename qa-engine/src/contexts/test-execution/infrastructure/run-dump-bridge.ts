@@ -18,8 +18,8 @@ import { MAX_FAULT_INJECTION_COUNTER_BYTES, MAX_FAULT_INJECTION_COUNTER_FILES, s
 import { describeReasons, scanRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
 import { ensureOwnedSpecDir, purgeRefusedDirectory, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
-/* The namespace is the run's data prefix; it names a folder, so it names nothing else. */
-const NAMESPACE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/* The namespace is the run's data prefix; it names a folder, so it names nothing else: Unicode letters, combining marks and numbers, plus the separators a folder name may carry. A path separator, a control character, and a leading dot or dash (which a hidden or relative name needs) are none of them. */
+const NAMESPACE_RE = /^[\p{L}\p{N}][\p{L}\p{M}\p{N}._-]{0,127}$/u;
 const DUMP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.json$/;
 
 /* The time all the dumps of a run are given to be checked, together; past it the set is left out, like a set the reader cannot decode in its own time. */

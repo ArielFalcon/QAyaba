@@ -156,3 +156,30 @@ test("a dump folder that is a link, or a namespace that could leave it, is refus
   assert.throws(() => openDumpBridge({ specDir: r.specDir, namespace: "../../x", dumpRoot: r.dumpRoot, workRoot: r.workRoot }), /namespace/);
   assert.throws(() => openDumpBridge({ specDir: r.specDir, namespace: "a/b", dumpRoot: r.dumpRoot, workRoot: r.workRoot }), /namespace/);
 });
+
+test("a Unicode test-data prefix is a folder name like any other: it opens, harvests and disposes", (t) => {
+  const r = rig(t);
+  const namespace = "ñame-abc";
+  const bridge = openDumpBridge({ specDir: r.specDir, namespace, dumpRoot: r.dumpRoot, workRoot: r.workRoot });
+  const link = join(r.specDir, ".qa", "coverage", namespace);
+  assert.equal(lstatSync(link).isSymbolicLink(), true);
+  writeFileSync(join(link, "w0-0.json"), DUMP);
+  writeFileSync(join(r.dumpRoot, "fault-injection", "injected-1.json"), JSON.stringify({ corrupted: 2 }));
+
+  bridge.harvest();
+
+  assert.deepEqual(entries(join(r.specDir, ".qa", "coverage", namespace)), ["w0-0.json"]);
+  assert.equal(countInjectedResponses(r.specDir, namespace), 2);
+  bridge.dispose();
+  bridge.dispose();
+  assert.equal(lstatSync(join(r.specDir, ".qa", "coverage", namespace)).isDirectory(), true, "the harvested folder stays");
+});
+
+test("a namespace that is empty, relative, longer than a folder name or not letters and numbers is refused", (t) => {
+  const r = rig(t);
+  const refused = ["", ".", "..", "-qa", ".qa", "../x", "a/b", "a\\b", `a${String.fromCharCode(0)}b`, "a\nb", "x".repeat(129)];
+  for (const namespace of refused) {
+    assert.throws(() => openDumpBridge({ specDir: r.specDir, namespace, dumpRoot: r.dumpRoot, workRoot: r.workRoot }), /namespace/, JSON.stringify(namespace));
+  }
+  openDumpBridge({ specDir: r.specDir, namespace: "x".repeat(128), dumpRoot: r.dumpRoot, workRoot: r.workRoot }).dispose();
+});
