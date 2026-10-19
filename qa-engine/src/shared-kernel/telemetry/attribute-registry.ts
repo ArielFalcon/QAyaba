@@ -83,6 +83,8 @@ export const ATTRIBUTES = {
   "qayaba.specs.valid": int("Delivered specs that passed validation."),
   "qayaba.specs.passed": int("Delivered specs that passed execution."),
   "qayaba.reviewer.turn_happened": bool("A reviewer turn took place."),
+  "qayaba.review.outcome": str("How a review round's verdict read: approved, rejected, parse-miss or unavailable."),
+  "qayaba.review.decided_by": str("What decided the review round: model, precheck or unchanged."),
   "qayaba.limit.fired": str("The limit that ended the run or turn: tier-budget, run-deadline, repair-cap, explorer-timeout, session-timeout, prompt-budget, host-cap, stall, step-cap, cancel or none."),
   "qayaba.limit.applied": str("The time limit that bound the turn (the smallest that applied), named like the limit that fires."),
   "qayaba.limit.applied_ms": int("The time limit that bound the turn, in milliseconds."),

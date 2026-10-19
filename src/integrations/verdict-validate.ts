@@ -51,6 +51,8 @@ export interface ReviewerVerdict {
   rationale?: string;
   /* Flat list of ALL correction texts (blocking + advisory), for backward-compat logging. */
   corrections: string[];
+  /* The effective severity of each correction, in the same order. Absent on older parsers. */
+  correctionSeverities?: ("blocking" | "advisory")[];
 
   blockingCount: number;
   valid: boolean;  /* the reviewer JSON satisfied the schema (i.e. `approved` is a clean boolean) */
@@ -74,12 +76,14 @@ export function parseReviewerVerdict(text: string): ReviewerVerdict {
   const r = ReviewerVerdictSchema.safeParse(candidate);
   if (r.success) {
     const corrections = r.data.corrections.map(correctionText);
+    const correctionSeverities = r.data.corrections.map((e) => effectiveSeverity(e));
 
-    const blockingCount = r.data.corrections.filter((e) => effectiveSeverity(e) === "blocking").length;
+    const blockingCount = correctionSeverities.filter((s) => s === "blocking").length;
     return {
       approved: r.data.approved,
       ...(r.data.rationale && r.data.rationale.trim() ? { rationale: r.data.rationale.trim() } : {}),
       corrections,
+      correctionSeverities,
       blockingCount,
       valid: true,
       parsed: true,

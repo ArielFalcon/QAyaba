@@ -448,3 +448,38 @@ test("a verdict with no plan key carries no plan", () => {
   assert.equal("plan" in parseVerdict('{"specs":["a.spec.ts"]}'), false);
 });
 
+
+/* The reviewer's answer is a verdict, not a report: the live run's second review answered 49 KB
+ * around its JSON. The parser still finds the JSON and the qa-engine adapter keeps only the bounded
+ * fields the record stores. */
+test("a 49 KB reviewer answer parses, and the adapter keeps only a bounded verdict", async () => {
+  const { VerdictParserAdapter } = await import("@contexts/generation/infrastructure/verdict-parser.adapter");
+  const prose = "The spec asserts an empty state while the page shows results, so it would stay green. ".repeat(650);
+  const text = `${prose}\n{"approved":false,"rationale":"${"r".repeat(800)}","corrections":["[false-positive] spec: ${"c".repeat(700)}"]}`;
+  const adapter = new VerdictParserAdapter({
+    parseVerdict: () => ({ parsed: true, specs: [] }),
+    parseReviewerVerdict,
+  });
+
+  const j = adapter.parseReview(text);
+
+  assert.equal(j.parsed, true, "the JSON at the end of the prose is still found");
+  assert.equal(j.approved, false, "the verdict itself is untouched");
+  assert.ok((j.rationale ?? "").length <= 320, `rationale capped, got ${j.rationale?.length}`);
+  assert.equal(j.corrections.length, 1);
+  assert.ok(j.corrections[0]!.length <= 400, `correction capped, got ${j.corrections[0]?.length}`);
+});
+
+test("the correction cap never hides a blocking finding behind six advisory ones", async () => {
+  const { VerdictParserAdapter } = await import("@contexts/generation/infrastructure/verdict-parser.adapter");
+  const advisory = Array.from({ length: 6 }, (_, i) => ({ text: `[fragile-selector] spec: advisory ${i}`, severity: "advisory" }));
+  const corrections = [...advisory, { text: "[false-positive] spec: the discount is never asserted", severity: "advisory" }];
+  const text = JSON.stringify({ approved: false, rationale: "rejected", corrections });
+  const adapter = new VerdictParserAdapter({ parseVerdict: () => ({ parsed: true, specs: [] }), parseReviewerVerdict });
+
+  const j = adapter.parseReview(text);
+
+  assert.equal(j.corrections.length, 6);
+  assert.match(j.corrections[0] ?? "", /^\[false-positive\]/, "the blocking correction survives the count cap, first");
+  assert.ok(j.corrections.slice(1).every((c) => c.startsWith("[fragile-selector]")));
+});

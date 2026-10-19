@@ -5,6 +5,7 @@ import type { VerdictParserPort, GeneratorDeliverable, ReviewJudgment } from "..
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 import { sanitizeText } from "./sanitize-text.ts";
+import { boundReviewCorrections, boundReviewRationale, reviewAnswerIsOversized, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS } from "../domain/review-output.ts";
 
 /* Redacted at the earliest point, then cut to the note bound: the reason and the output tail end up persisted on the run, where no later stage redacts them. The reason keeps its start, the output keeps its end. */
 function forNote(text: string, keep: "start" | "end"): string {
@@ -46,6 +47,8 @@ interface LegacyReviewer {
   parsed?: boolean;
   valid: boolean;
   issues: string[];
+  /* The effective severity of each correction, in order, when the parser can tell them apart. */
+  correctionSeverities?: ("blocking" | "advisory")[];
 }
 
 export interface VerdictParsers {
@@ -81,10 +84,21 @@ export class VerdictParserAdapter implements VerdictParserPort {
 
   parseReview(text: string): ReviewJudgment {
     const r = this.p.parseReviewerVerdict(text);
+    /*
+     * The verdict is the JSON; everything around it is prose the record does not need. A reviewer
+     * that answers with a page of analysis still yields the same small verdict, and the caps make
+     * the answer's size independent of how much the model wrote.
+     */
+    if (reviewAnswerIsOversized(text)) {
+      console.warn(
+        `[qa] WARNING: the reviewer answered ${text.length} chars (contract: ${REVIEW_RESPONSE_MAX_CHARS}) — keeping only the bounded verdict (rationale ≤ ${REVIEW_RATIONALE_MAX_CHARS} chars, ≤ ${REVIEW_CORRECTIONS_MAX} corrections)`,
+      );
+    }
+    const rationale = boundReviewRationale(r.rationale);
     return {
       approved: r.approved,
-      corrections: r.corrections,
-      ...(r.rationale ? { rationale: r.rationale } : {}),
+      corrections: boundReviewCorrections(r.corrections, r.correctionSeverities),
+      ...(rationale !== undefined ? { rationale } : {}),
       ...(r.blockingCount !== undefined ? { blockingCount: r.blockingCount } : {}),
       ...(r.parsed !== undefined ? { parsed: r.parsed } : {}),
       valid: r.valid,

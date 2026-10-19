@@ -213,3 +213,52 @@ test("parseGenerator forwards a plan the legacy parser read, and carries none wh
   assert.equal("plan" in without.parseGenerator("written"), false);
 });
 
+
+/* The reviewer's answer is a verdict, not a report. A model that writes a page of prose around its
+ * JSON (the live run's second review: 49 KB) must leave the same bounded verdict the record keeps:
+ * approval preserved, one/two-sentence rationale, a handful of corrections. */
+
+test("a 49 KB reviewer answer is parsed to a bounded verdict, never stored whole", () => {
+  const prose = "The spec under review asserts the empty state while the page clearly shows results. ".repeat(560);
+  const text = `${prose}\n{"approved":false,"rationale":"${"r".repeat(900)}","corrections":[${Array.from({ length: 9 }, (_, i) => `"${`[false-positive] spec: correction ${i} ${"c".repeat(500)}`}"`).join(",")}]}`;
+  const adapter = new VerdictParserAdapter({
+    parseVerdict: () => ({ parsed: true, specs: [] }) as never,
+    parseReviewerVerdict: (t: string) => ({
+      approved: t.includes('"approved":false') ? false : true,
+      rationale: "r".repeat(900),
+      corrections: Array.from({ length: 9 }, (_, i) => `[false-positive] spec: correction ${i} ${"c".repeat(500)}`),
+      blockingCount: 9,
+      parsed: true,
+      valid: true,
+      issues: [],
+    }) as never,
+  } as never);
+
+  const j = adapter.parseReview(text);
+
+  assert.equal(j.approved, false, "the verdict itself is untouched");
+  assert.ok((j.rationale ?? "").length <= 320, `rationale capped, got ${j.rationale?.length}`);
+  assert.ok(j.corrections.length <= 6, `corrections capped, got ${j.corrections.length}`);
+  for (const correction of j.corrections) assert.ok(correction.length <= 400, `correction capped, got ${correction.length}`);
+  assert.equal(j.blockingCount, 9, "the blocking count is the reviewer's own, never reduced by the display cap");
+});
+
+test("an approval keeps its rationale, bounded, and is not turned into a rejection by the caps", () => {
+  const adapter = new VerdictParserAdapter({
+    parseVerdict: () => ({ parsed: true, specs: [] }) as never,
+    parseReviewerVerdict: () => ({
+      approved: true,
+      rationale: `${"The discount is asserted end to end. ".repeat(40)}`,
+      corrections: [],
+      blockingCount: 0,
+      parsed: true,
+      valid: true,
+      issues: [],
+    }) as never,
+  } as never);
+
+  const j = adapter.parseReview("approved");
+  assert.equal(j.approved, true);
+  assert.ok((j.rationale ?? "").length <= 320);
+  assert.match(j.rationale ?? "", /discount/);
+});

@@ -187,6 +187,9 @@ export interface ReviewInput {
   domSnapshot?: string;
   runId?: string;
   priorCorrections?: string[];
+  /* On a second round: the spec lines that changed since the reviewer's last rejection. The round is
+   * judged against this change plus the prior corrections; unchanged specs are not re-reviewed. */
+  specChanges?: string;
   executionResult?: string;
   /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;

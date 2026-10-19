@@ -707,7 +707,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   const review = getAgentDeps
     ? new ReviewPortAdapter(
         {
-          runtime: new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => getAgentDeps(acceptanceTurn).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}), ...(opts?.model ? { model: opts.model } : {}), ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}) }) }, roleToAgentName),
+          runtime: new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => getAgentDeps(acceptanceTurn).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}), ...(opts?.model ? { model: opts.model } : {}), ...(opts?.onUsage ? { onUsage: opts.onUsage } : {}), ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}) }) }, roleToAgentName),
           rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow }),
           verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }),
         },
@@ -876,6 +876,7 @@ export function buildRewrittenCompositionConfig(
           ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
           ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}),
           ...(opts?.model ? { model: opts.model } : {}),
+          ...(opts?.onUsage ? { onUsage: opts.onUsage } : {}),
           ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}),
         });
       },

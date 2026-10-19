@@ -402,6 +402,8 @@ export interface PlanOutput {
  */
 export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
+  /* The spec lines that changed since the prior rejection, already bounded and rendered. */
+  specChanges?: string;
   /**
    * Same retrieved rules the generator saw. The adapter renders only active
    * rules; candidates are for the generator to explore, never for the judge to
@@ -440,6 +442,21 @@ export const REVIEWER_UNAVAILABLE_MARKER = "reviewer unavailable";
  * a real rejection — so FixLoop re-prompts once instead of burning a fix round.
  * Fail-closed: a missing parse is never treated as approval.
  */
+/**
+ * What one reviewer turn cost, as its own runtime reported it. Every figure is optional and absent
+ * when the runtime did not report it: never a fabricated zero. `durationMs` is always measured by the
+ * bridge. Persisted on the run's reviewer signal, never read back into the verdict.
+ */
+export interface ReviewStats {
+  durationMs: number;
+  promptBytes: number;
+  outputChars: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+  steps?: number;
+}
+
 export interface ReviewPort {
   /**
    * `diff` is the real per-run commit diff; absent falls back to the adapter's
@@ -457,6 +474,8 @@ export interface ReviewPort {
      * reached a reviewer's answer, including an unreadable one (a parse miss).
      */
     unavailable?: boolean;
+    /** What the turn cost. Absent when the port never opened a reviewer session. */
+    stats?: ReviewStats;
   }>;
 }
 /** What the run knows that a validation may report on. */

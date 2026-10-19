@@ -30,6 +30,12 @@ import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catal
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
+import {
+  REVIEWER_PROMPT_VERSION,
+  REVIEW_CORRECTIONS_MAX,
+  REVIEW_CORRECTION_MAX_CHARS,
+  REVIEW_RATIONALE_MAX_CHARS,
+} from "@contexts/generation/domain/review-output.ts";
 
 export type { AssembledPrompt };
 export { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES };
@@ -1516,6 +1522,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
   const obj = reviewObjective(input);
 
   const roleFramingContent = [
+    `<!-- reviewer-prompt-version: ${REVIEWER_PROMPT_VERSION} -->`,
     `## Independent review — judge these ${kind} WITHOUT the generator's reasoning`,
     ``,
     `You are reviewing tests written for ${obj.subject}, but you have NO access to the`,
@@ -1546,9 +1553,13 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
   ].join("\n");
 
   const outputContractContent = [
-    `Output your verdict as JSON with no text before or after. Always include a one or two`,
-    `sentence "rationale" explaining the verdict — on APPROVAL too (why these tests genuinely`,
-    `defend ${obj.targetNoun}), not only on rejection.`,
+    `## Output — one JSON object, nothing else`,
+    `Your ENTIRE reply is the JSON object below: no prose before or after it, no markdown fence, no`,
+    `restatement of the specs, no analysis of your process. Text outside the object is discarded.`,
+    `- "rationale": 1-2 sentences, ${REVIEW_RATIONALE_MAX_CHARS} characters at most, on APPROVAL too —`,
+    `  name ${obj.targetNoun} and what these tests do or fail to do about it.`,
+    `- "corrections": at most ${REVIEW_CORRECTIONS_MAX} entries, each "text" at most ${REVIEW_CORRECTION_MAX_CHARS}`,
+    `  characters (what file, what to change, why), blocking entries first.`,
     `Prefix EVERY correction with exactly one class tag from this closed list so the failure`,
     `is machine-classifiable: [false-positive] (asserts nothing / passes when the feature is`,
     `broken), [wrong-objective] (does not test ${obj.targetNoun}), [fragile-selector] (ambiguous or`,
@@ -1557,7 +1568,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     `- "blocking": this issue makes the test worthless (false-positive, wrong-objective, missing cleanup) — fails the gate.`,
     `- "advisory": style/robustness nit that does not make the test worthless alone — recorded but does not fail the gate.`,
     `An unconfirmable UI selector (no DOM evidence in this prompt) MUST be advisory, never blocking.`,
-    `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking"},{"text":"[other] file.spec.ts: minor style nit","severity":"advisory"}]}`,
+    `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking"}]}`,
   ].join("\n");
 
   const objectiveContent = [obj.heading, ...obj.body].join("\n");
@@ -1585,10 +1596,11 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     const raw = [
       `## Prior-round corrections (from YOUR previous verdict on these specs)`,
       ``,
-      `The generator has addressed these corrections. Your task for this round:`,
-      `- APPROVE if the previously-raised BLOCKING issues are now resolved (do not re-raise them as new blocking corrections).`,
-      `- NEW blocking issues on UNCHANGED specs: only if the prior-round fix introduced a new anti-pattern.`,
-      `- Advisory nits on specs that are functionally identical to the prior round: omit.`,
+      `Only the specs listed as materially changed in the next section are new to you; the spec`,
+      `change is excerpted there. Judge that change, not the whole suite again.`,
+      `- APPROVE if the previously-raised BLOCKING issues are resolved (do not re-raise them).`,
+      `- Raise a NEW blocking correction only if the change introduced a new anti-pattern.`,
+      `- Omit advisory nits; they are not worth a round.`,
       ``,
       lines,
     ].join("\n");
@@ -1597,6 +1609,24 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
       return truncated + "\n… (truncated — see spec contents for the full picture)";
     }
     return raw;
+  })();
+
+  /* Second-round focus: the spec lines that changed since the reviewer's own rejection, bounded and
+   * sanitized like every other agent-authored text that becomes prompt text. */
+  const SPEC_CHANGE_MAX_BYTES = 4_000;
+  const specChangeContent = (() => {
+    if (!input.specChanges || input.specChanges.trim() === "") return "";
+    const raw = [
+      `## Spec change since your last rejection (material change only)`,
+      ``,
+      `This is the change the generator made in response to your corrections. Anything not shown here`,
+      `is unchanged since the specs you already judged.`,
+      ``,
+      sanitizeText(input.specChanges, "model").text,
+    ].join("\n");
+    return Buffer.byteLength(raw, "utf8") > SPEC_CHANGE_MAX_BYTES
+      ? `${raw.slice(0, SPEC_CHANGE_MAX_BYTES)}\n… (change truncated)`
+      : raw;
   })();
 
   /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
@@ -1613,6 +1643,9 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     ...(learnedRulesContent ? [section("reviewer-learned-rules", "volatile", learnedRulesContent, { priority: 3 })] : []),
     /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
     ...(priorCorrectionsContent ? [section("reviewer-prior-corrections", "volatile", priorCorrectionsContent, { priority: 4 })] : []),
+    /* What the generator changed since the rejection this round answers: the smallest section in the
+     * prompt, and the one the round is about. Shed first when the window is tight. */
+    ...(specChangeContent ? [section("reviewer-spec-change", "volatile", specChangeContent, { priority: 5 })] : []),
     /* The cap the reviewer's session runs under, when the host resolved one: a fact of its own, placed before the verdict contract so that the contract still ends the prompt. */
     ...(input.stepLimit !== undefined ? [section(REVIEWER_STEP_LIMIT_SECTION_ID, "critical-recap", renderStepLimit(input.stepLimit), { priority: 0, claims: [claim.provides("step-limit")] })] : []),
     section("reviewer-output-contract", "critical-recap", outputContractContent, { priority: 1 }),

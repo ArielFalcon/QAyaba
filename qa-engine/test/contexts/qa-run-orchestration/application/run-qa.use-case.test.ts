@@ -1,7 +1,7 @@
 import { mock, test } from "node:test";
 import { inspect } from "node:util";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
@@ -14,6 +14,8 @@ import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructur
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
+import type { RecordMeasurement } from "@kernel/telemetry/telemetry.port.ts";
 import { CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { Sha } from "@kernel/sha.ts";
@@ -7995,4 +7997,247 @@ test("an agent failure that is not the deadline is still the integration error i
   const { ports, savedOutcomes } = stubPorts({ generate: async () => { throw new Error("provider returned 500"); } });
   await assert.rejects(new RunQaUseCase({ ...ports, config: baseConfig }).run(baseInput), /provider returned 500/);
   assert.equal(savedOutcomes.length, 0);
+});
+
+/* Reviewer optimization: the deterministic DOM pre-check, the unchanged-spec rule and the bounded
+ * second round. These are the live run's R4 shapes: a spec that asserts "0 resultados" while the
+ * captured page shows 11 restaurants (the reviewer rejected it, correctly), and a legitimate spec
+ * that must still be approved. */
+
+const R4_DOM = [
+  "route /restaurants:",
+  "  heading: Restaurantes",
+  "  text: 11 restaurantes",
+  "  textbox: Buscar",
+  "  button: Buscar",
+  "  button: Fin de la lista",
+  "  test-ids on this route: restaurant-card, end-of-list",
+].join("\n");
+
+const R4_SPEC = `import { test, expect } from "../fixtures";
+
+test("the empty state is shown", async ({ page }) => {
+  await page.goto("/restaurants");
+  await expect(page.getByText("0 resultados")).toBeVisible();
+});
+`;
+
+const R4_LEGIT_SPEC = `import { test, expect } from "../fixtures";
+
+test("the list is shown", async ({ page }) => {
+  await page.goto("/restaurants");
+  await expect(page.getByText("11 restaurantes")).toBeVisible();
+});
+`;
+
+function reviewFixtures(): { specDir: string; mirrorDir: string; write: (file: string, text: string) => void; cleanup: () => void } {
+  const mirrorDir = mkdtempSync(join(tmpdir(), "qa-review-opt-"));
+  const specDir = join(mirrorDir, "e2e");
+  mkdirSync(specDir, { recursive: true });
+  return {
+    specDir,
+    mirrorDir,
+    write: (file, text) => {
+      mkdirSync(join(specDir, file, ".."), { recursive: true });
+      writeFileSync(join(specDir, file), text);
+    },
+    cleanup: () => rmSync(mirrorDir, { recursive: true, force: true }),
+  };
+}
+
+test("reviewer pre-check (R4): a spec asserting an empty state the captured DOM contradicts is rejected before any model round", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let modelReviews = 0;
+    const regenCorrections: (readonly string[] | undefined)[] = [];
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async () => { modelReviews++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; },
+    });
+    ports.generation.generate = async (_objectives, specDir, _signal, _diff, enrichment) => {
+      regenCorrections.push(enrichment?.reviewCorrections);
+      fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-precheck-r4" });
+
+    assert.equal(modelReviews, 0, "the deterministic contradiction needs no model round");
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "issue", "the pre-check rejection is a real rejection, never a pass");
+    const saved = savedOutcomes[0]!;
+    assert.equal(saved.gateSignals.reviewerApproved, false);
+    assert.match(saved.gateSignals.reviewerCorrections[0] ?? "", /^\[false-positive\]/);
+    assert.match(saved.gateSignals.reviewerCorrections[0] ?? "", /0 resultados/);
+    assert.deepEqual(regenCorrections.filter((c) => c?.length)[0], saved.gateSignals.reviewerCorrections, "the pre-check's corrections are the regeneration signal");
+    assert.equal(saved.gateSignals.reviewer?.preCheckRejects, 1);
+    assert.equal(saved.gateSignals.reviewer?.modelRounds, 0);
+    assert.equal(saved.gateSignals.reviewer?.rounds, 2, "round 1 exists but is resolved without a model");
+    assert.equal(saved.gateSignals.reviewer?.skippedRounds, 1, "the unchanged spec is not re-reviewed");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("reviewer pre-check: a legitimate spec whose assertions the captured DOM confirms reaches the model reviewer and is approved", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let modelReviews = 0;
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async () => {
+        modelReviews++;
+        return { approved: true, corrections: [], blockingCount: 0, rationale: "the list is asserted against the captured page", parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-precheck-legit" });
+
+    assert.equal(modelReviews, 1, "no contradiction found: the model reviewer decides");
+    assert.equal(out.decision.sideEffect, "pr");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewerApproved, true);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.preCheckRejects, 0);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.modelRounds, 1);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a generator that changes nothing after a rejection is not reviewed twice: the previous verdict stands", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let modelReviews = 0;
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async () => {
+        modelReviews++;
+        return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-unchanged-no-recheck" });
+
+    assert.equal(modelReviews, 1, "round 1 sees the same bytes and is not sent to the model");
+    assert.equal(out.decision.sideEffect, "issue");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.skippedRounds, 1);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.modelRounds, 1);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a regeneration that only adds comments does not buy a second review: the rejection stands", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let modelReviews = 0;
+    let generation = 0;
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async () => {
+        modelReviews++;
+        return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? R4_LEGIT_SPEC : `// regenerated: addressed the reviewer\n${R4_LEGIT_SPEC}`);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-comment-only" });
+
+    assert.equal(modelReviews, 1, "a comment-only change is not a material change");
+    assert.equal(out.decision.sideEffect, "issue");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a materially changed spec is re-reviewed with the prior corrections and the spec change it must focus on", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const seen: Array<{ priorCorrections?: readonly string[]; specChanges?: string }> = [];
+    let generation = 0;
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async (_specDir, _cases, _diff, enrichment) => {
+        seen.push({ ...(enrichment?.priorCorrections ? { priorCorrections: enrichment.priorCorrections } : {}), ...(enrichment?.specChanges ? { specChanges: enrichment.specChanges } : {}) });
+        return seen.length === 1
+          ? { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? R4_SPEC : R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-material-change" });
+
+    assert.equal(seen.length, 2);
+    assert.deepEqual(seen[1]!.priorCorrections, ["[false-positive] the list is never asserted"]);
+    assert.match(seen[1]!.specChanges ?? "", /- .*0 resultados/);
+    assert.match(seen[1]!.specChanges ?? "", /\+ .*11 restaurantes/);
+    assert.equal(out.decision.sideEffect, "pr");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+
+/* A telemetry port that keeps the counters a test asserts; every other method is the null object. */
+class RecordingTelemetry extends NoopTelemetry {
+  readonly counters: Array<{ name: string; attrs: Record<string, unknown> }> = [];
+  override counter(name?: string): RecordMeasurement {
+    return (_value, attrs) => { this.counters.push({ name: name ?? "", attrs: { ...(attrs ?? {}) } }); };
+  }
+}
+
+test("each review round records a bounded qayaba.review metric: what decided it and how it read", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const telemetry = new RecordingTelemetry();
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, telemetry, config: baseConfig });
+
+    await useCase.run({ ...baseInput, runId: "review-metric" });
+
+    const rounds = telemetry.counters.filter((c) => c.name === "qayaba.review");
+    assert.equal(rounds.length, 2, "one measurement per review round, the pre-check and the unchanged one");
+    assert.equal(rounds[0]!.attrs["qayaba.review.decided_by"], "precheck");
+    assert.equal(rounds[0]!.attrs["qayaba.review.outcome"], "rejected");
+    assert.equal(rounds[1]!.attrs["qayaba.review.decided_by"], "unchanged");
+    assert.equal(rounds[0]!.attrs["qayaba.app"], baseInput.app);
+  } finally {
+    fixtures.cleanup();
+  }
 });

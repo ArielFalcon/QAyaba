@@ -42,7 +42,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
   const ALL_GATE_SIGNAL_FIELDS = {
     static: true, coverageRatio: true, valueScore: true, mutantCount: true, killedCount: true,
     reviewerCorrections: true,
-    reviewerRationale: true, reviewerApproved: true, flaky: true, retries: true, confinement: true,
+    reviewerRationale: true, reviewerApproved: true, reviewer: true, flaky: true, retries: true, confinement: true,
     usage: true, phaseTimings: true, furthestPhase: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
     structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
@@ -73,7 +73,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     const mapped = [
       "static", "coverageRatio", "valueScore", "mutantCount", "killedCount", "reviewerCorrections",
       "reviewerRationale",
-      "reviewerApproved", "flaky", "retries", "confinement", "usage", "phaseTimings", "furthestPhase",
+      "reviewerApproved", "reviewer", "flaky", "retries", "confinement", "usage", "phaseTimings", "furthestPhase",
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
       "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "closedLoop", "agentBrowser", "coordination",
@@ -97,6 +97,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
         reviewerCorrections: [S("reviewerCorrections")],
         reviewerRationale: S("reviewerRationale"),
         reviewerApproved: true,
+        reviewer: { rounds: 2, modelRounds: 1, approved: false, corrections: 1, blocking: 1, durationMs: 4_000, promptBytes: 900, outputTokens: 120, costUsd: 0.01, steps: 1, preCheckRejects: 1, skippedRounds: 2 },
         flaky: true,
         retries: 3,
         confinement: { strays: 1, dangerous: 0, reverted: [S("reverted")] },
@@ -144,6 +145,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     assert.deepEqual(gs.reviewerCorrections, [S("reviewerCorrections")], `gateSignals.reviewerCorrections dropped at ${dyingLayer}`);
     assert.equal(gs.reviewerRationale, S("reviewerRationale"), `gateSignals.reviewerRationale dropped at ${dyingLayer}`);
     assert.equal(gs.reviewerApproved, true, `gateSignals.reviewerApproved dropped at ${dyingLayer}`);
+    assert.deepEqual(gs.reviewer, { rounds: 2, modelRounds: 1, approved: false, corrections: 1, blocking: 1, durationMs: 4_000, promptBytes: 900, outputTokens: 120, costUsd: 0.01, steps: 1, preCheckRejects: 1, skippedRounds: 2 }, `gateSignals.reviewer dropped at ${dyingLayer}`);
     assert.equal(gs.flaky, true, `gateSignals.flaky dropped at ${dyingLayer}`);
     assert.equal(gs.retries, 3, `gateSignals.retries dropped at ${dyingLayer}`);
     assert.deepEqual(gs.confinement, { strays: 1, dangerous: 0, reverted: [S("reverted")] }, `gateSignals.confinement dropped at ${dyingLayer}`);

@@ -36,6 +36,7 @@ import type {
   GenerationEnrichment,
   GenerationOutput,
   ReviewPort,
+  ReviewStats,
   ValidationPort,
   ExecutionPort,
   ObjectiveSignalPort,
@@ -143,6 +144,9 @@ import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
 import { attributeContradictions } from "../domain/helpers/contradiction-attribution.ts";
 import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
+import { precheckSpecsAgainstDom } from "../domain/deterministic-review-precheck.ts";
+import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/domain/review-fingerprint.ts";
+import { readConfinedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { ERROR_CLASS, resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
@@ -434,6 +438,8 @@ export interface RunQaResult {
     coverageRatio: number | null;
     valueScore: number | null;
     reviewerApproved?: boolean;
+    /** What the review phase cost and decided; absent when no reviewer phase ran. */
+    reviewer?: RunOutcome["gateSignals"]["reviewer"];
     retries: number;
     preExecAmbiguityCatches: number;
     deterministicSelectorBlocks: number;
@@ -1915,6 +1921,8 @@ export class RunQaUseCase {
     let reviewerApprovedForOutcome: boolean | undefined = reviewerApprovedFromGeneration;
     /* Stays [] when the review loop never runs — never fabricated. */
     let finalReviewerCorrections: string[] = [];
+    /* What the review phase cost and decided; absent when the phase never ran. */
+    let reviewerSignal: RunOutcome["gateSignals"]["reviewer"];
     /*
      * Also gated on generating: a regression run never invokes the reviewer
      * (nothing new to judge; decide()'s !generating branch already wins).
@@ -1931,6 +1939,61 @@ export class RunQaUseCase {
       const MAX_REVIEW_ROUNDS = 2;
       let reviewCases = run.cases;
       let previousRoundCorrections: string[] | undefined;
+      /* The blocking count that produced the previous rejection, so a skipped round reports it unchanged. */
+      let previousRoundBlocking: number | undefined;
+      /*
+       * The specs the previous round judged, and a roll-up of what the review phase cost. The specs
+       * are read through the confined reader: a name that leaves the directory, or a file that is
+       * gone, contributes nothing and the round fails open to the model.
+       */
+      const specRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
+      const readReviewedSpecs = (cases: readonly QaCase[]): ReviewSpecText[] => {
+        const seen = new Set<string>();
+        const specs: ReviewSpecText[] = [];
+        for (const c of cases) {
+          const file = c.file ?? c.name;
+          if (seen.has(file)) continue;
+          seen.add(file);
+          try {
+            specs.push({ file, text: readConfinedSpecFile(specRoot, file) });
+          } catch {
+            /* Unreadable spec: no pre-check and no duplicate round for it; the model reviewer still sees it from the prompt. */
+          }
+        }
+        return specs;
+      };
+      let previousRoundSpecs: ReviewSpecText[] | undefined;
+      let previousRoundCaseCount = 0;
+      const reviewStats = {
+        rounds: 0,
+        modelRounds: 0,
+        preCheckRejects: 0,
+        skippedRounds: 0,
+        durationMs: 0,
+        promptBytes: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        steps: 0,
+        blocking: 0,
+        metricsKnown: { output: false, cost: false, steps: false },
+      };
+      const addReviewStats = (stats: ReviewStats | undefined): void => {
+        if (!stats) return;
+        reviewStats.durationMs += stats.durationMs;
+        reviewStats.promptBytes += stats.promptBytes;
+        if (stats.outputTokens !== undefined) {
+          reviewStats.outputTokens += stats.outputTokens;
+          reviewStats.metricsKnown.output = true;
+        }
+        if (stats.costUsd !== undefined) {
+          reviewStats.costUsd += stats.costUsd;
+          reviewStats.metricsKnown.cost = true;
+        }
+        if (stats.steps !== undefined) {
+          reviewStats.steps += stats.steps;
+          reviewStats.metricsKnown.steps = true;
+        }
+      };
       /*
        * Do not set finalReviewerCorrections on parse-miss or executedRed exits
        * (no real reviewer-authored text). Re-capture DOM only when the reviewed spec
@@ -1960,11 +2023,91 @@ export class RunQaUseCase {
           }
           if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
         }
-        const reviewResult = await this.deps.review.review(workspace.specDir, reviewCases, classificationDiff, {
-          ...baseReviewEnrichment,
-          ...(previousRoundCorrections ? { priorCorrections: previousRoundCorrections } : {}),
-          ...(reviewDomSnapshot ? { domSnapshot: reviewDomSnapshot } : {}),
+
+        const reviewedSpecs = readReviewedSpecs(reviewCases);
+        const specsReadable = reviewedSpecs.length === reviewCases.length && reviewedSpecs.length > 0;
+        /*
+         * The previous rejection stands when the new specs are materially the same: a round that
+         * only changed comments cannot resolve a blocking correction, and paying a model to say so
+         * twice is waste. Only judged when every case is readable, so a spec the reader cannot see
+         * never silently skips its review.
+         */
+        const unchangedSinceRejection =
+          previousRoundSpecs !== undefined &&
+          specsReadable &&
+          previousRoundCaseCount === reviewCases.length &&
+          sameReviewedSpecs(previousRoundSpecs, reviewedSpecs);
+
+        let reviewResult: Awaited<ReturnType<ReviewPort["review"]>>;
+        let decidedBy: "model" | "precheck" | "unchanged" = "model";
+        let roundRationale: string | undefined;
+
+        if (unchangedSinceRejection) {
+          reviewerApproved = false;
+          reviewStats.skippedRounds++;
+          reviewResult = {
+            approved: false,
+            corrections: previousRoundCorrections ?? [],
+            blockingCount: previousRoundBlocking ?? previousRoundCorrections?.length ?? 0,
+            rationale: "the specs are materially unchanged since the previous rejection, so that verdict stands",
+            parsed: true,
+          };
+          decidedBy = "unchanged";
+          console.error("[qa] reviewer: the specs did not change since the last rejection (comments/whitespace only) — the previous verdict stands without a second model round.");
+          this.deps.observer?.onEvent({
+            type: "log.line",
+            level: "info",
+            text: "[qa] reviewer: no material spec change since the last rejection; the previous corrections stand (no second model review)",
+          });
+        } else {
+          /*
+           * Deterministic first look at the reviewer's own evidence: an asserted literal or selector
+           * the captured page contradicts is a blocking false positive, provable without a model. It
+           * fails open on any uncertainty; the model reviewer still runs whenever it finds nothing.
+           */
+          const precheckFindings = precheckSpecsAgainstDom({ specs: reviewedSpecs, domSnapshot: reviewDomSnapshot });
+          if (precheckFindings.length > 0) {
+            reviewerApproved = false;
+            reviewStats.preCheckRejects++;
+            roundRationale = `the captured DEV page contradicts ${precheckFindings.length} assertion(s) in the specs (deterministic check)`;
+            reviewResult = {
+              approved: false,
+              corrections: precheckFindings.map((finding) => finding.correction),
+              blockingCount: precheckFindings.length,
+              rationale: roundRationale,
+              parsed: true,
+            };
+            decidedBy = "precheck";
+            console.error(`[qa] reviewer pre-check: ${precheckFindings.length} clear contradiction(s) between the specs and the captured DOM — rejecting without a model round.`);
+            for (const finding of precheckFindings) console.error(`[qa] reviewer pre-check: ${finding.correction}`);
+          } else {
+            const specChanges = previousRoundSpecs
+              ? renderSpecChanges(previousRoundSpecs, reviewedSpecs)
+              : "";
+            reviewResult = await this.deps.review.review(workspace.specDir, reviewCases, classificationDiff, {
+              ...baseReviewEnrichment,
+              ...(previousRoundCorrections ? { priorCorrections: previousRoundCorrections } : {}),
+              ...(specChanges ? { specChanges } : {}),
+              ...(reviewDomSnapshot ? { domSnapshot: reviewDomSnapshot } : {}),
+            });
+            reviewStats.modelRounds++;
+            addReviewStats(reviewResult.stats);
+          }
+        }
+        reviewStats.rounds++;
+        const reviewedBlocking = reviewResult.blockingCount ?? reviewResult.corrections.length;
+        if (!reviewResult.unavailable) reviewStats.blocking = reviewedBlocking;
+        this.telemetry.counter("qayaba.review")(1, {
+          "qayaba.app": input.app,
+          "qayaba.review.outcome": reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected",
+          "qayaba.review.decided_by": decidedBy,
         });
+        if (reviewResult.stats) {
+          this.telemetry.histogram("qayaba.review.duration")(reviewResult.stats.durationMs / 1000, {
+            "qayaba.app": input.app,
+            "qayaba.review.outcome": reviewResult.unavailable ? "unavailable" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected",
+          });
+        }
         /*
          * A reviewer that could not be reached judged nothing: that is not a rejection, so it must not open an
          * Issue on a green run. The run ends as a persisted infra-error under its own class, with no PR and no Issue.
@@ -1999,7 +2142,7 @@ export class RunQaUseCase {
           reviewerApproved = false;
           break;
         }
-        const blockingCount = reviewResult.blockingCount ?? reviewResult.corrections.length;
+        const blockingCount = reviewedBlocking;
         const gateApproves = reviewResult.approved && blockingCount === 0;
         reviewerApproved = gateApproves;
         /*
@@ -2011,9 +2154,14 @@ export class RunQaUseCase {
         if (gateApproves) break;
         /* Rejected. Terminal on the last round — no further regeneration. */
         if (round === MAX_REVIEW_ROUNDS - 1) break;
+        /* Nothing changed since the last rejection: another round would regenerate the same bytes. */
+        if (unchangedSinceRejection) break;
         retries++;
         this.deps.observer?.onStep("retry", `reviewer-correction round ${round + 1}/${MAX_REVIEW_ROUNDS}`);
         previousRoundCorrections = reviewResult.corrections;
+        previousRoundBlocking = reviewedBlocking;
+        previousRoundSpecs = reviewedSpecs;
+        previousRoundCaseCount = reviewCases.length;
         const regen = await regenerate(signal, { reviewCorrections: reviewResult.corrections });
         await enforceConfinement();
         if (regen.specs.length === 0) {
@@ -2026,6 +2174,20 @@ export class RunQaUseCase {
       }
       /* A genuine review verdict overwrites generation's self-approval default. */
       reviewerApprovedForOutcome = reviewerApproved;
+      reviewerSignal = {
+        rounds: reviewStats.rounds,
+        modelRounds: reviewStats.modelRounds,
+        approved: reviewerApproved,
+        corrections: finalReviewerCorrections.length,
+        blocking: reviewStats.blocking,
+        durationMs: reviewStats.durationMs,
+        promptBytes: reviewStats.promptBytes,
+        outputTokens: reviewStats.metricsKnown.output ? reviewStats.outputTokens : null,
+        costUsd: reviewStats.metricsKnown.cost ? reviewStats.costUsd : null,
+        steps: reviewStats.metricsKnown.steps ? reviewStats.steps : null,
+        preCheckRejects: reviewStats.preCheckRejects,
+        skippedRounds: reviewStats.skippedRounds,
+      };
     }
 
     /* Publish never emits its own step; "decide" covers the decide+publish pair. */
@@ -2187,6 +2349,7 @@ export class RunQaUseCase {
         mutantCount,
         killedCount,
         reviewerCorrections: finalReviewerCorrections,
+        ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
         /* Publish outcome string — never fabricated when publish() was not called. */
         ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
         /* Rule ids on the mainline persist only. Other exits omit them. */
@@ -2302,6 +2465,7 @@ export class RunQaUseCase {
         valueScore: gateValueScore,
         /* Clean context pass omits reviewerApproved — nothing was genuinely persisted. */
         ...(!isContextCleanPass && reviewerApprovedForOutcome !== undefined ? { reviewerApproved: reviewerApprovedForOutcome } : {}),
+        ...(!isContextCleanPass && reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
         retries,
         preExecAmbiguityCatches,
         deterministicSelectorBlocks,
@@ -2391,6 +2555,8 @@ export class RunQaUseCase {
       reviewerCorrections?: string[];
       /* Only the marker-scoped reviewer-unavailable exit threads a rationale. */
       reviewerRationale?: string;
+      /* What the review phase cost and decided; absent when no reviewer phase ran. */
+      reviewer?: RunOutcome["gateSignals"]["reviewer"];
       valueScore?: number | null;
       /* Same "never ran" (absent) vs "ran and found zero" distinction as the sibling counts below. */
       mutantCount?: number;
@@ -2443,6 +2609,7 @@ export class RunQaUseCase {
         /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */
         ...(extra?.reviewerRationale !== undefined ? { reviewerRationale: extra.reviewerRationale } : {}),
         ...(extra?.reviewerApproved !== undefined ? { reviewerApproved: extra.reviewerApproved } : {}),
+        ...(extra?.reviewer !== undefined ? { reviewer: extra.reviewer } : {}),
         flaky: decision.verdict === "flaky",
         retries,
         preExecAmbiguityCatches: extra?.preExecAmbiguityCatches ?? 0,

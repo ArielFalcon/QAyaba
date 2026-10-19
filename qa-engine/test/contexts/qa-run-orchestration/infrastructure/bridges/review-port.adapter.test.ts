@@ -460,3 +460,63 @@ test("review() does not mark an answer it could not read as unavailable: the rev
   assert.equal(result.parsed, false);
   assert.equal(result.approved, false);
 });
+
+/* The verdict is the model's spoken answer: reasoning parts are dropped before parsing, and the turn
+ * reports what it cost so the run can persist it (never read back into the verdict). */
+
+test("review() asks for the final answer only (textOnly), so reasoning prose never reaches the parser", async () => {
+  const sent: Array<Record<string, unknown> | undefined> = [];
+  const adapter = new ReviewPortAdapter({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+
+  await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(sent[0]?.textOnly, true);
+});
+
+test("review() reports the turn's duration, tokens, cost and steps", async () => {
+  const runtime: AgentRuntimePort = {
+    openSession: async (_role, _cwd, opts) => {
+      opts?.onUsage?.({ input: 900, output: 120, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.004 });
+      return {
+        prompt: async (_text, promptOpts) => {
+          promptOpts?.onTurnStats?.({ maxSteps: 12, stepsUsed: 1, exhausted: false, writeCount: 0, observationComplete: true });
+          return { output: '{"approved":true,"rationale":"ok","corrections":[]}' };
+        },
+        dispose: async () => {},
+      };
+    },
+  };
+  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.ok(result.stats, "a review that opened a session reports what it cost");
+  assert.equal(result.stats?.outputTokens, 120);
+  assert.equal(result.stats?.inputTokens, 900);
+  assert.equal(result.stats?.costUsd, 0.004);
+  assert.equal(result.stats?.steps, 1);
+  assert.ok(result.stats!.durationMs >= 0);
+  assert.equal(result.stats?.promptBytes, Buffer.byteLength("reviewer-prompt", "utf8"));
+});
+
+test("review() reports no fabricated token count when the runtime reports no usage", async () => {
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(result.stats?.outputTokens, undefined, "absent usage stays absent, never 0");
+  assert.equal(result.stats?.costUsd, undefined);
+});
+
+test("review() maps enrichment.specChanges onto ReviewInput.specChanges verbatim", async () => {
+  let seenInput: { specChanges?: string } | undefined;
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seenInput = input as { specChanges?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts: approving }, REVIEW_CONTEXT);
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { specChanges: "### a.spec.ts\n- old\n+ new" });
+
+  assert.equal(seenInput?.specChanges, "### a.spec.ts\n- old\n+ new");
+});

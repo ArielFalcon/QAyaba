@@ -27,6 +27,26 @@ export interface RunOutcome {
     reviewerCorrections: string[];
     reviewerRationale?: string;
     reviewerApproved?: boolean;
+    /*
+     * What the review phase cost and what it decided, round by round: the reviewer's own duration,
+     * tokens and steps where its runtime reported them, the number of rounds a deterministic check or
+     * an unchanged-spec round resolved without an LLM call, and the final corrections count. Absent
+     * when no reviewer phase ran. Persist-only; it reads nothing back into a verdict.
+     */
+    reviewer?: {
+      rounds: number;
+      modelRounds: number;
+      approved: boolean;
+      corrections: number;
+      blocking: number;
+      durationMs: number;
+      promptBytes: number;
+      outputTokens: number | null;
+      costUsd: number | null;
+      steps: number | null;
+      preCheckRejects: number;
+      skippedRounds: number;
+    };
     flaky: boolean;
     retries: number;
     confinement?: { strays: number; dangerous: number; reverted: string[] };

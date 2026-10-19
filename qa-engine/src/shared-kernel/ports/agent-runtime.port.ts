@@ -1,9 +1,11 @@
 /* Kernel session-management seam. Generation depends on AgentRuntimePort from the kernel, decoupled from the agent-runtime context. Shapes are declared locally so the port never imports src/. */
 
-import type { AgentRole, AgentProvider } from "@kernel/agent-role.ts";
+import type { AgentRole } from "@kernel/agent-role.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 
-export interface UsageSnapshot { inputTokens: number; outputTokens: number; provider: AgentProvider; }
+/* One prompt attempt's usage, as the runtime's transport reports it. The counts are the ones the
+ * provider returned; `cost` is the SDK's own (0 when the model's rate is unknown). */
+export interface UsageSnapshot { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number; cost: number; }
 
 /** Session-scoped identity. runId/objective are optional so inapplicable call-sites (maintainer) omit them. */
 export interface AgentOpenDescriptor {

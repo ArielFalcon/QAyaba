@@ -40,6 +40,7 @@ function toOutcome(input: RunInput, result: RunQaResult): RunOutcome {
       valueScore: result.gateSignals.valueScore,
       reviewerCorrections: [],
       ...(result.gateSignals.reviewerApproved !== undefined ? { reviewerApproved: result.gateSignals.reviewerApproved } : {}),
+      ...(result.gateSignals.reviewer !== undefined ? { reviewer: result.gateSignals.reviewer } : {}),
       flaky: result.decision.verdict === "flaky",
       retries: result.gateSignals.retries,
       preExecAmbiguityCatches: result.gateSignals.preExecAmbiguityCatches,

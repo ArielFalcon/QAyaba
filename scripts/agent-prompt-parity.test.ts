@@ -12,6 +12,7 @@ import {
   ACCEPTANCE_STATUSES,
   readAcceptanceReport,
 } from "../qa-engine/src/contexts/qa-run-orchestration/application/coordination/acceptance-report.ts";
+import { REVIEWER_PROMPT_VERSION } from "../qa-engine/src/contexts/generation/domain/review-output.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -109,5 +110,14 @@ test("playwright-authoring auth guide: both runtimes' copies say a rewritten log
   for (const copy of [join("agent", "skills"), join("agents", "skill")]) {
     const guide = readFileSync(join(ROOT, copy, "playwright-authoring", "auth.md"), "utf8");
     assert.match(guide, /process\.env\.PW_STORAGE_STATE/, `${copy}/playwright-authoring/auth.md`);
+  }
+});
+
+/* The reviewer's static mirrors and the assembled output contract are one versioned pair: a change
+   to either must bump REVIEWER_PROMPT_VERSION so a stored verdict names the wording that produced it. */
+test("qa-reviewer: both static mirrors carry the version the assembled contract ships", () => {
+  const marker = new RegExp(`reviewer-prompt-version: ${REVIEWER_PROMPT_VERSION}\\b`);
+  for (const [copy, text] of Object.entries(readBoth("qa-reviewer"))) {
+    assert.match(text, marker, `${copy} copy must carry the reviewer prompt version`);
   }
 });

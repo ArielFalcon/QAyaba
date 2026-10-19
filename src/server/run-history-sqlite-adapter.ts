@@ -39,6 +39,7 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
       reviewerCorrections: outcome.gateSignals.reviewerCorrections,
       ...(outcome.gateSignals.reviewerRationale !== undefined ? { reviewerRationale: outcome.gateSignals.reviewerRationale } : {}),
       ...(outcome.gateSignals.reviewerApproved !== undefined ? { reviewerApproved: outcome.gateSignals.reviewerApproved } : {}),
+      ...(outcome.gateSignals.reviewer !== undefined ? { reviewer: outcome.gateSignals.reviewer } : {}),
       flaky: outcome.gateSignals.flaky,
       retries: outcome.gateSignals.retries,
       ...(outcome.gateSignals.confinement !== undefined ? { confinement: outcome.gateSignals.confinement } : {}),

@@ -1812,3 +1812,58 @@ test("every spec of the reviewer is withheld when the spec directory itself is a
     }
   });
 });
+
+/* Reviewer output discipline: the prompt asks for one bounded JSON object, states the caps the
+ * parser enforces, and carries its own version so a verdict can be tied to the wording. */
+
+test("reviewer prompt: stamped with its version and the hard output caps the parser enforces", () => {
+  const text = buildReviewerPrompt({
+    diff: "diff --git a/src/x.ts b/src/x.ts\n+export const x = 1;\n",
+    specs: ["flows/checkout.spec.ts"],
+    mirrorDir: "/mirrors/org__app",
+    e2eRelDir: "e2e",
+    appName: "testapp",
+    mode: "diff",
+  });
+
+  assert.match(text, /reviewer-prompt-version: 3/);
+  assert.match(text, /no prose before or after it, no markdown fence/i);
+  assert.match(text, /320 characters at most/);
+  assert.match(text, /at most 6 entries, each "text" at most 400/);
+  assert.match(text, /Text outside the object is discarded/);
+});
+
+test("reviewer prompt: a second round is focused on the spec change since the rejection", () => {
+  const text = buildReviewerPrompt({
+    diff: "",
+    specs: ["flows/checkout.spec.ts"],
+    mirrorDir: "/mirrors/org__app",
+    e2eRelDir: "e2e",
+    appName: "testapp",
+    mode: "diff",
+    priorCorrections: ["[false-positive] checkout.spec.ts: the discount is never asserted"],
+    specChanges: "### flows/checkout.spec.ts\n@@ line 4 @@\n- await expect(page.getByText(\"0 resultados\")).toBeVisible();\n+ await expect(page.getByText(\"11 restaurantes\")).toBeVisible();",
+  });
+
+  assert.match(text, /## Spec change since your last rejection/);
+  assert.match(text, /Only the specs listed as materially changed in the next section are new to you/);
+  assert.match(text, /Judge that change, not the whole suite again/);
+  assert.match(text, /- .*0 resultados/);
+  assert.match(text, /\+ .*11 restaurantes/);
+});
+
+test("reviewer prompt: the spec-change excerpt is bounded and sanitized", () => {
+  const secret = "sk-liveSECRETVALUE123456";
+  const { text } = buildReviewerPromptAssembled({
+    diff: "",
+    specs: ["flows/checkout.spec.ts"],
+    mirrorDir: "/mirrors/org__app",
+    e2eRelDir: "e2e",
+    appName: "testapp",
+    mode: "diff",
+    specChanges: `### flows/checkout.spec.ts\n+const token = "${secret}";\n${"+ filler\n".repeat(2_000)}`,
+  });
+
+  assert.ok(!text.includes(secret), "a secret in the change excerpt must be redacted before it reaches the reviewer");
+  assert.ok(Buffer.byteLength(text, "utf8") <= roleWindowBytes("qa-reviewer"));
+});

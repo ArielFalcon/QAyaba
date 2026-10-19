@@ -270,6 +270,21 @@ export interface RunOutcome {
      * can state it without re-deriving from corrections. Absent when review was disabled/not reached.
      */
     reviewerApproved?: boolean;
+    /* What the review phase cost and decided. Absent when no reviewer phase ran. Persist-only. */
+    reviewer?: {
+      rounds: number;
+      modelRounds: number;
+      approved: boolean;
+      corrections: number;
+      blocking: number;
+      durationMs: number;
+      promptBytes: number;
+      outputTokens: number | null;
+      costUsd: number | null;
+      steps: number | null;
+      preCheckRejects: number;
+      skippedRounds: number;
+    };
     flaky: boolean;
     retries: number;
     /*
