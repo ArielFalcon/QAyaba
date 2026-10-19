@@ -320,6 +320,8 @@ export async function buildContextPack(
           `### ${PACK_HEADINGS.liveDom} (a11y tree — GROUND TRUTH for selectors)`,
           "These roles + accessible names are what the browser ACTUALLY exposes.",
           "Author selectors ONLY from what appears here — if a role is absent, it is NOT in the tree.",
+          "A name a page shows more than once carries `(N on this page with this name; in a < b)`: the containers, nearest first, that only that occurrence is in, each written as a locator names it (`[test-id=\"…\"]`, `#id`, a custom element's tag).",
+          "A route line `(the changed text \"…\" is in X in the source; this page shows no X now)` means the changed element is not on that page as DEV renders it now.",
           kept.join("\n"),
           ...(dropped > 0 ? [`(${dropped} non-priority element(s) omitted — see the full tree with the Playwright MCP if needed)`] : []),
         ].join("\n");

@@ -236,7 +236,10 @@ function extractSignalsFromLine(
     line.includes("<") ||
     /\b(?:data-cy|data-testid|data-test|id=|name=|href=|routerLink|formControlName)=/.test(line);
 
-  if (!hasHtmlSignal) return null;
+  if (!hasHtmlSignal) {
+    const text = isMarkupFile(file) ? textAttributeOf(line) ?? bareTextOf(line) : undefined;
+    return text === undefined ? null : { file, line: lineNum, text, raw: line };
+  }
 
   const el: Partial<ChangedElement> & { file: string; line: number; raw: string } = {
     file,
@@ -303,8 +306,48 @@ function extractSignalsFromLine(
     }
   }
 
+  if (!el.text && isMarkupFile(file)) {
+    const text = textAttributeOf(line);
+    if (text !== undefined) {
+      el.text = text;
+      hasSignal = true;
+    }
+  }
+
   if (!hasSignal) return null;
   return el as ChangedElement;
+}
+
+/* Files whose lines are markup a page shows: templates and the components that hold their markup inline. */
+const MARKUP_EXTENSIONS = /\.(?:html?|xhtml|vue|svelte|jsx|tsx|hbs|handlebars|ejs|jsp|jspx|ftl|mustache)$/i;
+const isMarkupFile = (file: string): boolean => MARKUP_EXTENSIONS.test(file);
+
+/* A literal attribute (`name="value"`, never a bound `[name]`, `:name` or `name={…}`): the first whose name says it holds text the page shows and whose value reads as such. */
+const LITERAL_ATTR = /(?:^|\s)([A-Za-z_][\w.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+function textAttributeOf(line: string): string | undefined {
+  for (const m of line.matchAll(LITERAL_ATTR)) {
+    const value = (m[2] ?? m[3] ?? "").trim();
+    if (isTextAttribute(m[1]!) && readsAsText(value)) return value;
+  }
+  return undefined;
+}
+
+/* Whether an attribute (or a component input or prop) of this name holds text the page shows to a person: an allow-list, since a style or config attribute taken for text would put a false [CHANGED] mark in the pack. A component input is matched by its camelCase suffix (`endActionLabel`, `emptyText`). */
+const TEXT_ATTRIBUTES = new Set(["label", "title", "placeholder", "alt", "aria-label", "aria-description", "text", "caption", "heading", "header", "subtitle", "message", "tooltip", "summary"]);
+const TEXT_SUFFIX = /[a-z0-9](?:Label|Text|Title|Placeholder|Caption|Heading|Header|Subtitle|Message|Tooltip|Summary)$/;
+function isTextAttribute(name: string): boolean {
+  return TEXT_ATTRIBUTES.has(name.toLowerCase()) || TEXT_SUFFIX.test(name);
+}
+
+/* Words a person reads: at least one letter, no interpolation, not an address. */
+function readsAsText(value: string): boolean {
+  return /\p{L}/u.test(value) && !/\{\{|\$\{/.test(value) && !/^(?:\/|#|\.|https?:|mailto:)/i.test(value);
+}
+
+/* A line that is only text (a multi-line element's content): no markup, code or comment on it. */
+function bareTextOf(line: string): string | undefined {
+  if (/^(?:\/\/|\/\*|\*|<!--|#|@)/.test(line) || /[<>=;(){}[\]]/.test(line)) return undefined;
+  return readsAsText(line) ? line : undefined;
 }
 
 /* Standalone stopwords produce false-positive text-fallback matches. Quoted multi-word phrases are not filtered. */

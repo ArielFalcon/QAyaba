@@ -9,4 +9,5 @@ export interface ChangedElement {
   href?: string;      /* resolved path, / or # only */
   role?: string;      /* best-effort tag → ARIA role */
   raw: string;        /* trimmed added line */
+  scope?: string[];   /* the containers the changed line sits in, nearest first, named as the DOM capture names them (see RepeatedName) */
 }

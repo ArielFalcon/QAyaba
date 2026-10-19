@@ -191,6 +191,9 @@ the reason is what makes an empty list a decision:
   `specMetas[].file` uses the same path. An empty list is a decision only together with
   `noop.reason` (why nothing is worth an E2E test) — never invent tests to fill it. An empty list
   with no reason is not a decision, and `approved` never stands in for one.
+- When the Live DOM says a page shows none of the changed text's container now, DEV does not render
+  the changed element at the moment: a spec cannot exercise it there. That is a no-op reason (name
+  the container and the page), never a cause to test another element that shares its text.
 - `note`: any limitation worth surfacing (e.g. "DEV unreachable, wrote tests from code analysis
   only"), otherwise "".
 - When the prompt asks for a plan, write no file and emit only the plan contract it gives, in place of the block above.
