@@ -5,8 +5,8 @@
     "directives": 20
   },
   "staticLayers": {
-    "opencode": 21572,
-    "codex": 36919
+    "opencode": 21579,
+    "codex": 36926
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -14435,7 +14435,7 @@
     }
   },
   "lastIncrease": {
-    "reason": "clarify the live DOM capture wording in the generator role",
+    "reason": "the generator states that a change whose container DEV does not render now is a no-op reason, and the Live DOM states what a repeated name's scope and a not-shown change line mean",
     "budgets": [
       "static:opencode",
       "static:codex"
