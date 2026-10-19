@@ -27,6 +27,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { CoordinationMode } from "@kernel/coordination.ts";
+import type { GroundingInput } from "@kernel/contract/commands.ts";
 import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "@kernel/campaign.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
@@ -114,6 +115,8 @@ export interface PipelineRequest {
   agentBrowser?: boolean;
   /** The run's own choice of coordination mode (an A/B), overriding the app's setting; absent: the app's setting decides. */
   coordinationMode?: CoordinationMode;
+  /** The run's own choice of grounding sources (an A/B), overriding the app's settings; absent: the app decides. */
+  grounding?: GroundingInput;
   /** The campaign replicate this run is, sent with the request so the service stores it on the run. Labels only: they change nothing the run does. */
   campaign?: CampaignIdentity;
 }
@@ -213,6 +216,7 @@ const USAGE = [
   "  --closed-loop        the pipeline arm's own choice about the run_spec loop, for an A/B of the loop (a diff case only: a cross-repo case enters through the webhook, which cannot carry it)",
   "  --agent-browser      the pipeline arm's own choice about the authenticated agent browser, for an A/B of the tools (a diff case only, like --closed-loop)",
   "  --coordination       the pipeline arm's own choice of coordination mode (single: the lead authors alone; lead-sidekicks: the lead plans and sidekicks author in parallel), for an A/B of the mode (a diff case only, like --closed-loop)",
+  "  --grounding          comma-separated explorer|stitcher|structuralSignal|curriculum=on|off, for an A/B of grounding sources (reuse the campaign label across invocations to compare variants)",
   "  --allow-non-shadow   run the pipeline on an app whose config is not shadow (a webhook cannot ask for shadow)",
   "  --skip-env-checks    do not require QA_CAMPAIGN_FREEZE in this process (the server was started with it another way)",
   "  --engram-isolated    attest that the agents' engram data is isolated for this campaign (recorded; the runner cannot do it)",
@@ -369,12 +373,18 @@ function writeOutputs(deps: CampaignDeps, dir: string, record: CampaignRecord): 
  * The identity this arm-run has in the service: the campaign's label is the id, the arm and the levers it was given are the variant, the
  * replicate is the replicate. A label the service would refuse as an id sends no campaign (the run is then an ordinary run).
  */
-export function campaignOf(args: Pick<CampaignArguments, "label" | "closedLoop" | "agentBrowser" | "coordinationMode">, arm: Arm, replicate: number): CampaignIdentity | undefined {
+export function campaignOf(args: Pick<CampaignArguments, "label" | "closedLoop" | "agentBrowser" | "coordinationMode" | "grounding">, arm: Arm, replicate: number): CampaignIdentity | undefined {
   if (!CAMPAIGN_ID_PATTERN.test(args.label)) return undefined;
   const lever = (value: boolean | undefined): string => (value === undefined ? "default" : value ? "on" : "off");
+  const grounding = args.grounding === undefined
+    ? "default"
+    : ["explorer", "stitcher", "structuralSignal", "curriculum"].map((key) => {
+        const value = args.grounding?.[key as keyof GroundingInput];
+        return value === undefined ? "d" : value ? "1" : "0";
+      }).join("");
   return {
     id: args.label,
-    variant: { arm: armToken(arm), closedLoop: lever(args.closedLoop), agentBrowser: lever(args.agentBrowser), coordination: args.coordinationMode ?? "default" },
+    variant: { arm: armToken(arm), closedLoop: lever(args.closedLoop), agentBrowser: lever(args.agentBrowser), coordination: args.coordinationMode ?? "default", grounding },
     replicate,
   };
 }
@@ -405,7 +415,7 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
   try {
     if (arm === ARM.PIPELINE) {
       const campaign = campaignOf(args, arm, replicate);
-      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth, ...(campaign ? { campaign } : {}), ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}) });
+      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth, ...(campaign ? { campaign } : {}), ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}), ...(args.grounding !== undefined ? { grounding: args.grounding } : {}) });
       /* Read right after the run and before anything restores the mirror: the files are the only evidence of what the pipeline accepted. */
       const delta = await deps.pipelineDelta(app, snapshot);
       if (pipelineAccepted(outcome.report, app) && !outcome.capped && !outcome.lost) files = delta.files;
@@ -606,7 +616,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       let runId: string | null = null;
       try {
         if (req.kind === CASE_KIND.DIFF) {
-          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true, ...(req.campaign ? { campaign: req.campaign } : {}), ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}), ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}), ...(req.coordinationMode !== undefined ? { coordinationMode: req.coordinationMode } : {}) }) });
+          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true, ...(req.campaign ? { campaign: req.campaign } : {}), ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}), ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}), ...(req.coordinationMode !== undefined ? { coordinationMode: req.coordinationMode } : {}), ...(req.grounding !== undefined ? { grounding: req.grounding } : {}) }) });
           const body = await json(res);
           if (!res.ok || typeof body.id !== "string") throw new Error(`the service rejected the run: ${typeof body.error === "string" ? body.error : `HTTP ${res.status}`}`);
           runId = body.id;

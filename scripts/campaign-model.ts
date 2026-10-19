@@ -9,6 +9,7 @@
  */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { isCoordinationMode, type CoordinationMode } from "@kernel/coordination.ts";
+import type { GroundingInput } from "@kernel/contract/commands.ts";
 import type { FakeFlag } from "./fake-pass-detector.ts";
 import { assertFileName } from "./probe-report.ts";
 
@@ -158,6 +159,8 @@ export interface CampaignArguments {
   agentBrowser?: boolean;
   /** The pipeline arm's own choice of coordination mode (an A/B), overriding the app's setting. Absent: the app's setting decides. */
   coordinationMode?: CoordinationMode;
+  /** The pipeline arm's own choice of grounding sources (an A/B), overriding the app's settings. Absent: the app's setting decides. */
+  grounding?: GroundingInput;
 }
 
 export type ParsedArguments = { ok: true; args: CampaignArguments } | { ok: false; problem: string };
@@ -165,7 +168,7 @@ export type ParsedArguments = { ok: true; args: CampaignArguments } | { ok: fals
 export function parseArguments(argv: readonly string[]): ParsedArguments {
   const values: Record<string, string> = {};
   const flags = new Set<string>();
-  const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm", "--closed-loop", "--agent-browser", "--coordination"]);
+  const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm", "--closed-loop", "--agent-browser", "--coordination", "--grounding"]);
   const boolean = new Set(["--allow-non-shadow", "--skip-env-checks", "--engram-isolated", "--dry-run"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -186,6 +189,16 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
   if (values["--closed-loop"] !== undefined && values["--closed-loop"] !== "on" && values["--closed-loop"] !== "off") return { ok: false, problem: 'error: --closed-loop takes "on" or "off"' };
   if (values["--agent-browser"] !== undefined && values["--agent-browser"] !== "on" && values["--agent-browser"] !== "off") return { ok: false, problem: 'error: --agent-browser takes "on" or "off"' };
   if (values["--coordination"] !== undefined && !isCoordinationMode(values["--coordination"])) return { ok: false, problem: 'error: --coordination takes "single" or "lead-sidekicks"' };
+  const grounding: GroundingInput = {};
+  if (values["--grounding"] !== undefined) {
+    for (const pair of values["--grounding"].split(",")) {
+      const [key, value] = pair.split("=");
+      if (!["explorer", "stitcher", "structuralSignal", "curriculum"].includes(key ?? "") || (value !== "on" && value !== "off")) {
+        return { ok: false, problem: "error: --grounding takes comma-separated explorer|stitcher|structuralSignal|curriculum=on|off" };
+      }
+      grounding[key as keyof GroundingInput] = value === "on";
+    }
+  }
   try {
     assertFileName(values["--label"]!, "label");
     assertFileName(values["--warm"]!, "warm snapshot label");
@@ -200,6 +213,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
       ...(values["--closed-loop"] !== undefined ? { closedLoop: values["--closed-loop"] === "on" } : {}),
       ...(values["--agent-browser"] !== undefined ? { agentBrowser: values["--agent-browser"] === "on" } : {}),
       ...(isCoordinationMode(values["--coordination"]) ? { coordinationMode: values["--coordination"] } : {}),
+      ...(Object.keys(grounding).length > 0 ? { grounding } : {}),
     },
   };
 }

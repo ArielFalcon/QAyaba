@@ -205,8 +205,8 @@ test("the pipeline arm is sent as a replicate of the campaign: the label is the 
   const h = harness();
   assert.equal(await runCampaign(argv("--arms", "A,B", "--replicas", "2", "--closed-loop", "on"), h.deps), 0);
   assert.deepEqual(h.pipelineRequests.map((r) => r.campaign), [
-    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", coordination: "default" }, replicate: 1 },
-    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", coordination: "default" }, replicate: 2 },
+    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", coordination: "default", grounding: "default" }, replicate: 1 },
+    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", coordination: "default", grounding: "default" }, replicate: 2 },
   ]);
 });
 
