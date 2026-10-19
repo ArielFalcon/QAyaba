@@ -76,3 +76,7 @@ service:
       receivers: [otlp/orchestrator]
       processors: [memory_limiter, redaction, batch]
       exporters: [otlphttp/lgtm]
+    logs/orchestrator:
+      receivers: [otlp/orchestrator]
+      processors: [memory_limiter, redaction, batch]
+      exporters: [otlphttp/lgtm]

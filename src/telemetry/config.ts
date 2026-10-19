@@ -25,7 +25,7 @@ export interface TelemetryConfig {
   /* The most content a run's trace may carry, whatever a request asks for (QA_TELEMETRY_MAX_CAPTURE, default metadata). */
   readonly maxCapture: CaptureMode;
   /* Present only when an OTLP endpoint is configured. */
-  readonly otlp?: { readonly url: string; readonly metricsUrl?: string; readonly batch: BatchProcessorOptions };
+  readonly otlp?: { readonly url: string; readonly metricsUrl?: string; readonly logsUrl?: string; readonly batch: BatchProcessorOptions };
 }
 
 type Env = Record<string, string | undefined>;
@@ -95,9 +95,12 @@ function resolveOtlp(env: Env): TelemetryConfig["otlp"] {
   const url = traces !== "" ? traces : `${base}/v1/traces`;
   const metrics = (env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT ?? "").trim();
   const metricsUrl = metrics !== "" ? metrics : generic !== "" ? `${base}/v1/metrics` : undefined;
+  const logs = (env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT ?? "").trim();
+  const logsUrl = logs !== "" ? logs : generic !== "" ? `${base}/v1/logs` : undefined;
   return {
     url,
     ...(metricsUrl ? { metricsUrl } : {}),
+    ...(logsUrl ? { logsUrl } : {}),
     batch: {
       scheduledDelayMillis: positiveInt(env, "OTEL_BSP_SCHEDULE_DELAY", 5000),
       maxQueueSize: positiveInt(env, "OTEL_BSP_MAX_QUEUE_SIZE", 2048),

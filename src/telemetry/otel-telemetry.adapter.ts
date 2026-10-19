@@ -227,6 +227,31 @@ export class OtelTelemetry implements TelemetryPort {
     }
   }
 
+  /* The active span's capture mode and context, or undefined when no span is active. The console tap needs both: the
+     mode decides whether and how much to export, the context carries the trace and span ids into the record. */
+  activeLogSpan(): { mode: CaptureMode; context: Context } | undefined {
+    try {
+      const ctx = this.deps.contextManager.active();
+      if (!trace.getSpan(ctx)) return undefined;
+      const inherited = ctx.getValue(CAPTURE_KEY);
+      return { mode: isCaptureMode(inherited) ? inherited : this.captureMode, context: ctx };
+    } catch (error) {
+      this.fault("activeLogSpan", error);
+      return undefined;
+    }
+  }
+
+  /* Redact a console line through the active span's run scope and the outbound sanitizer, then cap it. undefined: do not export. */
+  redactActive(text: string, cap: number): string | undefined {
+    try {
+      const ctx = this.deps.contextManager.active();
+      return this.safeText(text, ctx.getValue(SCOPE_KEY) as RedactionScope | undefined, cap);
+    } catch (error) {
+      this.fault("redactActive", error);
+      return undefined;
+    }
+  }
+
   flush(): void {
     try {
       this.deps.flush?.();

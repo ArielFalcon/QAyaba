@@ -315,6 +315,10 @@ test("Loki keeps logs for the campaign window and truncates an oversized line", 
   assert.match(loki.compactor.working_directory, /^\/data\//);
 });
 
-test("the lgtm service mounts the Loki config read-only", () => {
+test("the lgtm service mounts the Loki config read-only and the trusted collector has a logs pipeline", () => {
   assert.ok((svc("lgtm").volumes ?? []).includes("./config/otel/loki-config.yaml:/otel-lgtm/loki-config.yaml:ro"));
+  const logs = must(trusted.config.service.pipelines["logs/orchestrator"], "logs/orchestrator");
+  assert.deepEqual(logs.receivers, ["otlp/orchestrator"]);
+  assert.deepEqual(logs.exporters, ["otlphttp/lgtm"]);
+  assert.ok(logs.processors.includes("redaction"));
 });
