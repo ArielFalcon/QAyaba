@@ -75,6 +75,12 @@ labels (no double counting). `qayaba_eval_class_total` counts grading events, so
 for the run — use it as a share of graded runs, not as a run count. A score a regrade stops emitting keeps its last
 gauge value until Prometheus staleness removes it. A grader that says nothing (no data) emits no measurement.
 
+The reviewer's own quality and cost are exported beside the scores: `qayaba_review_total` counts one verdict per
+review round (labels `qayaba_review_outcome`, `qayaba_review_decided_by`) and `qayaba_review_duration_*` is the review
+duration histogram in seconds. The dashboard's **Reviewer outcomes by decision** and **Reviewer duration p95** panels
+show them; the same figures are persisted in `gateSignals.reviewer` on the run outcome (`rounds`, `modelRounds`,
+`preCheckRejects`, `skippedRounds`, `outputTokens`, `costUsd`, `steps`).
+
 For ad-hoc questions use **Explore → Prometheus**, for example
 `qayaba_eval_score{qayaba_eval_name="spec_pass_rate"}`,
 `qayaba_eval_score{qayaba_eval_name=~"step_intent_mix[.].*"}` or

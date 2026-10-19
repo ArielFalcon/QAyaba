@@ -626,6 +626,8 @@ clock is not resynced promptly, fall back to comparing against the host's time o
 | `qayaba.host.*`, `qayaba.sandbox.zombies` | see §7 | none |
 | `qayaba.eval.score` | gauge | eval.name, eval.source, eval.data_type, app, verdict |
 | `qayaba.eval.class` | counter | eval.name, eval.value (closed sets only: furthest_phase, change_coverage, infra_error) |
+| `qayaba.review` | counter | app, review.outcome (approved/rejected/parse-miss/unavailable), review.decided_by (model/precheck/unchanged) |
+| `qayaba.review.duration` | histogram | app, review.outcome |
 
 The existing `/api/metrics` Prometheus endpoint stays as is. It has no OTel coupling.
 
