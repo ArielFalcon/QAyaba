@@ -15,7 +15,7 @@ import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/qa-run
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
-import type { RecordMeasurement } from "@kernel/telemetry/telemetry.port.ts";
+import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
 import { CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { Sha } from "@kernel/sha.ts";
@@ -8209,8 +8209,20 @@ test("a materially changed spec is re-reviewed with the prior corrections and th
 /* A telemetry port that keeps the counters a test asserts; every other method is the null object. */
 class RecordingTelemetry extends NoopTelemetry {
   readonly counters: Array<{ name: string; attrs: Record<string, unknown> }> = [];
+  readonly spans: Array<{ name: string; attrs: Record<string, unknown> }> = [];
   override counter(name?: string): RecordMeasurement {
     return (_value, attrs) => { this.counters.push({ name: name ?? "", attrs: { ...(attrs ?? {}) } }); };
+  }
+  override startSpan(name: string, opts?: StartSpanOptions): SpanHandle {
+    const record = { name, attrs: { ...(opts?.attrs ?? {}) } };
+    this.spans.push(record);
+    return {
+      setAttrs: (attrs) => { Object.assign(record.attrs, attrs); },
+      addEvent: () => {},
+      recordError: () => {},
+      end: () => {},
+      context: () => ({ traceId: "0".repeat(32), spanId: "0".repeat(16) }),
+    };
   }
 }
 
@@ -8235,8 +8247,99 @@ test("each review round records a bounded qayaba.review metric: what decided it 
     assert.equal(rounds.length, 2, "one measurement per review round, the pre-check and the unchanged one");
     assert.equal(rounds[0]!.attrs["qayaba.review.decided_by"], "precheck");
     assert.equal(rounds[0]!.attrs["qayaba.review.outcome"], "rejected");
+    assert.equal(rounds[0]!.attrs["qayaba.review.correction_class"], "false-positive");
     assert.equal(rounds[1]!.attrs["qayaba.review.decided_by"], "unchanged");
+    assert.equal(rounds[1]!.attrs["qayaba.review.correction_class"], "false-positive");
     assert.equal(rounds[0]!.attrs["qayaba.app"], baseInput.app);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the reviewer judges only the specs this run delivered; the existing suite is context", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const seen: Array<{ cases: string[]; existing?: readonly string[] }> = [];
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({
+        verdict: "pass",
+        cases: [
+          { name: "flows/auth.spec.ts", status: "pass" },
+          { name: "flows/restaurants.spec.ts", status: "pass" },
+        ],
+        logs: "",
+      }),
+      review: async (_specDir, cases, _diff, enrichment) => {
+        seen.push({
+          cases: cases.map((c) => c.file ?? c.name),
+          ...(enrichment?.existingSpecFiles ? { existing: enrichment.existingSpecFiles } : {}),
+        });
+        return { approved: true, corrections: [], blockingCount: 0, rationale: "the delivered spec targets the rename", parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-scope-delivered" });
+
+    assert.equal(out.decision.sideEffect, "pr", "the correct delivered spec is approved; the existing auth spec is not a target");
+    assert.equal(seen.length, 1);
+    assert.deepEqual(seen[0]!.cases, ["flows/restaurants.spec.ts"], "only the delivered spec is judged");
+    assert.deepEqual(seen[0]!.existing, ["flows/auth.spec.ts"], "the existing suite is context, not a review target");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewerApproved, true);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.correctionClass, "none");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the reviewer decision span carries the delivered targets, the existing suite, the correction class and the bounded corrections", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const h = new RecordingTelemetry();
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({
+        verdict: "pass",
+        cases: [
+          { name: "flows/auth.spec.ts", status: "pass" },
+          { name: "flows/restaurants.spec.ts", status: "pass" },
+        ],
+        logs: "",
+      }),
+      review: async () => ({
+        approved: false,
+        corrections: ["[wrong-objective] flows/restaurants.spec.ts: assert the rename, not the list"],
+        blockingCount: 1,
+        rationale: "the delivered spec does not target the rename",
+        parsed: true,
+      }),
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, telemetry: h, config: baseConfig });
+
+    await useCase.run({ ...baseInput, runId: "review-decision-span" });
+
+    const span = h.spans.find((s) => s.name === "qayaba.review.decision" && s.attrs["qayaba.review.decided_by"] === "model");
+    assert.ok(span, "the model round is recorded");
+    assert.equal(span.attrs["qayaba.review.outcome"], "rejected");
+    assert.equal(span.attrs["qayaba.review.decided_by"], "model");
+    assert.equal(span.attrs["qayaba.review.correction_class"], "wrong-objective");
+    assert.deepEqual(span.attrs["qayaba.review.targets"], ["flows/restaurants.spec.ts"]);
+    assert.deepEqual(span.attrs["qayaba.review.existing_specs"], ["flows/auth.spec.ts"]);
+    assert.deepEqual(span.attrs["qayaba.review.corrections"], ["[wrong-objective] flows/restaurants.spec.ts: assert the rename, not the list"]);
+    assert.match(String(span.attrs["qayaba.review.rationale"]), /does not target the rename/);
+    assert.equal(span.attrs["qayaba.review.blocking"], 1);
+    const metric = h.counters.find((m) => m.name === "qayaba.review" && m.attrs["qayaba.review.decided_by"] === "model");
+    assert.equal(metric?.attrs["qayaba.review.correction_class"], "wrong-objective");
   } finally {
     fixtures.cleanup();
   }

@@ -404,6 +404,8 @@ export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
   /* The spec lines that changed since the prior rejection, already bounded and rendered. */
   specChanges?: string;
+  /* Paths of the suite's existing specs: context only, never a target and never a reason to reject. */
+  existingSpecFiles?: readonly string[];
   /**
    * Same retrieved rules the generator saw. The adapter renders only active
    * rules; candidates are for the generator to explore, never for the judge to

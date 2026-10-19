@@ -1535,7 +1535,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
   ].join("\n");
 
   const rulesInstruction = input.learnedRules
-    ? [`6. Also REJECT if any spec violates an app-specific reject-on-sight rule provided in this prompt.`]
+    ? [`7. Also REJECT if any spec violates an app-specific reject-on-sight rule provided in this prompt.`]
     : [];
   const instructionsContent = [
     `## Instructions`,
@@ -1549,6 +1549,8 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
       + ` assert a UI fact from memory: an unconfirmed guess that a label/route "should be" something is`
       + ` NOT a valid correction — omit it. Reject on what you can SEE (no assertions, fragile selectors,`
       + ` wrong objective, missing cleanup), not on guessed app specifics.`,
+    `6. The "Specs under review" are the specs this run delivered. The "Existing suite" section is`
+      + ` context only: never reject a spec because an existing suite file does not cover this change.`,
     ...rulesInstruction,
   ].join("\n");
 
@@ -1586,6 +1588,15 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     : "";
 
   const specContent = specBlock;
+  /* The existing suite is context, never a review target: the reviewer sees what already exists so
+   * it does not mistake a pre-existing file for a missing part of this change. */
+  const existingSpecsContent = input.existingSpecFiles?.length
+    ? [
+        `## Existing suite — context only`,
+        `These files already exist in the suite. Do NOT judge them and do NOT raise corrections against them; judge only the specs in the "Specs under review" section.`,
+        ...input.existingSpecFiles.map((file) => `- ${sanitizeText(file).text}`),
+      ].join("\n")
+    : "";
 
   const learnedRulesContent = input.learnedRules ? [``, input.learnedRules].join("\n") : "";
 
@@ -1640,6 +1651,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     ...(domContent ? [section("reviewer-dom", "volatile", domContent, { priority: 1, maxBytes: 20_000, overflow: "summarize" })] : []),
     ...(executionResultContent ? [section("reviewer-execution-result", "volatile", executionResultContent, { priority: 1.5 })] : []),
     section("reviewer-specs", "volatile", specContent, { priority: 2, maxBytes: 44_000, overflow: "summarize" }),
+    ...(existingSpecsContent ? [section("reviewer-existing-suite", "volatile", existingSpecsContent, { priority: 3, maxBytes: 8_000, overflow: "summarize" })] : []),
     ...(learnedRulesContent ? [section("reviewer-learned-rules", "volatile", learnedRulesContent, { priority: 3 })] : []),
     /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
     ...(priorCorrectionsContent ? [section("reviewer-prior-corrections", "volatile", priorCorrectionsContent, { priority: 4 })] : []),

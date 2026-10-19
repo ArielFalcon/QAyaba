@@ -174,6 +174,8 @@ export interface OpencodeRunInput {
 export interface ReviewInput {
   diff: string;
   specs: string[];
+  /* The suite's existing specs, listed as context only: never judged, never a reason to reject. */
+  existingSpecFiles?: string[];
   mirrorDir: string;
   e2eRelDir: string;
   baseUrl?: string;

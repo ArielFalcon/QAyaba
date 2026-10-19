@@ -10,7 +10,7 @@
 /* The version of the reviewer's instructions (static role file + assembled output contract). It is
  * stamped into both prompts so a run's verdict can be tied to the wording that produced it. Bump it
  * whenever the reviewer's contract changes. */
-export const REVIEWER_PROMPT_VERSION = 3;
+export const REVIEWER_PROMPT_VERSION = 4;
 
 /* One or two sentences: the durable WHY of the verdict, not an essay. */
 export const REVIEW_RATIONALE_MAX_CHARS = 320;
@@ -25,6 +25,23 @@ export const REVIEW_CORRECTIONS_MAX = 6;
 /* A verdict answer longer than this is mostly prose. It is still parsed (the JSON is what counts),
  * but the stored verdict is bounded to the fields above. */
 export const REVIEW_RESPONSE_MAX_CHARS = 6_000;
+
+/* The closed correction vocabulary the reviewer prompt requires. The first tag of a blocking
+ * correction is the class the telemetry records; `none` means the round carried no correction and
+ * `other` means a correction arrived without a class tag (a contract miss, still bounded). */
+export const REVIEW_CORRECTION_CLASSES = ["false-positive", "wrong-objective", "fragile-selector", "no-cleanup", "other"] as const;
+export type ReviewCorrectionClass = (typeof REVIEW_CORRECTION_CLASSES)[number] | "none";
+const CORRECTION_CLASS_TAG = /^\s*\[(false-positive|wrong-objective|fragile-selector|no-cleanup|other)\]/;
+
+/** The class of the first tagged correction, `other` for untagged corrections, `none` when there are none. */
+export function correctionClassOf(corrections: readonly string[]): ReviewCorrectionClass {
+  if (corrections.length === 0) return "none";
+  for (const correction of corrections) {
+    const match = CORRECTION_CLASS_TAG.exec(correction);
+    if (match) return match[1] as ReviewCorrectionClass;
+  }
+  return "other";
+}
 
 /* Collapse whitespace and cut at a sentence or word boundary, marking a cut with an ellipsis. */
 export function boundReviewText(text: string, maxChars: number): string {

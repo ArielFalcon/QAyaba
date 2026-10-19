@@ -773,8 +773,8 @@ test("buildReviewerPrompt injects learnedRules when present and adds the extra r
   try {
     const p = buildReviewerPrompt(makeReviewInput(dir, { learnedRules: "- RULE_MARKER avoid waitForTimeout" }));
     assert.match(p, /RULE_MARKER avoid waitForTimeout/);
-    assert.match(p, /6\. Also REJECT/);
-    assert.doesNotMatch(buildReviewerPrompt(makeReviewInput(dir)), /6\. Also REJECT/, "no extra instruction without rules");
+    assert.match(p, /7\. Also REJECT/);
+    assert.doesNotMatch(buildReviewerPrompt(makeReviewInput(dir)), /7\. Also REJECT/, "no extra instruction without rules");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

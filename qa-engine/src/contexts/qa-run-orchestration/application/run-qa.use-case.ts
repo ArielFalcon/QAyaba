@@ -145,6 +145,7 @@ import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/sele
 import { attributeContradictions } from "../domain/helpers/contradiction-attribution.ts";
 import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
 import { precheckSpecsAgainstDom } from "../domain/deterministic-review-precheck.ts";
+import { correctionClassOf } from "@contexts/generation/domain/review-output.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/domain/review-fingerprint.ts";
 import { readConfinedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { ERROR_CLASS, resolveErrorClass } from "../domain/helpers/error-class.ts";
@@ -1937,7 +1938,15 @@ export class RunQaUseCase {
        */
       trail.phases.enter("review");
       const MAX_REVIEW_ROUNDS = 2;
-      let reviewCases = run.cases;
+      /*
+       * The reviewer judges the specs this run delivered, not the whole executed suite: an existing
+       * suite file that does not cover this change is context, never a wrong-objective correction.
+       * The suite's paths travel separately, marked context-only in the review prompt.
+       */
+      const deliveredFiles = new Set(delivered.map((d) => d.file));
+      const existingSpecFiles = [...new Set([...(groundingExistingSpecFiles ?? []), ...run.cases.map((c) => c.file ?? c.name)])]
+        .filter((file) => !deliveredFiles.has(file));
+      let reviewCases = run.cases.filter((c) => deliveredFiles.has(c.file ?? c.name));
       let previousRoundCorrections: string[] | undefined;
       /* The blocking count that produced the previous rejection, so a skipped round reports it unchanged. */
       let previousRoundBlocking: number | undefined;
@@ -2089,6 +2098,7 @@ export class RunQaUseCase {
               ...(previousRoundCorrections ? { priorCorrections: previousRoundCorrections } : {}),
               ...(specChanges ? { specChanges } : {}),
               ...(reviewDomSnapshot ? { domSnapshot: reviewDomSnapshot } : {}),
+              ...(existingSpecFiles.length ? { existingSpecFiles } : {}),
             });
             reviewStats.modelRounds++;
             addReviewStats(reviewResult.stats);
@@ -2097,15 +2107,44 @@ export class RunQaUseCase {
         reviewStats.rounds++;
         const reviewedBlocking = reviewResult.blockingCount ?? reviewResult.corrections.length;
         if (!reviewResult.unavailable) reviewStats.blocking = reviewedBlocking;
+        const reviewOutcome = reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected";
+        const correctionClass = reviewedBlocking > 0 ? correctionClassOf(reviewResult.corrections) : "none";
+        const reviewTargets = [...new Set(reviewCases.map((c) => c.file ?? c.name))];
+        /*
+         * The decision evidence, not just its aggregate: an agent reading the trace must see which
+         * specs the reviewer judged, which of them already existed, the bounded corrections and the
+         * class the failure falls into. The metric carries the closed class; the span carries the
+         * high-cardinality paths and text.
+         */
+        try {
+          const reviewSpan = this.telemetry.startSpan("qayaba.review.decision", {
+            attrs: {
+              "qayaba.app": input.app,
+              "qayaba.review.round": round + 1,
+              "qayaba.review.outcome": reviewOutcome,
+              "qayaba.review.decided_by": decidedBy,
+              "qayaba.review.correction_class": correctionClass,
+              "qayaba.review.blocking": reviewedBlocking,
+              "qayaba.review.targets": reviewTargets,
+              ...(existingSpecFiles.length ? { "qayaba.review.existing_specs": [...existingSpecFiles] } : {}),
+              ...(reviewResult.corrections.length ? { "qayaba.review.corrections": [...reviewResult.corrections] } : {}),
+              ...(reviewResult.rationale ? { "qayaba.review.rationale": reviewResult.rationale } : {}),
+            },
+          });
+          reviewSpan.end();
+        } catch (err) {
+          console.error(`[telemetry] the reviewer decision span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+        }
         this.telemetry.counter("qayaba.review")(1, {
           "qayaba.app": input.app,
-          "qayaba.review.outcome": reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected",
+          "qayaba.review.outcome": reviewOutcome,
           "qayaba.review.decided_by": decidedBy,
+          "qayaba.review.correction_class": correctionClass,
         });
         if (reviewResult.stats) {
           this.telemetry.histogram("qayaba.review.duration")(reviewResult.stats.durationMs / 1000, {
             "qayaba.app": input.app,
-            "qayaba.review.outcome": reviewResult.unavailable ? "unavailable" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected",
+            "qayaba.review.outcome": reviewOutcome,
           });
         }
         /*
@@ -2113,7 +2152,7 @@ export class RunQaUseCase {
          * Issue on a green run. The run ends as a persisted infra-error under its own class, with no PR and no Issue.
          */
         if (reviewResult.unavailable) {
-          return await this.reviewerUnavailableResult(cfg, input, reviewResult.rationale, run.cases.length, {
+          return await this.reviewerUnavailableResult(cfg, input, reviewResult.rationale, reviewCases.length, {
             static: validation.ok,
             retries,
             rulesRetrieved: retrievedRuleIds,
@@ -2187,6 +2226,7 @@ export class RunQaUseCase {
         steps: reviewStats.metricsKnown.steps ? reviewStats.steps : null,
         preCheckRejects: reviewStats.preCheckRejects,
         skippedRounds: reviewStats.skippedRounds,
+        correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
       };
     }
 
