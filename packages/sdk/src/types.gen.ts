@@ -819,6 +819,12 @@ export interface components {
             };
             /** @enum {string} */
             captureMode?: "off" | "metadata" | "full";
+            grounding?: {
+                explorer?: boolean;
+                stitcher?: boolean;
+                structuralSignal?: boolean;
+                curriculum?: boolean;
+            };
         };
         CreateRunResult: {
             /** @enum {number} */

@@ -148,6 +148,7 @@ import { buildExecWiring, suiteAccountFor } from "./exec-sandbox-factory";
 import { blockedHostMatcher, egressGateFor, loadRegistryGroups, resolveRunOrigins } from "./egress-wiring";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
+import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import { requireEnv } from "../util/env";
 import { RedactionPortAdapter, recordAudit } from "../orchestrator/sanitizer";
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
@@ -723,7 +724,7 @@ export function buildRewrittenCompositionConfig(
   app: AppConfig,
   deps: RewrittenEngineFactoryDeps,
   namespace: string,
-  run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string },
+  run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
 
   observer?: ObserverPort,
 ): CompositionConfig {
@@ -869,8 +870,9 @@ export function buildRewrittenCompositionConfig(
   const vcs = new GitMirrorReadAdapter(vcsDir, runner);
 
 
-  const structuralSignalsOn = structuralSignalsOnFor(app);
-  const serviceTopologyOn = serviceTopologyWired(app);
+  const grounding = run.grounding;
+  const structuralSignalsOn = grounding?.structuralSignal === false || grounding?.structuralSignal === "off" ? false : structuralSignalsOnFor(app);
+  const serviceTopologyOn = grounding?.stitcher === false || grounding?.stitcher === "off" ? false : serviceTopologyWired(app);
   const toolsApplyToRun = toolsApply(target, app);
 
   /* What classifies this run's agent steps in its trace: the app's own configuration, never a name. */
@@ -1032,7 +1034,7 @@ export function buildRewrittenCompositionConfig(
    * `explorer: false` must win over the services-length auto-detect, never be swallowed by it —
    * `||` treated false and unconfigured identically, silently ignoring an operator's opt-out.
    */
-  const shouldExplore = app.qa.explorer ?? (app.services?.length ?? 0) > 0;
+  const shouldExplore = grounding?.explorer ?? (app.qa.explorer ?? (app.services?.length ?? 0) > 0);
 
   const explorerBriefAdapter = new ExplorerBriefSessionAdapter(
     {
@@ -1466,7 +1468,7 @@ export function buildRewrittenCompositionConfig(
      * history.ts (src-only; qa-engine may never import it). Wired unconditionally: measure-and-rank
      * only, never gates a verdict, publish, or coverage decision. Left out under QA_CAMPAIGN_FREEZE.
      */
-    ...(campaignFrozen ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, loadCurriculum, saveCurriculum) }),
+    ...(campaignFrozen || grounding?.curriculum === false || grounding?.curriculum === "off" ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, loadCurriculum, saveCurriculum) }),
     /*
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
      * same reason curriculumPort is: its store is history.ts (src-only; qa-engine may never import
@@ -1538,13 +1540,13 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
 
 export function createRewrittenEngineFactory(
   deps: RewrittenEngineFactoryDeps,
-): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
+): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
   const env = deps.env ?? process.env;
   const wrappedDeps: RewrittenEngineFactoryDeps = {
     ...deps,
     getAgentDeps: (turn) => engineAgentDeps(deps, turn),
   };
-  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string }, observer?: ObserverPort): RunPipelinePort => {
+  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
     const cfg = buildRewrittenCompositionConfig(appConfig, wrappedDeps, namespace, run, observer);
     return buildProduction(env, cfg);
   };

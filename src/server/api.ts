@@ -71,6 +71,8 @@ import {
   RegradeJobSchema,
   LoginRequestSchema,
   LoginResponseSchema,
+  GroundingInputSchema,
+  type GroundingInput,
 } from "../contract/commands";
 import { RunEventSchema, type RunEvent } from "../contract/events";
 import { handshake } from "./version";
@@ -110,7 +112,7 @@ export interface RunObservabilityRequest {
 
 export interface ApiDeps {
   queue: { readonly size: number };
-  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode, observability?: RunObservabilityRequest): string;
+  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode, observability?: RunObservabilityRequest, grounding?: GroundingInput): string;
   loadApp(name: string): AppConfig;  /* throws if the app is not configured */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
@@ -587,11 +589,20 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
     }
     captureMode = parsed.data;
   }
+  let grounding: GroundingInput | undefined;
+  if (body.grounding !== undefined) {
+    const parsed = GroundingInputSchema.safeParse(body.grounding);
+    if (!parsed.success) {
+      apiError(res, 400, `'grounding' is invalid: ${parsed.error.issues.map((i) => i.message).join("; ")}`);
+      return true;
+    }
+    grounding = parsed.data;
+  }
   const observability: RunObservabilityRequest = { ...(campaign ? { campaign } : {}), ...(captureMode ? { captureMode } : {}) };
 
   let id: string;
   try {
-    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, coordinationMode, observability);
+    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, coordinationMode, observability, grounding);
   } catch (err) {
     if (err instanceof CampaignCaptureMismatchError) {
       apiError(res, 409, err.message);

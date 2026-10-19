@@ -127,6 +127,15 @@ export const CampaignInputSchema = z.object({
   replicate: z.number().int().min(1).max(MAX_CAMPAIGN_REPLICATE),
 });
 
+/* The run's own choice of grounding sources (an A/B arm); every key absent means the app's setting. */
+export const GroundingInputSchema = z.object({
+  explorer: z.boolean().optional(),
+  stitcher: z.boolean().optional(),
+  structuralSignal: z.boolean().optional(),
+  curriculum: z.boolean().optional(),
+});
+export type GroundingInput = z.infer<typeof GroundingInputSchema>;
+
 export const CreateRunInputSchema = z.object({
   app: z.string(),
   target: TestTargetSchema,
@@ -149,6 +158,8 @@ export const CreateRunInputSchema = z.object({
   campaign: CampaignInputSchema.optional(),
   /* The content capture the run's trace may carry, capped by the server's QA_TELEMETRY_MAX_CAPTURE (default metadata). The applied value is in the run's effectiveConfig. */
   captureMode: CaptureModeSchema.optional(),
+  /* The run's own choice of grounding sources (an A/B arm), overriding the app's settings. Absent: the app decides. */
+  grounding: GroundingInputSchema.optional(),
 });
 
 export const CreateRunResultSchema = z.object({

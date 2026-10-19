@@ -35,6 +35,14 @@ test("grounding and policy are what the run's app declares, with the engine's de
   assert.equal(withBoundaries.grounding.stitcher, "signal");
 });
 
+test("a run's grounding lever wins over the app's setting and the freeze still wins over the curriculum lever", () => {
+  const withServices = app({ services: [{ repo: "o/s" }], boundaries: [{}] });
+  const asked = resolveRunConfig(withServices, "e2e", { grounding: { explorer: true, stitcher: false, structuralSignal: false, curriculum: false } }, "metadata", env);
+  assert.deepEqual(asked.grounding, { explorer: true, stitcher: "off", structuralSignal: "off", curriculum: "off" });
+  const frozen = resolveRunConfig(withServices, "e2e", { grounding: { curriculum: true } }, "metadata", { ...env, campaignFrozen: true });
+  assert.equal(frozen.grounding.curriculum, "frozen");
+});
+
 test("a campaign freeze freezes the curriculum and switches the reflector off whatever the reflector switch says", () => {
   const frozen = resolveRunConfig(app(), "e2e", {}, "metadata", { ...env, campaignFrozen: true });
   assert.equal(frozen.campaignFreeze, true);

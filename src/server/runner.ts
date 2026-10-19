@@ -28,7 +28,8 @@ import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import type { CoordinationMode } from "@kernel/coordination";
 import type { CampaignIdentity } from "@kernel/campaign";
 import { capCaptureMode, DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode";
-import { configInEffect, resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
+import { configInEffect, resolveRunConfig, type RunConfigEnvironment, type StoredRunConfig } from "./effective-config";
+import type { GroundingInput } from "../contract/commands";
 import { RunTrace, SYSTEM_CLOCK, markEnqueued, type RunFacts, type RunIdentity, type RunTrigger } from "./run-trace";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
@@ -74,6 +75,7 @@ export interface RunRequest {
   closedLoop?: boolean;  /* the run's own choice about the run_spec loop (an A/B arm), overriding the app's setting */
   agentBrowser?: boolean;  /* the run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting */
   coordinationMode?: CoordinationMode;  /* the run's own choice of coordination mode (an A/B arm), overriding the app's setting */
+  grounding?: GroundingInput;  /* the run's own choice of grounding sources (an A/B arm), overriding the app's settings */
   /* The campaign replicate this run is. Stored and traced as data; never passed to the engine, so it cannot change what the run does. */
   campaign?: CampaignIdentity;
   /* The content capture the run's trace was granted: the request's choice already capped by the server's ceiling. Absent: the process default. */
@@ -98,7 +100,7 @@ export interface RunnerDeps {
   engineFactory?: (
     appConfig: AppConfig,
     namespace: string,
-    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string },
+    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; grounding?: GroundingInput | StoredRunConfig["grounding"] },
     observer?: ObserverPort,
     previousNamespace?: string,
   ) => RunPipelinePort;
@@ -453,7 +455,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         appConfig.qa.shadow = req.shadow;
       }
       if (appConfig.qa.shadow !== undefined) trace.shadow(appConfig.qa.shadow);
-      recordRunConfig(record.id, appConfig, req, captureMode, runConfigEnv, trace);
+      const resolvedRunConfig = recordRunConfig(record.id, appConfig, req, captureMode, runConfigEnv, trace);
 
       selectEngine(process.env);
       if (!deps.engineFactory) {
@@ -476,7 +478,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         deps.engineFactory(
           appConfig,
           runNamespace,
-          { mode: req.mode, target: req.target, sha: req.sha, ...(req.guidance ? { guidance: req.guidance } : {}), ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}) },
+          { mode: req.mode, target: req.target, sha: req.sha, ...(req.guidance ? { guidance: req.guidance } : {}), ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}), ...(resolvedRunConfig ? { grounding: resolvedRunConfig.grounding } : {}) },
           observer,
           previousNamespace,
         ),
@@ -625,13 +627,15 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
  * Resolves what the run starts with and keeps it on the run (and on its trace root). Observability never changes how a run ends: a fault
  * here is said loudly and the run goes on, its effectiveConfig then answering unknown.
  */
-function recordRunConfig(runId: string, app: AppConfig, req: RunRequest, captureMode: CaptureMode, env: RunConfigEnvironment, trace: RunTrace): void {
+function recordRunConfig(runId: string, app: AppConfig, req: RunRequest, captureMode: CaptureMode, env: RunConfigEnvironment, trace: RunTrace): StoredRunConfig | undefined {
   try {
     const config = resolveRunConfig(app, req.target, req, captureMode, env);
     recordEffectiveConfig(runId, JSON.stringify(config));
     trace.configInEffect(configInEffect(config));
+    return config;
   } catch (err) {
     console.error(`[qa] the effective configuration of run ${runId} could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
   }
 }
 

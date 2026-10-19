@@ -16,7 +16,7 @@ import type { TestTarget } from "@kernel/run-mode";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { serviceTopologyWired, structuralSignalsMode, toolsApply } from "./run-config-gates";
 import type { AppConfig } from "../orchestrator/config-loader";
-import type { EffectiveConfig } from "../contract/commands";
+import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import type { AgentRoleFacts } from "./history";
 import type { RunConfigInEffect } from "./run-trace";
 
@@ -41,6 +41,7 @@ export interface RunConfigRequest {
   closedLoop?: boolean | undefined;
   agentBrowser?: boolean | undefined;
   coordinationMode?: CoordinationMode | undefined;
+  grounding?: GroundingInput | undefined;
 }
 
 /* The engine's defaults for the change-coverage policy, restated by the composition root's own `??` chain. */
@@ -56,6 +57,7 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
   const structuralMode = structuralSignalsMode(app);
   const services = (app.services?.length ?? 0) > 0;
   const stitched = serviceTopologyWired(app);
+  const requestedGrounding = request.grounding ?? {};
   return {
     levers: {
       closedLoop: tools ? env.toolsGranted && closedLoopAsked : null,
@@ -67,11 +69,11 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
     runtime: env.runtime(),
     prompt: { staticHash: env.staticPromptHash() },
     grounding: {
-      explorer: app.qa.explorer ?? services,
+      explorer: requestedGrounding.explorer ?? app.qa.explorer ?? services,
       /* The service-topology collaborator is one of the two advisory structural signals: it exists only for an app with services and declared boundaries. */
-      stitcher: stitched ? structuralMode : null,
-      structuralSignal: structuralMode,
-      curriculum: env.campaignFrozen ? "frozen" : "learning",
+      stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : structuralMode) : null,
+      structuralSignal: requestedGrounding.structuralSignal === false ? "off" : structuralMode,
+      curriculum: env.campaignFrozen ? "frozen" : requestedGrounding.curriculum === false ? "off" : "learning",
     },
     coverage: { mode: app.qa.changeCoverage?.mode ?? DEFAULT_COVERAGE_MODE, minRatio: app.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO },
     reflector: env.reflectorEnabled && !env.campaignFrozen,

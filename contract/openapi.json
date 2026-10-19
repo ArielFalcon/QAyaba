@@ -2393,6 +2393,24 @@
               "metadata",
               "full"
             ]
+          },
+          "grounding": {
+            "type": "object",
+            "properties": {
+              "explorer": {
+                "type": "boolean"
+              },
+              "stitcher": {
+                "type": "boolean"
+              },
+              "structuralSignal": {
+                "type": "boolean"
+              },
+              "curriculum": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "required": [
