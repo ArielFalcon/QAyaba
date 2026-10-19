@@ -19,6 +19,10 @@
 services:
   orchestrator:
     build: .
+    # An init as PID 1: the run's Playwright browsers (spawned as the sandbox uid) and tsx's esbuild are children whose parent can
+    # exit first, and an orphan is reparented to PID 1. The service's own main process does not reap what it did not start, so
+    # without an init those orphans stay defunct for the life of the container (the host-health gauge counts them).
+    init: true
     env_file: .env
     restart: always
     # Defense-in-depth for the untrusted code the orchestrator executes (agent-authored specs, the e2e
@@ -125,6 +129,8 @@ services:
   agents:
     build: ./agents # dual agent runtime: OpenCode + Codex + uv/JDK (Serena) + engram
     restart: always
+    # Same init: the browser of the Playwright MCP and the runtimes' own tool children can outlive the process that started them.
+    init: true
     # Same explicit resolvers as the orchestrator: the agent must reach the model gateway and
     # the live DEV site (Playwright MCP) regardless of host/VPN DNS quirks.
     dns:
