@@ -196,13 +196,14 @@ function changedElementOf(delivered: readonly DeliveredContextSource[]): { chang
 }
 
 /* Freshness provenance, from the produced spans' stale/dom-changed attrs. Absent (undefined) while no source recorded provenance. */
-function freshnessOf(spans: readonly LedgerSpan[]): ContextFreshness | undefined {
+function freshnessOf(spans: readonly LedgerSpan[], relevantIds: readonly string[]): ContextFreshness | undefined {
   const stale: Array<{ source: string; reason: string }> = [];
   let domChanged: boolean | undefined;
   let any = false;
   /* The DOM ids of every capture, by route. Two captures of the same route that disagree mean the
    * page changed between them (R4: the grounding pack saw 0 results and the review saw 11). */
   const byRoute = new Map<string, string[][]>();
+  const relevantRoutes = new Set(relevantIds.map((id) => (id.startsWith("route:") ? id.slice("route:".length) : id)));
   for (const span of spans) {
     if (!span.name.startsWith("qayaba.context.")) continue;
     const attrs = attrsOf(span);
@@ -232,6 +233,7 @@ function freshnessOf(spans: readonly LedgerSpan[]): ContextFreshness | undefined
       perRoute.set(route, set);
     }
     for (const [route, set] of perRoute) {
+      if (relevantRoutes.size > 0 && !relevantRoutes.has(route)) continue;
       const captures = byRoute.get(route) ?? [];
       captures.push([...set].sort());
       byRoute.set(route, captures);
@@ -280,7 +282,7 @@ function contextOf(spans: readonly LedgerSpan[], turns: readonly AgentTurnRecord
     snapshots: snapshots.map((s) => ({ path: s.path, text: s.text })),
     toolSequence: turns.flatMap((t) => t.toolSequence ?? []),
     fileReads: fileReadsOf(turns),
-    freshness: freshnessOf(spans),
+    freshness: freshnessOf(spans, relevant.ids),
   };
 }
 

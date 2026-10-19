@@ -9,7 +9,7 @@ import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-
 import { classifyRoutes, ROUTE_REASON } from "../../../shared-kernel/route-capturability.ts";
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
-import { rankRoutesByChange } from "../domain/route-ranking.ts";
+import { rankRoutesWithRelevance } from "../domain/route-ranking.ts";
 import { instantiableTemplate, instantiateRoute } from "../domain/route-instantiation.ts";
 import { changedValueFactIds, domItemIds, itemId } from "../domain/context-item-ids.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
@@ -66,6 +66,10 @@ export interface ContextPackInput {
 export interface ContextPackTrace {
   /* The routes asked of the capture, in rank order, after the cut. */
   rankedRoutes: string[];
+  /* The routes the change actually links to, as map templates; empty when nothing was linked. */
+  relevantRoutes?: string[];
+  /* The component/page each relevant route belongs to, parallel to `relevantRoutes`. */
+  relevantGroups?: string[];
   /* The routes that name a page, before the cut. */
   capturablePages: number;
   /* The pages the capture returned. */
@@ -336,9 +340,12 @@ export async function buildContextPack(
   }
   /* Only the routes the orchestrator derived itself are ranked by the change: the brief's own and the ones its operations join were chosen for this change already, and keep their place in front. With no changed file there is nothing to rank by. */
   const derivedRoutes = [...new Set(input.routes ?? [])];
-  const deterministicRoutes = input.prChangedFiles
-    ? rankRoutesByChange(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}) })
-    : derivedRoutes;
+  const ranked = input.prChangedFiles
+    ? rankRoutesWithRelevance(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}) })
+    : derivedRoutes.map((route) => ({ route, rank: 0, relevant: false }));
+  const deterministicRoutes = ranked.map((entry) => entry.route);
+  const relevantMapRoutes = ranked.filter((entry) => entry.relevant).map((entry) => entry.route);
+  const componentOf = new Map((input.contextMap?.routes ?? []).map((route) => [route.path, route.component ?? route.path]));
   /* A route named twice is counted once, and a route that names no page and no template of one is dropped, BEFORE the cut: neither may take the slot of a route behind it. A template stays in its place: it opens to a page through a link the site shows, and the cut is made on the pages, not on the templates. */
   const classified = classifyRoutes([...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes]);
   /* Only a route made of literals and whole-segment parameters can be filled from a link; any other route that names no page is simply left out. */
@@ -473,6 +480,8 @@ export async function buildContextPack(
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
   const trace: ContextPackTrace = {
     rankedRoutes: firstPass,
+    relevantRoutes: relevantMapRoutes,
+    relevantGroups: relevantMapRoutes.map((route) => componentOf.get(route) ?? route),
     capturablePages,
     pages: [...pages.values()],
     pageDeliveries: [...deliveries.values()],

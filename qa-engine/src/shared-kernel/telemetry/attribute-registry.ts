@@ -185,6 +185,8 @@ export const ATTRIBUTES = {
   "qayaba.context.dom_changed": bool("The change-relevant DOM differed between two captures of the same page."),
   "qayaba.context.omitted": int("Items a delivered source left out (selection + truncation)."),
   "qayaba.context.omissions": spec("string[]", "Per-reason omissions of a delivered source, as class:reason:count[:route], at most 200.", "high", "none", 200),
+  "qayaba.context.relevant_ids": spec("string[]", "The routes the change actually links to, as stable route ids, at most 200.", "high", "none", MAX_ITEM_IDS_PER_SPAN),
+  "qayaba.context.relevant_groups": spec("string[]", "The component/page each relevant route belongs to, parallel to relevant_ids, at most 200.", "high", "none", MAX_ITEM_IDS_PER_SPAN),
   "qayaba.context.items.count": int("Items the source supplied."),
   "qayaba.context.bytes": int("Bytes the source contributed to what the agent receives."),
   "qayaba.context.truncated": bool("The source was cut to fit a bound."),

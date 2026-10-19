@@ -288,6 +288,9 @@ const contextFresh: Grader = {
 const noopConsistent: Grader = {
   names: ["noop_consistent"],
   grade: finishedOnly((e) => {
+    /* Only a run that could legitimately decide no-op or deliver is judged; an infra-error or invalid run with
+     * zero specs is inconclusive, not a no-op. */
+    if (e.verdict === null || !["pass", "fail", "flaky", "skipped"].includes(e.verdict)) return [];
     const changed = e.context?.changedElement;
     if (changed === undefined || changed === "unknown") return [];
     const isNoop = e.specs.generated === 0;

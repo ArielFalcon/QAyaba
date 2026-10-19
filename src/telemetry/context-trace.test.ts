@@ -269,6 +269,8 @@ test("grounding names the context map, the brief, the route ranking and the pack
     assert.equal(brief.length, 3);
     assert.ok(brief.every((id) => /^brief:[a-z-]+:[0-9a-f]{8}$/.test(id)));
     assert.deepEqual(contextSpan(h, "route-ranking").attributes["qayaba.context.item_ids"], ["route:/orders", "route:/b"]);
+    assert.deepEqual(contextSpan(h, "route-ranking").attributes["qayaba.context.relevant_ids"], ["route:/orders"]);
+    assert.deepEqual(contextSpan(h, "route-ranking").attributes["qayaba.context.relevant_groups"], ["/orders"]);
     const pack = contextSpan(h, "context-pack");
     assert.deepEqual(pack.attributes["qayaba.context.item_ids"], ["fact:/orders#save-btn:present", "op:listOrders"]);
     assert.ok((pack.attributes["qayaba.context.bytes"] as number) > 0);

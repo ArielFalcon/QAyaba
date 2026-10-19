@@ -81,6 +81,9 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?
           bytes: trace.rankedRoutes.reduce((sum, route) => sum + bytesOf(route), 0),
           truncatedItems: Math.max(0, trace.capturablePages - trace.rankedRoutes.length),
           freshness: mapProvenance?.(),
+          ...(trace.relevantRoutes !== undefined && trace.relevantRoutes.length > 0
+            ? { attrs: { "qayaba.context.relevant_ids": trace.relevantRoutes.map(itemId.route), "qayaba.context.relevant_groups": trace.relevantGroups ?? [] } }
+            : {}),
         });
       }
       recordContextSpan(telemetry, {
