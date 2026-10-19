@@ -1,7 +1,8 @@
 # Local telemetry stack
 
-An opt-in pair of collectors plus Grafana, Tempo and Prometheus (`grafana/otel-lgtm`) for looking at the orchestrator's
-traces and metrics. Plain `docker compose up` does not include it. Design: `docs/observability-design.md` (§9.2, §10).
+An opt-in pair of collectors plus Grafana, Tempo, Prometheus and Loki (`grafana/otel-lgtm`) for looking at the
+orchestrator's traces, metrics and logs. Plain `docker compose up` does not include it. Design:
+`docs/observability-design.md` (§9.2, §10, R6).
 
 ## Start and stop
 
@@ -28,20 +29,36 @@ For production drop `docker-compose.override.yml`, as for the base stack.
 | Name | Where | Purpose |
 |---|---|---|
 | `GRAFANA_ADMIN_PASSWORD` | host env, Doppler or `.env` | Required for every command that loads the file. No default exists. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | set by the telemetry file on the orchestrator (`http://collector:4318`) | Where the orchestrator exports. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | set by the telemetry file on the orchestrator (`http://collector:4318`) and the agents (`http://collector-agents:4319`) | Where each side exports. On the agents side OpenCode reads it and exports its logs and traces; the collector keeps the logs and drops its rootless process trace. |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | `.env` | Optional logs URL; when unset the generic endpoint gets `/v1/logs`. It does not enable the exporter by itself (the generic endpoint or a traces endpoint must exist). |
 | `OTEL_SERVICE_NAME` | set by the telemetry file (`qayaba-orchestrator`) | Resource service name. |
 | `QA_TELEMETRY` | `.env` | `local` (default) or `off`. |
 | `QA_AGENT_OTLP_ENDPOINT` | set by the telemetry file on the agents service (`http://collector-agents:4319`) | The supervisor then gives Codex a trace exporter (`[otel]` in its `config.toml`) pointed at the untrusted receiver, and the orchestrator passes the attempt's `traceparent` so Codex's spans hang under it. Unset (plain compose): Codex exports nothing and its config is unchanged. |
 | `QA_TELEMETRY_OBSERVE_UNWATCHED` | set by the telemetry file on the orchestrator (`true`) | Track the explorer's calls for its trace without registering, watching or waiting for its session. Off when unset. |
-| `QA_TELEMETRY_MAX_CAPTURE` | `.env` | The most content any run's trace may carry: `off`, `metadata` (default) or `full`. A request's `captureMode` is capped at it. Turning `full` on is a deliberate operator act: it exports message bodies. |
-| `QA_TELEMETRY_RETENTION_DAYS`, `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` | `.env` | How long an ordinary run keeps its spans and agent turns (30) and how long a campaign-tagged run does (180). |
+| `QA_TELEMETRY_MAX_CAPTURE` | `.env` | The most content any run's trace may carry: `off`, `metadata` (default) or `full`. A request's `captureMode` is capped at it. Turning `full` on is a deliberate operator act: it exports message bodies. The console tap reads the run's mode under the same ceiling. |
+| `QA_TELEMETRY_RETENTION_DAYS`, `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` | `.env` | How long an ordinary run keeps its spans and agent turns (30) and how long a campaign-tagged run does (180). Loki logs use the campaign window (180) globally: a log cannot carry the campaign tag. |
 | `OTEL_BSP_SCHEDULE_DELAY`, `OTEL_BSP_MAX_QUEUE_SIZE`, `OTEL_BSP_MAX_EXPORT_BATCH_SIZE`, `OTEL_BSP_EXPORT_TIMEOUT`, `OTEL_RESOURCE_ATTRIBUTES` | `.env` | Optional exporter tuning. |
 
 ## Where to look
 
 Grafana: <http://127.0.0.1:3001>, user `admin`, the password you set. Anonymous access is disabled. The Tempo
-datasource shows traces (search by `service.name = qayaba-orchestrator`); the Prometheus datasource shows metrics.
-Nothing else is published: Tempo, Prometheus and the OTLP ports are reachable only inside the compose networks.
+datasource shows traces (search by `service.name = qayaba-orchestrator`); the Prometheus datasource shows metrics; the
+**Loki** datasource shows logs. Nothing else is published: Tempo, Prometheus, Loki and the OTLP ports are reachable only
+inside the compose networks.
+
+Loki examples (the OTLP receiver stores `service_name` and `service_instance_id` as labels; the rest is structured
+metadata, with dots replaced by underscores):
+
+```logql
+{service_name="opencode"} | severity_text="ERROR"
+{service_name="opencode"} | session_id="ses_..."        # only the lines that carry it
+{service_name="qayaba-orchestrator"} | trace_id="..."   # copy the id from the run's trace in Tempo
+```
+
+The orchestrator's console lines (`[qa] ...`, the grounding bridges' warnings) are exported only while a span is active
+and under the run's capture mode: `off` sends nothing, `metadata` caps a line at 1 KB, `full` at 4 KB. Boot,
+`/api/health` polling and any line outside a span stay in docker's json-file log. Loki is a viewing aid: nothing reads it
+programmatically, and `runs.logs`/`run_events` remain the API's record.
 
 A rotating copy of each collector's traces is written to the `otel-debug` volume (`/var/lib/otel-debug/traces.jsonl` for
 the trusted collector, `agents-traces.jsonl` for the untrusted one; 100 MB x 3 files each). The `debug` exporter is
@@ -103,15 +120,17 @@ trusted port to the agents. Each receiver is therefore its own service with its 
 
 | Service | Config | Receiver | Networks | Who writes to it | Pipeline |
 |---|---|---|---|---|---|
-| `collector` | `config/otel/collector.yaml` | `otlp/orchestrator` :4318 | `telemetry-internal` only | the orchestrator | trusted; secret redaction only |
-| `collector-agents` | `config/otel/collector-agents.yaml` | `otlp/agents` :4319 | `agent-otlp` + `telemetry-internal` (the latter only to export to lgtm) | the agents container (later slice) | untrusted; deletes `qayaba.*`, `langfuse.*` and prompt/response content keys, then sets `qayaba.trust=agent` |
+| `collector` | `config/otel/collector.yaml` | `otlp/orchestrator` :4318 | `telemetry-internal` only | the orchestrator | trusted; secret redaction only; traces, metrics and logs |
+| `collector-agents` | `config/otel/collector-agents.yaml` | `otlp/agents` :4319 | `agent-otlp` + `telemetry-internal` (the latter only to export to lgtm) | the agents container (OpenCode's logs and traces, Codex's traces) | untrusted; deletes `qayaba.*`, `langfuse.*` and prompt/response content keys from spans and logs, then sets `qayaba.trust=agent`; drops `service.name=opencode` traces |
 
 - The agents container is on `agent-otlp` and **not** on `telemetry-internal`, so it can reach `collector-agents` and
   nothing else of the stack: not the trusted receiver, not Grafana, not lgtm. The `qayaba.trust=agent` tag therefore
-  cannot be spoofed. The network is prepared; the agents emit nothing yet.
-- The strip and the stamp run on the resource, the scope, every span and every span event, with `error_mode: propagate`
-  (a failing statement drops the batch rather than passing a forged key). The collector has no OTTL context for span
-  links, so the span context drops the links whole.
+  cannot be spoofed. OpenCode exports its own logs and traces to this receiver; the trace pipeline drops
+  `service.name=opencode` (one process-wide trace with no root; 1.17.7 ignores an inbound `traceparent`) and the log
+  pipeline keeps the logs. `experimental.openTelemetry` stays off.
+- The strip and the stamp run on the resource, the scope, every span, every span event and every log record, with
+  `error_mode: propagate` (a failing statement drops the batch rather than passing a forged key). The collector has no
+  OTTL context for span links, so the span context drops the links whole.
 - `lgtm` is on `telemetry-internal` only: it has no route out and no published port. `grafana-proxy` (unprivileged
   nginx, read-only) is the one process also on `telemetry-ui`, the only non-internal network, because a container
   attached only to an internal network cannot publish a port. It forwards `127.0.0.1:3001` to `lgtm:3000` and nothing else.
@@ -122,13 +141,28 @@ trusted port to the agents. Each receiver is therefore its own service with its 
 - Every pipeline also runs a coarse `redaction` pass: credential-looking keys (anchored on separators, so
   `gen_ai.usage.input_tokens` and `max_tokens` are untouched) and values (bearer and basic tokens, connection URLs with a
   password, GitHub, Google, Slack, npm and AWS keys, JWTs, private keys). It is a second layer behind the orchestrator's
-  own sanitizer, not a replacement.
+  own sanitizer, not a replacement. A log body is a message, not a prompt; Loki truncates any line over 64 KB.
+- The orchestrator's log record inherits the active span's `trace_id` and `span_id`, so Tempo and Loki can be read side by
+  side. OpenCode's logs carry its own process trace ids, which are not a qayaba trace; the session id, where present, is
+  the only join to a run.
 
 ## Retention
 
 Spans are kept 30 days (R4). The `grafana/otel-lgtm` image has no retention key in its Tempo config (Tempo's default is
 14 days), but its start script appends `TEMPO_EXTRA_ARGS` to the Tempo command line, so the compose file sets
 `-backend-worker.compaction.block-retention=720h` (the Tempo 3.x flag). Re-check the flag name when the image pin moves.
+
+Logs are kept 180 days (R6), the campaign window. Loki's retention is YAML-only and the image's own config has none, so
+`config/otel/loki-config.yaml` shadows it: the same config plus `limits_config.retention_period: 4320h`, the compactor and a
+64 KB line cap. A log cannot be tagged with the campaign it belongs to, so the only window that never cuts a campaign's
+logs early is the longest one; ordinary spans keep their own 30. `npm test` pins the window to
+`DEFAULT_CAMPAIGN_RETENTION_DAYS` and the mount. Validate the copy before starting it:
+
+```bash
+docker run --rm --entrypoint /otel-lgtm/loki/loki \
+  -v "$PWD/config/otel/loki-config.yaml:/loki.yaml:ro" grafana/otel-lgtm:0.37.0 \
+  -config.file=/loki.yaml -verify-config
+```
 
 The collector image is pinned to `0.163.1`: the `0.163.0` tag was never published to Docker Hub.
 

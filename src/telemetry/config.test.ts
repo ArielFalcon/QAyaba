@@ -42,6 +42,16 @@ test("the metrics endpoint follows the same rule with its own path", () => {
   assert.equal(resolveTelemetryConfig({ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://b:2/t" }).otlp?.metricsUrl, undefined);
 });
 
+test("the logs endpoint follows the same rule with its own path", () => {
+  assert.equal(resolveTelemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318/" }).otlp?.logsUrl, "http://collector:4318/v1/logs");
+  assert.equal(
+    resolveTelemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://a:1", OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "http://l:2/x" }).otlp?.logsUrl,
+    "http://l:2/x",
+  );
+  assert.equal(resolveTelemetryConfig({ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://b:2/t" }).otlp?.logsUrl, undefined);
+  assert.equal(resolveTelemetryConfig({ OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "http://l:2/x" }).otlp, undefined);
+});
+
 test("a blank endpoint means no exporter", () => {
   assert.equal(resolveTelemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: "  " }).otlp, undefined);
 });

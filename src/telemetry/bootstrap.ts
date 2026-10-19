@@ -11,6 +11,8 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { AggregationType, MeterProvider, PeriodicExportingMetricReader, type PushMetricExporter } from "@opentelemetry/sdk-metrics";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-proto";
+import { BatchLogRecordProcessor, LoggerProvider, type LogRecordExporter } from "@opentelemetry/sdk-logs";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
@@ -21,6 +23,7 @@ import { resolveTelemetryConfig, type TelemetryConfig } from "./config";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
 import { EVENT_LOOP_DELAY_BOUNDARIES_MS, SUSPEND_DURATION_BOUNDARIES_S } from "./host-health";
 import { OtelTelemetry, type CaptureMode } from "./otel-telemetry.adapter";
+import { installConsoleLogTap } from "./console-log-tap";
 
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000;
 const METRIC_EXPORT_INTERVAL_MS = 60_000;
@@ -40,8 +43,12 @@ export interface BootstrapDeps {
   readonly traceExporterFactory?: (url: string) => SpanExporter;
   /* Builds the OTLP metric exporter for a url. Default: OTLP/proto over HTTP. Return undefined for no metrics. */
   readonly metricExporterFactory?: (url: string) => PushMetricExporter | undefined;
+  /* Builds the OTLP log exporter for a url. Default: OTLP/proto over HTTP. */
+  readonly logExporterFactory?: (url: string) => LogRecordExporter;
   /* Register the provider and propagator as the process-wide OpenTelemetry globals. The composition roots do; tests do not. */
   readonly registerGlobal?: boolean;
+  /* Mirror console output into OTel logs while a span is active. The composition roots set it; tests stay quiet. */
+  readonly captureConsole?: boolean;
 }
 
 export interface TelemetryHandle {
@@ -49,6 +56,8 @@ export interface TelemetryHandle {
   /* The wall clock the telemetry was built on. The engine's phase cursor and the runner's enqueue marks read this same clock, so every span time and every duration of a run agree. */
   readonly clock: TelemetryClock;
   health(): TelemetryHealth;
+  /* Stops mirroring console output. Safe to call more than once. */
+  stopConsoleTap(): void;
   /* Flushes the ledger, then the exporters, then stops them, all raced against `timeoutMs`. Never throws. */
   shutdown(timeoutMs?: number): Promise<void>;
 }
@@ -111,7 +120,7 @@ function offHandle(freeze: boolean, clock: TelemetryClock): TelemetryHandle {
     scoreSink: { configured: false },
     droppedAttributes: 0,
   };
-  return { telemetry: new NoopTelemetry(), clock, health: () => health, shutdown: async () => {} };
+  return { telemetry: new NoopTelemetry(), clock, health: () => health, stopConsoleTap: () => {}, shutdown: async () => {} };
 }
 
 export interface PruneFns {
@@ -176,6 +185,23 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
     flush: () => ledger.flush(),
   });
 
+  let loggerProvider: LoggerProvider | undefined;
+  let stopConsoleTap: () => void = () => {};
+  if (config.otlp?.logsUrl) {
+    const exporter = (deps.logExporterFactory ?? ((url: string) => new OTLPLogExporter({ url })))(config.otlp.logsUrl);
+    loggerProvider = new LoggerProvider({
+      resource,
+      processors: [new BatchLogRecordProcessor({ exporter, ...config.otlp.batch })],
+    });
+    if (deps.captureConsole) {
+      stopConsoleTap = installConsoleLogTap({
+        logger: loggerProvider.getLogger("qayaba"),
+        activeSpan: () => adapter.activeLogSpan(),
+        redact: (text, cap) => adapter.redactActive(text, cap),
+      });
+    }
+  }
+
   const health = (): TelemetryHealth => {
     const ledgerStats = ledger.stats();
     return {
@@ -194,11 +220,15 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
   };
 
   const shutdown = async (timeoutMs: number = DEFAULT_SHUTDOWN_TIMEOUT_MS): Promise<void> => {
-    /* The ledger is local and synchronous: commit it before anything that can hang. */
+    /* Stop mirroring first, then commit the local ledger before anything that can hang. */
+    stopConsoleTap();
+    stopConsoleTap = () => {};
     ledger.flush();
     const stop = async (): Promise<void> => {
       await provider.forceFlush();
       await provider.shutdown();
+      await loggerProvider?.forceFlush();
+      await loggerProvider?.shutdown();
       await meterProvider?.shutdown();
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -215,5 +245,5 @@ export function createTelemetry(deps: BootstrapDeps): TelemetryHandle {
     }
   };
 
-  return { telemetry: adapter, clock, health, shutdown };
+  return { telemetry: adapter, clock, health, stopConsoleTap: () => stopConsoleTap(), shutdown };
 }
