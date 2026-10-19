@@ -159,20 +159,31 @@ export function isValidSpec(spec: CellSpec): boolean {
   return true;
 }
 
-function* everySpec(): Generator<CellSpec> {
-  const walk = function* (index: number, partial: Partial<Record<DimensionName, unknown>>): Generator<CellSpec> {
-    const name = DIMENSION_NAMES[index];
-    if (name === undefined) {
-      yield partial as unknown as CellSpec;
-      return;
-    }
-    for (const value of DIMENSIONS[name] as readonly unknown[]) yield* walk(index + 1, { ...partial, [name]: value });
-  };
-  yield* walk(0, {});
+let validSpecs: CellSpec[] | undefined;
+
+/* Every combination of the dimensions that can reach the agent. Cached: the walk covers the full
+   cross product and every caller only reads the list.
+   shortcut: the cached array is shared, not copied; keep callers read-only (today all are filter/find/map/for). */
+export function allValidSpecs(): CellSpec[] {
+  return (validSpecs ??= collectValidSpecs());
 }
 
-export function allValidSpecs(): CellSpec[] {
-  return [...everySpec()].filter(isValidSpec);
+function collectValidSpecs(): CellSpec[] {
+  const specs: CellSpec[] = [];
+  const partial = {} as Partial<Record<DimensionName, unknown>>;
+  const walk = (index: number): void => {
+    const name = DIMENSION_NAMES[index];
+    if (name === undefined) {
+      if (isValidSpec(partial as unknown as CellSpec)) specs.push({ ...partial } as CellSpec);
+      return;
+    }
+    for (const value of DIMENSIONS[name] as readonly unknown[]) {
+      partial[name] = value;
+      walk(index + 1);
+    }
+  };
+  walk(0);
+  return specs;
 }
 
 /* How a signal that holds something is named in a cell name and a bucket. */
