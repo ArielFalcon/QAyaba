@@ -129,6 +129,19 @@ test("the relevant routes and file reads are read back from the spans and the tu
   assert.deepEqual(evidence.context?.toolSequence, [{ tool: "read", target: "a.ts" }]);
 });
 
+test("two captures of the same route that disagree mark the context stale", async () => {
+  const capture = (spanId: string, ids: string[]) => ({
+    name: "qayaba.context.dom-capture",
+    spanId,
+    parentSpanId: null,
+    attrs: JSON.stringify({ "qayaba.context.source": "dom-capture", "qayaba.context.item_ids": ids }),
+  });
+  const evidence = (await new HistoryEvidenceAdapter(
+    deps({ runSpans: () => [capture("pack", ["dom:/restaurantes#a"]), capture("review", ["dom:/restaurantes#a", "dom:/restaurantes#b"])] }),
+  ).load("run-1"))!;
+  assert.equal(evidence.context?.freshness?.domChanged, true);
+});
+
 test("a run with no delivered sources and no snapshots has no context evidence", async () => {
   const evidence = (await new HistoryEvidenceAdapter(deps({ runSpans: () => [], listSpecSnapshots: () => [] })).load("run-1"))!;
   assert.equal(evidence.context, undefined);

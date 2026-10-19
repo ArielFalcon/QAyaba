@@ -201,6 +201,9 @@ function freshnessOf(spans: readonly LedgerSpan[]): ContextFreshness | undefined
   const stale: Array<{ source: string; reason: string }> = [];
   let domChanged: boolean | undefined;
   let any = false;
+  /* The DOM ids of every capture, by route. Two captures of the same route that disagree mean the
+   * page changed between them (R4: the grounding pack saw 0 results and the review saw 11). */
+  const byRoute = new Map<string, string[][]>();
   for (const span of spans) {
     if (!span.name.startsWith("qayaba.context.")) continue;
     const attrs = attrsOf(span);
@@ -215,6 +218,33 @@ function freshnessOf(spans: readonly LedgerSpan[]): ContextFreshness | undefined
     if (attrs["qayaba.context.dom_changed"] === true) {
       domChanged = true;
       any = true;
+    }
+    if (span.name !== "qayaba.context.dom-capture") continue;
+    const ids = attrs["qayaba.context.item_ids"];
+    if (!Array.isArray(ids)) continue;
+    const perRoute = new Map<string, Set<string>>();
+    for (const id of ids) {
+      if (typeof id !== "string" || !id.startsWith("dom:")) continue;
+      const hash = id.indexOf("#", 4);
+      if (hash < 0) continue;
+      const route = id.slice(4, hash);
+      const set = perRoute.get(route) ?? new Set<string>();
+      set.add(id);
+      perRoute.set(route, set);
+    }
+    for (const [route, set] of perRoute) {
+      const captures = byRoute.get(route) ?? [];
+      captures.push([...set].sort());
+      byRoute.set(route, captures);
+    }
+  }
+  for (const captures of byRoute.values()) {
+    if (captures.length < 2) continue;
+    const first = captures[0]!.join("|");
+    if (captures.some((ids) => ids.join("|") !== first)) {
+      domChanged = true;
+      any = true;
+      break;
     }
   }
   return any ? { stale, domChanged } : undefined;
