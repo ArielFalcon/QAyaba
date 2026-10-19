@@ -62,6 +62,7 @@ import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-c
 
 import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generation/application/ports/index.ts";
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
@@ -234,6 +235,8 @@ export interface CompositionConfig {
   services?: Array<{ repo: string; mirrorDir: string; openapi?: string | string[] }>;
   /* FE↔BE architecture map (context.json). Absent → the pack degrades to blast-radius + DOM only. */
   contextMap?: ArchitectureContext;
+  /* Where the map was effectively read from and how fresh it was. Absent: the map span carries no provenance. */
+  contextMapProvenance?: () => ContextProvenance | undefined;
   /* Union of changed files across the PR's full commit range — further filters contracts to operations the PR actually touched. Absent -> contracts are filtered by contextMap/brief alone. */
   prChangedFiles?: string[];
 
@@ -423,10 +426,11 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
           baseUrl: cfg.baseUrl,
           testIdAttribute: cfg.testIdAttribute,
           contextMap: cfg.contextMap,
+          ...(cfg.contextMapProvenance ? { contextMapProvenance: cfg.contextMapProvenance } : {}),
           prChangedFiles: cfg.prChangedFiles,
           ...(cfg.triggerService ? { stagedRoots: stagedRootsOf(cfg.mirrorDir, join(cfg.mirrorDir, cfg.e2eRelDir), cfg.triggerService.mirrorDir) } : {}),
         },
-        cfg.telemetry ? { ...cfg.groundingCollaborators, trace: telemetryGroundingTrace(cfg.telemetry) } : (cfg.groundingCollaborators ?? {}),
+        cfg.telemetry ? { ...cfg.groundingCollaborators, trace: telemetryGroundingTrace(cfg.telemetry, cfg.contextMapProvenance) } : (cfg.groundingCollaborators ?? {}),
       )
     : undefined;
   const reviewDomGrounding = !cfg.isCode

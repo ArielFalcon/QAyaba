@@ -67,7 +67,17 @@ export interface ContextRecord {
   /* Each cut, classed and with its closed reason, for the cut/cut_items metrics. */
   cuts?: readonly { class: "selection" | "truncation"; reason: string; count: number }[];
   /* Provenance/freshness (observe-only); stale is never derived from a cut. */
-  freshness?: { ageMs?: number; stale?: boolean; staleReason?: string; recapture?: string };
+  freshness?: {
+    location?: string;
+    capturedAt?: string;
+    capturedSha?: string;
+    ageMs?: number;
+    resultCount?: number;
+    stale?: boolean;
+    staleReason?: string;
+    recapture?: string;
+    domChanged?: boolean;
+  };
   /* Item count when it differs from the ids (ids are deduplicated and capped). */
   count?: number;
   /* Extra attributes for the span. */
@@ -93,6 +103,15 @@ export function recordContextSpan(telemetry: TelemetryPort, record: ContextRecor
       ...(record.omitted !== undefined && record.omitted > 0 ? { "qayaba.context.omitted": record.omitted } : {}),
       ...(record.status !== undefined ? { "qayaba.context.status": record.status } : {}),
       ...(record.reason !== undefined ? { "qayaba.context.reason": record.reason } : {}),
+      ...(record.freshness?.location !== undefined ? { "qayaba.context.location": record.freshness.location } : {}),
+      ...(record.freshness?.capturedAt !== undefined ? { "qayaba.context.captured_at": record.freshness.capturedAt } : {}),
+      ...(record.freshness?.capturedSha !== undefined ? { "qayaba.context.captured_sha": record.freshness.capturedSha } : {}),
+      ...(record.freshness?.ageMs !== undefined ? { "qayaba.context.age_ms": record.freshness.ageMs } : {}),
+      ...(record.freshness?.resultCount !== undefined ? { "qayaba.context.result_count": record.freshness.resultCount } : {}),
+      ...(record.freshness?.stale !== undefined ? { "qayaba.context.stale": record.freshness.stale } : {}),
+      ...(record.freshness?.staleReason !== undefined ? { "qayaba.context.stale_reason": record.freshness.staleReason } : {}),
+      ...(record.freshness?.recapture !== undefined ? { "qayaba.context.recapture.outcome": record.freshness.recapture } : {}),
+      ...(record.freshness?.domChanged !== undefined ? { "qayaba.context.dom_changed": record.freshness.domChanged } : {}),
       ...record.attrs,
     });
     try {

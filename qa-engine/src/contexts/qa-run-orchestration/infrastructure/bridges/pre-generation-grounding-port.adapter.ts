@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps, packDeliveredItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackAssembly, ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/domain/harness-facts.ts";
@@ -23,6 +24,8 @@ export interface PreGenerationGroundingStaticContext {
   baseUrl?: string; /* live DEV base URL — absent -> the pack's DOM component is skipped */
   testIdAttribute?: string; /* config-declared convention (e.g. "data-cy") — forwarded to DOM capture */
   contextMap?: ArchitectureContext; /* the FE<->BE architecture map (context.json), if loaded */
+  /* Where the map was effectively read from and how fresh it was. Read after the load, so it describes the source that won. */
+  contextMapProvenance?: () => ContextProvenance | undefined;
   prChangedFiles?: string[]; /* union of changed files, for contract filtering */
   mirrorDir?: string; /* the working copy the map's implementationFiles are relative to — absent → a route is tied only to the files the map names */
   stagedRoots?: string[]; /* cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it (present even when empty) — the pack ranks a route only by the spec of an operation it joins, under these roots */
@@ -30,7 +33,7 @@ export interface PreGenerationGroundingStaticContext {
 
 /* Told what grounding supplied, as it supplies it. Read-only: nothing it does reaches what the agent receives, and a fault in it is logged and ignored. */
 export interface GroundingTrace {
-  contextMap?(map: ArchitectureContext): void;
+  contextMap?(map: ArchitectureContext, provenance?: ContextProvenance): void;
   brief?(brief: ExplorationBrief): void;
   pack?(assembly: ContextPackAssembly): void;
 }
@@ -250,7 +253,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       }
     }
     if (contextMap) result.contextMap = contextMap;
-    if (contextMap) this.tell(() => this.collaborators.trace?.contextMap?.(contextMap));
+    if (contextMap) this.tell(() => this.collaborators.trace?.contextMap?.(contextMap, this.ctx.contextMapProvenance?.()));
 
     try {
       const found = enumerateExistingSpecFiles(this.ctx.e2eDir);

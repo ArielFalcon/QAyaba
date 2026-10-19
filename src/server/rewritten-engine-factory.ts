@@ -61,6 +61,7 @@ import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-ti
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { RunDeadline } from "@contexts/qa-run-orchestration/domain/run-deadline";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
+import { CONTEXT_HEAL_MIN_INTERVAL_MS, CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
@@ -153,7 +154,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
+import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, lastContextHealRequestAt, recordContextHealRequest, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { serviceTopologyWired, structuralSignalsOn as structuralSignalsOnFor, toolsApply } from "./run-config-gates";
@@ -829,6 +830,22 @@ export function buildRewrittenCompositionConfig(
     requestContextHeal(app.name, run.sha, deps.enqueueContextRun);
   }
 
+  /* Where the map the run actually used came from, and how fresh it was (observe-only). */
+  let mapProvenance: ContextProvenance | undefined;
+  /* An off-path rebuild for a map stale by SHA/age, deduped to one request per app per 6h. The
+   * process-audit flag keeps its own path above; this one never clears that flag. */
+  const requestMapHealIfDue = (): void => {
+    if (campaignFrozen || !mapProvenance?.stale) return;
+    const last = lastContextHealRequestAt(app.name);
+    if (last !== undefined && Date.now() - Date.parse(last) < CONTEXT_HEAL_MIN_INTERVAL_MS) {
+      mapProvenance = { ...mapProvenance, recapture: "skipped" };
+      return;
+    }
+    recordContextHealRequest(app.name);
+    mapProvenance = { ...mapProvenance, recapture: "requested" };
+    requestContextHeal(app.name, run.sha, deps.enqueueContextRun);
+  };
+
   /*
    * deps.mirror is a test seam only. Production checkout always uses defaultMirrorDeps
    * (workdirRoot()). deps.mirrorRoot overrides the path, not the git collaborator.
@@ -1129,12 +1146,52 @@ export function buildRewrittenCompositionConfig(
        * manual context run) replaces the map for later runs.
        */
       loadContextMap: (specDir: string) => {
-        if (contextStale) return undefined;
+        if (contextStale) {
+          mapProvenance = {
+            location: "db:context_maps",
+            stale: true,
+            staleReason: "marked-stale",
+            recapture: campaignFrozen ? "skipped" : "requested",
+          };
+          return undefined;
+        }
         const stored = loadStoredContextMap(app.name);
-        if (stored) return stored.data;
-        return loadContextMapFromDisk(specDir);
+        if (stored) {
+          const capturedMs = Date.parse(stored.updatedAt);
+          const ageMs = Number.isFinite(capturedMs) ? Math.max(0, Date.now() - capturedMs) : undefined;
+          const staleBySha = stored.builtAtSha !== run.sha;
+          const staleByAge = ageMs !== undefined && ageMs > CONTEXT_MAP_MAX_AGE_MS;
+          const stale = staleBySha || staleByAge;
+          mapProvenance = {
+            location: "db:context_maps",
+            capturedAt: stored.updatedAt,
+            capturedSha: stored.builtAtSha,
+            ...(ageMs !== undefined ? { ageMs } : {}),
+            resultCount: contextMapResultCount(stored.data),
+            stale,
+            staleReason: staleBySha ? "sha-mismatch" : staleByAge ? "older-than-max-age" : "none",
+            recapture: "not-needed",
+          };
+          if (stale) requestMapHealIfDue();
+          return stored.data;
+        }
+        const disk = loadContextMapFromDisk(specDir);
+        if (disk) {
+          const stale = disk.builtAtSha !== run.sha;
+          mapProvenance = {
+            location: "file:e2e/.qa/context.json",
+            capturedSha: disk.builtAtSha,
+            resultCount: contextMapResultCount(disk),
+            stale,
+            staleReason: stale ? "sha-mismatch" : "none",
+            recapture: "not-needed",
+          };
+          if (stale) requestMapHealIfDue();
+        }
+        return disk;
       },
     },
+    contextMapProvenance: () => mapProvenance,
     reviewDomGroundingCollaborators: { captureDomDeps },
     preExecGroundingCollaborators: { captureDomDeps },
     /*

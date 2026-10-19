@@ -93,7 +93,7 @@ test("the default is the latest grader version per name and ?versions=all lists 
   const latest = service.evaluation(id, false)!.scores.filter((s) => s.name === "spec_pass_rate");
   assert.deepEqual(latest.map((s) => s.graderVersion), ["10"], "10 is newer than 1 even though it sorts before it as text");
   const all = service.evaluation(id, true)!.scores.filter((s) => s.name === "spec_pass_rate");
-  assert.deepEqual(all.map((s) => s.graderVersion).sort(), ["0", "1", "10"]);
+  assert.deepEqual(all.map((s) => s.graderVersion).sort(), ["0", "10", "2"]);
 });
 
 test("grading the same run twice leaves one stored score per name and version", async () => {

@@ -51,6 +51,7 @@ export function recordDomCapture(telemetry: TelemetryPort, report: DomCaptureRep
       ids: budgeted.ids,
       bytes: report.outputChars,
       truncatedItems: pages.reduce((sum, p) => sum + p.leftOut, 0),
+      freshness: { location: "live:dev", capturedAt: new Date().toISOString(), resultCount: report.snaps.length, stale: false, staleReason: "none", recapture: "not-needed" },
     },
     (span) => {
       /* One event per route, in the order the script was asked for them, errored ones included. */

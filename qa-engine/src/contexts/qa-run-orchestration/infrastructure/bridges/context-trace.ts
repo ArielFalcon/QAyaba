@@ -10,6 +10,7 @@ import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/r
 import { advisoryLineIds, briefItemIds, contextMapItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
 import { packProducedItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
+import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type {
   CrossRepoImpact,
   CrossRepoImpactPort,
@@ -44,19 +45,42 @@ function safely(record: () => void): void {
   }
 }
 
-/* The context map, the explorer's brief and the context pack, as they are made by the grounding adapter. */
-export function telemetryGroundingTrace(telemetry: TelemetryPort): GroundingTrace {
+/* A source's provenance for the span. The caller may override any field; a source with no known capture time still says where it came from. */
+function provenanceOf(location: string, resultCount: number, extra: ContextProvenance = {}): ContextProvenance {
   return {
-    contextMap: (map) => safely(() => recordContextSpan(telemetry, { source: "context-map", ids: contextMapItemIds(map), bytes: jsonBytes(map) })),
-    brief: (brief) => safely(() => recordContextSpan(telemetry, { source: "explorer-brief", ids: briefItemIds(brief), bytes: jsonBytes(brief) })),
+    location,
+    capturedAt: new Date().toISOString(),
+    resultCount,
+    stale: false,
+    staleReason: "none",
+    recapture: "not-needed",
+    ...extra,
+  };
+}
+
+/* The context map, the explorer's brief and the context pack, as they are made by the grounding adapter. */
+export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?: () => ContextProvenance | undefined): GroundingTrace {
+  return {
+    contextMap: (map, provenance) => safely(() => recordContextSpan(telemetry, {
+      source: "context-map",
+      ids: contextMapItemIds(map),
+      bytes: jsonBytes(map),
+      freshness: provenance ?? mapProvenance?.(),
+    })),
+    brief: (brief) => safely(() => {
+      const ids = briefItemIds(brief);
+      recordContextSpan(telemetry, { source: "explorer-brief", ids, bytes: jsonBytes(brief), freshness: provenanceOf("agent:explorer-brief", ids.length) });
+    }),
     pack: (assembly) => safely(() => {
       const trace = assembly.trace;
       if (trace && trace.capturablePages > 0) {
+        const ids = trace.rankedRoutes.map(itemId.route);
         recordContextSpan(telemetry, {
           source: "route-ranking",
-          ids: trace.rankedRoutes.map(itemId.route),
+          ids,
           bytes: trace.rankedRoutes.reduce((sum, route) => sum + bytesOf(route), 0),
           truncatedItems: Math.max(0, trace.capturablePages - trace.rankedRoutes.length),
+          freshness: mapProvenance?.(),
         });
       }
       recordContextSpan(telemetry, {
@@ -64,6 +88,7 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort): GroundingTrac
         ids: trace ? packProducedItemIds(assembly).ids : [],
         bytes: assembly.text === undefined ? 0 : bytesOf(assembly.text),
         truncatedItems: trace?.omittedLines ?? 0,
+        freshness: provenanceOf("live:dev", trace?.pages.length ?? 0),
       });
     }),
   };
@@ -81,7 +106,7 @@ export class TracedLearningPort implements LearningPort {
 
   async retrieve(sha: Parameters<LearningPort["retrieve"]>[0], relevance?: RelevanceBias): Promise<RetrievedRule[]> {
     const rules = await this.inner.retrieve(sha, relevance);
-    safely(() => recordContextSpan(this.telemetry, { source: "learning", ids: rules.map((rule) => itemId.rule(rule.id)), bytes: rules.reduce((sum, rule) => sum + bytesOf(rule.trigger) + bytesOf(rule.action), 0) }));
+    safely(() => recordContextSpan(this.telemetry, { source: "learning", ids: rules.map((rule) => itemId.rule(rule.id)), bytes: rules.reduce((sum, rule) => sum + bytesOf(rule.trigger) + bytesOf(rule.action), 0), freshness: provenanceOf("db:learning_rules", rules.length) }));
     return rules;
   }
 }
@@ -98,7 +123,7 @@ export class TracedCurriculumPort implements CurriculumPort {
 
   async select(diff: string | undefined, changedFiles: readonly string[]): Promise<readonly SelectedExemplar[]> {
     const exemplars = await this.inner.select(diff, changedFiles);
-    safely(() => recordContextSpan(this.telemetry, { source: "curriculum", ids: exemplars.map((e) => itemId.exemplar(e.id)), bytes: exemplars.reduce((sum, e) => sum + bytesOf(e.template), 0) }));
+    safely(() => recordContextSpan(this.telemetry, { source: "curriculum", ids: exemplars.map((e) => itemId.exemplar(e.id)), bytes: exemplars.reduce((sum, e) => sum + bytesOf(e.template), 0), freshness: provenanceOf("db:curriculum", exemplars.length) }));
     return exemplars;
   }
 }
@@ -111,7 +136,7 @@ export class TracedServiceLinksPort implements ServiceLinksPort {
 
   async resolve(): ReturnType<ServiceLinksPort["resolve"]> {
     const resolved = await this.inner.resolve();
-    safely(() => recordContextSpan(this.telemetry, { source: "service-links", ids: resolved.links.map((link: ServiceLink) => itemId.svcLink(link)), bytes: jsonBytes(resolved.links) }));
+    safely(() => recordContextSpan(this.telemetry, { source: "service-links", ids: resolved.links.map((link: ServiceLink) => itemId.svcLink(link)), bytes: jsonBytes(resolved.links), freshness: provenanceOf("mirror:stitcher", resolved.links.length + resolved.drift.length) }));
     return resolved;
   }
 }
@@ -124,7 +149,8 @@ export class TracedStructuralSignalPort implements StructuralSignalPort {
 
   async render(repoDir: string, changed: Parameters<StructuralSignalPort["render"]>[1]): Promise<StructuralSignalResult> {
     const signal = await this.inner.render(repoDir, changed);
-    safely(() => recordContextSpan(this.telemetry, { source: "structural-signal", ids: advisoryLineIds(signal.text), bytes: bytesOf(signal.text) }));
+    const ids = advisoryLineIds(signal.text);
+    safely(() => recordContextSpan(this.telemetry, { source: "structural-signal", ids, bytes: bytesOf(signal.text), freshness: provenanceOf("graph:codebase-memory", ids.length) }));
     return signal;
   }
 }
@@ -138,7 +164,7 @@ export class TracedCrossRepoImpactPort implements CrossRepoImpactPort {
   async resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null> {
     const impact = await this.inner.resolve(triggerRepo, triggerSha, resolvedLinks);
     const links = impact?.impactedLinks ?? [];
-    safely(() => recordContextSpan(this.telemetry, { source: "cross-repo-impact", ids: links.map((l) => itemId.impact(l.tier, l.link)), bytes: jsonBytes(links) }));
+    safely(() => recordContextSpan(this.telemetry, { source: "cross-repo-impact", ids: links.map((l) => itemId.impact(l.tier, l.link)), bytes: jsonBytes(links), freshness: provenanceOf("mirror:stitcher", links.length) }));
     return impact;
   }
 }

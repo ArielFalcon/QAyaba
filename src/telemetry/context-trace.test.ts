@@ -175,6 +175,36 @@ test("a delivered source's cuts and freshness land on the closed-set metrics", a
   ]);
 });
 
+test("a context source records where it came from and how fresh it was", async () => {
+  const h = traceHarness();
+  await inPhase(h, () =>
+    recordContextSpan(h.telemetry, {
+      source: "context-map",
+      ids: ["route:/orders"],
+      bytes: 10,
+      freshness: {
+        location: "db:context_maps",
+        capturedAt: "2026-10-11T16:38:31.000Z",
+        capturedSha: "549e0649",
+        ageMs: 8 * 86_400_000,
+        resultCount: 112,
+        stale: true,
+        staleReason: "sha-mismatch",
+        recapture: "requested",
+      },
+    }),
+  );
+  const span = contextSpan(h, "context-map");
+  assert.equal(span.attributes["qayaba.context.location"], "db:context_maps");
+  assert.equal(span.attributes["qayaba.context.captured_at"], "2026-10-11T16:38:31.000Z");
+  assert.equal(span.attributes["qayaba.context.captured_sha"], "549e0649");
+  assert.equal(span.attributes["qayaba.context.age_ms"], 8 * 86_400_000);
+  assert.equal(span.attributes["qayaba.context.result_count"], 112);
+  assert.equal(span.attributes["qayaba.context.stale"], true);
+  assert.equal(span.attributes["qayaba.context.stale_reason"], "sha-mismatch");
+  assert.equal(span.attributes["qayaba.context.recapture.outcome"], "requested");
+});
+
 /* ---- the grounding adapter: context map, brief, route ranking and pack ---- */
 
 const MAP = {

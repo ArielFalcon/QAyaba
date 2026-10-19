@@ -444,6 +444,14 @@ function ensureDb(): void {
       at TEXT NOT NULL
     );
 
+    -- When an off-path context-map rebuild was last requested, so a SHA/age-stale map does not
+    -- enqueue one on every run. The context_stale flag is cleared when the queue accepts a rebuild;
+    -- this timestamp survives that and is the 6h dedupe bound.
+    CREATE TABLE IF NOT EXISTS context_heal_requests (
+      app TEXT PRIMARY KEY,
+      at TEXT NOT NULL
+    );
+
     -- The FE<->BE architecture map (e2e/.qa/context.json) produced by a successful mode:context
     -- run, per app (latest wins — not append-only, same as curriculum/scorecard). DB-backed for the
     -- same reason context_stale is: the mirror's e2e/.qa/context.json is wiped/restored by git
@@ -1428,6 +1436,19 @@ export function isContextStale(app: string): boolean {
 export function clearContextStale(app: string): void {
   ensureDb();
   db.prepare("DELETE FROM context_stale WHERE app = ?").run(app);
+}
+
+/* When an off-path context-map rebuild was last requested for the app, ISO-8601; undefined when never. */
+export function lastContextHealRequestAt(app: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT at FROM context_heal_requests WHERE app = ?").get(app) as { at: string } | undefined;
+  return row?.at;
+}
+
+/* Record that an off-path rebuild was requested now. Idempotent: the latest request wins. */
+export function recordContextHealRequest(app: string): void {
+  ensureDb();
+  db.prepare("INSERT OR REPLACE INTO context_heal_requests (app, at) VALUES (?, ?)").run(app, new Date().toISOString());
 }
 
 /*
