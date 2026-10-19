@@ -6,7 +6,9 @@ import { HistoryEvidenceAdapter, countPassedSpecs, defaultEvidenceDeps } from ".
 import { buildRunViewExtras, type RunViewDeps } from "./run-view";
 import Database from "better-sqlite3";
 import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
-import { createRecord, updateRecord, addCase, saveRunOutcome, replaceRunScores, getRunFacts, saveAgentTurn, getRunIdByTraceId, listRunScoreRows, getRegradeJob, saveRegradeJob, failInterruptedRegradeJobs, getRecord } from "./history";
+import { createRecord, updateRecord, addCase, saveRunOutcome, replaceRunScores, getRunFacts, saveAgentTurn, getRunIdByTraceId, listRunScoreRows, getRegradeJob, saveRegradeJob, failInterruptedRegradeJobs, getRecord, getRunOutcome } from "./history";
+import { traceHarness } from "../telemetry/trace-harness";
+import { ScoreMetricsSink, composeScoreSinks } from "../telemetry/score-metrics-sink";
 import type { RunOutcome } from "../types";
 
 const quiet = () => undefined;
@@ -460,6 +462,41 @@ test("the campaign listing carries the labels, replicate, status and grading sta
 test("a run that is not part of a campaign is never listed in one", () => {
   const r = createRecord({ target: "e2e", app: "eval-campaign", sha: "abcdef1234", mode: "diff" });
   assert.equal(createEvaluationService({ log: quiet }).campaignRuns("anything", {}).runs.some((x) => x.id === r.id), false);
+});
+
+test("grading and regrading a run mirror its scores as bounded metrics", async () => {
+  const id = finishedRun("eval-metrics");
+  const h = traceHarness();
+  try {
+    const sink = new ScoreMetricsSink({
+      telemetry: h.telemetry,
+      appOf: (runId) => getRecord(runId)?.app,
+      verdictOf: (runId) => getRunOutcome(runId)?.verdict,
+    });
+    const sched = manualScheduler();
+    const service = createEvaluationService({ schedule: sched.schedule, log: quiet, sink: composeScoreSinks([sink]), newId: () => "job-metrics" });
+    service.scheduleGrading(id);
+    await sched.flush();
+
+    const gauges = () => h.measurements.filter((m) => m.name === "qayaba.eval.score");
+    const classes = () => h.measurements.filter((m) => m.name === "qayaba.eval.class");
+    const passRate = gauges().find((m) => m.attrs["qayaba.eval.name"] === "spec_pass_rate")!;
+    assert.equal(passRate.value, 1);
+    assert.equal(passRate.attrs["qayaba.app"], "eval-metrics");
+    assert.equal(passRate.attrs["qayaba.verdict"], "pass");
+    assert.equal(gauges().find((m) => m.attrs["qayaba.eval.name"] === "empty_output_guard")?.value, 1);
+    assert.ok(classes().some((m) => m.attrs["qayaba.eval.name"] === "furthest_phase" && m.attrs["qayaba.eval.value"] === "learn"));
+
+    const first = { gauges: gauges().length, classes: classes().length };
+    service.startRegrade({ runIds: [id] });
+    await sched.flush();
+    assert.equal(service.regradeJob("job-metrics")?.status, "complete");
+    assert.equal(gauges().length, first.gauges * 2, "a regrade re-records the gauge, which replaces the series");
+    assert.equal(classes().length, first.classes * 2, "a regrade counts its class again");
+    assert.ok(!JSON.stringify(h.measurements.map((m) => m.attrs)).includes(id));
+  } finally {
+    await h.dispose();
+  }
 });
 
 test("the catalog lists the judges after the graders only when judges are wired, and a regrade naming a judge reaches them", async () => {

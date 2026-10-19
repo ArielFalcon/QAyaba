@@ -31,6 +31,7 @@ import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION
 import { createEvaluationService } from "./server/evaluation-service";
 import { composeJudges } from "./server/judges-composition";
 import { LangfuseScoreSink, resolveLangfuseConfig, scoreSinkHealthOf } from "./telemetry/langfuse-score-sink";
+import { ScoreMetricsSink, composeScoreSinks } from "./telemetry/score-metrics-sink";
 import { guardRequestHandler, guardResponse } from "./server/guarded-handler";
 import { hashStaticPrompts, type RunConfigEnvironment } from "./server/effective-config";
 import { resolveTelemetryConfig } from "./telemetry/config";
@@ -110,7 +111,16 @@ const langfuseSink = langfuseConfig
  * sequential queue, so never beside a run, and only for a campaign run or a regrade that names a judge. They never gate anything.
  */
 const judges = composeJudges({ env: process.env, root: ROOT, queue, mirrorsRoot: workdirRoot() });
-const evaluation = createEvaluationService({ judges: judges.service, ...(langfuseSink ? { sink: langfuseSink } : {}) });
+/* The score metrics sink makes the grades visible in Grafana; the Langfuse mirror stays optional and human-facing. */
+const scoreMetricsSink = new ScoreMetricsSink({
+  telemetry: telemetry.telemetry,
+  appOf: (runId) => getRecord(runId)?.app,
+  verdictOf: (runId) => getRunOutcome(runId)?.verdict ?? getRecord(runId)?.verdict,
+});
+const evaluation = createEvaluationService({
+  judges: judges.service,
+  sink: composeScoreSinks([scoreMetricsSink, ...(langfuseSink ? [langfuseSink] : [])]),
+});
 /* Hands a finished run to the deterministic graders and, for a campaign run, to the judges' low-priority job. Neither blocks the queue. */
 const afterRun = (runId: string): void => {
   evaluation.scheduleGrading(runId);

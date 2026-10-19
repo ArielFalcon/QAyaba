@@ -66,6 +66,16 @@ test("only the semconv module spells a gen_ai key in telemetry sources", () => {
   }
 });
 
+test("the evaluation metric keys are structural, low-cardinality attributes", () => {
+  for (const key of ["qayaba.eval.name", "qayaba.eval.source", "qayaba.eval.data_type", "qayaba.eval.value"] as const) {
+    const spec = lookupAttribute(key);
+    assert.ok(spec, key);
+    assert.equal(spec.cardinality, "low", key);
+    assert.equal(spec.content, "none", key);
+    assert.equal(spec.type, "string", key);
+  }
+});
+
 test("an unregistered literal key fails to compile, a registered and a template key do not", () => {
   const ok: Attrs = { "qayaba.app": "shop", "qayaba.prompt.section.grounding.bytes": 4, "qayaba.agent.calls.read": 2 };
   // @ts-expect-error "qayaba.not.a.key" is not in the registry

@@ -114,6 +114,9 @@ services:
       GF_PLUGINS_PREINSTALL_DISABLED: "true"
     volumes:
       - lgtm-data:/data
+      # Provisioned by the LGTM image itself from /otel-lgtm/grafana/conf/provisioning (verified on the pinned image).
+      - ./config/grafana/qayaba-evaluations.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/qayaba-evaluations.yaml:ro
+      - ./config/grafana/dashboards:/otel-lgtm/qayaba-dashboards:ro
     logging:
       driver: "json-file"
       options:

@@ -624,6 +624,8 @@ clock is not resynced promptly, fall back to comparing against the host's time o
 | `qayaba.provider.errors` | counter | provider, model, error.type |
 | `qayaba.egress.denied` | counter | profile (never the host: hosts go on spans) |
 | `qayaba.host.*`, `qayaba.sandbox.zombies` | see §7 | none |
+| `qayaba.eval.score` | gauge | eval.name, eval.source, eval.data_type, app, verdict |
+| `qayaba.eval.class` | counter | eval.name, eval.value (closed sets only: furthest_phase, change_coverage, infra_error) |
 
 The existing `/api/metrics` Prometheus endpoint stays as is. It has no OTel coupling.
 

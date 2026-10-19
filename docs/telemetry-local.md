@@ -47,6 +47,41 @@ A rotating copy of each collector's traces is written to the `otel-debug` volume
 the trusted collector, `agents-traces.jsonl` for the untrusted one; 100 MB x 3 files each). The `debug` exporter is
 declared but off; add it to a pipeline in the collector's config to print spans to its log.
 
+## Evaluations (scores) in Grafana
+
+Every grading, and every regrade, mirrors the run's scores to Prometheus through the evaluation context's sink
+(`src/telemetry/score-metrics-sink.ts`). The scores themselves stay stored in `run_scores` first; `GET
+/api/v1/runs/:id/evaluation` and the optional Langfuse profile are unchanged. The sink is fail-open: a lookup or
+measurement fault is logged and never changes a grade.
+
+Dashboard **QAYABA evaluations** (uid `qayaba-evaluations`, folder `QAYABA`) is provisioned from `config/grafana/`:
+the provider at `config/grafana/qayaba-evaluations.yaml` is mounted into the image's own provisioning tree
+(`/otel-lgtm/grafana/conf/provisioning/dashboards/`) and the JSON in `config/grafana/dashboards/` at
+`/otel-lgtm/qayaba-dashboards`. Panels: latest `spec_validity_rate` and `spec_pass_rate` per app, `empty_output_guard`
+and `approval_consistent` as 0/1, `furthest_phase` and `infra_error` classes, the `step_intent_mix` family, budget
+exhaustion and the run count by verdict.
+
+Prometheus names (the collector turns dots into underscores and suffixes counters with `_total`):
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `qayaba_eval_score` | gauge | `qayaba_eval_name`, `qayaba_eval_source`, `qayaba_eval_data_type`, `qayaba_app`, `qayaba_verdict` | One numeric or boolean score; a boolean is `1` (true) or `0` (false). Families appear as `<base>.<suffix>` (`step_intent_mix.auth`, …). |
+| `qayaba_eval_class_total` | counter | `qayaba_eval_name`, `qayaba_eval_value` | One closed-set categorical score: `furthest_phase`, `change_coverage` or `infra_error`. An unknown class value becomes `other`; any other categorical score is not emitted. |
+| `qayaba_budget_exhausted_total` | counter | `qayaba_limit_fired`, `qayaba_agent_role` | The limit that ended a run. `budget_exhaustion` is deliberately not a score label: its value is a free string. |
+| `qayaba_runs_total` | counter | `qayaba_app`, `qayaba_verdict`, … | Runs by verdict (the existing run metric). |
+
+Regrade semantics: `qayaba_eval_score` is a last-value instrument, so a regrade replaces the series for the same
+labels (no double counting). `qayaba_eval_class_total` counts grading events, so a regrade adds one more class count
+for the run — use it as a share of graded runs, not as a run count. A score a regrade stops emitting keeps its last
+gauge value until Prometheus staleness removes it. A grader that says nothing (no data) emits no measurement.
+
+For ad-hoc questions use **Explore → Prometheus**, for example
+`qayaba_eval_score{qayaba_eval_name="spec_pass_rate"}`,
+`qayaba_eval_score{qayaba_eval_name=~"step_intent_mix[.].*"}` or
+`sum by (qayaba_eval_value) (increase(qayaba_eval_class_total{qayaba_eval_name="furthest_phase"}[$__range]))`.
+Grafana is a view, never the source: a grade that exists in `run_scores` but not here is a telemetry gap, not a
+missing score.
+
 ## Trust model: one receiver per collector
 
 Network isolation is per container, so a single collector holding both receivers on both networks would expose the

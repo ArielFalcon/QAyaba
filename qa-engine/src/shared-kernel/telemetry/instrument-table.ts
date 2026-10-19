@@ -27,6 +27,9 @@ export const INSTRUMENTS = {
   "qayaba.tests": { type: "counter", attrs: ["qayaba.test.status", "qayaba.test.failure_category"] },
   "qayaba.auth.attempts": { type: "counter", attrs: ["qayaba.auth.outcome"] },
   "qayaba.context.bytes": { type: "histogram", attrs: ["qayaba.context.source"] },
+  /* Evaluation scores: a gauge so a regrade replaces the series, and a counter for closed-set classes only (a regrade counts again). */
+  "qayaba.eval.score": { type: "gauge", attrs: ["qayaba.eval.name", "qayaba.eval.source", "qayaba.eval.data_type", "qayaba.app", "qayaba.verdict"] },
+  "qayaba.eval.class": { type: "counter", attrs: ["qayaba.eval.name", "qayaba.eval.value"] },
   /* Host health (design §7): process-wide; the only attribute is the closed stat (p50, p99, max). */
   "qayaba.host.suspend.count": { type: "counter", attrs: [] },
   "qayaba.host.suspend.duration": { type: "histogram", attrs: [] },
