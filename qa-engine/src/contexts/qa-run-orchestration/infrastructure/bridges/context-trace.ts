@@ -8,7 +8,7 @@
 
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
 import { advisoryLineIds, briefItemIds, contextMapItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
-import { packDeliveredItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
+import { packProducedItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type {
   CrossRepoImpact,
@@ -61,7 +61,7 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort): GroundingTrac
       }
       recordContextSpan(telemetry, {
         source: "context-pack",
-        ids: trace ? packDeliveredItemIds(assembly).ids : [],
+        ids: trace ? packProducedItemIds(assembly).ids : [],
         bytes: assembly.text === undefined ? 0 : bytesOf(assembly.text),
         truncatedItems: trace?.omittedLines ?? 0,
       });

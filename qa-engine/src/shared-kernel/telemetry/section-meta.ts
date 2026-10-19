@@ -3,9 +3,11 @@
  * shared by the assembler (which computes `capped` and the section-cap/shed omissions) and the turn trace (which turns a
  * prompt's surviving sections into delivered spans). A section's id alone names its grounding source; the mapping is here so a
  * caller never re-derives it and a grader can count which items an agent was actually given.
+ *
+ * Lives in the kernel so `agent-runtime.port.ts` can name these shapes without importing a context. The source-name values are
+ * the same literals `context-item-ids.ts` declares as `ContextSource`; they are kept as literals here so this kernel module has
+ * no context dependency of its own.
  */
-
-import type { ContextSource } from "./context-item-ids.ts";
 
 /* One omission: why items are gone (selection: the builder chose not to include them; truncation: a bound cut them) and a
  * closed reason, with the count of items it cost. */
@@ -25,10 +27,10 @@ export interface SectionMeta {
 }
 
 /* The grounding source a prompt section supplies, for the delivered span. A section id not here supplies none. */
-export const SECTION_SOURCE: Readonly<Record<string, ContextSource>> = {
+export const SECTION_SOURCE = {
   "arch-map": "context-map",
   "context-brief": "explorer-brief",
   "context-pack": "context-pack",
   "service-links": "service-links",
   "static-signal": "structural-signal",
-};
+} as const;

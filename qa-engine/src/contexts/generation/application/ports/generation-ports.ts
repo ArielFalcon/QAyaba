@@ -8,7 +8,7 @@ import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { PlanningLimits } from "@kernel/coordination.ts";
 import type { ServiceLink, ContractDrift } from "@contexts/service-topology/domain/index.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
-import type { Omission } from "@contexts/generation/domain/section-meta.ts";
+import type { Omission } from "@kernel/telemetry/section-meta.ts";
 
 
 export type CommitType =

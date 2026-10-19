@@ -29,7 +29,7 @@ import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts"
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { advisoryLineIds, briefItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
-import type { Omission } from "@contexts/generation/domain/section-meta.ts";
+import type { Omission } from "@kernel/telemetry/section-meta.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
 import {
@@ -947,13 +947,13 @@ export function renderArchitectureContextParts(
   const MAX_ITEMS = 200;
   const MAX_LEN = 20_000;
 
-  const relevantLinks = (changedFiles?.length
+  const fullFeBe = changedFiles?.length
     ? ctx.feBe?.filter((link) => {
         const terms = [link.route, link.via ?? "", link.operationId].filter((t) => t && t.length >= 3);
         return changedFiles.some((f) => terms.some((t) => f.includes(t)));
       }) ?? ctx.feBe ?? []
-    : ctx.feBe ?? []
-  ).slice(0, MAX_ITEMS);
+    : ctx.feBe ?? [];
+  const relevantLinks = fullFeBe.slice(0, MAX_ITEMS);
 
   const lines: string[] = [];
   lines.push(`## ${PROMPT_HEADINGS.architectureContext} (from e2e/.qa/context.json)`);
@@ -1010,7 +1010,14 @@ export function renderArchitectureContextParts(
         ...(!opts.suppressFeBeLinks ? relevantLinks.map((l) => itemId.link(l.route, l.operationId)) : []),
         ...(ctx.flows?.length ? ctx.flows.slice(0, MAX_ITEMS).map((f) => itemId.flow(f.id)) : []),
       ];
-  const omissions: Omission[] = truncated ? [{ class: "truncation", reason: "map-cap", count: ctx.routes.length + ctx.api.length + relevantLinks.length + (ctx.flows?.length ?? 0) }] : [];
+  /* The entries each rendered list left out to MAX_ITEMS, and only those: a list the caller suppressed (API operations, FE↔BE
+   * links) was never rendered, so its cap is not an omission, and a list under the cap omits nothing. */
+  const mapCapOmitted =
+    Math.max(0, ctx.routes.length - MAX_ITEMS)
+    + (listsApiOperations ? Math.max(0, ctx.api.length - MAX_ITEMS) : 0)
+    + (!opts.suppressFeBeLinks && fullFeBe.length > 0 ? Math.max(0, fullFeBe.length - MAX_ITEMS) : 0)
+    + (ctx.flows?.length ? Math.max(0, ctx.flows.length - MAX_ITEMS) : 0);
+  const omissions: Omission[] = mapCapOmitted > 0 ? [{ class: "truncation", reason: "map-cap", count: mapCapOmitted }] : [];
   return { text: truncated ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims, itemIds, omissions };
 }
 

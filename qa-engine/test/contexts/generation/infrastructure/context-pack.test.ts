@@ -1,7 +1,8 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { itemId } from "@contexts/generation/domain/context-item-ids.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { MAX_ROUTES, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { ROUTE_REASON } from "@kernel/route-capturability.ts";
@@ -107,6 +108,90 @@ test("packDeliveredItemIds: a node the node-cap cut is neither delivered nor in 
   assert.equal(ids.some((id) => id.startsWith("dom:")), true, "the kept node is a dom id");
   assert.ok(!ids.some((id) => id.includes("Cut")), "the cut node never reaches the ids");
   assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 1 }]);
+});
+
+test("packDeliveredItemIds: a page opened from a template is named by the template in its delivered ids and facts", () => {
+  const assembly: ContextPackAssembly = {
+    text: "pack",
+    domBytes: 1,
+    contractBytes: 0,
+    trace: {
+      rankedRoutes: [],
+      capturablePages: 0,
+      pages: [{ route: "/shops/madrid/madrid", template: "/shops/:province/:city", grounded: true, links: [], testIds: ["shop-row"] }],
+      pageDeliveries: [{
+        route: "/shops/:province/:city",
+        keptNodes: ["button: View shop"],
+        keptTestIds: ["shop-row"],
+        testIdOfNode: new Map([["button: View shop", "shop-row"]]),
+        nodeCapOmitted: 0,
+        lineCapOmitted: 0,
+        lineKeptNodes: ["button: View shop"],
+        lineKeptTestIds: ["shop-row"],
+      }],
+      changedTestIds: ["shop-row"],
+      contractIds: [],
+      omittedLines: 0,
+    },
+  };
+  const { ids } = packDeliveredItemIds(assembly);
+  assert.ok(ids.includes("dom:/shops/:province/:city#shop-row"), "the delivered dom id carries the template name");
+  assert.ok(ids.includes("fact:/shops/:province/:city#shop-row:present"), "the delivered fact carries the template name");
+});
+
+test("packProducedItemIds vs packDeliveredItemIds: the line cap makes delivered a strict subset of produced", () => {
+  const assembly: ContextPackAssembly = {
+    text: "pack",
+    domBytes: 1,
+    contractBytes: 0,
+    trace: {
+      rankedRoutes: [],
+      capturablePages: 0,
+      pages: [],
+      pageDeliveries: [{
+        route: "/home",
+        keptNodes: ["button: A", "button: B", "button: C"],
+        keptTestIds: [],
+        testIdOfNode: new Map<string, string>(),
+        nodeCapOmitted: 0,
+        lineCapOmitted: 2,
+        lineKeptNodes: ["button: A"],
+        lineKeptTestIds: [],
+      }],
+      changedTestIds: [],
+      contractIds: [],
+      omittedLines: 2,
+    },
+  };
+  const produced = packProducedItemIds(assembly);
+  const delivered = packDeliveredItemIds(assembly);
+  assert.equal(produced.ids.length, 3, "produced holds every node-cap kept node");
+  assert.equal(delivered.ids.length, 1, "delivered holds only the line-cap kept node");
+  assert.ok(delivered.ids.every((id) => produced.ids.includes(id)), "delivered ⊆ produced");
+  assert.ok(produced.ids.length > delivered.ids.length, "the line cap separates produced from delivered");
+  assert.deepEqual(produced.omissions, [], "the produced set counts no line cap");
+  assert.deepEqual(delivered.omissions, [{ class: "truncation", reason: "line-cap", count: 2 }]);
+});
+
+test("buildContextPack: the global line cap trims the delivered ids to the lines the agent actually saw", async () => {
+  const nodes = Array.from({ length: 700 }, (_, i) => `button: nav-${i}`);
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (_routes, input) => {
+      input.onPages?.([{ route: "/big", grounded: true, links: [], keptNodes: nodes, keptTestIds: [], testIdOfNode: new Map(), nodeCapOmitted: 0 }]);
+      return ["route /big:", ...nodes.map((n) => `  ${n}`)].join("\n");
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const result = await buildContextPack({ routes: ["/big"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
+  const produced = packProducedItemIds(result);
+  const delivered = packDeliveredItemIds(result);
+  assert.equal(produced.ids.length, 700, "all 700 buttons are produced");
+  assert.equal(delivered.ids.length, 499, "the 500-line budget spends one line on the route header and keeps 499 buttons");
+  assert.ok(delivered.ids.every((id) => produced.ids.includes(id)), "delivered ⊆ produced");
+  const droppedId = itemId.domRole("/big", "button", "nav-699");
+  assert.ok(produced.ids.includes(droppedId), "the line-capped node was produced");
+  assert.ok(!delivered.ids.includes(droppedId), "the line-capped node is not delivered");
 });
 
 /* The brief owns the distilled blast radius, FE-BE links and risks; the pack carries only what the orchestrator captured or read itself (the live DOM and the API contracts). */

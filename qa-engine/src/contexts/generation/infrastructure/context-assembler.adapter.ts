@@ -1,5 +1,5 @@
 import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import type { Omission, SectionMeta } from "@contexts/generation/domain/section-meta.ts";
+import type { Omission, SectionMeta } from "@kernel/telemetry/section-meta.ts";
 
 export type SectionRole = "stable-prefix" | "semi-stable" | "volatile" | "task" | "critical-recap";
 

@@ -24,7 +24,7 @@ import { parseModelRef } from "../agent-transport-policy.ts";
 import type { ServerToolCall } from "../../domain/tool-link.ts";
 import { emitTurnChildren, type ChildModel } from "./turn-children.ts";
 import { recordContextSpan } from "../../../../shared-infrastructure/telemetry/run-spans.ts";
-import { SECTION_SOURCE, type SectionMeta } from "../../domain/section-meta.ts";
+import { SECTION_SOURCE, type SectionMeta } from "@kernel/telemetry/section-meta.ts";
 import type { ContextSource } from "../../domain/context-item-ids.ts";
 
 export interface TurnIdentity {
@@ -92,7 +92,7 @@ export function recordDeliveredContextSpans(
   guarded("delivered spans", () => {
     const bySource = new Map<ContextSource, { ids: string[]; bytes: number; omitted: number }>();
     for (const [sectionId, meta] of Object.entries(sections)) {
-      const source = SECTION_SOURCE[sectionId];
+      const source = SECTION_SOURCE[sectionId as keyof typeof SECTION_SOURCE];
       if (source === undefined) continue;
       const entry = bySource.get(source) ?? { ids: [], bytes: 0, omitted: 0 };
       entry.ids.push(...meta.itemIds);

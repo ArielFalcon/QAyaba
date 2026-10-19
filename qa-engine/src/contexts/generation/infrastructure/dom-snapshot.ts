@@ -116,8 +116,12 @@ export function normalizeKey(s: string): string {
 const INTERACTIVE_ROLES = ["button", "link", "textbox", "combobox", "checkbox", "radio"];
 const isInteractiveNode = (line: string): boolean => INTERACTIVE_ROLES.some((r) => line.startsWith(`${r}:`));
 
-export function capDomLines(lines: string[], max: number): { kept: string[]; dropped: number } {
-  if (lines.length <= max) return { kept: lines, dropped: 0 };
+/* `keptIndices` tells the caller which input lines survived, so a consumer that lines a DOM section back to the pages it
+ * attributed (the context pack's line cap) can know exactly which of a page's nodes/test ids the agent actually saw. */
+export function capDomLines(lines: string[], max: number): { kept: string[]; dropped: number; keptIndices: number[] } {
+  if (lines.length <= max) {
+    return { kept: lines, dropped: 0, keptIndices: lines.map((_, i) => i) };
+  }
   const priorityCount = lines.filter(isPriorityNode).length;
   const afterPriority = Math.max(0, max - priorityCount);
   const interactiveNonPriority = lines.filter((n) => !isPriorityNode(n) && isInteractiveNode(n));
@@ -125,12 +129,16 @@ export function capDomLines(lines: string[], max: number): { kept: string[]; dro
   const otherBudget = Math.max(0, afterPriority - interactiveCount);
   let interactiveKept = 0;
   let othersKept = 0;
-  const kept = lines.filter((n) => {
-    if (isPriorityNode(n)) return true;
-    if (isInteractiveNode(n)) return interactiveKept++ < interactiveCount;
-    return othersKept++ < otherBudget;
+  const kept: string[] = [];
+  const keptIndices: number[] = [];
+  lines.forEach((n, i) => {
+    const keep = isPriorityNode(n) ? true : isInteractiveNode(n) ? interactiveKept++ < interactiveCount : othersKept++ < otherBudget;
+    if (keep) {
+      kept.push(n);
+      keptIndices.push(i);
+    }
   });
-  return { kept, dropped: lines.length - kept.length };
+  return { kept, dropped: lines.length - kept.length, keptIndices };
 }
 
 function buildAttrHint(attr: NodeAttr, testIdAttrName: string): string {
@@ -344,7 +352,7 @@ export interface CapturedPage {
   nodeCapOmitted?: number;
 }
 
-/* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the per-route bound), the node→test-id map, and how many the bound left out. The line cap is the pack's, applied later. */
+/* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the per-route bound), the node→test-id map, and how many the bound left out. The line cap is the pack's, applied later; `lineKeptNodes`/`lineKeptTestIds` are what that cap left in (absent before it runs). */
 export interface PageDelivery {
   route: string;
   template?: string;
@@ -353,6 +361,9 @@ export interface PageDelivery {
   testIdOfNode: Map<string, string>;
   nodeCapOmitted: number;
   lineCapOmitted: number;
+  /* The nodes/test ids the global line cap left in, as the pack sets them once the cap has run. Absent = the pack has not applied it (hand-built traces deliver the node-cap set). */
+  lineKeptNodes?: string[];
+  lineKeptTestIds?: string[];
 }
 
 /* One captured page as the trace needs it, from its raw snapshot: the nodes and test ids within the per-route bound (the node cap), the node→test-id map, and how many the bound left out. A page opened from a template of the map is named by it. */

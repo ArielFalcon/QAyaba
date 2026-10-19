@@ -12,7 +12,7 @@ import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import { rankRoutesByChange } from "../domain/route-ranking.ts";
 import { instantiableTemplate, instantiateRoute } from "../domain/route-instantiation.ts";
 import { changedValueFactIds, domItemIds, itemId } from "../domain/context-item-ids.ts";
-import type { Omission } from "../domain/section-meta.ts";
+import type { Omission } from "@kernel/telemetry/section-meta.ts";
 
 export { PACK_HEADINGS };
 
@@ -80,21 +80,35 @@ export interface ContextPackTrace {
   omittedLines: number;
 }
 
-/* The pack's delivered grounding ids: the kept-line DOM ids (per page, within the node bound), the change-value facts and the contracts. Both the produced and the delivered context-pack spans are built from this, so `delivered.ids ⊆ produced.ids` holds by construction. */
-export function packDeliveredItemIds(assembly: ContextPackAssembly): { ids: string[]; omissions: Omission[] } {
+/* The pack's produced and delivered grounding ids: the DOM ids per page, the change-value facts and the contracts. Produced holds the node-cap set (before the line cap); delivered holds the post-line-cap set, so `delivered.ids ⊆ produced.ids` holds and is meaningful — the line cap is what separates them. */
+function packItemIds(assembly: ContextPackAssembly, delivered: boolean): { ids: string[]; omissions: Omission[] } {
   const trace = assembly.trace;
   if (!trace) return { ids: [], omissions: [] };
   const deliveries = trace.pageDeliveries ?? [];
-  const domIds = domItemIds(deliveries.map((p) => ({ route: p.route, nodes: p.keptNodes, testIdOfNode: p.testIdOfNode, testIds: p.keptTestIds })));
+  const domIds = domItemIds(deliveries.map((p) => ({
+    route: p.route,
+    nodes: delivered ? (p.lineKeptNodes ?? p.keptNodes) : p.keptNodes,
+    testIdOfNode: p.testIdOfNode,
+    testIds: delivered ? (p.lineKeptTestIds ?? p.keptTestIds) : p.keptTestIds,
+  })));
   const factIds = changedValueFactIds(trace.pages.map((page) => ({ route: page.template ?? page.route, ...(page.testIds ? { testIds: page.testIds } : {}) })), trace.changedTestIds);
   const opIds = trace.contractIds.map(itemId.op);
   const omissions: Omission[] = [];
   for (const p of deliveries) {
     if (p.nodeCapOmitted > 0) omissions.push({ class: "truncation", reason: "node-cap", count: p.nodeCapOmitted });
-    if (p.lineCapOmitted > 0) omissions.push({ class: "truncation", reason: "line-cap", count: p.lineCapOmitted });
+    if (delivered && p.lineCapOmitted > 0) omissions.push({ class: "truncation", reason: "line-cap", count: p.lineCapOmitted });
   }
-  if (trace.omittedLines > 0) omissions.push({ class: "truncation", reason: "line-cap", count: trace.omittedLines });
   return { ids: [...domIds, ...factIds, ...opIds], omissions };
+}
+
+/* What the pack produced for a page before the global line cap: the node-cap kept nodes/test ids. */
+export function packProducedItemIds(assembly: ContextPackAssembly): { ids: string[]; omissions: Omission[] } {
+  return packItemIds(assembly, false);
+}
+
+/* What the pack actually delivered: the post-line-cap kept nodes/test ids, with the line cap counted per page. */
+export function packDeliveredItemIds(assembly: ContextPackAssembly): { ids: string[]; omissions: Omission[] } {
+  return packItemIds(assembly, true);
 }
 
 export interface ContextPackAssembly {
@@ -233,6 +247,58 @@ function splitRedirectSection(captured: string): { grounded: string; advisory: s
   return { grounded: grounded.trimEnd(), advisory: advisory.join("").trimEnd() };
 }
 
+/* One rendered line of the live DOM, with the page it belongs to and, for a node line, the node body it renders (so the line cap
+ * can attribute each kept line back to the exact node/test id the agent saw). */
+interface AttributedLine {
+  line: string;
+  route?: string;
+  nodeBody?: string;
+  testIdsLine?: boolean;
+}
+
+/* The address a `route <label>:` header names: the page's own path, before any ` (instance of <template>)` or state annotation. */
+function routeOfHeader(line: string): string | undefined {
+  const rest = line.slice("route ".length);
+  const instanceAt = rest.indexOf(" (instance of ");
+  const head = instanceAt === -1 ? rest : rest.slice(0, instanceAt);
+  const colon = head.indexOf(":");
+  return (colon === -1 ? head : head.slice(0, colon)).trim() || undefined;
+}
+
+/* Walks the grounded live-DOM text (as formatDomSnapshot renders it) and tags each line with the page it belongs to and the node it
+ * renders, so the global line cap can be attributed per page. A node line is `  <node>…`; the `… (N more…)` marker and the
+ * `test-ids on this route:` summary carry no node. */
+function attributeGroundedLines(grounded: string): AttributedLine[] {
+  const out: AttributedLine[] = [];
+  let route: string | undefined;
+  for (const line of grounded.split("\n")) {
+    if (line.startsWith("route ")) {
+      route = routeOfHeader(line);
+      out.push(route === undefined ? { line } : { line, route });
+    } else if (route !== undefined && line.startsWith("  ")) {
+      const body = line.slice(2);
+      if (body.startsWith("test-ids on this route:")) out.push({ line, route, testIdsLine: true });
+      else if (body.startsWith("… (")) out.push({ line, route });
+      else out.push({ line, route, nodeBody: body });
+    } else {
+      out.push({ line });
+    }
+  }
+  return out;
+}
+
+/* The bare node a rendered node body came from: the kept node the body equals or extends with a hint/state suffix. Longest match
+ * wins, so `button: A` never claims a line that renders `button: A [x]`. */
+function matchKeptNode(body: string, delivery: PageDelivery): string | undefined {
+  let best: string | undefined;
+  for (const node of delivery.keptNodes) {
+    if (body === node || body.startsWith(`${node}  -> `) || body.startsWith(`${node} [`)) {
+      if (best === undefined || node.length > best.length) best = node;
+    }
+  }
+  return best;
+}
+
 /* The pages redirects reached in two captures, as the one section they are: the first's heading and introduction, then the pages of both. */
 function joinRedirectSections(first: string, second: string): string {
   if (first === "" || second === "") return first || second;
@@ -294,7 +360,7 @@ export async function buildContextPack(
   let renderedRoutes = 0;
   let omittedLines = 0;
   const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
-    const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) { pages.set(page.route, page); deliveries.set(page.route, { route: page.template ?? page.route, ...(page.template !== undefined ? { template: page.template } : {}), keptNodes: page.keptNodes ?? [], keptTestIds: page.keptTestIds ?? [], testIdOfNode: page.testIdOfNode ?? new Map(), nodeCapOmitted: page.nodeCapOmitted ?? 0, lineCapOmitted: 0 }); } } }, deps.domDeps, input.changedElements);
+    const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) { pages.set(page.route, page); deliveries.set(page.route, { route: page.template ?? page.route, ...(page.template !== undefined ? { template: page.template } : {}), keptNodes: page.keptNodes ?? [], keptTestIds: page.keptTestIds ?? [], testIdOfNode: page.testIdOfNode ?? new Map(), nodeCapOmitted: page.nodeCapOmitted ?? 0, lineCapOmitted: 0, lineKeptNodes: [], lineKeptTestIds: [] }); } } }, deps.domDeps, input.changedElements);
     const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
     if (!raw) return;
     const { grounded, advisory } = splitRedirectSection(raw);
@@ -333,10 +399,36 @@ export async function buildContextPack(
         }
       }
       if (captures.length > 0) {
-        const lines = captures.map((c) => c.grounded).filter((text) => text !== "").join("\n").split("\n");
+        const attributed = attributeGroundedLines(captures.map((c) => c.grounded).filter((text) => text !== "").join("\n"));
         const maxLines = Math.max(10, Math.floor(domBudgetChars / 60));
-        const { kept, dropped } = capDomLines(lines, maxLines);
+        const { kept, dropped, keptIndices } = capDomLines(attributed.map((a) => a.line), maxLines);
         omittedLines = dropped;
+        /* The line cap dropped some rendered lines: attribute the ones it kept back to their page's nodes/test ids, so the
+         * delivered set is exactly what the agent saw, and count what each page lost. */
+        const testIdsLineKept = new Set<string>();
+        for (const idx of keptIndices) {
+          const entry = attributed[idx];
+          if (entry?.route === undefined) continue;
+          const delivery = deliveries.get(entry.route);
+          if (!delivery) continue;
+          if (entry.nodeBody !== undefined) {
+            const node = matchKeptNode(entry.nodeBody, delivery);
+            if (node !== undefined) {
+              delivery.lineKeptNodes!.push(node);
+              const testId = delivery.testIdOfNode.get(node);
+              if (testId !== undefined && !delivery.lineKeptTestIds!.includes(testId)) delivery.lineKeptTestIds!.push(testId);
+            }
+          } else if (entry.testIdsLine) {
+            testIdsLineKept.add(entry.route);
+          }
+        }
+        for (const [actualRoute, delivery] of deliveries) {
+          if (testIdsLineKept.has(actualRoute)) {
+            for (const testId of delivery.keptTestIds) if (!delivery.lineKeptTestIds!.includes(testId)) delivery.lineKeptTestIds!.push(testId);
+          }
+          delivery.lineCapOmitted = Math.max(0, delivery.keptNodes.length - delivery.lineKeptNodes!.length)
+            + Math.max(0, delivery.keptTestIds.length - delivery.lineKeptTestIds!.length);
+        }
         redirectSection = captures.map((c) => c.advisory).reduce(joinRedirectSections, "");
         domSection = [
           `### ${PACK_HEADINGS.liveDom} (a11y tree — GROUND TRUTH for selectors)`,

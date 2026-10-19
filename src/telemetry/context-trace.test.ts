@@ -127,6 +127,14 @@ test("a port traced by a telemetry that throws returns what it returned, and an 
   await assert.rejects(new TracedStructuralSignalPort(failing, traceHarness().telemetry).render("/repo", BlastRadius.of(Sha.of("abc1234"), [])), /graph down/);
 });
 
+test("recordDeliveredContextSpans fails open when the telemetry throws", () => {
+  assert.doesNotThrow(() => {
+    recordDeliveredContextSpans(new ThrowingTelemetry(), {
+      "context-pack": { itemIds: ["dom:/a#b"], omissions: [], capped: false },
+    }, { "context-pack": 12 });
+  }, "a broken telemetry must never disturb the turn");
+});
+
 /* ---- the grounding adapter: context map, brief, route ranking and pack ---- */
 
 const MAP = {

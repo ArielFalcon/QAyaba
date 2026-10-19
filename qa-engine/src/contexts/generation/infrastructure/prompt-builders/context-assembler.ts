@@ -4,7 +4,7 @@ import { sha256Hex } from "../../../../shared-infrastructure/content-hash.ts";
 import { redactByValue } from "../../../../shared-infrastructure/run-secret-redaction.ts";
 import { ContextAssemblerAdapter } from "@contexts/generation/infrastructure/context-assembler.adapter.ts";
 import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import type { Omission, SectionMeta } from "@contexts/generation/domain/section-meta.ts";
+import type { Omission, SectionMeta } from "@kernel/telemetry/section-meta.ts";
 
 export interface AssembleOpts {
   /* Global byte budget for the assembled prompt. When provided and positive, the assembler sheds lowest-priority sections until the total fits within this limit. 0 or absent means no global budget enforcement (Phase-1 behaviour, unchanged). */

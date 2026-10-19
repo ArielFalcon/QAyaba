@@ -15,12 +15,13 @@ import {
   buildContextTask,
   renderReviewSpecs,
   setExplorationBriefCollaborators,
+  renderArchitectureContextParts,
   PROMPT_HEADINGS,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import type { OpencodeRunInput, ReviewInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput, ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 setExplorationBriefCollaborators({
@@ -1866,4 +1867,37 @@ test("reviewer prompt: the spec-change excerpt is bounded and sanitized", () => 
 
   assert.ok(!text.includes(secret), "a secret in the change excerpt must be redacted before it reaches the reviewer");
   assert.ok(Buffer.byteLength(text, "utf8") <= roleWindowBytes("qa-reviewer"));
+});
+
+/* The map-cap omission counts only the entries MAX_ITEMS actually left out, per rendered list — a suppressed list was never
+   rendered, so its cap is not an omission, and the whole-list sum the old code emitted over-counted. */
+test("renderArchitectureContextParts counts exactly the entries MAX_ITEMS left out, per rendered list", () => {
+  const ctx: ArchitectureContext = {
+    builtAtSha: "abc1234",
+    routes: Array.from({ length: 250 }, (_, i) => ({ path: `/r${i}` })),
+    api: Array.from({ length: 250 }, (_, i) => ({ operationId: `op${i}`, method: "GET", path: `/p${i}` })),
+    feBe: Array.from({ length: 230 }, (_, i) => ({ route: `/r${i % 250}`, operationId: `op${i % 250}`, via: "x" })),
+    flows: Array.from({ length: 210 }, (_, i) => ({ id: `flow${i}`, routes: [`/f${i}`] })),
+  };
+
+  /* 50 routes + 50 api + 30 links + 10 flows = 140, all rendered. */
+  assert.deepEqual(renderArchitectureContextParts(ctx, undefined, {})?.omissions, [
+    { class: "truncation", reason: "map-cap", count: 140 },
+  ]);
+
+  /* With API operations and FE↔BE links suppressed, only routes (50) and flows (10) count. */
+  assert.deepEqual(renderArchitectureContextParts(ctx, undefined, { suppressApiOperations: true, suppressFeBeLinks: true })?.omissions, [
+    { class: "truncation", reason: "map-cap", count: 60 },
+  ]);
+});
+
+test("renderArchitectureContextParts reports no map-cap omission when every list is under MAX_ITEMS", () => {
+  const ctx: ArchitectureContext = {
+    builtAtSha: "abc1234",
+    routes: [{ path: "/a" }, { path: "/b" }],
+    api: [{ operationId: "listA", method: "GET", path: "/a" }],
+    feBe: [{ route: "/a", operationId: "listA" }],
+    flows: [{ id: "flow-a", routes: ["/a"] }],
+  };
+  assert.deepEqual(renderArchitectureContextParts(ctx, undefined, {})?.omissions, []);
 });

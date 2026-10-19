@@ -678,6 +678,39 @@ test("assemble: a section dropped for exceeding its own cap contributes no claim
   assert.deepEqual(claims, {});
 });
 
+/* A grounding section the assembler capped or shed delivers no item ids, and says so with the right omission. */
+test("assemble: a capped grounding section delivers no item ids and counts the cap as an omission", () => {
+  const { sectionItems } = assemble([
+    section("context-pack", "volatile", "X".repeat(1000), {
+      priority: 0,
+      maxBytes: 50,
+      overflow: "summarize",
+      itemIds: ["dom:/a#b"],
+      omissions: [{ class: "truncation", reason: "node-cap", count: 3 }],
+    }),
+  ]);
+  assert.deepEqual(sectionItems["context-pack"], {
+    itemIds: [],
+    omissions: [
+      { class: "truncation", reason: "node-cap", count: 3 },
+      { class: "truncation", reason: "section-cap", count: 1 },
+    ],
+    capped: true,
+  });
+});
+
+test("assemble: a shed grounding section delivers no item ids and counts the shed as an omission", () => {
+  const { sectionItems } = assemble([
+    section("context-pack", "volatile", "Y".repeat(400), { priority: 0, overflow: "drop", itemIds: ["dom:/a#b"] }),
+    section("task", "task", "TASK"),
+  ], { budgetBytes: 20 });
+  assert.deepEqual(sectionItems["context-pack"], {
+    itemIds: [],
+    omissions: [{ class: "truncation", reason: "section-shed", count: 1 }],
+    capped: false,
+  });
+});
+
 /* Hashes: one per surviving section, over its bytes with the run's secrets taken out. The whole prompt's hash is the transport's, over what it sends. */
 test("assemble: every surviving section has a sha256 of its bytes", () => {
   const { sectionHashes } = assemble([section("rules", "stable-prefix", "RULES"), section("task", "task", "TASK")]);

@@ -2,7 +2,7 @@
 
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { TimeLimitSource } from "@kernel/turn-limit.ts";
-import type { SectionMeta } from "@contexts/generation/domain/section-meta.ts";
+import type { SectionMeta } from "@kernel/telemetry/section-meta.ts";
 
 /* One prompt attempt's usage, as the runtime's transport reports it. The counts are the ones the
  * provider returned; `cost` is the SDK's own (0 when the model's rate is unknown). */

@@ -4,7 +4,7 @@
  * turn that sends the prompt can say which prompt it was.
  */
 import type { AgentPromptOpts } from "@kernel/ports/agent-runtime.port.ts";
-import type { SectionMeta } from "./section-meta.ts";
+import type { SectionMeta } from "@kernel/telemetry/section-meta.ts";
 
 export interface RenderedPromptFacts {
   sectionHashes?: Record<string, string>;
