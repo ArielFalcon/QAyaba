@@ -6,6 +6,7 @@
  * run_spec tool or the suite is executing as the same account.
  */
 
+import type { GeoLocation } from "@kernel/geolocation.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import type { AccountLock } from "../domain/account-lock.ts";
@@ -61,6 +62,8 @@ export interface AgentBrowserDeps {
   /* The app's login path, when it declares one. */
   loginPath?: string;
   deadline?: RunDeadlineView;
+  /* Where a session's authoring scope is, when the run declares a location: the action runs there. */
+  location?: (sessionId: string) => GeoLocation | undefined;
   /* Takes the run's secrets out of any text that leaves; the run's own scope must be active when it is called. */
   redact: (text: string) => string;
   /* A signal that fires once a call has waited this long for the account. Defaults to a timer. */
@@ -158,9 +161,10 @@ export class AgentBrowserUseCase {
     const { capability, host } = this.deps;
     const timeoutMs = Math.min(capability.limits.perCallMs, this.deps.deadline?.remainingMs() ?? Number.POSITIVE_INFINITY);
     const signal = AbortSignal.any([...(stop ? [stop] : []), AbortSignal.timeout(Math.max(1, timeoutMs))]);
+    const geolocation = this.deps.location?.(sessionId);
     let state: PageState;
     try {
-      state = await host.perform(sessionId, action, { signal, timeoutMs });
+      state = await host.perform(sessionId, action, { signal, timeoutMs, ...(geolocation ? { geolocation } : {}) });
     } catch (err) {
       if (err instanceof BrowserActionError) return this.refusal(AGENT_BROWSER_REFUSAL.FAILED, err.message);
       console.error(`[qa] authenticated browser action failed: ${err instanceof Error ? err.message : String(err)}`);

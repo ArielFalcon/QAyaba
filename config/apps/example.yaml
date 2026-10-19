@@ -92,9 +92,12 @@ dev:
   versionUrl: "https://dev.example.internal/version"
   pollIntervalMs: 10000        # how often the gate polls
   deployTimeoutMs: 600000      # 10 min for DEV to stabilize on the new SHA
-  # geolocation:                # optional: the browser position the suite and the Context Pack use
+  # geolocation:                # optional: the browser position the suite, the Context Pack and the authoring browser use
   #   latitude: 40.4818         # Alcalá de Henares' historic centre, for example
   #   longitude: -3.3643
+  #   places:                   # optional: names the agent may pick with set_geolocation, and a plan may name per flow
+  #     barcelona: { latitude: 41.3874, longitude: 2.1686 }
+  #     empty: { latitude: 0, longitude: 0 }
 
 # e2e:
 #   # The app's test-id convention. Drives Playwright getByTestId, the DOM capture

@@ -54,6 +54,11 @@ concrete correction.
     the test actually does.
 11. **Weak oracle.** Verifies an intermediate state instead of the final outcome
     the user observes.
+12. **Location-dependent result without a pinned location.** Asserts nearby places, a
+    distance or a map center but never calls `setLocation(context, latitude, longitude)`,
+    or relies on the authoring run's `set_geolocation` value. → The suite runs at the app's
+    declared default later, so the test drifts or fails. Require the test to pin the exact
+    coordinates it asserts.
 
 ## Code-mode anti-mock rubric (target: code)
 

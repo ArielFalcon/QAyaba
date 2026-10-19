@@ -1,12 +1,13 @@
 /*
  * The orchestrator's internal endpoint for the agents' custom tools: `run_spec`, which lets the generator run a spec it wrote
- * (POST /internal/run-spec), and the `authbrowser_*` tools, which let the authoring roles read DEV through the run's saved
- * session without holding it (POST /internal/authbrowser). It is a second listener on its own port (QA_TOOLS_PORT), which compose does
+ * (POST /internal/run-spec), the `authbrowser_*` tools, which let the authoring roles read DEV through the run's saved
+ * session without holding it (POST /internal/authbrowser), and `set_geolocation`, which moves the authoring location of the
+ * caller's scope (POST /internal/geolocation). It is a second listener on its own port (QA_TOOLS_PORT), which compose does
  * not publish: it is reachable from the agents container only, and the sandbox uid that runs the specs cannot reach it (the
  * egress filter rejects every loopback port but its own). A service secret (QA_TOOLS_TOKEN) is required on top of that.
  * The caller names a session and an agent; neither decides anything by itself: the call is served only when the session is
- * one the orchestrator bound to an authorized role of a live run (see ClosedLoopRegistry and AgentBrowserRegistry), and every
- * limit is the run's own.
+ * one the orchestrator bound to an authorized role of a live run (see ClosedLoopRegistry, AgentBrowserRegistry and
+ * GeolocationRegistry), and every limit is the run's own.
  * Pure handler plus a thin Node wrapper; the handler never throws and never says what went wrong inside.
  */
 
@@ -15,6 +16,9 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import os from "node:os";
 import type { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
+import type { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
+import type { GeolocationRefusalCode } from "@contexts/qa-run-orchestration/domain/run-geolocation";
+import { MAX_PLACE_NAME_CHARS, type GeolocationInput } from "@kernel/geolocation";
 import type { AgentBrowserRefusalCode } from "@contexts/test-execution/domain/agent-browser-capability";
 import type { AgentBrowserRequest } from "@contexts/test-execution/application/agent-browser.use-case";
 import type { RunSpecRefusalCode } from "@contexts/test-execution/application/run-spec.use-case";
@@ -24,6 +28,7 @@ export const QA_TOOLS_PORT_ENV = "QA_TOOLS_PORT";
 export const DEFAULT_TOOLS_PORT = 459;
 export const RUN_SPEC_PATH = "/internal/run-spec";
 export const AUTHBROWSER_PATH = "/internal/authbrowser";
+export const GEOLOCATION_PATH = "/internal/geolocation";
 export const QA_TOOLS_LISTEN_HOST_ENV = "QA_TOOLS_LISTEN_HOST";
 /* The service token is a bearer secret on a port other containers can reach: a guessable one is no secret. 32 characters is 128 bits of hex, and what a generated token has. */
 export const MIN_TOOLS_TOKEN_CHARS = 32;
@@ -106,6 +111,8 @@ export interface ToolsHandlerDeps {
   limiter?: ToolsRateLimiter;
   /* Absent: no run is granted the authenticated browser and its endpoint answers like any session no run owns. */
   browsers?: AgentBrowserRegistry;
+  /* Absent: no run carries an authoring location and its endpoint answers like any session no run owns. */
+  geolocations?: GeolocationRegistry;
 }
 
 const REFUSAL_STATUS: Readonly<Record<RunSpecRefusalCode, number>> = {
@@ -119,6 +126,13 @@ const REFUSAL_STATUS: Readonly<Record<RunSpecRefusalCode, number>> = {
   "no-writes": 429,
   "no-time": 429,
   busy: 409,
+};
+
+const GEOLOCATION_REFUSAL_STATUS: Readonly<Record<GeolocationRefusalCode, number>> = {
+  "invalid-location": 400,
+  "unknown-place": 400,
+  "unknown-scope": 409,
+  closed: 403,
 };
 
 const BROWSER_REFUSAL_STATUS: Readonly<Record<AgentBrowserRefusalCode, number>> = {
@@ -211,6 +225,45 @@ function parseBrowserCall(body: string): AgentBrowserRequest | undefined {
   }
 }
 
+/* The location call a body names: a declared place, or a point. The domain judges the values; here only the shape is read. */
+function parseGeolocationCall(body: string): { sessionID: string; agent: string; change: GeolocationInput } | undefined {
+  const parsed = parseObject(body);
+  if (!parsed) return undefined;
+  const { sessionID, agent, place, latitude, longitude } = parsed;
+  if (typeof sessionID !== "string" || sessionID === "" || sessionID.length > MAX_ID_CHARS) return undefined;
+  if (typeof agent !== "string" || agent === "" || agent.length > MAX_ID_CHARS) return undefined;
+  if (place !== undefined && (typeof place !== "string" || place.length > MAX_PLACE_NAME_CHARS)) return undefined;
+  if (latitude !== undefined && (typeof latitude !== "number" || !Number.isFinite(latitude))) return undefined;
+  if (longitude !== undefined && (typeof longitude !== "number" || !Number.isFinite(longitude))) return undefined;
+  if (place === undefined && latitude === undefined && longitude === undefined) return undefined;
+  return {
+    sessionID,
+    agent,
+    change: {
+      ...(place !== undefined ? { place } : {}),
+      ...(latitude !== undefined ? { latitude } : {}),
+      ...(longitude !== undefined ? { longitude } : {}),
+    },
+  };
+}
+
+async function handleGeolocationRequest(request: ToolsRequest, deps: ToolsHandlerDeps): Promise<ToolsResponse> {
+  const call = parseGeolocationCall(request.body);
+  if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent and a declared place or a latitude and longitude" } };
+  if (deps.limiter && !deps.limiter.allowCall(call.sessionID)) return { status: 429, body: { ok: false, code: "rate-limited", message: "too many calls from this session in a short time; wait a few seconds and retry" } };
+  const bound = deps.geolocations?.find(call.sessionID);
+  if (!bound) return { status: 403, body: { ok: false, code: "unknown-session", message: "the authoring location is not available to this session" } };
+  if (bound.agent !== call.agent) return { status: 403, body: { ok: false, code: "wrong-agent", message: "the authoring location is available only to the role this session was opened for" } };
+  try {
+    const response = bound.live.set(bound.delegationId, call.change);
+    if (response.ok) return { status: 200, body: response };
+    return { status: GEOLOCATION_REFUSAL_STATUS[response.code], body: response };
+  } catch (err) {
+    console.error(`[qa] the authoring location failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
+    return { status: 500, body: { ok: false, code: "internal", message: "the authoring location failed in the orchestrator" } };
+  }
+}
+
 async function handleBrowserRequest(request: ToolsRequest, deps: ToolsHandlerDeps): Promise<ToolsResponse> {
   const call = parseBrowserCall(request.body);
   if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent and an action (navigate, snapshot, click or type) with its arguments" } };
@@ -235,9 +288,10 @@ export async function handleToolsRequest(request: ToolsRequest, deps: ToolsHandl
     deps.limiter?.recordFailure(request.remote);
     return { status: 401, body: { ok: false, code: "unauthorized", message: `the service token was rejected: ${QA_TOOLS_TOKEN_ENV} differs between the agents and the orchestrator services` } };
   }
-  if (request.path !== RUN_SPEC_PATH && request.path !== AUTHBROWSER_PATH) return { status: 404, body: { ok: false, code: "not-found", message: "no such tool endpoint" } };
+  if (request.path !== RUN_SPEC_PATH && request.path !== AUTHBROWSER_PATH && request.path !== GEOLOCATION_PATH) return { status: 404, body: { ok: false, code: "not-found", message: "no such tool endpoint" } };
   if (request.method !== "POST") return { status: 405, body: { ok: false, code: "method-not-allowed", message: "POST only" } };
   if (request.path === AUTHBROWSER_PATH) return handleBrowserRequest(request, deps);
+  if (request.path === GEOLOCATION_PATH) return handleGeolocationRequest(request, deps);
   const call = parseCall(request.body);
   if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent, path and an optional grep" } };
 

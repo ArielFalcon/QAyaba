@@ -5,6 +5,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
+import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import type { PlanningLimits } from "@kernel/coordination.ts";
 import type { ServiceLink, ContractDrift } from "@contexts/service-topology/domain/index.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
@@ -149,6 +150,8 @@ export interface OpencodeRunInput {
   closedLoop?: ClosedLoopLimits;
   /* The limits of the authenticated browser this run granted the authoring agents (calls, time per call), stated as facts. Present only when the run granted it, which only an e2e run on the OpenCode runtime does; absent = no section. */
   agentBrowser?: AgentBrowserLimits;
+  /* The app's declared location and the location this authoring scope works at, stated as facts. Present only when the app declares geolocation; absent = no section. */
+  geolocation?: GeolocationFacts;
   /* Present only on the one turn a coordinated run asks its lead for a plan instead of specs: the limits the plan will be held to. Absent = an ordinary turn, and no section. */
   planning?: PlanningLimits;
   /* App login is declared but <e2eRelDir>/auth.setup.ts is still the stock seed and did not sign in: the generator must rewrite it before writing specs. Absent = nothing to rewrite. */

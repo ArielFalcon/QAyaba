@@ -221,8 +221,8 @@ const BUILTIN_TOOL_KEYS = new Set([
   "apply_patch",
 ]);
 
-/* Tools the repo ships itself (agents/tool/*.ts) rather than OpenCode or an MCP server: run_spec lets an authoring role ask the orchestrator to run a spec it wrote. */
-const CUSTOM_TOOL_KEYS = new Set<string>(["run_spec", ...AGENT_BROWSER_TOOLS]);
+/* Tools the repo ships itself (agents/tool/*.ts) rather than OpenCode or an MCP server: run_spec lets an authoring role ask the orchestrator to run a spec it wrote, and set_geolocation moves the run's authoring location. */
+const CUSTOM_TOOL_KEYS = new Set<string>(["run_spec", "set_geolocation", ...AGENT_BROWSER_TOOLS]);
 
 function loadRawConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(process.cwd(), "agents", "opencode.json"), "utf8")) as Record<string, unknown>;
@@ -968,4 +968,16 @@ test("a prompt that asks for no tool at all denies the browser tools too", () =>
 test("the browser tool file exists, where the tools directory of the config puts it", () => {
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "authbrowser.ts")), "the file whose exports are the four tools exists");
   assert.ok(existsSync(join(process.cwd(), "agents", "lib", "authbrowser-client.mjs")), "and so does the client it calls through");
+});
+
+test("the location tool is off for every agent by the global tools map and on for the two authoring roles alone", () => {
+  const raw = loadRawConfig();
+  assert.deepEqual((raw.tools as Record<string, unknown> | undefined)?.set_geolocation, false, "the global default switches the tool off");
+  const { agents } = loadAgentConfig();
+  const on = Object.entries(agents).filter(([, agent]) => agentTools(agent).set_geolocation === true).map(([name]) => name);
+  assert.deepEqual(on.sort(), ["qa-generator", "qa-sidekick"]);
+  for (const [name, agent] of Object.entries(agents)) {
+    if (name !== "qa-generator" && name !== "qa-sidekick") assert.notEqual(agentTools(agent).set_geolocation, true, `${name} must not move the authoring location`);
+  }
+  assert.ok(existsSync(join(process.cwd(), "agents", "tool", "set_geolocation.ts")), "the tool file the config enables exists");
 });

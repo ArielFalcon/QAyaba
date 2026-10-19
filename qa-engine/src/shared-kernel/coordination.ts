@@ -31,6 +31,8 @@ export interface PlanningLimits {
   maxParallel: number;
   /* The longest the planning turn may take. */
   budgetMs: number;
+  /* The places the app declares, when it declares a location: a flow may name one. Absent: the plan names no location. */
+  locations?: readonly string[];
 }
 
 /* The longest one flow may take, by the runtime its sidekick runs on. */

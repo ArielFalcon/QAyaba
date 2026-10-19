@@ -16,7 +16,8 @@ import type { DelegationResult } from "@contexts/qa-run-orchestration/applicatio
 import type { SidekickExecuteOpts } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
 import type { DelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
 import type { DelegationCollection, DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest } from "@contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts";
-import type { AgentBrowserHandle, ClosedLoopHandle, FlowLoopHandle, FlowLoopOpenInput, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { AgentBrowserHandle, ClosedLoopHandle, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { GeoLocation } from "@kernel/geolocation.ts";
 
 class FakeTimers implements TimerPort {
   now = 0;
@@ -490,3 +491,44 @@ test("the plan, every attempt and every step up the ladder are recorded for the 
 });
 
 const DEFAULT_ABORT_GRACE = 10_000;
+
+test("a plan's location opens the flow there, the sidekick's task states it, and the flow's own value is closed with the flow", async () => {
+  const r = rig();
+  const madrid = { latitude: 40.4168, longitude: -3.7038 };
+  const barcelona = { latitude: 41.3874, longitude: 2.1686 };
+  const places = { barcelona };
+  const opened: Array<{ delegationId: string; initial: GeoLocation | undefined }> = [];
+  const closed: string[] = [];
+  const geolocation: GeolocationHandle = {
+    default: madrid,
+    facts: () => ({ default: madrid, current: madrid, places, scope: "run" }),
+    placeNames: () => ["barcelona"],
+    forSession: () => madrid,
+    openFlow: (delegationId, initial) => {
+      opened.push({ delegationId, initial });
+      const current = initial ?? madrid;
+      return {
+        facts: () => ({ default: madrid, current, places, scope: "flow" }),
+        current: () => current,
+        close: () => void closed.push(delegationId),
+      };
+    },
+    close: () => {},
+  };
+  const plan = async () => ({
+    plan: { kind: "fanout", flows: [{ id: "cart", objective: "the cart", location: "barcelona" }, { id: "login", objective: "sign in" }] },
+    parsed: true,
+    timedOut: false,
+  });
+  const outcome = await r.coordinator.coordinate(input(r, { geolocation, plan }));
+  assert.equal(outcome.action, "fanout");
+  assert.deepEqual(opened.sort((a, b) => a.delegationId.localeCompare(b.delegationId)), [
+    { delegationId: "run-1-flow-cart", initial: barcelona },
+    { delegationId: "run-1-flow-login", initial: undefined },
+  ]);
+  const cart = r.executed.find((e) => e.brief.delegationId === "run-1-flow-cart")!;
+  assert.match(cart.brief.task, /41\.3874/);
+  assert.match(cart.brief.task, /setLocation/);
+  assert.match(cart.brief.task, /barcelona/);
+  assert.deepEqual(closed.sort(), ["run-1-flow-cart", "run-1-flow-login"]);
+});

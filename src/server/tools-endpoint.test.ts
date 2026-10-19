@@ -6,8 +6,10 @@ import type { RunSpecRequest, RunSpecResponse } from "@contexts/test-execution/a
 import { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
 import { AgentBrowserCapability, type AgentBrowserRefusalCode } from "@contexts/test-execution/domain/agent-browser-capability";
 import type { AgentBrowserRequest, AgentBrowserResponse } from "@contexts/test-execution/application/agent-browser.use-case";
+import { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
+import { RunGeolocation } from "@contexts/qa-run-orchestration/domain/run-geolocation";
 import net from "node:net";
-import { AUTHBROWSER_PATH, DEFAULT_TOOLS_PORT, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsPort, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
+import { AUTHBROWSER_PATH, DEFAULT_TOOLS_PORT, GEOLOCATION_PATH, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsPort, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
 
 const TOKEN = "service-token-for-tests-0123456789abcdef";
 
@@ -326,4 +328,69 @@ test("a message id that is not a short plain identifier is dropped and the call 
   assert.ok(seenSpec.length > 0 && seenBrowser.length > 0);
   assert.ok(seenSpec.every((call) => call.messageId === undefined));
   assert.ok(seenBrowser.every((call) => call.messageId === undefined));
+});
+
+function geoRun() {
+  const state = new RunGeolocation({ default: { latitude: 40.4168, longitude: -3.7038 }, places: { barcelona: { latitude: 41.3874, longitude: 2.1686 } } });
+  state.openFlow("run-1-flow-a");
+  const registry = new GeolocationRegistry();
+  registry.register({ runId: "run-1", state, set: (delegationId, change) => state.set(delegationId, change) });
+  registry.bindSession({ sessionId: "ses-lead", runId: "run-1", agent: "qa-generator" });
+  registry.bindSession({ sessionId: "ses-flow", runId: "run-1", agent: "qa-sidekick", delegationId: "run-1-flow-a" });
+  return { registry, state, deps: { token: TOKEN, registry: liveRegistry(), geolocations: registry } };
+}
+
+const geoRequest = (body: unknown, path = GEOLOCATION_PATH): ToolsRequest => request({ path, body: JSON.stringify(body) });
+
+test("the lead's session moves the run's location to a declared place, and the answer names the scope", async () => {
+  const { deps, state } = geoRun();
+  const response = await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator", place: "barcelona" }), deps);
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { ok: true, location: { latitude: 41.3874, longitude: 2.1686 }, scope: "run", place: "barcelona" });
+  assert.deepEqual(state.facts().current, { latitude: 41.3874, longitude: 2.1686 });
+});
+
+test("a sidekick's session moves only its flow, and a point is carried as two numbers", async () => {
+  const { deps, state } = geoRun();
+  const response = await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", latitude: 0, longitude: 0 }), deps);
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { ok: true, location: { latitude: 0, longitude: 0 }, scope: "flow" });
+  assert.deepEqual(state.currentFor("run-1-flow-a"), { latitude: 0, longitude: 0 });
+  assert.deepEqual(state.facts().current, { latitude: 40.4168, longitude: -3.7038 });
+});
+
+test("a session no run owns is forbidden, and a body with no place and no point is a bad request", async () => {
+  const { deps } = geoRun();
+  const stranger = await handleToolsRequest(geoRequest({ sessionID: "ses-other", agent: "qa-generator", place: "barcelona" }), deps);
+  assert.equal(stranger.status, 403);
+  assert.equal((stranger.body as { code: string }).code, "unknown-session");
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator" }), deps)).status, 400);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator", latitude: "10", longitude: 20 }), deps)).status, 400);
+});
+
+test("a session is served only under the role it was bound for, and a place name is bounded", async () => {
+  const { deps } = geoRun();
+  const wrong = await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-sidekick", place: "barcelona" }), deps);
+  assert.equal(wrong.status, 403);
+  assert.equal((wrong.body as { code: string }).code, "wrong-agent");
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator", place: "a".repeat(41) }), deps)).status, 400);
+});
+
+test("an unknown place, an out-of-range point and a closed flow each have their own status", async () => {
+  const { deps, state } = geoRun();
+  const place = await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator", place: "atlantis" }), deps);
+  assert.equal(place.status, 400);
+  assert.match((place.body as { message: string }).message, /barcelona/);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator", latitude: 91, longitude: 0 }), deps)).status, 400);
+  state.closeFlow("run-1-flow-a");
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-flow", agent: "qa-sidekick", place: "barcelona" }), deps)).status, 409);
+});
+
+test("the location endpoint takes the service token and POST only", async () => {
+  const { deps } = geoRun();
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator", place: "barcelona" }, "/api/health"), deps)).status, 404);
+  assert.equal((await handleToolsRequest(request({ path: GEOLOCATION_PATH, method: "GET", body: JSON.stringify({ sessionID: "ses-lead", agent: "qa-generator", place: "barcelona" }) }), deps)).status, 405);
+  assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator", place: "barcelona" }), { ...deps, token: TOKEN })).status, 200);
+  const unauthorized = await handleToolsRequest({ ...geoRequest({ sessionID: "ses-lead", agent: "qa-generator", place: "barcelona" }), authorization: "Bearer wrong" }, deps);
+  assert.equal(unauthorized.status, 401);
 });

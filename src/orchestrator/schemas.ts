@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LoginPathSchema } from "../../qa-engine/src/shared-kernel/login-path";
+import { MAX_PLACES, MAX_PLACE_NAME_CHARS, PLACE_NAME_PATTERN } from "../../qa-engine/src/shared-kernel/geolocation";
 import { mutatingEntryError, routePatternError } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard";
 import { compileEgressPolicy, EgressPolicyError, originOf } from "../../qa-engine/src/shared-infrastructure/egress/egress-policy";
 
@@ -77,6 +78,12 @@ const BoundarySchema = z.discriminatedUnion("transport", [
   HttpBackendBoundarySchema,
 ]);
 
+/* A browser position (Playwright's geolocation): the shape dev.geolocation and each of its named places share. */
+const GeoPointSchema = z.object({
+  latitude: z.number().min(-90, { error: "latitude must be between -90 and 90" }).max(90, { error: "latitude must be between -90 and 90" }),
+  longitude: z.number().min(-180, { error: "longitude must be between -180 and 180" }).max(180, { error: "longitude must be between -180 and 180" }),
+});
+
 /*
  * ── AppConfig schema ──────────────────────────────────────────────────────────
  * Validates YAML config loaded from config/apps/<name>.yaml. Replaces the unsafe
@@ -129,15 +136,19 @@ export const AppConfigSchema = z
          */
         blockedOrigins: OriginListSchema.optional(),
         /*
-         * The browser position a suite and the Context Pack are given (Playwright's geolocation). Optional: an app that does not
-         * depend on where the user is keeps the seed's default. The position is app data, never a fact the engine infers.
+         * The browser position a suite and the Context Pack are given (Playwright's geolocation), and the places the authoring
+         * agent may name when it moves that position at runtime. Optional: an app that does not depend on where the user is keeps
+         * the seed's default and no run carries an authoring location. The position is app data, never a fact the engine infers.
          */
-        geolocation: z
-          .object({
-            latitude: z.number().min(-90, { error: "dev.geolocation.latitude must be between -90 and 90" }).max(90, { error: "dev.geolocation.latitude must be between -90 and 90" }),
-            longitude: z.number().min(-180, { error: "dev.geolocation.longitude must be between -180 and 180" }).max(180, { error: "dev.geolocation.longitude must be between -180 and 180" }),
-          })
-          .optional(),
+        geolocation: GeoPointSchema.extend({
+          places: z
+            .record(
+              z.string().max(MAX_PLACE_NAME_CHARS, { error: `a place name is at most ${MAX_PLACE_NAME_CHARS} characters` }).regex(PLACE_NAME_PATTERN, { error: "a place name is a lowercase slug (letters, digits and dashes)" }),
+              GeoPointSchema,
+            )
+            .refine((places) => Object.keys(places).length <= MAX_PLACES, { error: `at most ${MAX_PLACES} places are allowed` })
+            .optional(),
+        }).optional(),
       })
       .superRefine((dev, ctx) => {
         if (dev.blockedOrigins === undefined) return;
