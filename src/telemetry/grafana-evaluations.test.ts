@@ -64,6 +64,7 @@ test("every metric the evaluations dashboard needs is queried, by bounded labels
     "qayaba_runs_total",
     "qayaba_review_total",
     "qayaba_review_duration_bucket",
+    "qayaba_review_correction_class",
     'qayaba_eval_name="spec_validity_rate"',
     'qayaba_eval_name="spec_pass_rate"',
     'qayaba_eval_name="empty_output_guard"',

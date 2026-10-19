@@ -76,10 +76,18 @@ for the run — use it as a share of graded runs, not as a run count. A score a 
 gauge value until Prometheus staleness removes it. A grader that says nothing (no data) emits no measurement.
 
 The reviewer's own quality and cost are exported beside the scores: `qayaba_review_total` counts one verdict per
-review round (labels `qayaba_review_outcome`, `qayaba_review_decided_by`) and `qayaba_review_duration_*` is the review
-duration histogram in seconds. The dashboard's **Reviewer outcomes by decision** and **Reviewer duration p95** panels
-show them; the same figures are persisted in `gateSignals.reviewer` on the run outcome (`rounds`, `modelRounds`,
-`preCheckRejects`, `skippedRounds`, `outputTokens`, `costUsd`, `steps`).
+review round (labels `qayaba_review_outcome`, `qayaba_review_decided_by`, `qayaba_review_correction_class`) and
+`qayaba_review_duration_*` is the review duration histogram in seconds. The correction class is the closed tag of the
+round's blocking correction (`false-positive`, `wrong-objective`, `fragile-selector`, `no-cleanup`, `other`; `none`
+when there is none). The dashboard's **Reviewer outcomes by decision**, **Reviewer duration p95** and **Reviewer
+rejections by correction class** panels show them; the same figures are persisted in `gateSignals.reviewer` on the run
+outcome (`rounds`, `modelRounds`, `preCheckRejects`, `skippedRounds`, `correctionClass`, `outputTokens`, `costUsd`,
+`steps`).
+
+The per-round `qayaba.review.decision` span is the trace record behind the metric: it carries `qayaba.review.targets`
+(the specs this run delivered), `qayaba.review.existing_specs` (the existing suite, context only), the bounded
+`qayaba.review.corrections` and `qayaba.review.rationale`, the blocking count and the correction class. The reviewer
+judges only the delivered specs; an existing suite file is never a wrong-objective target.
 
 For ad-hoc questions use **Explore → Prometheus**, for example
 `qayaba_eval_score{qayaba_eval_name="spec_pass_rate"}`,
