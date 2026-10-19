@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GradeRunUseCase } from "@contexts/evaluation/application/grade-run.use-case.ts";
 import type { EvidencePort } from "@contexts/evaluation/application/ports/index.ts";
+import { GRADER_VERSION } from "@contexts/evaluation/domain/grader-catalog.ts";
 import type { Score } from "@contexts/evaluation/domain/score.ts";
 import { evidence } from "./evidence-fixtures.ts";
 import { MemoryScoreStore } from "./fakes.ts";
@@ -76,7 +77,7 @@ test("a sink that fails changes nothing about the stored grade", async () => {
 
 test("a regrade that no longer emits a name removes the stored score", async () => {
   const store = new MemoryScoreStore();
-  store.replace("run-1", [{ name: "retired_score", value: 1, dataType: "NUMERIC", polarity: "none", source: "deterministic", graderVersion: "1" }], "t", { graderVersion: "1" });
+  store.replace("run-1", [{ name: "retired_score", value: 1, dataType: "NUMERIC", polarity: "none", source: "deterministic", graderVersion: GRADER_VERSION }], "t", { graderVersion: GRADER_VERSION });
   const grade = new GradeRunUseCase({ evidence: { load: async () => evidence() }, store, now: () => "t", log: quiet });
   await grade.execute("run-1");
   assert.equal(store.list("run-1", { allVersions: true }).some((s) => s.name === "retired_score"), false);

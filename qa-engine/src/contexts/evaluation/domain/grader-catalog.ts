@@ -13,12 +13,13 @@ import type { RawScore, Score, ScoreDataType, ScorePolarity } from "./score.ts";
 /* The longest comment a score carries: it is read by people and travels to a sink, never a free-form log. */
 export const MAX_SCORE_COMMENT_CHARS = 500;
 
-export const GRADER_VERSION = "1";
+export const GRADER_VERSION = "2";
 
 export const STEP_INTENTS = ["auth", "explore", "write_spec", "run_spec", "review", "other"] as const;
 export type StepIntent = (typeof STEP_INTENTS)[number];
 
 export const CONTEXT_SOURCES = ["route", "dom", "op", "file"] as const;
+export const CONTEXT_FOCUSED_SOURCES = ["route", "dom", "op"] as const;
 
 export const COVERAGE_CLASSES = ["pass", "fail", "unknown"] as const;
 
@@ -46,9 +47,11 @@ export const GRADER_CATALOG: readonly ScoreSpec[] = [
   spec({ name: "step_intent_mix", dataType: "NUMERIC", polarity: "none", range: UNIT, suffixes: STEP_INTENTS }),
   spec({ name: "auth_overhead", dataType: "NUMERIC", polarity: "lower_better", range: UNIT }),
   spec({ name: "approval_consistent", dataType: "BOOLEAN", polarity: "higher_better" }),
-  spec({ name: "context_utilization", dataType: "NUMERIC", polarity: "higher_better", range: UNIT, suffixes: CONTEXT_SOURCES, state: "pending" }),
-  spec({ name: "context_complete", dataType: "BOOLEAN", polarity: "higher_better", state: "pending" }),
-  spec({ name: "noop_consistent", dataType: "BOOLEAN", polarity: "higher_better", state: "pending" }),
+  spec({ name: "context_utilization", dataType: "NUMERIC", polarity: "higher_better", range: UNIT, suffixes: CONTEXT_SOURCES }),
+  spec({ name: "context_utilization_focused", dataType: "NUMERIC", polarity: "higher_better", range: UNIT, suffixes: CONTEXT_FOCUSED_SOURCES }),
+  spec({ name: "context_complete", dataType: "BOOLEAN", polarity: "higher_better" }),
+  spec({ name: "context_fresh", dataType: "BOOLEAN", polarity: "higher_better" }),
+  spec({ name: "noop_consistent", dataType: "BOOLEAN", polarity: "higher_better" }),
   spec({ name: "change_coverage", dataType: "CATEGORICAL", polarity: "none", categories: COVERAGE_CLASSES }),
   spec({ name: "mutation_value", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "infra_error", dataType: "CATEGORICAL", polarity: "none" }),
