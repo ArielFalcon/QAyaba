@@ -374,6 +374,8 @@ export interface PipelineReportInput {
   suiteDir?: string;
   /** The source of each reported spec as it stood on disk; a spec that is gone is null. Read for the routes the specs navigate to. */
   specSources?: ReadonlyMap<string, string | null>;
+  /** The context ids the run recorded, by source; absent when the history was not read. */
+  contextIds?: ReadonlyArray<{ source: string; ids: readonly string[] }>;
   /** The hand-written ground truth to score the run against, when the operator gave one. */
   groundTruth?: GroundTruth;
 }
@@ -447,7 +449,7 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
     ...(outcome?.gateSignals.agentBrowser ? { agentBrowser: outcome.gateSignals.agentBrowser } : {}),
     ...(outcome?.gateSignals.coordination ? { coordination: outcome.gateSignals.coordination } : {}),
     ...(input.groundTruth
-      ? { groundTruth: scoreGroundTruth(input.groundTruth, { briefText, filesRead: contentReadsOf(turns), specSources: specSourcesOf(specs, input.specSources) }) }
+      ? { groundTruth: scoreGroundTruth(input.groundTruth, { briefText, filesRead: contentReadsOf(turns), specSources: specSourcesOf(specs, input.specSources), ...(input.contextIds ? { contextIds: input.contextIds } : {}) }) }
       : {}),
   };
 }
@@ -523,6 +525,16 @@ export interface GroundTruth {
   notAffectedFiles: string[];
   /** Routes that must not count as the right target; optional because a spec may pass through them on its way. */
   notAffectedRoutes: string[];
+  /** FE↔BE links, as `repo/symbol→repo/symbol` (the same form as the `svc-link:` ids); absent in an older truth file. */
+  affectedLinks?: string[];
+  notAffectedLinks?: string[];
+  /** API operations, by operationId; absent in an older truth file. */
+  affectedOperations?: string[];
+  notAffectedOperations?: string[];
+  /** The data state the expected outcome depends on, written by hand (R4: 0 restaurants means a no-op). */
+  devDataState?: { note?: string; resultCount?: number };
+  /** The change's identifiable elements, when the case has them. */
+  changedElements?: Array<{ testId?: string; role?: string; name?: string }>;
 }
 
 /** A ground truth from parsed JSON. Throws, naming the field, on a shape that cannot be scored. */
@@ -540,8 +552,37 @@ export function parseGroundTruth(raw: unknown): GroundTruth {
     affectedRoutes: list("affectedRoutes", true),
     notAffectedFiles: list("notAffectedFiles", true),
     notAffectedRoutes: list("notAffectedRoutes", false),
+    affectedLinks: list("affectedLinks", false),
+    notAffectedLinks: list("notAffectedLinks", false),
+    affectedOperations: list("affectedOperations", false),
+    notAffectedOperations: list("notAffectedOperations", false),
   };
   if (truth.affectedFiles.length === 0) throw new Error("ground truth 'affectedFiles' is empty: there is nothing to recall");
+  const data = obj["devDataState"];
+  if (data !== undefined) {
+    if (data === null || typeof data !== "object" || Array.isArray(data)) throw new Error("ground truth 'devDataState' must be an object");
+    const note = (data as { note?: unknown }).note;
+    const resultCount = (data as { resultCount?: unknown }).resultCount;
+    if (note !== undefined && typeof note !== "string") throw new Error("ground truth 'devDataState.note' must be a string");
+    if (resultCount !== undefined && (typeof resultCount !== "number" || !Number.isFinite(resultCount))) throw new Error("ground truth 'devDataState.resultCount' must be a number");
+    truth.devDataState = { ...(note !== undefined ? { note } : {}), ...(resultCount !== undefined ? { resultCount } : {}) };
+  }
+  const elements = obj["changedElements"];
+  if (elements !== undefined) {
+    if (!Array.isArray(elements)) throw new Error("ground truth 'changedElements' must be an array");
+    truth.changedElements = elements.map((e, i) => {
+      if (e === null || typeof e !== "object" || Array.isArray(e)) throw new Error(`ground truth 'changedElements[${i}]' must be an object`);
+      const out: { testId?: string; role?: string; name?: string } = {};
+      for (const key of ["testId", "role", "name"] as const) {
+        const value = (e as Record<string, unknown>)[key];
+        if (value !== undefined) {
+          if (typeof value !== "string" || value.trim() === "") throw new Error(`ground truth 'changedElements[${i}].${key}' must be a non-empty string`);
+          out[key] = value.trim();
+        }
+      }
+      return out;
+    });
+  }
   return truth;
 }
 
@@ -569,6 +610,16 @@ export interface SourceScore {
 export interface GroundTruthScore {
   /** The files the explorer's brief names in its blast radius; null when the run had no explorer brief. */
   briefBlastRadius: SourceScore | null;
+  /** The routes the explorer's brief names; null when the run had no brief. */
+  briefRoutes: SourceScore | null;
+  /** The API operations the explorer's brief names; null when the run had no brief. */
+  briefLinks: SourceScore | null;
+  /** The FE↔BE links the stitcher delivered; null when the run recorded no service-links source. */
+  stitcherLinks: SourceScore | null;
+  /** The routes the change ranking delivered; null when the run recorded no route-ranking source. */
+  rankingRoutes: SourceScore | null;
+  /** The routes the context map delivered; null when the run recorded no context-map source. */
+  mapRoutes: SourceScore | null;
   /** The files the agent read; null when no tool sequence was kept. */
   filesRead: SourceScore | null;
   /** The routes the generated specs navigate to (`goto` literals); null when the specs' source could not be read. */
@@ -616,6 +667,27 @@ export function briefBlastRadiusFiles(briefText: string): string[] | null {
       if (Array.isArray(parsed.blastRadius)) {
         return [...new Set(parsed.blastRadius.flatMap((e) => (typeof (e as { file?: unknown } | null)?.file === "string" ? [normalizeFile((e as { file: string }).file)] : [])))];
       }
+    } catch {
+      /* the next spelling */
+    }
+  }
+  return null;
+}
+
+/** The routes and operation ids an explorer brief names, or null when the brief is not the JSON the explorer is asked for. */
+function briefParts(briefText: string): { routes: string[]; operations: string[] } | null {
+  const candidates = [briefText.trim(), briefText.slice(briefText.indexOf("{"), briefText.lastIndexOf("}") + 1)];
+  for (const text of candidates) {
+    try {
+      const parsed = JSON.parse(text) as { routes?: unknown; feBe?: unknown; contracts?: unknown };
+      const routes = Array.isArray(parsed.routes)
+        ? [...new Set(parsed.routes.flatMap((r) => (typeof (r as { path?: unknown } | null)?.path === "string" ? [(r as { path: string }).path] : [])))]
+        : [];
+      const operations = [...new Set([
+        ...(Array.isArray(parsed.feBe) ? parsed.feBe.flatMap((l) => (typeof (l as { operationId?: unknown } | null)?.operationId === "string" ? [(l as { operationId: string }).operationId] : [])) : []),
+        ...(Array.isArray(parsed.contracts) ? parsed.contracts.flatMap((c) => (typeof (c as { operationId?: unknown } | null)?.operationId === "string" ? [(c as { operationId: string }).operationId] : [])) : []),
+      ])];
+      return { routes, operations };
     } catch {
       /* the next spelling */
     }
@@ -679,6 +751,8 @@ export interface GroundTruthEvidence {
   briefText: string | null;
   filesRead: readonly string[] | null;
   specSources: readonly string[] | null;
+  /** The context ids the run recorded, by source; absent when the history was not read. */
+  contextIds?: ReadonlyArray<{ source: string; ids: readonly string[] }>;
 }
 
 /** Scores each source of evidence against the ground truth: what it reached (recall), and how much of what it named was right (precision). */
@@ -704,12 +778,30 @@ export function scoreGroundTruth(truth: GroundTruth, evidence: GroundTruthEviden
 
   const filesRead = evidence.filesRead === null ? null : fileScore("files read with a content-read tool, by every agent turn", evidence.filesRead);
 
+  const exact = (truthItem: string, named: string): boolean => truthItem === named;
+  const affectedOps = truth.affectedOperations ?? [];
+  const notAffectedOps = truth.notAffectedOperations ?? [];
+  const affectedLinks = truth.affectedLinks ?? [];
+  const notAffectedLinks = truth.notAffectedLinks ?? [];
+  const brief = evidence.briefText === null ? null : briefParts(evidence.briefText);
+  const briefRoutes = brief === null ? null : scoreNamed("route paths of the explorer's brief", truth.affectedRoutes, truth.notAffectedRoutes, brief.routes, routeMatches);
+  const briefLinks = brief === null ? null : scoreNamed("operation ids of the explorer's brief", affectedOps, notAffectedOps, brief.operations, exact);
+
+  const sourceIds = (source: string): readonly string[] | null => evidence.contextIds?.find((c) => c.source === source)?.ids ?? null;
+  const stripIds = (ids: readonly string[] | null, prefix: string): string[] | null => ids === null ? null : ids.filter((id) => id.startsWith(prefix)).map((id) => id.slice(prefix.length));
+  const stitcherIds = stripIds(sourceIds("service-links"), "svc-link:");
+  const stitcherLinks = stitcherIds === null ? null : scoreNamed("FE↔BE links the stitcher delivered", affectedLinks, notAffectedLinks, stitcherIds, exact);
+  const rankingIds = stripIds(sourceIds("route-ranking"), "route:");
+  const rankingRoutes = rankingIds === null ? null : scoreNamed("routes the change ranking delivered", truth.affectedRoutes, truth.notAffectedRoutes, rankingIds, routeMatches);
+  const mapIds = stripIds(sourceIds("context-map"), "route:");
+  const mapRoutes = mapIds === null ? null : scoreNamed("routes the context map delivered", truth.affectedRoutes, truth.notAffectedRoutes, mapIds, routeMatches);
+
   let specRoutes: GroundTruthScore["specRoutes"] = null;
   if (evidence.specSources !== null) {
     const { routes, dynamic } = gotoRoutes(evidence.specSources);
     specRoutes = { ...scoreNamed("page.goto literals of the generated specs", truth.affectedRoutes, truth.notAffectedRoutes, routes, routeMatches), dynamicGotos: dynamic };
   }
-  return { briefBlastRadius, filesRead, specRoutes };
+  return { briefBlastRadius, briefRoutes, briefLinks, stitcherLinks, rankingRoutes, mapRoutes, filesRead, specRoutes };
 }
 
 /* ── rendering ─────────────────────────────────────────────────────────────────────── */
@@ -788,7 +880,16 @@ export function renderStitcherTables(reports: readonly ProbeReport[]): string[] 
     lines.push("", "### Ground truth", "", `| ${GROUND_TRUTH_COLUMNS.join(" | ")} |`, `|${GROUND_TRUTH_COLUMNS.map(() => "---").join("|")}|`);
     for (const r of withTruth) {
       const gt = r.groundTruth!;
-      const sources: Array<[string, SourceScore | null]> = [["brief blast radius", gt.briefBlastRadius], ["files read", gt.filesRead], ["spec routes", gt.specRoutes]];
+      const sources: Array<[string, SourceScore | null]> = [
+        ["brief blast radius", gt.briefBlastRadius],
+        ["brief routes", gt.briefRoutes],
+        ["brief operations", gt.briefLinks],
+        ["stitcher links", gt.stitcherLinks],
+        ["ranking routes", gt.rankingRoutes],
+        ["map routes", gt.mapRoutes],
+        ["files read", gt.filesRead],
+        ["spec routes", gt.specRoutes],
+      ];
       for (const [name, score] of sources) {
         if (score === null) lines.push(row([r.id, r.arm, name, NA, NA, NA, NA, NA, NA, NA, NA]));
         else lines.push(row([r.id, r.arm, name, num(score.named), String(score.hits.length), String(score.misses.length), String(score.falsePositives.length), num(score.unjudged), fixed(score.precision), fixed(score.precisionAll), fixed(score.recall)]));

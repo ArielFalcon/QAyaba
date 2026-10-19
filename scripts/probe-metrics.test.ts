@@ -413,7 +413,7 @@ test("files read match the truth from the repository root, an absolute path or w
 
 test("a source that was not observed is unknown, not a zero score: no brief, no tool sequence, no readable spec", () => {
   const unseen = scoreGroundTruth(TRUTH, { briefText: null, filesRead: contentReadsOf([toProbeTurn(turnRecord(), ctx())]), specSources: null });
-  assert.deepEqual(unseen, { briefBlastRadius: null, filesRead: null, specRoutes: null });
+  assert.deepEqual(unseen, { briefBlastRadius: null, briefRoutes: null, briefLinks: null, stitcherLinks: null, rankingRoutes: null, mapRoutes: null, filesRead: null, specRoutes: null });
   const noSpecs = scoreGroundTruth(TRUTH, { briefText: null, filesRead: null, specSources: [] }).specRoutes;
   assert.equal(noSpecs?.recall, 0, "no spec navigated anywhere: every affected route was missed");
   assert.equal(noSpecs?.precision, null);

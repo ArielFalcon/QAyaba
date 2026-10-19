@@ -71,6 +71,8 @@ export interface ReportDeps {
   specLines(record: RunRecord, reported: readonly string[]): Map<string, number | null>;
   /** The source of each reported spec still on disk; a spec that is gone is null. */
   specSources(record: RunRecord, reported: readonly string[]): Map<string, string | null>;
+  /** The context ids the run recorded, by source; absent when the ledger cannot be read. */
+  contextIds?(runId: string): Array<{ source: string; ids: readonly string[] }>;
   /** The change-coverage minimum of the run's app. */
   minRatio(record: RunRecord): number;
 }
@@ -97,6 +99,7 @@ export async function collectReport(runId: string, deps: ReportDeps, groundTruth
     changedFiles: record ? await deps.changedFiles(record) : null,
     specLines: record ? deps.specLines(record, reportedSpecPaths(record, events)) : new Map(),
     ...(record && groundTruth ? { specSources: deps.specSources(record, reportedSpecPaths(record, events)) } : {}),
+    ...(groundTruth && deps.contextIds ? { contextIds: deps.contextIds(runId) } : {}),
     minRatio: record ? deps.minRatio(record) : DEFAULT_COVERAGE_MIN_RATIO,
     ...(groundTruth ? { groundTruth } : {}),
   });
@@ -163,6 +166,19 @@ export async function defaultReportDeps(warn: (line: string) => void = (l) => co
     },
     specLines: (record, reported) => new Map([...readSpecs(record, reported)].map(([path, text]) => [path, text === null ? null : countLines(text)])),
     specSources: readSpecs,
+    contextIds: (runId) => history.listRunSpans(runId).flatMap((span) => {
+      if (!span.name.startsWith("qayaba.context.") && !span.name.startsWith("qayaba.delivered.")) return [];
+      try {
+        const attrs = JSON.parse(span.attrs) as Record<string, unknown>;
+        const source = attrs["qayaba.context.source"];
+        const ids = attrs["qayaba.context.item_ids"];
+        return typeof source === "string" && Array.isArray(ids)
+          ? [{ source, ids: ids.filter((id): id is string => typeof id === "string") }]
+          : [];
+      } catch {
+        return [];
+      }
+    }),
     minRatio: (record) => appOf(record)?.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO,
   };
 }
