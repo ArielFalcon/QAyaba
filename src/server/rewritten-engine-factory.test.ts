@@ -3821,3 +3821,36 @@ test("the sidekick role's runtime is read from the facade as it is now, not as i
   assert.equal(wired.delegation?.plannerProvider(), "codex");
 });
 
+
+test("the authoring location is composed from the app's declared position and places, and never for a code app", async () => {
+  const { GeolocationRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/geolocation-registry");
+  const barcelona = { latitude: 41.3874, longitude: 2.1686 };
+  const app: AppConfig = {
+    ...cfg("geo-app"),
+    dev: { baseUrl: "https://dev.example.com", geolocation: { latitude: 40.4168, longitude: -3.7038, places: { barcelona } } },
+  };
+  const without = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "ns", { mode: "diff" });
+  assert.equal(without.geolocation, undefined);
+
+  const registry = new GeolocationRegistry();
+  const wired = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, geolocationRegistry: registry }, "ns", { mode: "diff" });
+  assert.equal(wired.geolocation?.registry, registry);
+  assert.deepEqual(wired.geolocation?.setting, { default: { latitude: 40.4168, longitude: -3.7038 }, places: { barcelona } });
+
+  const code: AppConfig = { ...app, code: true, qa: { ...app.qa, needsReview: true, testDataPrefix: "qa-bot" } };
+  assert.equal(buildRewrittenCompositionConfig(code, { getAgentDeps: stubAgentDeps, geolocationRegistry: registry }, "ns", { mode: "diff", target: "code" }).geolocation, undefined);
+});
+
+test("the factory tells the geolocation registry about the authoring sessions through the transport", async () => {
+  const { GeolocationRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/geolocation-registry");
+  const { RunGeolocation } = await import("@contexts/qa-run-orchestration/domain/run-geolocation");
+  const registry = new GeolocationRegistry();
+  const state = new RunGeolocation({ default: { latitude: 40.4168, longitude: -3.7038 } });
+  registry.register({ runId: "run-geo", state, set: (delegationId, change) => state.set(delegationId, change) });
+  const deps: AgentDeps = { open: async () => ({ id: "ses-geo", prompt: async () => "", dispose: async () => {} }) as never };
+  const opened = engineAgentDeps({ getAgentDeps: () => deps, geolocationRegistry: registry });
+  const generator = await opened.open("qa-generator", "/m", { descriptor: { runId: "run-geo", role: "qa-generator" } });
+  assert.equal(registry.find("ses-geo")?.live.runId, "run-geo");
+  await generator.dispose();
+  assert.equal(registry.find("ses-geo"), undefined);
+});

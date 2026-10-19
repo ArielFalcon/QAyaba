@@ -60,6 +60,7 @@ export class ReviewPortAdapter implements ReviewPort {
     const reviewInput: ReviewInput = {
       diff: diff ?? this.ctx.diff,
       specs,
+      ...(enrichment?.existingSpecFiles?.length ? { existingSpecFiles: [...enrichment.existingSpecFiles] } : {}),
       mirrorDir: this.ctx.mirrorDir,
       e2eRelDir: this.ctx.e2eRelDir,
       appName: this.ctx.appName,

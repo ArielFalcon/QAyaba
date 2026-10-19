@@ -20,8 +20,9 @@ import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
+import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import { LEAD_PLAN_KIND, type PlanningLimits } from "@kernel/coordination.ts";
-import { claim, AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { claim, AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, GEOLOCATION_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
 import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
@@ -69,7 +70,7 @@ function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
   return lines.length > 0 ? [`## ${PROMPT_HEADINGS.harnessFacts}`, ...lines, ``].join("\n") : "";
 }
 
-export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, LEAD_PLAN_SECTION_ID };
+export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, GEOLOCATION_SECTION_ID, LEAD_PLAN_SECTION_ID };
 
 /* The authenticated browser a run granted the authoring agents, as facts: how many calls and how long each may take, and what its answers report. Numbers and a description only; how to use the tools is the role prompt's. */
 function renderAgentBrowser(limits: AgentBrowserLimits): string {
@@ -89,13 +90,27 @@ function renderClosedLoop(limits: ClosedLoopLimits): string {
 
 /* The plan a lead is asked for on a coordinated run's planning turn: the shapes it may take and the limits the orchestrator holds it to. The orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. */
 function renderLeadPlan(limits: PlanningLimits): string {
+  const locationField = limits.locations?.length ? `,"location":"<one of: ${limits.locations.join(", ")}>"` : "";
   return [
     `## ${PROMPT_HEADINGS.leadPlan}`,
     `This turn asks for a plan, not for specs: write no file. Close with ONLY a JSON object {"plan": ...} of one of these shapes.`,
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing here is worth a test>"}}`,
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.SINGLE}"}} when the change is one piece of work that you will author yourself.`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]}]}} when the change is several independent flows, each of which can be written and run without the others.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]${locationField}}]}} when the change is several independent flows, each of which can be written and run without the others.`,
     `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
+    ...(limits.locations?.length ? [`A flow may name one of the app's locations; a flow without one inherits the run's.`] : []),
+    ``,
+  ].join("\n");
+}
+
+/* The app's declared location and the location this authoring scope works at, as facts, with the one rule a delivered spec follows. Present only when the app declares geolocation. */
+function renderGeolocation(facts: GeolocationFacts): string {
+  const places = Object.entries(facts.places).map(([name, location]) => `${name} (${location.latitude}, ${location.longitude})`);
+  return [
+    `## ${PROMPT_HEADINGS.geolocation}`,
+    `The app's default location: ${facts.default.latitude}, ${facts.default.longitude}. The suite runs at this location unless a spec sets another.`,
+    ...(places.length > 0 ? [`Places the app declares: ${places.join("; ")}.`] : []),
+    `This authoring scope is at: ${facts.current.latitude}, ${facts.current.longitude} (${facts.scope === "run" ? "the run" : "this flow"}). The authenticated browser, when this run grants it, opens pages at it; the plain Playwright MCP is a separate browser and does not take this value. run_spec and the suite run at the app's default, not at the authoring location: a spec whose expected result depends on a location pins it with setLocation(context, latitude, longitude) from the suite's fixtures.`,
     ``,
   ].join("\n");
 }
@@ -810,6 +825,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const closedLoopContent = isGenerationMode && input.target === "e2e" && input.closedLoop ? renderClosedLoop(input.closedLoop) : "";
   const agentBrowserContent = isGenerationMode && input.target === "e2e" && input.agentBrowser ? renderAgentBrowser(input.agentBrowser) : "";
+  const geolocationContent = isGenerationMode && input.target === "e2e" && input.geolocation ? renderGeolocation(input.geolocation) : "";
   /* Only the first pass is planned: a regeneration repairs specs that exist. */
   const leadPlanContent = isGenerationMode && input.target === "e2e" && input.planning && !isReGenTurn(input) ? renderLeadPlan(input.planning) : "";
   const stepLimitContent = input.stepLimit !== undefined ? renderStepLimit(input.stepLimit) : "";
@@ -829,6 +845,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
       ...(closedLoopContent ? [section(CLOSED_LOOP_SECTION_ID, "semi-stable", closedLoopContent, { priority: 0, claims: [claim.provides("closed-loop")] })] : []),
       ...(agentBrowserContent ? [section(AGENT_BROWSER_SECTION_ID, "semi-stable", agentBrowserContent, { priority: 0, claims: [claim.provides("agent-browser")] })] : []),
+      ...(geolocationContent ? [section(GEOLOCATION_SECTION_ID, "semi-stable", geolocationContent, { priority: 0, claims: [claim.provides("geolocation")] })] : []),
       ...(suiteIsListed ? [section(SUITE_LISTING_SECTION_ID, "semi-stable", listingContent, { priority: 2, claims: [claim.provides("existing-suite")], ...(editableListed ? { overflow: "summarize" as const } : {}) })] : []),
       ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims, itemIds: advisoryLineIds(staticSignalContent) })] : []),
       ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims, ...(hasServiceLinks ? { itemIds: orderedLinks.slice(0, MAX_LINKS).map((l) => itemId.svcLink(l)), ...(omittedLinkCount > 0 ? { omissions: [{ class: "selection", reason: "link-selection", count: omittedLinkCount }] } : {}) } : {}) })] : []),
@@ -1555,7 +1572,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
   ].join("\n");
 
   const rulesInstruction = input.learnedRules
-    ? [`6. Also REJECT if any spec violates an app-specific reject-on-sight rule provided in this prompt.`]
+    ? [`7. Also REJECT if any spec violates an app-specific reject-on-sight rule provided in this prompt.`]
     : [];
   const instructionsContent = [
     `## Instructions`,
@@ -1569,6 +1586,8 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
       + ` assert a UI fact from memory: an unconfirmed guess that a label/route "should be" something is`
       + ` NOT a valid correction — omit it. Reject on what you can SEE (no assertions, fragile selectors,`
       + ` wrong objective, missing cleanup), not on guessed app specifics.`,
+    `6. The "Specs under review" are the specs this run delivered. The "Existing suite" section is`
+      + ` context only: never reject a spec because an existing suite file does not cover this change.`,
     ...rulesInstruction,
   ].join("\n");
 
@@ -1606,6 +1625,15 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     : "";
 
   const specContent = specBlock;
+  /* The existing suite is context, never a review target: the reviewer sees what already exists so
+   * it does not mistake a pre-existing file for a missing part of this change. */
+  const existingSpecsContent = input.existingSpecFiles?.length
+    ? [
+        `## Existing suite — context only`,
+        `These files already exist in the suite. Do NOT judge them and do NOT raise corrections against them; judge only the specs in the "Specs under review" section.`,
+        ...input.existingSpecFiles.map((file) => `- ${sanitizeText(file).text}`),
+      ].join("\n")
+    : "";
 
   const learnedRulesContent = input.learnedRules ? [``, input.learnedRules].join("\n") : "";
 
@@ -1660,6 +1688,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     ...(domContent ? [section("reviewer-dom", "volatile", domContent, { priority: 1, maxBytes: 20_000, overflow: "summarize" })] : []),
     ...(executionResultContent ? [section("reviewer-execution-result", "volatile", executionResultContent, { priority: 1.5 })] : []),
     section("reviewer-specs", "volatile", specContent, { priority: 2, maxBytes: 44_000, overflow: "summarize" }),
+    ...(existingSpecsContent ? [section("reviewer-existing-suite", "volatile", existingSpecsContent, { priority: 3, maxBytes: 8_000, overflow: "summarize" })] : []),
     ...(learnedRulesContent ? [section("reviewer-learned-rules", "volatile", learnedRulesContent, { priority: 3 })] : []),
     /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
     ...(priorCorrectionsContent ? [section("reviewer-prior-corrections", "volatile", priorCorrectionsContent, { priority: 4 })] : []),

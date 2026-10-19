@@ -16,6 +16,7 @@ import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
 import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 import { withDeclaredResources } from "./implementation-resources.ts";
+import { withChangedElementScopes } from "./changed-element-scope.ts";
 
 const diffParser = new DiffParserService();
 
@@ -313,7 +314,11 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       const deterministicRoutes = contextMap?.routes?.length
         ? contextMap.routes.map((r) => r.path).filter(Boolean)
         : undefined;
-      const changedElements = diff ? diffParser.changedElements(diff) : undefined;
+      /* A cross-repo run's diff is of the service's tree, not of this working copy: its lines are not looked up here. */
+      const parsed = diff ? diffParser.changedElements(diff) : undefined;
+      const changedElements = parsed && this.ctx.mirrorDir && this.ctx.stagedRoots === undefined
+        ? withChangedElementScopes(parsed, this.ctx.mirrorDir, this.ctx.testIdAttribute)
+        : parsed;
       const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
       const buildPromise = build(
         {

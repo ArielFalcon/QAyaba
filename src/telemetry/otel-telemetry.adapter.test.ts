@@ -40,6 +40,19 @@ function harness(opts: { captureMode?: CaptureMode; maxCaptureMode?: CaptureMode
   return { telemetry, clock, spans, byName, exporter };
 }
 
+test("the console tap reads the active span's capture mode, context and run scope", () => {
+  const { telemetry } = harness();
+  assert.equal(telemetry.activeLogSpan(), undefined);
+  telemetry.withSpan("run", { captureMode: "metadata", secrets: { redact: (text) => text.replace("hunter2", "[redacted]") } }, () => {
+    const span = telemetry.activeLogSpan();
+    assert.equal(span?.mode, "metadata");
+    assert.ok(span?.context);
+    assert.equal(telemetry.redactActive("value hunter2", 1024), "value [redacted]");
+    assert.equal(telemetry.redactActive("word ".repeat(500), 10), "word word ");
+  });
+  assert.equal(telemetry.activeLogSpan(), undefined);
+});
+
 test("every span takes its start and end from the injected clock, so a clock jump lands exactly", () => {
   const { telemetry, clock, byName } = harness();
   const span = telemetry.startSpan("run");

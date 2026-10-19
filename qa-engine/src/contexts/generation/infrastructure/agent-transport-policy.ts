@@ -486,10 +486,10 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             notify({ kind: "turn", prompt: thisRound, turn: turnEvent, at: clock() });
           };
           /* A prompt that ended without an answer still leaves its turn: the calls it made before it ended are the evidence of how it spent its time. */
-          const recordUnansweredTurn = (ended: "timeout" | "aborted"): void => {
+          const recordUnansweredTurn = (ended: "timeout" | "aborted", errorType?: AgentErrorType): void => {
             closed = true;
             /* The attempt may never settle (the transport can hang): it ends with the turn, and is told apart as abandoned. */
-            liveAttempt?.end({ abandoned: true, errorType: ended === "timeout" ? "timeout" : "aborted" });
+            liveAttempt?.end({ abandoned: true, errorType: errorType ?? (ended === "timeout" ? "timeout" : "aborted") });
             const callMetrics = flushCalls();
             emitTurn({ outputRaw: "", stepBudget: budgetOf(callMetrics, ""), callMetrics, ended });
           };
@@ -576,13 +576,24 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
             }
             throw err;
           });
-          return withTimeout(attempts, promptOpts?.timeoutMs ?? sessionTimeoutMs, "OpenCode prompt").catch((err: unknown) => {
-            abortRun();
-            /* An error the prompt itself raised was thrown before any turn was emitted; only a prompt that was cut short from outside (the deadline, the caller's abort) has a turn still to record. */
-            if (!closed && err instanceof AgentTimeoutError) recordUnansweredTurn("timeout");
-            else if (!closed && opts?.signal?.aborted) recordUnansweredTurn("aborted");
-            throw err;
+          /* A fault the runtime only retries until its own reset (a spent quota) ends the prompt now: waiting would only burn the turn's deadline. */
+          const providerFault = new Promise<never>((_, reject) => {
+            sessionRetryListeners.set(id, (message) => {
+              const type = terminalRetryFault(message);
+              if (!type || closed) return;
+              recordUnansweredTurn("aborted", type);
+              reject(carryAgentErrorType(new AgentUnavailableError(`OpenCode provider fault the runtime was retrying: ${message}. INCONCLUSIVE (infrastructure), not a test failure.`), type));
+            });
           });
+          return withTimeout(Promise.race([attempts, providerFault]), promptOpts?.timeoutMs ?? sessionTimeoutMs, "OpenCode prompt")
+            .catch((err: unknown) => {
+              abortRun();
+              /* An error the prompt itself raised was thrown before any turn was emitted; only a prompt that was cut short from outside (the deadline, the caller's abort) has a turn still to record. */
+              if (!closed && err instanceof AgentTimeoutError) recordUnansweredTurn("timeout");
+              else if (!closed && opts?.signal?.aborted) recordUnansweredTurn("aborted");
+              throw err;
+            })
+            .finally(() => sessionRetryListeners.delete(id));
         },
         dispose: async () => {
           try {
@@ -615,6 +626,19 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
   };
 }
 
+
+const sessionRetryListeners = new Map<string, (message: string) => void>();
+
+/* Only a fault no retry within the run can cure is terminal; a rate limit is left to the runtime's own backoff. */
+function terminalRetryFault(message: string): AgentErrorType | undefined {
+  const type = safeClassify(() => classifyProviderError({ name: "APIError", data: { message } }));
+  return type === "quota_exceeded" ? type : undefined;
+}
+
+/** Called from the SSE event loop when the runtime reports it is retrying a session's turn (`session.status` of type `retry`). A no-op for a session with no prompt in flight. */
+export function notifySessionRetry(sessionId: string, message: string): void {
+  sessionRetryListeners.get(sessionId)?.(message);
+}
 
 const sessionWatchdogNotifiers = new Map<string, () => void>();
 

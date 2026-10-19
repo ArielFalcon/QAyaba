@@ -11,6 +11,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
+import type { GeoLocation } from "@kernel/geolocation.ts";
 import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import { originOf } from "../../../../shared-infrastructure/egress/egress-policy.ts";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
@@ -41,7 +42,7 @@ export interface AgentBrowserPortAdapterDeps {
   material: () => SessionMaterial;
   launcher: BrowserLauncherPort;
   /* Test seam: the host the calls are served by. Absent: the Playwright host over `launcher`. */
-  createHost?: (parts: { launcher: BrowserLauncherPort; material: () => Promise<SessionMaterial>; guard: ReturnType<typeof createRouteGuard> }) => AgentBrowserHostPort;
+  createHost?: (parts: { launcher: BrowserLauncherPort; material: () => Promise<SessionMaterial>; guard: ReturnType<typeof createRouteGuard>; geolocation?: GeoLocation }) => AgentBrowserHostPort;
   /* With the context: signs in again when a call finds the session gone. Absent: a lost session is only reported. */
   authSession?: AuthSessionPort;
   authContext?: AuthSessionContext;
@@ -92,7 +93,12 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
     });
     /* The run's async context as it is now: the run's sandbox scope and its secret scope. The browser starts, and the session is read, inside it. */
     const inRunContext = AsyncLocalStorage.snapshot();
-    const hostParts = { launcher: this.deps.launcher, material: async () => inRunContext(() => this.deps.material()), guard };
+    const hostParts = {
+      launcher: this.deps.launcher,
+      material: async () => inRunContext(() => this.deps.material()),
+      guard,
+      ...(input.geolocation ? { geolocation: input.geolocation.default } : {}),
+    };
     const host = this.deps.createHost ? this.deps.createHost(hostParts) : new PlaywrightAgentBrowserHost(hostParts);
     const useCase = new AgentBrowserUseCase({
       capability,
@@ -104,6 +110,7 @@ export class AgentBrowserPortAdapter implements AgentBrowserPort {
       ...(this.deps.authSession && this.deps.authContext ? { session: trustedSessionRenewal(this.deps.authSession, this.deps.authContext, input.specDir, MAX_AGENT_BROWSER_RENEWALS) } : {}),
       ...(this.deps.loginPath !== undefined ? { loginPath: this.deps.loginPath } : {}),
       ...(this.deps.deadline ? { deadline: this.deps.deadline } : {}),
+      ...(input.geolocation ? { location: input.geolocation.forSession } : {}),
       redact: this.deps.redact,
       ...(input.signal ? { signal: input.signal } : {}),
       ...(this.deps.now ? { now: this.deps.now } : {}),

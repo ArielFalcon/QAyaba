@@ -27,6 +27,8 @@ import {
   sessionToolDeny,
   setAgentBrowserGrantLookup,
   hidesBrowserTools,
+  setGeolocationGrantLookup,
+  hidesGeolocationTool,
 } from "./opencode-client";
 import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
@@ -773,8 +775,8 @@ test("buildReviewerPrompt injects learnedRules when present and adds the extra r
   try {
     const p = buildReviewerPrompt(makeReviewInput(dir, { learnedRules: "- RULE_MARKER avoid waitForTimeout" }));
     assert.match(p, /RULE_MARKER avoid waitForTimeout/);
-    assert.match(p, /6\. Also REJECT/);
-    assert.doesNotMatch(buildReviewerPrompt(makeReviewInput(dir)), /6\. Also REJECT/, "no extra instruction without rules");
+    assert.match(p, /7\. Also REJECT/);
+    assert.doesNotMatch(buildReviewerPrompt(makeReviewInput(dir)), /7\. Also REJECT/, "no extra instruction without rules");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1382,5 +1384,28 @@ test("a session is shown the browser's tools only when the orchestrator granted 
     assert.equal(hidesBrowserTools("qa-reviewer", "ses-2"), false, "a role that does not author has the tools off by its config and is left alone");
   } finally {
     setAgentBrowserGrantLookup(undefined);
+  }
+});
+
+test("openCodePromptBody: a prompt of a session the run gave no authoring location hides the location tool and changes nothing else", () => {
+  const model = { providerID: "p", modelID: "m" };
+  const hidden = openCodePromptBody({ agent: "qa-generator", text: "write", model, hideGeolocationTool: true });
+  assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { set_geolocation: false });
+  assert.equal(hidden.agent, "qa-generator");
+  assert.deepEqual(hidden.model, model);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "write", hideGeolocationTool: false }), false);
+});
+
+test("a session is shown the location tool only when its run carries an authoring location, and only an authoring role is ever asked about", () => {
+  try {
+    assert.equal(hidesGeolocationTool("qa-generator", "ses-1"), true, "until a host installs the lookup nothing is granted");
+    const granted = new Set(["ses-1"]);
+    setGeolocationGrantLookup((id) => granted.has(id));
+    assert.equal(hidesGeolocationTool("qa-generator", "ses-1"), false);
+    assert.equal(hidesGeolocationTool("qa-generator", "ses-2"), true);
+    assert.equal(hidesGeolocationTool("qa-sidekick", "ses-2"), true);
+    assert.equal(hidesGeolocationTool("qa-reviewer", "ses-2"), false, "a role that does not author has the tool off by its config and is left alone");
+  } finally {
+    setGeolocationGrantLookup(undefined);
   }
 });

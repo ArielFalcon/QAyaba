@@ -59,6 +59,11 @@ export interface PwPage {
   close(): Promise<void>;
 }
 
+export interface PwGeolocation {
+  latitude: number;
+  longitude: number;
+}
+
 export interface PwContextOptions {
   serviceWorkers: "block";
   acceptDownloads: false;
@@ -66,12 +71,15 @@ export interface PwContextOptions {
   storageState?: { cookies: unknown[]; origins: unknown[] };
   httpCredentials?: { username: string; password: string };
   clientCertificates?: { origin: string; pfx: Buffer; passphrase?: string }[];
+  permissions?: string[];
+  geolocation?: PwGeolocation;
 }
 
 export interface PwContext {
   route(url: RegExp | string, handler: (route: PwRoute) => Promise<void> | void): Promise<void>;
   routeWebSocket(url: RegExp | string, handler: (ws: PwWebSocketRoute) => Promise<void> | void): Promise<void>;
   addInitScript(script: string): Promise<void>;
+  setGeolocation(geolocation: PwGeolocation): Promise<void>;
   newPage(): Promise<PwPage>;
   on(event: "page", handler: (page: PwPage) => void): unknown;
   close(): Promise<void>;

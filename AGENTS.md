@@ -215,6 +215,11 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
   Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { mode, plan, downgrade, flows, delivered,
   incomplete, takeover, authoring }`. `docs/lead-sidekicks.md`.
+- **Authoring location (`dev.geolocation`)** — the app declares a durable browser position (the suite, `run_spec` and the
+  Context Pack run at it) and may declare named `places`. The run carries a mutable authoring location — the lead's, and one
+  per flow of a plan — that the `set_geolocation` tool moves for the authenticated browser and the prompts; a plan may name a
+  place per flow and a flow without one inherits the lead's. It never enters the delivered suite: a spec whose result depends
+  on a location pins it with `setLocation(context, latitude, longitude)`. Codex has no custom tool and states the facts only.
 - **Step limit and milestone** — the generator, explorer and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the legacy `maxSteps` mapped into it; `stepLimits`

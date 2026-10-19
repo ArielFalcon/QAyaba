@@ -180,6 +180,7 @@ Every telemetry component below is the latest release as of 2026-10-17. The agen
 | `@opentelemetry/api` | 1.9.1 |
 | `sdk-trace-node`, `sdk-trace-base`, `sdk-metrics`, `context-async-hooks`, `resources`, `core` | 2.12.0 |
 | `exporter-trace-otlp-proto`, `exporter-metrics-otlp-proto` | 0.223.0 |
+| `api-logs`, `sdk-logs`, `exporter-logs-otlp-proto` | 0.223.0 |
 | `semantic-conventions` | 1.43.0 (stable keys only; `gen_ai.*` comes from our own mapping) |
 
 We use `NodeTracerProvider` and `AsyncLocalStorageContextManager`, not `NodeSDK`, so that no
@@ -502,6 +503,14 @@ The orchestrator cannot see OpenCode's `title` agent or the provider's internal 
 - **Option B (fallback).** The supervisor tails `opencode.log` and ships provider-error and title
   lines as OTel logs with the session id. This is more brittle, but works whatever the OTel support.
 
+**Evaluated 2026-10-19 (OpenCode 1.17.7).** Option A emits `ai.streamText`/`ai.streamText.doStream` with `session.id` and
+`gen_ai.usage.*`, but every span lands in one process-wide trace with no root and no `traceparent` parenting (an inbound
+`traceparent` is ignored: there is no per-request HTTP span), and it exports prompt and response bodies. Option B is not
+needed: OpenCode exports OTLP logs natively when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, with severity, time and the trace
+and span ids of that process trace. The adopted path is **logs only**: the agent collector keeps them (stripped and
+stamped like spans) and drops `service.name=opencode` traces. `experimental.openTelemetry` stays off; no per-call cost is
+synthesized from SSE. R6 records the decision.
+
 Either way, the turn span's `error.type` (§5.3) already covers what reaches the orchestrator.
 
 ### 5.8 Codex parity
@@ -626,8 +635,13 @@ clock is not resynced promptly, fall back to comparing against the host's time o
 | `qayaba.host.*`, `qayaba.sandbox.zombies` | see §7 | none |
 | `qayaba.eval.score` | gauge | eval.name, eval.source, eval.data_type, app, verdict |
 | `qayaba.eval.class` | counter | eval.name, eval.value (closed sets only: furthest_phase, change_coverage, infra_error) |
-| `qayaba.review` | counter | app, review.outcome (approved/rejected/parse-miss/unavailable), review.decided_by (model/precheck/unchanged) |
+| `qayaba.review` | counter | app, review.outcome (approved/rejected/parse-miss/unavailable), review.decided_by (model/precheck/unchanged), review.correction_class (false-positive/wrong-objective/fragile-selector/no-cleanup/other/none) |
 | `qayaba.review.duration` | histogram | app, review.outcome |
+
+The review round's decision evidence is a `qayaba.review.decision` span under `qayaba.phase.review`: it carries
+`qayaba.review.targets` (the specs this run delivered), `qayaba.review.existing_specs` (the existing suite, context
+only), the bounded `qayaba.review.corrections` and `qayaba.review.rationale`, the blocking count and the correction
+class. The reviewer judges only the delivered specs; an existing suite file is never a wrong-objective target.
 
 The existing `/api/metrics` Prometheus endpoint stays as is. It has no OTel coupling.
 
@@ -726,6 +740,8 @@ Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or t
   - the compose networks and receiver split;
   - the `tools-endpoint` parser change (`messageID`);
   - the Codex env allowlist;
+  - enabling OpenCode's own log export (`OTEL_EXPORTER_OTLP_ENDPOINT` on the agents service; logs only, the
+    content-bearing `experimental.openTelemetry` stays off);
   - enabling OpenCode content export;
   - the capture ceiling.
 
@@ -745,17 +761,21 @@ Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or t
 ```yaml
 # docker-compose.telemetry.yml  (opt-in: docker compose --profile telemetry up)
 services:
-  collector:   otel/opentelemetry-collector-contrib:0.163.0   # profile: telemetry
+  collector:   otel/opentelemetry-collector-contrib:0.163.0   # profile: telemetry — traces, metrics and logs
                receivers: otlp(http :4318)
                processors: memory_limiter, redaction, attributes, batch
                exporters: otlphttp/lgtm, otlphttp/langfuse (only with profile langfuse), file (rotating, debug)
-  lgtm:        grafana/otel-lgtm:0.37.0     # profile: telemetry — Tempo + Prometheus + Grafana 127.0.0.1:3001, /data volume, anonymous off, Tempo retention = R4
+  lgtm:        grafana/otel-lgtm:0.37.0     # profile: telemetry — Tempo + Prometheus + Loki + Grafana 127.0.0.1:3001, /data volume, anonymous off, Tempo retention = R4, Loki = R6
   langfuse-*:  langfuse 4.x web + worker, postgres 17, clickhouse 25.12, redis 7, minio
                # profile: langfuse — follows Langfuse's own compose; ports bound to 127.0.0.1
 ```
 
 - **Off by default.** Plain `docker compose up` is unchanged. The orchestrator gets
   `OTEL_EXPORTER_OTLP_ENDPOINT` only when the profile is used, via the override.
+- **Logs.** The orchestrator's console lines go through the trusted collector, exported only while a span is active and
+  under the run's capture mode. OpenCode exports its own logs through the untrusted collector, whose trace pipeline drops
+  `service.name=opencode`. Loki's retention is YAML-only, so the image's config is shadowed by
+  `config/otel/loki-config.yaml` (R6).
 - **Langfuse ingestion:** `POST /api/public/otel/v1/traces`, HTTP only (no gRPC), Basic
   `pk:sk`, header `x-langfuse-ingestion-version: 4`. Without that header, ingestion can lag up to
   10 minutes. Langfuse **discards OTLP metrics**, so metrics go to LGTM only.
@@ -1120,7 +1140,7 @@ their own commits.
 | **S3b DOM capture per route** | The capture script reports per-route timing and state (its output changes) | C8, F11 |
 | **S4 Evaluation** | `evaluation` context; deterministic graders; `run_scores`; API #2–#6 | B3–B6, B8 |
 | **S4b Langfuse** | `langfuse` profile, score sink, score configs, usage/cost mapping | Eval UI |
-| **S2b OpenCode native spans** (deferred, after S0.2) | Option A behind the content-dropping receiver | F7/F8 detail, title calls |
+| **S2b OpenCode native spans** (not shipped) | Option A rejected: one process-wide trace with no root, and content-bearing `ai.*` spans. OpenCode's logs ship instead (R6) | F7/F8 detail comes from the orchestrator's own attempt and tool spans |
 | **S5 Campaigns** | Trigger metadata (API #1), datasets, replicate comparison report | B7 |
 | **S6 Judges** | Annotation queues, human-label import, LLM judges, calibration (§11.3). Delivered gated off: the live step of §19 enables it | Trusted LLM scores |
 
@@ -1145,6 +1165,11 @@ and no page content. The synthesized `execute_tool run_spec|authbrowser_*` span 
 session, tool, message id (when both sides carry it) and time overlap (`generation/domain/tool-link.ts`, pure); a match that cannot
 be made without a guess is not made. The attempt-to-tool-span edge is **connected** (parent/child); the tool-span-to-agent
 `execute_tool` edge is a **link** (correlated by the join above, not by propagated context).
+
+**S2b amendment (2026-10-19).** OpenCode native spans are not shipped: 1.17.7 ignores an inbound `traceparent` and puts every span
+in one process-wide trace with no root, so they cannot answer a per-run question; `experimental.openTelemetry` would also export
+prompt and response bodies. Its logs are shipped instead (R6), through the same untrusted receiver, stripped and stamped; the agent
+collector drops `service.name=opencode` traces.
 
 **S2c status (Codex parity, explorer tracking).** Delivered: the supervisor returns `{message, usage}` from the `turn.completed` events
 of `codex exec --json` (`extractCodexUsage`, summed, a field that is not a plain count read as none), the direct and the supervised
@@ -1180,6 +1205,7 @@ reliable, deterministic; trust over features; local operability on a Mac.
 | R3 | Does `empty_output_guard` gate? | **Grader only.** It becomes a gate only if it ever fails on real data, and then as a governance-sensitive change in its own commit. | The invariant already exists (no-op → `skipped`, zero specs → `E-NO-DECISION`, "approved is never a no-op"). A second gate on the same condition adds a path that can disagree with the first, and CLAUDE.md rules out piling up LLM-free gates without evidence. |
 | R5 | Do we upgrade OpenCode (1.17.7 → 1.19.3) or Codex (0.139.0 → 0.163.0) for better telemetry? | **No.** The telemetry components (OTel JS 2.12 / 0.223, Collector 0.163.0, otel-lgtm 0.37.0, Langfuse 4.63.0) are adopted at their latest versions. | A source diff of both tags found no telemetry gain in OpenCode: the same `ai` 6.0.168, the same `experimental.openTelemetry`, no step timestamps, the same tool-list API, no trace context in `ToolContext`. Codex 0.139.0 already has `TRACEPARENT`, OTLP traces and per-turn usage; 0.163.0 only adds `cache_write` tokens. Moving a pin costs a re-recorded agent-list fixture, re-run smokes and new behaviour risk on the execution path, for no telemetry gain. Revisit when either runtime ships GenAI semconv or step timestamps. |
 | R4 | How long are records kept? | **`run_spans` 30 days, like `agent_turns`. Campaign-tagged runs keep both for 180 days.** `QA_TELEMETRY_RETENTION_DAYS` and `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` override them. `run_scores` are never pruned (they are tiny). | Campaign runs are the eval baselines that later graders and judges re-score (principle 8). Ordinary runs are diagnostic and lose value fast. |
+| R6 | Where do logs live, and for how long? | **OpenCode's own logs and the orchestrator's console lines go to Loki through the two existing collectors; OpenCode's spans are dropped.** Logs are kept 180 days (`config/otel/loki-config.yaml`), the campaign window. | OpenCode's spans cannot be joined to a run: 1.17.7 ignores `traceparent` and puts every span in one rootless process trace (verified live). Its logs are the useful part; the collector strips and stamps them like spans. A log cannot carry the campaign tag, so the only window that never cuts a campaign's logs early is the longest one, and a log line is cheap. The tap exports only while a span is active and under the run's capture mode, so `runs.logs`/`run_events` stay the API's record. |
 
 ## 18. Adversarial review resolution (2026-10-17)
 

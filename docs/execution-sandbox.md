@@ -232,6 +232,17 @@ are offered to the two authoring roles alone, reach the endpoint with the real s
 Known limits: the page content the agent reads (account data among it) goes to the model provider, as it does through the plain Playwright MCP; a page can still obtain a pristine `ServiceWorkerContainer` from a fresh frame, in which case a worker's own requests
 are held by the egress filter and the session's rights, not by the route guard; a sidekick holds the tools when the lead/sidekick mode grants them to its flow (a per-flow share of the run's caps), and a sidekick without a grant has them denied per prompt (`docs/lead-sidekicks.md`).
 
+## The authoring location
+
+With `dev.geolocation` declared, the app's position is durable app data: the suite, `run_spec` and the Context Pack run at
+it, and `dev.geolocation.places` names positions the agent may pick. The authoring roles also hold `set_geolocation`
+(`agents/tool/set_geolocation.ts`), which moves the location of the caller's scope — the run for the lead, its flow for a
+sidekick — through `POST /internal/geolocation` on the same listener, token and session binding. The authenticated browser
+applies the session's value before each action (one context per run; every action holds the account, so the value cannot
+race). The value is authoring context: a delivered spec that depends on a location pins it with the suite's
+`setLocation(context, latitude, longitude)`, and `run_spec` and the final suite run at the app's declared default. A plan
+may name a place per flow; a flow without one inherits the lead's at open.
+
 ### The answer of a tool is a channel
 
 A spec runs with the saved session and, when the app opted in, the account in reach, and whatever it prints can come back in a `run_spec` answer, which a model provider then sees. Three things limit it: the answer carries little a spec chooses (no passing test's title, bounded failing titles and errors, times to the second); the secrets the run knows are removed by value in the encodings above; and a long random-looking token the page did not show is dropped. **What this does not stop**: a payload cut into pieces under 32 characters, spelled as words, encoded some other way (rot13, XOR, a hash of a guess), spread over the error messages of several calls, or carried by whether a test passed or how long it ran (a few bits per call, at most `maxCalls` calls). The mitigation is the surrounding design, not the filter: the session is a short-lived copy that dies with the run (and is renewed only with the verified login), each call gets a fresh copy, the account's password reaches a suite only for an app that opted in, the spec's own reads are bounded by the egress filter and the file permissions, and `maxCalls` bounds how many answers there can be.

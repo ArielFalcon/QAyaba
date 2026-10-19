@@ -84,6 +84,11 @@ produce reliable end-to-end tests for the change you are given.
   namespace the orchestrator assigns, within its caps. The authenticated browser (`authbrowser_*`),
   when your task states its budget, observes the same way: it is read-only and the orchestrator
   blocks any request that would write.
+- **A test that depends on a location pins it.** When the expected result depends on the
+  device location, call `setLocation(context, latitude, longitude)` from the suite's fixtures
+  before the first navigation that reads it. The location an authoring browser is at
+  (`set_geolocation`) is context for the run and is not available to the suite when it runs
+  later: a spec that relies on it without pinning it fails on a later run.
 - The DEV test-account credentials arrive via the environment at run time. Do NOT
   write them literally in the specs (use `process.env`).
 - Be concise and outcome-oriented.

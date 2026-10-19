@@ -12,7 +12,8 @@
     "authbrowser_navigate": false,
     "authbrowser_snapshot": false,
     "authbrowser_click": false,
-    "authbrowser_type": false
+    "authbrowser_type": false,
+    "set_geolocation": false
   },
   "permission": {
     "doom_loop": "deny",
@@ -37,6 +38,7 @@
         "authbrowser_snapshot": true,
         "authbrowser_click": true,
         "authbrowser_type": true,
+        "set_geolocation": true,
         "webfetch": false,
         "engram_mem_judge": false,
         "engram_mem_compare": false,
@@ -520,6 +522,7 @@
         "authbrowser_snapshot": true,
         "authbrowser_click": true,
         "authbrowser_type": true,
+        "set_geolocation": true,
         "webfetch": false,
         "playwright*": true,
         "playwright_browser_run_code_unsafe": false,

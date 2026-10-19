@@ -1,3 +1,4 @@
+import type { GeoLocation } from "@kernel/geolocation.ts";
 import type { GuardReason } from "../../domain/agent-browser-route-guard.ts";
 
 /* What a tool call asks of the browser. A ref is one the last snapshot of the same session gave. */
@@ -34,6 +35,8 @@ export interface BrowserCallOptions {
   /* Aborts when the call's time is up or its session ended. */
   signal: AbortSignal;
   timeoutMs: number;
+  /* Where the caller's authoring scope is now: the action runs at it. Absent: the context keeps the app default. */
+  geolocation?: GeoLocation;
 }
 
 /* The browser could not do what was asked for a reason the agent can act on (a ref that is gone, an element that is not there). Anything else the host throws is a fault and is not shown. */

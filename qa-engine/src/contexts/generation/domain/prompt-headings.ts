@@ -25,6 +25,8 @@ export const PROMPT_HEADINGS = {
   closedLoop: "Run spec budget",
   /* The calls and time a run grants the authoring agents' authenticated browser; a prompt states it only when the run granted the tools. */
   agentBrowser: "Authenticated browser budget",
+  /* The app's default location, its declared places and where this authoring scope is; a prompt states it only when the app declares geolocation. */
+  geolocation: "Device location",
   /* The plan a lead is asked for when its run is coordinated; a prompt carries it only on the planning turn. */
   leadPlan: "Lead plan contract",
 } as const;
@@ -64,6 +66,7 @@ export const ASSEMBLED_ARTIFACT_NAMES: readonly string[] = [
   PROMPT_HEADINGS.stepLimit,
   PROMPT_HEADINGS.closedLoop,
   PROMPT_HEADINGS.agentBrowser,
+  PROMPT_HEADINGS.geolocation,
   PROMPT_HEADINGS.leadPlan,
   /* The phrases a directive uses for the brief and for grounding it points back at. */
   "the brief",

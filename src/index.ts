@@ -46,7 +46,7 @@ import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metr
 import { createMaintainerRuntime } from "./server/maintainer-runtime";
 import { installHttpDispatcher } from "./util/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "./integrations/repo-mirror";
-import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup } from "./integrations/opencode-client";
+import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setGeolocationGrantLookup } from "./integrations/opencode-client";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { CodexRuntimeStrategy, OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { appendLog, appendActivity, deleteAppHistory, runVerdictCounts } from "./server/history";
@@ -70,6 +70,7 @@ import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListe
 import { createToolsServer, resolveToolsListenHost, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
+import { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
 import { FsDelegationWorkspaceAdapter } from "@contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter";
 import { DELEGATIONS_DIR } from "./paths";
 import { workdirRoot } from "./integrations/repo-mirror";
@@ -249,14 +250,17 @@ const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
 };
 
 /*
- * The agents' tools' side of the orchestrator: where the generator's sessions find the run_spec loop and the authoring sessions the
- * run's authenticated browser, and the internal listener the tools call (a second port, not published by compose, behind a service
- * token). Listening starts with the control plane's.
+ * The agents' tools' side of the orchestrator: where the generator's sessions find the run_spec loop, the authoring sessions the
+ * run's authenticated browser, and every authoring session its run's location, and the internal listener the tools call (a second
+ * port, not published by compose, behind a service token). Listening starts with the control plane's.
  */
 const closedLoopRegistry = new ClosedLoopRegistry();
 const agentBrowserRegistry = new AgentBrowserRegistry();
+const geolocationRegistry = new GeolocationRegistry();
 /* An authoring agent's prompt lists the browser's tools only when this run's session was granted them (see opencode-client.ts). */
 setAgentBrowserGrantLookup((sessionId) => agentBrowserRegistry.find(sessionId) !== undefined);
+/* The same for the location tool: a session of a run that carries no authoring location is not offered it. */
+setGeolocationGrantLookup((sessionId) => geolocationRegistry.find(sessionId) !== undefined);
 /* A browser the authenticated agent tools started and a previous process of this container never stopped (it was restarted in place) ends here; a run closes its own browser when it ends. */
 const orphanBrowsers = sweepOrphanAgentBrowsers(execWorkRoot(process.env));
 if (orphanBrowsers > 0) logJson("warn", `stopped ${orphanBrowsers} agent browser process(es) a previous orchestrator process left behind`);
@@ -279,14 +283,14 @@ runConfigEnvironment = {
   campaignFrozen: resolveCampaignFreeze(process.env),
   maxCapture: resolveTelemetryConfig(process.env).maxCapture,
 };
-const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry, browsers: agentBrowserRegistry });
-toolsServer.on("error", (err: Error & { code?: string }) => logJson("error", `the tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the agents' run_spec and authenticated browser calls will fail`));
+const toolsServer = createToolsServer({ token: toolsToken.token, registry: closedLoopRegistry, browsers: agentBrowserRegistry, geolocations: geolocationRegistry });
+toolsServer.on("error", (err: Error & { code?: string }) => logJson("error", `the tools endpoint cannot listen on port ${toolsPort}: ${err.message}; the agents' run_spec, authenticated browser and location calls will fail`));
 
 engineFactory = createRewrittenEngineFactory({
   telemetry: telemetry.telemetry,
   clock: telemetry.clock,
   /* A token this process made up cannot match the agents service's, so a tool the generator is told about would only be refused: no run is granted it. */
-  ...(toolsToken.generated ? {} : { closedLoopRegistry, agentBrowserRegistry }),
+  ...(toolsToken.generated ? {} : { closedLoopRegistry, agentBrowserRegistry, geolocationRegistry }),
   getAgentDeps: currentAgentDeps,
   /* The facade is read per run, from the same manager the deps above come from: the runtime is switchable. */
   getAgentFacade: () => agentRuntime.facade(),

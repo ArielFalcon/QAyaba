@@ -21,7 +21,7 @@ export const INSTRUMENTS = {
   "qayaba.infra_errors": { type: "counter", attrs: ["qayaba.error_class", "qayaba.app"] },
   /* One verdict per review round: what decided it and how it read, beside the turn's own invoke_agent
    * span and agent_turns row (duration, tokens, cost, steps). */
-  "qayaba.review": { type: "counter", attrs: ["qayaba.app", "qayaba.review.outcome", "qayaba.review.decided_by"] },
+  "qayaba.review": { type: "counter", attrs: ["qayaba.app", "qayaba.review.outcome", "qayaba.review.decided_by", "qayaba.review.correction_class"] },
   "qayaba.review.duration": { type: "histogram", attrs: ["qayaba.app", "qayaba.review.outcome"] },
   "qayaba.agent.steps": { type: "histogram", attrs: ["qayaba.agent.role"] },
   "qayaba.agent.cost": { type: "counter", attrs: ["qayaba.agent.role", GENAI.attrs.requestModel, "qayaba.app"] },

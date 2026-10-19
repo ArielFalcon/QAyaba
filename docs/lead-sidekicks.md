@@ -33,7 +33,8 @@ signed-in app (see below); without either, they stay out and the lead authors al
 ## What a run does
 
 1. **Plan.** The lead is asked for a plan (a read-only turn): `single`, `noop` with a reason, or `fanout` with
-   flows. A flow is an id, an objective, acceptance items and the routes it touches. The turn is held to
+   flows. A flow is an id, an objective, acceptance items, the routes it touches and, when the app declares
+   `dev.geolocation`, an optional place it authors at. The turn is held to
    read-only by a per-prompt tool denial (the runtime's file tools and every editing tool of the code-navigation
    server); a lead on a runtime that has no such denial is not asked for a plan and the change stays with it as one
    piece of work, with the reason recorded.
@@ -66,6 +67,14 @@ If nothing could be coordinated (no plan, no time, nobody to author with) the le
 A sidekick's prompts are denied `serena*` always (its symbol edits write wherever the server's project points),
 `playwright*` unless the mode is `unauthenticated-browser`, and `run_spec` unless its flow holds a loop. The denial
 is a per-prompt `tools` map, so a session the run did not grant a tool never sees it. Codex sidekicks are excluded.
+
+## Authoring location
+
+When the app declares `dev.geolocation`, a flow may name one of its declared `places`; a flow that names none inherits
+the lead's value when it opens. `set_geolocation` moves only the caller's scope (the run for the lead, its flow for a
+sidekick), the sidekick's task states the flow's value, and the two attempts of one flow share it. It is authoring
+context, never an input to the delivered suite: the suite and `run_spec` run at the app's declared default, and a spec
+that depends on another location pins it with `setLocation(context, latitude, longitude)`.
 
 ## DEV access
 

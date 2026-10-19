@@ -284,6 +284,8 @@ export interface RunOutcome {
       steps: number | null;
       preCheckRejects: number;
       skippedRounds: number;
+      /* The class of the final blocking correction (`none` when approved), from the closed review tags. */
+      correctionClass?: string;
     };
     flaky: boolean;
     retries: number;

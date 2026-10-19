@@ -55,6 +55,41 @@ export interface RouteSnapshot {
   template?: string;
   /* Milliseconds the capture script spent on this route (navigation, settling and reading), as the script measured them. */
   ms?: number;
+  /* One entry per occurrence, in page order, of each name the page shows more than once for the same role. */
+  repeated?: RepeatedName[];
+  /* The containers the capture was asked about that this page shows none of (see CaptureDomDeps.render's probe). */
+  absent?: string[];
+}
+
+/* An occurrence, in page order, of a name its page repeats. `group` is the role and the name's words (`button|cambiar filtros`: case, punctuation and icon glyphs aside, as a locator matches it); `of` occurrences share it; `scope` lists the containers (nearest first) this one is in and some other one is not, each written as a locator names it: `[test-id="v"]`, `#id` or a custom element's tag. Empty when nothing on the way up tells it apart. */
+export interface RepeatedName {
+  group: string;
+  of: number;
+  scope: string[];
+}
+
+/* The most containers reported for one occurrence, the most occurrences reported for a page, the longest container name kept, and the most names a page has resolved: the page decides all of them. */
+export const MAX_SCOPE_DEPTH = 3;
+export const MAX_REPEATED_PER_ROUTE = 200;
+export const MAX_SCOPE_CHARS = 80;
+export const MAX_NAMES_RESOLVED = 60;
+
+/* How the capture's page code names a container (`args.testIdAttr`, `args.maxChars` in scope): its test id, else its id, else its tag when it is a custom element. The one source for both the scope of an occurrence and the presence of a change's container, which enclosingScope mirrors on the template side. */
+const CONTAINER_NAME_FN = `function(el) {
+                var t = el.getAttribute(args.testIdAttr);
+                if (t) return '[' + args.testIdAttr + '="' + t.slice(0, args.maxChars) + '"]';
+                var id = el.getAttribute('id');
+                if (id) return '#' + id.slice(0, args.maxChars);
+                var tag = el.tagName.toLowerCase();
+                return tag.indexOf('-') > 0 ? tag.slice(0, args.maxChars) : null;
+              }`;
+
+/* The group of a pack line (`role: name`), as RepeatedName writes it; undefined for a line with no words. */
+function nameGroup(line: string): string | undefined {
+  const colon = line.indexOf(": ");
+  if (colon === -1) return undefined;
+  const words = line.slice(colon + 2).replace(ARIA_STATE_STRIP_RE, "").toLowerCase().match(/[\p{L}\p{N}]+/gu);
+  return words ? `${line.slice(0, colon)}|${words.join(" ")}` : undefined;
 }
 
 export interface CaptureDomInput {
@@ -65,7 +100,8 @@ export interface CaptureDomInput {
 }
 
 export interface CaptureDomDeps {
-  render(e2eDir: string, baseUrl: string, routes: string[], testIdAttribute?: string): Promise<RouteSnapshot[]>;
+  /* `probe`: containers (named as RepeatedName names them) whose absence from each page is reported in `absent`. */
+  render(e2eDir: string, baseUrl: string, routes: string[], testIdAttribute?: string, probe?: readonly string[]): Promise<RouteSnapshot[]>;
   /* The browser position the capture opens pages with, when the app declares one. */
   readonly geolocation?: { latitude: number; longitude: number };
 }
@@ -164,6 +200,8 @@ export function buildChangedMarker(
   attr: NodeAttr | undefined,
   changed: ChangedElement[],
   testIdAttrName: string = "data-testid",
+  /* The containers of this occurrence when its page repeats its name (see RepeatedName). */
+  occurrenceScope?: readonly string[],
 ): string {
   if (!changed.length) return "";
 
@@ -185,13 +223,16 @@ export function buildChangedMarker(
       const rawNodeName = colonIdx !== -1 ? line.slice(colonIdx + 2).trim() : line.trim();
       const nodeName = rawNodeName.replace(ARIA_STATE_STRIP_RE, "").trim();
       if (nodeName) {
-        const textLower = c.text.toLowerCase();
-        const nodeNameLower = nodeName.toLowerCase();
-        const exactMatch = nodeNameLower === textLower;
-        const nodeWords = nodeNameLower.split(/\s+/).filter(Boolean);
-        const wordMatch = nodeWords.includes(textLower);
-        if (exactMatch || wordMatch) {
-          return ` [CHANGED: added text "${c.text}"]`;
+        /* The changed text's words run, in order, through the node's name: case, punctuation and icon glyphs aside, as a locator matches a name. A hyphenated word is one word ("test" is not in "test-submission"). */
+        const words = (s: string): string[] => s.toLowerCase().match(/[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu) ?? [];
+        const textWords = words(c.text);
+        const nodeWords = words(nodeName);
+        const carried = textWords.length > 0 && nodeWords.some((_, i) => textWords.every((w, j) => nodeWords[i + j] === w));
+        if (carried) {
+          /* The page repeats this text and the change's containers are known: only the occurrence inside one of them is the changed one. */
+          if (occurrenceScope === undefined || !c.scope?.length) return ` [CHANGED: added text "${c.text}"]`;
+          const inside = c.scope.find((container) => occurrenceScope.includes(container));
+          if (inside !== undefined) return ` [CHANGED: added text "${c.text}" in ${inside}]`;
         }
       }
     }
@@ -200,8 +241,14 @@ export function buildChangedMarker(
 }
 
 /* The node lines of one route's tree: each node with its attribute hint, state and [CHANGED] mark, cut to the node bound with a count of what was left out. */
-function renderNodeLines(s: RouteSnapshot, changed?: ChangedElement[]): string[] {
+function renderNodeLines(s: RouteSnapshot, allChanged?: ChangedElement[]): string[] {
   const lines: string[] = [];
+  /* A change whose nearest container this page shows none of is not on this page now: it marks nothing here, and the page says so. */
+  const notShown = (c: ChangedElement): boolean => c.scope?.[0] !== undefined && (s.absent ?? []).includes(c.scope[0]);
+  const changed = allChanged?.filter((c) => !notShown(c));
+  for (const c of allChanged ?? []) {
+    if (notShown(c) && c.text !== undefined) lines.push(`  (the changed text "${c.text}" is in ${c.scope![0]} in the source; this page shows no ${c.scope![0]} now)`);
+  }
   const all = s.nodes ?? [];
   const { kept: nodes } = capDomLines(all, MAX_NODES_PER_ROUTE);
   const attrMap = s.attrs && s.attrs.length > 0
@@ -210,7 +257,21 @@ function renderNodeLines(s: RouteSnapshot, changed?: ChangedElement[]): string[]
   const testIdAttrName = s.testIdAttrName ?? "data-testid";
   const useChanged = changed && changed.length > 0;
   const stateMap = s.states && s.states.size > 0 ? s.states : null;
+  /* The repeated-name entry of each node line, in page order; the cap only drops lines, so the kept ones are found again in `all`. */
+  const pending = new Map<string, RepeatedName[]>();
+  for (const r of s.repeated ?? []) pending.set(r.group, [...(pending.get(r.group) ?? []), r]);
+  const groups = all.map((n) => (isMarkerLine(n) ? undefined : nameGroup(n)));
+  const occurrences = groups.map((g) => (g === undefined ? undefined : pending.get(g)?.shift()));
+  /* A name's occurrences are told apart for the [CHANGED] mark only when one of them is in a container of the change: otherwise (a component that leaves no element on the page) every occurrence keeps the mark. */
+  const changeContainers = new Set((changed ?? []).flatMap((c) => c.scope ?? []));
+  const pinpointed = new Set((s.repeated ?? []).filter((r) => r.scope.some((container) => changeContainers.has(container))).map((r) => r.group));
+  let cursor = 0;
   for (const n of nodes) {
+    while (all[cursor] !== n) cursor++;
+    const occurrence = occurrences[cursor++];
+    const repeatedNote = occurrence
+      ? ` (${occurrence.of} on this page with this name; ${occurrence.scope.length > 0 ? `in ${occurrence.scope.join(" < ")}` : "no container of its own"})`
+      : "";
     /* State suffix: rendered only for non-marker lines. The attrMap lookup uses the bare key (normalizeKey strips state if nodes[] ever carries a suffix — defensive); the state is looked up by the bare node string (nodes[] is always bare per the Option A invariant). */
     const stateSuffix = (!isMarkerLine(n) && stateMap?.get(normalizeKey(n)))
       ? ` [${stateMap.get(normalizeKey(n))!.join("] [")}]`
@@ -220,14 +281,14 @@ function renderNodeLines(s: RouteSnapshot, changed?: ChangedElement[]): string[]
       if (attr) {
         const hint = buildAttrHint(attr, testIdAttrName);
         if (hint) {
-          const changedMarker = useChanged ? buildChangedMarker(n, attr, changed!, testIdAttrName) : "";
-          lines.push(`  ${n}  -> ${hint}${stateSuffix}${changedMarker}`);
+          const changedMarker = useChanged ? buildChangedMarker(n, attr, changed!, testIdAttrName, occurrence !== undefined && pinpointed.has(occurrence.group) ? occurrence.scope : undefined) : "";
+          lines.push(`  ${n}  -> ${hint}${stateSuffix}${repeatedNote}${changedMarker}`);
           continue;
         }
       }
     }
-    const changedMarker = useChanged && !isMarkerLine(n) ? buildChangedMarker(n, attrMap?.get(normalizeKey(n)) ?? attrMap?.get(n), changed!, testIdAttrName) : "";
-    lines.push(`  ${n}${stateSuffix}${changedMarker}`);
+    const changedMarker = useChanged && !isMarkerLine(n) ? buildChangedMarker(n, attrMap?.get(normalizeKey(n)) ?? attrMap?.get(n), changed!, testIdAttrName, occurrence !== undefined && pinpointed.has(occurrence.group) ? occurrence.scope : undefined) : "";
+    lines.push(`  ${n}${stateSuffix}${repeatedNote}${changedMarker}`);
   }
   if (all.length > nodes.length) lines.push(`  … (${all.length - nodes.length} more non-table elements omitted)`);
   return lines;
@@ -396,7 +457,8 @@ export async function captureDomForRoutes(
   if ((clean.length === 0 && seeds.length === 0) || !input.baseUrl) return undefined;
   const asked = [...clean, ...seeds];
   try {
-    const snaps = await deps.render(input.e2eDir, input.baseUrl, asked, input.testIdAttribute);
+    const probe = [...new Set((changed ?? []).flatMap((c) => c.scope?.[0] ?? []))];
+    const snaps = await deps.render(input.e2eDir, input.baseUrl, asked, input.testIdAttribute, probe);
     warnOnDegradedRoutes(snaps);
     input.onPages?.(snaps.map((snap) => {
       const template = input.instanceOf?.get(snap.route);
@@ -620,7 +682,8 @@ const MAX_HREF_CHARS = MAX_LINK_LENGTH * 4;
 
 export function buildCaptureScript(playwrightRequirePath = "playwright"): string {
   return `const { chromium } = require(${JSON.stringify(playwrightRequirePath)});
-const { baseUrl, routes } = JSON.parse(process.env.PW_CAPTURE_INPUT || "{}");
+const { baseUrl, routes, probe: probeInput } = JSON.parse(process.env.PW_CAPTURE_INPUT || "{}");
+const probe = Array.isArray(probeInput) ? probeInput.filter(function(p) { return typeof p === "string"; }) : [];
 const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
 (async () => {
   const out = [];
@@ -729,7 +792,50 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
             return found;
           }, { origin: new URL(baseUrl).origin, maxLinks: ${MAX_LINKS_PER_PAGE}, maxHrefChars: ${MAX_HREF_CHARS} });
         } catch(_e) { hrefs = []; }
-        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs, ms: Date.now() - routeStartedAt });
+        /* A name the page shows more than once for one role, case and punctuation aside (an icon glyph in the name included): for each occurrence, the containers on its way up that some other occurrence is not in, nearest first. Playwright's own role engine resolves the occurrences, as it will for a test's getByRole. A container is named by its test id, else its id, else its tag when it is a custom element; the rest name nothing a locator can reach. */
+        let repeated = [];
+        try {
+          const queried = new Set();
+          const named = /^\\s*- ([a-z]+) "((?:\\\\.|[^"\\\\])*)"/;
+          for (const line of yaml.split("\\n")) {
+            if (repeated.length >= ${MAX_REPEATED_PER_ROUTE} || queried.size >= ${MAX_NAMES_RESOLVED}) break;
+            const m = named.exec(line);
+            if (!m) continue;
+            const words = m[2].replace(/\\\\(["\\\\])/g, "$1").toLowerCase().match(/[\\p{L}\\p{N}]+/gu);
+            if (!words) continue;
+            const group = m[1] + "|" + words.join(" ");
+            if (queried.has(group)) continue;
+            queried.add(group);
+            const gap = "[^\\\\p{L}\\\\p{N}]";
+            const name = new RegExp("^" + gap + "*" + words.join(gap + "+") + gap + "*$", "iu");
+            const chains = await page.getByRole(m[1], { name }).evaluateAll(function(els, args) {
+              var hook = ${CONTAINER_NAME_FN};
+              return els.map(function(el) {
+                var chain = [];
+                for (var e = el.parentElement; e && e !== document.body; e = e.parentElement) { var h = hook(e); if (h) chain.push(h); }
+                return chain;
+              });
+            }, { testIdAttr: testIdAttr, maxChars: ${MAX_SCOPE_CHARS} });
+            if (chains.length < 2) continue;
+            chains.forEach(function(chain) {
+              const own = chain.filter(function(h) { return chains.some(function(other) { return other.indexOf(h) === -1; }); });
+              if (repeated.length < ${MAX_REPEATED_PER_ROUTE}) repeated.push({ group: group, of: chains.length, scope: own.slice(0, ${MAX_SCOPE_DEPTH}) });
+            });
+          }
+        } catch(_e) { repeated = []; }
+        /* Which of the change's containers this page shows none of. */
+        let absent = [];
+        if (probe.length > 0) {
+          try {
+            absent = await page.evaluate(function(args) {
+              var hook = ${CONTAINER_NAME_FN};
+              var shown = Object.create(null);
+              Array.from(document.querySelectorAll('*')).forEach(function(el) { var h = hook(el); if (h) shown[h] = true; });
+              return args.probe.filter(function(name) { return !shown[name]; });
+            }, { testIdAttr: testIdAttr, maxChars: ${MAX_SCOPE_CHARS}, probe: probe });
+          } catch(_e) { absent = []; }
+        }
+        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs, repeated, absent, ms: Date.now() - routeStartedAt });
       } catch (e) { out.push({ route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors, ms: Date.now() - routeStartedAt }); }
     }
   } catch (e) { process.stderr.write(String(e)); } finally { if (browser) await browser.close().catch(() => {}); }
@@ -746,6 +852,19 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
 /* The time the script reports for a route: a whole, non-negative number of milliseconds, within a day. The page cannot reach it, but the output is parsed defensively all the same. */
 function routeMs(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 24 * 60 * 60 * 1000 ? Math.round(value) : undefined;
+}
+
+/* The repeated names the script reports, keeping only well-formed entries within the bounds; undefined when none is left. */
+function repeatedFrom(value: unknown): RepeatedName[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: RepeatedName[] = [];
+  for (const entry of value.slice(0, MAX_REPEATED_PER_ROUTE)) {
+    const { group, of, scope } = (entry ?? {}) as { group?: unknown; of?: unknown; scope?: unknown };
+    if (typeof group !== "string" || !group.includes("|") || typeof of !== "number" || !Number.isInteger(of) || of < 2 || !Array.isArray(scope)) continue;
+    const names = scope.filter((s): s is string => typeof s === "string" && s.length > 0).slice(0, MAX_SCOPE_DEPTH).map((s) => s.slice(0, 2 * MAX_SCOPE_CHARS)); /* room for the attribute a test id is wrapped in */
+    out.push({ group: group.slice(0, 2 * MAX_SCOPE_CHARS), of, scope: names });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /* What one run of the capture script came to, told to the optional observer once the script is done (or has failed, in which case there are no snapshots): the snapshots it returned, the routes it was asked for, and how much it printed. Read-only; it never changes what the capture returns. */
@@ -767,7 +886,7 @@ export function createCaptureDomDeps(
   }
   return {
     ...(geolocation ? { geolocation } : {}),
-    render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid") =>
+    render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid", probe = []) =>
       new Promise<RouteSnapshot[]>((resolve) => {
         /* routes + baseUrl come from AGENT-AUTHORED specs (untrusted in this threat model). They are passed to the child via an ENV var and parsed there, NOT interpolated into the script source — JSON.stringify does not escape U+2028/U+2029, so interpolating untrusted strings into JS source could inject. The require() path is a derived LOCAL path (not agent input), so its interpolation is safe. */
         const script = exec.writeScript("capture.cjs", buildCaptureScript(join(e2eDir, "node_modules", "playwright")));
@@ -778,7 +897,7 @@ export function createCaptureDomDeps(
           profile: "suite",
           commandClass: "dom-capture",
           ...(geolocation ? { geolocation } : {}),
-          extraEnv: { PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) },
+          extraEnv: { PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes, probe }) },
           /* The result is the JSON on stdout; stderr is never read, and left piped it would block the script once the OS pipe buffer fills. */
           stdio: ["ignore", "pipe", "ignore"],
         });
@@ -810,7 +929,7 @@ export function createCaptureDomDeps(
           if (finished) return;
           try {
             /* The page decides what it shows, and it can show the account's password: the run's secrets are taken out of the document by value before it is read (a JSON-escaped spelling of each is replaced too). */
-            const raw = JSON.parse(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; ms?: unknown }>;
+            const raw = JSON.parse(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown }>;
             done(raw.map((r) => {
               if (r.error) {
                 const errored: RouteSnapshot = { route: r.route, error: r.error };
@@ -832,6 +951,11 @@ export function createCaptureDomDeps(
               if (r.finalUrl) snap.finalUrl = r.finalUrl;
               const links = sameOriginPathnames(r.hrefs, baseUrl);
               if (links.length > 0) snap.links = links;
+              const repeated = repeatedFrom(r.repeated);
+              if (repeated) snap.repeated = repeated;
+              /* Only names this capture asked about are believed. */
+              const absent = Array.isArray(r.absent) ? probe.filter((name) => (r.absent as unknown[]).includes(name)) : [];
+              if (absent.length > 0) snap.absent = absent;
               const snapMs = routeMs(r.ms);
               if (snapMs !== undefined) snap.ms = snapMs;
               return snap;

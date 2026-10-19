@@ -656,6 +656,27 @@ test("ground(): a diff arg derives changedElements and forwards them to buildCon
   assert.ok(captured.changedElements?.some((e) => e.testId === "submit-order"), "the [CHANGED] signal must be derived from the diff and forwarded");
 });
 
+test("ground(): each changed element carries the containers its line sits in, read from the working copy", async () => {
+  const mirrorDir = mkdtempSync(join(tmpdir(), "grounding-scope-"));
+  try {
+    mkdirSync(join(mirrorDir, "src"), { recursive: true });
+    writeFileSync(join(mirrorDir, "src", "list.html"), ["<nm-panel>", "  <button>Submit order</button>", "</nm-panel>"].join("\n"));
+    const capturedInputs: unknown[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: join(mirrorDir, "e2e"), baseUrl: "https://dev.example.com", mirrorDir },
+      { buildContextPack: async (input) => { capturedInputs.push(input); return { text: undefined, domBytes: 0, contractBytes: 0 }; } },
+    );
+    const diff = ["diff --git a/src/list.html b/src/list.html", "--- a/src/list.html", "+++ b/src/list.html", "@@ -2,1 +2,1 @@", "-  <button>Send</button>", "+  <button>Submit order</button>"].join("\n");
+
+    await adapter.ground(join(mirrorDir, "e2e"), undefined, diff);
+
+    const captured = capturedInputs[0] as { changedElements?: Array<{ text?: string; scope?: string[] }> };
+    assert.deepEqual(captured.changedElements?.map((e) => [e.text, e.scope]), [["Submit order", ["nm-panel"]]]);
+  } finally {
+    rmSync(mirrorDir, { recursive: true, force: true });
+  }
+});
+
 test("ground(): an absent diff arg leaves changedElements absent (byte-identical regression guard)", async () => {
   const capturedInputs: unknown[] = [];
   const adapter = new PreGenerationGroundingPortAdapter(

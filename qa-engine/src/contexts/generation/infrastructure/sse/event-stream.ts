@@ -3,7 +3,7 @@ import type { RunEventBody } from "@kernel/contract/events.ts";
 import { ActivityRouter, type ActivityKind } from "./agent-activity.ts";
 import { mapOpencodeEvent, eventRunId } from "./activity-mapper.ts";
 import { callEfficiencyTracker, type StreamLifecycleSink, type StreamToken } from "./call-efficiency-tracker.ts";
-import { notifySessionActivity } from "../agent-transport-policy.ts";
+import { notifySessionActivity, notifySessionRetry } from "../agent-transport-policy.ts";
 
 export interface LiveActivity {
   runId: string;
@@ -84,6 +84,11 @@ export async function startScopedEventStream(
         const rawPart = raw.properties?.part as { sessionID?: string } | undefined;
         /* Notify the liveness watchdog for this session: any event proves the agent is alive. Advisory-only: if the sessionID is not in the registry (no watchdog) this is a no-op. Runs BEFORE the tracker so nothing the measurement does can starve the watchdog (a stall abort would change the run's outcome). */
         if (rawPart?.sessionID && !unwatchedSessions.has(rawPart.sessionID)) notifySessionActivity(rawPart.sessionID);
+        /* The runtime retrying a turn: the transport decides whether the fault is one waiting cannot cure. Unwatched sessions too, since a spent quota ends any turn. */
+        if (raw.type === "session.status") {
+          const p = raw.properties as { sessionID?: unknown; status?: { type?: unknown; message?: unknown } } | undefined;
+          if (typeof p?.sessionID === "string" && p.status?.type === "retry" && typeof p.status.message === "string") notifySessionRetry(p.sessionID, p.status.message);
+        }
         /* The first event of every connection: the stream is live (a second one on the same stream means it reconnected and may have lost events). */
         if (raw.type === SERVER_CONNECTED) lifecycle.streamConnected(directory, token);
         /* Call-efficiency tracking; never throws (a fault poisons only that session's metrics) and never disturbs the stream. */

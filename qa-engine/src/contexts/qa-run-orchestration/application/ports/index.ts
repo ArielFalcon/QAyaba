@@ -21,6 +21,7 @@ import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { CoordinationMode, PlanningLimits } from "@kernel/coordination.ts";
 import type { AgentBrowserGateSignal, AgentBrowserLimits } from "@kernel/agent-browser.ts";
+import type { GeoLocation, GeolocationFacts } from "@kernel/geolocation.ts";
 
 /**
  * Port-local CommitIntent. Generation's type is structurally assignable;
@@ -144,6 +145,8 @@ export interface GenerationEnrichment {
   closedLoop?: ClosedLoopLimits;
   /** Present only when the run granted the authoring agents the authenticated browser: the limits its prompt states. */
   agentBrowser?: AgentBrowserLimits;
+  /** Present only when the app declares a location: the default, the places and where this authoring scope is. */
+  geolocation?: GeolocationFacts;
   /**
    * Every spec this run has delivered so far, refreshed for each regeneration turn: the lead's
    * declared flow and objective where it declared them, a sidekick's specs by path alone.
@@ -366,6 +369,8 @@ export interface AgentBrowserOpenInput {
   enabled?: boolean;
   /** The run's cancellation: a call in flight when it fires is stopped. */
   signal?: AbortSignal;
+  /** The app's declared location, when it declares one: the browser opens at it, and each session's own scope may move it. Absent: the browser is not given a location. */
+  geolocation?: { default: GeoLocation; forSession(sessionId: string): GeoLocation | undefined };
 }
 export interface AgentBrowserHandle {
   /** What the generator's prompt states about the tools. */
@@ -379,6 +384,42 @@ export interface AgentBrowserHandle {
 export interface AgentBrowserPort {
   /** Resolves undefined when this run is not granted the browser (disabled, another runtime, no saved session to use). */
   open(input: AgentBrowserOpenInput): Promise<AgentBrowserHandle | undefined>;
+}
+
+/**
+ * The device location of one run, as the use case sees it: the app's declared default and places, the lead's own value,
+ * and one value per flow of a plan. The run opens it after the login and closes it when it ends, however it ends. It is
+ * authoring context: the authenticated browser uses it, and a delivered spec pins its own location with setLocation().
+ */
+export interface GeolocationOpenInput {
+  runId: string;
+  app: string;
+  mode: RunMode;
+  /** The run's cancellation: no change is accepted once it fires. */
+  signal?: AbortSignal;
+}
+export interface FlowGeolocationHandle {
+  facts(): GeolocationFacts;
+  current(): GeoLocation;
+  /** Forgets the flow's value; a change from one of its sessions is refused afterwards. */
+  close(): void;
+}
+export interface GeolocationHandle {
+  /** The app's declared default: what the suite runs with when a spec sets none. */
+  readonly default: GeoLocation;
+  /** The lead's scope: the app default until the lead moves it. */
+  facts(): GeolocationFacts;
+  placeNames(): readonly string[];
+  /** Where a session's own scope is now (its flow, or the run's lead), or undefined when the session is not bound to this run. */
+  forSession(sessionId: string): GeoLocation | undefined;
+  /** Opens a flow's own value, starting where the plan says or where the lead is. Undefined once the run's location is closed. */
+  openFlow(delegationId: string, initial?: GeoLocation): FlowGeolocationHandle | undefined;
+  /** Revokes every scope and forgets the flows. Never throws. */
+  close(): void;
+}
+export interface GeolocationPort {
+  /** Resolves undefined when the app declares no location: no tool, no section and no value to inject. */
+  open(input: GeolocationOpenInput): Promise<GeolocationHandle | undefined>;
 }
 
 export interface GenerationPort {
@@ -414,6 +455,8 @@ export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
   /* The spec lines that changed since the prior rejection, already bounded and rendered. */
   specChanges?: string;
+  /* Paths of the suite's existing specs: context only, never a target and never a reason to reject. */
+  existingSpecFiles?: readonly string[];
   /**
    * Same retrieved rules the generator saw. The adapter renders only active
    * rules; candidates are for the generator to explore, never for the judge to

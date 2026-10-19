@@ -15,6 +15,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RUN_PURPOSE, type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
+import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, effectiveCoordinationMode, type CoordinationGateSignal, type CoordinationMode, type CoordinationSettings } from "@kernel/coordination.ts";
 import type { CoordinateResult, LeadSidekicks } from "./coordination/lead-sidekicks.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -65,6 +66,8 @@ import type {
   ClosedLoopPort,
   AgentBrowserHandle,
   AgentBrowserPort,
+  GeolocationHandle,
+  GeolocationPort,
   MirrorGcPort,
   CurriculumPort,
   ContextMapCapturePort,
@@ -146,6 +149,7 @@ import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/sele
 import { attributeContradictions } from "../domain/helpers/contradiction-attribution.ts";
 import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
 import { precheckSpecsAgainstDom } from "../domain/deterministic-review-precheck.ts";
+import { correctionClassOf } from "@contexts/generation/domain/review-output.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/domain/review-fingerprint.ts";
 import { readConfinedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { ERROR_CLASS, resolveErrorClass } from "../domain/helpers/error-class.ts";
@@ -353,6 +357,13 @@ export interface RunQaUseCaseDeps {
    */
   agentBrowser?: AgentBrowserPort;
   /**
+   * The device location of the authoring run: the app's declared default and places, the lead's own value and one value per
+   * flow (the `set_geolocation` tool). Opened for the same runs the loop and the browser are, after the login and before the
+   * first generation, and closed when the run ends, however it ends. Absent: the app declares no location. It is authoring
+   * context, never an input to the delivered suite.
+   */
+  geolocation?: GeolocationPort;
+  /**
    * Once, after pre-publish confinement and publish have both resolved, so gc
    * never races this run's git write. The sequential queue already prevents other
    * runs overlapping. A thrown prune() is caught here and never alters the verdict.
@@ -507,6 +518,8 @@ interface RunTrail {
   closedLoop?: ClosedLoopHandle;
   /** The authenticated agent browser, once opened: closed by runInScope however the run ends. */
   agentBrowser?: AgentBrowserHandle;
+  /** The authoring location, once opened: closed by runInScope however the run ends. */
+  geolocation?: GeolocationHandle;
 }
 
 /* The probes the generator left in the working copy could not be removed. */
@@ -569,6 +582,7 @@ export class RunQaUseCase {
       phases.close();
       await this.closeClosedLoop(trail);
       await this.closeAgentBrowser(trail);
+      this.closeGeolocation(trail);
       this.sayDeniedHosts();
     }
   }
@@ -701,6 +715,18 @@ export class RunQaUseCase {
       await browser.close();
     } catch (err) {
       console.error(`[qa] closing the agent browser failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /* Forgets the authoring location. A fault is said and never changes how the run ended. */
+  private closeGeolocation(trail: RunTrail): void {
+    const geolocation = trail.geolocation;
+    if (!geolocation) return;
+    trail.geolocation = undefined;
+    try {
+      geolocation.close();
+    } catch (err) {
+      console.error(`[qa] closing the authoring location failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -998,6 +1024,28 @@ export class RunQaUseCase {
     }
 
     /*
+     * The authoring location: the app's declared default and places, the lead's value and one value per flow. Opened before the
+     * browser and the loop so both can consume it; a fault opening it costs the run only the location. Its facts are read again
+     * on every generation turn, since the lead may move it while it authors.
+     */
+    let geolocation: GeolocationHandle | undefined;
+    if (this.deps.geolocation && generating && !cfg.isCode && input.mode !== "context" && input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP && !authSeedUnauthored) {
+      try {
+        geolocation = await this.deps.geolocation.open({
+          runId: input.runId,
+          app: input.app,
+          mode: input.mode,
+          ...(signal ? { signal } : {}),
+        });
+      } catch (err) {
+        rethrowIfRunDeadline(err);
+        console.error(`[qa] the authoring location could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      trail.geolocation = geolocation;
+    }
+    const geolocationEnrichment = (): { geolocation?: GeolocationFacts } => (geolocation ? { geolocation: geolocation.facts() } : {});
+
+    /*
      * The run_spec loop: only for a run that writes e2e tests with a login the suite can use. A fault opening it costs the run only
      * the loop. Its facts reach every generation of the run (the first pass and each regeneration) through baseEnrichment.
      */
@@ -1039,6 +1087,7 @@ export class RunQaUseCase {
       !authSeedUnauthored
     ) {
       try {
+        const geo = geolocation;
         agentBrowser = await this.deps.agentBrowser.open({
           runId: input.runId,
           app: input.app,
@@ -1047,6 +1096,7 @@ export class RunQaUseCase {
           ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
           ...(input.agentBrowser !== undefined ? { enabled: input.agentBrowser } : {}),
           ...(signal ? { signal } : {}),
+          ...(geo ? { geolocation: { default: geo.default, forSession: (sessionId: string) => geo.forSession(sessionId) } } : {}),
         });
       } catch (err) {
         rethrowIfRunDeadline(err);
@@ -1260,6 +1310,7 @@ export class RunQaUseCase {
     const regenerate = async (regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> => {
       const regenerated = await afterGeneration(await this.deps.generation.generate([], workspace.specDir, regenerationSignal, classificationDiff, {
         ...baseEnrichment,
+        ...geolocationEnrichment(),
         ...enrichment,
         ...(delivered.length > 0 ? { deliveredSpecs: delivered } : {}),
       }));
@@ -1291,9 +1342,10 @@ export class RunQaUseCase {
           facts: { hasLogin: Boolean(this.deps.authContext?.auth), provider: this.deps.sidekickProvider?.(), plannerProvider: this.deps.plannerProvider?.() },
           ...(closedLoop ? { closedLoop } : {}),
           ...(agentBrowser ? { agentBrowser } : {}),
+          ...(geolocation ? { geolocation } : {}),
           ...(this.deps.sidekickDevBaseUrl ? { devBaseUrl: this.deps.sidekickDevBaseUrl } : {}),
           ...(this.deps.generation.plan
-            ? { plan: (planning) => this.deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, planning }) }
+            ? { plan: (planning) => this.deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, ...geolocationEnrichment(), planning }) }
             : {}),
           ...(signal ? { signal } : {}),
         });
@@ -1349,6 +1401,7 @@ export class RunQaUseCase {
       generated = coordinatedFirstPass
         ?? (await afterGeneration(await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
           ...baseEnrichment,
+          ...geolocationEnrichment(),
           ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
         })));
       delivered = mergeDeliveredSpecs(delivered, generated, coordinatedFirstPass ? "sidekick" : "lead");
@@ -1944,7 +1997,15 @@ export class RunQaUseCase {
        */
       trail.phases.enter("review");
       const MAX_REVIEW_ROUNDS = 2;
-      let reviewCases = run.cases;
+      /*
+       * The reviewer judges the specs this run delivered, not the whole executed suite: an existing
+       * suite file that does not cover this change is context, never a wrong-objective correction.
+       * The suite's paths travel separately, marked context-only in the review prompt.
+       */
+      const deliveredFiles = new Set(delivered.map((d) => d.file));
+      const existingSpecFiles = [...new Set([...(groundingExistingSpecFiles ?? []), ...run.cases.map((c) => c.file ?? c.name)])]
+        .filter((file) => !deliveredFiles.has(file));
+      let reviewCases = run.cases.filter((c) => deliveredFiles.has(c.file ?? c.name));
       let previousRoundCorrections: string[] | undefined;
       /* The blocking count that produced the previous rejection, so a skipped round reports it unchanged. */
       let previousRoundBlocking: number | undefined;
@@ -2096,6 +2157,7 @@ export class RunQaUseCase {
               ...(previousRoundCorrections ? { priorCorrections: previousRoundCorrections } : {}),
               ...(specChanges ? { specChanges } : {}),
               ...(reviewDomSnapshot ? { domSnapshot: reviewDomSnapshot } : {}),
+              ...(existingSpecFiles.length ? { existingSpecFiles } : {}),
             });
             reviewStats.modelRounds++;
             addReviewStats(reviewResult.stats);
@@ -2104,15 +2166,44 @@ export class RunQaUseCase {
         reviewStats.rounds++;
         const reviewedBlocking = reviewResult.blockingCount ?? reviewResult.corrections.length;
         if (!reviewResult.unavailable) reviewStats.blocking = reviewedBlocking;
+        const reviewOutcome = reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected";
+        const correctionClass = reviewedBlocking > 0 ? correctionClassOf(reviewResult.corrections) : "none";
+        const reviewTargets = [...new Set(reviewCases.map((c) => c.file ?? c.name))];
+        /*
+         * The decision evidence, not just its aggregate: an agent reading the trace must see which
+         * specs the reviewer judged, which of them already existed, the bounded corrections and the
+         * class the failure falls into. The metric carries the closed class; the span carries the
+         * high-cardinality paths and text.
+         */
+        try {
+          const reviewSpan = this.telemetry.startSpan("qayaba.review.decision", {
+            attrs: {
+              "qayaba.app": input.app,
+              "qayaba.review.round": round + 1,
+              "qayaba.review.outcome": reviewOutcome,
+              "qayaba.review.decided_by": decidedBy,
+              "qayaba.review.correction_class": correctionClass,
+              "qayaba.review.blocking": reviewedBlocking,
+              "qayaba.review.targets": reviewTargets,
+              ...(existingSpecFiles.length ? { "qayaba.review.existing_specs": [...existingSpecFiles] } : {}),
+              ...(reviewResult.corrections.length ? { "qayaba.review.corrections": [...reviewResult.corrections] } : {}),
+              ...(reviewResult.rationale ? { "qayaba.review.rationale": reviewResult.rationale } : {}),
+            },
+          });
+          reviewSpan.end();
+        } catch (err) {
+          console.error(`[telemetry] the reviewer decision span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+        }
         this.telemetry.counter("qayaba.review")(1, {
           "qayaba.app": input.app,
-          "qayaba.review.outcome": reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected",
+          "qayaba.review.outcome": reviewOutcome,
           "qayaba.review.decided_by": decidedBy,
+          "qayaba.review.correction_class": correctionClass,
         });
         if (reviewResult.stats) {
           this.telemetry.histogram("qayaba.review.duration")(reviewResult.stats.durationMs / 1000, {
             "qayaba.app": input.app,
-            "qayaba.review.outcome": reviewResult.unavailable ? "unavailable" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected",
+            "qayaba.review.outcome": reviewOutcome,
           });
         }
         /*
@@ -2120,7 +2211,7 @@ export class RunQaUseCase {
          * Issue on a green run. The run ends as a persisted infra-error under its own class, with no PR and no Issue.
          */
         if (reviewResult.unavailable) {
-          return await this.reviewerUnavailableResult(cfg, input, reviewResult.rationale, run.cases.length, {
+          return await this.reviewerUnavailableResult(cfg, input, reviewResult.rationale, reviewCases.length, {
             static: validation.ok,
             retries,
             rulesRetrieved: retrievedRuleIds,
@@ -2194,6 +2285,7 @@ export class RunQaUseCase {
         steps: reviewStats.metricsKnown.steps ? reviewStats.steps : null,
         preCheckRejects: reviewStats.preCheckRejects,
         skippedRounds: reviewStats.skippedRounds,
+        correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
       };
     }
 

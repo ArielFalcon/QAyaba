@@ -13,6 +13,9 @@ import { ClosedLoopPortAdapter } from "../infrastructure/bridges/closed-loop-por
 import type { ClosedLoopRegistry } from "../infrastructure/closed-loop-registry.ts";
 import type { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { AgentBrowserPortAdapter } from "../infrastructure/bridges/agent-browser-port.adapter.ts";
+import { GeolocationPortAdapter } from "../infrastructure/bridges/geolocation-port.adapter.ts";
+import type { GeolocationRegistry } from "../infrastructure/geolocation-registry.ts";
+import type { GeoLocation } from "@kernel/geolocation.ts";
 import { readAgentBrowserSession } from "../infrastructure/bridges/agent-browser-session-material.ts";
 import type { AgentBrowserRegistry } from "../infrastructure/agent-browser-registry.ts";
 import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
@@ -127,6 +130,14 @@ export interface AgentBrowserWiring {
   redact: (text: string) => string;
 }
 
+/* What the shell hands the root to let a run carry its authoring location. Absent: the app declares no location and no run has one. */
+export interface GeolocationWiring {
+  /* Where the authoring agents' sessions find the run's location (shared with the tools endpoint and the session transport). */
+  registry: GeolocationRegistry;
+  /* The app's declared position and the places it names (dev.geolocation). */
+  setting: { default: GeoLocation; places: Readonly<Record<string, GeoLocation>> };
+}
+
 export interface CompositionConfig {
   /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */
   repo: string;
@@ -168,6 +179,8 @@ export interface CompositionConfig {
   closedLoop?: ClosedLoopWiring;
   /** The authenticated agent browser. Optional, no stub: absent (or a code target, or an app with no DEV url) omits RunQaUseCaseDeps.agentBrowser and no run grants the tools. */
   agentBrowser?: AgentBrowserWiring;
+  /** The authoring location. Optional, no stub: absent (or a code target, or an app that declares none) omits RunQaUseCaseDeps.geolocation and no run carries one. */
+  geolocation?: GeolocationWiring;
   /** The sandbox scope each run runs agent-influenced code in; absent: none is opened (tests). */
   execScope?: ExecScopePort;
   auth?: AuthDeclaration;
@@ -418,6 +431,9 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       })
     : undefined;
 
+  /* The app's declared position, the lead's value and one per flow: authoring context, never an input to the delivered suite. */
+  const geolocation = cfg.geolocation && !cfg.isCode ? new GeolocationPortAdapter(cfg.geolocation) : undefined;
+
   const preGenerationGrounding = !cfg.isCode
     ? new PreGenerationGroundingPortAdapter(
         {
@@ -573,6 +589,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
     ...(closedLoop ? { closedLoop } : {}),
     ...(agentBrowser ? { agentBrowser } : {}),
+    ...(geolocation ? { geolocation } : {}),
     ...(setup ? { setup } : {}),
     ...(cfg.authSession && cfg.baseUrl
       ? {

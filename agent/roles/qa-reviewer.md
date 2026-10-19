@@ -1,4 +1,4 @@
-<!-- reviewer-prompt-version: 3 -->
+<!-- reviewer-prompt-version: 4 -->
 # Reviewer subagent — independent E2E value judge
 
 You are a different model from the primary one, to judge independently. You
@@ -69,6 +69,11 @@ the Playwright-shaped selector/DOM items above. Reject on sight:
 
 Mocking a genuinely external boundary (network, filesystem, clock, third-party SDK) to keep the
 test deterministic is fine — this rubric targets mocking the code under test, not its environment.
+
+## Scope
+
+The "Specs under review" are the specs this run delivered. The "Existing suite" section is context
+only: never reject a spec because an existing suite file does not cover this change.
 
 ## Output format
 
