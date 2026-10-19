@@ -9,6 +9,7 @@
  */
 
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
+import type { GeoLocation } from "@kernel/geolocation.ts";
 import { BrowserActionError, type AgentBrowserHostPort, type BlockedRequest, type BrowserAction, type BrowserCallOptions, type PageState } from "../../application/ports/agent-browser.ports.ts";
 import type { RouteGuard } from "../../domain/agent-browser-route-guard.ts";
 import type { BrowserLauncherPort, LaunchedBrowser, PwContext, PwContextOptions, PwPage, PwRequest, SessionMaterial } from "./playwright-types.ts";
@@ -46,6 +47,8 @@ export interface PlaywrightAgentBrowserHostDeps {
   /* The session as it is saved now. Read each time a context is built, so a renewed login is picked up. */
   material: () => Promise<SessionMaterial>;
   guard: RouteGuard;
+  /* The app's declared default: the context opens at it, with the permission granted. Absent: no location is set. */
+  geolocation?: GeoLocation;
   now?: () => number;
 }
 
@@ -102,6 +105,8 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
     entry.status = undefined;
     const requestedPath = action.kind === "navigate" ? pathOf(action.url) : pathOf(entry.page.url());
     try {
+      /* The context is shared by every session; the call holds the account, so setting the caller's location here cannot race another session's. */
+      if (options.geolocation) await this.context?.setGeolocation(options.geolocation);
       switch (action.kind) {
         case "navigate":
           await this.navigate(entry, action.url, remaining);
@@ -310,6 +315,7 @@ export class PlaywrightAgentBrowserHost implements AgentBrowserHostPort {
       ...(material.storageState ? { storageState: material.storageState } : {}),
       ...(material.httpCredentials ? { httpCredentials: material.httpCredentials } : {}),
       ...(material.clientCertificate ? { clientCertificates: [material.clientCertificate] } : {}),
+      ...(this.deps.geolocation ? { permissions: ["geolocation"], geolocation: this.deps.geolocation } : {}),
     };
     const context = await launched.browser.newContext(options);
     try {

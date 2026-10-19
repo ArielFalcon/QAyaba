@@ -430,3 +430,25 @@ test("qa.agentBrowser is off unless an app turns it on, and its lists hold only 
     assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, agentBrowser: bad } }), JSON.stringify(bad).slice(0, 60));
   }
 });
+
+test("dev.geolocation accepts named places the authoring agent may pick, and refuses a bad name, a bad point or too many", () => {
+  const places = { barcelona: { latitude: 41.3874, longitude: 2.1686 }, empty: { latitude: 0, longitude: 0 } };
+  const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: { latitude: 40.4168, longitude: -3.7038, places } } });
+  assert.deepEqual(cfg.dev?.geolocation?.places, places);
+
+  for (const bad of [
+    { "Not A Slug": { latitude: 1, longitude: 2 } },
+    { ["a".repeat(41)]: { latitude: 1, longitude: 2 } },
+    { barcelona: { latitude: 91, longitude: 2 } },
+  ]) {
+    assert.throws(
+      () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: { latitude: 1, longitude: 2, places: bad } } }),
+      (err: unknown) => /slug|characters|latitude/.test(String(err)),
+    );
+  }
+  const many = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`place-${i}`, { latitude: 1, longitude: 2 }]));
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: { latitude: 1, longitude: 2, places: many } } }),
+    /12|places/,
+  );
+});

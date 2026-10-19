@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createRouteGuard } from "@contexts/test-execution/domain/agent-browser-route-guard.ts";
 import { BrowserActionError, type BrowserAction } from "@contexts/test-execution/application/ports/agent-browser.ports.ts";
 import { PlaywrightAgentBrowserHost } from "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts";
-import type { LaunchedBrowser, PwBrowser, PwContext, PwContextOptions, PwDialog, PwFrame, PwLocator, PwPage, PwRequest, PwResponse, PwRoute, PwWebSocketRoute, SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
+import type { LaunchedBrowser, PwBrowser, PwContext, PwContextOptions, PwDialog, PwFrame, PwGeolocation, PwLocator, PwPage, PwRequest, PwResponse, PwRoute, PwWebSocketRoute, SessionMaterial } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 
 const BASE = "https://dev.example.com";
 
@@ -73,7 +73,9 @@ class FakeContext implements PwContext {
   async route(_url: RegExp | string, handler: (route: PwRoute) => Promise<void> | void): Promise<void> { this.routeHandler = handler; }
   async routeWebSocket(_url: RegExp | string, handler: (ws: PwWebSocketRoute) => Promise<void> | void): Promise<void> { this.wsHandler = handler; }
   readonly initScripts: string[] = [];
+  readonly geolocationSets: PwGeolocation[] = [];
   async addInitScript(script: string): Promise<void> { this.initScripts.push(script); }
+  async setGeolocation(geolocation: PwGeolocation): Promise<void> { this.geolocationSets.push(geolocation); }
   async newPage(): Promise<PwPage> {
     const page = new FakePage(this);
     this.pages.add(page);
@@ -116,7 +118,7 @@ function gate(): { promise: Promise<void>; open: () => void } {
   return { promise, open };
 }
 
-function setup(over: { material?: SessionMaterial; denyRoutes?: string[]; allowMutating?: string[] } = {}) {
+function setup(over: { material?: SessionMaterial; denyRoutes?: string[]; allowMutating?: string[]; geolocation?: { latitude: number; longitude: number } } = {}) {
   const browser = new FakeBrowser();
   const browsers: FakeBrowser[] = [];
   /* While set, the step is held until it resolves, so a test can act while the host is mid-build. */
@@ -136,9 +138,11 @@ function setup(over: { material?: SessionMaterial; denyRoutes?: string[]; allowM
     },
     material: async () => { materialReads += 1; await gates.material; return over.material ?? { storageState: { cookies: [{ name: "sid", value: "s3cret" }], origins: [] } }; },
     guard: createRouteGuard({ origins: [BASE], denyRoutes: over.denyRoutes ?? ["/admin/**"], allowMutating: over.allowMutating ?? [] }),
+    ...(over.geolocation ? { geolocation: over.geolocation } : {}),
   });
   const signal = new AbortController().signal;
-  const call = (sessionId: string, action: BrowserAction) => host.perform(sessionId, action, { signal, timeoutMs: 10_000 });
+  const call = (sessionId: string, action: BrowserAction, geolocation?: { latitude: number; longitude: number }) =>
+    host.perform(sessionId, action, { signal, timeoutMs: 10_000, ...(geolocation ? { geolocation } : {}) });
   return { host, browser, browsers, gates, call, counts: () => ({ launches, disposed, materialReads }) };
 }
 
@@ -482,4 +486,23 @@ test("a session whose page a crashed browser took away is told its page is new",
   browsers[0]!.crash();
   const again = await call("s1", { kind: "snapshot" });
   assert.ok(again.notes.some((n) => /new page|restarted/.test(n)));
+});
+
+test("a context opens at the app's declared position and each call moves the shared context to its own scope", async () => {
+  const madrid = { latitude: 40.4168, longitude: -3.7038 };
+  const barcelona = { latitude: 41.3874, longitude: 2.1686 };
+  const { browser, call } = setup({ geolocation: madrid });
+  await call("s1", { kind: "navigate", url: `${BASE}/map` });
+  const context = browser.contexts[0]!;
+  assert.deepEqual(context.options.geolocation, madrid);
+  assert.deepEqual(context.options.permissions, ["geolocation"]);
+  await call("s1", { kind: "navigate", url: `${BASE}/map` }, barcelona);
+  assert.deepEqual(context.geolocationSets, [barcelona]);
+});
+
+test("an app with no declared position gets neither the permission nor a location", async () => {
+  const { browser, call } = setup();
+  await call("s1", { kind: "snapshot" });
+  assert.equal(browser.contexts[0]!.options.geolocation, undefined);
+  assert.equal(browser.contexts[0]!.options.permissions, undefined);
 });

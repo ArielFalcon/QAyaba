@@ -8,6 +8,7 @@
  */
 
 import { LEAD_PLAN_KIND, type LeadPlanKind } from "@kernel/coordination.ts";
+import { normalizeGeoLocation, resolvePlace, type GeoLocation } from "@kernel/geolocation.ts";
 import { scrub } from "./scrub.ts";
 
 export { LEAD_PLAN_KIND, type LeadPlanKind };
@@ -60,6 +61,8 @@ export interface PlanDeps {
   specRelDir: string;
   /* The spec file, relative to the spec directory, that a flow's id names. */
   specFileFor(flowId: string): string;
+  /* The places the app declares, when it declares a location: a flow may name one instead of carrying coordinates. */
+  places?: Readonly<Record<string, GeoLocation>>;
 }
 
 export interface AdmittedFlow {
@@ -74,6 +77,8 @@ export interface AdmittedFlow {
   runSpecCalls: number;
   runSpecDevWrites: number;
   browserCalls: number;
+  /* Where the flow authors, when the plan named a declared place or a valid point; absent: the flow inherits the lead's. */
+  location?: GeoLocation;
 }
 
 export type AdmittedPlan =
@@ -118,17 +123,26 @@ interface RawFlow {
   objective: string;
   acceptance: string[];
   routes: string[];
+  location?: GeoLocation;
 }
 
-function rawFlowOf(value: unknown): RawFlow | undefined {
+/* The flow's location as the plan gave it: a declared place's name, or a point; anything else is dropped and the flow inherits the lead's. */
+function locationOf(value: unknown, places: Readonly<Record<string, GeoLocation>>): GeoLocation | undefined {
+  if (typeof value === "string") return resolvePlace(places, value)?.location;
+  return normalizeGeoLocation(value);
+}
+
+function rawFlowOf(value: unknown, places: Readonly<Record<string, GeoLocation>>): RawFlow | undefined {
   if (!isRecord(value)) return undefined;
   const objective = text(value.objective, MAX_OBJECTIVE_CHARS);
   if (objective === "") return undefined;
+  const location = locationOf(value.location, places);
   return {
     id: slugOf(scrub(typeof value.id === "string" ? value.id : "")),
     objective,
     acceptance: strings(value.acceptance, MAX_ACCEPTANCE_CHARS, MAX_ACCEPTANCE_ITEMS),
     routes: routesOf(value.routes),
+    ...(location !== undefined ? { location } : {}),
   };
 }
 
@@ -152,7 +166,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
   if (raw.flows.length > limits.maxFlows) return single(PLAN_DOWNGRADE.OVER_LIMIT);
   const flows: RawFlow[] = [];
   for (const entry of raw.flows) {
-    const flow = rawFlowOf(entry);
+    const flow = rawFlowOf(entry, deps.places ?? {});
     if (!flow) return single(PLAN_DOWNGRADE.MALFORMED);
     flows.push(flow);
   }
@@ -189,6 +203,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
         runSpecCalls: runSpecCalls ?? 0,
         runSpecDevWrites,
         browserCalls,
+        ...(flow.location !== undefined ? { location: flow.location } : {}),
       };
     }),
   };

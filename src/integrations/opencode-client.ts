@@ -488,7 +488,7 @@ export function stallMs(): number {
  * names and not patterns.
  */
 export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
-  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
+  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
 );
 
 /*
@@ -505,6 +505,20 @@ export function setAgentBrowserGrantLookup(lookup: ((sessionId: string) => boole
 
 export function hidesBrowserTools(agent: string, sessionId: string): boolean {
   return AGENT_BROWSER_AGENTS.has(agent) && !(browserGrant?.(sessionId) ?? false);
+}
+
+/*
+ * The same arrangement for the location tool: the authoring roles hold it in the configuration, and a prompt of a session
+ * whose run carries no authoring location hides it. Until a lookup is installed (a test, the standalone CLI) nothing is granted.
+ */
+let geolocationGrant: ((sessionId: string) => boolean) | undefined;
+
+export function setGeolocationGrantLookup(lookup: ((sessionId: string) => boolean) | undefined): void {
+  geolocationGrant = lookup;
+}
+
+export function hidesGeolocationTool(agent: string, sessionId: string): boolean {
+  return AGENT_BROWSER_AGENTS.has(agent) && !(geolocationGrant?.(sessionId) ?? false);
 }
 
 /*
@@ -534,11 +548,12 @@ export function sessionToolDeny(sessionId: string): readonly string[] | undefine
 }
 
 /** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one that may not write is denied the file tools; one of a session the browser was not granted to hides its tools; the tools its session was denied are denied it; every other prompt leaves the tools to its agent's configuration. */
-export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; denyTools?: readonly string[] | undefined }) {
+export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; denyTools?: readonly string[] | undefined }) {
   const tools: Record<string, false> = args.withoutTools
     ? { ...NO_TOOLS }
     : {
         ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}),
+        ...(args.hideGeolocationTool ? { set_geolocation: false as const } : {}),
         ...(args.withoutWrites ? NO_WRITE_TOOLS : {}),
         ...Object.fromEntries((args.denyTools ?? []).map((name) => [name, false as const])),
       };
@@ -579,7 +594,7 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
       const res = await client.session.prompt({
         path: { id },
         query: { directory: cwd },
-        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id), denyTools: sessionToolDeny(id) }),
+        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id), hideGeolocationTool: hidesGeolocationTool(agent, id), denyTools: sessionToolDeny(id) }),
       });
       if (res.error) {
         throw new Error(`OpenCode session.prompt failed: ${describeFailure(res.error)}`);

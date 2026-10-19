@@ -5,8 +5,8 @@
     "directives": 20
   },
   "staticLayers": {
-    "opencode": 20839,
-    "codex": 35797
+    "opencode": 21274,
+    "codex": 36621
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -14435,7 +14435,7 @@
     }
   },
   "lastIncrease": {
-    "reason": "the lead's plan contract: one conditional section on the first pass of a coordinated run's planning turn, and one line in the generator role telling it to emit only the plan when the prompt asks for one",
+    "reason": "the shared and role layers state the location-pinning rule for the new authoring location",
     "budgets": [
       "static:opencode",
       "static:codex"

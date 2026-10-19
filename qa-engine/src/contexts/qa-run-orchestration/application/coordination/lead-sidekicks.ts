@@ -13,8 +13,9 @@ import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capabili
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { CoordinationGateSignal, CoordinationSettings, PlanningLimits } from "@kernel/coordination.ts";
 import { COORDINATION_MODE } from "@kernel/coordination.ts";
+import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
 import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
-import type { AgentBrowserHandle, ClosedLoopHandle, FlowLoopHandle, PlanOutput } from "../ports/index.ts";
+import type { AgentBrowserHandle, ClosedLoopHandle, FlowGeolocationHandle, FlowLoopHandle, GeolocationHandle, PlanOutput } from "../ports/index.ts";
 import type { DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest, WorkspaceChange } from "../ports/delegation-workspace.port.ts";
 import { createDelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
@@ -63,6 +64,8 @@ export interface CoordinateInput {
   facts: { hasLogin: boolean; provider: "opencode" | "codex" | undefined; plannerProvider: "opencode" | "codex" | undefined };
   closedLoop?: ClosedLoopHandle;
   agentBrowser?: AgentBrowserHandle;
+  /* The run's authoring location, when the app declares one: a flow may name a place and each flow owns its own value. */
+  geolocation?: GeolocationHandle;
   devBaseUrl?: string;
   knownFacts?: readonly EvidenceRef[];
   /* The run's deadline, when one is armed. */
@@ -139,7 +142,13 @@ export class LeadSidekicks {
     }
 
     await this.sweep().catch((err: unknown) => console.error(`[qa] sweeping the delegation workspaces failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`));
-    const planned = await input.plan({ maxFlows: settings.maxFlows, maxParallel: parallel, budgetMs: settings.planBudgetMs });
+    const locations = input.geolocation?.placeNames() ?? [];
+    const planned = await input.plan({
+      maxFlows: settings.maxFlows,
+      maxParallel: parallel,
+      budgetMs: settings.planBudgetMs,
+      ...(locations.length > 0 ? { locations } : {}),
+    });
     if (planned.timedOut) return single("the planning turn ran out of its time", { authoring: authoringName });
     if (planned.noopReason !== undefined) {
       this.record(input, { kind: "proposal", action: "direct", reason: `plan: noop (${planned.noopReason})` });
@@ -160,7 +169,11 @@ export class LeadSidekicks {
         ...(loop ? { runSpecCalls: loop.maxCalls, runSpecDevWrites: loop.maxDevWrites } : {}),
         ...(input.agentBrowser ? { browserCalls: input.agentBrowser.limits.maxCalls } : {}),
       },
-      { specRelDir: input.specRelDir, specFileFor: this.deps.specFileFor },
+      {
+        specRelDir: input.specRelDir,
+        specFileFor: this.deps.specFileFor,
+        ...(input.geolocation ? { places: input.geolocation.facts().places } : {}),
+      },
     );
     this.record(input, { kind: "proposal", action: admitted.kind === LEAD_PLAN_KIND.FANOUT ? "delegate" : "direct", reason: describePlan(admitted) });
     if (admitted.kind === LEAD_PLAN_KIND.NOOP) return { action: "noop", reason: admitted.reason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
@@ -231,6 +244,7 @@ export class LeadSidekicks {
       writablePaths: flow.writablePaths,
     };
     const workspace = await this.deps.workspaces.create(request);
+    const geolocation = input.geolocation?.openFlow(delegationId, flow.location);
     let loop: FlowLoopHandle | undefined;
     try {
       const probePath = `${PROBE_REL_DIR}/${posix.basename(flow.specFile)}`;
@@ -247,14 +261,15 @@ export class LeadSidekicks {
       if (context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser && flow.browserCalls > 0) {
         input.agentBrowser.grantShare(delegationId, flow.browserCalls);
       }
-      return await this.attempts(flow, context, workspace, request, delegationId, loop, signal);
+      return await this.attempts(flow, context, workspace, request, delegationId, loop, geolocation, signal);
     } finally {
       if (loop) await loop.close();
+      geolocation?.close();
       await this.deps.workspaces.dispose(workspace);
     }
   }
 
-  private async attempts(flow: AdmittedFlow, context: FlowContext, workspace: DelegationWorkspace, request: DelegationWorkspaceRequest, delegationId: string, loop: FlowLoopHandle | undefined, signal: AbortSignal): Promise<FlowReport> {
+  private async attempts(flow: AdmittedFlow, context: FlowContext, workspace: DelegationWorkspace, request: DelegationWorkspaceRequest, delegationId: string, loop: FlowLoopHandle | undefined, geolocation: FlowGeolocationHandle | undefined, signal: AbortSignal): Promise<FlowReport> {
     const { input } = context;
     const started = this.now();
     const capabilities: AgentCapability[] = ["sidekick-standard", "sidekick-escalated"];
@@ -271,7 +286,7 @@ export class LeadSidekicks {
         delegationId,
         runId: input.runId,
         objective: flow.objective,
-        task: taskOf(flow, loop, context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser ? input.agentBrowser.limits.perCallMs : undefined),
+        task: taskOf(flow, loop, context.mode === SIDEKICK_AUTHORING.AUTHENTICATED_BROWSER && input.agentBrowser ? input.agentBrowser.limits.perCallMs : undefined, geolocation),
         acceptanceCriteria: flow.acceptance,
         scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
         knownFacts: input.knownFacts ?? [],
@@ -363,11 +378,21 @@ function describePlan(plan: AdmittedPlan): string {
 }
 
 /* What a sidekick is told to do for one flow. The facts about its tools are the orchestrator's; the rest is the flow's own. */
-function taskOf(flow: AdmittedFlow, loop: FlowLoopHandle | undefined, browserCallMs: number | undefined): string {
+function taskOf(
+  flow: AdmittedFlow,
+  loop: FlowLoopHandle | undefined,
+  browserCallMs: number | undefined,
+  geolocation: FlowGeolocationHandle | undefined,
+): string {
+  const places = geolocation ? Object.keys(geolocation.facts().places).sort() : [];
+  const browserUsesLocation = browserCallMs !== undefined && flow.browserCalls > 0 ? " The authenticated browser uses the authoring location." : "";
   return [
     `Write the Playwright E2E spec for ONE flow, as the single file ${flow.writablePaths[0]}. It is the only file you may write.`,
     `Flow: ${flow.id}. It proves: ${flow.objective}`,
     flow.routes.length > 0 ? `Pages it visits: ${flow.routes.join(", ")}` : "",
+    geolocation
+      ? `Authoring location: ${formatGeoLocation(geolocation.current())}; the app's default is ${formatGeoLocation(geolocation.facts().default)}.${places.length > 0 ? ` Places it declares: ${places.join(", ")}.` : ""}${browserUsesLocation} run_spec and the suite run at the app's default. A spec that depends on a location must call setLocation(context, latitude, longitude) from the suite's fixtures with the coordinates.`
+      : "",
     loop
       ? `run_spec: at most ${loop.limits.maxCalls} calls, ${Math.round(loop.limits.perCallMs / 1000)} seconds each, ${loop.limits.maxDevWrites} requests that write to DEV in all. It runs ${flow.writablePaths[0]} and no other file. Run it until it passes, then finish.`
       : "You cannot run the spec: verify it by reading the pages and the grounding.",

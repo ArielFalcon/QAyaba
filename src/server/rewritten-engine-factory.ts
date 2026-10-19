@@ -43,6 +43,7 @@ import { resolveCoordinationSettings } from "@kernel/coordination";
 import { DevLease } from "@contexts/test-execution/domain/dev-lease";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
+import type { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
 import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
 import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
 import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
@@ -504,6 +505,11 @@ export interface RewrittenEngineFactoryDeps {
    * that serves the browser's calls. Absent: no run is ever granted the browser.
    */
   agentBrowserRegistry?: AgentBrowserRegistry;
+  /*
+   * Where the authoring agents' sessions find the run's location. One per process, shared with the tools endpoint that serves the
+   * set_geolocation tool. Absent: no run carries an authoring location.
+   */
+  geolocationRegistry?: GeolocationRegistry;
   mirrorRoot?: string;
   /* Test seam: inject spies for the two mirror primitives instead of real git/disk. */
   mirror?: {
@@ -1245,6 +1251,22 @@ export function buildRewrittenCompositionConfig(
           },
         }
       : {}),
+    /*
+     * The authoring location: the app's declared position (dev.geolocation) and the places it names. The suite and the Context
+     * Pack already get the position through the execution deps; this is the run-scoped value the agent may move for the
+     * authenticated browser and the plan's flows.
+     */
+    ...(deps.geolocationRegistry && toolsApplyToRun && app.dev?.geolocation
+      ? {
+          geolocation: {
+            registry: deps.geolocationRegistry,
+            setting: {
+              default: { latitude: app.dev.geolocation.latitude, longitude: app.dev.geolocation.longitude },
+              places: app.dev.geolocation.places ?? {},
+            },
+          },
+        }
+      : {}),
     ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
     ...(!isCode && app.dev?.baseUrl
       ? {
@@ -1443,9 +1465,10 @@ export interface TurnTelemetryContext {
 const DEFAULT_STEP_INTENT: StepIntentContext = { specTargets: { kind: "dir", relDir: "e2e" }, authFiles: [], loginUrls: [], authOnlyOrigins: [], reviewAgents: [] };
 
 /* The agent transport the engine opens its sessions through: the host's, with live observation, the stall watchdog and usage, and the run_spec and agent-browser registries told which sessions the agents open for which run. */
-export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry" | "telemetry" | "clock">, turn?: TurnTelemetryContext): AgentDeps {
+export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry" | "geolocationRegistry" | "telemetry" | "clock">, turn?: TurnTelemetryContext): AgentDeps {
   const registry = deps.closedLoopRegistry;
   const browsers = deps.agentBrowserRegistry;
+  const geolocations = deps.geolocationRegistry;
   const stack = withUsageSink(
     withStallWatchdog(
       withSessionRegistration(deps.getAgentDeps(), {
@@ -1456,11 +1479,13 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
         bind: (session) => {
           registry?.bindSession(session);
           browsers?.bindSession(session);
+          geolocations?.bindSession(session);
           setSessionToolDeny(session.sessionId, session.denyTools);
         },
         unbind: (sessionId) => {
           registry?.unbindSession(sessionId);
           browsers?.unbindSession(sessionId);
+          geolocations?.unbindSession(sessionId);
           setSessionToolDeny(sessionId, undefined);
         },
       }),

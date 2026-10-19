@@ -15,6 +15,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RUN_PURPOSE, type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
+import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, effectiveCoordinationMode, type CoordinationGateSignal, type CoordinationMode, type CoordinationSettings } from "@kernel/coordination.ts";
 import type { CoordinateResult, LeadSidekicks } from "./coordination/lead-sidekicks.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -64,6 +65,8 @@ import type {
   ClosedLoopPort,
   AgentBrowserHandle,
   AgentBrowserPort,
+  GeolocationHandle,
+  GeolocationPort,
   MirrorGcPort,
   CurriculumPort,
   ContextMapCapturePort,
@@ -353,6 +356,13 @@ export interface RunQaUseCaseDeps {
    */
   agentBrowser?: AgentBrowserPort;
   /**
+   * The device location of the authoring run: the app's declared default and places, the lead's own value and one value per
+   * flow (the `set_geolocation` tool). Opened for the same runs the loop and the browser are, after the login and before the
+   * first generation, and closed when the run ends, however it ends. Absent: the app declares no location. It is authoring
+   * context, never an input to the delivered suite.
+   */
+  geolocation?: GeolocationPort;
+  /**
    * Once, after pre-publish confinement and publish have both resolved, so gc
    * never races this run's git write. The sequential queue already prevents other
    * runs overlapping. A thrown prune() is caught here and never alters the verdict.
@@ -507,6 +517,8 @@ interface RunTrail {
   closedLoop?: ClosedLoopHandle;
   /** The authenticated agent browser, once opened: closed by runInScope however the run ends. */
   agentBrowser?: AgentBrowserHandle;
+  /** The authoring location, once opened: closed by runInScope however the run ends. */
+  geolocation?: GeolocationHandle;
 }
 
 /* The probes the generator left in the working copy could not be removed. */
@@ -569,6 +581,7 @@ export class RunQaUseCase {
       phases.close();
       await this.closeClosedLoop(trail);
       await this.closeAgentBrowser(trail);
+      this.closeGeolocation(trail);
       this.sayDeniedHosts();
     }
   }
@@ -701,6 +714,18 @@ export class RunQaUseCase {
       await browser.close();
     } catch (err) {
       console.error(`[qa] closing the agent browser failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /* Forgets the authoring location. A fault is said and never changes how the run ended. */
+  private closeGeolocation(trail: RunTrail): void {
+    const geolocation = trail.geolocation;
+    if (!geolocation) return;
+    trail.geolocation = undefined;
+    try {
+      geolocation.close();
+    } catch (err) {
+      console.error(`[qa] closing the authoring location failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -998,6 +1023,28 @@ export class RunQaUseCase {
     }
 
     /*
+     * The authoring location: the app's declared default and places, the lead's value and one value per flow. Opened before the
+     * browser and the loop so both can consume it; a fault opening it costs the run only the location. Its facts are read again
+     * on every generation turn, since the lead may move it while it authors.
+     */
+    let geolocation: GeolocationHandle | undefined;
+    if (this.deps.geolocation && generating && !cfg.isCode && input.mode !== "context" && input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP && !authSeedUnauthored) {
+      try {
+        geolocation = await this.deps.geolocation.open({
+          runId: input.runId,
+          app: input.app,
+          mode: input.mode,
+          ...(signal ? { signal } : {}),
+        });
+      } catch (err) {
+        rethrowIfRunDeadline(err);
+        console.error(`[qa] the authoring location could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      trail.geolocation = geolocation;
+    }
+    const geolocationEnrichment = (): { geolocation?: GeolocationFacts } => (geolocation ? { geolocation: geolocation.facts() } : {});
+
+    /*
      * The run_spec loop: only for a run that writes e2e tests with a login the suite can use. A fault opening it costs the run only
      * the loop. Its facts reach every generation of the run (the first pass and each regeneration) through baseEnrichment.
      */
@@ -1039,6 +1086,7 @@ export class RunQaUseCase {
       !authSeedUnauthored
     ) {
       try {
+        const geo = geolocation;
         agentBrowser = await this.deps.agentBrowser.open({
           runId: input.runId,
           app: input.app,
@@ -1047,6 +1095,7 @@ export class RunQaUseCase {
           ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
           ...(input.agentBrowser !== undefined ? { enabled: input.agentBrowser } : {}),
           ...(signal ? { signal } : {}),
+          ...(geo ? { geolocation: { default: geo.default, forSession: (sessionId: string) => geo.forSession(sessionId) } } : {}),
         });
       } catch (err) {
         rethrowIfRunDeadline(err);
@@ -1254,6 +1303,7 @@ export class RunQaUseCase {
     const regenerate = async (regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> => {
       const regenerated = await afterGeneration(await this.deps.generation.generate([], workspace.specDir, regenerationSignal, classificationDiff, {
         ...baseEnrichment,
+        ...geolocationEnrichment(),
         ...enrichment,
         ...(delivered.length > 0 ? { deliveredSpecs: delivered } : {}),
       }));
@@ -1285,9 +1335,10 @@ export class RunQaUseCase {
           facts: { hasLogin: Boolean(this.deps.authContext?.auth), provider: this.deps.sidekickProvider?.(), plannerProvider: this.deps.plannerProvider?.() },
           ...(closedLoop ? { closedLoop } : {}),
           ...(agentBrowser ? { agentBrowser } : {}),
+          ...(geolocation ? { geolocation } : {}),
           ...(this.deps.sidekickDevBaseUrl ? { devBaseUrl: this.deps.sidekickDevBaseUrl } : {}),
           ...(this.deps.generation.plan
-            ? { plan: (planning) => this.deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, planning }) }
+            ? { plan: (planning) => this.deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, ...geolocationEnrichment(), planning }) }
             : {}),
           ...(signal ? { signal } : {}),
         });
@@ -1343,6 +1394,7 @@ export class RunQaUseCase {
       generated = coordinatedFirstPass
         ?? (await afterGeneration(await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
           ...baseEnrichment,
+          ...geolocationEnrichment(),
           ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
         })));
       delivered = mergeDeliveredSpecs(delivered, generated, coordinatedFirstPass ? "sidekick" : "lead");
