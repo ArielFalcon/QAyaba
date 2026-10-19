@@ -20,10 +20,15 @@ export function git(cwd: string, ...args: string[]): string {
 /** Removes write access for the group and everyone else on the whole git dir, whatever umask created it. */
 export function closeGitDir(repo: string): void {
   const walk = (path: string): void => {
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink()) return;
-    chmodSync(path, stat.mode & ~0o022);
-    if (stat.isDirectory()) for (const entry of readdirSync(path)) walk(join(path, entry));
+    try {
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) return;
+      chmodSync(path, stat.mode & ~0o022);
+      if (stat.isDirectory()) for (const entry of readdirSync(path)) walk(join(path, entry));
+    } catch (err) {
+      /* git's background maintenance creates and removes a lock while the walk runs. */
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
   };
   walk(join(repo, ".git"));
 }
