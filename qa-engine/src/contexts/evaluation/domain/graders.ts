@@ -6,7 +6,9 @@
 
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { STEP_INTENTS, scoreOf } from "./grader-catalog.ts";
-import type { RunEvaluationEvidence as Evidence } from "./run-evaluation-evidence.ts";
+import { extractReferences } from "./context-refs.ts";
+import { itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import type { ContextEvidence, RunEvaluationEvidence as Evidence } from "./run-evaluation-evidence.ts";
 import type { RawScore, Score } from "./score.ts";
 
 export interface Grader {
@@ -135,6 +137,161 @@ const stepIntent: Grader = {
   },
 };
 
+/* ---- context: utilization (gross + focused), completeness, freshness, no-op ---- */
+
+/* The delivered ids of one extractable kind, deduplicated in delivery order. */
+const deliveredOfKind = (ctx: ContextEvidence, kind: "route" | "dom" | "op"): string[] => {
+  const prefix = `${kind}:`;
+  const seen = new Set<string>();
+  for (const source of ctx.delivered) for (const id of source.ids) if (id.startsWith(prefix)) seen.add(id);
+  return [...seen];
+};
+
+/* The references the extractor finds over the delivered spec text and the tool targets, bound to the delivered route/op sets. */
+const referencedOf = (ctx: ContextEvidence) => {
+  return extractReferences({
+    specTexts: ctx.snapshots.map((s) => s.text),
+    toolTargets: ctx.toolSequence,
+    routeTemplates: deliveredOfKind(ctx, "route").map((id) => id.slice("route:".length)),
+    opIds: deliveredOfKind(ctx, "op").map((id) => id.slice("op:".length)),
+  });
+};
+
+/* The relevant route ids grouped by component/page: one group per distinct name, one route per group when no grouping was recorded. */
+const routeGroups = (ctx: ContextEvidence): Map<string, string[]> => {
+  const ids = ctx.relevantIds.length > 0 ? ctx.relevantIds : deliveredOfKind(ctx, "route");
+  const groups = new Map<string, string[]>();
+  ids.forEach((id, i) => {
+    const group = ctx.relevantGroups[i] ?? id;
+    groups.set(group, [...(groups.get(group) ?? []), id]);
+  });
+  return groups;
+};
+
+/* The focused DOM ratio over the changed element's delivered ids on the relevant pages; undefined when no element is identifiable. */
+const focusedDomRatio = (ctx: ContextEvidence, refs: ReturnType<typeof referencedOf>): number | undefined => {
+  if (ctx.changedTestIds.length === 0) return undefined;
+  const relevantTemplates = ctx.relevantIds.map((id) => id.slice("route:".length));
+  const candidates = new Set<string>();
+  for (const template of relevantTemplates) for (const testId of ctx.changedTestIds) candidates.add(itemId.dom(template, testId));
+  const relevant = deliveredOfKind(ctx, "dom").filter((id) => candidates.has(id));
+  if (relevant.length === 0) return undefined;
+  const referenced = new Set(refs.domIds);
+  return ratio(relevant.filter((id) => referenced.has(id)).length, relevant.length);
+};
+
+/* The `source:reason:count` losses that make a delivered source incomplete: truncation on a change-relevant item only. */
+const completenessLosses = (ctx: ContextEvidence): string[] => {
+  const relevantIds = new Set(ctx.relevantIds);
+  const relevantPaths = new Set(ctx.relevantIds.map((id) => (id.startsWith("route:") ? id.slice("route:".length) : id)));
+  const losses: string[] = [];
+  for (const source of ctx.delivered) {
+    for (const omission of source.omissions) {
+      if (omission.class !== "truncation") continue;
+      const relevant = omission.route !== undefined ? relevantPaths.has(omission.route) : source.ids.some((id) => relevantIds.has(id));
+      if (relevant) losses.push(`${source.source}:${omission.reason}:${omission.count}`);
+    }
+  }
+  return losses;
+};
+
+const contextUtilization: Grader = {
+  names: ["context_utilization"],
+  grade: finishedOnly((e) => {
+    const ctx = e.context;
+    if (!ctx || ctx.delivered.length === 0) return [];
+    const refs = referencedOf(ctx);
+    const delivered = { route: deliveredOfKind(ctx, "route"), dom: deliveredOfKind(ctx, "dom"), op: deliveredOfKind(ctx, "op") };
+    const referenced = { route: new Set(refs.routeIds), dom: new Set(refs.domIds), op: new Set(refs.opIds) };
+    const allDelivered = new Set([...delivered.route, ...delivered.dom, ...delivered.op]);
+    const notProvided = [...new Set([...refs.routeIds, ...refs.domIds, ...refs.opIds])].filter((id) => !allDelivered.has(id));
+    const scores: RawScore[] = [];
+    const parts: string[] = [];
+    let unionDelivered = 0;
+    let unionReferenced = 0;
+    for (const kind of ["route", "dom", "op"] as const) {
+      const d = delivered[kind];
+      const r = referenced[kind];
+      unionDelivered += d.length;
+      unionReferenced += d.filter((id) => r.has(id)).length;
+      if (d.length === 0) {
+        parts.push(`${kind} n/a`);
+        continue;
+      }
+      const hit = d.filter((id) => r.has(id)).length;
+      parts.push(`${kind} ${hit}/${d.length}`);
+      scores.push({ name: `context_utilization.${kind}`, value: ratio(hit, d.length) });
+    }
+    const comment = `scope=all-delivered; ${parts.join("; ")}${notProvided.length > 0 ? `; referenced_not_provided: ${notProvided.slice(0, 10).join(",")}${notProvided.length > 10 ? ",…" : ""}` : ""}`;
+    return [{ name: "context_utilization", value: ratio(unionReferenced, unionDelivered), comment }, ...scores];
+  }),
+};
+
+const contextUtilizationFocused: Grader = {
+  names: ["context_utilization_focused"],
+  grade: finishedOnly((e) => {
+    const ctx = e.context;
+    if (!ctx || ctx.delivered.length === 0) return [];
+    const refs = referencedOf(ctx);
+    const delivered = { route: deliveredOfKind(ctx, "route"), dom: deliveredOfKind(ctx, "dom"), op: deliveredOfKind(ctx, "op") };
+    const referenced = { route: new Set(refs.routeIds), dom: new Set(refs.domIds), op: new Set(refs.opIds) };
+
+    const groups = routeGroups(ctx);
+    const usedGroups = [...groups.values()].filter((routes) => routes.some((id) => referenced.route.has(id))).length;
+    const routeValue = groups.size > 0 ? ratio(usedGroups, groups.size) : undefined;
+
+    const domValue = focusedDomRatio(ctx, refs);
+    const opValue = delivered.op.length > 0 ? ratio(delivered.op.filter((id) => referenced.op.has(id)).length, delivered.op.length) : undefined;
+
+    const measured = [routeValue, domValue, opValue].filter((v): v is number => v !== undefined);
+    const scores: RawScore[] = [];
+    if (routeValue !== undefined) scores.push({ name: "context_utilization_focused.route", value: routeValue });
+    if (domValue !== undefined) scores.push({ name: "context_utilization_focused.dom", value: domValue });
+    if (opValue !== undefined) scores.push({ name: "context_utilization_focused.op", value: opValue });
+    if (measured.length === 0) return [];
+    const scope = ctx.relevantIds.length > 0 ? "change-relevant" : "fallback-all";
+    const parts = [
+      routeValue !== undefined ? `route ${usedGroups}/${groups.size} (${[...groups.keys()].join(",")})` : "route n/a",
+      domValue !== undefined ? `dom ${domValue.toFixed(3)}` : "dom n/a",
+      opValue !== undefined ? `op ${opValue.toFixed(3)}` : "op n/a",
+    ];
+    const overall = measured.reduce((sum, v) => sum + v, 0) / measured.length;
+    return [{ name: "context_utilization_focused", value: overall, comment: `scope=${scope}; ${parts.join("; ")}` }, ...scores];
+  }),
+};
+
+const contextComplete: Grader = {
+  names: ["context_complete"],
+  grade: finishedOnly((e) => {
+    const ctx = e.context;
+    if (!ctx || ctx.delivered.length === 0) return [];
+    const losses = completenessLosses(ctx);
+    return [{ name: "context_complete", value: losses.length === 0, ...(losses.length > 0 ? { comment: losses.join("; ") } : {}) }];
+  }),
+};
+
+const contextFresh: Grader = {
+  names: ["context_fresh"],
+  grade: finishedOnly((e) => {
+    const ctx = e.context;
+    if (!ctx || ctx.delivered.length === 0 || ctx.freshness === undefined) return [];
+    const stale = ctx.freshness.stale ?? [];
+    const domChanged = ctx.freshness.domChanged === true;
+    const reasons = [...stale.map((s) => `${s.source}:${s.reason}`), ...(domChanged ? ["dom-changed"] : [])];
+    return [{ name: "context_fresh", value: reasons.length === 0, ...(reasons.length > 0 ? { comment: reasons.join("; ") } : {}) }];
+  }),
+};
+
+const noopConsistent: Grader = {
+  names: ["noop_consistent"],
+  grade: finishedOnly((e) => {
+    const changed = e.context?.changedElement;
+    if (changed === undefined || changed === "unknown") return [];
+    const isNoop = e.specs.generated === 0;
+    return [{ name: "noop_consistent", value: (changed === "absent") === isNoop }];
+  }),
+};
+
 export const GRADERS: readonly Grader[] = [
   emptyOutputGuard,
   furthestPhase,
@@ -146,6 +303,11 @@ export const GRADERS: readonly Grader[] = [
   mutationValue,
   infraError,
   stepIntent,
+  contextUtilization,
+  contextUtilizationFocused,
+  contextComplete,
+  contextFresh,
+  noopConsistent,
 ];
 
 /* Runs the graders that emit one of `only` (all of them when absent) and returns the catalog-typed scores. A throwing grader is not caught here. */

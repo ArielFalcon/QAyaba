@@ -75,3 +75,61 @@ test("grading that run stores a validity rate and no pass rate, since it never e
   assert.equal(graded.find((s) => s.name === "spec_validity_rate")?.value, 1);
   assert.equal(graded.some((s) => s.name === "spec_pass_rate"), false);
 });
+
+const deliveredSpan = (source: string, ids: string[], omitted = 0) => ({
+  name: `qayaba.delivered.${source}`,
+  spanId: `span-${source}`,
+  parentSpanId: null,
+  attrs: JSON.stringify({
+    "qayaba.context.source": source,
+    "qayaba.context.stage": "delivered",
+    "qayaba.context.item_ids": ids,
+    "qayaba.context.bytes": 100,
+    ...(omitted > 0 ? { "qayaba.context.omitted": omitted } : {}),
+  }),
+});
+
+test("the evidence exposes the delivered sources, the changed element and the snapshots", async () => {
+  const evidence = (await new HistoryEvidenceAdapter(
+    deps({
+      runSpans: () => [deliveredSpan("context-pack", ["fact:/restaurantes#save-btn:present", "dom:/restaurantes#save-btn"], 0)],
+      listSpecSnapshots: () => [snapshot("flows/restaurants.spec.ts")],
+    }),
+  ).load("run-1"))!;
+
+  assert.equal(evidence.context?.delivered[0]?.source, "context-pack");
+  assert.deepEqual(evidence.context?.delivered[0]?.ids, ["fact:/restaurantes#save-btn:present", "dom:/restaurantes#save-btn"]);
+  assert.equal(evidence.context?.changedElement, "present");
+  assert.deepEqual(evidence.context?.changedTestIds, ["save-btn"]);
+  assert.deepEqual(evidence.context?.snapshots.map((s) => s.path), ["flows/restaurants.spec.ts"]);
+});
+
+test("a label-only change with no fact ids reads as an unknown changed element", async () => {
+  const evidence = (await new HistoryEvidenceAdapter(
+    deps({ runSpans: () => [deliveredSpan("context-pack", ["dom:/restaurantes#card"], 0)] }),
+  ).load("run-1"))!;
+  assert.equal(evidence.context?.changedElement, "unknown");
+  assert.deepEqual(evidence.context?.changedTestIds, []);
+});
+
+test("the relevant routes and file reads are read back from the spans and the turns", async () => {
+  const evidence = (await new HistoryEvidenceAdapter(
+    deps({
+      runSpans: () => [
+        { name: "qayaba.context.route-ranking", spanId: "rank", parentSpanId: null, attrs: JSON.stringify({ "qayaba.context.relevant_ids": ["route:/restaurantes/:province/:city"], "qayaba.context.relevant_groups": ["RestaurantListPage"] }) },
+        deliveredSpan("context-map", ["route:/restaurantes/:province/:city"]),
+      ],
+      getAgentTurns: () => [{ promptProvidedReadCount: 2, pathProvidedReadCount: 1, toolSequence: [{ tool: "read", target: "a.ts" }] } as never],
+    }),
+  ).load("run-1"))!;
+
+  assert.deepEqual(evidence.context?.relevantIds, ["route:/restaurantes/:province/:city"]);
+  assert.deepEqual(evidence.context?.relevantGroups, ["RestaurantListPage"]);
+  assert.equal(evidence.context?.fileReads, 3);
+  assert.deepEqual(evidence.context?.toolSequence, [{ tool: "read", target: "a.ts" }]);
+});
+
+test("a run with no delivered sources and no snapshots has no context evidence", async () => {
+  const evidence = (await new HistoryEvidenceAdapter(deps({ runSpans: () => [], listSpecSnapshots: () => [] })).load("run-1"))!;
+  assert.equal(evidence.context, undefined);
+});

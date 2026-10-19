@@ -54,7 +54,9 @@ test("a score comment is capped at the catalog limit", () => {
 });
 
 test("pending catalog entries are not graded names, graded ones are", () => {
-  assert.equal(isGradedName("context_utilization"), false);
+  assert.equal(isGradedName("context_utilization"), true);
+  assert.equal(isGradedName("context_complete"), true);
+  assert.equal(isGradedName("selector_stability"), false);
   assert.equal(isGradedName("spec_pass_rate"), true);
   assert.equal(isGradedName("nonsense"), false);
 });

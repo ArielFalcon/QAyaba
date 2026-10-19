@@ -96,7 +96,7 @@ test("a grader name outside the catalog is refused before any job exists", () =>
 
 test("a grader that is declared but not graded yet is refused by name", () => {
   const { useCase } = build({});
-  assert.throws(() => useCase.start({ runIds: ["a"], graders: ["context_utilization", "spec_pass_rate", "noop_consistent"] }), (e: Error) => e instanceof RegradeRequestError && e.message.includes("context_utilization") && e.message.includes("noop_consistent") && !e.message.includes("spec_pass_rate"));
+  assert.throws(() => useCase.start({ runIds: ["a"], graders: ["selector_stability", "spec_pass_rate", "cost_per_useful_spec"] }), (e: Error) => e instanceof RegradeRequestError && e.message.includes("selector_stability") && e.message.includes("cost_per_useful_spec") && !e.message.includes("spec_pass_rate"));
 });
 
 test("a since that is not an ISO-8601 date is refused", () => {

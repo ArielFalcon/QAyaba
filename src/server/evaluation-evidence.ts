@@ -8,7 +8,7 @@
 
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import type { EvidencePort } from "@contexts/evaluation/application/ports/index";
-import type { RunEvaluationEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence";
+import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, RunEvaluationEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
 import { getRecord, getRunFacts, getRunOutcome, getRunPhases, getAgentTurns, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
 import type { RunOutcome, RunRecord } from "../types";
@@ -127,6 +127,134 @@ function stepIntentsOf(spans: readonly LedgerSpan[]): Record<string, number> | u
   return Object.keys(counts).length > 0 ? counts : undefined;
 }
 
+/* ---- grounding context evidence ---- */
+
+const asStringArray = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
+
+/* The delivered sources, read from the `qayaba.delivered.<source>` spans. */
+function deliveredSourcesOf(spans: readonly LedgerSpan[]): DeliveredContextSource[] {
+  const bySource = new Map<string, DeliveredContextSource>();
+  for (const span of spans) {
+    if (!span.name.startsWith("qayaba.delivered.")) continue;
+    const attrs = attrsOf(span);
+    const source = attrs["qayaba.context.source"];
+    if (typeof source !== "string") continue;
+    const ids = asStringArray(attrs["qayaba.context.item_ids"]);
+    const bytes = typeof attrs["qayaba.context.bytes"] === "number" ? attrs["qayaba.context.bytes"] : 0;
+    const omitted = typeof attrs["qayaba.context.omitted"] === "number" ? attrs["qayaba.context.omitted"] : 0;
+    const rawOmissions = attrs["qayaba.context.omissions"];
+    const omissions: DeliveredOmission[] = (() => {
+      if (!Array.isArray(rawOmissions)) return [];
+      const result: DeliveredOmission[] = [];
+      for (const o of rawOmissions) {
+        if (o === null || typeof o !== "object") continue;
+        const cls = (o as { class?: unknown }).class;
+        const reason = (o as { reason?: unknown }).reason;
+        const count = (o as { count?: unknown }).count;
+        if ((cls !== "truncation" && cls !== "selection") || typeof reason !== "string" || typeof count !== "number") continue;
+        result.push({ class: cls, reason, count });
+      }
+      return result;
+    })();
+    const entry = bySource.get(source) ?? { source, ids: [], bytes: 0, omitted: 0, omissions: [] };
+    entry.ids.push(...ids);
+    entry.bytes += bytes;
+    entry.omitted += omitted;
+    entry.omissions.push(...omissions);
+    bySource.set(source, entry);
+  }
+  return [...bySource.values()];
+}
+
+/* The change-relevant route ids and their component/page groups, recorded on the route-ranking span (a Track A addition). */
+function relevantRoutesOf(spans: readonly LedgerSpan[]): { ids: string[]; groups: string[] } {
+  for (const span of spans) {
+    if (span.name !== "qayaba.context.route-ranking") continue;
+    const attrs = attrsOf(span);
+    const ids = asStringArray(attrs["qayaba.context.relevant_ids"]);
+    if (ids.length === 0) continue;
+    return { ids, groups: asStringArray(attrs["qayaba.context.relevant_groups"]) };
+  }
+  return { ids: [], groups: [] };
+}
+
+const FACT_RE = /^fact:.+#(.+):(present|absent)$/;
+
+/* The changed element state and its test ids, from the `fact:` ids the delivered pack carries. A label-only change produces no fact, hence `unknown`. */
+function changedElementOf(delivered: readonly DeliveredContextSource[]): { changedTestIds: string[]; changedElement: "present" | "absent" | "unknown" | undefined } {
+  const pack = delivered.find((s) => s.source === "context-pack");
+  if (!pack) return { changedTestIds: [], changedElement: undefined };
+  const testIds = new Set<string>();
+  let state: "present" | "absent" | undefined;
+  for (const id of pack.ids) {
+    const match = FACT_RE.exec(id);
+    if (!match) continue;
+    testIds.add(match[1] ?? "");
+    if (state !== "present") state = match[2] === "present" ? "present" : "absent";
+  }
+  if (testIds.size === 0) return { changedTestIds: [], changedElement: "unknown" };
+  return { changedTestIds: [...testIds], changedElement: state };
+}
+
+/* Freshness provenance, from the produced spans' stale/dom-changed attrs. Absent (undefined) while no source recorded provenance. */
+function freshnessOf(spans: readonly LedgerSpan[]): ContextFreshness | undefined {
+  const stale: Array<{ source: string; reason: string }> = [];
+  let domChanged: boolean | undefined;
+  let any = false;
+  for (const span of spans) {
+    if (!span.name.startsWith("qayaba.context.")) continue;
+    const attrs = attrsOf(span);
+    if (attrs["qayaba.context.stale"] === true) {
+      const source = attrs["qayaba.context.source"];
+      const reason = attrs["qayaba.context.stale_reason"];
+      if (typeof source === "string") {
+        stale.push({ source, reason: typeof reason === "string" ? reason : "stale" });
+        any = true;
+      }
+    }
+    if (attrs["qayaba.context.dom_changed"] === true) {
+      domChanged = true;
+      any = true;
+    }
+  }
+  return any ? { stale, domChanged } : undefined;
+}
+
+/* The content the agent re-read even though the prompt already held it, summed over the turns that measured it. */
+function fileReadsOf(turns: readonly AgentTurnRecord[]): number | undefined {
+  let total = 0;
+  let measured = false;
+  for (const turn of turns) {
+    if (turn.promptProvidedReadCount !== null && turn.promptProvidedReadCount !== undefined) {
+      total += turn.promptProvidedReadCount;
+      measured = true;
+    }
+    if (turn.pathProvidedReadCount !== null && turn.pathProvidedReadCount !== undefined) {
+      total += turn.pathProvidedReadCount;
+      measured = true;
+    }
+  }
+  return measured ? total : undefined;
+}
+
+function contextOf(spans: readonly LedgerSpan[], turns: readonly AgentTurnRecord[], snapshots: readonly SpecSnapshotRow[]): ContextEvidence | undefined {
+  const delivered = deliveredSourcesOf(spans);
+  if (delivered.length === 0 && snapshots.length === 0) return undefined;
+  const relevant = relevantRoutesOf(spans);
+  const changed = changedElementOf(delivered);
+  return {
+    delivered,
+    relevantIds: relevant.ids,
+    relevantGroups: relevant.groups,
+    changedTestIds: changed.changedTestIds,
+    changedElement: changed.changedElement,
+    snapshots: snapshots.map((s) => ({ path: s.path, text: s.text })),
+    toolSequence: turns.flatMap((t) => t.toolSequence ?? []),
+    fileReads: fileReadsOf(turns),
+    freshness: freshnessOf(spans),
+  };
+}
+
 /*
  * The intent of the last step of the turn that hit the limit, read from the agent-turn span model: `invoke_agent <agent>` turn spans
  * (`gen_ai.agent.name`, `qayaba.agent.role`, and `qayaba.limit.fired` once the turn ended), `qayaba.agent.attempt` children, and
@@ -204,6 +332,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
         : undefined,
       limit: facts?.limitFired ? { fired: facts.limitFired, role: facts.limitRole ?? undefined, intent: limitIntentOf(spans, facts.limitRole ?? undefined) } : undefined,
       stepIntents: stepIntentsOf(spans),
+      context: contextOf(spans, turns, d.listSpecSnapshots(runId)),
       finishedAt: outcome?.at ?? record.at,
     };
   }

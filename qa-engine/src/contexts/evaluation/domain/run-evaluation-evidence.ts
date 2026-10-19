@@ -4,6 +4,53 @@
  * A field is absent, never zero, when the run did not record it.
  */
 
+/* One item a delivered source left out. `route` attributes a DOM cut (node-cap/line-cap) to the page it lost nodes on, so a cut
+ * on a page that is not change-relevant never makes the run incomplete. */
+export interface DeliveredOmission {
+  class: "selection" | "truncation";
+  reason: string;
+  count: number;
+  route?: string;
+}
+
+/* What one grounding source actually handed the agent, read from the delivered span. */
+export interface DeliveredContextSource {
+  source: string;
+  ids: string[];
+  bytes: number;
+  /* Items left out (selection + truncation), the delivered span's `qayaba.context.omitted`. */
+  omitted: number;
+  /* The per-reason breakdown; empty when the span recorded only the total (the reasons are a Track A addition). */
+  omissions: DeliveredOmission[];
+}
+
+/* Freshness provenance, absent until Track A batch 4 records it. Absent means the fresh score is omitted, never false. */
+export interface ContextFreshness {
+  /* Sources that were stale when the generator used them, each with its reason. */
+  stale: Array<{ source: string; reason: string }>;
+  /* The change-relevant DOM differed between two captures of the same page. */
+  domChanged: boolean | undefined;
+}
+
+/* The grounding evidence a context grader reads: delivered sources, the change-relevant subset, what the agent referenced and
+ * the changed-element observability. Fields are absent, never fabricated, when the run did not record them. */
+export interface ContextEvidence {
+  delivered: DeliveredContextSource[];
+  /* Change-relevant route ids, in rank order (the diff's ranked routes and their delivered template instances). */
+  relevantIds: string[];
+  /* The component/page each relevant route belongs to, parallel to `relevantIds`; empty when the grouping was not recorded. */
+  relevantGroups: string[];
+  /* Test ids of the change's identifiable elements. Empty when the diff identified none (a label-only change). */
+  changedTestIds: string[];
+  /* present (an identified element was captured), absent (identified but no page showed it) or unknown (nothing identified). */
+  changedElement: "present" | "absent" | "unknown" | undefined;
+  snapshots: Array<{ path: string; text: string }>;
+  toolSequence: Array<{ tool: string; target: string | null }>;
+  /* Reads of content the prompt already provided, a waste signal, not use. */
+  fileReads: number | undefined;
+  freshness: ContextFreshness | undefined;
+}
+
 export interface RunEvaluationEvidence {
   runId: string;
   app: string;
@@ -46,6 +93,8 @@ export interface RunEvaluationEvidence {
   limit: { fired: string; role: string | undefined; intent: string | undefined } | undefined;
   /* Steps per intent, counted from the ledger's `chat` spans. Absent when no step carried an intent (Codex has no steps). */
   stepIntents: Readonly<Record<string, number>> | undefined;
+  /* The grounding evidence (delivered sources, references, changed-element): absent when the run recorded none. */
+  context: ContextEvidence | undefined;
   /* When the run ended, ISO-8601: the score timestamp. */
   finishedAt: string;
 }
