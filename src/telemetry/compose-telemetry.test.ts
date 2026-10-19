@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
+import { DEFAULT_CAMPAIGN_RETENTION_DAYS } from "./config";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 const read = (file: string): string => readFileSync(join(ROOT, file), "utf8");
@@ -12,9 +13,15 @@ type Service = { networks?: string[] | Record<string, unknown>; ports?: string[]
 type Compose = { services: Record<string, Service>; networks?: Record<string, { internal?: boolean }> };
 type Pipeline = { receivers: string[]; processors: string[]; exporters: string[] };
 type TransformEntry = { context: string; statements: string[] };
+type Processor = {
+  error_mode?: string;
+  trace_statements?: TransformEntry[];
+  log_statements?: TransformEntry[];
+  traces?: { span?: string[] };
+};
 type Collector = {
   receivers: Record<string, { protocols: { http: { endpoint: string } } }>;
-  processors: Record<string, { error_mode?: string; trace_statements?: TransformEntry[] }>;
+  processors: Record<string, Processor>;
   exporters: Record<string, { rotation?: { max_megabytes: number; max_backups: number }; endpoint?: string }>;
   service: { pipelines: Record<string, Pipeline> };
 };
@@ -116,6 +123,7 @@ test("any collector reachable from the agents hosts only the agents receiver and
       assert.ok(pipeline.processors.indexOf("transform/agents") < pipeline.processors.indexOf("redaction"), `${name}/${pipelineName}`);
     }
     assertStripsAndStamps(config);
+    assertLogStripsAndStamps(config);
   }
 });
 
@@ -164,11 +172,12 @@ test("no literal secret or default password appears in the telemetry files", () 
   for (const text of [trusted.text, untrusted.text]) assert.doesNotMatch(text, /langfuse\s*:|otlphttp\/langfuse/i);
 });
 
-test("the orchestrator is pointed at the trusted receiver and the agents get no OTEL variable, only the address of the untrusted one", () => {
+test("the orchestrator is pointed at the trusted receiver and the agents' exporters at the untrusted one", () => {
   assert.equal(svc("orchestrator").environment?.OTEL_EXPORTER_OTLP_ENDPOINT, "http://collector:4318");
   assert.equal(svc("orchestrator").environment?.OTEL_SERVICE_NAME, "qayaba-orchestrator");
-  assert.deepEqual(Object.keys(svc("agents").environment ?? {}), ["QA_AGENT_OTLP_ENDPOINT"]);
+  assert.deepEqual(Object.keys(svc("agents").environment ?? {}).sort(), ["OTEL_EXPORTER_OTLP_ENDPOINT", "QA_AGENT_OTLP_ENDPOINT"]);
   assert.equal(svc("agents").environment?.QA_AGENT_OTLP_ENDPOINT, "http://collector-agents:4319");
+  assert.equal(svc("agents").environment?.OTEL_EXPORTER_OTLP_ENDPOINT, "http://collector-agents:4319");
 });
 
 test("the stack that records telemetry also has the orchestrator observe the explorer's calls, which plain compose leaves off", () => {
@@ -250,3 +259,62 @@ function assertStripsAndStamps(config: Collector): void {
   /* The collector has no OTTL context for span links, so the span context drops them whole: their attributes could otherwise carry forged keys. */
   assert.ok(entries.filter((entry) => entry.context === "span").some((entry) => entry.statements.includes("set(span.links, nil)")), "span links are not dropped");
 }
+
+/* The same strip and stamp for log records: the resource, the scope and the record itself. */
+function assertLogStripsAndStamps(config: Collector): void {
+  const transform = must(config.processors["transform/agents"], "transform/agents");
+  const entries = transform.log_statements ?? [];
+  const FORBIDDEN = [
+    "qayaba.run.id", "qayaba.trust", "langfuse.trace.name", "langfuse.observation.type",
+    "gen_ai.input.messages", "gen_ai.output.messages", "gen_ai.system_instructions", "gen_ai.tool.call.arguments", "gen_ai.tool.call.result",
+    "ai.prompt", "ai.prompt.messages", "ai.response.text", "ai.toolCall.args", "ai.toolCall.result",
+  ];
+  const SURVIVORS = ["gen_ai.request.model", "gen_ai.usage.input_tokens", "service.name", "session.id"];
+  for (const context of ["resource", "scope", "log"]) {
+    const statements = entries.filter((entry) => entry.context === context).flatMap((entry) => entry.statements);
+    assert.ok(statements.length > 0, `logs: ${context} context not covered`);
+    const deletes = statements.filter((statement) => statement.startsWith("delete_matching_keys("));
+    for (const statement of deletes) assert.ok(statement.startsWith(`delete_matching_keys(${context}.attributes,`), `${statement} is not on ${context}.attributes`);
+    const patterns = deletes.map((statement) => new RegExp(must(statement.match(/, "(.*)"\)$/)?.[1], "regex literal").replaceAll("\\\\", "\\")));
+    const deleted = (key: string): boolean => patterns.some((pattern) => pattern.test(key));
+    for (const key of FORBIDDEN) assert.ok(deleted(key), `logs ${context}: ${key} is not deleted`);
+    for (const key of SURVIVORS) assert.ok(!deleted(key), `logs ${context}: ${key} must survive`);
+    if (context === "resource" || context === "log") {
+      const stamp = statements.findIndex((statement) => statement === `set(${context}.attributes["qayaba.trust"], "agent")`);
+      assert.ok(stamp >= 0, `logs ${context}: qayaba.trust=agent is not set`);
+      assert.ok(stamp > Math.max(...statements.map((statement, at) => (statement.startsWith("delete_matching_keys(") ? at : -1))), `logs ${context}: the stamp must come after every delete`);
+    }
+  }
+}
+
+test("the agents' logs pass the strip and the stamp, and their rootless process trace is dropped", () => {
+  const config = untrusted.config;
+  const traces = must(config.service.pipelines["traces/agents"], "traces/agents");
+  assert.ok(traces.processors.includes("filter/drop_opencode_traces"));
+  assert.ok(traces.processors.indexOf("filter/drop_opencode_traces") < traces.processors.indexOf("transform/agents"));
+  const filter = must(config.processors["filter/drop_opencode_traces"], "filter/drop_opencode_traces");
+  assert.equal(filter.error_mode, "ignore");
+  assert.ok(filter.traces?.span?.some((condition) => condition.includes("service.name") && condition.includes("opencode")));
+
+  const logs = must(config.service.pipelines["logs/agents"], "logs/agents");
+  assert.deepEqual(logs.receivers, ["otlp/agents"]);
+  assert.deepEqual(logs.exporters, ["otlphttp/lgtm"]);
+  assert.ok(logs.processors.indexOf("transform/agents") < logs.processors.indexOf("redaction"));
+});
+
+test("Loki keeps logs for the campaign window and truncates an oversized line", () => {
+  const loki = parse(read("config/otel/loki-config.yaml")) as {
+    limits_config: { retention_period: string; max_line_size: string; max_line_size_truncate: boolean };
+    compactor: { working_directory: string; retention_enabled: boolean; delete_request_store: string };
+  };
+  assert.equal(loki.limits_config.retention_period, `${DEFAULT_CAMPAIGN_RETENTION_DAYS * 24}h`);
+  assert.equal(loki.limits_config.max_line_size, "64kb");
+  assert.equal(loki.limits_config.max_line_size_truncate, true);
+  assert.equal(loki.compactor.retention_enabled, true);
+  assert.equal(loki.compactor.delete_request_store, "filesystem");
+  assert.match(loki.compactor.working_directory, /^\/data\//);
+});
+
+test("the lgtm service mounts the Loki config read-only", () => {
+  assert.ok((svc("lgtm").volumes ?? []).includes("./config/otel/loki-config.yaml:/otel-lgtm/loki-config.yaml:ro"));
+});

@@ -14,7 +14,8 @@
 # service and no container holds a receiver on a network its clients should not reach:
 #   collector         telemetry-internal ONLY. The trusted receiver (:4318) the orchestrator writes to.
 #   collector-agents  agent-otlp + telemetry-internal (the latter only to export to lgtm). The untrusted receiver (:4319);
-#                     its pipeline strips orchestrator-owned and content keys and stamps qayaba.trust=agent.
+#                     its pipeline strips orchestrator-owned and content keys from spans and logs and stamps
+#                     qayaba.trust=agent. OpenCode's logs are kept; its process-wide, rootless traces are dropped.
 # The agents container is on agent-otlp, never on telemetry-internal, so it can reach only collector-agents.
 # lgtm is on telemetry-internal ONLY (no route out). grafana-proxy is the one process on telemetry-ui, the network that
 # carries the loopback-published port. The sandbox uid runs inside the orchestrator's network namespace behind its own
@@ -114,6 +115,9 @@ services:
       GF_PLUGINS_PREINSTALL_DISABLED: "true"
     volumes:
       - lgtm-data:/data
+      # The image's Loki config has no retention key; Loki's retention is YAML-only, so this copy adds it. Read-only: the
+      # image starts Loki with -config.file=./loki-config.yaml and never writes it.
+      - ./config/otel/loki-config.yaml:/otel-lgtm/loki-config.yaml:ro
       # Provisioned by the LGTM image itself from /otel-lgtm/grafana/conf/provisioning (verified on the pinned image).
       - ./config/grafana/qayaba-evaluations.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/qayaba-evaluations.yaml:ro
       - ./config/grafana/dashboards:/otel-lgtm/qayaba-dashboards:ro
@@ -175,9 +179,13 @@ services:
   agents:
     # The agents container is deliberately NOT on telemetry-internal: it can reach only collector-agents, over agent-otlp.
     # QA_AGENT_OTLP_ENDPOINT makes the supervisor give Codex a trace exporter pointed at that receiver (traces only; the
-    # supervisor writes the [otel] table of Codex's config.toml). No OTEL_* variable is set: OpenCode exports nothing yet.
+    # supervisor writes the [otel] table of Codex's config.toml). OTEL_EXPORTER_OTLP_ENDPOINT is OpenCode's own switch: it
+    # exports logs and traces to the same receiver, where the trace pipeline drops its spans and the log pipeline keeps
+    # its logs. Codex never receives this variable (its exec env is an exact-name allowlist), and OpenCode's
+    # experimental.openTelemetry (content-bearing ai.* spans) stays off.
     environment:
       QA_AGENT_OTLP_ENDPOINT: http://collector-agents:4319
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector-agents:4319
     networks:
       - default
       - agent-otlp
