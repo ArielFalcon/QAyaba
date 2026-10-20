@@ -8251,6 +8251,11 @@ test("each review round records a bounded qayaba.review metric: what decided it 
     assert.equal(rounds[1]!.attrs["qayaba.review.decided_by"], "unchanged");
     assert.equal(rounds[1]!.attrs["qayaba.review.correction_class"], "false-positive");
     assert.equal(rounds[0]!.attrs["qayaba.app"], baseInput.app);
+
+    const reviewPhase = telemetry.spans.find((s) => s.name === "qayaba.phase.review");
+    assert.ok(reviewPhase, "the review phase span is recorded");
+    assert.equal(reviewPhase.attrs["qayaba.phase.outcome"], "rejected", "the phase span carries the last review outcome");
+    assert.equal(reviewPhase.attrs["qayaba.review.rounds"], 2, "the phase span carries the review round count");
   } finally {
     fixtures.cleanup();
   }
@@ -8342,5 +8347,41 @@ test("the reviewer decision span carries the delivered targets, the existing sui
     assert.equal(metric?.attrs["qayaba.review.correction_class"], "wrong-objective");
   } finally {
     fixtures.cleanup();
+  }
+});
+
+test("the fix_loop phase span carries its outcome, the failing counts and the spec-set digest", async () => {
+  const mirrorDir = mkdtempSync(join(tmpdir(), "qa-fixloop-span-"));
+  const specDir = join(mirrorDir, "e2e");
+  mkdirSync(join(specDir, "flows"), { recursive: true });
+  writeFileSync(join(specDir, "flows", "checkout.spec.ts"), "import { test } from '../fixtures';\ntest('checkout', async ({ page }) => {});\n");
+  try {
+    const telemetry = new RecordingTelemetry();
+    let executeCallCount = 0;
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir, mirrorDir }),
+      execute: async () => {
+        executeCallCount++;
+        return executeCallCount === 1
+          ? { verdict: "fail" as const, cases: [{ name: "checkout", status: "fail" as const, file: "flows/checkout.spec.ts", detail: "getByRole resolved to 0 elements" }], logs: "x" }
+          : { verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const, file: "flows/checkout.spec.ts" }], logs: "" };
+      },
+    });
+    const useCase = new RunQaUseCase({ ...ports, telemetry, config: baseConfig });
+
+    await useCase.run({ ...baseInput, runId: "fixloop-span" });
+
+    const span = telemetry.spans.find((s) => s.name === "qayaba.phase.fix_loop");
+    assert.ok(span, "the fix_loop phase span is recorded");
+    assert.equal(span.attrs["qayaba.phase.outcome"], "pass", "the phase span carries the final verdict");
+    assert.equal(span.attrs["qayaba.fix_loop.rounds"], 1);
+    assert.equal(span.attrs["qayaba.fix_loop.failing_before"], 1);
+    assert.equal(span.attrs["qayaba.fix_loop.failing_after"], 0);
+    assert.equal(span.attrs["qayaba.fix_loop.absent_selectors"], 0);
+    assert.equal(typeof span.attrs["qayaba.fix_loop.spec_sha_before"], "string", "the spec-set digest is readable from the temp files");
+    assert.equal(typeof span.attrs["qayaba.fix_loop.spec_sha_after"], "string");
+    assert.equal(span.attrs["qayaba.fix_loop.specs_changed"], false, "the loop did not rewrite the failing spec");
+  } finally {
+    rmSync(mirrorDir, { recursive: true, force: true });
   }
 });

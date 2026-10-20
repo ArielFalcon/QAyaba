@@ -7,6 +7,8 @@
  * means re-checking them (CLAUDE.md, "When Playwright moves"). A message none of the rules know is left unclassified, never guessed.
  */
 
+import { stripAnsi } from "@kernel/ansi.ts";
+
 export const FAILURE_CATEGORY = {
   SELECTOR: "selector",
   AUTH: "auth",
@@ -24,10 +26,6 @@ export interface ClassifyContext {
   /* Hosts the egress filter refused during the run: a network error naming one of them is the filter's doing. */
   deniedHosts?: readonly string[];
 }
-
-/* eslint-disable-next-line no-control-regex */
-const ANSI = /\u001b\[[0-9;]*m/g;
-const stripAnsi = (text: string): string => text.replace(ANSI, "");
 
 const NET_ERROR = /net::ERR_[A-Z_]+/;
 const INFRA = [

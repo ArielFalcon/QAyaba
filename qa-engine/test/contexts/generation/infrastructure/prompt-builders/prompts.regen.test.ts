@@ -183,3 +183,14 @@ test("the fix section consults the failure tree exactly when that tree is in the
   assert.ok(directs(withTree, "fix-cases", "consult"));
   assert.deepEqual(danglingConsults(withTree), []);
 });
+
+test("a fix case carrying ANSI in its detail or runtime errors reaches the prompt stripped", () => {
+  const detail = "\u001b[31mexpected 3 to equal 4\u001b[39m";
+  const runtimeText = "\u001b[31mReferenceError: cart is not defined\u001b[39m";
+  const regen = buildPromptAssembled(mkInput({
+    fixCases: [{ name: "cart total", status: "fail", detail, runtimeErrors: [{ type: "console", text: runtimeText }] }],
+  }));
+  assert.equal(regen.text.includes("\u001b"), false);
+  assert.ok(regen.text.includes("expected 3 to equal 4"), "the stripped detail keeps its text");
+  assert.ok(regen.text.includes("ReferenceError: cart is not defined"), "the stripped runtime error keeps its text");
+});

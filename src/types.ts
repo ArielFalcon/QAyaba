@@ -165,6 +165,17 @@ export interface QaCase {
    * generated-test defect.
    */
   runtimeErrors?: { type: string; text: string }[];
+  /*
+   * Browser network failures observed during the case: a 4xx/5xx response or a requestfailed event.
+   * The URL is reduced to origin+pathname (a query string or fragment never reaches the record) and
+   * the list is deduped and capped. Diagnostic only, same best-effort contract as runtimeErrors.
+   */
+  networkErrors?: { url: string; status?: number; errorText?: string; resourceType?: string }[];
+  /*
+   * How the case's network failures read, derived from the URLs and the run's egress report:
+   * egress (a host the filter refused), backend (a 5xx), dns (name resolution) or other.
+   */
+  networkClass?: "egress" | "backend" | "dns" | "other";
 }
 
 export interface QaRunResult {

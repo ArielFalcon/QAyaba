@@ -83,6 +83,8 @@ export interface FixLoopResult {
   run: FixLoopRun;
   retries: number;
   realBugDetected: boolean;
+  /* The first round's absentKeys.size: the initial failure's divergence evidence. A later round's count does not overwrite it. */
+  absentSelectors: number;
   /* Last adjudicator verdict for Issue labeling by the caller. undefined when the loop never ran. */
   lastAdjudicatorVerdict: AdjudicatorVerdict | undefined;
   coverageNamespace: string;
@@ -115,6 +117,7 @@ export class FixLoop {
     let realBugDetected = false;
     let adjVerdict: AdjudicatorVerdict | undefined;
     let coverageNs = input.namespace;
+    let absentSelectors = 0;
     /* Only what a later round reads from the previous regeneration. */
     let lastRegenResult: Pick<FixLoopGenerateResult, "specSources" | "reexploreNavigations" | "specMetas"> | undefined =
       input.initialSpecSources?.length ? { specSources: input.initialSpecSources } : undefined;
@@ -136,6 +139,9 @@ export class FixLoop {
       const anyVerifiedPresent = lever2.anyVerifiedPresent;
       const anyNonExtractableLocator = lever2.anyNonExtractable;
       const anyUnverifiableSelector = lever2.anyUnverifiable;
+
+      /* The first round's absentKeys is the initial failure's divergence evidence; later rounds never overwrite it. */
+      if (retry === 0) absentSelectors = absentKeys.size;
 
       const lever2Flips = prevRound ? [...prevRound.absentSelectors].filter((k) => !absentKeys.has(k)).length : 0;
 
@@ -302,6 +308,7 @@ export class FixLoop {
       run,
       retries,
       realBugDetected,
+      absentSelectors,
       lastAdjudicatorVerdict: adjVerdict,
       coverageNamespace: coverageNs,
       lastSpecMetas: lastRegenResult?.specMetas,

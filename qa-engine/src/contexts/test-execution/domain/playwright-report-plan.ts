@@ -5,6 +5,7 @@
  */
 
 import { classifyFailure, locatorStrategy, strictModeMatchCount, type FailureCategory, type SelectorStrategy } from "./failure-category.ts";
+import { stripAnsi } from "@kernel/ansi.ts";
 
 export const MAX_PLANNED_FILES = 200;
 export const MAX_PLANNED_CASES = 1000;
@@ -32,6 +33,8 @@ export interface PlannedAttempt {
 
 export interface PlannedCase {
   name: string;
+  /* The case's report name as `parsePlaywrightReport` spells it: the top suite's title (its file, then "(unknown)") first, then the nested suite titles, then the spec title. `name` is the same chain without the file. */
+  fullName: string;
   status: CaseStatus;
   retries: number;
   startMs: number;
@@ -96,7 +99,9 @@ function planAttempts(test: Record<string, unknown>, fallbackStart: number, deni
     const startMs = clamp(Number.isFinite(parsed) ? parsed : cursor, lo);
     const duration = typeof raw.duration === "number" && Number.isFinite(raw.duration) ? Math.min(Math.max(0, raw.duration), MAX_DURATION_MS) : 0;
     const status = attemptStatus(raw.status);
-    const message = status === "passed" || status === "skipped" ? undefined : errorOf(raw)?.slice(0, MAX_MESSAGE_CHARS);
+    /* ANSI is stripped before the cut so a slice can never leave half an escape sequence; classifyFailure strips again internally. */
+    const rawMessage = status === "passed" || status === "skipped" ? undefined : errorOf(raw);
+    const message = rawMessage === undefined ? undefined : stripAnsi(rawMessage).slice(0, MAX_MESSAGE_CHARS);
     const category = message === undefined ? undefined : classifyFailure(message, { deniedHosts });
     const strict = message === undefined ? undefined : strictModeMatchCount(message);
     const strategy = message === undefined ? undefined : locatorStrategy(message);
@@ -124,7 +129,7 @@ export function planReport(report: unknown, opts: { deniedHosts?: readonly strin
   let cases = 0;
   let omitted = 0;
   const deniedHosts = opts.deniedHosts ?? [];
-  const visit = (suite: Record<string, unknown>, titles: string[], file: PlannedFile): void => {
+  const visit = (suite: Record<string, unknown>, titles: string[], file: PlannedFile, firstSegment: string): void => {
     for (const rawSpec of list(suite.specs)) {
       if (!isRecord(rawSpec)) continue;
       for (const rawTest of list(rawSpec.tests)) {
@@ -141,6 +146,7 @@ export function planReport(report: unknown, opts: { deniedHosts?: readonly strin
         cases += 1;
         file.cases.push({
           name: [...titles, str(rawSpec.title)].filter(Boolean).join(" › "),
+          fullName: [firstSegment, ...titles, str(rawSpec.title)].filter(Boolean).join(" › "),
           status,
           retries: Math.max(0, attempts.length - 1),
           startMs,
@@ -154,7 +160,7 @@ export function planReport(report: unknown, opts: { deniedHosts?: readonly strin
       }
     }
     for (const child of list(suite.suites)) {
-      if (isRecord(child)) visit(child, [...titles, str(child.title)].filter((t): t is string => t !== undefined), file);
+      if (isRecord(child)) visit(child, [...titles, str(child.title)].filter((t): t is string => t !== undefined), file, firstSegment);
     }
   };
   for (const top of list(isRecord(report) ? report.suites : undefined)) {
@@ -164,8 +170,8 @@ export function planReport(report: unknown, opts: { deniedHosts?: readonly strin
       continue;
     }
     const planned: PlannedFile = { file: str(top.file) ?? str(top.title) ?? "(unknown)", startMs: 0, endMs: 0, cases: [] };
-    /* The file's own title is the first segment of a case's report name already; nested suites follow it. */
-    visit(top, [], planned);
+    /* The top suite's title is the first segment of a case's report name (nested suites follow it), spelled exactly as parsePlaywrightReport spells it: no fallback when the report has none. */
+    visit(top, [], planned, str(top.title) ?? "");
     if (planned.cases.length > 0) files.push(planned);
   }
   return { files, omitted };

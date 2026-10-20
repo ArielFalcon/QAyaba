@@ -9,8 +9,10 @@
  */
 
 import { Sha } from "@kernel/sha.ts";
+import { stripAnsi } from "@kernel/ansi.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { relative } from "node:path";
+import { createHash } from "node:crypto";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RUN_PURPOSE, type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
@@ -190,6 +192,22 @@ function buildFailureDomSnapshot(cases: readonly QaCase[]): string | undefined {
     parts.push(`### ${c.name}\n${lines.join("\n")}`);
   }
   return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+/* One digest for a whole spec set, so the fix loop can say whether it changed the files. Sorted, sha256 over `file + "\0" + bytes`; undefined when the set is empty or any file cannot be read. */
+function specSetDigest(specRoot: SpecRoot, files: readonly string[]): string | undefined {
+  const unique = [...new Set(files)].sort();
+  if (unique.length === 0) return undefined;
+  const hash = createHash("sha256");
+  for (const file of unique) {
+    try {
+      const bytes = readConfinedSpecFile(specRoot, file);
+      hash.update(file).update("\0").update(bytes);
+    } catch {
+      return undefined;
+    }
+  }
+  return hash.digest("hex");
 }
 
 /* A probe is a throwaway spec the generator ran through run_spec: it lives under the probe directory and is never a deliverable. */
@@ -1571,7 +1589,7 @@ export class RunQaUseCase {
       retries++;
       this.deps.observer?.onStep("retry", `static-fix round ${staticFixRounds}/${MAX_STATIC_FIX_ROUNDS}`);
       /* Repair regen reuses the same classificationDiff/intent as the initial generate(). */
-      const staticGateErrorDetail = validation.errors.join("\n\n").slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
+      const staticGateErrorDetail = stripAnsi(validation.errors.join("\n\n")).slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
       lastGenerated = await regenerate(signal, {
         fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
       });
@@ -1813,6 +1831,10 @@ export class RunQaUseCase {
       if (fixLoopRetired) {
         this.deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the suite failed, but every delivered spec was seen passing through run_spec: the failure is adjudicated and not regenerated" });
       }
+      /* The failing set and the spec-set digest before the loop, so the phase span can carry what the loop changed. */
+      const fixLoopSpecRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
+      const failingBefore = run.cases.filter((c) => c.status === "fail").length;
+      const specShaBefore = specSetDigest(fixLoopSpecRoot, run.cases.map((c) => c.file).filter((f): f is string => !!f));
       const fixLoopResult = await fixLoop.run({
         initialRun: { verdict: run.verdict, cases: run.cases },
         isCode: cfg.isCode,
@@ -1838,6 +1860,27 @@ export class RunQaUseCase {
       lastAdjudicatorVerdictClass = fixLoopResult.lastAdjudicatorVerdict?.class;
       lastAdjudicatorVerdict = fixLoopResult.lastAdjudicatorVerdict;
       fixLoopFinalSpecMetas = fixLoopResult.lastSpecMetas;
+      /* The fix_loop phase span carries what the loop came to, so a false positive (a failed run the loop changed nothing in) is queryable. */
+      const failingAfter = run.cases.filter((c) => c.status === "fail").length;
+      const specShaAfter = specSetDigest(fixLoopSpecRoot, run.cases.map((c) => c.file).filter((f): f is string => !!f));
+      try {
+        trail.spans.annotate({
+          "qayaba.phase.outcome": run.verdict,
+          "qayaba.fix_loop.rounds": fixLoopResult.retries,
+          "qayaba.fix_loop.failing_before": failingBefore,
+          "qayaba.fix_loop.failing_after": failingAfter,
+          "qayaba.fix_loop.absent_selectors": fixLoopResult.absentSelectors,
+          ...(specShaBefore !== undefined && specShaAfter !== undefined
+            ? {
+                "qayaba.fix_loop.spec_sha_before": specShaBefore,
+                "qayaba.fix_loop.spec_sha_after": specShaAfter,
+                "qayaba.fix_loop.specs_changed": specShaBefore !== specShaAfter,
+              }
+            : {}),
+        });
+      } catch (err) {
+        console.error(`[qa] the fix-loop phase outcome could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     /*
@@ -2062,6 +2105,22 @@ export class RunQaUseCase {
           reviewStats.metricsKnown.steps = true;
         }
       };
+      /* The review phase span carries what the review came to, so a false-positive rejection is queryable. Only set once a round has judged. */
+      let lastReviewOutcome: string | undefined;
+      let lastCorrectionClass: string | undefined;
+      const annotateReviewPhase = (outcome: string): void => {
+        try {
+          trail.spans.annotate({
+            "qayaba.phase.outcome": outcome,
+            "qayaba.review.rounds": reviewStats.rounds,
+            "qayaba.review.model_rounds": reviewStats.modelRounds,
+            "qayaba.review.blocking": reviewStats.blocking,
+            "qayaba.review.correction_class": lastCorrectionClass ?? "none",
+          });
+        } catch (err) {
+          console.error(`[qa] the review phase outcome could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      };
       /*
        * Do not set finalReviewerCorrections on parse-miss or executedRed exits
        * (no real reviewer-authored text). Re-capture DOM only when the reviewed spec
@@ -2168,6 +2227,8 @@ export class RunQaUseCase {
         if (!reviewResult.unavailable) reviewStats.blocking = reviewedBlocking;
         const reviewOutcome = reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected";
         const correctionClass = reviewedBlocking > 0 ? correctionClassOf(reviewResult.corrections) : "none";
+        lastReviewOutcome = reviewOutcome;
+        lastCorrectionClass = correctionClass;
         const reviewTargets = [...new Set(reviewCases.map((c) => c.file ?? c.name))];
         /*
          * The decision evidence, not just its aggregate: an agent reading the trace must see which
@@ -2211,6 +2272,7 @@ export class RunQaUseCase {
          * Issue on a green run. The run ends as a persisted infra-error under its own class, with no PR and no Issue.
          */
         if (reviewResult.unavailable) {
+          annotateReviewPhase("unavailable");
           return await this.reviewerUnavailableResult(cfg, input, reviewResult.rationale, reviewCases.length, {
             static: validation.ok,
             retries,
@@ -2272,6 +2334,7 @@ export class RunQaUseCase {
       }
       /* A genuine review verdict overwrites generation's self-approval default. */
       reviewerApprovedForOutcome = reviewerApproved;
+      if (lastReviewOutcome !== undefined) annotateReviewPhase(lastReviewOutcome);
       reviewerSignal = {
         rounds: reviewStats.rounds,
         modelRounds: reviewStats.modelRounds,

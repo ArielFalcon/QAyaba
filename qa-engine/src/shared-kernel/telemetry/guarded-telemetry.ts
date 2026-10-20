@@ -23,8 +23,8 @@ class GuardedSpan implements SpanHandle {
   addEvent(name: string, attrs?: Parameters<SpanHandle["addEvent"]>[1], time?: number): void {
     swallow(undefined, () => this.inner.addEvent(name, attrs, time));
   }
-  recordError(error: unknown, attrs?: Parameters<SpanHandle["recordError"]>[1]): void {
-    swallow(undefined, () => this.inner.recordError(error, attrs));
+  recordError(error: unknown, attrs?: Parameters<SpanHandle["recordError"]>[1], time?: number): void {
+    swallow(undefined, () => this.inner.recordError(error, attrs, time));
   }
   end(endTime?: number): void {
     swallow(undefined, () => this.inner.end(endTime));

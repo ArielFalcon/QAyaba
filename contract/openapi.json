@@ -2052,6 +2052,41 @@
           "durationMs": {
             "type": "number",
             "minimum": 0
+          },
+          "networkErrors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "errorText": {
+                  "type": "string"
+                },
+                "resourceType": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "networkClass": {
+            "type": "string",
+            "enum": [
+              "egress",
+              "backend",
+              "dns",
+              "other"
+            ]
           }
         },
         "required": [

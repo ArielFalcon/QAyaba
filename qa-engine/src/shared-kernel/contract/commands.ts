@@ -8,6 +8,17 @@ import { CAPTURE_MODES } from "../telemetry/capture-mode";
 
 export const CaseStatusSchema = z.enum(["pass", "fail", "flaky"]);
 
+export const NetworkErrorSchema = z.object({
+  /* origin+pathname only — never a query or fragment. */
+  url: z.string(),
+  status: z.number().int().optional(),
+  errorText: z.string().optional(),
+  resourceType: z.string().optional(),
+});
+
+/* Derived from the case's network errors and the run's egress report, never reported by the browser. */
+export const NetworkClassSchema = z.enum(["egress", "backend", "dns", "other"]);
+
 export const QaCaseSchema = z.object({
   name: z.string(),
   status: CaseStatusSchema,
@@ -16,6 +27,8 @@ export const QaCaseSchema = z.object({
   objective: z.string().optional(),
   reason: z.string().optional(),
   durationMs: z.number().nonnegative().optional(),
+  networkErrors: z.array(NetworkErrorSchema).optional(),
+  networkClass: NetworkClassSchema.optional(),
 });
 
 export const SpecRecordSchema = z.object({

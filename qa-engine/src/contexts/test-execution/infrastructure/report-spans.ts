@@ -15,7 +15,9 @@ import { activeExecScope, runScopeKey, type RunScope } from "../../../shared-inf
 import { runChildOptions } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import { guardTelemetry } from "../../../shared-kernel/telemetry/guarded-telemetry.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
+import type { QaCase } from "../../../shared-kernel/qa-case.ts";
 import { planReport, type PlannedAttempt, type PlannedCase } from "../domain/playwright-report-plan.ts";
+import { summarizePlaywrightFailure } from "../domain/playwright-error-summary.ts";
 
 export const MAX_SPANS_PER_REPORT = 500;
 export const MAX_SPANS_PER_RUN = 2000;
@@ -44,7 +46,7 @@ function tallyOf(scope: RunScope | undefined): RunTally {
   return tally;
 }
 
-export function synthesizeReportSpans(deps: ReportSpanDeps, report: unknown): void {
+export function synthesizeReportSpans(deps: ReportSpanDeps, report: unknown, cases: readonly QaCase[] = []): void {
   try {
     const telemetry = guardTelemetry(deps.telemetry);
     const scope = activeExecScope();
@@ -53,6 +55,8 @@ export function synthesizeReportSpans(deps: ReportSpanDeps, report: unknown): vo
     const plan = planReport(report, { deniedHosts: scope?.report.denied ?? [], nowMs, ...(phaseStartMs !== undefined ? { phaseStartMs } : {}) });
     const options = runChildOptions();
     const tally = tallyOf(scope ? runScopeKey(scope) : undefined);
+    /* The runtime evidence the runner harvested per case, keyed by the case's report name (fullName). */
+    const evidence = new Map(cases.map((c) => [c.name, c]));
     let inReport = 0;
     /* Whether `n` more spans fit under both caps; when they do they are taken. */
     const take = (n: number): boolean => {
@@ -84,7 +88,7 @@ export function synthesizeReportSpans(deps: ReportSpanDeps, report: unknown): vo
         startTime: file.startMs,
         attrs: { "qayaba.spec.file": file.file, "qayaba.span.synthesized": true, "qayaba.time.source": "report" },
       });
-      for (const c of fitting) emitCase(telemetry, fileSpan, c, options);
+      for (const c of fitting) emitCase(telemetry, fileSpan, c, options, evidence);
       fileSpan.end(file.endMs);
     }
     if (dropped > 0) {
@@ -101,7 +105,8 @@ function countCase(telemetry: TelemetryPort, c: PlannedCase): void {
   telemetry.counter("qayaba.tests")(1, { "qayaba.test.status": c.status, ...(c.failureCategory !== undefined ? { "qayaba.test.failure_category": c.failureCategory } : {}) });
 }
 
-function emitCase(telemetry: TelemetryPort, fileSpan: ReturnType<TelemetryPort["startSpan"]>, c: PlannedCase, options: ReturnType<typeof runChildOptions>): void {
+function emitCase(telemetry: TelemetryPort, fileSpan: ReturnType<TelemetryPort["startSpan"]>, c: PlannedCase, options: ReturnType<typeof runChildOptions>, evidence: ReadonlyMap<string, QaCase>): void {
+  const e = evidence.get(c.fullName);
   const span = telemetry.startSpan("qayaba.test", {
     kind: "internal",
     ...(options.secrets ? { secrets: options.secrets } : {}),
@@ -115,9 +120,28 @@ function emitCase(telemetry: TelemetryPort, fileSpan: ReturnType<TelemetryPort["
       "qayaba.time.source": "report",
       ...(c.failureCategory !== undefined ? { "qayaba.test.failure_category": c.failureCategory } : {}),
       ...(c.strategy !== undefined ? { "qayaba.selector.strategy": c.strategy } : {}),
+      ...(e?.httpStatus !== undefined ? { "qayaba.test.http_status": e.httpStatus } : {}),
+      ...(e?.networkErrors !== undefined && e.networkErrors.length > 0 ? { "qayaba.test.network_error_count": e.networkErrors.length } : {}),
+      ...(e?.networkClass !== undefined ? { "qayaba.test.network_class": e.networkClass } : {}),
     },
   });
   for (const a of c.attempts) emitAttempt(telemetry, span, a, options);
+  const failedStatus = c.status === "failed" || c.status === "timedOut" || c.status === "interrupted" ? c.status : undefined;
+  if (failedStatus !== undefined) {
+    const failedAttempt = c.attempts.find((a) => a.status === "failed" || a.status === "timedOut" || a.status === "interrupted");
+    /* A report that carried no message still marked the case as failed: the status is the fact, never an invented reason. */
+    const message = failedAttempt?.errorMessage !== undefined ? summarizePlaywrightFailure(failedAttempt.errorMessage) : failedStatus;
+    const err = new Error(message);
+    err.name = c.failureCategory ?? "PlaywrightFailure";
+    span.recordError(
+      err,
+      {
+        ...(c.failureCategory !== undefined ? { "qayaba.test.failure_category": c.failureCategory } : {}),
+        ...(c.strategy !== undefined ? { "qayaba.selector.strategy": c.strategy } : {}),
+      },
+      failedAttempt?.endMs ?? c.endMs,
+    );
+  }
   span.end(c.endMs);
 }
 
@@ -134,7 +158,7 @@ function emitAttempt(telemetry: TelemetryPort, testSpan: ReturnType<TelemetryPor
       "qayaba.time.source": "report",
       ...(a.failureCategory !== undefined ? { "qayaba.test.failure_category": a.failureCategory } : {}),
       ...(a.strategy !== undefined ? { "qayaba.selector.strategy": a.strategy } : {}),
-      ...(a.errorMessage !== undefined ? { "qayaba.error.message": a.errorMessage } : {}),
+      ...(a.errorMessage !== undefined ? { "qayaba.error.message": summarizePlaywrightFailure(a.errorMessage) } : {}),
     },
   });
   if (a.strictMatchCount !== undefined) {

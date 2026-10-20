@@ -18,6 +18,7 @@ import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../
 import { parsePlaywrightReport } from "./playwright-report.ts";
 import { PLAYWRIGHT_INFRA_RE } from "../domain/playwright-infra.ts";
 import { openDumpBridge } from "./run-dump-bridge.ts";
+import { activeExecScope } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
@@ -152,8 +153,8 @@ export interface E2eExecuteDeps {
   allocateFailureDir?(): { dir: string; root: string; dispose(): void };
   /* OPTIONAL diagnostic sink for a secret-redaction audit trail (src/orchestrator/sanitizer.ts's recordAudit/SECRET_AUDIT — a security-boundary concern this module does not import directly, to stay src/-free). Absent ⇒ no audit recorded (safe for every unit test that doesn't care about it). The composition-root shell (rewritten-engine-factory.ts) binds the REAL recordAudit into createDefaultE2eExecuteDeps's returned object, so production behavior is unchanged. */
   recordAudit?(runId: string, detection: SecretDetection): void;
-  /* OPTIONAL read-only observer of a report-shaped Playwright JSON report, told once per run before the verdict is derived (the shell turns it into spans). It never alters the report or the verdict; a fault in it is logged and ignored. */
-  onReport?(report: unknown): void;
+  /* OPTIONAL read-only observer of a report-shaped Playwright JSON report, told once per run before the verdict is derived (the shell turns it into spans), with the harvested (and redacted) cases as its evidence. It never alters the report or the verdict; a fault in it is logged and ignored. */
+  onReport?(report: unknown, cases: readonly QaCase[]): void;
 }
 
 /** Local result shape so this file stays src/-free. */
@@ -291,14 +292,18 @@ export async function runE2E(
     });
   }
 
-  try {
-    deps.onReport?.(report);
-  } catch (err) {
-    console.error(`[qa] the report observer failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
-  }
+  /* The observer is told once per run, after the report is parsed and its cases are harvested and redacted, so the spans it synthesizes can carry each case's runtime evidence. It never alters the verdict; a fault in it is logged and ignored. */
+  const tell = (report: unknown, cases: readonly QaCase[]): void => {
+    try {
+      deps.onReport?.(report, cases);
+    } catch (err) {
+      console.error(`[qa] the report observer failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
   const parsed = parsePlaywrightReport(report);
 
   if (parsed.executed === 0) {
+    tell(report, parsed.cases);
     return counted({
       sha: opts.namespace,
       verdict: "infra-error",
@@ -311,6 +316,7 @@ export async function runE2E(
   /* The report is written by the test process, so a report that says every test passed cannot be told from a forged one by what it holds. How the child ended can: Playwright exits with a failure status when a test failed, and a child that a signal ended never finished reporting. A pass that the child did not exit 0 for is a run that cannot be trusted: infrastructure, and none of its cases is handed on. A failure stays a failure whatever the status; the status only takes a pass away. */
   const distrust = parsed.verdict === "pass" ? untrustedExit(out) : undefined;
   if (distrust !== undefined) {
+    tell(report, parsed.cases);
     return counted({
       sha: opts.namespace,
       verdict: "infra-error",
@@ -322,6 +328,7 @@ export async function runE2E(
   }
 
   if (parsed.verdict === "fail" && allFailuresAreRunnerInfra(parsed.cases)) {
+    tell(report, parsed.cases);
     return counted({
       sha: opts.namespace,
       verdict: "infra-error",
@@ -332,31 +339,34 @@ export async function runE2E(
     }, parsed.executed);
   }
 
-  /* Post-run harvest: for each failed case, read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom. The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md). Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the failureDom we set here because the runtime objects are identical. */
-  const failedPwCases = parsed.cases.filter((c) => c.status === "fail");
-  if (failedPwCases.length > 0) {
-    /* The per-case harvest runs whenever there are failed cases — NOT gated on failureCaptureDir. When the dir is absent (e.g. mkdtempSync failed for lack of /tmp space) `dumps` is simply [] and every failed case falls straight to the loud "no grounding captured" WARNING below. Gating the whole loop on the dir silently dropped the WARNING — violating the never-swallow invariant. Read every dump ONCE into {file, title, retry, yaml}: matching keys off the dump's own `file` + `title` (the describe›test chain the fixture wrote), which the report's case name ENDS WITH — the report prepends the spec file as the top suite, the fixture records it as a separate `file`. */
-    const dumps = failureCaptureDir ? readFailureDumps(failureCaptureDir, FAILURE_DUMP_LIMITS, failureCaptureRoot) : [];
-    for (const c of failedPwCases) {
-      const qa = c as unknown as QaCase;
-      const dump = matchFailureDumps(c.name, dumps);
-      if (dump?.yaml) {
-        const nodes = parseAriaSnapshot(dump.yaml);
-        if (nodes.length > 0) qa.failureDom = nodes.join("\n");
-      }
-      if (dump?.httpStatus !== undefined) qa.httpStatus = dump.httpStatus;
-      if (dump?.finalUrl !== undefined) qa.finalUrl = dump.finalUrl;
-      if (dump?.runtimeErrors !== undefined) qa.runtimeErrors = dump.runtimeErrors;
-      /* No dump (or an unparseable one): loud WARNING (grounding gap — never swallow). */
-      if (!qa.failureDom) {
-        console.warn(`[qa] WARNING: no failure-point DOM captured for failed case ${JSON.stringify(c.name)} (no fixture dump) — fix-loop will run without grounding.`);
-      }
+  /* Post-run harvest: read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom, plus the runtime evidence (httpStatus, finalUrl, runtimeErrors, networkErrors). The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md). The dumps are read ONCE and attached to EVERY case (pass and flaky included): a pass case's dump exists only when the fixture wrote one, and a flaky case's first-attempt dump is its evidence. Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the fields we set here because the runtime objects are identical. */
+  const dumps = failureCaptureDir ? readFailureDumps(failureCaptureDir, FAILURE_DUMP_LIMITS, failureCaptureRoot) : [];
+  const deniedHosts = activeExecScope()?.report.denied ?? [];
+  for (const c of parsed.cases) {
+    const qa = c as unknown as QaCase;
+    const dump = matchFailureDumps(c.name, dumps);
+    if (dump?.yaml) {
+      const nodes = parseAriaSnapshot(dump.yaml);
+      if (nodes.length > 0) qa.failureDom = nodes.join("\n");
+    }
+    if (dump?.httpStatus !== undefined) qa.httpStatus = dump.httpStatus;
+    if (dump?.finalUrl !== undefined) qa.finalUrl = dump.finalUrl;
+    if (dump?.runtimeErrors !== undefined) qa.runtimeErrors = dump.runtimeErrors;
+    if (dump?.networkErrors !== undefined) {
+      qa.networkErrors = dump.networkErrors;
+      qa.networkClass = deriveNetworkClass(dump.networkErrors, deniedHosts);
+    }
+    /* No dump (or an unparseable one) for a FAILED case: loud WARNING (grounding gap — never swallow). */
+    if (c.status === "fail" && !qa.failureDom) {
+      console.warn(`[qa] WARNING: no failure-point DOM captured for failed case ${JSON.stringify(c.name)} (no fixture dump) — fix-loop will run without grounding.`);
     }
   }
 
   const qaCases = parsed.cases as QaCase[];
   /* A spec can print the account's password into an assertion message, and a page can echo it into the DOM the fixture dumped: what a child reported has the run's secrets taken out by value where it enters, before anything stores or forwards a case. */
   for (const c of qaCases) redactCaseByValue(c);
+
+  tell(report, qaCases);
 
   return counted({
     sha: opts.namespace,
@@ -395,6 +405,14 @@ function redactCaseByValue(c: QaCase): void {
   if (c.failureDom !== undefined) c.failureDom = redactByValue(c.failureDom);
   if (c.finalUrl !== undefined) c.finalUrl = redactByValue(c.finalUrl);
   if (c.runtimeErrors !== undefined) c.runtimeErrors = c.runtimeErrors.map((e) => ({ type: e.type, text: redactByValue(e.text) }));
+  if (c.networkErrors !== undefined) {
+    c.networkErrors = c.networkErrors.map((e) => ({
+      ...e,
+      url: redactByValue(e.url),
+      ...(e.errorText !== undefined ? { errorText: redactByValue(e.errorText) } : {}),
+      ...(e.resourceType !== undefined ? { resourceType: redactByValue(e.resourceType) } : {}),
+    }));
+  }
 }
 
 const TITLE_SEP = " › ";
@@ -420,6 +438,7 @@ export interface FailureDump {
   httpStatus?: number;
   finalUrl?: string;
   runtimeErrors?: { type: string; text: string }[];
+  networkErrors?: QaCase["networkErrors"];
 }
 
 /* What the Playwright child leaves in the two directories this module makes for a run: the JSON report and the failure-capture dumps. The child runs the repo's specs, which are code the agent wrote, and it knows both paths, so a named pipe, a link or a file of any size can be there instead of what the reporter or the fixture wrote. Both are read through the strict read of spec-path-confinement, under these caps, which are far beyond any real run: a Playwright report holds a few kilobytes per test (a thousand tests that fail on all three attempts with a 4 KB message each make 12 MiB, and nothing real is larger), and an aria snapshot of a very large page a few megabytes. They are parsed in the orchestrator's one thread, and a document of nothing but empty arrays costs some fifteen times its size in heap and about a second of parse for every 12 MiB (one of 128 MiB took 11 s and 2 GiB), so the caps are also what a freeze or an out-of-memory can cost: at these, about a second and a quarter of a gigabyte for the report, and the same for all the dumps together. A worker thread with a heap limit would bound the heap and not the cost of handing the result back, so the smaller cap is the whole defense. */
@@ -460,8 +479,9 @@ const DUMP_FILE_RE = /__(\d+)\.json$/;
 
 /* One dump, from the file the fixture wrote. Throws on what is not JSON; the reader says that the dump was left out and never quotes why. */
 function toFailureDump(name: string, bytes: Buffer): FailureDump {
-  const body = JSON.parse(bytes.toString("utf8")) as { project?: unknown; file?: unknown; title?: unknown; retry?: unknown; yaml?: unknown; httpStatus?: unknown; finalUrl?: unknown; runtimeErrors?: unknown };
+  const body = JSON.parse(bytes.toString("utf8")) as { project?: unknown; file?: unknown; title?: unknown; retry?: unknown; yaml?: unknown; httpStatus?: unknown; finalUrl?: unknown; runtimeErrors?: unknown; networkErrors?: unknown };
   const runtimeErrors = parseRuntimeErrors(body.runtimeErrors);
+  const networkErrors = parseNetworkErrors(body.networkErrors);
   return {
     project: typeof body.project === "string" ? body.project : "",
     ...(typeof body.file === "string" ? { file: body.file } : {}),
@@ -472,6 +492,7 @@ function toFailureDump(name: string, bytes: Buffer): FailureDump {
     ...(typeof body.httpStatus === "number" && Number.isInteger(body.httpStatus) ? { httpStatus: body.httpStatus } : {}),
     ...(typeof body.finalUrl === "string" ? { finalUrl: body.finalUrl } : {}),
     ...(runtimeErrors.length > 0 ? { runtimeErrors } : {}),
+    ...(networkErrors !== undefined ? { networkErrors } : {}),
   };
 }
 
@@ -505,6 +526,55 @@ function parseRuntimeErrors(v: unknown): { type: string; text: string }[] {
     }
   }
   return out;
+}
+
+const MAX_NETWORK_ERRORS = 10;
+const NETWORK_ERROR_URL_CAP = 300;
+const NETWORK_ERROR_TEXT_CAP = 160;
+const NETWORK_ERROR_RESOURCE_CAP = 40;
+
+/* Re-sanitizes one reported network-error URL at the trust boundary: http/https only, kept as origin+pathname (never a query or fragment — a path can still carry a secret, so redactCaseByValue takes it out by value afterward). Unparseable → dropped. */
+function sanitizeNetworkErrorUrl(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  let u: URL;
+  try { u = new URL(raw); } catch { return undefined; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
+  const url = `${u.origin}${u.pathname}`;
+  return url.length <= NETWORK_ERROR_URL_CAP ? url : url.slice(0, NETWORK_ERROR_URL_CAP);
+}
+
+/* Defensively parses the `networkErrors` field of a capture dump, at the same trust boundary as parseRuntimeErrors: array only, each entry an object with a string `url` (re-sanitized), an integer 100-599 `status`, a capped string `errorText` and a capped string `resourceType`; deduped by status|errorText|url|resourceType, capped at MAX_NETWORK_ERRORS, and undefined when empty. Never throws. */
+function parseNetworkErrors(v: unknown): QaCase["networkErrors"] {
+  if (!Array.isArray(v)) return undefined;
+  const out: NonNullable<QaCase["networkErrors"]> = [];
+  const seen = new Set<string>();
+  for (const entry of v) {
+    if (out.length >= MAX_NETWORK_ERRORS) break;
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as { url?: unknown; status?: unknown; errorText?: unknown; resourceType?: unknown };
+    const url = sanitizeNetworkErrorUrl(e.url);
+    if (url === undefined) continue;
+    const status = typeof e.status === "number" && Number.isInteger(e.status) && e.status >= 100 && e.status <= 599 ? e.status : undefined;
+    const errorText = typeof e.errorText === "string" ? e.errorText.slice(0, NETWORK_ERROR_TEXT_CAP) : undefined;
+    const resourceType = typeof e.resourceType === "string" ? e.resourceType.slice(0, NETWORK_ERROR_RESOURCE_CAP) : undefined;
+    const dedupe = `${status ?? ""}|${errorText ?? ""}|${url}|${resourceType ?? ""}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    out.push({ url, ...(status !== undefined ? { status } : {}), ...(errorText !== undefined ? { errorText } : {}), ...(resourceType !== undefined ? { resourceType } : {}) });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/* Derives `networkClass` from the case's sanitized network errors and the run's egress report: a URL whose host the filter refused is egress; else a 5xx is backend; else a DNS-shaped error is dns; else other. Undefined when there are no network errors. */
+function deriveNetworkClass(errors: NonNullable<QaCase["networkErrors"]>, deniedHosts: readonly string[]): QaCase["networkClass"] {
+  const denied = new Set(deniedHosts.map((h) => h.toLowerCase()));
+  const hostOf = (url: string): string | undefined => {
+    try { return new URL(url).hostname.toLowerCase(); } catch { return undefined; }
+  };
+  if (errors.some((e) => { const h = hostOf(e.url); return h !== undefined && denied.has(h); })) return "egress";
+  if (errors.some((e) => e.status !== undefined && e.status >= 500)) return "backend";
+  if (errors.some((e) => e.errorText !== undefined && /ERR_NAME|ENOTFOUND|EAI_AGAIN/.test(e.errorText))) return "dns";
+  return "other";
 }
 
 export function matchFailureDumps(caseName: string, dumps: FailureDump[]): FailureDump | null {

@@ -5,6 +5,7 @@ import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastr
 import { sanitizeText, assertNoSecretLeak, type SanitizeMode } from "../sanitize-text.ts";
 import { capText, capDiff, extractDiffFilePath } from "../prompt-cap.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { stripAnsi } from "@kernel/ansi.ts";
 import type {
   ArchitectureContext,
   CommitIntent,
@@ -335,14 +336,23 @@ function renderServiceLinkLine(
 
 function renderFixCaseEvidenceLines(c: QaCase): string[] {
   const lines: string[] = [];
-  if (c.httpStatus !== undefined || c.finalUrl !== undefined) {
-    const statusPart = c.httpStatus !== undefined ? `HTTP ${c.httpStatus}` : "HTTP (unknown)";
+  const hasNetworkErrors = c.networkErrors !== undefined && c.networkErrors.length > 0;
+  if (c.httpStatus !== undefined) {
     const urlPart = c.finalUrl !== undefined ? ` at ${redactForModel(c.finalUrl)}` : "";
-    lines.push(`  ${statusPart}${urlPart}`);
+    lines.push(`  HTTP ${c.httpStatus}${urlPart}`);
+  } else if (!hasNetworkErrors && c.finalUrl !== undefined) {
+    /* The unknown HTTP line was misleading next to real network evidence, so it is only printed when there is none. */
+    lines.push(`  HTTP (unknown) at ${redactForModel(c.finalUrl)}`);
+  }
+  if (c.networkErrors?.length) {
+    for (const e of c.networkErrors.slice(0, 3)) {
+      const label = e.status !== undefined ? String(e.status) : e.errorText ?? "failed";
+      lines.push(stripAnsi(`  NET ${label} ${redactForModel(e.url)}`).slice(0, 400));
+    }
   }
   if (c.runtimeErrors?.length) {
     for (const e of c.runtimeErrors.slice(0, 3)) {
-      lines.push(`  [${e.type}] ${redactForModel(e.text).slice(0, 200)}`);
+      lines.push(`  [${e.type}] ${stripAnsi(redactForModel(e.text)).slice(0, 200)}`);
     }
   }
   return lines;
@@ -350,7 +360,7 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
 
 /* A failing case as a prompt lists it: its name, the start of its error and what the run saw of the page. The case comes out of the test run, so each text is redacted before it is cut, and no secret is left in part by the cut. */
 function renderFixCase(c: QaCase): string[] {
-  const error = c.detail === undefined ? "(no detail)" : redactForModel(c.detail).slice(0, 500);
+  const error = c.detail === undefined ? "(no detail)" : stripAnsi(redactForModel(c.detail)).slice(0, 500);
   return [`- ${redactForModel(c.name)}\n  Error: ${error}`, ...renderFixCaseEvidenceLines(c)];
 }
 

@@ -86,6 +86,8 @@ export const ATTRIBUTES = {
   "qayaba.review.outcome": str("How a review round's verdict read: approved, rejected, parse-miss or unavailable."),
   "qayaba.review.decided_by": str("What decided the review round: model, precheck or unchanged."),
   "qayaba.review.round": int("The review round, from 1."),
+  "qayaba.review.rounds": int("Review rounds that ran."),
+  "qayaba.review.model_rounds": int("Review rounds decided by a model."),
   "qayaba.review.correction_class": str("The class of the round's blocking correction: false-positive, wrong-objective, fragile-selector, no-cleanup, other or none."),
   "qayaba.review.blocking": int("Blocking corrections in the review round."),
   "qayaba.review.targets": spec("string[]", "The spec paths this run delivered and the reviewer judged.", "high", "none", 50),
@@ -105,6 +107,15 @@ export const ATTRIBUTES = {
   /* Phases. */
   "qayaba.phase": str("The phase name, from the canonical phase list."),
   "qayaba.phase.outcome": str("How the phase ended."),
+
+  /* Fix-loop phase outcomes. */
+  "qayaba.fix_loop.rounds": int("Regeneration rounds the fix loop ran."),
+  "qayaba.fix_loop.failing_before": int("Failing cases before the fix loop."),
+  "qayaba.fix_loop.failing_after": int("Failing cases after the fix loop."),
+  "qayaba.fix_loop.absent_selectors": int("Absent selectors from the first fix-loop round's divergence evidence."),
+  "qayaba.fix_loop.specs_changed": bool("The fix loop changed the spec set."),
+  "qayaba.fix_loop.spec_sha_before": metaHash("sha256 of the spec set before the fix loop."),
+  "qayaba.fix_loop.spec_sha_after": metaHash("sha256 of the spec set after the fix loop."),
 
   /* Evaluation scores (one measurement per graded score; never the run id, a comment or an observation id). */
   "qayaba.eval.name": str("A graded score's name from the grader catalog, a family member as `<base>.<suffix>`. Bounded by the catalog."),
@@ -260,6 +271,9 @@ export const ATTRIBUTES = {
   "qayaba.test.status": str("passed, failed, flaky, skipped, timedOut or interrupted."),
   "qayaba.test.failure_category": str("selector, auth, data_state, timeout, assertion, infra or egress."),
   "qayaba.test.retries": int("Retries the case used."),
+  "qayaba.test.http_status": int("The HTTP status of the page the case ended on, harvested from the capture dump."),
+  "qayaba.test.network_error_count": int("Failed requests the page saw, harvested from the capture dump."),
+  "qayaba.test.network_class": str("egress, backend, dns or other, derived from the harvested network errors and the run's egress report."),
   "qayaba.test.attempt": int("The attempt number of a case (0 is the first run)."),
   "qayaba.selector.match_count": int("Elements a locator resolved to in a strict mode violation."),
   "qayaba.selector.strategy": str("The kind of locator that failed: testid, role, text or css."),

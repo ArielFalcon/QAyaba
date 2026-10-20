@@ -168,6 +168,14 @@ test("updateRecord stamps stepStartedAt whenever the step changes", () => {
   assert.ok(ts2 && ts2 !== ts1 || Date.parse(ts2!) >= Date.parse(ts1!));
 });
 
+test("a step written with a detail and then without one clears the detail", () => {
+  const r = createRecord({ target: "e2e", app: "hist-step-detail", sha: "det0001", mode: "diff" });
+  updateRecord(r.id, { step: "retry", stepDetail: "fix-loop engaged" });
+  assert.equal(getRecord(r.id)!.stepDetail, "fix-loop engaged");
+  updateRecord(r.id, { step: "coverage", stepDetail: null });
+  assert.equal(getRecord(r.id)!.stepDetail, undefined);
+});
+
 test("continuationDepth walks the parentRunId chain", () => {
   const grandparent = createRecord({ target: "e2e", app: "hist-f", sha: "aaa0001", mode: "diff" });
   const parent = createRecord({ target: "e2e", app: "hist-f", sha: "aaa0001", mode: "diff", parentRunId: grandparent.id });

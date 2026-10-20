@@ -36,6 +36,7 @@ import {
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
+import { newSandboxReport, withExecScope, type RunScope } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 test("allFailuresAreRunnerInfra: a browser-launch failure is infra (runner fault), not a test failure", () => {
@@ -866,6 +867,93 @@ test("readFailureDumps parses runtimeErrors defensively (garbage/malformed entri
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/* ── Harvest fold — networkErrors + networkClass onto QaCase ─────────────
+   The dump's networkErrors fold onto EVERY case (pass included — a pass case's dump exists only
+   when the fixture wrote one), the URL is reduced to origin+pathname (a query can carry a secret),
+   the count is capped, and networkClass is derived from the run's egress report, never reported
+   by the browser.
+ */
+
+const netCase = { file: "owners.spec.ts", title: "owner registration › create owner" };
+
+function scopeWithDenied(denied: string[]): RunScope {
+  const report = newSandboxReport();
+  report.denied = denied;
+  return { runId: "test-run", workDir: tmpdir(), egress: { dev: [], install: [] }, report };
+}
+
+async function runWithNetworkDump(opts: { status: "pass" | "fail"; networkErrors: unknown; denied?: string[] }): Promise<{ cases: QaCase[] }> {
+  const hash = createHash("sha1").update(`${netCase.file}/${netCase.title}`).digest("hex").slice(0, 12);
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => {
+      if (args.failureCaptureDir) {
+        writeFileSync(
+          join(args.failureCaptureDir, `desktop__${hash}__0.json`),
+          JSON.stringify({ project: "desktop", file: netCase.file, title: netCase.title, retry: 0, networkErrors: opts.networkErrors }),
+        );
+      }
+      return {
+        report: {
+          suites: [{
+            title: netCase.file,
+            specs: [{
+              title: netCase.title,
+              ok: opts.status === "pass",
+              tests: [{ results: [{ status: opts.status === "pass" ? "passed" : "failed", ...(opts.status === "fail" ? { error: { message: "boom" } } : {}) }] }],
+            }],
+          }],
+        },
+        logs: opts.status,
+        ran: true,
+      };
+    },
+  };
+  const run = await withExecScope(scopeWithDenied(opts.denied ?? []), () =>
+    runE2E("/e2e", { baseUrl: "https://dev", namespace: "desktop" }, deps));
+  return { cases: run.cases as QaCase[] };
+}
+
+test("harvest folds dump.networkErrors onto a PASSING case, strips the query string, and caps the count", async () => {
+  const entries = Array.from({ length: 12 }, (_, i) => ({
+    url: i === 0 ? "https://api.example.com/orders?token=secret" : `https://api.example.com/orders/${i}`,
+    status: 404,
+  }));
+  const { cases } = await runWithNetworkDump({ status: "pass", networkErrors: entries });
+  const passed = cases.find((c) => c.status === "pass");
+  assert.ok(passed, "the passing case must be present");
+  const ne = passed.networkErrors;
+  assert.ok(ne, "networkErrors must fold onto a passing case");
+  assert.equal(ne.length, 10, "networkErrors must be capped at 10");
+  assert.ok(ne.every((e) => !e.url.includes("?") && !e.url.includes("token")), "a query string (and its secret) must never appear");
+  assert.equal(ne[0]!.url, "https://api.example.com/orders", "the URL is reduced to origin+pathname");
+  assert.equal(passed.networkClass, "other", "no denied host / 5xx / DNS shape -> other");
+});
+
+test("networkClass is egress when a network-error host is in the run's denied list", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "fail",
+    networkErrors: [{ url: "https://api.example.com/orders", status: 504 }],
+    denied: ["api.example.com"],
+  });
+  assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "egress", "a denied host classifies egress before a 5xx");
+});
+
+test("networkClass is backend for a 504 with no denied host", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "fail",
+    networkErrors: [{ url: "https://api.example.com/orders", status: 504 }],
+  });
+  assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "backend");
+});
+
+test("networkClass is dns for net::ERR_NAME_NOT_RESOLVED", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "fail",
+    networkErrors: [{ url: "https://api.example.com/orders", errorText: "net::ERR_NAME_NOT_RESOLVED" }],
+  });
+  assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "dns");
 });
 
 /* ── authDir is REQUIRED in the execute/cleanup deps builders — no silent fallback to `dir` ──

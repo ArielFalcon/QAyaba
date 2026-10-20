@@ -409,7 +409,12 @@ test("GET /trends?format=csv returns a flat CSV", async () => {
 test("GET /api/runs/:id sanitizes logs/cases/note before egress", async () => {
   const leaky: RunRecord = {
     id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", verdict: "fail",
-    cases: [{ name: "x", status: "fail", detail: "boom token: ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }],
+    cases: [{
+      name: "x",
+      status: "fail",
+      detail: "boom token: ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      networkErrors: [{ url: "https://dev.example/ghp_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", status: 504 }],
+    }],
     logs: ["running... token: ghp_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB end"],
     note: "failed; secret ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     at: "t",
@@ -417,7 +422,7 @@ test("GET /api/runs/:id sanitizes logs/cases/note before egress", async () => {
   const res = mkRes();
   await handleApi(mkReq("GET", "/api/runs/r1"), res, deps({ getRecord: () => leaky }));
   assert.equal(res.status, 200);
-  assert.doesNotMatch(res.body, /ghp_AAAA|ghp_BBBB|ghp_CCCC/, "logs/cases/note must be redacted on egress");
+  assert.doesNotMatch(res.body, /ghp_AAAA|ghp_BBBB|ghp_CCCC|ghp_DDDD/, "logs/cases/note/network errors must be redacted on egress");
 });
 
 test("GET /api/runs/:id: a null/absent case detail does not 500 the contract (egress omits it)", async () => {

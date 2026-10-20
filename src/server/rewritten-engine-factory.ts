@@ -964,7 +964,7 @@ export function buildRewrittenCompositionConfig(
     ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
     recordAudit,
     /* The Playwright report as spans (spec files, cases, attempts) under the phase that executes. */
-    ...(deps.telemetry ? { onReport: (report: unknown) => synthesizeReportSpans({ telemetry: deps.telemetry! }, report) } : {}),
+    ...(deps.telemetry ? { onReport: (report, cases) => synthesizeReportSpans({ telemetry: deps.telemetry! }, report, cases) } : {}),
   };
   const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), exec);
   /* One launcher-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */

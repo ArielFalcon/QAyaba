@@ -641,8 +641,19 @@ function sanitizeRecord(record: RunRecord): RunRecord {
        * `c.detail ?? null`), but the contract is z.string().optional() (string|undefined, NOT null),
        * so passing null through here 500s the run-status API. Strip it (and sanitize when present).
        */
-      const { detail, ...rest } = c;
-      return detail ? { ...rest, detail: sanitizeText(detail).text } : rest;
+      const { detail, networkErrors, ...rest } = c;
+      /* A network error's URL and text are DEV data too: sanitize them on egress, not only by value at harvest. */
+      const safeNetworkErrors = networkErrors?.map((e) => ({
+        ...e,
+        url: sanitizeText(e.url).text,
+        ...(e.errorText !== undefined ? { errorText: sanitizeText(e.errorText).text } : {}),
+        ...(e.resourceType !== undefined ? { resourceType: sanitizeText(e.resourceType).text } : {}),
+      }));
+      return {
+        ...rest,
+        ...(detail ? { detail: sanitizeText(detail).text } : {}),
+        ...(safeNetworkErrors ? { networkErrors: safeNetworkErrors } : {}),
+      };
     }),
     activity: record.activity?.map((a) => ({ ...a, text: sanitizeText(a.text).text })),
   };

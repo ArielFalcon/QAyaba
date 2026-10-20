@@ -734,6 +734,14 @@ export interface components {
             objective?: string;
             reason?: string;
             durationMs?: number;
+            networkErrors?: {
+                url: string;
+                status?: number;
+                errorText?: string;
+                resourceType?: string;
+            }[];
+            /** @enum {string} */
+            networkClass?: "egress" | "backend" | "dns" | "other";
         };
         SpecRecord: {
             name: string;

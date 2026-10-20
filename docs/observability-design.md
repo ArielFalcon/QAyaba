@@ -280,11 +280,21 @@ qayaba.run
 Rules, from the brief §2.1 and the OTel spec:
 - Span names are **low cardinality**. Variable data goes in attributes.
 - Phases use kind INTERNAL. Outbound HTTP uses CLIENT. The tools listener uses SERVER.
-- ERROR status plus `error.type` is used **only for infrastructure failures**. A `fail` verdict is a
-  product outcome, recorded as `qayaba.verdict`, and the span status stays UNSET.
+- ERROR status plus `error.type` is used for infrastructure failures and for a **test case that ran and
+  failed** (the operation "run this case" failed; its `qayaba.test` span records a sanitized exception).
+  The run's and the phases' product outcomes stay attributes (`qayaba.verdict`, `qayaba.phase.outcome`),
+  and their span status stays UNSET. A `flaky` case is not an error: it passed on retry, and its failed
+  attempt carries the evidence.
 - Point occurrences are **span events**: `retry`, `strict_mode_violation`, `step_budget_exhausted`,
   `circuit_opened`, `fallback_model_used`, `truncation_applied`, `redaction_applied`,
   `host_suspended`, `egress_denied`, `deadline_armed`.
+- **Phase outcome.** `qayaba.phase.outcome` records how a phase that makes a decision ended. The fix
+  loop adds `qayaba.fix_loop.rounds`, `.failing_before`, `.failing_after`, `.absent_selectors` (first
+  round), `.specs_changed` and `.spec_sha_before`/`.spec_sha_after` (sha256 over the sorted spec set,
+  `file + NUL + bytes`; absent when any file cannot be read). The review adds
+  `qayaba.review.rounds`, `.model_rounds`, `.blocking` and `.correction_class`. This is what makes a
+  false positive (a failing run the loop turned green by changing the spec) a query rather than a
+  manual investigation.
 
 ### 4.3 Root attributes
 
@@ -573,6 +583,18 @@ for an id nobody can export would be noise. This deviates from brief §4.2, deli
   - categories: `selector | auth | data_state | timeout | assertion | infra | egress`
   - `strict_mode_violation` is an event carrying `qayaba.selector.match_count`, parsed from
     Playwright's "resolved to N elements"
+- **A failed case is an error span.** `qayaba.test` ends ERROR with an `exception` event when its final
+  status is `failed`, `timedOut` or `interrupted`: `exception.type` is the failure category and
+  `exception.message` is a compact summary (first line + `Locator`/`Expected`/`Received`/`Timeout` +
+  the first two call-log entries, ≤500 chars, no stack, ANSI stripped). The attempt spans keep
+  `qayaba.error.message` (the same summary), and a `flaky` case stays UNSET.
+- **Execution evidence.** The synthesized case span carries the evidence the report cannot:
+  `qayaba.test.http_status`, `qayaba.test.network_error_count` and `qayaba.test.network_class`
+  (`egress | backend | dns | other`), matched to the case from the harvested dumps. The failure-capture
+  block also writes a dump for a **passing** test that showed evidence (a console error, a failed request
+  or a 5xx) and records `requestfailed` entries with the URL reduced to origin + pathname, so a query
+  string never reaches the dump. `network_class` is derived: a host in the run's denied list is `egress`,
+  a 5xx is `backend`, a name-resolution error is `dns`.
 - **Validation.** One child per check: `typecheck|lint|list|manifest`, with an ok flag and an error
   count. Also the catalog gate (fabricated test-id count) and the ambiguity advisory
   (`preExecAmbiguityCatches`).

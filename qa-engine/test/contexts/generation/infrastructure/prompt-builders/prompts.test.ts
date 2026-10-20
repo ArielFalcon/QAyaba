@@ -559,6 +559,19 @@ test("buildFollowupPrompt fix-cases section also renders httpStatus/finalUrl/run
   assert.match(followup, /\[pageerror\] TypeError: cannot read properties of undefined/);
 });
 
+test("buildPrompt fix-cases section renders NET evidence and suppresses the misleading HTTP (unknown)", () => {
+  const netCase: QaCase = { name: "owners list", status: "fail", networkErrors: [{ url: "https://api.example/orders", status: 504 }] };
+  const text = buildPrompt(mkInput({ fixCases: [netCase] }));
+  assert.match(text, /NET 504 https:\/\/api\.example\/orders/, "network evidence must render a NET line");
+  assert.doesNotMatch(text, /HTTP \(unknown\)/, "a network error replaces the misleading HTTP (unknown) line");
+});
+
+test("buildPrompt fix-cases section still renders HTTP (unknown) when there is a finalUrl and no network errors", () => {
+  const noNet: QaCase = { name: "owners list", status: "fail", finalUrl: "https://dev.example.com/owners" };
+  const text = buildPrompt(mkInput({ fixCases: [noNet] }));
+  assert.match(text, /HTTP \(unknown\) at https:\/\/dev\.example\.com\/owners/, "no network errors must keep the HTTP (unknown) line");
+});
+
 function padTo(s: string, bytes: number): string {
   const current = Buffer.byteLength(s, "utf8");
   if (current >= bytes) return s;

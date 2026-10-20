@@ -45,8 +45,8 @@ export interface StartSpanOptions {
 export interface SpanHandle {
   setAttrs(attrs: Attrs): void;
   addEvent(name: string, attrs?: Attrs, time?: number): void;
-  /* Records an exception event and marks the span ERROR. Only for infrastructure failures; a product outcome is an attribute. */
-  recordError(error: unknown, attrs?: Attrs): void;
+  /* Records an exception event and marks the span ERROR. For infrastructure failures and for a test case that ran and failed; a run/phase product outcome stays an attribute. `time` is the wall-clock ms of the event, defaulting to the adapter's clock. */
+  recordError(error: unknown, attrs?: Attrs, time?: number): void;
   /* Wall-clock ms. Defaults to the adapter's clock. Ending twice is a no-op. */
   end(endTime?: number): void;
   context(): TelemetryContext;

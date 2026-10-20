@@ -13,6 +13,7 @@ import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
+import { stripAnsi } from "@kernel/ansi.ts";
 import type { AccountLock } from "../domain/account-lock.ts";
 import { endedOnLoginWall } from "../domain/login-wall.ts";
 import {
@@ -36,7 +37,6 @@ export const DURATION_GRANULARITY_MS = 1_000;
 export const SPEC_PATH_PATTERN = /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\.spec\.ts$/;
 
 const FORBIDDEN_SEGMENTS: ReadonlySet<string> = new Set(["node_modules", ".auth", ".qa", ".git", "test-results"]);
-const ANSI = /\u001b\[[0-9;]*[A-Za-z]/g;
 
 export const RUN_SPEC_INVALID = {
   INVALID_REQUEST: "invalid-request",
@@ -292,7 +292,7 @@ export class RunSpecUseCase {
       title: cut(clean(c.name), MAX_TITLE_CHARS),
       status: "failed",
       ...(c.durationMs !== undefined ? { durationMs: Math.round(c.durationMs / DURATION_GRANULARITY_MS) * DURATION_GRANULARITY_MS } : {}),
-      ...(c.detail !== undefined ? { error: { message: cut(clean(c.detail.replace(ANSI, "")), MAX_ERROR_CHARS) } } : {}),
+      ...(c.detail !== undefined ? { error: { message: cut(clean(stripAnsi(c.detail)), MAX_ERROR_CHARS) } } : {}),
       ...(c.failureDom !== undefined ? { failureDom: cut(this.deps.redact(c.failureDom), MAX_FAILURE_DOM_CHARS) } : {}),
       ...(c.finalUrl !== undefined ? { finalUrl: clean(withoutQuery(c.finalUrl)) } : {}),
     };

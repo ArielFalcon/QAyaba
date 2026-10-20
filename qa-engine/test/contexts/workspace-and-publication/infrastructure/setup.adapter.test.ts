@@ -260,7 +260,7 @@ test("ensureFailureCapture: first injection appends the block; existing lines un
     assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename");
     assert.match(after, /createHash\("sha1"\)\.update\(`\$\{file\}\/\$\{title\}`\)/, "the filename hash must fold in the file AND the full title (no 80-char truncation)");
     assert.match(after, /\$\{safeProject\}__\$\{hash\}__\$\{testInfo\.retry\}\.json/, "the filename must be project__hash__retry");
-    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors");
+    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors, networkErrors");
     /* ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
     assert.doesNotMatch(after, /require\(/, "the injected block must not use require() (ReferenceError in ESM — dead capture)");
     assert.match(after, /await import\("node:fs"\)/, "the injected block must pull node:fs via dynamic import()");
@@ -1024,6 +1024,48 @@ test("config/e2e/fixtures.ts qa-failure-capture block contains runtimeErrors", (
   assert.ok(block.includes("runtimeErrors"), "fixtures.ts qa-failure-capture block must contain runtimeErrors");
 });
 
+test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('requestfailed'", () => {
+  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
+  const content = readFileSync(fixturesPath, "utf8");
+  const start = content.indexOf(">>> qa-failure-capture");
+  const end = content.indexOf("<<< qa-failure-capture");
+  const block = content.slice(start, end);
+  assert.ok(block.includes("page.on('requestfailed'"), "fixtures.ts qa-failure-capture block must contain page.on('requestfailed'");
+});
+
+test("config/e2e/fixtures.ts qa-failure-capture block contains networkErrors", () => {
+  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
+  const content = readFileSync(fixturesPath, "utf8");
+  const start = content.indexOf(">>> qa-failure-capture");
+  const end = content.indexOf("<<< qa-failure-capture");
+  const block = content.slice(start, end);
+  assert.ok(block.includes("networkErrors"), "fixtures.ts qa-failure-capture block must contain networkErrors");
+});
+
+test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('requestfailed' and carries networkErrors in the dump body (twin sync)", () => {
+  assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('requestfailed'"), "FAILURE_CAPTURE_BLOCK must register a requestfailed listener");
+  assert.ok(FAILURE_CAPTURE_BLOCK.includes("networkErrors"), "FAILURE_CAPTURE_BLOCK must carry networkErrors");
+  assert.match(
+    FAILURE_CAPTURE_BLOCK,
+    /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors \}\)/,
+    "FAILURE_CAPTURE_BLOCK's dump body must carry networkErrors alongside runtimeErrors",
+  );
+});
+
+test("the seed's capture block is byte-identical to FAILURE_CAPTURE_BLOCK", () => {
+  const content = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const start = content.indexOf(`\n// ${FAILURE_CAPTURE_MARKER}`);
+  assert.notEqual(start, -1, "the seed must carry the capture block marker");
+  const closing = "// <<< qa-failure-capture <<<\n";
+  const endMarker = content.indexOf(closing, start);
+  assert.notEqual(endMarker, -1, "the seed must carry the closing marker");
+  assert.equal(
+    content.slice(start, endMarker + closing.length),
+    FAILURE_CAPTURE_BLOCK,
+    "the seed block and FAILURE_CAPTURE_BLOCK drifted: update both twins and record the outgoing revision",
+  );
+});
+
 test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('console'/'pageerror' and runtimeErrors (twin sync)", () => {
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('console'"), "FAILURE_CAPTURE_BLOCK must register a console listener");
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('pageerror'"), "FAILURE_CAPTURE_BLOCK must register a pageerror listener");
@@ -1247,6 +1289,86 @@ test("the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, e
     } finally {
       if (prev !== undefined) process.env.QA_FAILURE_CAPTURE_DIR = prev;
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ── Network failures: a passing test with evidence still dumps ─────────
+   The block records requestfailed events (sanitized URL, capped error text, resource type) and
+   writes a dump for a PASSING test that showed evidence, without an aria snapshot.
+ */
+
+test("a passing test with a failed request dumps a stripped networkErrors URL and no aria snapshot", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-netpass-"));
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "netpass");
+    const handlers: Record<string, ((arg: unknown) => void) | undefined> = {};
+    const fakePage = {
+      on(event: string, cb: (arg: unknown) => void) {
+        handlers[event] = cb;
+      },
+      url: () => "https://dev.example/orders",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const passing = { status: "passed", expectedStatus: "passed", titlePath: ["p", "orders", "list"], project: { name: "desktop" }, file: "/repo/e2e/orders.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      assert.ok(handlers.requestfailed, "beforeEach must register a requestfailed listener via page.on('requestfailed', ...)");
+      handlers.requestfailed!({ url: () => "https://dev.example/api/x?token=secret", failure: () => ({ errorText: "net::ERR_FAILED" }), resourceType: () => "fetch" });
+      await mod.afterEachFn({ page: fakePage }, passing);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    assert.equal(dumps.length, 1, "a passing test with a failed request must write a dump");
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.equal(body.networkErrors[0].url, "https://dev.example/api/x", "the query string must not reach the dump");
+    assert.equal(body.yaml, "", "a passing test with evidence needs no aria snapshot");
+    assert.equal(body.httpStatus, undefined, "a failed request is not an attributed httpStatus");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failed request records its failure().errorText verbatim (net::ERR_NAME_NOT_RESOLVED)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-neterr-"));
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "neterr");
+    const handlers: Record<string, ((arg: unknown) => void) | undefined> = {};
+    const fakePage = {
+      on(event: string, cb: (arg: unknown) => void) {
+        handlers[event] = cb;
+      },
+      url: () => "https://dev.example/orders",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const failing = { status: "failed", expectedStatus: "passed", titlePath: ["p", "orders", "list"], project: { name: "desktop" }, file: "/repo/e2e/orders.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      handlers.requestfailed!({ url: () => "https://dev.example/api/x", failure: () => ({ errorText: "net::ERR_NAME_NOT_RESOLVED" }), resourceType: () => "fetch" });
+      await mod.afterEachFn({ page: fakePage }, failing);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    assert.equal(dumps.length, 1);
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.equal(body.networkErrors[0].errorText, "net::ERR_NAME_NOT_RESOLVED", "the request's failure errorText must be recorded verbatim");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

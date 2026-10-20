@@ -1012,7 +1012,14 @@ const FACT_COLUMNS: ReadonlyArray<[keyof RunFactsPatch, string]> = [
   ["coverageStatus", "coverage_status"], ["coverageMode", "coverage_mode"], ["coverageMinRatio", "coverage_min_ratio"], ["cancelled", "cancelled"],
 ];
 
-export function updateRecord(id: string, patch: Partial<RunRecord> & { phases?: RunPhasesPatch; facts?: RunFactsPatch }): void {
+/* The patch updateRecord takes: like RunRecord's optional fields, except stepDetail may be an explicit null so a step change can clear the last detail. */
+export type RunRecordPatch = Omit<Partial<RunRecord>, "stepDetail"> & {
+  stepDetail?: string | null;
+  phases?: RunPhasesPatch;
+  facts?: RunFactsPatch;
+};
+
+export function updateRecord(id: string, patch: RunRecordPatch): void {
   ensureDb();
   const setClauses: string[] = [];
   const params: Array<unknown> = [];

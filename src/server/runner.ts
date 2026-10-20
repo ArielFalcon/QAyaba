@@ -135,7 +135,7 @@ function buildRewrittenObserver(runId: string, runEvents: RunEventStore | undefi
   return {
     onStep(step: RunStep, detail?: string): void {
       try {
-        updateRecord(runId, { step, stepDetail: detail, retrying: step === "retry" });
+        updateRecord(runId, { step, stepDetail: detail ?? null, retrying: step === "retry" });
         runEvents?.publish(runId, { type: "step.changed", step, detail });
       } catch (err) {
         console.error("[qa] observer onStep failed (non-fatal, run continues):", err);

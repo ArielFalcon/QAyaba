@@ -6,7 +6,9 @@ import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { planReport, MAX_PLANNED_CASES } from "../../qa-engine/src/contexts/test-execution/domain/playwright-report-plan";
 import { newSandboxReport, withExecScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
-import { traceHarness, T0 } from "./trace-harness";
+import type { QaCase } from "@kernel/qa-case";
+import { parsePlaywrightReport } from "@contexts/test-execution/infrastructure/playwright-report";
+import { traceHarness, T0, SpanStatusCode } from "./trace-harness";
 
 const NOW = () => T0 + 60_000;
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -113,6 +115,100 @@ test("a failed case carries the category of its failure and a passing one carrie
   assert.equal(byName("orders › lists orders").attributes["qayaba.test.failure_category"], undefined);
 });
 
+test("a failed case's runtime evidence is attached to its qayaba.test span by fullName", () => {
+  const h = traceHarness();
+  const cases: QaCase[] = [{
+    name: "flows/profile.spec.ts › shows the name",
+    status: "fail",
+    httpStatus: 504,
+    networkErrors: [{ url: "https://api.example.com/orders", status: 504 }],
+    networkClass: "backend",
+  }];
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT, cases);
+  const span = h.named("qayaba.test").find((s) => s.attributes["qayaba.test.name"] === "shows the name")!;
+  assert.equal(span.attributes["qayaba.test.http_status"], 504);
+  assert.equal(span.attributes["qayaba.test.network_error_count"], 1);
+  assert.equal(span.attributes["qayaba.test.network_class"], "backend");
+});
+
+test("a passing case's network evidence is attached too (the false-positive signal)", () => {
+  const h = traceHarness();
+  const passing = {
+    suites: [{ title: "flows/profile.spec.ts", file: "flows/profile.spec.ts", specs: [{ title: "shows the name", tests: [{ status: "expected", results: [{ status: "passed", duration: 10, retry: 0, startTime: iso(T0) }] }] }] }],
+  };
+  const cases: QaCase[] = [{
+    name: "flows/profile.spec.ts › shows the name",
+    status: "pass",
+    httpStatus: 504,
+    networkErrors: [{ url: "https://api.example.com/orders", status: 504 }],
+    networkClass: "backend",
+  }];
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, passing, cases);
+  const span = h.named("qayaba.test").find((s) => s.attributes["qayaba.test.name"] === "shows the name")!;
+  assert.equal(span.attributes["qayaba.test.status"], "passed");
+  assert.equal(span.attributes["qayaba.test.http_status"], 504);
+  assert.equal(span.attributes["qayaba.test.network_error_count"], 1);
+  assert.equal(span.attributes["qayaba.test.network_class"], "backend");
+});
+
+test("a case with no evidence carries none of the network attributes", () => {
+  const h = traceHarness();
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT);
+  const span = h.named("qayaba.test").find((s) => s.attributes["qayaba.test.name"] === "shows the name")!;
+  assert.equal(span.attributes["qayaba.test.http_status"], undefined);
+  assert.equal(span.attributes["qayaba.test.network_error_count"], undefined);
+  assert.equal(span.attributes["qayaba.test.network_class"], undefined);
+});
+
+test("a failed case records an exception at the attempt's end and marks its span ERROR", () => {
+  const h = traceHarness();
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT);
+  const span = h.named("qayaba.test").find((s) => s.attributes["qayaba.test.name"] === "shows the name")!;
+  assert.equal(span.status.code, SpanStatusCode.ERROR);
+  const exception = span.events.find((e) => e.name === "exception")!;
+  assert.ok(exception);
+  assert.equal(exception.attributes?.["exception.type"], "selector");
+  assert.match(String(exception.attributes?.["exception.message"]), /Locator:/);
+  assert.match(String(exception.attributes?.["exception.message"]), /Received:/);
+  assert.ok(ms(exception.time) >= T0 + 9000 && ms(exception.time) <= T0 + 9800);
+});
+
+test("a flaky case stays UNSET and carries no exception, its failed attempt keeps the evidence", () => {
+  const h = traceHarness();
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT);
+  const saves = h.named("qayaba.test").find((s) => s.attributes["qayaba.test.name"] === "orders › saves an order")!;
+  assert.equal(saves.status.code, SpanStatusCode.UNSET);
+  assert.ok(!saves.events.some((e) => e.name === "exception"));
+  const failed = h.named("qayaba.attempt").find((s) => s.attributes["qayaba.test.status"] === "failed")!;
+  assert.match(String(failed.attributes["qayaba.error.message"]), /strict mode violation/);
+});
+
+test("an attempt's error message is summarized: no ANSI and no call log", () => {
+  const h = traceHarness();
+  const withCallLog = {
+    suites: [{
+      title: "f.spec.ts",
+      file: "f.spec.ts",
+      specs: [{ title: "a", tests: [{ status: "unexpected", results: [{ status: "failed", duration: 5, retry: 0, startTime: iso(T0), error: { message: "\u001b[31mError: locator.click: Test timeout of 30000ms exceeded.\u001b[39m\nCall log:\n  - waiting for getByTestId('missing-btn')\n  - another entry" } }] }] }],
+    }],
+  };
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, withCallLog);
+  const message = String(h.only("qayaba.attempt").attributes["qayaba.error.message"]);
+  assert.equal(message.includes("\u001b"), false);
+  assert.equal(message.includes("Call log:"), false);
+  assert.match(message, /locator\.click/);
+});
+
+test("a failed case with no error message is still an error span, with the status as its message", () => {
+  const h = traceHarness();
+  const noError = { suites: [{ title: "f.spec.ts", file: "f.spec.ts", specs: [{ title: "a", tests: [{ status: "unexpected", results: [{ status: "failed", duration: 5, retry: 0, startTime: iso(T0) }] }] }] }] };
+  assert.doesNotThrow(() => synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, noError));
+  const span = h.only("qayaba.test");
+  assert.equal(span.status.code, SpanStatusCode.ERROR);
+  const exception = span.events.find((e) => e.name === "exception");
+  assert.equal(exception?.attributes?.["exception.message"], "failed");
+});
+
 test("every case counts once in qayaba.tests by its status and failure category", () => {
   const h = traceHarness();
   synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT);
@@ -141,6 +237,35 @@ test("a case with no start time in the report starts where the previous one ende
   assert.deepEqual(plan.files[0]!.cases[0]!.attempts.map((a) => [a.startMs, a.endMs]), [[T0, T0 + 10], [T0 + 10, T0 + 15]]);
 });
 
+test("an ANSI-coloured assertion message reaches a planned attempt with its escapes stripped", () => {
+  const coloured = "\u001b[31mError: expect(locator).toBeVisible() failed\u001b[39m\n\nLocator: getByTestId('banner')\nReceived: <element(s) not found>";
+  const report = { suites: [{ title: "f.spec.ts", file: "f.spec.ts", specs: [{ title: "a", tests: [{ status: "unexpected", results: [{ status: "failed", duration: 5, retry: 0, startTime: iso(T0), error: { message: coloured } }] }] }] }] };
+  const message = planReport(report, { nowMs: T0 + 99 }).files[0]!.cases[0]!.attempts[0]!.errorMessage!;
+  assert.equal(message.includes("\u001b"), false);
+  assert.match(message, /toBeVisible\(\) failed/);
+});
+
+test("a planned case's fullName matches parsePlaywrightReport's name, with the file as its first segment", () => {
+  const nested = {
+    suites: [{
+      title: "flows/profile.spec.ts",
+      file: "flows/profile.spec.ts",
+      suites: [{ title: "profile", specs: [{ title: "shows the name", tests: [{ status: "expected", results: [{ status: "passed", duration: 10, retry: 0, startTime: iso(T0) }] }] }] }],
+    }],
+  };
+  const plan = planReport(nested, { nowMs: T0 + 99 });
+  const parsed = parsePlaywrightReport(nested);
+  assert.equal(plan.files[0]!.cases[0]!.fullName, parsed.cases[0]!.name);
+  assert.equal(plan.files[0]!.cases[0]!.fullName, "flows/profile.spec.ts › profile › shows the name");
+  assert.equal(plan.files[0]!.cases[0]!.name, "profile › shows the name");
+
+  /* A top suite with no title: the plan must spell the name exactly as the parser does, so the evidence still matches. */
+  const untitled = { suites: [{ file: "f.spec.ts", specs: [{ title: "a", tests: [{ status: "expected", results: [{ status: "passed", duration: 1, retry: 0, startTime: iso(T0) }] }] }] }] };
+  const untitledPlan = planReport(untitled, { nowMs: T0 + 99 });
+  const untitledParsed = parsePlaywrightReport(untitled);
+  assert.equal(untitledPlan.files[0]!.cases[0]!.fullName, untitledParsed.cases[0]!.name);
+});
+
 test("a telemetry port that throws on every call does not make the synthesis throw", () => {
   assert.doesNotThrow(() => synthesizeReportSpans({ telemetry: new ThrowingTelemetry(), now: NOW }, REPORT));
 });
@@ -157,29 +282,62 @@ test("an error message is redacted by the run's own secrets before it is exporte
   assert.equal(h.named("qayaba.attempt").length, 1);
 });
 
-test("the runner hands the report to its observer once, and the verdict is the same whether the observer traces, throws or is absent", async () => {
+test("the runner hands the report to its observer once, with the parsed cases, and the verdict is the same whether the observer traces, throws or is absent", async () => {
   const { runE2E } = await import("../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
   const passing = {
     stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 },
     suites: [{ title: "flows/a.spec.ts", file: "flows/a.spec.ts", specs: [{ title: "a", tests: [{ status: "expected", results: [{ status: "passed", duration: 10, retry: 0, startTime: iso(T0) }] }] }] }],
   };
-  const run = (onReport?: (report: unknown) => void) =>
+  const run = (onReport?: (report: unknown, cases: readonly QaCase[]) => void) =>
     runE2E("/nonexistent/e2e", { baseUrl: "https://dev.example.com", namespace: "ns" }, { runSuite: async () => ({ report: passing, logs: "", ran: true, exitCode: 0 }), ...(onReport ? { onReport } : {}) });
   const h = traceHarness();
   let told = 0;
-  const traced = await run((report) => {
+  let seen: readonly QaCase[] = [];
+  const traced = await run((report, cases) => {
     told += 1;
-    synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, report);
+    seen = cases;
+    synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, report, cases);
   });
   const thrown = await run(() => {
     throw new Error("observer exploded");
   });
   const absent = await run();
   assert.equal(told, 1);
+  assert.deepEqual(seen.map((c) => c.name), ["flows/a.spec.ts › a"]);
   assert.equal(h.named("qayaba.test").length, 1);
   assert.equal(traced.verdict, "pass");
   assert.deepEqual(thrown, absent);
   assert.deepEqual(traced, absent);
+});
+
+test("a report that executed zero tests still tells the observer once, with an empty cases array", async () => {
+  const { runE2E } = await import("../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
+  let told = 0;
+  let seen: readonly QaCase[] | undefined;
+  const out = await runE2E("/nonexistent/e2e", { baseUrl: "https://dev.example.com", namespace: "ns" }, {
+    runSuite: async () => ({ report: { suites: [], stats: { expected: 0, unexpected: 0, flaky: 0, skipped: 0 } }, logs: "", ran: true }),
+    onReport: (_report, cases) => { told += 1; seen = cases; },
+  });
+  assert.equal(out.verdict, "infra-error");
+  assert.equal(told, 1);
+  assert.deepEqual(seen, []);
+});
+
+test("a pass the child did not exit clean for still tells the observer once, with its cases", async () => {
+  const { runE2E } = await import("../../qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner");
+  const passing = {
+    stats: { expected: 1, unexpected: 0, flaky: 0, skipped: 0 },
+    suites: [{ title: "flows/a.spec.ts", file: "flows/a.spec.ts", specs: [{ title: "a", tests: [{ status: "expected", results: [{ status: "passed", duration: 10, retry: 0, startTime: iso(T0) }] }] }] }],
+  };
+  let told = 0;
+  let seen: readonly QaCase[] | undefined;
+  const out = await runE2E("/nonexistent/e2e", { baseUrl: "https://dev.example.com", namespace: "ns" }, {
+    runSuite: async () => ({ report: passing, logs: "", ran: true, exitCode: 1 }),
+    onReport: (_report, cases) => { told += 1; seen = cases; },
+  });
+  assert.equal(out.verdict, "infra-error");
+  assert.equal(told, 1);
+  assert.deepEqual(seen?.map((c) => c.name), ["flows/a.spec.ts › a"]);
 });
 
 test("a run that produced no report is not told to the observer", async () => {

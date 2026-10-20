@@ -515,7 +515,7 @@ class Handle implements SpanHandle {
     }
   }
 
-  recordError(error: unknown, attrs?: object): void {
+  recordError(error: unknown, attrs?: object, time?: number): void {
     try {
       const type = this.owner.safeText(errorType(error), this.scope, ERROR_TYPE_CAP_CHARS) ?? "unknown";
       const message = this.owner.safeText(errorText(error), this.scope);
@@ -524,7 +524,7 @@ class Handle implements SpanHandle {
       this.span.addEvent(
         "exception",
         this.owner.filterAttrs({ "exception.type": type, ...(message === undefined ? {} : { "exception.message": message }) }, this.scope, this.capture),
-        this.owner.hr(undefined),
+        this.owner.hr(time),
       );
       this.span.setStatus(message === undefined ? { code: SpanStatusCode.ERROR } : { code: SpanStatusCode.ERROR, message });
     } catch (fault) {

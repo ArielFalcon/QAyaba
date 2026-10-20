@@ -868,6 +868,16 @@ function loopInput(overrides: Partial<FixLoopInput> = {}): FixLoopInput {
 
 const noFix = (): FixLoopGenerateResult => ({ specs: [], approved: true });
 
+test("the first round's absent-selector count is reported, and a later clean round does not overwrite it", async () => {
+  const { loop } = recordingLoop({
+    check: (round) => findings(round === 1 ? { absentKeys: new Set(["button:Pay", "link:Home"]) } : {}),
+    regen: () => ({ specs: ["checkout.spec.ts"], approved: true }),
+    runs: [{ verdict: "pass", cases: [{ name: "login", status: "pass", file: "checkout.spec.ts" }] }],
+  });
+  const result = await loop.run(loopInput({ maxRetries: 2 }));
+  assert.equal(result.absentSelectors, 2, "the initial failure's two absent selectors are reported");
+});
+
 test("the selector check sees one tree per failing case that captured a failure DOM, without blank lines, beside the latest spec sources", async () => {
   const { loop, rec } = recordingLoop({ regen: noFix });
   await loop.run(

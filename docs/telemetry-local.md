@@ -144,7 +144,9 @@ trusted port to the agents. Each receiver is therefore its own service with its 
   own sanitizer, not a replacement. A log body is a message, not a prompt; Loki truncates any line over 64 KB.
 - The orchestrator's log record inherits the active span's `trace_id` and `span_id`, so Tempo and Loki can be read side by
   side. OpenCode's logs carry its own process trace ids, which are not a qayaba trace; the session id, where present, is
-  the only join to a run.
+  the only join to a run. The orchestrator's `invoke_agent` span carries the same id as `gen_ai.conversation.id`, and
+  `agent_turns.session_id` stores it, so a log line with `session_id` joins to its turn. That is correlation, not a
+  connected trace: OpenCode 1.17.7 exports one process-wide trace with no root and ignores an inbound `traceparent`.
 
 ## Retention
 

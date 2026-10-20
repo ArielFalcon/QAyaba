@@ -208,11 +208,14 @@ export const test = base.extend<QaFixtures>({
 export { expect };
 
 // >>> qa-failure-capture (system-owned: do not edit) >>>
-// Captures the aria snapshot of the page at the failure point, the page's final URL, and the HTTP
-// status of the most-recent correlated 5xx server error, writing them to QA_FAILURE_CAPTURE_DIR so
+// Captures the aria snapshot of the page at the failure point, the page's final URL, the HTTP
+// status of the most-recent correlated 5xx server error, the browser network failures (requestfailed
+// events) and the runtime errors (console error + pageerror), writing them to QA_FAILURE_CAPTURE_DIR so
 // the orchestrator can ground the fix-loop regeneration and surface runtime evidence to the adjudicator
-// and reviewer. Best-effort only: the page may be closed on a nav-crash (try/catch swallows), and the
-// entire block is a no-op when QA_FAILURE_CAPTURE_DIR is unset.
+// and reviewer. A passing test still dumps when it showed network or page-error evidence (a failed request,
+// a 5xx or an uncaught page error), without an aria snapshot; a benign console log does not trigger it.
+// Best-effort only: the page may be closed on a nav-crash (try/catch swallows), and the entire block is a
+// no-op when QA_FAILURE_CAPTURE_DIR is unset.
 //
 // SELF-CONTAINED: this exact block is also appended (append-only) into existing repos'
 // fixtures.ts by the orchestrator, so it CANNOT assume any top-level import is present.
@@ -226,6 +229,12 @@ let errorResponses: { url: string; status: number; resourceType: string }[] = []
 // orchestrator's runtime-error classifier turns this into a diagnostic signal ONLY — it never
 // blocks or masks a real generated-test defect.
 let runtimeErrors: { type: string; text: string }[] = [];
+// Browser network failures (requestfailed events) observed during the current test, reset per-test like the
+// other evidence arrays. Each entry carries the sanitized URL (origin + pathname only — a query string or
+// fragment never reaches the dump), a truncated error text and the resource type.
+let failedRequests: { url: string; errorText: string; resourceType: string }[] = [];
+// Reduces a URL to origin + pathname so a query string or fragment never reaches the dump.
+function networkUrl(raw: string): string { try { const u = new URL(raw); const url = u.origin + u.pathname; return url.length > 300 ? url.slice(0, 300) : url; } catch { return ""; } }
 // DEV-write counter, on only when the orchestrator asks (PW_COUNT_DEV_WRITES=1, for a spec it executes on the
 // generator's behalf): the mutating requests (POST, PUT, PATCH, DELETE) a test's page and context send, written
 // per test to a ledger file in the capture directory so the orchestrator can hold what a spec does to DEV to a cap.
@@ -251,6 +260,7 @@ test.beforeEach(async ({ page, request }) => {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
   runtimeErrors = [];                                 // same per-test reset discipline
+  failedRequests = [];                                // same per-test reset discipline
   devWrites = 0;
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
     try {
@@ -267,7 +277,18 @@ test.beforeEach(async ({ page, request }) => {
   }
   try {
     page.on('response', (r) => {
-      try { const s = r.status(); if (s >= 400) errorResponses.push({ url: r.url(), status: s, resourceType: r.request().resourceType() }); } catch {}
+      try { const s = r.status(); if (s >= 400 && errorResponses.length < 50) errorResponses.push({ url: r.url(), status: s, resourceType: r.request().resourceType() }); } catch {}
+    });
+  } catch {}
+  try {
+    page.on('requestfailed', (r) => {
+      try {
+        if (failedRequests.length >= 50) return;
+        const url = networkUrl(r.url());
+        if (!url) return;
+        const errorText = r.failure()?.errorText ?? "request failed";
+        failedRequests.push({ url, errorText: errorText.length > 160 ? errorText.slice(0, 160) : errorText, resourceType: r.resourceType().slice(0, 40) });
+      } catch {}
     });
   } catch {}
   try {
@@ -295,12 +316,17 @@ test.afterEach(async ({ page }, testInfo) => {
       writeFileSync(join(dir, 'ledger-w' + testInfo.workerIndex + '-' + id + '-r' + testInfo.retry + '.json'), JSON.stringify({ writes: devWrites }));
     } catch { /* best effort — the count is a bound on the spec, never a test failure */ }
   }
-  if (testInfo.status === testInfo.expectedStatus) return; // only on unexpected status (a real failure)
+  const expected = testInfo.status === testInfo.expectedStatus;
+  // A passing test still dumps when the page showed evidence (a console error, a failed request or a
+  // 5xx) — the evidence is real even when the assertions passed. Only an expected result with no
+  // evidence returns early.
+  const hasEvidence = runtimeErrors.some((e) => e.type === "pageerror") || failedRequests.length > 0 || errorResponses.some((e) => e.status >= 500);
+  if (expected && !hasEvidence) return;
   try {
     const { writeFileSync } = await import("node:fs");
     const { join, basename } = await import("node:path");
     const { createHash } = await import("node:crypto");
-    const yaml = await page.locator("body").ariaSnapshot(); // the REAL post-failure page state
+    const yaml = expected ? "" : await page.locator("body").ariaSnapshot(); // a passing test with evidence needs no tree
     // title = the describe › test chain (drop the leading project element), MATCHING the stream
     // reporter's _name. The orchestrator's harvest keys off this: the JSON report's case name is
     // `file › describe › test`, whose trailing segments equal this title's segments.
@@ -360,9 +386,34 @@ test.afterEach(async ({ page }, testInfo) => {
         if (dedupedRuntimeErrors.length >= RUNTIME_ERRORS_CAP) break;
       }
     } catch { dedupedRuntimeErrors = []; }
+    // Network errors: merge the HTTP error responses (url/status/resourceType) and the failed requests
+    // (url/errorText/resourceType) into one bounded list, each URL reduced to origin + pathname, deduped
+    // by status|errorText|url|resourceType and capped at 10. Best-effort: a failure here still lets the
+    // rest of the dump write.
+    let networkErrors: { url: string; status?: number; errorText?: string; resourceType: string }[] = [];
+    try {
+      const NETWORK_ERRORS_CAP = 10;
+      const seen = new Set<string>();
+      const merged: { url: string; status?: number; errorText?: string; resourceType: string }[] = [];
+      for (const e of errorResponses) {
+        const url = networkUrl(e.url);
+        if (url) merged.push({ url, status: e.status, resourceType: e.resourceType });
+      }
+      for (const e of failedRequests) {
+        const url = networkUrl(e.url);
+        if (url) merged.push({ url, errorText: e.errorText, resourceType: e.resourceType });
+      }
+      for (const e of merged) {
+        const key = `${e.status ?? ""}|${e.errorText ?? ""}|${e.url}|${e.resourceType}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        networkErrors.push(e);
+        if (networkErrors.length >= NETWORK_ERRORS_CAP) break;
+      }
+    } catch { networkErrors = []; }
     writeFileSync(
       join(dir, `${safeProject}__${hash}__${testInfo.retry}.json`),
-      JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors }),
+      JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors }),
     );
   } catch { /* page may be closed on a nav-crash — best-effort, never fail the run */ }
 });
