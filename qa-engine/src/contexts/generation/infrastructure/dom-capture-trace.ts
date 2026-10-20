@@ -10,7 +10,7 @@ import type { Attrs } from "../../../shared-kernel/telemetry/attribute-registry.
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
 import { domItemIdsBudgeted, type DomPageLike } from "../domain/context-item-ids.ts";
 import { buildRouteCatalog, ROUTE_STATUS } from "./route-catalog.ts";
-import { pageDeliveryOf, type DomCaptureObserver, type DomCaptureReport, type RouteSnapshot } from "./dom-snapshot.ts";
+import { dataStateUnconfirmed, pageDeliveryOf, type DomCaptureObserver, type DomCaptureReport, type RouteSnapshot } from "./dom-snapshot.ts";
 
 /* What the agent is shown of one route, as the ids' input: the nodes within the per-route bound, the test ids within it, and how many of each were left out. */
 export function pageOf(snap: RouteSnapshot): { page: DomPageLike; leftOut: number } {
@@ -34,6 +34,12 @@ export function routeEventAttrs(snap: RouteSnapshot, idsOverflow = 0): Attrs {
     "qayaba.route.nodes": snap.nodes?.length ?? 0,
     "qayaba.route.test_ids": snap.testIds?.size ?? 0,
     "qayaba.route.runtime_errors": snap.runtimeErrors?.length ?? 0,
+    ...(snap.dataState !== undefined ? { "qayaba.route.data_state": snap.dataState } : {}),
+    ...(snap.ready !== undefined ? { "qayaba.route.ready": snap.ready } : {}),
+    ...(snap.resultExpected !== undefined ? { "qayaba.route.result_expected": snap.resultExpected } : {}),
+    ...(snap.resultCount !== undefined ? { "qayaba.route.result_count": snap.resultCount } : {}),
+    ...(snap.effectiveLocation !== undefined ? { "qayaba.route.effective_location": snap.effectiveLocation } : {}),
+    ...(snap.captureAttempts !== undefined ? { "qayaba.route.capture_attempts": snap.captureAttempts } : {}),
     ...(snap.ms !== undefined ? { "qayaba.route.ms": snap.ms } : {}),
     ...(idsOverflow > 0 ? { "qayaba.route.ids_overflow": idsOverflow } : {}),
   };
@@ -44,6 +50,13 @@ export function recordDomCapture(telemetry: TelemetryPort, report: DomCaptureRep
   const pages = captured.map(pageOf);
   const budgeted = domItemIdsBudgeted(pages.map((p) => p.page));
   const overflowOf = new Map<RouteSnapshot, number>(captured.map((snap, i) => [snap, budgeted.overflow[i] ?? 0]));
+  /* Freshness now reflects capture-time data state: an unconfirmed state is stale, and a recapture only happened when a data state needed a second read. */
+  const unconfirmed = captured.some(dataStateUnconfirmed);
+  const attempts = captured.reduce((max, snap) => Math.max(max, snap.captureAttempts ?? 0), 0);
+  const recapture = attempts > 1 ? (unconfirmed ? "failed" : "completed") : "not-needed";
+  const anyResultExpected = captured.some((snap) => snap.resultExpected === true);
+  const resultCount = anyResultExpected ? captured.reduce((sum, snap) => sum + (snap.resultCount ?? 0), 0) : report.snaps.length;
+  const effectiveLocation = captured.map((snap) => snap.effectiveLocation).find((loc) => loc !== undefined && loc !== "");
   recordContextSpan(
     telemetry,
     {
@@ -51,7 +64,8 @@ export function recordDomCapture(telemetry: TelemetryPort, report: DomCaptureRep
       ids: budgeted.ids,
       bytes: report.outputChars,
       truncatedItems: pages.reduce((sum, p) => sum + p.leftOut, 0),
-      freshness: { location: "live:dev", capturedAt: new Date().toISOString(), resultCount: report.snaps.length, stale: false, staleReason: "none", recapture: "not-needed" },
+      freshness: { location: "live:dev", capturedAt: new Date().toISOString(), resultCount, stale: unconfirmed, staleReason: unconfirmed ? "data-state-unconfirmed" : "none", recapture },
+      ...(effectiveLocation !== undefined ? { attrs: { "qayaba.context.effective_location": effectiveLocation } } : {}),
     },
     (span) => {
       /* One event per route, in the order the script was asked for them, errored ones included. */

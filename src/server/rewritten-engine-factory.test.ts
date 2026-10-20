@@ -894,6 +894,15 @@ test("buildRewrittenCompositionConfig wires authDir-aware (not empty) groundingC
   assert.ok(config.preExecGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so pre-exec DOM capture reads auth material from authDir, not the mirror");
 });
 
+test("the composed grounding domDeps carries the app's dev.dataState", () => {
+  const dataState = { routes: { "/home": { resultTextSelector: ".count", timeoutMs: 3000 } } };
+  const app: AppConfig = { ...cfg("factory-dom-datastate"), dev: { baseUrl: "https://dev", dataState } };
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const domDeps = config.groundingCollaborators?.contextPackDeps?.domDeps;
+  assert.ok(domDeps, "a DOM capture is wired");
+  assert.deepEqual(domDeps.dataState, dataState, "the app's dataState reaches the composed DOM capture");
+});
+
 test("every DOM capture seam of an e2e app is the authDir-backed capture, never the inert default", () => {
   const app = cfg("factory-dom-capture-seams");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });

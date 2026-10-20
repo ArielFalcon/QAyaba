@@ -95,7 +95,7 @@ function packItemIds(assembly: ContextPackAssembly, delivered: boolean): { ids: 
     testIdOfNode: p.testIdOfNode,
     testIds: delivered ? (p.lineKeptTestIds ?? p.keptTestIds) : p.keptTestIds,
   })));
-  const factIds = changedValueFactIds(trace.pages.map((page) => ({ route: page.template ?? page.route, ...(page.testIds ? { testIds: page.testIds } : {}) })), trace.changedTestIds);
+  const factIds = changedValueFactIds(trace.pages.map((page) => ({ route: page.template ?? page.route, ...(page.testIds ? { testIds: page.testIds } : {}), unconfirmed: page.dataStateUnconfirmed === true })), trace.changedTestIds);
   const opIds = trace.contractIds.map(itemId.op);
   const omissions: Omission[] = [];
   for (const p of deliveries) {
@@ -317,6 +317,28 @@ interface PackCapture {
   advisory: string;
 }
 
+/* The address a capture-state line names: the page's own final pathname when the browser reported a different one, else its route (marked as a template instance as the report does). */
+function captureStateLabel(page: CapturedPage): string {
+  let finalPath: string | undefined;
+  if (page.finalUrl !== undefined) {
+    try { finalPath = new URL(page.finalUrl).pathname; } catch { finalPath = page.finalUrl; }
+  }
+  if (finalPath !== undefined && finalPath !== page.route) return finalPath;
+  return page.template !== undefined ? `${page.route} (instance of ${page.template})` : page.route;
+}
+
+/* One "Capture state" line for a page whose dev.dataState route matched: its result count, effective location and, when the state could not be confirmed, the explicit warning that an empty tree is not proof. */
+function captureStateLine(page: CapturedPage, hasChangedElements: boolean): string {
+  const parts: string[] = [];
+  if (page.resultCount !== undefined) parts.push(`${page.resultCount} result(s)`);
+  if (page.effectiveLocation !== undefined) parts.push(`location "${s(page.effectiveLocation)}"`);
+  if (page.captureAttempts !== undefined && page.captureAttempts > 1) parts.push("captured twice");
+  if (page.dataStateUnconfirmed === true) {
+    parts.push(`data state not confirmed — ${hasChangedElements ? "the changed element is unobservable now" : "the page's data state is unconfirmed"}; do not assert an empty state as truth; a reasoned no-op is admissible.`);
+  }
+  return parts.length > 0 ? `- ${s(captureStateLabel(page))}: ${parts.join(", ")}` : "";
+}
+
 export async function buildContextPack(
   input: ContextPackInput,
   deps: ContextPackDeps,
@@ -437,12 +459,21 @@ export async function buildContextPack(
             + Math.max(0, delivery.keptTestIds.length - delivery.lineKeptTestIds!.length);
         }
         redirectSection = captures.map((c) => c.advisory).reduce(joinRedirectSections, "");
+        /* An explicit capture-state line per page whose dev.dataState route matched, so an unconfirmed (empty) tree is not read as truth. */
+        const statePages = [...pages.values()].filter((page) => page.dataState === true).slice(0, MAX_ROUTES + 1);
+        const hasChangedElements = (input.changedElements?.length ?? 0) > 0;
+        const captureStateLines = statePages.map((page) => captureStateLine(page, hasChangedElements)).filter((line) => line !== "");
+        const captureStateIntro = statePages.some((page) => page.dataStateUnconfirmed === true)
+          ? "An unconfirmed capture state below means an element's absence in this tree is not proof it is absent on the page."
+          : "";
         domSection = [
           `### ${PACK_HEADINGS.liveDom} (a11y tree — GROUND TRUTH for selectors)`,
           "These roles + accessible names are what the browser ACTUALLY exposes.",
           "Author selectors ONLY from what appears here — if a role is absent, it is NOT in the tree.",
           "A name a page shows more than once carries `(N on this page with this name; in a < b)`: the containers, nearest first, that only that occurrence is in, each written as a locator names it (`[test-id=\"…\"]`, `#id`, a custom element's tag).",
           "A route line `(the changed text \"…\" is in X in the source; this page shows no X now)` means the changed element is not on that page as DEV renders it now.",
+          ...(captureStateIntro ? [captureStateIntro] : []),
+          ...captureStateLines,
           kept.join("\n"),
           ...(dropped > 0 ? [`(${dropped} non-priority element(s) omitted — see the full tree with the Playwright MCP if needed)`] : []),
         ].join("\n");

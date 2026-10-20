@@ -845,6 +845,67 @@ test("testIdAttribute on ContextPackInput is forwarded to captureDomForRoutes in
   assert.equal(receivedTestIdAttribute, "data-cy", "testIdAttribute must be forwarded to captureDomForRoutes' input arg");
 });
 
+/* ── Capture-state lines for a page whose dev.dataState route matched ── */
+
+test("a page whose data state is unconfirmed gets an explicit capture-state line, and no absent fact is emitted", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (_routes, input) => {
+      input.onPages?.([{
+        route: "/home",
+        grounded: true,
+        links: [],
+        dataState: true,
+        resultExpected: true,
+        resultCount: 0,
+        dataStateUnconfirmed: true,
+        keptNodes: ["button: Save"],
+        keptTestIds: [],
+        testIdOfNode: new Map(),
+        nodeCapOmitted: 0,
+      }]);
+      return "route /home:\n  button: Save";
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const result = await buildContextPack(
+    { routes: ["/home"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e", changedElements: [{ file: "f.html", line: 1, testId: "register-btn", raw: "raw" }] },
+    deps,
+  );
+  assert.ok(result.text?.includes("data state not confirmed"), "the unobservable warning is present");
+  assert.ok(result.text?.includes("0 result(s)"), "the result count is stated");
+  assert.ok(result.text?.includes("button: Save"), "the existing DOM text still works");
+  const { ids } = packDeliveredItemIds(result);
+  assert.ok(!ids.some((id) => id.startsWith("fact:*#register-btn:absent")), "no absent fact when a page is unconfirmed");
+});
+
+test("a page with a confirmed data state reports its result count and effective location", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (_routes, input) => {
+      input.onPages?.([{
+        route: "/home",
+        grounded: true,
+        links: [],
+        dataState: true,
+        resultExpected: true,
+        resultCount: 11,
+        effectiveLocation: "Madrid",
+        dataStateUnconfirmed: false,
+        keptNodes: ["text: hi"],
+        keptTestIds: [],
+        testIdOfNode: new Map(),
+        nodeCapOmitted: 0,
+      }]);
+      return "route /home:\n  text: hi";
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const result = await buildContextPack({ routes: ["/home"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
+  assert.ok(result.text?.includes("11 result(s)"), "the result count is stated");
+  assert.ok(result.text?.includes('location "Madrid"'), "the effective location is quoted");
+});
+
 /* The pack is assembled elsewhere and reaches the prompt as a string, so its claims are derived from what it actually rendered. */
 const providedFacts = (claims: readonly PromptClaim[]): FactId[] =>
   claims.flatMap((c) => (c.kind === "provides" ? [c.fact] : [])).sort();

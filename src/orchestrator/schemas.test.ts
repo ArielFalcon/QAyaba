@@ -452,3 +452,31 @@ test("dev.geolocation accepts named places the authoring agent may pick, and ref
     /12|places/,
   );
 });
+
+test("dev.dataState accepts per-route readiness/result/location selectors, and refuses a bad selector, a bad timeout or too many routes", () => {
+  const dataState = {
+    routes: {
+      "/restaurants": { readySelector: "[data-testid='list']", resultTextSelector: ".count", locationSelector: ".loc", timeoutMs: 3000 },
+    },
+  };
+  const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState } });
+  assert.deepEqual(cfg.dev?.dataState, dataState);
+
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState: { routes: { "/a": { readySelector: "" } } } } }),
+    /selector/,
+  );
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState: { routes: { "/a": { timeoutMs: 0 } } } } }),
+    /timeoutMs/,
+  );
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState: { routes: { "/a": { timeoutMs: 16_000 } } } } }),
+    /timeoutMs/,
+  );
+  const tooMany = Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`/r${i}`, {}]));
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState: { routes: tooMany } } }),
+    /32|routes/,
+  );
+});

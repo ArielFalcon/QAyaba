@@ -8,8 +8,8 @@ import {
   extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
   buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE,
-  formatDomCapture, formatRedirectAdvisory,
-  type CapturedPage, type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
+  formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed,
+  type CapturedPage, type CaptureDataState, type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
 } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { countDirectives, hasTrustLanguage } from "@contexts/generation/domain/prompt-contract-lint.ts";
@@ -1444,6 +1444,21 @@ test("createCaptureDomDeps carries the app's geolocation", () => {
   assert.deepEqual(deps.geolocation, geolocation);
 });
 
+test("createCaptureDomDeps carries the app's dataState", () => {
+  const dataState: CaptureDataState = { routes: { "/home": { resultTextSelector: ".count", timeoutMs: 3000 } } };
+  const deps = createCaptureDomDeps(sharedTestExec(), undefined, undefined, undefined, dataState);
+  assert.deepEqual(deps.dataState, dataState);
+});
+
+test("dataStateUnconfirmed is false without a data state, and true only for an unconfirmed one", () => {
+  assert.equal(dataStateUnconfirmed({}), false);
+  assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true, resultCount: 0 }), true);
+  assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true }), true, "a missing result count is unconfirmed");
+  assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true, resultCount: 11 }), false);
+  assert.equal(dataStateUnconfirmed({ dataState: true, ready: false }), true);
+  assert.equal(dataStateUnconfirmed({ dataState: true, ready: true }), false);
+});
+
 test("buildCaptureScript wires DEV_ENV_USER/DEV_ENV_PASS into httpCredentials on newContext()", () => {
   const script = buildCaptureScript();
   assert.match(script, /process\.env\.DEV_ENV_USER/, "must read DEV_ENV_USER from the child's env");
@@ -1573,6 +1588,20 @@ test("a DOM capture within the output bound still yields its snapshots", { timeo
     const snaps = await deps.render(root, "http://localhost", ["/home"]);
     assert.equal(snaps.length, 1);
     assert.equal(snaps[0]?.route, "/home");
+  });
+});
+
+test("a DOM capture parses the data-state fields onto the snapshot", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \\\"Save\\\"', dataState: true, ready: true, resultExpected: true, resultCount: 11, effectiveLocation: 'Madrid', captureAttempts: 2 }]));";
+  await withStandInNode(script, async (root) => {
+    const deps = createCaptureDomDeps(sharedTestExec(), 20_000);
+    const snaps = await deps.render(root, "http://localhost", ["/home"]);
+    assert.equal(snaps[0]?.dataState, true);
+    assert.equal(snaps[0]?.ready, true);
+    assert.equal(snaps[0]?.resultExpected, true);
+    assert.equal(snaps[0]?.resultCount, 11);
+    assert.equal(snaps[0]?.effectiveLocation, "Madrid");
+    assert.equal(snaps[0]?.captureAttempts, 2);
   });
 });
 
@@ -1713,12 +1742,22 @@ function withFakeBrowser<T>(anchors: unknown[], body: (e2eDir: string, authDir: 
   writeFileSync(join(module, "index.js"), `
 const anchors = ${JSON.stringify(anchors)};
 let current = "";
+const gotoCounts = Object.create(null);
 const page = {
   on() {},
-  goto: async (url) => { current = url; },
+  goto: async (url) => {
+    gotoCounts[url] = (gotoCounts[url] ?? 0) + 1;
+    if (url.includes("/no-retry") && gotoCounts[url] > 1) throw new Error("read a second time without a data state");
+    current = url;
+  },
   waitForLoadState: async () => {},
+  waitForSelector: async () => {},
   url: () => current,
-  locator: () => ({ ariaSnapshot: async () => '- link "Home"' }),
+  locator: (selector) => ({
+    ariaSnapshot: async () => '- link "Home"',
+    count: async () => 0,
+    first: () => ({ innerText: async () => selector === ".count" ? ((gotoCounts[current] ?? 0) > 1 ? "11 resultados" : "0 resultados") : "" }),
+  }),
   evaluate: async (fn, arg) => {
     globalThis.document = { querySelectorAll: (selector) => (selector === "a[href]" ? anchors.map((href) => ({ href, getAttribute: () => href })) : []), getElementById: () => null };
     return fn(arg);
@@ -1728,6 +1767,28 @@ exports.chromium = { launch: async () => ({ newContext: async () => ({ newPage: 
 `);
   return body(root, join(root, "auth")).finally(() => rmSync(root, { recursive: true, force: true }));
 }
+
+test("a data-state capture retries once when the result is empty, keeps the later tree and reports the retry", { timeout: 30_000 }, async () => {
+  await withFakeBrowser([], async (e2eDir) => {
+    const dataState: CaptureDataState = { routes: { "/restaurantes/*": { resultTextSelector: ".count", timeoutMs: 100 } } };
+    const snaps = await createCaptureDomDeps(sharedTestExec(), undefined, undefined, undefined, dataState).render(e2eDir, "http://dev.example", ["/restaurantes/madrid"]);
+    assert.equal(snaps[0]?.dataState, true);
+    assert.equal(snaps[0]?.resultExpected, true);
+    assert.equal(snaps[0]?.resultCount, 11, "the retry read the populated tree, not the empty first read");
+    assert.equal(snaps[0]?.captureAttempts, 2);
+    assert.equal(dataStateUnconfirmed(snaps[0]!), false);
+  });
+});
+
+test("a route with no matched data state is read once: a second goto would throw in the fake browser", { timeout: 30_000 }, async () => {
+  await withFakeBrowser([], async (e2eDir) => {
+    const dataState: CaptureDataState = { routes: { "/restaurantes/*": { resultTextSelector: ".count", timeoutMs: 100 } } };
+    const snaps = await createCaptureDomDeps(sharedTestExec(), undefined, undefined, undefined, dataState).render(e2eDir, "http://dev.example", ["/no-retry"]);
+    assert.equal(snaps[0]?.error, undefined);
+    assert.equal(snaps[0]?.dataState, undefined);
+    assert.equal(snaps[0]?.captureAttempts, undefined);
+  });
+});
 
 test("a capture reports the same-origin links of each page it opened", { timeout: 30_000 }, async () => {
   const anchors = ["http://dev.example/shops/madrid/madrid?page=2", "http://dev.example/about#team", "https://elsewhere.example/x", "mailto:a@b.example"];

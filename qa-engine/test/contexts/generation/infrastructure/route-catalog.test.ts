@@ -44,6 +44,18 @@ test("buildRouteCatalog maps a captured+settled snapshot to a trusted catalog", 
   assert.equal(cat.testIds.get("save"), 1);
 });
 
+test("buildRouteCatalog never trusts a route whose declared data state is unconfirmed", () => {
+  const empty = buildRouteCatalog({ route: "/list", nodes: ["button: Save"], settled: true, dataState: true, resultExpected: true, resultCount: 0 });
+  assert.equal(empty.status, "captured");
+  assert.equal(empty.settled, false, "an empty data state is not conclusive");
+  const noResult = buildRouteCatalog({ route: "/list", nodes: ["button: Save"], settled: true, dataState: true, resultExpected: true });
+  assert.equal(noResult.settled, false, "a missing result count is not conclusive");
+  const missingReady = buildRouteCatalog({ route: "/list", nodes: ["button: Save"], settled: true, dataState: true, ready: false });
+  assert.equal(missingReady.settled, false, "a readiness selector that never appeared is not conclusive");
+  const confirmed = buildRouteCatalog({ route: "/list", nodes: ["button: Save"], settled: true, dataState: true, resultExpected: true, resultCount: 11 });
+  assert.equal(confirmed.settled, true, "a populated data state keeps the normal trust");
+});
+
 test("buildRouteCatalog marks a capture error as degraded (never trusted)", () => {
   const cat = buildRouteCatalog({ route: "/owners", error: "Timeout 15000ms exceeded" });
   assert.equal(cat.status, "degraded");

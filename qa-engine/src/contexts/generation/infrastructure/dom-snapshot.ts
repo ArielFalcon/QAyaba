@@ -6,7 +6,8 @@ import { redactByValue } from "../../../shared-infrastructure/run-secret-redacti
 import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
-import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, DEGRADE_REASON, gatedAppAdvisory, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
+import { buildRouteCatalog, buildTestIdIndex, dataStateUnconfirmed, degradedRouteWarning, DEGRADE_REASON, gatedAppAdvisory, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
+export { dataStateUnconfirmed } from "./route-catalog.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
@@ -59,6 +60,18 @@ export interface RouteSnapshot {
   repeated?: RepeatedName[];
   /* The containers the capture was asked about that this page shows none of (see CaptureDomDeps.render's probe). */
   absent?: string[];
+  /* A config-declared data state matched this route (dev.dataState), so its readiness/result/location were read at capture time. */
+  dataState?: boolean;
+  /* The route's readiness selector was found within the timeout. Absent when no data state matched. */
+  ready?: boolean;
+  /* A result selector/text was configured for the route, so `resultCount` is what the capture counted. */
+  resultExpected?: boolean;
+  /* Results counted on the route (the first integer of the result text, or the result selector's count). */
+  resultCount?: number;
+  /* The route's effective location, read from its configured location selector (trim/collapse/200 chars). */
+  effectiveLocation?: string;
+  /* How many times the route's data state was read (1, or 2 after the one retry). Set only when a data state matched. */
+  captureAttempts?: number;
 }
 
 /* An occurrence, in page order, of a name its page repeats. `group` is the role and the name's words (`button|cambiar filtros`: case, punctuation and icon glyphs aside, as a locator matches it); `of` occurrences share it; `scope` lists the containers (nearest first) this one is in and some other one is not, each written as a locator names it: `[test-id="v"]`, `#id` or a custom element's tag. Empty when nothing on the way up tells it apart. */
@@ -104,6 +117,19 @@ export interface CaptureDomDeps {
   render(e2eDir: string, baseUrl: string, routes: string[], testIdAttribute?: string, probe?: readonly string[]): Promise<RouteSnapshot[]>;
   /* The browser position the capture opens pages with, when the app declares one. */
   readonly geolocation?: { latitude: number; longitude: number };
+  /* Per-route data-state readiness/result/location selectors the capture reads at capture time (config data). */
+  readonly dataState?: CaptureDataState;
+}
+
+/* The app's declared data-state readiness/result/location selectors, keyed by route path. A key ending `/*` names a prefix and its root; a key is selected by final pathname first, then requested route, then the `/*` prefix. */
+export interface CaptureDataState {
+  routes: Record<string, {
+    readySelector?: string;
+    resultSelector?: string;
+    resultTextSelector?: string;
+    locationSelector?: string;
+    timeoutMs?: number;
+  }>;
 }
 
 /* How a route that structurally failed to render is stated in the snapshot: a plain state, no directive and no opinion about the app. */
@@ -411,6 +437,17 @@ export interface CapturedPage {
   keptTestIds?: string[];
   testIdOfNode?: Map<string, string>;
   nodeCapOmitted?: number;
+  /* The address the page ended on, when the browser reported it. */
+  finalUrl?: string;
+  /* The capture-time data state of the page, when a dev.dataState route matched it. */
+  dataState?: boolean;
+  ready?: boolean;
+  resultExpected?: boolean;
+  resultCount?: number;
+  effectiveLocation?: string;
+  captureAttempts?: number;
+  /* Whether the page's data state could not be confirmed at capture time (its result stayed empty, or its readiness never appeared). */
+  dataStateUnconfirmed?: boolean;
 }
 
 /* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the per-route bound), the node→test-id map, and how many the bound left out. The line cap is the pack's, applied later; `lineKeptNodes`/`lineKeptTestIds` are what that cap left in (absent before it runs). */
@@ -473,6 +510,14 @@ export async function captureDomForRoutes(
         keptTestIds: delivery.keptTestIds,
         testIdOfNode: delivery.testIdOfNode,
         nodeCapOmitted: delivery.nodeCapOmitted,
+        ...(snap.finalUrl !== undefined ? { finalUrl: snap.finalUrl } : {}),
+        ...(snap.dataState !== undefined ? { dataState: snap.dataState } : {}),
+        ...(snap.ready !== undefined ? { ready: snap.ready } : {}),
+        ...(snap.resultExpected !== undefined ? { resultExpected: snap.resultExpected } : {}),
+        ...(snap.resultCount !== undefined ? { resultCount: snap.resultCount } : {}),
+        ...(snap.effectiveLocation !== undefined ? { effectiveLocation: snap.effectiveLocation } : {}),
+        ...(snap.captureAttempts !== undefined ? { captureAttempts: snap.captureAttempts } : {}),
+        dataStateUnconfirmed: dataStateUnconfirmed(snap),
       };
     }));
     const reported = snaps
@@ -718,7 +763,41 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
     let currentRouteErrors = [];
     page.on("pageerror", function(err) { currentRouteErrors.push({ type: "pageerror", text: String(err && err.message || err) }); });
     page.on("console", function(msg) { if (msg.type() === "error") currentRouteErrors.push({ type: "console", text: msg.text() }); });
-    for (const route of routes) {
+    /* The app's declared data-state selectors (dev.dataState), read from the child's env: readiness/result/location per route path, keyed like the routes the capture is asked for. */
+    let stateRoutes = null;
+    try {
+      const ds = process.env.PW_CAPTURE_DATA_STATE;
+      if (ds) {
+        const parsed = JSON.parse(ds);
+        if (parsed && parsed.routes && typeof parsed.routes === "object") stateRoutes = parsed.routes;
+      }
+    } catch(_e) { stateRoutes = null; }
+    /* Select the data-state settings for a page: its final pathname first, then the route asked for, then a key ending "/*" (a prefix and its root). */
+    function matchState(pathname, requested) {
+      if (!stateRoutes) return null;
+      if (pathname && Object.prototype.hasOwnProperty.call(stateRoutes, pathname)) return stateRoutes[pathname];
+      if (requested && Object.prototype.hasOwnProperty.call(stateRoutes, requested)) return stateRoutes[requested];
+      if (pathname) {
+        const keys = Object.keys(stateRoutes);
+        for (let i = 0; i < keys.length; i++) {
+          const key = keys[i];
+          if (key.endsWith('/*')) {
+            const prefix = key.slice(0, -1);
+            const root = key.slice(0, -2);
+            if (pathname === root || pathname.startsWith(prefix)) return stateRoutes[key];
+          }
+        }
+      }
+      return null;
+    }
+    /* The same unconfirmed rule the orchestrator applies: a declared data state whose result stayed empty, or whose readiness never appeared. */
+    function unconfirmed(entry) {
+      if (entry.dataState !== true) return false;
+      if (entry.resultExpected === true) return entry.resultCount === undefined || entry.resultCount === 0;
+      return entry.ready === false;
+    }
+    /* One pass of a route: navigate, settle, read its data state (when one matches) and the DOM. A retry caps the data-state waits at 2s. */
+    async function readRoute(route, retry) {
       currentRouteErrors = [];
       const routeStartedAt = Date.now();
       try {
@@ -726,7 +805,64 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         let settled = false;
         try { await page.waitForLoadState("networkidle", { timeout: 5000 }); settled = true; } catch (_settle) {}
         const finalUrl = page.url();
-        const yaml = await page.locator('body').ariaSnapshot();
+        let pathname = null;
+        try { pathname = new URL(finalUrl).pathname; } catch(_e) { pathname = null; }
+        const settings = matchState(pathname, route);
+        let ready;
+        let resultExpected;
+        let resultCount;
+        let effectiveLocation;
+        let dataState = false;
+        if (settings) {
+          dataState = true;
+          const waitMs = retry ? Math.min(settings.timeoutMs || 8000, 2000) : (settings.timeoutMs || 8000);
+          const deadline = Date.now() + waitMs;
+          if (settings.readySelector) {
+            const left = deadline - Date.now();
+            if (left <= 0) ready = false;
+            else {
+              try { await page.waitForSelector(settings.readySelector, { timeout: left }); ready = true; } catch(_e) { ready = false; }
+            }
+          }
+          if (settings.resultTextSelector || settings.resultSelector) {
+            resultExpected = true;
+            try {
+              let count;
+              while (true) {
+                try {
+                  if (settings.resultTextSelector) {
+                    const text = await page.locator(settings.resultTextSelector).first().innerText();
+                    const m = (text || "").match(/-?\\d+/);
+                    count = m ? parseInt(m[0], 10) : undefined;
+                  } else {
+                    count = await page.locator(settings.resultSelector).count();
+                  }
+                } catch(_e) { count = undefined; }
+                if (count !== undefined && count > 0) break;
+                if (Date.now() >= deadline) break;
+                await new Promise(function(r) { setTimeout(r, 200); });
+              }
+              resultCount = count;
+            } catch(_e) { /* resultCount stays undefined */ }
+          }
+          if (settings.locationSelector) {
+            try {
+              const raw = await page.locator(settings.locationSelector).first().innerText();
+              const cleaned = (raw || "").replace(/\\s+/g, " ").trim().slice(0, 200);
+              if (cleaned) effectiveLocation = cleaned;
+            } catch(_e) {}
+          }
+        }
+        let yaml = await page.locator('body').ariaSnapshot();
+        /* The last stable read is the tree the capture uses; settled still means networkidle succeeded, so the catalog gate stays fail-closed. */
+        try {
+          for (let i = 0; i < 2; i++) {
+            await new Promise(function(r) { setTimeout(r, 200); });
+            const next = await page.locator('body').ariaSnapshot();
+            if (next === yaml) break;
+            yaml = next;
+          }
+        } catch(_e) {}
         /* After ariaSnapshot(), query interactive/labelled nodes for stable HTML attributes. Chromium-only computedRole/computedName; if it throws, attrs is empty and the run degrades to a11y-only grounding. */
         let rawAttrs = [];
         try {
@@ -835,8 +971,22 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
             }, { testIdAttr: testIdAttr, maxChars: ${MAX_SCOPE_CHARS}, probe: probe });
           } catch(_e) { absent = []; }
         }
-        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs, repeated, absent, ms: Date.now() - routeStartedAt });
-      } catch (e) { out.push({ route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors, ms: Date.now() - routeStartedAt }); }
+        const entry = { route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, hrefs, repeated, absent, ms: Date.now() - routeStartedAt };
+        if (dataState) {
+          entry.dataState = true;
+          if (ready !== undefined) entry.ready = ready;
+          if (resultExpected !== undefined) entry.resultExpected = resultExpected;
+          if (resultCount !== undefined) entry.resultCount = resultCount;
+          if (effectiveLocation !== undefined) entry.effectiveLocation = effectiveLocation;
+          entry.captureAttempts = retry ? 2 : 1;
+        }
+        return entry;
+      } catch (e) { return { route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors, ms: Date.now() - routeStartedAt }; }
+    }
+    for (const route of routes) {
+      const first = await readRoute(route, false);
+      if (first.dataState === true && unconfirmed(first)) out.push(await readRoute(route, true));
+      else out.push(first);
     }
   } catch (e) { process.stderr.write(String(e)); } finally { if (browser) await browser.close().catch(() => {}); }
   process.stdout.write(JSON.stringify(out));
@@ -853,6 +1003,26 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
 function routeMs(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 24 * 60 * 60 * 1000 ? Math.round(value) : undefined;
 }
+
+/* A data state's result count: a whole, non-negative number. */
+function resultCountOf(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
+}
+
+/* A data state's effective location: non-empty text, whitespace collapsed, capped. */
+function effectiveLocationOf(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value.replace(/\s+/g, " ").trim().slice(0, 200);
+  return cleaned || undefined;
+}
+
+/* How many times a data state was read: only a whole 1 or 2 is believed. */
+function captureAttemptsOf(value: unknown): number | undefined {
+  return value === 1 || value === 2 ? value : undefined;
+}
+
+/* Whether a captured page's data state could not be confirmed at capture time: a declared data state whose result was expected but stayed empty, or whose readiness selector never appeared. A page with no data state is never unconfirmed. */
+/* (Defined in route-catalog.ts so the catalog's trust gate and the capture share one predicate.) */
 
 /* The repeated names the script reports, keeping only well-formed entries within the bounds; undefined when none is left. */
 function repeatedFrom(value: unknown): RepeatedName[] | undefined {
@@ -880,12 +1050,14 @@ export function createCaptureDomDeps(
   maxOutputChars: number = MAX_CAPTURE_OUTPUT_CHARS,
   observer?: DomCaptureObserver,
   geolocation?: { latitude: number; longitude: number },
+  dataState?: CaptureDataState,
 ): CaptureDomDeps {
   if (!exec) {
     throw new Error("[qa] createCaptureDomDeps requires an execution launcher — there is no safe default (the capture loads a package from the agent-writable e2e project).");
   }
   return {
     ...(geolocation ? { geolocation } : {}),
+    ...(dataState ? { dataState } : {}),
     render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid", probe = []) =>
       new Promise<RouteSnapshot[]>((resolve) => {
         /* routes + baseUrl come from AGENT-AUTHORED specs (untrusted in this threat model). They are passed to the child via an ENV var and parsed there, NOT interpolated into the script source — JSON.stringify does not escape U+2028/U+2029, so interpolating untrusted strings into JS source could inject. The require() path is a derived LOCAL path (not agent input), so its interpolation is safe. */
@@ -897,11 +1069,16 @@ export function createCaptureDomDeps(
           profile: "suite",
           commandClass: "dom-capture",
           ...(geolocation ? { geolocation } : {}),
-          extraEnv: { PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes, probe }) },
+          extraEnv: {
+            PW_BASE_URL: baseUrl,
+            PW_TEST_ID_ATTRIBUTE: testIdAttribute,
+            PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes, probe }),
+            ...(dataState ? { PW_CAPTURE_DATA_STATE: JSON.stringify(dataState) } : {}),
+          },
           /* The result is the JSON on stdout; stderr is never read, and left piped it would block the script once the OS pipe buffer fills. */
           stdio: ["ignore", "pipe", "ignore"],
         });
-        const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length));
+        const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length + (dataState ? 2 : 0)));
         let finished = false;
         /* Bound to the run's async context now, so the observer sees the run's open phase and secrets from the child's event callbacks. */
         const notify = observer ? AsyncResource.bind((report: DomCaptureReport) => observer(report)) : undefined;
@@ -929,7 +1106,7 @@ export function createCaptureDomDeps(
           if (finished) return;
           try {
             /* The page decides what it shows, and it can show the account's password: the run's secrets are taken out of the document by value before it is read (a JSON-escaped spelling of each is replaced too). */
-            const raw = JSON.parse(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown }>;
+            const raw = JSON.parse(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown }>;
             done(raw.map((r) => {
               if (r.error) {
                 const errored: RouteSnapshot = { route: r.route, error: r.error };
@@ -958,6 +1135,15 @@ export function createCaptureDomDeps(
               if (absent.length > 0) snap.absent = absent;
               const snapMs = routeMs(r.ms);
               if (snapMs !== undefined) snap.ms = snapMs;
+              if (r.dataState === true) snap.dataState = true;
+              if (typeof r.ready === "boolean") snap.ready = r.ready;
+              if (typeof r.resultExpected === "boolean") snap.resultExpected = r.resultExpected;
+              const resultCount = resultCountOf(r.resultCount);
+              if (resultCount !== undefined) snap.resultCount = resultCount;
+              const effectiveLocation = effectiveLocationOf(r.effectiveLocation);
+              if (effectiveLocation !== undefined) snap.effectiveLocation = effectiveLocation;
+              const captureAttempts = captureAttemptsOf(r.captureAttempts);
+              if (captureAttempts !== undefined) snap.captureAttempts = captureAttempts;
               return snap;
             }));
           } catch {
