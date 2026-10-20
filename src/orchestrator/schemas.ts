@@ -182,6 +182,8 @@ export const AppConfigSchema = z
       testDataPrefix: z.string().min(1, { error: "qa.testDataPrefix is required" }),
       shadow: z.boolean().optional(),
       explorer: z.boolean().optional(),
+      /* Pre-generation context pack: include the live-DOM capture (A/B lever; default true). */
+      domPack: z.boolean().optional(),
       /*
        * Change-coverage policy (the value keystone). off = skip; signal (default) = measure +
        * record only; enforce = also try to close the gap and block publishing if it stays low.

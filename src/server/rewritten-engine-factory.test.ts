@@ -908,6 +908,15 @@ test("every DOM capture seam of an e2e app is the authDir-backed capture, never 
   }
 });
 
+test("grounding.domPack:false reaches CompositionConfig.domPack=false while the review/pre-exec DOM seams stay wired", () => {
+  const app = cfg("factory-dom-pack-off");
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", grounding: { domPack: false } });
+  assert.equal(config.domPack, false, "the lever reaches the CompositionConfig");
+  assert.ok(config.groundingCollaborators?.contextPackDeps, "pre-generation collaborators still wired");
+  assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps, "review DOM grounding still wired");
+  assert.ok(config.preExecGroundingCollaborators?.captureDomDeps, "pre-exec DOM grounding still wired");
+});
+
 test("explorer:true wires groundingCollaborators.exploreBrief for an e2e app", () => {
   const app: AppConfig = { ...cfg("factory-explorer"), qa: { ...cfg("factory-explorer").qa, explorer: true } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });

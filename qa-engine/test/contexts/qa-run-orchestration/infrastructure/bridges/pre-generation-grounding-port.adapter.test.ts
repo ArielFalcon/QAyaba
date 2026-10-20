@@ -886,6 +886,31 @@ test("ground(): prChangedFiles is derived from the threaded diff when static ctx
   }
 });
 
+test("ground(): domPack:false reaches buildContextPack as false and skips route ranking + changed-element scopes, while the suite and harness facts still come through", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-dompacks-"));
+  try {
+    writeFileSync(join(dir, "home.spec.ts"), "// spec");
+    let seen: { domPack?: boolean; changedElements?: unknown; routes?: unknown } | undefined;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, testIdAttribute: "data-cy", domPack: false },
+      {
+        buildContextPack: async (input) => {
+          seen = { domPack: input.domPack, changedElements: input.changedElements, routes: input.routes };
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+    const result = await adapter.ground(dir, undefined, "diff --git a/src/app/checkout.ts b/src/app/checkout.ts\n+++ b/src/app/checkout.ts\n");
+    assert.equal(seen?.domPack, false, "the lever reaches the pack as false");
+    assert.equal(seen?.changedElements, undefined, "changed-element scopes are only for the pack's DOM capture");
+    assert.equal(seen?.routes, undefined, "no deterministic routes are ranked for a pack that carries no DOM");
+    assert.ok(result.existingSpecFiles?.length, "the existing suite listing still comes through");
+    assert.equal(result.harnessFacts?.testIdAttribute, "data-cy", "harness facts still come through");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /* A cross-repo run compares the map's declared paths with the triggering service's changed files only where the service's snapshot was staged: the roots reach the pack exactly as the composition gave them, and a single-repo run sends none. An empty list is still a cross-repo run (no path can be under any root). */
 test("ground(): the staged roots of a cross-repo run reach the pack as given, and a single-repo run sends none", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-staged-roots-"));

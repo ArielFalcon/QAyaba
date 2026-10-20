@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { parseArgs, delegateRunInput } from "./cli";
 
@@ -70,5 +70,28 @@ describe("--coordination", () => {
     assert.equal("coordinationMode" in plain, false);
     assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "single"]), "e2e").coordinationMode, "single");
     assert.equal("coordinationMode" in delegateRunInput(plain, "e2e"), false);
+  });
+});
+
+describe("--dom-pack", () => {
+  it("is the run's own choice about the pre-generation pack's live-DOM capture and reaches the service as grounding, absent unless given", () => {
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "on"]).domPack, true);
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"]).domPack, false);
+    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
+    assert.equal("domPack" in plain, false);
+    assert.deepEqual(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"]), "e2e").grounding, { domPack: false });
+    assert.equal("grounding" in delegateRunInput(plain, "e2e"), false);
+  });
+
+  it("rejects any value other than on or off", () => {
+    const exit = mock.method(process, "exit", () => { throw new Error("process.exit called"); });
+    const error = mock.method(console, "error", () => {});
+    try {
+      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "bogus"]));
+      assert.equal(exit.mock.callCount(), 1, "an invalid --dom-pack value exits");
+    } finally {
+      exit.mock.restore();
+      error.mock.restore();
+    }
   });
 });

@@ -824,6 +824,7 @@ export interface components {
                 stitcher?: boolean;
                 structuralSignal?: boolean;
                 curriculum?: boolean;
+                domPack?: boolean;
             };
         };
         CreateRunResult: {
@@ -1602,6 +1603,7 @@ export interface components {
                     stitcher: string | null;
                     structuralSignal: string | null;
                     curriculum: string | null;
+                    domPack: boolean | null;
                 };
                 coverage: {
                     mode: string | null;

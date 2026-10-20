@@ -253,6 +253,9 @@ export interface CompositionConfig {
   /* Union of changed files across the PR's full commit range — further filters contracts to operations the PR actually touched. Absent -> contracts are filtered by contextMap/brief alone. */
   prChangedFiles?: string[];
 
+  /* Pre-generation context pack carries no live-DOM capture when false (an A/B arm; default true). Independent of review/pre-exec DOM grounding. */
+  domPack?: boolean;
+
   /* ObjectiveSignalPort collaborators — the keystone. assembleChangeCoverage is OPTIONAL (absent, or no per-run diff at measure() call time -> decide() receives null -> "unknown" -> NEVER blocks, the keystone's own architecturally-safe default). */
   objectiveSignal: {
     collector: Pick<CoverageCollectorPort, "collect">;
@@ -444,6 +447,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
           contextMap: cfg.contextMap,
           ...(cfg.contextMapProvenance ? { contextMapProvenance: cfg.contextMapProvenance } : {}),
           prChangedFiles: cfg.prChangedFiles,
+          domPack: cfg.domPack,
           ...(cfg.triggerService ? { stagedRoots: stagedRootsOf(cfg.mirrorDir, join(cfg.mirrorDir, cfg.e2eRelDir), cfg.triggerService.mirrorDir) } : {}),
         },
         cfg.telemetry ? { ...cfg.groundingCollaborators, trace: telemetryGroundingTrace(cfg.telemetry, cfg.contextMapProvenance) } : (cfg.groundingCollaborators ?? {}),

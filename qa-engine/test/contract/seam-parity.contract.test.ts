@@ -206,6 +206,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     crossRepoImpact: "supplied ONLY under the SAME structuralSignalsOn && app.services?.length && app.boundaries?.length gate serviceTopology uses — legitimately absent for single-repo apps, apps with no declared boundary profile, or when structuralSignals.mode is 'off'.",
     contextMap: "DELIBERATELY absent — see this fn's own header: no per-run mirrorDir/diff exists yet at composition-build time to read e2e/.qa/context.json from. Documented graceful degradation, not a drop.",
     prChangedFiles: "DELIBERATELY absent — same reason as contextMap (per-run intent.changedFiles doesn't exist yet at composition-build time).",
+    domPack: "IS supplied (defaulted true: run.grounding.domPack ?? app.qa.domPack ?? true) — asserted below as a present case.",
     versionUrl: "supplied ONLY when app.dev?.versionUrl is present — legitimately absent for code-mode/static apps (no deploy gate).",
     versionPoll: "supplied ONLY when app.dev?.versionUrl is present (paired with versionUrl above).",
     deployGateIntervalMs: "IS supplied (defaulted via ?? DEFAULT) — asserted below as a present case.",
@@ -348,6 +349,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     assert.equal(cfg.diff, "", "diff is deliberately static '' at composition time — see OPTIONAL_ALLOWLIST.diff");
     assert.equal(cfg.contextMap, undefined, "contextMap is deliberately absent at composition time — see OPTIONAL_ALLOWLIST.contextMap");
     assert.equal(cfg.prChangedFiles, undefined, "prChangedFiles is deliberately absent at composition time — see OPTIONAL_ALLOWLIST.prChangedFiles");
+    assert.equal(cfg.domPack, true, "domPack is defaulted true at composition time — see OPTIONAL_ALLOWLIST.domPack");
     assert.equal(cfg.historyFilePath, undefined, "historyFilePath is the opt-OUT alternative to runHistory — absent by default, see OPTIONAL_ALLOWLIST.historyFilePath");
     assert.equal(cfg.observer, undefined, "observer is absent because this call omitted the 5th argument — see OPTIONAL_ALLOWLIST.observer");
   });

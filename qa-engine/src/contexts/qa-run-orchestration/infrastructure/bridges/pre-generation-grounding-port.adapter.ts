@@ -28,6 +28,7 @@ export interface PreGenerationGroundingStaticContext {
   /* Where the map was effectively read from and how fresh it was. Read after the load, so it describes the source that won. */
   contextMapProvenance?: () => ContextProvenance | undefined;
   prChangedFiles?: string[]; /* union of changed files, for contract filtering */
+  domPack?: boolean; /* false → the pack carries no live-DOM capture (no route ranking, no changed-element scopes); contracts and every other grounding source stay */
   mirrorDir?: string; /* the working copy the map's implementationFiles are relative to — absent → a route is tied only to the files the map names */
   stagedRoots?: string[]; /* cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it (present even when empty) — the pack ranks a route only by the spec of an operation it joins, under these roots */
 }
@@ -311,11 +312,12 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     try {
       const build = this.collaborators.buildContextPack ?? buildContextPack;
       const deps = this.collaborators.contextPackDeps ?? defaultContextPackDeps;
-      const deterministicRoutes = contextMap?.routes?.length
+      const domPack = this.ctx.domPack !== false;
+      const deterministicRoutes = domPack && contextMap?.routes?.length
         ? contextMap.routes.map((r) => r.path).filter(Boolean)
         : undefined;
-      /* A cross-repo run's diff is of the service's tree, not of this working copy: its lines are not looked up here. */
-      const parsed = diff ? diffParser.changedElements(diff) : undefined;
+      /* A cross-repo run's diff is of the service's tree, not of this working copy: its lines are not looked up here. The changed-element scopes feed only the pack's DOM capture, so they are skipped when the pack carries no DOM. */
+      const parsed = domPack && diff ? diffParser.changedElements(diff) : undefined;
       const changedElements = parsed && this.ctx.mirrorDir && this.ctx.stagedRoots === undefined
         ? withChangedElementScopes(parsed, this.ctx.mirrorDir, this.ctx.testIdAttribute)
         : parsed;
@@ -327,6 +329,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           contextMap,
           prChangedFiles,
           testIdAttribute: this.ctx.testIdAttribute,
+          domPack,
           ...(brief ? { brief } : {}),
           ...(deterministicRoutes?.length ? { routes: deterministicRoutes } : {}),
           ...(this.ctx.stagedRoots ? { stagedRoots: this.ctx.stagedRoots } : {}),

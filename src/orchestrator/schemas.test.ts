@@ -431,6 +431,17 @@ test("qa.agentBrowser is off unless an app turns it on, and its lists hold only 
   }
 });
 
+test("qa.domPack accepts true and false and rejects anything else", () => {
+  assert.equal(AppConfigSchema.parse(base).qa.domPack, undefined);
+
+  assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, domPack: true } }).qa.domPack, true);
+  assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, domPack: false } }).qa.domPack, false);
+
+  for (const bad of ["yes", 1, 0, "false", {}, []]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, domPack: bad } }), JSON.stringify(bad));
+  }
+});
+
 test("dev.geolocation accepts named places the authoring agent may pick, and refuses a bad name, a bad point or too many", () => {
   const places = { barcelona: { latitude: 41.3874, longitude: 2.1686 }, empty: { latitude: 0, longitude: 0 } };
   const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: { latitude: 40.4168, longitude: -3.7038, places } } });

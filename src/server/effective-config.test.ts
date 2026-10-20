@@ -25,11 +25,11 @@ test("a lever that cannot take effect is not reported as applied", () => {
 
 test("grounding and policy are what the run's app declares, with the engine's defaults where it declares nothing", () => {
   const plain = resolveRunConfig(app(), "e2e", {}, "metadata", env);
-  assert.deepEqual(plain.grounding, { explorer: false, stitcher: null, structuralSignal: "signal", curriculum: "learning" });
+  assert.deepEqual(plain.grounding, { explorer: false, stitcher: null, structuralSignal: "signal", curriculum: "learning", domPack: true });
   assert.deepEqual(plain.coverage, { mode: "signal", minRatio: 0.7 });
   assert.equal(plain.reflector, true);
   const stitched = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }, { structuralSignals: { mode: "off" }, changeCoverage: { mode: "enforce", minRatio: 0.9 } }), "e2e", {}, "metadata", env);
-  assert.deepEqual(stitched.grounding, { explorer: true, stitcher: null, structuralSignal: "off", curriculum: "learning" });
+  assert.deepEqual(stitched.grounding, { explorer: true, stitcher: null, structuralSignal: "off", curriculum: "learning", domPack: true });
   assert.deepEqual(stitched.coverage, { mode: "enforce", minRatio: 0.9 });
   const withBoundaries = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }), "e2e", {}, "metadata", env);
   assert.equal(withBoundaries.grounding.stitcher, "signal");
@@ -38,7 +38,7 @@ test("grounding and policy are what the run's app declares, with the engine's de
 test("a run's grounding lever wins over the app's setting and the freeze still wins over the curriculum lever", () => {
   const withServices = app({ services: [{ repo: "o/s" }], boundaries: [{}] });
   const asked = resolveRunConfig(withServices, "e2e", { grounding: { explorer: true, stitcher: false, structuralSignal: false, curriculum: false } }, "metadata", env);
-  assert.deepEqual(asked.grounding, { explorer: true, stitcher: "off", structuralSignal: "off", curriculum: "off" });
+  assert.deepEqual(asked.grounding, { explorer: true, stitcher: "off", structuralSignal: "off", curriculum: "off", domPack: true });
   const frozen = resolveRunConfig(withServices, "e2e", { grounding: { curriculum: true } }, "metadata", { ...env, campaignFrozen: true });
   assert.equal(frozen.grounding.curriculum, "frozen");
 });
@@ -48,6 +48,26 @@ test("a campaign freeze freezes the curriculum and switches the reflector off wh
   assert.equal(frozen.campaignFreeze, true);
   assert.equal(frozen.grounding.curriculum, "frozen");
   assert.equal(frozen.reflector, false);
+});
+
+test("domPack: the request wins over the app, the app applies when the request says nothing, and absent on both defaults to true", () => {
+  assert.equal(resolveRunConfig(app({}, { domPack: true }), "e2e", { grounding: { domPack: false } }, "metadata", env).grounding.domPack, false);
+  assert.equal(resolveRunConfig(app({}, { domPack: false }), "e2e", {}, "metadata", env).grounding.domPack, false);
+  assert.equal(resolveRunConfig(app(), "e2e", {}, "metadata", env).grounding.domPack, true);
+  assert.equal(resolveRunConfig(app(), "e2e", { grounding: { domPack: true } }, "metadata", env).grounding.domPack, true);
+});
+
+test("parseStoredRunConfig of an old record without domPack reads it as null (kept parseable)", () => {
+  const old = JSON.stringify({
+    levers: { closedLoop: null, agentBrowser: null, coordinationMode: null, captureMode: null },
+    campaignFreeze: null,
+    runtime: null,
+    prompt: { staticHash: null },
+    grounding: { explorer: false, stitcher: null, structuralSignal: "signal", curriculum: "learning" },
+    coverage: { mode: "signal", minRatio: 0.7 },
+    reflector: true,
+  });
+  assert.equal(parseStoredRunConfig(old)?.grounding.domPack, null);
 });
 
 test("a stored configuration round-trips, and malformed or missing storage reads as nothing recorded", () => {

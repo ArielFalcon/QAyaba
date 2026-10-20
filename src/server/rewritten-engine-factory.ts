@@ -736,6 +736,11 @@ export function buildRewrittenCompositionConfig(
 ): CompositionConfig {
   const target: TestTarget = run.target ?? (app.code === true ? "code" : "e2e");
   const isCode = target === "code";
+  /* The pre-generation context pack's live-DOM arm (an A/B lever): the resolved effective config already carries it, so this is always a boolean here. */
+  const domPack = run.grounding?.domPack ?? app.qa.domPack ?? true;
+  if (domPack === false) {
+    console.warn(`[qa] grounding.domPack is OFF for ${app.name}: the pre-generation context pack carries no live DOM. The review, pre-exec and post-failure DOM seams are independent and unchanged; the authenticated-browser alternative is available only when the app and tools grant it.`);
+  }
   /*
    * An e2e-target run without a live DEV URL cannot be composed — fail loud here, before any
    * git clone/agent session/Playwright spawn.
@@ -1076,6 +1081,7 @@ export function buildRewrittenCompositionConfig(
     onFailure: app.report.onFailure,
     maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
     isCode,
+    domPack,
     /*
      * Multi-agent coordination is always wired. Fail-open paths inside RunQaUseCase are the
      * incident safety net; telemetry lands in the durable JSONL sink. Distinct from qa.shadow

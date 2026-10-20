@@ -21,6 +21,8 @@ export interface DelegateRunInput {
   agentBrowser?: boolean;
   /** The run's own choice of coordination mode (an A/B arm), overriding the app's setting. */
   coordinationMode?: CoordinationMode;
+  /** The run's own choice of grounding sources (an A/B arm), overriding the app's settings. */
+  grounding?: { domPack?: boolean };
 }
 
 export interface DelegateRunDeps {
@@ -65,6 +67,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
       ...(input.closedLoop !== undefined ? { closedLoop: input.closedLoop } : {}),
       ...(input.agentBrowser !== undefined ? { agentBrowser: input.agentBrowser } : {}),
       ...(input.coordinationMode !== undefined ? { coordinationMode: input.coordinationMode } : {}),
+      ...(input.grounding ? { grounding: input.grounding } : {}),
     }),
   });
   const createBody = (await createRes.json().catch(() => ({}))) as Record<string, unknown>;

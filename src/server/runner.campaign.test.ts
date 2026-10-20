@@ -162,7 +162,7 @@ test("effectiveConfig records the levers, switches and grounding the run started
     runtime: "opencode",
     agents: {},
     prompt: { staticHash: "sha256:feed" },
-    grounding: { explorer: true, stitcher: null, structuralSignal: "signal", curriculum: "frozen" },
+    grounding: { explorer: true, stitcher: null, structuralSignal: "signal", curriculum: "frozen", domPack: true },
     coverage: { mode: "enforce", minRatio: 0.8 },
     reflector: false,
   });

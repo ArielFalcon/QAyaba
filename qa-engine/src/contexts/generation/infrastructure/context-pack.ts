@@ -60,6 +60,9 @@ export interface ContextPackInput {
 
   /* Cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it. Present (even empty) means prChangedFiles are the service's own files, so a route is ranked only by the spec of an operation it joins, under these roots. */
   stagedRoots?: string[];
+
+  /* false → no live-DOM capture, no route ranking, no redirect advisory, no "not capturable" list (an A/B arm; default true). Contracts and the pack header stay. */
+  domPack?: boolean;
 }
 
 /* What the pack was made from, for the trace: nothing here reaches the agent or the verdict. */
@@ -323,6 +326,8 @@ export async function buildContextPack(
 ): Promise<ContextPackAssembly> {
   const log = deps.log ?? (() => {});
   const domBudgetChars = Math.floor(DOM_BUDGET_BYTES / BYTES_PER_CHAR);
+  const domPack = input.domPack !== false;
+  if (!domPack) log("context-pack: DOM capture skipped (grounding.domPack off) — no live DOM");
 
   let domSection = "";
   let redirectSection = "";
@@ -376,7 +381,7 @@ export async function buildContextPack(
   };
   /* What became of each template the run looked at: the page the links gave it, if any. A template behind the cut is never looked at. */
   const instanceOfTemplate = new Map<string, string | undefined>();
-  if ((firstPass.length > 0 || reachable) && input.e2eDir && input.baseUrl) {
+  if (domPack && (firstPass.length > 0 || reachable) && input.e2eDir && input.baseUrl) {
     const base = { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute };
     try {
       /* The first capture is of the routes that are pages. When a template can still take a slot it also reports the links its pages show, and renders the app root for them when the root is no route asked for: the template cannot be opened, but a link to a page of it can. */
@@ -465,10 +470,12 @@ export async function buildContextPack(
     if (instance === undefined) return anyPageGrounded ? TEMPLATE_LEFT_OUT.NO_LINK : TEMPLATE_LEFT_OUT.NO_PAGE_TO_LOOK_AT;
     return grounded(instance) ? undefined : TEMPLATE_LEFT_OUT.PAGE_NOT_CONFIRMED;
   };
-  const notCaptured: NotCaptured[] = classified.flatMap((entry) => {
-    const reason = reasonFor(entry);
-    return reason === undefined ? [] : [{ route: entry.route, reason }];
-  });
+  const notCaptured: NotCaptured[] = domPack
+    ? classified.flatMap((entry) => {
+        const reason = reasonFor(entry);
+        return reason === undefined ? [] : [{ route: entry.route, reason }];
+      })
+    : [];
   for (const entry of notCaptured) log(`[qa] context-pack: route not capturable, left out of the capture: ${loggableRoute(entry.route)} (${entry.reason})`);
 
   let contractSection = "";
@@ -480,17 +487,29 @@ export async function buildContextPack(
 
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
-  const trace: ContextPackTrace = {
-    rankedRoutes: firstPass,
-    relevantRoutes: relevantMapRoutes,
-    relevantGroups: relevantMapRoutes.map((route) => componentOf.get(route) ?? route),
-    capturablePages,
-    pages: [...pages.values()],
-    pageDeliveries: [...deliveries.values()],
-    changedTestIds: (input.changedElements ?? []).flatMap((element) => (element.testId === undefined ? [] : [element.testId])),
-    contractIds: relevantOps.map((op) => op.operationId),
-    omittedLines,
-  };
+  const trace: ContextPackTrace = domPack
+    ? {
+        rankedRoutes: firstPass,
+        relevantRoutes: relevantMapRoutes,
+        relevantGroups: relevantMapRoutes.map((route) => componentOf.get(route) ?? route),
+        capturablePages,
+        pages: [...pages.values()],
+        pageDeliveries: [...deliveries.values()],
+        changedTestIds: (input.changedElements ?? []).flatMap((element) => (element.testId === undefined ? [] : [element.testId])),
+        contractIds: relevantOps.map((op) => op.operationId),
+        omittedLines,
+      }
+    : {
+        rankedRoutes: [],
+        relevantRoutes: [],
+        relevantGroups: [],
+        capturablePages: 0,
+        pages: [],
+        pageDeliveries: [],
+        changedTestIds: [],
+        contractIds: relevantOps.map((op) => op.operationId),
+        omittedLines: 0,
+      };
 
   const sections = [
     { text: domSection, held: "the live DOM of the routes it covers" },

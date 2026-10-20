@@ -133,6 +133,7 @@ export const GroundingInputSchema = z.object({
   stitcher: z.boolean().optional(),
   structuralSignal: z.boolean().optional(),
   curriculum: z.boolean().optional(),
+  domPack: z.boolean().optional(),
 });
 export type GroundingInput = z.infer<typeof GroundingInputSchema>;
 
@@ -618,6 +619,7 @@ export const EffectiveConfigSchema = z.object({
     stitcher: z.string().nullable(),
     structuralSignal: z.string().nullable(),
     curriculum: z.string().nullable(),
+    domPack: z.boolean().nullable(),
   }),
   coverage: z.object({ mode: z.string().nullable(), minRatio: z.number().nullable() }),
   reflector: z.boolean().nullable(),

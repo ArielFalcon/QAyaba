@@ -74,6 +74,7 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
       stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : structuralMode) : null,
       structuralSignal: requestedGrounding.structuralSignal === false ? "off" : structuralMode,
       curriculum: env.campaignFrozen ? "frozen" : requestedGrounding.curriculum === false ? "off" : "learning",
+      domPack: requestedGrounding.domPack ?? app.qa.domPack ?? true,
     },
     coverage: { mode: app.qa.changeCoverage?.mode ?? DEFAULT_COVERAGE_MODE, minRatio: app.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO },
     reflector: env.reflectorEnabled && !env.campaignFrozen,
@@ -100,7 +101,7 @@ const NOT_RECORDED: StoredRunConfig = {
   campaignFreeze: null,
   runtime: null,
   prompt: { staticHash: null },
-  grounding: { explorer: null, stitcher: null, structuralSignal: null, curriculum: null },
+  grounding: { explorer: null, stitcher: null, structuralSignal: null, curriculum: null, domPack: null },
   coverage: { mode: null, minRatio: null },
   reflector: null,
 };

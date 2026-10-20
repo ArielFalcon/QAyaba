@@ -283,6 +283,26 @@ test("buildContextPack filters contracts using prChangedFiles", async () => {
     "contracts are either included (path matched) or empty (no brief to match from)");
 });
 
+test("buildContextPack with domPack:false skips the DOM capture entirely and still renders contracts", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async () => { throw new Error("captureDomForRoutes must not be called when domPack is false"); },
+    domDeps: stubDomDeps("button: Submit"),
+    log: () => {},
+  };
+  const result = await buildContextPack(
+    { domPack: false, brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
+    deps,
+  );
+  assert.ok(result.text, "a pack that holds a contract still renders");
+  assert.equal(result.text.includes(`### ${PACK_HEADINGS.liveDom}`), false, "no live DOM section when the pack is off");
+  assert.equal(result.text.includes(`### ${PACK_HEADINGS.notCapturable}`), false, "no not-capturable list when nothing was attempted");
+  assert.equal(result.text.includes(`### ${PACK_HEADINGS.redirected}`), false, "no redirect advisory when the capture is skipped");
+  assert.ok(result.text.includes("POST /orders"), "the contract line is present");
+  assert.equal(result.domBytes, 0, "domBytes is zero when nothing was captured");
+  assert.deepEqual(result.trace?.pages, []);
+  assert.deepEqual(result.trace?.rankedRoutes, []);
+});
+
 /* buildContextPack's candidateRoutes came ONLY from a brief (briefRoutePaths, contextMapRoutes gated
    on brief.feBe) — with no brief-less route path at all, the pack was structurally empty whenever
    the explorer pass never ran (which is EVERY production run today — the explorer stays unwired by

@@ -2408,6 +2408,9 @@
               },
               "curriculum": {
                 "type": "boolean"
+              },
+              "domPack": {
+                "type": "boolean"
               }
             },
             "additionalProperties": false
@@ -5852,13 +5855,18 @@
                   "curriculum": {
                     "nullable": true,
                     "type": "string"
+                  },
+                  "domPack": {
+                    "nullable": true,
+                    "type": "boolean"
                   }
                 },
                 "required": [
                   "explorer",
                   "stitcher",
                   "structuralSignal",
-                  "curriculum"
+                  "curriculum",
+                  "domPack"
                 ],
                 "additionalProperties": false
               },
