@@ -149,6 +149,29 @@ export const AppConfigSchema = z
             .refine((places) => Object.keys(places).length <= MAX_PLACES, { error: `at most ${MAX_PLACES} places are allowed` })
             .optional(),
         }).optional(),
+        /*
+         * Capture-time data-state readiness. Per route path, selectors the DOM capture reads after the page settles so an
+         * empty tree is not mistaken for truth: `readySelector` must appear for the page to be ready; `resultSelector` /
+         * `resultTextSelector` count results (a result of 0 is unconfirmed and retried once); `locationSelector` reads the
+         * effective location the page shows. A key ending `/*` names a prefix and its root. Selectors are app data, never a
+         * fact the engine infers.
+         */
+        dataState: z
+          .object({
+            routes: z
+              .record(
+                z.string().min(1),
+                z.object({
+                  readySelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
+                  resultSelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
+                  resultTextSelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
+                  locationSelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
+                  timeoutMs: z.number().int().min(1, { error: "data-state timeoutMs is a whole number of milliseconds, at least 1" }).max(15_000, { error: "data-state timeoutMs is at most 15000" }).optional(),
+                }),
+              )
+              .refine((routes) => Object.keys(routes).length <= 32, { error: "at most 32 data-state routes are allowed" }),
+          })
+          .optional(),
       })
       .superRefine((dev, ctx) => {
         if (dev.blockedOrigins === undefined) return;

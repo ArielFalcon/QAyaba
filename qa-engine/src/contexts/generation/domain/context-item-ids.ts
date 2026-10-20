@@ -140,14 +140,16 @@ export function domItemIds(pages: readonly DomPageLike[]): string[] {
   return ids;
 }
 
-/* For each test id a change added: present on every captured route that shows it, and absent (route `*`) when no captured route shows it. */
-export function changedValueFactIds(pages: ReadonlyArray<{ route: string; testIds?: Iterable<string> }>, changedTestIds: readonly string[]): string[] {
+/* For each test id a change added: present on every captured route that shows it, and absent (route `*`) when no captured route shows it — unless some captured page's data state is unconfirmed, in which case an absence is not proof and no absent fact is emitted. */
+export function changedValueFactIds(pages: ReadonlyArray<{ route: string; testIds?: Iterable<string>; unconfirmed?: boolean }>, changedTestIds: readonly string[]): string[] {
   const ids: string[] = [];
-  const shown = pages.map((p) => ({ route: p.route, set: new Set(p.testIds ?? []) }));
+  const shown = pages.map((p) => ({ route: p.route, set: new Set(p.testIds ?? []), unconfirmed: p.unconfirmed === true }));
+  const anyUnconfirmed = shown.some((p) => p.unconfirmed);
   for (const testId of [...new Set(changedTestIds)]) {
     const where = shown.filter((p) => p.set.has(testId));
-    if (where.length === 0) ids.push(itemId.fact("*", testId, "absent"));
-    else for (const p of where) ids.push(itemId.fact(p.route, testId, "present"));
+    if (where.length === 0) {
+      if (!anyUnconfirmed) ids.push(itemId.fact("*", testId, "absent"));
+    } else for (const p of where) ids.push(itemId.fact(p.route, testId, "present"));
   }
   return ids;
 }

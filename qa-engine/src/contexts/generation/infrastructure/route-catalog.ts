@@ -80,12 +80,19 @@ function redirectTarget(route: string, finalUrl: string | undefined): string | u
   return reached === normalize(requestedPath) ? undefined : reached.slice(0, REDIRECT_PATH_MAX_CHARS);
 }
 
-/** Pure adapter from RouteSnapshot to RouteCatalog. Capture error → degraded (never trusted). Unconfirmed settle → settled:false. The fail-closed path may trust ONLY a captured && settled route; unknown defaults to advisory, never a false block. Also degraded (safe direction: removes trust, never blocks) when nodes[] is empty or finalUrl redirected away from the requested route; a degraded route says why, and a redirect says where it led. */
+/** Whether a captured page's declared data state could not be confirmed at capture time: a declared data state whose result was expected but stayed empty, or whose readiness selector never appeared. A page with no data state is never unconfirmed. */
+export function dataStateUnconfirmed(snapshot: Pick<RouteSnapshot, "dataState" | "resultExpected" | "resultCount" | "ready">): boolean {
+  if (snapshot.dataState !== true) return false;
+  if (snapshot.resultExpected === true) return snapshot.resultCount === undefined || snapshot.resultCount === 0;
+  return snapshot.ready === false;
+}
+
+/** Pure adapter from RouteSnapshot to RouteCatalog. Capture error → degraded (never trusted). Unconfirmed settle or an unconfirmed data state → settled:false. The fail-closed path may trust ONLY a captured && settled route; unknown defaults to advisory, never a false block. Also degraded (safe direction: removes trust, never blocks) when nodes[] is empty or finalUrl redirected away from the requested route; a degraded route says why, and a redirect says where it led. */
 export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
   const captureFailed = snapshot.error !== undefined;
   const emptyRender = !captureFailed && (snapshot.nodes?.length ?? 0) === 0;
   const redirectedTo = captureFailed ? undefined : redirectTarget(snapshot.route, snapshot.finalUrl);
-  /* Grounding trust is structural render (captureFailed / emptyRender / redirect), not whether the app logged a runtime error. Runtime errors are adjudication evidence, not a catalog degrade. */
+  /* Grounding trust is structural render (captureFailed / emptyRender / redirect), not whether the app logged a runtime error. Runtime errors are adjudication evidence, not a catalog degrade. An unconfirmed data state is also not trustworthy: the empty tree may be a page that has not loaded. */
   const degradeReason = captureFailed
     ? DEGRADE_REASON.CAPTURE_FAILED
     : redirectedTo !== undefined
@@ -97,7 +104,7 @@ export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
   return {
     route: snapshot.route,
     status: degraded ? ROUTE_STATUS.DEGRADED : ROUTE_STATUS.CAPTURED,
-    settled: !degraded && snapshot.settled === true,
+    settled: !degraded && snapshot.settled === true && !dataStateUnconfirmed(snapshot),
     testIds: degraded ? new Map() : (snapshot.testIds ?? new Map()),
     ...(degraded ? { degradeReason } : {}),
     ...(redirectedTo === undefined ? {} : { redirectedTo, reachedPasswordField: snapshot.attrs?.some((attr) => attr.inputType === "password") ?? false }),

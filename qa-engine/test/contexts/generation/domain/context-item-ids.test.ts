@@ -71,6 +71,21 @@ test("a test id a change added is present where captured pages show it and absen
   assert.deepEqual(changedValueFactIds(pages, ["x", "z"]), ["fact:/a#x:present", "fact:/b#x:present", "fact:*#z:absent"]);
 });
 
+test("an absent fact is emitted when every captured page is confirmed", () => {
+  const pages = [{ route: "/a", testIds: ["x"] }, { route: "/b" }];
+  assert.deepEqual(changedValueFactIds(pages, ["x", "z"]), ["fact:/a#x:present", "fact:*#z:absent"]);
+});
+
+test("an absent fact is suppressed when any captured page is unconfirmed", () => {
+  const pages = [{ route: "/a", testIds: ["x"] }, { route: "/b", unconfirmed: true }];
+  assert.deepEqual(changedValueFactIds(pages, ["x", "z"]), ["fact:/a#x:present"]);
+});
+
+test("present facts are unchanged by an unconfirmed page", () => {
+  const pages = [{ route: "/a", testIds: ["x", "y"] }, { route: "/b", testIds: ["x"], unconfirmed: true }];
+  assert.deepEqual(changedValueFactIds(pages, ["x", "z"]), ["fact:/a#x:present", "fact:/b#x:present"]);
+});
+
 test("a brief's claims are named by kind and a hash, so a reworded claim has another id and the same claim the same", () => {
   const brief = { routes: [{ path: "/a" }], risks: ["Stale cache"], feBe: [{ route: "/a", operationId: "op1" }] };
   const first = briefItemIds(brief);
