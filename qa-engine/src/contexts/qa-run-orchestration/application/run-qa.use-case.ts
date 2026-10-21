@@ -151,7 +151,11 @@ import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
 import { precheckSpecsAgainstDom } from "../domain/deterministic-review-precheck.ts";
 import { correctionClassOf } from "@contexts/generation/domain/review-output.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/domain/review-fingerprint.ts";
-import { readConfinedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { sha256Hex } from "../../../shared-infrastructure/content-hash.ts";
+import { specSnapshotPort } from "../infrastructure/bridges/spec-snapshot.adapter.ts";
+import { RegenerationAcceptance } from "./regeneration-acceptance.ts";
+import type { SpecSnapshot } from "./ports/spec-snapshot.port.ts";
 import { ERROR_CLASS, resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
@@ -467,6 +471,10 @@ export interface RunQaResult {
     closedLoop?: ClosedLoopGateSignal;
     /** Present only when the run granted the authenticated agent browser. */
     agentBrowser?: AgentBrowserGateSignal;
+    /** Present only when the recorded coverage predates the bytes an accepted regeneration wrote (signal mode). */
+    coverage?: { stale: boolean };
+    /** Present only when a regeneration went through acceptance. */
+    integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };
   cases: QaCase[];
   /** One-shot post-execution string. Absent on early exits that never reached execute(). */
@@ -836,6 +844,51 @@ export class RunQaUseCase {
     trail.phases.enter("workspace");
     const workspace = await this.deps.workspace.prepare(input.sha);
     trail.mirrorDir = workspace.mirrorDir;
+
+    /*
+     * The run's proof ledger: for every delivered spec file, the bytes that executed green — either in the first pass or in an
+     * accepted regeneration — keyed by suite-relative path with their sha256. A delivered file with no entry has no proof, and the
+     * final guard fails the run closed rather than publish its unexecuted bytes. Seeded after the first execution; every accepted
+     * regeneration adds or replaces its changed files' entries.
+     */
+    const specRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
+    const proofLedger = new Map<string, { sha256: string; bytes?: Uint8Array }>();
+    const integrityCounters = { acceptances: 0, rejected: 0, proofReused: 0, capHit: false };
+    const snapshotPort = specSnapshotPort(specRoot);
+    /* Built once per run; the deadline, validation, execution and the closed-loop proof source are each passed per call. */
+    const acceptance = new RegenerationAcceptance({
+      snapshot: snapshotPort,
+      fingerprint: (bytes) => sha256Hex(Buffer.from(bytes).toString("utf8")),
+      ledger: async (entry) => {
+        proofLedger.set(entry.file, { sha256: entry.sha256, bytes: entry.bytes });
+      },
+    });
+    const runDeadlinePort = this.deps.runDeadline ?? { arm: () => {}, describe: () => undefined, remainingMs: () => undefined };
+    let acceptanceCalls = 0;
+    /* Whether an accepted regeneration rewrote specs after the last coverage measurement: the coverage ratio is then stale. */
+    let acceptedRegenAfterMeasure = false;
+
+    /* The suite's specs the turn may change, read by name through the confined reader: a spec that was rewritten without the turn reporting it is covered. */
+    const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+    const suiteChangedFiles = async (before: SpecSnapshot, regenSpecs: readonly string[]): Promise<string[]> => {
+      const current = listSpecFiles(workspace.specDir);
+      const after = await snapshotPort.snapshot(workspace.specDir, current);
+      const changed = new Set<string>();
+      /* Created, rewritten and deleted alike: a spec that was there before and is gone now is a change acceptance must judge. */
+      for (const file of before.files.keys()) {
+        if (!after.files.has(file)) changed.add(file);
+      }
+      for (const file of current) {
+        const beforeBytes = before.files.get(file);
+        const afterBytes = after.files.get(file);
+        if (beforeBytes === undefined || afterBytes === undefined || !sameBytes(beforeBytes, afterBytes)) changed.add(file);
+      }
+      for (const file of regenSpecs) {
+        const normalized = file.replaceAll("\\", "/");
+        if (normalized.endsWith(".spec.ts") && after.files.has(normalized)) changed.add(normalized);
+      }
+      return [...changed];
+    };
 
     /*
      * confinementAcc stays undefined until the first enforce() completes, so an
@@ -1717,6 +1770,14 @@ export class RunQaUseCase {
         this.deps.observer?.onEvent({ type: "test.discovered", name: title, ...(file ? { file } : {}) });
       },
     };
+    /* The execution and the static gate an acceptance spends: the run's live observer and signal travel with them, as on every other call. */
+    const executeAccepted: ExecutionPort["execute"] = (specDir, opts) =>
+      this.deps.execution.execute(specDir, {
+        ...liveExecutionOpts,
+        ...(opts === undefined ? {} : opts instanceof AbortSignal ? { signal: opts } : opts),
+      });
+    const validateAccepted: ValidationPort["validate"] = (specDir, changedFiles) =>
+      this.deps.validation.validate(specDir, changedFiles, deliveredNow());
     let run = input.mode === "context"
       ? { verdict: "pass" as const, cases: [] as QaCase[], logs: generated.note ?? "" }
       : await this.deps.execution.execute(workspace.specDir, liveExecutionOpts);
@@ -1841,17 +1902,23 @@ export class RunQaUseCase {
     }
 
     /*
-     * The suite store admits a spec only with the bytes that executed green, so those bytes are fingerprinted here, before the
-     * reviewer's correction rounds or the coverage regeneration can rewrite a file that is never executed again. Off-path: a fault
-     * leaves no evidence, and a capture without evidence admits no spec.
+     * The suite store admits a spec only with the bytes that executed green, so those bytes are fingerprinted here and read into
+     * the proof ledger, before the reviewer's correction rounds or the coverage regeneration can rewrite a file that is never
+     * executed again. Off-path: a fault leaves no evidence, and a capture without evidence admits no spec.
      */
-    let executedGreen: ReadonlyMap<string, string> = new Map();
     if (this.deps.suiteStore && suiteRestored && run.verdict === "pass") {
       try {
-        executedGreen = await this.deps.suiteStore.fingerprint(
+        /* The green run executed the whole suite: every delivered spec on disk at this instant has run in these bytes. The store
+         * leaves out a spec it cannot read confined, which seeds no proof (the final guard then refuses to publish it). */
+        const fingerprints = await this.deps.suiteStore.fingerprint(
           { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
-          run.cases.filter((c) => c.status === "pass" && c.file !== undefined).map((c) => c.file!),
+          delivered.map((d) => d.file),
         );
+        /* The ledger holds the green bytes themselves when they can be read, so a later restore has them. */
+        for (const [file, sha256] of fingerprints) {
+          const read = readOwnedSpecFile(specRoot, file, MAX_SPEC_SOURCE_BYTES);
+          proofLedger.set(file, "bytes" in read ? { sha256, bytes: read.bytes } : { sha256 });
+        }
       } catch (fingerprintErr) {
         rethrowIfUntrusted(fingerprintErr);
         this.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
@@ -1872,6 +1939,10 @@ export class RunQaUseCase {
      * `undefined` means measure never ran. Distinct from a measured "unknown".
      */
     let coverageStatus: "pass" | "fail" | "unknown" | undefined;
+    /* Whether this run measured a real per-commit coverage signal (a diff run on one repo): only then can its ratio go stale. */
+    let coverageMeasured = false;
+    /* The measurement predates the bytes an accepted regeneration wrote, and the mode reuses it rather than re-measuring. */
+    let coverageStale = false;
     /* null when the oracle is unwired — never a fabricated 0. */
     let valueScore: number | null = null;
     /*
@@ -1910,6 +1981,7 @@ export class RunQaUseCase {
       );
       coverageRatio = signal.ratio;
       coverageStatus = signal.status;
+      coverageMeasured = input.mode === "diff" && !input.triggerRepo;
       trail.coverageStatus = signal.status;
       valueScore = signal.valueScore ?? null;
       mutantCount = signal.mutantCount ?? undefined;
@@ -1921,46 +1993,51 @@ export class RunQaUseCase {
       blocksPublish = this.deps.objectiveSignal.blocks(signal.status);
 
       /*
-       * Enforce-mode one-shot coverage regen: this block runs at most once per run (it is not
-       * inside any loop) and is independent of the FixLoop budget. A regen throw propagates.
-       * Validate-fail, non-pass rerun, or 0-spec regen keeps the first measurement's
-       * blocksPublish (never fabricated).
+       * Enforce-mode one-shot coverage regen: this block runs at most once per run (it is not inside
+       * any loop) and is independent of the FixLoop budget. A regen throw propagates. The regen's
+       * changed specs go through acceptance: they execute green (or reuse a proof) before they stand.
+       * A rejected or capped regen keeps the first measurement and restores the prior bytes. The
+       * whole-suite re-measure that decides coverage is the single final re-measure before decide.
        */
       if (blocksPublish && input.mode === "diff" && !input.triggerRepo) {
         try {
           const gap = renderCoverageGap(signal.uncovered ?? []);
-          /*
-           * The method's AbortSignal parameter is shadowed here by the measure() result
-           * `signal`. This generate() omits it rather than rename every `signal.*` read.
-           */
+          const snapshot = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
+          const deliveredBefore = delivered;
           const regen = await regenerate(undefined, { coverageGap: gap });
           await enforceConfinement();
-          if (regen.specs.length > 0) {
-            const regenValidation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
-            if (regenValidation.ok) {
-              const regenNamespace = `${input.runId}-coverage-regen`;
-              const regenRun = await this.deps.execution.execute(workspace.specDir, {
-                ...liveExecutionOpts,
-                namespace: regenNamespace,
-              });
-              if (regenRun.verdict === "pass") {
-                const regenBaselineCases = regenRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
-                /*
-                 * Re-measure MUST read the regen's own dumps under regenNamespace — never the
-                 * first run's composition-time namespace.
-                 */
-                const signal2 = await this.deps.objectiveSignal.measure(
-                  runBlastRadius,
-                  workspace.specDir,
-                  classificationDiff,
-                  regenBaselineCases,
-                  { namespace: regenNamespace },
-                );
-                coverageRatio = signal2.ratio;
-                coverageStatus = signal2.status;
-                trail.coverageStatus = signal2.status;
-                blocksPublish = this.deps.objectiveSignal.blocks(signal2.status);
+          const changedSpecFiles = await suiteChangedFiles(snapshot, regen.specs);
+          if (regen.specs.length === 0) {
+            /* A coverage turn that delivers no specs is not a change to accept: whatever it wrote is put back. */
+            if (changedSpecFiles.length > 0) {
+              await snapshotPort.restore(workspace.specDir, snapshot, changedSpecFiles.filter((file) => !snapshot.files.has(file)));
+            }
+            delivered = deliveredBefore;
+          } else if (changedSpecFiles.length > 0) {
+            const outcome = await acceptance.accept({
+              specDir: workspace.specDir,
+              changedSpecFiles,
+              namespace: `${input.runId}-acc${acceptanceCalls++}`,
+              snapshot,
+              ...(closedLoop ? { closedLoop } : {}),
+              deadline: runDeadlinePort,
+              validate: validateAccepted,
+              execute: executeAccepted,
+            });
+            if (outcome.kind === "accepted") {
+              integrityCounters.acceptances += 1;
+              if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+              acceptedRegenAfterMeasure = true;
+              if (outcome.execution?.cases.length) {
+                const changedSet = new Set(changedSpecFiles);
+                run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
               }
+            } else {
+              /* Rejected or capped: the turn's specs are not the run's. */
+              delivered = deliveredBefore;
+              if (outcome.kind === "rejected") integrityCounters.rejected += 1;
+              else integrityCounters.capHit = true;
+              /* The first measurement and the prior bytes stand. */
             }
           }
         } catch (regenErr) {
@@ -2260,15 +2337,54 @@ export class RunQaUseCase {
         previousRoundBlocking = reviewedBlocking;
         previousRoundSpecs = reviewedSpecs;
         previousRoundCaseCount = reviewCases.length;
+        const snapshot = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
+        const deliveredBefore = delivered;
         const regen = await regenerate(signal, { reviewCorrections: reviewResult.corrections });
         await enforceConfinement();
+        const changedSpecFiles = await suiteChangedFiles(snapshot, regen.specs);
         if (regen.specs.length === 0) {
-          /* A regen that produced no reviewable specs must not inherit the generator's self-approval. */
+          /* A regen that produced no reviewable specs must not inherit the generator's self-approval; whatever its turn wrote is put back. */
+          if (changedSpecFiles.length > 0) {
+            await snapshotPort.restore(workspace.specDir, snapshot, changedSpecFiles.filter((file) => !snapshot.files.has(file)));
+          }
+          delivered = deliveredBefore;
           reviewerApproved = false;
           break;
         }
-        /* This loop does not re-execute regenerated specs against DEV. Execution evidence is round-0-only: the suite store holds the bytes that ran (`executedGreen`), so a regenerated file is never admitted as proven. */
-        reviewCases = regen.specs.map((file) => ({ name: file, file, status: run.cases[0]?.status ?? "pass" }));
+        /*
+         * The regenerated specs stand only once they execute green (or reuse a proof): they go through the same acceptance as the
+         * coverage regen. Never let unaccepted bytes stand.
+         */
+        const outcome = await acceptance.accept({
+          specDir: workspace.specDir,
+          changedSpecFiles,
+          namespace: `${input.runId}-acc${acceptanceCalls++}`,
+          snapshot,
+          ...(closedLoop ? { closedLoop } : {}),
+          deadline: runDeadlinePort,
+          validate: validateAccepted,
+          execute: executeAccepted,
+        });
+        if (outcome.kind === "accepted") {
+          integrityCounters.acceptances += 1;
+          if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+          acceptedRegenAfterMeasure = true;
+          const changedSet = new Set(changedSpecFiles);
+          const realCases = outcome.execution?.cases ?? [];
+          if (realCases.length > 0) {
+            /* Replace the changed files' cases with the acceptance execution's real cases; unchanged files keep theirs. */
+            run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...realCases] };
+            reviewCases = [...realCases, ...reviewCases.filter((c) => !changedSet.has(c.file ?? c.name))];
+          }
+          /* Proof reuse executed nothing: the existing cases already describe the bytes on disk. */
+        } else {
+          delivered = deliveredBefore;
+          reviewerApproved = false;
+          finalReviewerCorrections = reviewResult.corrections;
+          if (outcome.kind === "rejected") integrityCounters.rejected += 1;
+          else integrityCounters.capHit = true;
+          break;
+        }
       }
       /* A genuine review verdict overwrites generation's self-approval default. */
       reviewerApprovedForOutcome = reviewerApproved;
@@ -2287,6 +2403,109 @@ export class RunQaUseCase {
         skippedRounds: reviewStats.skippedRounds,
         correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
       };
+    }
+
+    /*
+     * The coverage this run measured is stale when an accepted regeneration followed it. Under enforce, one whole-suite measured
+     * execution before decide refreshes it (the coverage regeneration's own run counts when it is the last accepted one, so this
+     * never runs twice); under signal the prior measurement is reused and marked stale. A measured execution that ends red is the
+     * run's verdict: a red suite is never published.
+     */
+    if (run.verdict === "pass" && coverageMeasured && acceptedRegenAfterMeasure) {
+      if (cfg.coveragePolicyMode === "enforce") {
+        const finalNamespace = `${input.runId}-coverage-final`;
+        const measuredRun = await this.deps.execution.execute(workspace.specDir, { ...liveExecutionOpts, namespace: finalNamespace });
+        run = { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
+        if (measuredRun.verdict === "pass") {
+          const baselineCases = measuredRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
+          const finalSignal = await this.deps.objectiveSignal.measure(
+            runBlastRadius,
+            workspace.specDir,
+            classificationDiff,
+            baselineCases,
+            { namespace: finalNamespace },
+          );
+          coverageRatio = finalSignal.ratio;
+          coverageStatus = finalSignal.status;
+          trail.coverageStatus = finalSignal.status;
+          blocksPublish = this.deps.objectiveSignal.blocks(finalSignal.status);
+          acceptedRegenAfterMeasure = false;
+        }
+      } else if (cfg.coveragePolicyMode === "signal") {
+        coverageStale = true;
+        try {
+          this.telemetry.counter("qayaba.coverage.stale")(1, { "qayaba.app": input.app });
+        } catch (err) {
+          console.error(`[telemetry] the stale-coverage counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+
+    /*
+     * The bytes on disk are the proof. Before the run decides, fingerprint the delivered specs once more and put back the proven
+     * bytes of any file that changed after its acceptance; a file with no proof, or a restore that does not verify, ends the run
+     * as a loud infra-error. No proof means no publication (fails closed).
+     */
+    if (run.verdict === "pass" && generating && input.mode !== "context" && !cfg.isCode) {
+      const deliveredFiles = [...new Set(delivered.map((d) => d.file))].filter((file) => file.endsWith(".spec.ts"));
+      if (deliveredFiles.length > 0) {
+        let current: ReadonlyMap<string, string> = new Map();
+        if (this.deps.suiteStore) {
+          try {
+            current = await this.deps.suiteStore.fingerprint(specRoot, deliveredFiles);
+          } catch (err) {
+            return await this.infraErrorResult(
+              `the final proof guard could not fingerprint the delivered specs: ${err instanceof Error ? err.message : String(err)}`,
+              workspace.mirrorDir,
+            );
+          }
+        }
+        for (const file of deliveredFiles) {
+          const proof = proofLedger.get(file);
+          if (proof && current.get(file) === proof.sha256) continue;
+          if (!proof) {
+            return await this.infraErrorResult(
+              `the final proof guard found no proof for ${file}: the run cannot publish bytes that never executed green`,
+              workspace.mirrorDir,
+            );
+          }
+          if (proof.bytes === undefined) {
+            return await this.infraErrorResult(
+              `the final proof guard found ${file} changed after it executed green, but holds no proven bytes to restore`,
+              workspace.mirrorDir,
+            );
+          }
+          try {
+            await snapshotPort.restore(workspace.specDir, { files: new Map([[file, proof.bytes]]) }, []);
+          } catch (err) {
+            return await this.infraErrorResult(
+              `the final proof guard could not restore ${file}: ${err instanceof Error ? err.message : String(err)}`,
+              workspace.mirrorDir,
+            );
+          }
+          if (!this.deps.suiteStore) {
+            return await this.infraErrorResult(
+              `the final proof guard cannot verify the restored ${file}: no suite store is composed`,
+              workspace.mirrorDir,
+            );
+          }
+          let restored: ReadonlyMap<string, string>;
+          try {
+            restored = await this.deps.suiteStore.fingerprint(specRoot, [file]);
+          } catch (err) {
+            return await this.infraErrorResult(
+              `the final proof guard could not verify the restored ${file}: ${err instanceof Error ? err.message : String(err)}`,
+              workspace.mirrorDir,
+            );
+          }
+          if (restored.get(file) !== proof.sha256) {
+            return await this.infraErrorResult(
+              `the final proof guard restored ${file} but its bytes still differ from the proven ones`,
+              workspace.mirrorDir,
+            );
+          }
+        }
+      }
     }
 
     /* Publish never emits its own step; "decide" covers the decide+publish pair. */
@@ -2371,7 +2590,8 @@ export class RunQaUseCase {
           specDir: workspace.specDir,
           runId: input.runId,
           sha: input.sha.toString(),
-          executedGreen,
+          /* The ledger's own hashes: every file admitted is one whose green bytes this run holds. */
+          executedGreen: new Map([...proofLedger].map(([file, proof]) => [file, proof.sha256])),
           ...(authVerifiedSha256 !== undefined ? { authVerifiedSha256 } : {}),
         });
         this.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
@@ -2480,6 +2700,10 @@ export class RunQaUseCase {
         ...(confinementAcc !== undefined ? { confinement: confinementAcc } : {}),
         ...(loopSignal ? { closedLoop: loopSignal } : {}),
         ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
+        ...(coverageStale ? { coverage: { stale: true } } : {}),
+        ...(integrityCounters.acceptances > 0 || integrityCounters.rejected > 0 || integrityCounters.capHit
+          ? { integrity: { ...integrityCounters } }
+          : {}),
       });
       await this.deps.runHistory.save(mainlineOutcome);
       trail.phases.enter("learn");
@@ -2573,6 +2797,10 @@ export class RunQaUseCase {
         catalogGateFailClosed,
         ...(loopSignal ? { closedLoop: loopSignal } : {}),
         ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
+        ...(coverageStale ? { coverage: { stale: true } } : {}),
+        ...(integrityCounters.acceptances > 0 || integrityCounters.rejected > 0 || integrityCounters.capHit
+          ? { integrity: { ...integrityCounters } }
+          : {}),
       },
       cases: run.cases,
       logs: run.logs,
@@ -2684,6 +2912,10 @@ export class RunQaUseCase {
       closedLoop?: ClosedLoopGateSignal;
       /* Absent when the run did not grant the authenticated agent browser. */
       agentBrowser?: AgentBrowserGateSignal;
+      /* The recorded coverage predates the bytes an accepted regeneration wrote (signal mode reuses it). */
+      coverage?: { stale: boolean };
+      /* What the run's regeneration acceptance did; absent when no regeneration came through it. */
+      integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
     },
   ) {
     const gateCoverageRatio = coverageRatio;
@@ -2729,6 +2961,8 @@ export class RunQaUseCase {
         ...(extra?.confinement !== undefined ? { confinement: extra.confinement } : {}),
         ...(extra?.closedLoop !== undefined ? { closedLoop: extra.closedLoop } : {}),
         ...(extra?.agentBrowser !== undefined ? { agentBrowser: extra.agentBrowser } : {}),
+        ...(extra?.coverage !== undefined ? { coverage: extra.coverage } : {}),
+        ...(extra?.integrity !== undefined ? { integrity: extra.integrity } : {}),
         ...(this.coordinationOf.has(input) ? { coordination: this.coordinationOf.get(input)! } : {}),
       },
       rulesRetrieved: extra?.rulesRetrieved ?? [],

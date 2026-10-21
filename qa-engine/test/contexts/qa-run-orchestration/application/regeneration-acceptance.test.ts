@@ -23,7 +23,7 @@ interface Harness {
   snapshot: SpecSnapshotPort;
   restores: Array<{ created: readonly string[] }>;
   executed: Array<{ specFiles: string[]; retries: number; namespace: string }>;
-  ledgered: Array<{ file: string; sha256: string }>;
+  ledgered: Array<{ file: string; sha256: string; bytes?: Uint8Array }>;
   execute: ExecutionPort["execute"];
 }
 
@@ -38,7 +38,7 @@ function harness(): Harness {
   const service = new RegenerationAcceptance({
     snapshot,
     fingerprint: (b) => `sha-${b.byteLength}`,
-    ledger: async (file, sha256) => { ledgered.push({ file, sha256 }); },
+    ledger: async (entry) => { ledgered.push(entry); },
   });
   const execute: ExecutionPort["execute"] = async (_dir, opts) => {
     const o = opts as { specFiles: string[]; retries: number; namespace: string };
@@ -71,6 +71,7 @@ test("a green regeneration is accepted: its changed specs are executed once unde
   assert.deepEqual(h.executed, [{ specFiles: ["flows/checkout.spec.ts"], retries: 0, namespace: "run-1-acc0" }]);
   assert.deepEqual(h.ledgered.map((l) => l.file), ["flows/checkout.spec.ts"]);
   assert.equal(h.ledgered[0]!.sha256, "sha-26", "the ledger carries the sha256 of the accepted bytes");
+  assert.equal(Buffer.from(h.ledgered[0]!.bytes!).toString("utf8"), "now:flows/checkout.spec.ts", "the ledger carries the accepted bytes themselves, so a later restore has them");
   assert.equal(h.restores.length, 0, "nothing is restored when the change is accepted");
 });
 

@@ -14,10 +14,11 @@ import { MAX_ACCEPTANCE_EXECUTIONS } from "../domain/helpers/derive-cycle-backst
 import type { ClosedLoopHandle, ExecutionPort, RunDeadlinePort, ValidationPort } from "./ports/index.ts";
 import type { SpecSnapshot, SpecSnapshotPort } from "./ports/spec-snapshot.port.ts";
 
-/** One accepted file's proof: its suite-relative path and the sha256 of its green bytes. */
+/** One accepted file's proof: its suite-relative path, the sha256 of its green bytes, and those bytes when they could be read, so a later restore has them. */
 export interface AcceptanceProofEntry {
   file: string;
   sha256: string;
+  bytes?: Uint8Array;
 }
 
 export type AcceptanceOutcome =
@@ -37,8 +38,8 @@ export interface RegenerationAcceptanceDeps {
   snapshot: SpecSnapshotPort;
   /** sha256 of the accepted bytes; injected so the service never imports node:crypto. */
   fingerprint: (bytes: Uint8Array) => string;
-  /** Records one accepted file's proof (path → sha256 of its green bytes). */
-  ledger: (file: string, sha256: string) => Promise<void>;
+  /** Records one accepted file's proof (its path, the sha256 of its green bytes, and those bytes). */
+  ledger: (entry: AcceptanceProofEntry) => Promise<void>;
   /** The intent-lock contract check (a later task). Absent: always passes. */
   contractCheck?: (changedSpecFiles: readonly string[]) => Promise<{ ok: boolean; reason?: string }>;
 }
@@ -121,9 +122,9 @@ export class RegenerationAcceptance {
     const proof: AcceptanceProofEntry[] = [];
     for (const file of input.changedSpecFiles) {
       const bytes = accepted.files.get(file);
-      if (bytes !== undefined) proof.push({ file, sha256: this.deps.fingerprint(bytes) });
+      if (bytes !== undefined) proof.push({ file, sha256: this.deps.fingerprint(bytes), bytes });
     }
-    for (const entry of proof) await this.deps.ledger(entry.file, entry.sha256);
+    for (const entry of proof) await this.deps.ledger(entry);
 
     return {
       kind: "accepted",

@@ -1,7 +1,7 @@
 import { mock, test } from "node:test";
 import { inspect } from "node:util";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
@@ -50,6 +50,7 @@ import type {
   ContextMapCapturePort,
   GenerationEnrichment,
   RunDeadlinePort,
+  SuiteStorePort,
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 /* reflector-rewire (design ADR-1/ADR-4/ADR-5): ReflectorPort/ReflectionInput are declared in
    cross-run-learning (co-located with StructuredReflection/LearningRepositoryPort), NOT in this
@@ -67,6 +68,7 @@ import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { reassignableGeneration, runWorkspace } from "../../../support/run-workspace.ts";
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
    the verdict path (LearningPort.fold is off-path). Drives the SAME stub shapes scenarios.ts
@@ -106,15 +108,16 @@ function stubPorts(overrides: Partial<{
   /* Port-shaped, like curriculum above — the write side of the FE<->BE architecture map. */
   contextMapCapture: ContextMapCapturePort;
 }> = {}) {
+  const ws = runWorkspace("qa-golden-");
   const savedOutcomes: RunOutcome[] = [];
   const foldedOutcomes: RunOutcome[] = [];
 
   const changeAnalysis: ChangeAnalysisPort = {
     classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })),
   };
-  const generation: GenerationPort = {
-    generate: overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true }))),
-  };
+  const generation: GenerationPort = reassignableGeneration(
+    overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true }))),
+  );
   const review: ReviewPort = {
     review: overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })),
   };
@@ -139,7 +142,7 @@ function stubPorts(overrides: Partial<{
     retrieve: overrides.retrieve ?? (async () => []),
   };
   const workspace: WorkspacePort = {
-    prepare: overrides.prepare ?? (async () => ({ specDir: "/tmp/qa-golden/e2e", mirrorDir: "/tmp/qa-golden" })),
+    prepare: overrides.prepare ?? (async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })),
   };
   const deployGate: DeployGatePort = {
     waitUntilServing: overrides.waitUntilServing ?? (async () => ok(true)),
@@ -162,10 +165,12 @@ function stubPorts(overrides: Partial<{
   const reviewDomGrounding: ReviewDomGroundingPort | undefined = overrides.captureReviewDom
     ? { capture: overrides.captureReviewDom }
     : undefined;
+  /* The store the composition puts behind a run: it reads and restores the bytes the harness's generator really wrote. */
+  const suiteStore: SuiteStorePort = ws.suiteStore;
 
   return {
     ports: {
-      changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, deployGate, runHistory, setup, cleanup,
+      changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, deployGate, runHistory, setup, cleanup, suiteStore,
       ...(preExecGrounding ? { preExecGrounding } : {}),
       ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
       ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
@@ -174,6 +179,7 @@ function stubPorts(overrides: Partial<{
     },
     savedOutcomes,
     foldedOutcomes,
+    ws,
   };
 }
 
@@ -185,6 +191,27 @@ const baseInput = {
   target: "e2e" as const,
   runId: "golden-green-pr",
 };
+
+/*
+ * A real spec directory for the coverage-regeneration tests: the generator writes the spec it delivers, so the turn's bytes are
+ * on disk and acceptance can judge them (a scripted generation alone writes nothing). Each call rewrites the bytes, which is what
+ * a regeneration does.
+ */
+function realCoverageWorkspace(): { prepare: WorkspacePort["prepare"]; generate: GenerationPort["generate"]; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "qa-coverage-"));
+  const specDir = join(dir, "e2e");
+  let calls = 0;
+  return {
+    prepare: async () => ({ specDir, mirrorDir: dir }),
+    generate: async () => {
+      calls += 1;
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "a.spec.ts"), `// generation ${calls}\n`);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
 
 test("RunQaUseCase: green-pr — fully stubbed ports, reaches decide, returns pass/pr RunDecision", async () => {
   const { ports } = stubPorts();
@@ -1343,68 +1370,89 @@ test("coveragePolicyMode:\"signal\" (the default) NEVER blocks publish even when
 
 test("enforce mode — first measure fails, regen fires, second measure ALSO fails — blocksPublish stays true (issue)", async () => {
   let measureCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-    measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }; },
-    blocks: (status) => status === "fail",
-  });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }; },
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
 
-  const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-still-fails" });
+    const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-still-fails" });
 
-  assert.equal(out.decision.verdict, "pass");
-  assert.equal(out.decision.sideEffect, "issue", "enforce mode must hold the PR (route to issue) when the SECOND measure also fails");
-  assert.equal(measureCallCount, 2, "enforce+fail must regenerate exactly once, re-measuring exactly twice total (never a third)");
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "issue", "enforce mode must hold the PR (route to issue) when the SECOND measure also fails");
+    assert.equal(measureCallCount, 2, "enforce+fail must regenerate exactly once, re-measuring exactly twice total (never a third)");
+  } finally {
+    real.cleanup();
+  }
 });
 
 test("enforce mode — first measure fails, regen fires, second measure PASSES — blocksPublish unblocks (pr)", async () => {
   let measureCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-    measure: async () => {
-      measureCallCount++;
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
-        : { status: "pass" as const, ratio: 0.95 };
-    },
-    blocks: (status) => status === "fail",
-  });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCallCount++;
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
+          : { status: "pass" as const, ratio: 0.95 };
+      },
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
 
-  const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-unblocks" });
+    const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-unblocks" });
 
-  assert.equal(out.decision.verdict, "pass");
-  assert.equal(out.decision.sideEffect, "pr", "a regen whose second measure PASSES must unblock publish");
-  assert.equal(measureCallCount, 2);
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "pr", "a regen whose second measure PASSES must unblock publish");
+    assert.equal(measureCallCount, 2);
+  } finally {
+    real.cleanup();
+  }
 });
 
 test("enforce mode — regen's second measure resolves unknown — blocksPublish stays false (the keystone invariant survives regen)", async () => {
   let measureCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-    measure: async () => {
-      measureCallCount++;
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
-        : { status: "unknown" as const, ratio: null };
-    },
-    blocks: (status) => status === "fail",
-  });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCallCount++;
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
+          : { status: "unknown" as const, ratio: null };
+      },
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
 
-  const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-unknown-never-blocks" });
+    const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-unknown-never-blocks" });
 
-  assert.equal(out.decision.sideEffect, "pr", "unknown NEVER blocks, even after a prior fail — the coverage keystone invariant survives the regen");
-  assert.equal(measureCallCount, 2);
+    assert.equal(out.decision.sideEffect, "pr", "unknown NEVER blocks, even after a prior fail — the coverage keystone invariant survives the regen");
+    assert.equal(measureCallCount, 2);
+  } finally {
+    real.cleanup();
+  }
 });
 
 test("enforce mode — the regen's generate() throws — KEEPS the first measurement's blocksPublish (never fabricated)", async () => {
@@ -1500,49 +1548,49 @@ test("signal mode — first measure fails, NO regen fires, NO second measure() c
   assert.equal(genCallCount, 1, "signal mode's regen branch must not call generate() a second time");
 });
 
-test("the regen's execute() AND its re-measure() both use the ${runId}-coverage-regen namespace (GATE FIX: measure-side dump attribution)", async () => {
+test("a coverage regen's acceptance execution and the final re-measure each carry their own namespace (dump attribution stays per execution)", async () => {
   const capturedExecuteNamespaces: (string | undefined)[] = [];
   const capturedMeasureNamespaces: (string | undefined)[] = [];
   let measureCallCount = 0;
-  const { ports } = stubPorts({
-    blocks: (status) => status === "fail",
-  });
-  /* GATE FIX: the coordinator's review found the ORIGINAL version of this test only observed
-     execute()'s opts.namespace — nothing asserted what the SECOND measure() call actually reads
-     from. ObjectiveSignalPort.measure() previously had NO per-call namespace override at all (its
-     adapter's dump namespace is fixed at composition time, this.ctx.namespace) — so the regen's
-     re-measure silently re-read the FIRST run's dumps under the composition-time namespace, never
-     the regen's own `${runId}-coverage-regen` dumps, whenever the regen produced genuinely new
-     specs. This override captures the namespace threaded into EACH measure() call (via the widened
-     opts param, mirroring unit 2's ExecutionOpts.namespace? idiom) so the fix is provably observed
-     at the measure side, not just the execute side.
-   */
-  ports.objectiveSignal.measure = async (_br, _specDir, _diff, _baselineCases, opts) => {
-    measureCallCount++;
-    capturedMeasureNamespaces.push(opts?.namespace);
-    return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
-  };
-  ports.execution.execute = async (_specDir, opts) => {
-    capturedExecuteNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
-    return { verdict: "pass" as const, cases: [], logs: "" };
-  };
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      blocks: (status) => status === "fail",
+    });
+    /* The measured run of an accepted regeneration happens once, after the review loop (nothing regenerates after it); every
+       measure reads the dumps its own execution wrote: the acceptance execution under `${runId}-acc<n>`, the final one under
+       `${runId}-coverage-final`. A measure reading the composition-time namespace would see the first run's stale dumps.
+     */
+    ports.objectiveSignal.measure = async (_br, _specDir, _diff, _baselineCases, opts) => {
+      measureCallCount++;
+      capturedMeasureNamespaces.push(opts?.namespace);
+      return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+    };
+    ports.execution.execute = async (_specDir, opts) => {
+      capturedExecuteNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
+      return { verdict: "pass" as const, cases: [], logs: "" };
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
 
-  await useCase.run({ ...baseInput, runId: "p2c-regen-namespace-attribution" });
+    await useCase.run({ ...baseInput, runId: "p2c-regen-namespace-attribution" });
 
-  assert.equal(measureCallCount, 2, "the regen must have re-measured once");
-  const regenExecuteCall = capturedExecuteNamespaces.find((ns) => ns?.endsWith("-coverage-regen"));
-  assert.equal(regenExecuteCall, "p2c-regen-namespace-attribution-coverage-regen", "the regen's execute() must use the ${runId}-coverage-regen namespace so collect/read hit the regen's own dumps, never the first run's");
+    assert.equal(measureCallCount, 2, "the regen must have re-measured once");
+    const regenExecuteCall = capturedExecuteNamespaces.find((ns) => ns?.endsWith("-acc0"));
+    assert.equal(regenExecuteCall, "p2c-regen-namespace-attribution-acc0", "the regen's changed specs execute under their acceptance namespace, so collect/read hit the regen's own dumps");
+    const finalExecuteCalls = capturedExecuteNamespaces.filter((ns) => ns?.endsWith("-coverage-final"));
+    assert.equal(finalExecuteCalls.length, 1, "the final re-measure runs once, under its own namespace");
 
-  /* First measure() call: no override (reads the composition-time namespace, unchanged). */
-  assert.equal(capturedMeasureNamespaces[0], undefined, "the FIRST measurement must NOT carry a namespace override — unchanged behavior");
-  /* Second measure() call: MUST carry the regen's own namespace override, or it silently re-reads
-     the first run's stale dumps.
-   */
-  assert.equal(capturedMeasureNamespaces[1], "p2c-regen-namespace-attribution-coverage-regen", "the regen's re-measure() must override the namespace to the SAME ${runId}-coverage-regen namespace its own execute() wrote dumps under — otherwise signal2/blocksPublish are measured against STALE (first-run) coverage data");
+    /* First measure() call: no override (reads the composition-time namespace, unchanged). */
+    assert.equal(capturedMeasureNamespaces[0], undefined, "the FIRST measurement must NOT carry a namespace override — unchanged behavior");
+    assert.equal(capturedMeasureNamespaces[1], "p2c-regen-namespace-attribution-coverage-final", "the re-measure() must override the namespace to the measured run's, never the composition-time one");
+  } finally {
+    real.cleanup();
+  }
 });
 
 test("context mode NEVER calls execute() (context.json is not a Playwright spec)", async () => {
@@ -1860,12 +1908,12 @@ test("an unavailable reviewer ends the run at once: no regeneration round is bur
   let generated = 0;
   let reviews = 0;
   const pruned: string[] = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     generate: async () => { generated++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
     review: async () => { reviews++; return reviewerDown(); },
   });
   await new RunQaUseCase({ ...ports, config: baseConfig, mirrorGc: { prune: async (d: string) => { pruned.push(d); } } }).run({ ...baseInput, runId: "reviewer-down-no-regen" });
-  assert.deepEqual([generated, reviews, pruned], [1, 1, ["/tmp/qa-golden"]]);
+  assert.deepEqual([generated, reviews, pruned], [1, 1, [ws.mirrorDir]]);
 });
 
 test("an unavailable reviewer teaches nothing but is audited as an operating signal", async () => {
@@ -2468,6 +2516,138 @@ test("reviewerApproved reflects a reviewer REJECTION (false), not silently omitt
   assert.equal(saved!.gateSignals.reviewerApproved, false, "a reviewer rejection must persist reviewerApproved:false, not true or undefined");
 });
 
+test("signal mode — an accepted regeneration after the measurement reuses it and marks it stale, never re-measuring", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let measureCalls = 0;
+    let generation = 0;
+    let reviews = 0;
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCalls++;
+        return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+      },
+      blocks: () => false,
+      review: async () => {
+        reviews++;
+        return reviews === 1
+          ? { approved: false, corrections: ["assert the list"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    });
+    ports.generation.generate = async () => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? "// first\n" : "// second\n");
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, coveragePolicyMode: "signal" },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "coverage-stale-signal", mode: "diff" });
+
+    assert.equal(measureCalls, 1, "signal mode reuses the measurement it has; it never spends a second one");
+    assert.equal(out.gateSignals.coverage?.stale, true, "the recorded coverage predates the accepted bytes and is marked so");
+    assert.equal(out.decision.sideEffect, "pr", "a stale signal is a recorded caveat, never a block");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("enforce mode — a review regeneration after the measurement gets ONE final whole-suite measured run", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let generation = 0;
+    let reviews = 0;
+    let measureCalls = 0;
+    const executeNamespaces: (string | undefined)[] = [];
+    const measureNamespaces: (string | undefined)[] = [];
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async (_specDir, opts) => {
+        executeNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
+        return { verdict: "pass" as const, cases: [], logs: "" };
+      },
+      measure: async (_br, _specDir, _diff, _baseline, opts) => {
+        measureCalls++;
+        measureNamespaces.push(opts?.namespace);
+        return measureCalls === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9 };
+      },
+      blocks: (status) => status === "fail",
+      review: async () => {
+        reviews++;
+        return reviews === 1
+          ? { approved: false, corrections: ["assert the amount"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    });
+    ports.generation.generate = async () => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", `// generation ${generation}\n`);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, coveragePolicyMode: "enforce" },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "coverage-final-after-review", mode: "diff" });
+
+    assert.equal(measureCalls, 2, "the first measurement plus exactly one final re-measure");
+    assert.deepEqual(measureNamespaces, [undefined, "coverage-final-after-review-coverage-final"]);
+    assert.equal(executeNamespaces.filter((ns) => ns?.endsWith("-coverage-final")).length, 1);
+    assert.equal(out.decision.sideEffect, "pr", "the final measurement, not the superseded first one, decides");
+    assert.equal(out.gateSignals.integrity?.acceptances, 2, "the coverage and the review regeneration each went through acceptance");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the final guard restores the proven bytes when a spec changes after its green execution", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      /* The measurement tampers with the spec after the green run: the guard must put the proven bytes back. */
+      measure: async () => {
+        fixtures.write("flows/restaurants.spec.ts", "// tampered after the run\n");
+        return { status: "unknown" as const, ratio: null };
+      },
+    });
+    ports.generation.generate = async () => {
+      fixtures.write("flows/restaurants.spec.ts", "// proven\n");
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "off" },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "guard-restores-proven-bytes" });
+
+    assert.equal(out.decision.sideEffect, "pr", "the run publishes, as the proven bytes were put back");
+    assert.equal(readFileSync(join(fixtures.specDir, "flows/restaurants.spec.ts"), "utf8"), "// proven\n");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the final guard fails closed when no suite store can prove the delivered bytes", async () => {
+  const { ports } = stubPorts();
+  const { suiteStore: _store, ...withoutStore } = ports;
+
+  const out = await new RunQaUseCase(withoutStore).run({ ...baseInput, runId: "guard-no-store" });
+
+  assert.equal(out.decision.verdict, "infra-error", "no proof means no publication");
+  assert.equal(out.decision.sideEffect, "none");
+});
+
 test("a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 convention — context mode never calls saveOutcome on a clean pass)", async () => {
   let saveCallCount = 0;
   const { ports } = stubPorts({
@@ -2486,7 +2666,7 @@ test("a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 co
 test("a clean context-mode pass captures the architecture map with the run's specDir, app and sha, in shadow and non-shadow runs", async () => {
   for (const shadow of [true, false]) {
     const captured: Array<{ specDir: string; app: string; sha: string }> = [];
-    const { ports } = stubPorts({
+    const { ports, ws } = stubPorts({
       generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" })),
       contextMapCapture: { capture: async (specDir, app, sha) => { captured.push({ specDir, app, sha }); } },
     });
@@ -2495,7 +2675,7 @@ test("a clean context-mode pass captures the architecture map with the run's spe
     const out = await useCase.run({ ...baseInput, runId: `context-clean-capture-${shadow ? "shadow" : "live"}`, mode: "context" });
 
     assert.equal(out.decision.verdict, "pass", `shadow=${shadow}`);
-    assert.deepEqual(captured, [{ specDir: "/tmp/qa-golden/e2e", app: "demo", sha: "abc1234" }], `shadow=${shadow}: captured once, at the run's own specDir, app and sha`);
+    assert.deepEqual(captured, [{ specDir: ws.specDir, app: "demo", sha: "abc1234" }], `shadow=${shadow}: captured once, at the run's own specDir, app and sha`);
   }
 });
 
@@ -2869,10 +3049,9 @@ test("publish() is called with the coverageBlocks field threaded (not dropped) u
 
 test("publish() is called with mirrorDir threaded from WorkspacePort.prepare()'s own return value on the 'pr' side effect", async () => {
   let publishedDecision: { verdict: string; mirrorDir?: string; sha?: string } | undefined;
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
-    prepare: async () => ({ specDir: "/mirrors/org/app/e2e", mirrorDir: "/mirrors/org/app" }),
   });
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -2881,7 +3060,7 @@ test("publish() is called with mirrorDir threaded from WorkspacePort.prepare()'s
 
   assert.equal(out.decision.sideEffect, "pr");
   assert.ok(publishedDecision, "publication.publish() must have been called for the 'pr' side effect");
-  assert.equal(publishedDecision!.mirrorDir, "/mirrors/org/app", "publish() must receive the REAL per-run mirrorDir from WorkspacePort.prepare(), not a dropped/undefined value");
+  assert.equal(publishedDecision!.mirrorDir, ws.mirrorDir, "publish() must receive the REAL per-run mirrorDir from WorkspacePort.prepare(), not a dropped/undefined value");
 });
 
 test("publish() is called with sha threaded from input.sha on the 'pr' side effect", async () => {
@@ -3253,31 +3432,37 @@ test("KEYSTONE: measure() receives the run's REAL BlastRadius (changedFiles from
 test("KEYSTONE: the enforce-mode coverage-regen re-measure ALSO receives the run's REAL BlastRadius", async () => {
   const seenChangedFilesPerCall: (readonly string[] | undefined)[] = [];
   let measureCallCount = 0;
-  const { ports } = stubPorts({
-    classify: async () => ({
-      action: "generate",
-      reason: "diff touches src/orders.ts",
-      diff: "diff --git a/src/orders.ts b/src/orders.ts",
-      intent: { type: "fix", breaking: false, message: "fix: correct order total calculation", changedFiles: ["src/orders.ts"] },
-    }),
-    measure: async (br) => {
-      measureCallCount++;
-      seenChangedFilesPerCall.push(br.changedFiles);
-      /* First call blocks (fail); the regen fires; the SECOND call (re-measure) is what this test pins. */
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/orders.ts", lines: [1] }] }
-        : { status: "pass" as const, ratio: 0.9 };
-    },
-    blocks: (status) => status === "fail",
-    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, coveragePolicyMode: "enforce" } });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      classify: async () => ({
+        action: "generate",
+        reason: "diff touches src/orders.ts",
+        diff: "diff --git a/src/orders.ts b/src/orders.ts",
+        intent: { type: "fix", breaking: false, message: "fix: correct order total calculation", changedFiles: ["src/orders.ts"] },
+      }),
+      measure: async (br) => {
+        measureCallCount++;
+        seenChangedFilesPerCall.push(br.changedFiles);
+        /* First call blocks (fail); the regen fires; the SECOND call (re-measure) is what this test pins. */
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/orders.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9 };
+      },
+      blocks: (status) => status === "fail",
+      generate: real.generate,
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, coveragePolicyMode: "enforce" } });
 
-  await useCase.run({ ...baseInput, mode: "diff", runId: "regen-real-blast-radius" });
+    await useCase.run({ ...baseInput, mode: "diff", runId: "regen-real-blast-radius" });
 
-  assert.equal(measureCallCount, 2, "expected the enforce-mode one-shot regen to trigger a second measure() call");
-  assert.deepEqual(seenChangedFilesPerCall[0], ["src/orders.ts"], "the FIRST measure() call must carry the real changed files");
-  assert.deepEqual(seenChangedFilesPerCall[1], ["src/orders.ts"], "the regen's re-measure() call must ALSO carry the real changed files, not an empty placeholder");
+    assert.equal(measureCallCount, 2, "expected the enforce-mode one-shot regen to trigger a second measure() call");
+    assert.deepEqual(seenChangedFilesPerCall[0], ["src/orders.ts"], "the FIRST measure() call must carry the real changed files");
+    assert.deepEqual(seenChangedFilesPerCall[1], ["src/orders.ts"], "the regen's re-measure() call must ALSO carry the real changed files, not an empty placeholder");
+  } finally {
+    real.cleanup();
+  }
 });
 
 /* ObserverPort wiring: these tests pin (1) the phase-boundary emission order on a representative
@@ -5863,7 +6048,7 @@ function makeFakeConfinement(
 
 test("confinement wiring: green-pr — enforce() is called at least twice (after the initial generate() AND once more immediately before publish), not just once", async () => {
   const calls: Array<{ mirrorDir: string; isCode: boolean }> = [];
-  const { ports } = stubPorts();
+  const { ports, ws } = stubPorts();
   const confinement = makeFakeConfinement((mirrorDir, isCode) => {
     calls.push({ mirrorDir, isCode });
     return { strays: 0, dangerous: 0, reverted: [] };
@@ -5875,7 +6060,7 @@ test("confinement wiring: green-pr — enforce() is called at least twice (after
   assert.equal(out.decision.verdict, "pass");
   assert.ok(calls.length >= 2, `expected at least 2 enforce() calls (after generate + before publish), got ${calls.length}`);
   for (const call of calls) {
-    assert.equal(call.mirrorDir, "/tmp/qa-golden", "enforce() must receive this run's REAL mirrorDir");
+    assert.equal(call.mirrorDir, ws.mirrorDir, "enforce() must receive this run's REAL mirrorDir");
     assert.equal(call.isCode, false, "enforce() must receive this run's REAL isCode target");
   }
 });
@@ -6221,7 +6406,7 @@ function makeFakeMirrorGc(onPrune: (mirrorDir: string) => void | Error): MirrorG
 
 test("mirrorGc wiring: successful run triggers prune() exactly once, against the run's real mirrorDir, AFTER publish() resolves", async () => {
   const order: string[] = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     publish: async () => { order.push("publish"); return { outcome: "pr" }; },
   });
   const mirrorGc = makeFakeMirrorGc((mirrorDir) => {
@@ -6232,7 +6417,7 @@ test("mirrorGc wiring: successful run triggers prune() exactly once, against the
   const out = await useCase.run({ ...baseInput, runId: "mirror-gc-green-pr" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.deepEqual(order, ["publish", "prune:/tmp/qa-golden"], "prune() must fire exactly once, strictly after publish() resolves, against the run's real mirrorDir");
+  assert.deepEqual(order, ["publish", `prune:${ws.mirrorDir}`], "prune() must fire exactly once, strictly after publish() resolves, against the run's real mirrorDir");
 });
 
 test("mirrorGc wiring: [SWAP] absent — no collaborator wired means zero prune() calls (backward compatible)", async () => {
@@ -6268,7 +6453,7 @@ test("mirrorGc wiring: an untrusted git dir found by prune() fails the run inste
 
 test("mirrorGc wiring: a non-pr verdict (fail/issue) also triggers prune() once, after publish() resolves", async () => {
   const order: string[] = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" }),
     publish: async () => { order.push("publish"); return { outcome: "issue: https://example.test/issues/1" }; },
   });
@@ -6280,7 +6465,7 @@ test("mirrorGc wiring: a non-pr verdict (fail/issue) also triggers prune() once,
   const out = await useCase.run({ ...baseInput, runId: "mirror-gc-fail-issue" });
 
   assert.equal(out.decision.verdict, "fail");
-  assert.deepEqual(order, ["publish", "prune:/tmp/qa-golden"], "prune() must fire once for a fail/issue-routed run too, strictly after publish()");
+  assert.deepEqual(order, ["publish", `prune:${ws.mirrorDir}`], "prune() must fire once for a fail/issue-routed run too, strictly after publish()");
 });
 
 /* ── mirrorGc coverage extends beyond the mainline exit to every OTHER
@@ -6293,7 +6478,7 @@ test("mirrorGc wiring: a non-pr verdict (fail/issue) also triggers prune() once,
 
 test("mirrorGc wiring: a static-gate invalid verdict (terminalResult exit) also triggers prune() once, after that exit's own publish() resolves", async () => {
   const order: string[] = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
     publish: async () => { order.push("publish"); return { outcome: "issue: https://example.test/issues/2" }; },
   });
@@ -6305,12 +6490,12 @@ test("mirrorGc wiring: a static-gate invalid verdict (terminalResult exit) also 
   const out = await useCase.run({ ...baseInput, runId: "mirror-gc-invalid" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.deepEqual(order, ["publish", "prune:/tmp/qa-golden"], "prune() must fire once for the static-gate invalid terminal exit, strictly after its own publish()");
+  assert.deepEqual(order, ["publish", `prune:${ws.mirrorDir}`], "prune() must fire once for the static-gate invalid terminal exit, strictly after its own publish()");
 });
 
 test("mirrorGc wiring: a mid-run health-preflight infra-error verdict (terminalResult exit, sideEffect none) also triggers prune() once", async () => {
   let waitUntilServingCall = 0;
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     waitUntilServing: async () => {
       waitUntilServingCall++;
       return waitUntilServingCall === 1 ? ok(true) : { ok: false as const, error: new Error("DEV went down mid-run") };
@@ -6328,13 +6513,13 @@ test("mirrorGc wiring: a mid-run health-preflight infra-error verdict (terminalR
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(pruneCallCount, 1, "prune() must fire once for the health-preflight infra-error terminal exit even though sideEffect is none (no publish() call on this path)");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 test("mirrorGc wiring: a classify-skip verdict (bare-return skip, no persistence) also triggers prune() once — the mirror was touched by checkout before classify runs", async () => {
   let pruneCallCount = 0;
   let prunedMirrorDir: string | undefined;
-  const { ports } = stubPorts({ classify: async () => ({ action: "skip", reason: "docs-only commit", diff: "" }) });
+  const { ports, ws } = stubPorts({ classify: async () => ({ action: "skip", reason: "docs-only commit", diff: "" }) });
   const mirrorGc = makeFakeMirrorGc((mirrorDir) => {
     pruneCallCount++;
     prunedMirrorDir = mirrorDir;
@@ -6345,12 +6530,12 @@ test("mirrorGc wiring: a classify-skip verdict (bare-return skip, no persistence
 
   assert.equal(out.decision.verdict, "skipped");
   assert.equal(pruneCallCount, 1, "prune() must fire once for the classify-skip bare-return exit");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 test("mirrorGc wiring: an agent-no-op skip verdict (approved + zero specs) also triggers prune() once, after this exit's own runHistory.save()", async () => {
   const order: string[] = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })),
     save: async () => { order.push("save"); },
   });
@@ -6362,7 +6547,7 @@ test("mirrorGc wiring: an agent-no-op skip verdict (approved + zero specs) also 
   const out = await useCase.run({ ...baseInput, runId: "mirror-gc-agent-no-op-skip" });
 
   assert.equal(out.decision.verdict, "skipped");
-  assert.deepEqual(order, ["save", "prune:/tmp/qa-golden"], "prune() must fire once for the agent-no-op skip exit, after its own runHistory.save()");
+  assert.deepEqual(order, ["save", `prune:${ws.mirrorDir}`], "prune() must fire once for the agent-no-op skip exit, after its own runHistory.save()");
 });
 
 test("mirrorGc wiring: a thrown prune() on the invalid terminal exit is fault-isolated — never alters the verdict or blocks publish", async () => {
@@ -6400,7 +6585,7 @@ test("mirrorGc wiring: a thrown prune() on the classify-skip exit is fault-isola
 
 test("mirrorGc wiring: a post-prepare signal-aborted exit (mid-run, between validate and execute) triggers exactly one prune() with the run's mirrorDir", async () => {
   const controller = new AbortController();
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     validate: async () => { controller.abort(); return { ok: true, errors: [] }; },
   });
   let pruneCallCount = 0;
@@ -6415,7 +6600,7 @@ test("mirrorGc wiring: a post-prepare signal-aborted exit (mid-run, between vali
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(pruneCallCount, 1, "a post-prepare aborted exit must prune its mirror exactly once");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 test("mirrorGc wiring: a pre-prepare already-aborted signal does NOT prune — the mirror was never touched", async () => {
@@ -6433,7 +6618,7 @@ test("mirrorGc wiring: a pre-prepare already-aborted signal does NOT prune — t
 });
 
 test("mirrorGc wiring: a setup() failure infra-error exit triggers prune() once", async () => {
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     setup: async () => { throw new Error("npm ci in e2e failed (code 1)"); },
   });
   let pruneCallCount = 0;
@@ -6448,11 +6633,11 @@ test("mirrorGc wiring: a setup() failure infra-error exit triggers prune() once"
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(pruneCallCount, 1, "a setup() failure fires after workspace.prepare() already checked out the mirror — it must be pruned");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 test("mirrorGc wiring: an empty/unparseable generation infra-error exit triggers prune() once", async () => {
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: [], approved: true, parsed: false })),
   });
   let pruneCallCount = 0;
@@ -6467,7 +6652,7 @@ test("mirrorGc wiring: an empty/unparseable generation infra-error exit triggers
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(pruneCallCount, 1, "an empty/unparseable generation fires after workspace.prepare() already checked out the mirror — it must be pruned");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 /* ONLY from the /continue API flow's RunRequest.parentRunId (src/server/runner.ts's own
@@ -6514,30 +6699,37 @@ test("parentRunId: an ordinary run omits parentRunId from publish()'s decision e
 test("parentRunId: an enforce-mode coverage-regen never fabricates its own parentRunId — the final publish() still reflects only the ORIGINAL run's input.parentRunId", async () => {
   let measureCallCount = 0;
   let publishedParentRunId: string | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-    measure: async () => {
-      measureCallCount++;
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
-        : { status: "pass" as const, ratio: 0.95 };
-    },
-    blocks: (status) => status === "fail",
-    publish: async (decision) => {
-      publishedParentRunId = decision.parentRunId;
-      return { outcome: "pr" };
-    },
-  });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCallCount++;
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
+          : { status: "pass" as const, ratio: 0.95 };
+      },
+      blocks: (status) => status === "fail",
+      publish: async (decision) => {
+        publishedParentRunId = decision.parentRunId;
+        return { outcome: "pr" };
+      },
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
 
-  const out = await useCase.run({ ...baseInput, runId: "parent-run-id-coverage-regen", parentRunId: "prior-run-xyz789" });
+    const out = await useCase.run({ ...baseInput, runId: "parent-run-id-coverage-regen", parentRunId: "prior-run-xyz789" });
 
-  assert.equal(out.decision.verdict, "pass");
-  assert.equal(measureCallCount, 2, "the regen genuinely fired");
-  assert.equal(publishedParentRunId, "prior-run-xyz789", "the regen must never invent its own parentRunId — only the original run's input carries one");
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(measureCallCount, 2, "the regen genuinely fired");
+    assert.equal(publishedParentRunId, "prior-run-xyz789", "the regen must never invent its own parentRunId — only the original run's input carries one");
+  } finally {
+    real.cleanup();
+  }
 });
 
 /* FixLoop computes retryNs = `${namespace}-r${n}` and the ExecutionPort
@@ -6771,39 +6963,45 @@ test("curriculum: the fold reads the enforce-mode regeneration's SECOND coverage
   /* Same fixture shape the KEYSTONE regen test uses: an enforce-mode policy, a first measurement
      that blocks, and a regen whose generate/validate/execute all succeed so the re-measure runs.
    */
-  const { ports } = stubPorts({
-    classify: async () => ({
-      action: "generate",
-      reason: "diff touches src/orders.ts",
-      diff: "diff --git a/src/orders.ts b/src/orders.ts",
-      intent: { type: "fix", breaking: false, message: "fix: correct order total calculation", changedFiles: ["src/orders.ts"] },
-    }),
-    measure: async () => {
-      measureCallCount++;
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/orders.ts", lines: [1] }] }
-        : { status: "pass" as const, ratio: 0.9 };
-    },
-    blocks: (status) => status === "fail",
-    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
-    curriculum: {
-      select: async () => [
-        { id: "ex-form-happy-path", name: "n", template: "t", archetype: "happy-path", proven: false, promotionCount: 0 },
-      ],
-      fold: async (i) => { folds.push(i); },
-    },
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, coveragePolicyMode: "enforce" } });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      classify: async () => ({
+        action: "generate",
+        reason: "diff touches src/orders.ts",
+        diff: "diff --git a/src/orders.ts b/src/orders.ts",
+        intent: { type: "fix", breaking: false, message: "fix: correct order total calculation", changedFiles: ["src/orders.ts"] },
+      }),
+      measure: async () => {
+        measureCallCount++;
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/orders.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9 };
+      },
+      blocks: (status) => status === "fail",
+      generate: real.generate,
+      curriculum: {
+        select: async () => [
+          { id: "ex-form-happy-path", name: "n", template: "t", archetype: "happy-path", proven: false, promotionCount: 0 },
+        ],
+        fold: async (i) => { folds.push(i); },
+      },
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, coveragePolicyMode: "enforce" } });
 
-  await useCase.run({ ...baseInput, mode: "diff", runId: "curriculum-fold-coverage-regen" });
+    await useCase.run({ ...baseInput, mode: "diff", runId: "curriculum-fold-coverage-regen" });
 
-  assert.equal(measureCallCount, 2, "sanity: the enforce-mode one-shot regen must have re-measured");
-  assert.equal(folds.length, 1);
-  assert.equal(
-    folds[0]!.coverageStatus,
-    "pass",
-    "the regen's own second measurement is already the ONLY input to blocksPublish, so the fold must read that same final status and never the superseded first one",
-  );
+    assert.equal(measureCallCount, 2, "sanity: the enforce-mode one-shot regen must have re-measured");
+    assert.equal(folds.length, 1);
+    assert.equal(
+      folds[0]!.coverageStatus,
+      "pass",
+      "the regen's own second measurement is already the ONLY input to blocksPublish, so the fold must read that same final status and never the superseded first one",
+    );
+  } finally {
+    real.cleanup();
+  }
 });
 
 test('curriculum: the fold threads a measured "unknown" verbatim — the evidence ladder, not this use-case, decides it earns no credit', async () => {
@@ -6864,7 +7062,7 @@ function memoryIndexStatus(
 
 test("mirror index: SHA changed → syncTo called once with workspace.mirrorDir and classification.intent.changedFiles", async () => {
   const syncToCalls: Array<{ repoDir: string; changedFiles: string[] }> = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     classify: async () => ({
       action: "generate",
       reason: "type=feat",
@@ -6882,7 +7080,7 @@ test("mirror index: SHA changed → syncTo called once with workspace.mirrorDir 
   const out = await useCase.run({ ...baseInput, runId: "mirror-index-sha-changed" });
 
   assert.equal(syncToCalls.length, 1, "syncTo must run once when lastIndexedSha differs from the run SHA");
-  assert.equal(syncToCalls[0]!.repoDir, "/tmp/qa-golden");
+  assert.equal(syncToCalls[0]!.repoDir, ws.mirrorDir);
   assert.deepEqual(syncToCalls[0]!.changedFiles, ["src/a.ts"]);
   assert.equal(indexStatus.writes.length, 1);
   assert.equal(indexStatus.writes[0]!.sha, "abc1234");
@@ -6922,8 +7120,8 @@ test("mirror index: codeGraphRepoDir is indexed and stamped instead of workspace
 
 test("mirror index: same SHA already recorded → syncTo NOT called", async () => {
   const syncToCalls: unknown[] = [];
-  const { ports } = stubPorts();
-  const indexStatus = memoryIndexStatus({ "/tmp/qa-golden": "abc1234" });
+  const { ports, ws } = stubPorts();
+  const indexStatus = memoryIndexStatus({ [ws.mirrorDir]: "abc1234" });
   const codeGraph = fakeCodeGraph(async (repoDir, changedFiles) => {
     syncToCalls.push({ repoDir, changedFiles });
     return { ok: true, value: { nodeCount: 1 } };
@@ -7028,7 +7226,7 @@ test("mirror index: classify skip → syncTo NOT called (skip returns before pha
 
 test("mirror index: non-diff mode (mode: manual) → syncTo called with [] when SHA new", async () => {
   const syncToCalls: Array<{ repoDir: string; changedFiles: string[] }> = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     classify: async () => {
       throw new Error("classify() must never be called outside diff mode");
     },
@@ -7043,7 +7241,7 @@ test("mirror index: non-diff mode (mode: manual) → syncTo called with [] when 
   const out = await useCase.run({ ...baseInput, runId: "mirror-index-manual-empty-files", mode: "manual" });
 
   assert.equal(syncToCalls.length, 1);
-  assert.equal(syncToCalls[0]!.repoDir, "/tmp/qa-golden");
+  assert.equal(syncToCalls[0]!.repoDir, ws.mirrorDir);
   assert.deepEqual(syncToCalls[0]!.changedFiles, []);
   assert.equal(indexStatus.writes.length, 1);
   assert.equal(indexStatus.writes[0]!.sha, "abc1234");
@@ -7508,6 +7706,7 @@ interface EndRun {
   validated: number;
   executed: number;
   pruned: string[];
+  mirrorDir: string;
 }
 
 async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, config = baseConfig): Promise<EndRun> {
@@ -7515,7 +7714,7 @@ async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, 
   let validated = 0;
   let executed = 0;
   const pruned: string[] = [];
-  const { ports, savedOutcomes } = stubPorts({
+  const { ports, savedOutcomes, ws } = stubPorts({
     generate: async () => generation,
     publish: async () => { published++; return { outcome: "issue" }; },
     validate: async () => { validated++; return { ok: true, errors: [] }; },
@@ -7523,7 +7722,7 @@ async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, 
   });
   const { observer, events } = fakeObserver();
   const out = await new RunQaUseCase({ ...ports, observer, config, mirrorGc: { prune: async (dir: string) => { pruned.push(dir); } } }).run(baseInput);
-  return { out, savedOutcomes, events, published, validated, executed, pruned };
+  return { out, savedOutcomes, events, published, validated, executed, pruned, mirrorDir: ws.mirrorDir };
 }
 
 test("a generation that ran out of steps with no specs ends the run as a persisted infra-error with the step-budget class and its note", async () => {
@@ -7567,7 +7766,7 @@ test("an exhausted generation opens no Issue, runs no validation or execution, a
   assert.equal(run.published, 0);
   assert.equal(run.validated, 0);
   assert.equal(run.executed, 0);
-  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+  assert.deepEqual(run.pruned, [run.mirrorDir]);
 });
 
 test("an exhausted generation reports itself as an agent error carrying its note, and as a log line", async () => {
@@ -7589,7 +7788,7 @@ test("a generation that decided nothing ends the run as a persisted infra-error 
   assert.ok((run.savedOutcomes[0]!.note ?? "").includes(note));
   assert.ok(run.events.some((e) => e.type === "agent.error" && e.detail.includes(note)));
   assert.equal(run.published, 0);
-  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+  assert.deepEqual(run.pruned, [run.mirrorDir]);
 });
 
 test("a generation with no readable verdict keeps its unpersisted infra-error", async () => {
@@ -7608,7 +7807,7 @@ test("a declared no-op skips the run with the agent's reason as its persisted no
   assert.equal(run.savedOutcomes.length, 1);
   assert.equal(run.savedOutcomes[0]!.note, reason);
   assert.equal(run.savedOutcomes[0]!.verdict, "skipped");
-  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+  assert.deepEqual(run.pruned, [run.mirrorDir]);
   assert.equal(run.published, 0);
 });
 
@@ -7918,7 +8117,7 @@ async function runEndedByDeadline(over: Parameters<typeof stubPorts>[0], config:
   let published = 0;
   const pruned: string[] = [];
   const learned = { folded: [] as RunOutcome[], reflected: [] as ReflectionInput[] };
-  const { ports, savedOutcomes } = stubPorts({
+  const { ports, savedOutcomes, ws } = stubPorts({
     publish: async () => { published++; return { outcome: "issue" }; },
     fold: async (o) => { learned.folded.push(o); },
     ...over,
@@ -7926,7 +8125,7 @@ async function runEndedByDeadline(over: Parameters<typeof stubPorts>[0], config:
   const { observer, events } = fakeObserver();
   const reflector = makeFakeReflector((i) => { learned.reflected.push(i); });
   const out = await new RunQaUseCase({ ...ports, observer, reflector, config, mirrorGc: { prune: async (d: string) => { pruned.push(d); } } }).run(baseInput);
-  return { out, savedOutcomes, events, published: () => published, pruned, learned };
+  return { out, savedOutcomes, events, published: () => published, pruned, learned, mirrorDir: ws.mirrorDir };
 }
 
 test("a first generation stopped by the run's deadline ends the run as a persisted infra-error under the time-budget class, with a note that says so", async () => {
@@ -7947,7 +8146,7 @@ test("a run ended by its deadline publishes nothing, teaches nothing, prunes its
   assert.equal(run.out.decision.sideEffect, "none");
   assert.equal(run.published(), 0, "no Issue and no PR");
   assert.deepEqual([run.learned.folded.length, run.learned.reflected.length], [0, 0]);
-  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+  assert.deepEqual(run.pruned, [run.mirrorDir]);
   assert.ok(run.events.some((e) => e.type === "agent.error" && /next primary turn was not started/.test(e.detail)));
   const engineSide = run.events.filter((e) => e.type === "log.line" && e.text.includes(ERROR_CLASS.TIME_BUDGET));
   assert.equal(engineSide.length, 1);

@@ -76,6 +76,10 @@ export interface RunOutcome {
     serviceLinksCount?: number;
     contractDriftCount?: number;
     crossRepoImpactedCount?: number;
+    /* The coverage signal was measured before the specs an accepted regeneration rewrote: the recorded ratio no longer describes the bytes on disk. Persist-only; never read by decide/verdict/gate/publish. */
+    coverage?: { stale: boolean };
+    /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
+    integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };
   rulesRetrieved: string[];
   /* Structural pattern kinds of the run's diff (detectStructuralPatterns, "generic" included). The learning fold credits a retrieved rule only when it is attributable to them — untagged, or tagged with one of these kinds. Absent when the run had no diff to read (non-diff modes): every retrieved rule then stays attributable. Fold input only; the run_outcomes row does not store it. */
