@@ -47,6 +47,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
     structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
     crossRepoImpactedCount: true, sandbox: true, closedLoop: true, agentBrowser: true, coordination: true,
+    coverage: true, integrity: true,
   } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
 
   const ALLOWLIST: Record<string, string> = {
@@ -77,6 +78,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
       "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "closedLoop", "agentBrowser", "coordination",
+      "coverage", "integrity",
     ];
     assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toLegacyRunOutcome's own header claims 100% pass-through for this nested object");
   });
@@ -117,6 +119,8 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
         closedLoop: { calls: 4, devWrites: 3, closed: true },
         agentBrowser: { calls: 9, blocks: 2, invalidations: 1, renewals: 1 },
         coordination: { mode: "lead-sidekicks", plan: "fanout", flows: 3, delivered: 2, incomplete: 1, takeover: false, authoring: "authenticated-browser" },
+        coverage: { stale: true },
+        integrity: { acceptances: 2, rejected: 1, proofReused: 1, capHit: true },
       },
       rulesRetrieved: [S("rulesRetrieved")],
       reflection: { rootCause: S("reflection.rootCause") },
@@ -163,6 +167,8 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     assert.equal(gs.crossRepoImpactedCount, 2, `gateSignals.crossRepoImpactedCount dropped at ${dyingLayer}`);
     assert.deepEqual(gs.sandbox, { egress: "enforced", denied: [S("denied host")] }, `gateSignals.sandbox dropped at ${dyingLayer}`);
     assert.deepEqual(gs.closedLoop, { calls: 4, devWrites: 3, closed: true }, `gateSignals.closedLoop dropped at ${dyingLayer}`);
+    assert.deepEqual(gs.coverage, { stale: true }, `gateSignals.coverage dropped at ${dyingLayer}`);
+    assert.deepEqual(gs.integrity, { acceptances: 2, rejected: 1, proofReused: 1, capHit: true }, `gateSignals.integrity dropped at ${dyingLayer}`);
 
     assert.equal("note" in out, false, `note IS in the allowlist as CORRECT BY DESIGN — LegacyRunOutcome genuinely has no note field, see the allowlist entry's own evidence trail; if this starts failing because LegacyRunOutcome gains a note field, update the allowlist entry above instead of patching the assertion`);
   });

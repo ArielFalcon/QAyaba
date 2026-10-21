@@ -339,6 +339,10 @@ export interface RunOutcome {
     contractDriftCount?: number;
 
     crossRepoImpactedCount?: number;
+    /* The coverage signal was measured before the specs an accepted regeneration rewrote: the ratio no longer describes the bytes on disk. Persist-only. */
+    coverage?: { stale: boolean };
+    /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
+    integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };
   rulesRetrieved: string[];
   reflection?: StructuredReflection;
