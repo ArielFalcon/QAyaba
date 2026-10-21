@@ -136,6 +136,7 @@ interface PreconditionFailure {
 }
 import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
+import { suiteRevision, type SuiteRevision } from "../domain/suite-revision.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
 import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
@@ -1735,6 +1736,36 @@ export class RunQaUseCase {
         this.deps.observer?.onEvent({ type: "test.discovered", name: title, ...(file ? { file } : {}) });
       },
     };
+    /*
+     * The suite store admits a spec only with the bytes that executed green: `fingerprintGreen` reads those bytes (off-path, a
+     * fault admits nothing), `buildRevision` wraps an executed outcome into the SuiteRevision decide/cases/record/capture read,
+     * and `admit` validates + executes the current spec directory into one — the sole way a revision is made. A validation
+     * failure admits nothing (the caller ends the run invalid/infra-error); an execution that runs red still admits, so the run
+     * ends fail loudly instead of publishing unproven bytes.
+     */
+    const fingerprintGreen = async (cases: readonly QaCase[]): Promise<ReadonlyMap<string, string>> => {
+      if (!this.deps.suiteStore || !suiteRestored) return new Map();
+      try {
+        return await this.deps.suiteStore.fingerprint(
+          { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
+          cases.filter((c) => c.status === "pass" && c.file !== undefined).map((c) => c.file!),
+        );
+      } catch (fingerprintErr) {
+        rethrowIfUntrusted(fingerprintErr);
+        this.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
+        return new Map();
+      }
+    };
+    const buildRevision = async (cases: readonly QaCase[], verdict: string, namespace: string): Promise<SuiteRevision | undefined> =>
+      suiteRevision({ files: verdict === "pass" ? await fingerprintGreen(cases) : new Map(), verdict, cases, namespace });
+    const admit = async (namespace: string): Promise<SuiteRevision | { invalid: string[]; infra?: boolean }> => {
+      const validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
+      if (!validation.ok) return { invalid: validation.errors, ...(validation.infra ? { infra: true } : {}) };
+      const executed = await this.deps.execution.execute(workspace.specDir, { ...liveExecutionOpts, namespace });
+      const revision = await buildRevision(executed.cases, executed.verdict, namespace);
+      if (!revision) return { invalid: [`execution returned a non-executed verdict (${executed.verdict})`], infra: true };
+      return revision;
+    };
     let run = input.mode === "context"
       ? { verdict: "pass" as const, cases: [] as QaCase[], logs: generated.note ?? "" }
       : await this.deps.execution.execute(workspace.specDir, liveExecutionOpts);
@@ -1884,22 +1915,12 @@ export class RunQaUseCase {
     }
 
     /*
-     * The suite store admits a spec only with the bytes that executed green, so those bytes are fingerprinted here, before the
-     * reviewer's correction rounds or the coverage regeneration can rewrite a file that is never executed again. Off-path: a fault
-     * leaves no evidence, and a capture without evidence admits no spec.
+     * The last admitted revision: round 0 first, replaced by a later re-admit (coverage regen, reviewer correction). decide,
+     * cases, verdict, record and suite-store capture read only this, never the round-0 bytes.
      */
-    let executedGreen: ReadonlyMap<string, string> = new Map();
-    if (this.deps.suiteStore && suiteRestored && run.verdict === "pass") {
-      try {
-        executedGreen = await this.deps.suiteStore.fingerprint(
-          { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
-          run.cases.filter((c) => c.status === "pass" && c.file !== undefined).map((c) => c.file!),
-        );
-      } catch (fingerprintErr) {
-        rethrowIfUntrusted(fingerprintErr);
-        this.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
-      }
-    }
+    let lastRevision: SuiteRevision | undefined = await buildRevision(run.cases, run.verdict, input.runId);
+    /* The revision a reviewer correction admitted after coverage ran: its own bytes are measured before decide. */
+    let correctedRevision: SuiteRevision | undefined;
 
     /*
      * Capture executedRed before `if (run.verdict === "pass")` narrows the type;
@@ -1979,31 +2000,28 @@ export class RunQaUseCase {
           const regen = await regenerate(undefined, { coverageGap: gap });
           await enforceConfinement();
           if (regen.specs.length > 0) {
-            const regenValidation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
-            if (regenValidation.ok) {
-              const regenNamespace = `${input.runId}-coverage-regen`;
-              const regenRun = await this.deps.execution.execute(workspace.specDir, {
-                ...liveExecutionOpts,
-                namespace: regenNamespace,
-              });
-              if (regenRun.verdict === "pass") {
-                const regenBaselineCases = regenRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
-                /*
-                 * Re-measure MUST read the regen's own dumps under regenNamespace — never the
-                 * first run's composition-time namespace.
-                 */
-                const signal2 = await this.deps.objectiveSignal.measure(
-                  runBlastRadius,
-                  workspace.specDir,
-                  classificationDiff,
-                  regenBaselineCases,
-                  { namespace: regenNamespace },
-                );
-                coverageRatio = signal2.ratio;
-                coverageStatus = signal2.status;
-                trail.coverageStatus = signal2.status;
-                blocksPublish = this.deps.objectiveSignal.blocks(signal2.status);
-              }
+            const regenNamespace = `${input.runId}-coverage-regen`;
+            const admitted = await admit(regenNamespace);
+            if (!("invalid" in admitted) && admitted.verdict === "pass") {
+              /* The regen is admitted: its executed bytes are now the last revision, and coverage is re-measured on it. */
+              run = { verdict: admitted.verdict, cases: [...admitted.cases], logs: run.logs };
+              lastRevision = admitted;
+              const regenBaselineCases = admitted.cases.filter((c) => c.status === "pass").map((c) => c.name);
+              /*
+               * Re-measure MUST read the regen's own dumps under regenNamespace — never the
+               * first run's composition-time namespace.
+               */
+              const signal2 = await this.deps.objectiveSignal.measure(
+                runBlastRadius,
+                workspace.specDir,
+                classificationDiff,
+                regenBaselineCases,
+                { namespace: regenNamespace },
+              );
+              coverageRatio = signal2.ratio;
+              coverageStatus = signal2.status;
+              trail.coverageStatus = signal2.status;
+              blocksPublish = this.deps.objectiveSignal.blocks(signal2.status);
             }
           }
         } catch (regenErr) {
@@ -2329,8 +2347,39 @@ export class RunQaUseCase {
           reviewerApproved = false;
           break;
         }
-        /* This loop does not re-execute regenerated specs against DEV. Execution evidence is round-0-only: the suite store holds the bytes that ran (`executedGreen`), so a regenerated file is never admitted as proven. */
-        reviewCases = regen.specs.map((file) => ({ name: file, file, status: run.cases[0]?.status ?? "pass" }));
+        /*
+         * The correction is re-admitted: fingerprinted, validated and executed. Its bytes, verdict and cases replace round-0, so
+         * what is published, captured and recorded is the corrected suite — never the round-0 bytes. A correction that no longer
+         * validates ends the run through the existing invalid/infra-error terminal; one whose execution runs red ends it fail.
+         */
+        const admitted = await admit(input.runId);
+        if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
+        if ("invalid" in admitted) {
+          return await this.terminalResult(admitted.infra ? "infra-error" : "invalid", cfg, input, { generating: true, static: false }, {
+            reviewerApproved: reviewerApprovedFromGeneration,
+            retries,
+            note: admitted.invalid.slice(0, 2).join("\n\n") || undefined,
+            groundingSignals: { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
+            rulesRetrieved: retrievedRuleIds,
+            diffArchetypes,
+            archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
+            confinement: confinementAcc,
+            tested: resolveTested(),
+            mirrorDir: workspace.mirrorDir,
+            closedLoop: await closedLoopSignal(),
+            agentBrowser: agentBrowserSignal(),
+          });
+        }
+        lastRevision = admitted;
+        correctedRevision = admitted;
+        run = { verdict: admitted.verdict, cases: [...admitted.cases], logs: run.logs };
+        reviewCases = admitted.cases.filter((c) => deliveredFiles.has(c.file ?? c.name));
+        if (admitted.verdict !== "pass") {
+          /* The corrected suite ran red: the run ends fail loudly, with no PR and no acceptance. */
+          reviewerApproved = false;
+          finalReviewerCorrections = reviewResult.corrections;
+          break;
+        }
       }
       /* A genuine review verdict overwrites generation's self-approval default. */
       reviewerApprovedForOutcome = reviewerApproved;
@@ -2350,6 +2399,25 @@ export class RunQaUseCase {
         skippedRounds: reviewStats.skippedRounds,
         correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
       };
+    }
+
+    /*
+     * A reviewer correction is a later admitted revision than the one coverage measured. Measure its own bytes so the
+     * decision cannot publish a suite whose coverage was never measured; the enforce one-shot regen already ran (or was
+     * not needed) and is deliberately not repeated here.
+     */
+    if (correctedRevision && run.verdict === "pass" && input.mode !== "context" && !input.triggerRepo) {
+      const correctedCoverage = await this.deps.objectiveSignal.measure(
+        runBlastRadius,
+        workspace.specDir,
+        classificationDiff,
+        correctedRevision.cases.filter((c) => c.status === "pass").map((c) => c.name),
+        { namespace: correctedRevision.namespace },
+      );
+      coverageRatio = correctedCoverage.ratio;
+      coverageStatus = correctedCoverage.status;
+      trail.coverageStatus = correctedCoverage.status;
+      blocksPublish = this.deps.objectiveSignal.blocks(correctedCoverage.status);
     }
 
     /* Publish never emits its own step; "decide" covers the decide+publish pair. */
@@ -2434,7 +2502,7 @@ export class RunQaUseCase {
           specDir: workspace.specDir,
           runId: input.runId,
           sha: input.sha.toString(),
-          executedGreen,
+          executedGreen: lastRevision?.files ?? new Map(),
           ...(authVerifiedSha256 !== undefined ? { authVerifiedSha256 } : {}),
         });
         this.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");

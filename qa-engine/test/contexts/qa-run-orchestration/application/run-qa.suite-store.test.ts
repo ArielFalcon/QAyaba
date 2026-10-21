@@ -111,14 +111,14 @@ test("an accepted run captures its suite before the pull request is opened, with
   });
 });
 
-test("a spec the reviewer's correction round rewrote is captured with the bytes that executed, never with the regenerated ones", async () => {
+test("a spec the reviewer's correction round rewrote is re-admitted: executed again and captured with the corrected bytes", async () => {
   const r = rig();
   let reviews = 0;
   let executions = 0;
   const out = await new RunQaUseCase(r.deps({
     generation: {
       generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
-        if (enrichment?.reviewCorrections !== undefined) r.disk.set("flows/a.spec.ts", "a v2, never executed");
+        if (enrichment?.reviewCorrections !== undefined) r.disk.set("flows/a.spec.ts", "a v2, corrected");
         return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
       },
     },
@@ -127,11 +127,10 @@ test("a spec the reviewer's correction round rewrote is captured with the bytes 
   })).run(INPUT);
 
   assert.equal(out.decision.verdict, "pass");
-  assert.equal(executions, 1, "the correction round is not executed again: what it wrote has no evidence");
+  assert.equal(executions, 2, "the correction round IS executed again (re-admitted): its bytes are now proven");
   assert.equal(r.captured.length, 1);
   const green = r.captured[0]!.executedGreen;
-  assert.equal(green.get("flows/a.spec.ts"), "sha:a v1", "the hash is that of the executed bytes");
-  assert.notEqual(green.get("flows/a.spec.ts"), `sha:${r.disk.get("flows/a.spec.ts")}`, "and it does not match the bytes now on disk");
+  assert.equal(green.get("flows/a.spec.ts"), "sha:a v2, corrected", "the hash is that of the corrected bytes that executed");
 });
 
 test("a fingerprint that cannot be taken captures nothing admitted, and changes neither the verdict nor the publication", async () => {

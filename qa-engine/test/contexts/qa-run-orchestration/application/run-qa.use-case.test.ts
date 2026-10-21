@@ -1545,6 +1545,104 @@ test("the regen's execute() AND its re-measure() both use the ${runId}-coverage-
   assert.equal(capturedMeasureNamespaces[1], "p2c-regen-namespace-attribution-coverage-regen", "the regen's re-measure() must override the namespace to the SAME ${runId}-coverage-regen namespace its own execute() wrote dumps under — otherwise signal2/blocksPublish are measured against STALE (first-run) coverage data");
 });
 
+test("a reviewer correction whose re-admitted execution fails ends the run fail (the corrected suite ran red)", async () => {
+  let executions = 0;
+  const { ports } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }),
+    review: async () => ({ approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true }),
+    execute: async () => {
+      executions++;
+      return executions === 1
+        ? { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" }
+        : { verdict: "fail" as const, cases: [{ name: "a", status: "fail" as const, file: "a.spec.ts", detail: "expected 42" }], logs: "" };
+    },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+  const out = await useCase.run({ ...baseInput, runId: "red-corrected-suite" });
+
+  assert.equal(out.decision.verdict, "fail", "the corrected suite ran red: the run ends fail, never a pass");
+  assert.equal(out.decision.sideEffect, "issue", "a red corrected suite opens an Issue, no PR");
+  assert.equal(executions, 2, "the correction was re-admitted and executed again — its bytes are now the ones that ran");
+  assert.equal(out.cases[0]?.status, "fail", "the recorded cases are the corrected execution's, not round-0's");
+});
+
+test("coverage measures the reviewer-corrected revision: bytes that stop covering block the publish", async () => {
+  let reviewRounds = 0;
+  let executions = 0;
+  let measures = 0;
+  const { ports } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }),
+    review: async () => {
+      reviewRounds++;
+      return reviewRounds === 1
+        ? { approved: false, corrections: ["cover the total"], blockingCount: 1, parsed: true }
+        : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+    },
+    execute: async () => {
+      executions++;
+      return { verdict: "pass" as const, cases: [{ name: executions === 1 ? "round-0" : "corrected", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
+    },
+    measure: async () => {
+      measures++;
+      return measures === 1
+        ? { status: "pass" as const, ratio: 0.95 }
+        : { status: "fail" as const, ratio: 0.1, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+    },
+    blocks: (status) => status === "fail",
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "enforce" } });
+  const out = await useCase.run({ ...baseInput, runId: "coverage-measures-corrected-revision" });
+
+  assert.equal(executions, 2, "the correction was re-admitted");
+  assert.equal(measures, 2, "coverage was re-measured on the corrected revision, not left on round-0");
+  assert.deepEqual(out.cases.map((c) => c.name), ["corrected"], "the recorded cases are the corrected execution's");
+  assert.equal(out.decision.sideEffect, "issue", "the corrected suite no longer covers the change, so it must not publish");
+});
+
+test("a run deadline during the correction re-admit ends the run E-TIME-BUDGET (nothing published or learned)", async () => {
+  let executions = 0;
+  const { ports } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }),
+    review: async () => ({ approved: false, corrections: ["fix it"], blockingCount: 1, parsed: true }),
+    execute: async () => {
+      executions++;
+      if (executions === 1) return { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
+      throw new RunDeadlineExceededError(600_000, "diff", "qa-generator", "before-turn");
+    },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+  const out = await useCase.run({ ...baseInput, runId: "correction-deadline" });
+
+  assert.equal(out.decision.verdict, "infra-error", "the deadline ends the run as an infra-error, not a fail or a pass");
+  assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET);
+});
+
+test("enforce mode — the coverage regen is re-admitted: the final cases come from the regen's execution, not round-0", async () => {
+  let measureCallCount = 0;
+  let executeCallCount = 0;
+  const { ports } = stubPorts({
+    execute: async () => {
+      executeCallCount++;
+      return executeCallCount === 1
+        ? { verdict: "pass" as const, cases: [{ name: "round-0", status: "pass" as const, file: "a.spec.ts" }], logs: "" }
+        : { verdict: "pass" as const, cases: [{ name: "regen", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
+    },
+    measure: async () => {
+      measureCallCount++;
+      return measureCallCount === 1
+        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+        : { status: "pass" as const, ratio: 0.95 };
+    },
+    blocks: (status) => status === "fail",
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" } });
+  const out = await useCase.run({ ...baseInput, runId: "coverage-regen-final-revision" });
+
+  assert.equal(out.decision.sideEffect, "pr", "the regen's second measure passes and unblocks");
+  assert.equal(executeCallCount, 2, "the regen re-admitted (executed) the new specs");
+  assert.deepEqual(out.cases.map((c) => c.name), ["regen"], "the recorded cases are the final admitted revision's, not round-0's");
+});
+
 test("context mode NEVER calls execute() (context.json is not a Playwright spec)", async () => {
   let executeCallCount = 0;
   const { ports } = stubPorts({
