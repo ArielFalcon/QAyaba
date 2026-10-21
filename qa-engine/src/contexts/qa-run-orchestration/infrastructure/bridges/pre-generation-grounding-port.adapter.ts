@@ -29,6 +29,8 @@ export interface PreGenerationGroundingStaticContext {
   contextMapProvenance?: () => ContextProvenance | undefined;
   prChangedFiles?: string[]; /* union of changed files, for contract filtering */
   domPack?: boolean; /* false → the pack carries no live-DOM capture (no route ranking, no changed-element scopes); contracts and every other grounding source stay */
+  /* false → no context pack is built at all (context mode discards it); the map, explorer brief and harness facts still load. */
+  contextPack?: boolean;
   mirrorDir?: string; /* the working copy the map's implementationFiles are relative to — absent → a route is tied only to the files the map names */
   stagedRoots?: string[]; /* cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it (present even when empty) — the pack ranks a route only by the spec of an operation it joins, under these roots */
 }
@@ -307,6 +309,9 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
 
     if (brief) result.contextBrief = brief;
     if (brief) this.tell(() => this.collaborators.trace?.brief?.(brief));
+
+    /* Context mode discards the pack: building it would only spend the live-DOM capture on a value the prompt never reads. */
+    if (this.ctx.contextPack === false) return result;
 
     /* buildContextPack does not accept AbortSignal. Racing unblocks the run on cancel; the in-flight render keeps running to its own timeout and its result is discarded. This port never throws — abort resolves; the use-case routes abort after this call. */
     try {

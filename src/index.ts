@@ -244,9 +244,9 @@ function runnerDeps(): RunnerDeps {
  * previous run's sha — a gated app would wait for a version DEV no longer serves). Returns "" while
  * draining; the factory then keeps the stale flag armed for the next run.
  */
-const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
+const enqueueContextHealRun = ({ app, sha, parentRunId }: ContextHealRunRequest): string => {
   if (shuttingDown) return "";
-  return enqueueContextMapRun(queue, app, sha, runnerDeps());
+  return enqueueContextMapRun(queue, app, sha, runnerDeps(), parentRunId);
 };
 
 /*

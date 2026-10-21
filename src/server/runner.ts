@@ -100,7 +100,7 @@ export interface RunnerDeps {
   engineFactory?: (
     appConfig: AppConfig,
     namespace: string,
-    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; grounding?: GroundingInput | StoredRunConfig["grounding"] },
+    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | StoredRunConfig["grounding"] },
     observer?: ObserverPort,
     previousNamespace?: string,
   ) => RunPipelinePort;
@@ -275,8 +275,8 @@ async function runViaRewrittenEngine(
  * explicit sha, from a manual source, under the app's own qa.shadow. Never given a triggerRepo —
  * context mode cannot be driven from a service repo.
  */
-export function enqueueContextMapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps): string {
-  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual", trigger: "context" }, deps);
+export function enqueueContextMapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps, parentRunId?: string): string {
+  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual", trigger: "context", ...(parentRunId ? { parentRunId } : {}) }, deps);
 }
 
 /*
@@ -478,7 +478,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         deps.engineFactory(
           appConfig,
           runNamespace,
-          { mode: req.mode, target: req.target, sha: req.sha, ...(req.guidance ? { guidance: req.guidance } : {}), ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}), ...(resolvedRunConfig ? { grounding: resolvedRunConfig.grounding } : {}) },
+          { mode: req.mode, target: req.target, sha: req.sha, runId: record.id, ...(req.guidance ? { guidance: req.guidance } : {}), ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}), ...(resolvedRunConfig ? { grounding: resolvedRunConfig.grounding } : {}) },
           observer,
           previousNamespace,
         ),

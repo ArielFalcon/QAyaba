@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, lastContextHealRequestAt, recordContextHealRequest, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel, saveCrashedRunOutcome } from "./history";
+import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, childrenOf, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, lastContextHealRequestAt, recordContextHealRequest, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel, saveCrashedRunOutcome } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -183,6 +183,17 @@ test("continuationDepth walks the parentRunId chain", () => {
   assert.equal(continuationDepth(grandparent), 0);
   assert.equal(continuationDepth(parent), 1);
   assert.equal(continuationDepth(child), 2);
+});
+
+test("childrenOf lists the runs that name a parent, newest first, and none for a leaf", () => {
+  const parent = createRecord({ target: "e2e", app: "hist-children", sha: "aaa0001", mode: "diff" });
+  const heal = createRecord({ target: "e2e", app: "hist-children", sha: "aaa0001", mode: "context", parentRunId: parent.id });
+  const continuation = createRecord({ target: "e2e", app: "hist-children", sha: "aaa0001", mode: "diff", parentRunId: parent.id });
+
+  const children = childrenOf(parent.id);
+  assert.deepEqual(children.map((c) => c.id), [continuation.id, heal.id], "every run that names the parent is listed, newest first");
+
+  assert.equal(childrenOf(heal.id).length, 0, "a leaf run has no children");
 });
 
 test("recordRuleOutcome accumulates a running mean and earns promotion (never overwrites)", () => {

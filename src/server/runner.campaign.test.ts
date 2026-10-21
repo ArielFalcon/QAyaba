@@ -96,7 +96,9 @@ test("variant labels never change what the engine is asked: two runs that differ
   const capturing = (): RunnerDeps =>
     deps(h, { run: async (i) => outcomeOf(i) }, {
       engineFactory: (appConfig, namespace, run, _observer, previousNamespace) => {
-        const entry: (typeof seen)[number] = { factoryArgs: JSON.stringify({ appConfig, run, previousNamespace, namespace: namespace.replace(/-[a-z0-9]+-[0-9a-f]{8}$/, "") }), input: undefined };
+        /* The run id is per-run identity, not a label-driven engine input: leave it out of the comparison. */
+        const { runId: _runId, ...comparableRun } = run;
+        const entry: (typeof seen)[number] = { factoryArgs: JSON.stringify({ appConfig, run: comparableRun, previousNamespace, namespace: namespace.replace(/-[a-z0-9]+-[0-9a-f]{8}$/, "") }), input: undefined };
         seen.push(entry);
         return { run: async (i) => { const { runId: _runId, ...rest } = i; entry.input = rest; return outcomeOf(i); } };
       },

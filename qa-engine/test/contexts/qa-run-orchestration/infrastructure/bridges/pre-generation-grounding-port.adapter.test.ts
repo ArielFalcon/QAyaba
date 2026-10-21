@@ -911,6 +911,55 @@ test("ground(): domPack:false reaches buildContextPack as false and skips route 
   }
 });
 
+/* contextPack:false (context mode) skips the whole pack build — no context-pack/dom-capture spans —
+   but the context map, the explorer brief and the harness facts its prompt reads still come through. */
+test("ground(): contextPack:false skips buildContextPack entirely but keeps contextMap, harness facts and the explorer brief", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-contextpack-off-"));
+  try {
+    writeFileSync(join(dir, "home.spec.ts"), "// spec");
+    const map = { builtAtSha: "abc1234", routes: [{ path: "/owners" }], api: [], feBe: [] };
+    const brief = { builtForSha: "abc1234", objective: "checkout", blastRadius: [{ symbol: "Pay", file: "pay.ts", role: "charges" }] };
+    let built = false;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, testIdAttribute: "data-cy", contextPack: false },
+      {
+        loadContextMap: () => map,
+        exploreBrief: async () => brief,
+        buildContextPack: async () => { built = true; return { text: "## pack", domBytes: 10, contractBytes: 0 }; },
+      },
+    );
+    const result = await adapter.ground(dir, undefined, "diff --git a/pay.ts b/pay.ts\n", { sha: "abc1234" });
+    assert.equal(built, false, "the context pack is never built in context mode");
+    assert.equal(result.contextPack, undefined, "no contextPack is emitted, so no delivered/discarded pack spans");
+    assert.deepEqual(result.contextMap, map, "the context map still comes through");
+    assert.deepEqual(result.contextBrief, brief, "the explorer brief still comes through");
+    assert.equal(result.harnessFacts?.testIdAttribute, "data-cy", "harness facts still come through");
+    assert.ok(result.existingSpecFiles?.length, "the existing suite listing still comes through");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): contextPack:false emits no pack spans even when a trace collaborator is wired", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-contextpack-off-trace-"));
+  try {
+    const traced: string[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, contextPack: false },
+      {
+        buildContextPack: async () => ({ text: "## pack", domBytes: 10, contractBytes: 0 }),
+        trace: { pack: () => traced.push("pack"), contextMap: () => traced.push("map") },
+        loadContextMap: () => ({ builtAtSha: "abc1234", routes: [], api: [], feBe: [] }),
+      },
+    );
+    const result = await adapter.ground(dir);
+    assert.equal(result.contextPack, undefined);
+    assert.equal(traced.includes("pack"), false, "the pack trace never fires without a pack");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /* A cross-repo run compares the map's declared paths with the triggering service's changed files only where the service's snapshot was staged: the roots reach the pack exactly as the composition gave them, and a single-repo run sends none. An empty list is still a cross-repo run (no path can be under any root). */
 test("ground(): the staged roots of a cross-repo run reach the pack as given, and a single-repo run sends none", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-staged-roots-"));

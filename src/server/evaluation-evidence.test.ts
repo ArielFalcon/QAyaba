@@ -104,6 +104,35 @@ test("the evidence exposes the delivered sources, the changed element and the sn
   assert.deepEqual(evidence.context?.snapshots.map((s) => s.path), ["flows/restaurants.spec.ts"]);
 });
 
+test("the evidence surfaces the run's parentRunId (lineage visible, never graded)", async () => {
+  const evidence = (await new HistoryEvidenceAdapter(
+    deps({ getRecord: () => record({ parentRunId: "parent-run-1" }) }),
+  ).load("run-1"))!;
+
+  assert.equal(evidence.parentRunId, "parent-run-1");
+});
+
+const domChangedSpan = {
+  name: "qayaba.context.dom-capture",
+  spanId: "dom-1",
+  parentSpanId: null,
+  attrs: JSON.stringify({ "qayaba.context.dom_changed": true }),
+};
+
+test("context_fresh/domChanged grade only the pipeline run's own spans — a child heal's spans never leak in", async () => {
+  const pipeline = (await new HistoryEvidenceAdapter(
+    deps({ runSpans: () => [domChangedSpan] }),
+  ).load("run-1"))!;
+  assert.equal(pipeline.context?.freshness?.domChanged, true, "the pipeline's own spans grade its freshness");
+
+  /* The child heal is a separate run id; assembling it reads only its own (empty) span ledger, never the parent's. */
+  const child = (await new HistoryEvidenceAdapter(
+    deps({ getRecord: () => record({ id: "run-heal", parentRunId: "run-1" }), runSpans: () => [] }),
+  ).load("run-heal"))!;
+  assert.equal(child.parentRunId, "run-1");
+  assert.equal(child.context?.freshness, undefined, "a child's freshness never consumes the parent's spans");
+});
+
 test("the delivered span's per-reason omissions are read back with their page", async () => {
   const span = {
     name: "qayaba.delivered.context-pack",

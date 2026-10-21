@@ -53,6 +53,8 @@ export interface ContextEvidence {
 
 export interface RunEvaluationEvidence {
   runId: string;
+  /* The run this one rebuilds/continues (a context heal, a /continue). Diagnostic lineage only: freshness never reads it. */
+  parentRunId?: string;
   app: string;
   mode: string;
   /* False while the run is enqueued or running: nothing is graded then. */

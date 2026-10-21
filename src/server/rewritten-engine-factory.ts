@@ -533,6 +533,8 @@ export interface ContextHealRunRequest {
   app: string;
   /* The triggering run's own sha: the one DEV serves for a gated app that got this far. */
   sha: string;
+  /* The run whose stale map asked for this rebuild. Optional: onboarding/tests may enqueue an unlinked heal. */
+  parentRunId?: string;
 }
 
 /* Persist a context run's validated map; a fresh map replaces the one the stale flag condemned. */
@@ -557,6 +559,7 @@ function requestContextHeal(
   app: string,
   sha: string | undefined,
   enqueue: RewrittenEngineFactoryDeps["enqueueContextRun"],
+  parentRunId?: string,
 ): void {
   const keepArmed = (why: string): void => {
     console.warn(`[qa] WARNING: context-map rebuild for ${app} not enqueued (${why}); the stale flag stays armed for the next run.`);
@@ -565,7 +568,7 @@ function requestContextHeal(
   if (!sha) return keepArmed("the run has no sha to rebuild at");
   let pending: Promise<string>;
   try {
-    pending = Promise.resolve(enqueue({ app, sha }));
+    pending = Promise.resolve(enqueue({ app, sha, ...(parentRunId ? { parentRunId } : {}) }));
   } catch (err) {
     return keepArmed(err instanceof Error ? err.message : String(err));
   }
@@ -730,7 +733,7 @@ export function buildRewrittenCompositionConfig(
   app: AppConfig,
   deps: RewrittenEngineFactoryDeps,
   namespace: string,
-  run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
+  run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
 
   observer?: ObserverPort,
 ): CompositionConfig {
@@ -839,7 +842,7 @@ export function buildRewrittenCompositionConfig(
     console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run; the campaign freeze requests no rebuild.`);
   } else if (contextStale) {
     console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run and requesting a rebuild.`);
-    requestContextHeal(app.name, run.sha, deps.enqueueContextRun);
+    requestContextHeal(app.name, run.sha, deps.enqueueContextRun, run.runId);
   }
 
   /* Where the map the run actually used came from, and how fresh it was (observe-only). */
@@ -855,7 +858,7 @@ export function buildRewrittenCompositionConfig(
     }
     recordContextHealRequest(app.name);
     mapProvenance = { ...mapProvenance, recapture: "requested" };
-    requestContextHeal(app.name, run.sha, deps.enqueueContextRun);
+    requestContextHeal(app.name, run.sha, deps.enqueueContextRun, run.runId);
   };
 
   /*
@@ -1082,6 +1085,8 @@ export function buildRewrittenCompositionConfig(
     maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
     isCode,
     domPack,
+    /* A context-mode run's prompt discards the pack; building it would spend the live-DOM capture for nothing. */
+    contextPack: run.mode !== "context",
     /*
      * Multi-agent coordination is always wired. Fail-open paths inside RunQaUseCase are the
      * incident safety net; telemetry lands in the durable JSONL sink. Distinct from qa.shadow
@@ -1571,13 +1576,13 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
 
 export function createRewrittenEngineFactory(
   deps: RewrittenEngineFactoryDeps,
-): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
+): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
   const env = deps.env ?? process.env;
   const wrappedDeps: RewrittenEngineFactoryDeps = {
     ...deps,
     getAgentDeps: (turn) => engineAgentDeps(deps, turn),
   };
-  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
+  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
     const cfg = buildRewrittenCompositionConfig(appConfig, wrappedDeps, namespace, run, observer);
     return buildProduction(env, cfg);
   };

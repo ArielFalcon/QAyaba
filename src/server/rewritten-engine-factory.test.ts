@@ -491,6 +491,60 @@ test("a queued run with no sha never requests a context heal and keeps the stale
   assert.equal(isContextStale(app.name), true, "the next run that has a sha must retry the heal");
 });
 
+test("the context heal a run requests carries that run's own id as parentRunId", async () => {
+  const app = cfg(`factory-contextmap-heal-parent-${Math.random().toString(36).slice(2)}`);
+  markContextStale(app.name);
+  const requests: ContextHealRunRequest[] = [];
+  const mirrorRoot = mkdtempSync(join(tmpdir(), "qayaba-heal-parent-"));
+  const noCheckout = async (): Promise<never> => {
+    throw new Error("no mirror in this test");
+  };
+  try {
+    const queue = new JobQueue();
+    const runId = enqueueTrackedRun(
+      queue,
+      { app: app.name, sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
+      {
+        loadApp: () => app,
+        engineFactory: createRewrittenEngineFactory({
+          getAgentDeps: stubAgentDeps,
+          mirrorRoot,
+          mirror: { ensureMirror: noCheckout, ensureMirrorAtBranch: noCheckout },
+          enqueueContextRun: (input) => {
+            requests.push(input);
+            return "run-heal-1";
+          },
+        }),
+      },
+    );
+    await queue.drain();
+    await flushMicrotasks();
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]!.parentRunId, runId, "the heal's parentRunId is the triggering run's own record id");
+    assert.equal(requests[0]!.sha, "def5678");
+  } finally {
+    rmSync(mirrorRoot, { recursive: true, force: true });
+  }
+});
+
+test("buildRewrittenCompositionConfig — a run without a runId requests its heal without a parentRunId (unlinked heals stay valid)", async () => {
+  const app = cfg(`factory-contextmap-heal-noparent-${Math.random().toString(36).slice(2)}`);
+  markContextStale(app.name);
+
+  let captured: ContextHealRunRequest | undefined;
+  buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, enqueueContextRun: (input) => { captured = input; return "run-heal-1"; } },
+    "qa-bot-abc1234-run1",
+    { mode: "diff", sha: "abc1234" },
+  );
+  await flushMicrotasks();
+
+  assert.equal(captured?.sha, "abc1234");
+  assert.equal(captured?.parentRunId, undefined, "parentRunId is optional — a caller without a runId links no parent");
+});
+
 test("buildRewrittenCompositionConfig — an accepted heal disarms the stale flag", async () => {
   const app = cfg(`factory-contextmap-heal-accepted-${Date.now().toString(36)}`);
   markContextStale(app.name);
@@ -924,6 +978,15 @@ test("grounding.domPack:false reaches CompositionConfig.domPack=false while the 
   assert.ok(config.groundingCollaborators?.contextPackDeps, "pre-generation collaborators still wired");
   assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps, "review DOM grounding still wired");
   assert.ok(config.preExecGroundingCollaborators?.captureDomDeps, "pre-exec DOM grounding still wired");
+});
+
+test("a context-mode run sets CompositionConfig.contextPack=false, a pipeline run leaves it on", () => {
+  const app = cfg("factory-context-pack-off");
+  const context = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+  assert.equal(context.contextPack, false, "context mode skips the discarded pack");
+
+  const pipeline = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", sha: "abc1234" });
+  assert.equal(pipeline.contextPack, true, "the pipeline keeps its own pack (the domPack lever unchanged)");
 });
 
 test("explorer:true wires groundingCollaborators.exploreBrief for an e2e app", () => {

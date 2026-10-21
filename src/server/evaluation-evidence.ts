@@ -339,6 +339,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
 
     return {
       runId,
+      ...(record.parentRunId ? { parentRunId: record.parentRunId } : {}),
       app: record.app,
       mode: record.mode,
       finished,

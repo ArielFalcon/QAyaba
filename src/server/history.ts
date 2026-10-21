@@ -148,6 +148,7 @@ let db!: Database.Database;
 let insertRun!: Database.Statement;
 let getRunStmt!: Database.Statement;
 let listRunsStmt!: Database.Statement;
+let childrenStmt!: Database.Statement;
 let currentRunStmt!: Database.Statement;
 let interruptedStmt!: Database.Statement;
 let deleteCaseByName!: Database.Statement;
@@ -545,6 +546,8 @@ function ensureDb(): void {
     if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_runs_campaign_id ON runs(campaign_id)");
+  /* The parent-linked child runs (a context heal, a /continue) of a run: childrenOf(parentRunId) reads this. */
+  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_parent_run_id ON runs(parent_run_id)");
   /* The model an LLM judge answered with, beside the prompt version in grader_version (NULL for every other score). */
   if (!columnExists("run_scores", "judge_model")) db.exec("ALTER TABLE run_scores ADD COLUMN judge_model TEXT");
   /*
@@ -573,6 +576,7 @@ function ensureDb(): void {
   `);
   getRunStmt = db.prepare("SELECT * FROM runs WHERE id = ?");
   listRunsStmt = db.prepare("SELECT * FROM runs WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
+  childrenStmt = db.prepare("SELECT * FROM runs WHERE parent_run_id = ? ORDER BY at DESC, rowid DESC");
   currentRunStmt = db.prepare("SELECT * FROM runs WHERE status IN ('running', 'enqueued') ORDER BY (status='running') DESC, at ASC, rowid ASC LIMIT 1");
   interruptedStmt = db.prepare("SELECT * FROM runs WHERE status IN ('running', 'enqueued')");
   deleteCaseByName = db.prepare("DELETE FROM cases WHERE run_id = ? AND name = ?");
@@ -960,6 +964,13 @@ export function getRecord(id: string): RunRecord | undefined {
 export function listRecords(app: string, limit = 10): RunRecord[] {
   ensureDb();
   const rows = listRunsStmt.all(app, limit) as Record<string, unknown>[];
+  return rows.map(rowToRecord);
+}
+
+/* The runs that name `parentRunId` as their parent (a context heal, a /continue), newest first. Empty for a leaf run. */
+export function childrenOf(parentRunId: string): RunRecord[] {
+  ensureDb();
+  const rows = childrenStmt.all(parentRunId) as Record<string, unknown>[];
   return rows.map(rowToRecord);
 }
 

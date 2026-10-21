@@ -255,6 +255,8 @@ export interface CompositionConfig {
 
   /* Pre-generation context pack carries no live-DOM capture when false (an A/B arm; default true). Independent of review/pre-exec DOM grounding. */
   domPack?: boolean;
+  /* false → the run builds no context pack at all (context mode discards it); the map/brief/harness still load. Default true. */
+  contextPack?: boolean;
 
   /* ObjectiveSignalPort collaborators — the keystone. assembleChangeCoverage is OPTIONAL (absent, or no per-run diff at measure() call time -> decide() receives null -> "unknown" -> NEVER blocks, the keystone's own architecturally-safe default). */
   objectiveSignal: {
@@ -448,6 +450,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
           ...(cfg.contextMapProvenance ? { contextMapProvenance: cfg.contextMapProvenance } : {}),
           prChangedFiles: cfg.prChangedFiles,
           domPack: cfg.domPack,
+          contextPack: cfg.contextPack,
           ...(cfg.triggerService ? { stagedRoots: stagedRootsOf(cfg.mirrorDir, join(cfg.mirrorDir, cfg.e2eRelDir), cfg.triggerService.mirrorDir) } : {}),
         },
         cfg.telemetry ? { ...cfg.groundingCollaborators, trace: telemetryGroundingTrace(cfg.telemetry, cfg.contextMapProvenance) } : (cfg.groundingCollaborators ?? {}),
