@@ -481,6 +481,8 @@ export interface RunDeadlinePort {
   arm(scope: { mode: RunMode; diff?: string; changedFiles?: readonly string[] }): void;
   /** What was armed (the named budget and its length), for the run's trace. Absent or undefined: nothing to say. */
   describe?(): { label: string; budgetMs: number } | undefined;
+  /** Milliseconds left; undefined while no deadline is armed. Zero or less: spent. A deterministic phase that may still start is checked against it before it does. */
+  remainingMs?(): number | undefined;
 }
 
 /**
@@ -695,6 +697,7 @@ export interface LearningPort {
 export type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 /** The durable copy of an app's accepted e2e suite (see the port). */
 export type { SuiteStorePort, SuiteRoot, SuiteRestoreResult, SuiteCaptureInput, SuiteCaptureResult } from "@kernel/ports/suite-store.port.ts";
+export type { SpecSnapshot, SpecSnapshotPort } from "./spec-snapshot.port.ts";
 export interface WorkspacePort {
   /**
    * `mirrorDir` is the working-copy root before specRelDir is joined. The "pr"

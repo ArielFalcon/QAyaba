@@ -630,6 +630,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "regeneration-acceptance": {
+    description: "regeneration acceptance: validate → execute the changed specs (retries 0, a per-run cap) or reuse a proof, fingerprint into the ledger, else restore the snapshot and purge the files the turn created",
+    mutate: [`${ORCH}/application/regeneration-acceptance.ts`],
+    tests: [`${ORCH_TEST}/application/regeneration-acceptance.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
 };
 
 /* Top-level entries never copied into the Stryker sandbox: build outputs, runtime data, the Go TUI,
