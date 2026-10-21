@@ -11,13 +11,13 @@ import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import type { AgentBrowserHandle, AgentBrowserOpenInput, GenerationEnrichment } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
-
-const WORKSPACE = { specDir: "/tmp/qa-browser/e2e", mirrorDir: "/tmp/qa-browser" };
+import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "browser-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
 const SIGNAL = { calls: 12, blocks: 3, invalidations: 1, renewals: 1 };
 
-function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: boolean; generateThrows?: boolean; closeThrows?: boolean } = {}) {
+function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: boolean; generateThrows?: boolean; closeThrows?: boolean } = {}): { events: string[]; opened: AgentBrowserOpenInput[]; enrichments: GenerationEnrichment[]; saved: RunOutcome[]; ws: RunWorkspace; deps(over?: Partial<RunQaUseCaseDeps>): RunQaUseCaseDeps } {
+  const ws = runWorkspace("qa-browser-");
   const events: string[] = [];
   const opened: AgentBrowserOpenInput[] = [];
   const enrichments: GenerationEnrichment[] = [];
@@ -28,23 +28,26 @@ function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: bool
     signals: () => SIGNAL,
     close: async () => { events.push("close"); if (opts.closeThrows) throw new Error("browser stuck"); },
   };
-  const deps = (over: Partial<RunQaUseCaseDeps> = {}): RunQaUseCaseDeps => ({
+  const deps = (over: Partial<RunQaUseCaseDeps> = {}): RunQaUseCaseDeps => {
+    const { generation: generationOver, ...rest } = over;
+    return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: {
+    generation: generationOnDisk(generationOver ?? {
       generate: async (_o, _d, _s, _diff, enrichment) => {
         events.push("generate");
         enrichments.push(enrichment ?? {});
         if (opts.generateThrows) throw new Error("agent down");
         return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
       },
-    },
+    }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => { events.push("execute"); if (opts.executeThrows) throw new Error("runner exploded"); return { verdict: "pass", cases: PASS, logs: "" }; } },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => WORKSPACE },
+    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async (outcome) => void saved.push(outcome) },
     confinement: { enforce: async () => ({ strays: 0, dangerous: 0, reverted: [] }) },
@@ -57,9 +60,10 @@ function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: bool
       },
     },
     config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
-    ...over,
-  });
-  return { events, opened, enrichments, saved, deps };
+    ...rest,
+    };
+  };
+  return { events, opened, enrichments, saved, ws, deps };
 }
 
 test("without the port, or when it grants nothing, the run is what it always was", async () => {
@@ -77,7 +81,7 @@ test("without the port, or when it grants nothing, the run is what it always was
 test("the browser is opened for the run after its setup and before the first generation, and the generator is told its limits", async () => {
   const r = rig();
   await new RunQaUseCase(r.deps()).run(INPUT);
-  assert.deepEqual(r.opened, [{ runId: "browser-run", app: "demo", mode: "diff", specDir: WORKSPACE.specDir }]);
+  assert.deepEqual(r.opened, [{ runId: "browser-run", app: "demo", mode: "diff", specDir: r.ws.specDir }]);
   assert.ok(r.events.indexOf("open") < r.events.indexOf("generate"));
   assert.deepEqual(r.enrichments[0]!.agentBrowser, DEFAULT_AGENT_BROWSER_LIMITS);
 });

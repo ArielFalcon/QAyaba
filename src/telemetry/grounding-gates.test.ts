@@ -7,21 +7,24 @@ import { Sha } from "@kernel/sha";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { scriptedGeneration } from "../../qa-engine/test/support/generation-output";
+import { generationOnDisk, runWorkspace } from "../../qa-engine/test/support/run-workspace";
 import { traceHarness } from "./trace-harness";
 
 const SPEC_SOURCE = "await page.goto('/orders');\nawait page.getByTestId('invented-id').click();\nawait page.getByTestId('real-id').click();\n";
 
 function useCase(telemetry: TelemetryPort | undefined, withGrounding = true, validate: RunQaUseCaseDeps["validation"]["validate"] = async () => ({ ok: true, errors: [] })) {
+  const ws = runWorkspace("qa-gates-");
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: { generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) },
+    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: "/tmp/qa-gates/e2e", mirrorDir: "/tmp/qa-gates" }) },
+    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },
     setup: { setup: async () => {} },

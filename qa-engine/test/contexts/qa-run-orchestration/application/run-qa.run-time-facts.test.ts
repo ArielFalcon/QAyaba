@@ -5,18 +5,21 @@ import { ok } from "@kernel/result.ts";
 import { Sha } from "@kernel/sha.ts";
 import { traceFactsOf } from "@kernel/run-trace-facts.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 
 function build(config: Partial<RunQaConfig>, measure: RunQaUseCaseDeps["objectiveSignal"]["measure"], verdict: "pass" | "fail" = "pass") {
+  const ws = runWorkspace("qa-facts-");
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: { generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) },
+    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict, cases: [], logs: "" }) },
     objectiveSignal: { measure, blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: "/tmp/qa-facts/e2e", mirrorDir: "/tmp/qa-facts" }) },
+    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },
     setup: { setup: async () => {} },

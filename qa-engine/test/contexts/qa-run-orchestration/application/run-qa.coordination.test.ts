@@ -13,8 +13,7 @@ import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/
 import type { CoordinateInput, CoordinateResult } from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, GenerationEnrichment, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
-
-const WORKSPACE = { specDir: "/tmp/qa-coord/e2e", mirrorDir: "/tmp/qa-coord" };
+import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "coord-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
 
@@ -27,12 +26,14 @@ interface Rig {
   coordinated: CoordinateInput[];
   saved: RunOutcome[];
   validated: number;
+  ws: RunWorkspace;
   deps(over?: Partial<RunQaUseCaseDeps>): RunQaUseCaseDeps;
 }
 
 function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => ({ action: "single", signal: signalOf({ downgrade: "x" }) })): Rig {
+  const ws = runWorkspace("qa-coord-");
   const calls: string[] = [];
-  const r: Rig = { calls, enrichments: [], planned: [], coordinated: [], saved: [], validated: 0, deps: undefined as never };
+  const r: Rig = { calls, enrichments: [], planned: [], coordinated: [], saved: [], validated: 0, ws, deps: undefined as never };
   const closedLoop: ClosedLoopHandle = {
     limits: { maxCalls: 8, perCallMs: 120_000, maxDevWrites: 20 },
     openFlow: () => undefined,
@@ -42,9 +43,11 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
     close: async () => void calls.push("close-loop"),
   };
   const agentBrowser: AgentBrowserHandle = { limits: { maxCalls: 60, perCallMs: 30_000, leaseWaitMs: 15_000 }, grantShare: () => {}, signals: () => ({ calls: 0, blocks: 0, invalidations: 0, renewals: 0 }), close: async () => {} };
-  r.deps = (over = {}) => ({
+  r.deps = (over = {}) => {
+    const { generation: generationOver, ...rest } = over;
+    return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "the diff" }) },
-    generation: {
+    generation: generationOnDisk(generationOver ?? {
       generate: async (_o, _d, _s, _diff, enrichment) => {
         calls.push("generate");
         r.enrichments.push(enrichment ?? {});
@@ -55,26 +58,36 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
         r.planned.push(enrichment);
         return { plan: { kind: "single" }, parsed: true, timedOut: false };
       },
-    },
+    }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => (r.validated++, calls.push("validate"), { ok: true, errors: [] }) },
     execution: { execute: async () => (calls.push("execute"), { verdict: "pass", cases: PASS, logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => WORKSPACE },
+    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async (outcome) => void r.saved.push(outcome) },
     confinement: { enforce: async () => (calls.push("confine"), { strays: 0, dangerous: 0, reverted: [] }) },
     closedLoop: { open: async () => closedLoop },
     agentBrowser: { open: async () => agentBrowser },
-    leadSidekicks: { coordinate: async (input) => { calls.push("coordinate"); r.coordinated.push(input); return result(); } },
+    leadSidekicks: { coordinate: async (input) => {
+      calls.push("coordinate");
+      r.coordinated.push(input);
+      const coordinated = await result();
+      if (coordinated.action === "fanout") {
+        for (const spec of coordinated.aggregated.specs) if (spec.endsWith(".spec.ts") && !ws.has(spec)) ws.write(spec);
+      }
+      return coordinated;
+    } },
     sidekickProvider: () => "opencode",
     plannerProvider: () => "opencode",
     authContext: { baseUrl: "https://dev", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } },
     config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
-    ...over,
-  });
+    ...rest,
+    };
+  };
   return r;
 }
 
@@ -110,8 +123,8 @@ test("a coordinated run hands the coordinator what the run knows: its identity, 
   const [input] = r.coordinated;
   assert.equal(input!.runId, "coord-run");
   assert.equal(input!.app, "demo");
-  assert.equal(input!.mirrorDir, WORKSPACE.mirrorDir);
-  assert.equal(input!.specDir, WORKSPACE.specDir);
+  assert.equal(input!.mirrorDir, r.ws.mirrorDir);
+  assert.equal(input!.specDir, r.ws.specDir);
   assert.equal(input!.specRelDir, "e2e");
   assert.deepEqual(input!.facts, { hasLogin: true, provider: "opencode", plannerProvider: "opencode" });
   assert.ok(input!.closedLoop && input!.agentBrowser, "both grants");

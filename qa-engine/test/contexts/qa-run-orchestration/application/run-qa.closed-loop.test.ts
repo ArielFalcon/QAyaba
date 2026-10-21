@@ -11,8 +11,8 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import type { ClosedLoopHandle, ClosedLoopOpenInput, GenerationEnrichment } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 
-const WORKSPACE = { specDir: "/tmp/qa-loop/e2e", mirrorDir: "/tmp/qa-loop" };
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "loop-run" };
 const LIMITS = { maxCalls: 8, perCallMs: 120_000, maxDevWrites: 20 };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
@@ -29,10 +29,12 @@ interface Rig {
   closedAsked: string[][];
   handle: ClosedLoopHandle;
   closedState: { value: boolean };
+  ws: RunWorkspace;
   deps(over?: Partial<RunQaUseCaseDeps>): RunQaUseCaseDeps;
 }
 
 function rig(opts: { closed?: boolean; openThrows?: boolean; grant?: boolean } = {}): Rig {
+  const ws = runWorkspace("qa-loop-");
   const events: string[] = [];
   const closedState = { value: opts.closed ?? false };
   const closedAsked: string[][] = [];
@@ -44,38 +46,42 @@ function rig(opts: { closed?: boolean; openThrows?: boolean; grant?: boolean } =
     signals: () => ({ calls: 3, devWrites: 2 }),
     close: async () => void events.push("close"),
   };
-  const r: Rig = { events, opened: [], enrichments: [], saved: [], generations: 0, closedAsked, handle, closedState, deps: undefined as never };
-  r.deps = (over = {}) => ({
-    changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: {
-      generate: async (_o, _d, _s, _diff, enrichment) => {
-        r.generations++;
-        events.push("generate");
-        r.enrichments.push(enrichment ?? {});
-        return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+  const r: Rig = { events, opened: [], enrichments: [], saved: [], generations: 0, closedAsked, handle, closedState, ws, deps: undefined as never };
+  r.deps = (over = {}) => {
+    const { generation: generationOver, ...rest } = over;
+    return {
+      changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
+      generation: generationOnDisk(generationOver ?? {
+        generate: async (_o, _d, _s, _diff, enrichment) => {
+          r.generations++;
+          events.push("generate");
+          r.enrichments.push(enrichment ?? {});
+          return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
+        },
+      }),
+      review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
+      validation: { validate: async () => (events.push("validate"), { ok: true, errors: [] }) },
+      execution: { execute: async () => (events.push("execute"), { verdict: "pass", cases: PASS, logs: "" }) },
+      objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
+      publication: { publish: async () => ({ outcome: "pr" }) },
+      learning: { fold: async () => {}, retrieve: async () => [] },
+      workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+      suiteStore: ws.suiteStore,
+      deployGate: { waitUntilServing: async () => ok(true) },
+      runHistory: { save: async (outcome) => void r.saved.push(outcome) },
+      confinement: { enforce: async () => (events.push("confine"), { strays: 0, dangerous: 0, reverted: [] }) },
+      closedLoop: {
+        open: async (input) => {
+          r.opened.push(input);
+          events.push("open");
+          if (opts.openThrows) throw new Error("registry down");
+          return opts.grant === false ? undefined : handle;
+        },
       },
-    },
-    review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
-    validation: { validate: async () => (events.push("validate"), { ok: true, errors: [] }) },
-    execution: { execute: async () => (events.push("execute"), { verdict: "pass", cases: PASS, logs: "" }) },
-    objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
-    publication: { publish: async () => ({ outcome: "pr" }) },
-    learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => WORKSPACE },
-    deployGate: { waitUntilServing: async () => ok(true) },
-    runHistory: { save: async (outcome) => void r.saved.push(outcome) },
-    confinement: { enforce: async () => (events.push("confine"), { strays: 0, dangerous: 0, reverted: [] }) },
-    closedLoop: {
-      open: async (input) => {
-        r.opened.push(input);
-        events.push("open");
-        if (opts.openThrows) throw new Error("registry down");
-        return opts.grant === false ? undefined : handle;
-      },
-    },
-    config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
-    ...over,
-  });
+      config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
+      ...rest,
+    };
+  };
   return r;
 }
 
@@ -94,7 +100,7 @@ test("without the port, or when it grants nothing, the run is what it always was
 test("the loop is opened for the run after its setup and before the first generation, and the generator is told its limits", async () => {
   const r = rig();
   await new RunQaUseCase(r.deps()).run(INPUT);
-  assert.deepEqual(r.opened, [{ runId: "loop-run", app: "demo", mode: "diff", ...WORKSPACE }]);
+  assert.deepEqual(r.opened, [{ runId: "loop-run", app: "demo", mode: "diff", specDir: r.ws.specDir, mirrorDir: r.ws.mirrorDir }]);
   assert.ok(r.events.indexOf("open") < r.events.indexOf("generate"));
   assert.deepEqual(r.enrichments[0]!.closedLoop, LIMITS);
 });

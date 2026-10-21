@@ -1,9 +1,6 @@
 /* The specs a run delivers are carried into every regeneration it makes: merged after each generation pass (the lead's declarations refresh) and handed to each regeneration as `deliveredSpecs`; a selector contradiction is attributed to the specs that hold its selector as `attributedSpecFiles`. Driven through RunQaUseCase with the ports faked at the boundary. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
@@ -18,6 +15,7 @@ import type {
   ValidationPort,
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 
 /** A spec the lead delivered and declared. */
 const declared = (file: string, objective: string): DeliveredSpec => ({ file, flow: `${file} flow`, objective });
@@ -74,14 +72,9 @@ const OWNERS_ONCE = OWNERS_TWICE;
 
 /** Runs the whole use case over a scratch mirror and returns the enrichment of every generate() call, in order. */
 async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
-  const mirror = mkdtempSync(join(tmpdir(), "qa-carry-forward-"));
-  const specDir = join(mirror, "e2e");
-  mkdirSync(specDir, { recursive: true });
+  const ws = runWorkspace("qa-carry-forward-");
   try {
-    for (const file of scenario.files ?? []) {
-      mkdirSync(dirname(join(mirror, file)), { recursive: true });
-      writeFileSync(join(mirror, file), "// spec");
-    }
+    for (const file of scenario.files ?? []) ws.write(file);
     const calls: GenerationEnrichment[] = [];
     const useCase = new RunQaUseCase({
       changeAnalysis: {
@@ -93,19 +86,20 @@ async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
           contradiction: true,
         }),
       },
-      generation: {
+      generation: generationOnDisk({
         generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
           calls.push(enrichment ?? {});
           return scenario.generations[Math.min(calls.length - 1, scenario.generations.length - 1)]!;
         },
-      },
+      }),
       review: { review: scenario.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })) },
       validation: { validate: scenario.validate ?? (async () => ({ ok: true, errors: [] })) },
       execution: { execute: scenario.execute ?? PASSING },
       objectiveSignal: { measure: scenario.measure ?? (async () => ({ status: "unknown", ratio: null })), blocks: scenario.blocks ?? (() => false) },
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
-      workspace: { prepare: async () => ({ specDir, mirrorDir: mirror }) },
+      workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+      suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async () => {} },
       setup: { setup: async () => {} },
@@ -116,7 +110,7 @@ async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
     await useCase.run({ app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "carry-forward" });
     return calls;
   } finally {
-    rmSync(mirror, { recursive: true, force: true });
+    ws.cleanup();
   }
 }
 

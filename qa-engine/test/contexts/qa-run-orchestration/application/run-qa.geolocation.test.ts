@@ -14,14 +14,14 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import type { AgentBrowserOpenInput, GenerationEnrichment, GeolocationHandle } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
-
-const WORKSPACE = { specDir: "/tmp/qa-geo/e2e", mirrorDir: "/tmp/qa-geo" };
+import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "geo-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
 const MADRID = { latitude: 40.4168, longitude: -3.7038 };
 const BARCELONA = { latitude: 41.3874, longitude: 2.1686 };
 
-function rig(opts: { openThrows?: boolean; executeThrows?: boolean; generateThrows?: boolean; moveOnGenerate?: boolean } = {}) {
+function rig(opts: { openThrows?: boolean; executeThrows?: boolean; generateThrows?: boolean; moveOnGenerate?: boolean } = {}): { events: string[]; opened: { runId: string; app: string; mode: string }[]; enrichments: GenerationEnrichment[]; saved: RunOutcome[]; browserOpens: AgentBrowserOpenInput[]; executionRequests: unknown[]; ws: RunWorkspace; deps(over?: Partial<RunQaUseCaseDeps>): RunQaUseCaseDeps } {
+  const ws = runWorkspace("qa-geo-");
   const events: string[] = [];
   const opened: { runId: string; app: string; mode: string }[] = [];
   const enrichments: GenerationEnrichment[] = [];
@@ -38,9 +38,11 @@ function rig(opts: { openThrows?: boolean; executeThrows?: boolean; generateThro
     openFlow: () => undefined,
     close: () => void events.push("geo-close"),
   };
-  const deps = (over: Partial<RunQaUseCaseDeps> = {}): RunQaUseCaseDeps => ({
+  const deps = (over: Partial<RunQaUseCaseDeps> = {}): RunQaUseCaseDeps => {
+    const { generation: generationOver, ...rest } = over;
+    return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/map.ts", diff: "" }) },
-    generation: {
+    generation: generationOnDisk(generationOver ?? {
       generate: async (_o, _d, _s, _diff, enrichment) => {
         events.push("generate");
         enrichments.push(enrichment ?? {});
@@ -49,14 +51,15 @@ function rig(opts: { openThrows?: boolean; executeThrows?: boolean; generateThro
         if (opts.moveOnGenerate) move(BARCELONA);
         return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
       },
-    },
+    }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async (_specDir, options) => { events.push("execute"); executionRequests.push(options ?? {}); if (opts.executeThrows) throw new Error("runner exploded"); return { verdict: "pass", cases: PASS, logs: "" }; } },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => WORKSPACE },
+    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async (outcome) => void saved.push(outcome) },
     confinement: { enforce: async () => ({ strays: 0, dangerous: 0, reverted: [] }) },
@@ -70,9 +73,10 @@ function rig(opts: { openThrows?: boolean; executeThrows?: boolean; generateThro
     },
     agentBrowser: { open: async (input) => { browserOpens.push(input); return undefined; } },
     config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
-    ...over,
-  });
-  return { events, opened, enrichments, saved, browserOpens, executionRequests, deps };
+    ...rest,
+    };
+  };
+  return { events, opened, enrichments, saved, browserOpens, executionRequests, ws, deps };
 }
 
 test("without the port the run carries no authoring location and states none", async () => {
