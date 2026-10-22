@@ -13,6 +13,7 @@ import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { MAX_ACCEPTANCE_EXECUTIONS } from "../domain/helpers/derive-cycle-backstop.ts";
+import type { ContractFeedback } from "../domain/contract-feedback.ts";
 import type { ClosedLoopHandle, ExecutionPort, RunDeadlinePort, ValidationPort } from "./ports/index.ts";
 import type { SpecSnapshot, SpecSnapshotPort } from "./ports/spec-snapshot.port.ts";
 
@@ -38,6 +39,8 @@ export type AcceptanceOutcome =
       reason: string;
       /** The execution that rejected the round (an infra-error), when one ran. */
       execution?: { verdict: RunVerdict; cases: readonly QaCase[]; logs: string };
+      /** The contract deltas that rejected the round, when the intent lock was the reason: the caller hands them to the next turn as facts (A-2b). */
+      violations?: readonly ContractFeedback[];
     }
   | { kind: "cap" };
 
@@ -48,7 +51,7 @@ export interface RegenerationAcceptanceDeps {
   /** Records one accepted file's proof (its path, the sha256 of its green bytes, and those bytes). */
   ledger: (entry: AcceptanceProofEntry) => Promise<void>;
   /** The intent-lock contract check (a later task). Absent: always passes. */
-  contractCheck?: (changedSpecFiles: readonly string[]) => Promise<{ ok: boolean; reason?: string }>;
+  contractCheck?: (changedSpecFiles: readonly string[]) => Promise<{ ok: boolean; reason?: string; violations?: readonly ContractFeedback[] }>;
 }
 
 export interface AcceptanceInput {
@@ -102,7 +105,11 @@ export class RegenerationAcceptance {
     const contract = await this.deps.contractCheck?.(input.changedSpecFiles);
     if (contract && !contract.ok) {
       await restore();
-      return { kind: "rejected", reason: contract.reason ?? "the contract check rejected the change" };
+      return {
+        kind: "rejected",
+        reason: contract.reason ?? "the contract check rejected the change",
+        ...(contract.violations?.length ? { violations: contract.violations } : {}),
+      };
     }
 
     /* 2. Validate. */

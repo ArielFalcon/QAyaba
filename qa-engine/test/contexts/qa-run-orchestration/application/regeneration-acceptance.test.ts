@@ -241,3 +241,35 @@ test("no time left before an acceptance execution throws the run's deadline erro
   assert.equal(h.executed.length, 0, "the execution never started");
   assert.equal(h.restores.length, 0);
 });
+
+/*
+ * A-2b: a regeneration the contract rejects carries the violations out, so the site that sent the turn
+ * can hand them back as facts. The bytes are restored all the same: nothing rejected stays on disk.
+ */
+test("a contract rejection carries its violations out, and restores the pre-turn bytes", async () => {
+  const h = harness();
+  const violations = [
+    { rule: "weakened-matcher", file: "flows/checkout.spec.ts", clauseId: "assertion-1", before: "strength=exact", after: "strength=presence" },
+  ];
+  const service = new RegenerationAcceptance({
+    snapshot: h.snapshot,
+    fingerprint: (b) => `sha-${b.byteLength}`,
+    ledger: async () => {},
+    contractCheck: async () => ({ ok: false, reason: "contract: weakened-matcher (assertion-1)", violations }),
+  });
+
+  const outcome = await service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/checkout.spec.ts"],
+    namespace: "run-1-acc0",
+    snapshot: snapshotOf(["flows/checkout.spec.ts"]),
+    deadline: deadline(60_000),
+    validate,
+    execute: h.execute,
+  });
+
+  assert.equal(outcome.kind, "rejected");
+  assert.deepEqual(outcome.kind === "rejected" ? outcome.violations : undefined, violations);
+  assert.equal(h.restores.length, 1, "a rejected regeneration is rolled back, violations or not");
+  assert.deepEqual(h.executed, [], "the contract is checked before any DEV time is spent");
+});

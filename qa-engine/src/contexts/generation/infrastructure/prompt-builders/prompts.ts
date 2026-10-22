@@ -705,6 +705,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n")
     : "";
 
+  /* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Capped, sanitized, and never an order: the generator decides how to restore what its bytes weakened. */
+  const contractFeedbackContent = input.contractFeedback?.length && isGenerationMode ? renderContractViolations(input.contractFeedback) : "";
+
   const learnedRulesContent = input.learnedRules && isGenerationMode
     ? [input.learnedRules, ``].join("\n")
     : "";
@@ -860,6 +863,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3, claims: fixContentClaims })] : []),
       /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
       ...(reviewContent ? [section("reviewer-corrections", "volatile", reviewContent, { priority: 4, maxBytes: 20_000, overflow: "drop" })] : []),
+      ...(contractFeedbackContent ? [section(CONTRACT_FEEDBACK_SECTION_ID, "volatile", contractFeedbackContent, { priority: 4, maxBytes: 6_000, overflow: "drop" })] : []),
       ...(coverageContent ? [section("coverage-gap", "volatile", coverageContent, { priority: 5, shedAs: "critical-recap" })] : []),
       ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2, claims: [claim.provides("learned-rules")] })] : []),
       section("task", "task", task.text, { priority: 1, claims: task.claims }),
@@ -1551,6 +1555,35 @@ export function renderExecutionResult(evidence: {
   const raw = lines.join("\n");
   if (raw.length <= CAP_TOTAL) return raw;
   return capText(raw, CAP_TOTAL_INTERNAL);
+}
+
+/* At most this many violations reach one prompt; the rest are counted so the agent knows the list is abridged. */
+const CONTRACT_FEEDBACK_MAX = 6;
+
+export const CONTRACT_FEEDBACK_SECTION_ID = "contract-feedback";
+
+/**
+ * The intent lock's violations as a facts section: each line names the rule, the clause and what the
+ * contract held before and after. Every text is redacted and cut, so a literal that carries a secret
+ * never reaches the model, and the section states counts rather than demanding anything.
+ */
+export function renderContractViolations(
+  violations: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[],
+): string {
+  const shown = violations.slice(0, CONTRACT_FEEDBACK_MAX);
+  const lines = [
+    `## Contract violations (the intent contract this run fixed on these specs)`,
+    ``,
+    `The intent contract was derived from the primary pass's own bytes. Each line is a delta the orchestrator found between that contract and the bytes of the last turn:`,
+    ``,
+    ...shown.map(
+      (violation) =>
+        `- ${sanitizeText(violation.rule).text} ${sanitizeText(violation.file).text}#${sanitizeText(violation.clauseId).text}: ${capText(sanitizeText(violation.before).text, 200)} → ${capText(sanitizeText(violation.after).text, 200)}`,
+    ),
+    ...(violations.length > shown.length ? [``, `(${violations.length - shown.length} more not shown.)`] : []),
+    ``,
+  ];
+  return lines.join("\n");
 }
 
 export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPrompt {

@@ -1808,3 +1808,50 @@ test("regeneration is on unless a caller retires it", async () => {
   await loop.run(loopInput({ maxRetries: 1, initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts", detail: LOCATOR_FAULT })] } }));
   assert.equal(rec.generates.length, 1);
 });
+
+/* A-2b: a round the intent lock rejects on contract grounds is not a failing execution — the generator
+   can still fix the weakening it introduced. The loop hands it the violations and keeps its retry cap. */
+test("a contract rejection hands its violations to the next round instead of ending the loop", async () => {
+  const violations = [
+    { rule: "weakened-matcher", file: "checkout.spec.ts", clauseId: "assertion-1", before: "strength=exact", after: "strength=presence" },
+  ];
+  let accepts = 0;
+  const began: unknown[] = [];
+  const acceptance: FixLoopAcceptancePort = {
+    begin: async () => {
+      const token = { round: began.length + 1 };
+      began.push(token);
+      return token;
+    },
+    accept: async () => {
+      accepts += 1;
+      return accepts === 1
+        ? { kind: "rejected", reason: "contract: weakened-matcher (assertion-1)", violations }
+        : { kind: "accepted", changedSpecFiles: ["checkout.spec.ts"], accepted: { round: 2 } };
+    },
+    restore: async () => {},
+  };
+  const { loop, rec } = recordingLoop({ regen: () => ({ specs: ["checkout.spec.ts"], approved: true }), acceptance });
+
+  await loop.run(loopInput({ maxRetries: 2 }));
+
+  assert.equal(rec.generates.length, 2, "the rejected round earns one more turn inside the retry cap");
+  assert.equal(rec.generates[0]!.contractFeedback, undefined, "the first turn has nothing to answer");
+  assert.deepEqual(rec.generates[1]!.contractFeedback, violations, "the next turn is handed what the contract found");
+  assert.equal(accepts, 2);
+});
+
+test("a contract rejection that keeps failing is bounded by the retry cap, never looping", async () => {
+  const violations = [{ rule: "dropped-assertion", file: "checkout.spec.ts", clauseId: "assertion-2", before: "expected=42", after: "absent" }];
+  const acceptance: FixLoopAcceptancePort = {
+    begin: async () => ({}),
+    accept: async () => ({ kind: "rejected", reason: "contract: dropped-assertion", violations }),
+    restore: async () => {},
+  };
+  const { loop, rec } = recordingLoop({ regen: () => ({ specs: ["checkout.spec.ts"], approved: true }), acceptance });
+
+  const result = await loop.run(loopInput({ maxRetries: 2 }));
+
+  assert.equal(rec.generates.length, 2, "one turn per retry, and the last rejection ends the loop");
+  assert.equal(result.run.verdict, "fail");
+});

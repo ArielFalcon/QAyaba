@@ -8,6 +8,7 @@ import type { WallClockBudget } from "./wall-clock-budget.ts";
 import { adjudicate, classifyRuntimeErrors, type AdjFailureClass, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION, ADJ_CONFIDENCE } from "./adjudicate.service.ts";
 import { decideProgress, classifyFailure, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "./helpers/selector-check.ts";
+import type { ContractFeedback } from "./contract-feedback.ts";
 
 
 export interface FixLoopRun {
@@ -21,6 +22,8 @@ export interface FixLoopGenerateInput {
   /* The spec that raised each of selectorContradictions, by its index among the spec sources the check read (the previous regeneration's). Absent when the check does not say. */
   selectorContradictionOrigins?: ContradictionOrigin[];
   domSnapshot?: string;
+  /* A-2b: the intent lock's deltas on the previous round, handed back as facts. Absent when that round broke no contract. */
+  contractFeedback?: readonly ContractFeedback[];
   /* CycleBudget/WallClockBudget are forwarded unread into generate() — this aggregate never ticks or inspects them, and neither does the generation adapter (see this file's header comment). */
   cycleBudget: CycleBudget;
   wallClockBudget: WallClockBudget;
@@ -104,7 +107,14 @@ export type FixLoopAcceptanceOutcome =
       /** The bytes this round leaves on disk, for restoring it if it is the best run. */
       accepted: unknown;
     }
-  | { kind: "rejected"; reason: string; /** The execution that rejected the round (an infra-error), when one ran. */ execution?: FixLoopRun }
+  | {
+      kind: "rejected";
+      reason: string;
+      /** The execution that rejected the round (an infra-error), when one ran. */
+      execution?: FixLoopRun;
+      /** The contract deltas that rejected the round: the loop hands them to the next round as facts (A-2b). */
+      violations?: readonly ContractFeedback[];
+    }
   | { kind: "cap" };
 
 /**
@@ -245,6 +255,10 @@ export class FixLoop {
     let triaged = false;
     /* A rejected test-correct claim earns one repair even when the progress gate would stop the round. */
     let claimRejected = false;
+    /* A round the contract refused never executed, so the progress gate would read it as no progress: it earns one repair all the same. */
+    let contractRejected = false;
+    /* A round the contract refused leaves its deltas for the next round; an accepted round clears them. */
+    let contractFeedback: readonly ContractFeedback[] | undefined;
     /* Only what a later round reads from the previous regeneration. */
     let lastRegenResult: Pick<FixLoopGenerateResult, "specSources" | "reexploreNavigations" | "specMetas"> | undefined =
       input.initialSpecSources?.length ? { specSources: input.initialSpecSources } : undefined;
@@ -278,8 +292,11 @@ export class FixLoop {
       };
       const gate = claimRejected
         ? { spend: true, reason: "a rejected test-correct claim is not evidence — asking for the repair" }
-        : decideProgress(prevRound, curRound);
+        : contractRejected
+          ? { spend: true, reason: "the contract refused the previous round before it ran: asking for the repair the violations name" }
+          : decideProgress(prevRound, curRound);
       claimRejected = false;
+      contractRejected = false;
 
       const allUnique =
         anyVerifiedPresent &&
@@ -398,6 +415,7 @@ export class FixLoop {
         ...(selectorContradictions.length > 0 ? { selectorContradictions } : {}),
         ...(selectorContradictions.length > 0 && lever2.origins ? { selectorContradictionOrigins: lever2.origins } : {}),
         ...(input.failureDomSnapshot ? { domSnapshot: input.failureDomSnapshot } : {}),
+        ...(contractFeedback ? { contractFeedback } : {}),
         cycleBudget: input.cycleBudget,
         wallClockBudget: input.wallClockBudget,
       });
@@ -470,6 +488,16 @@ export class FixLoop {
         });
         if (outcome.kind === "rejected") {
           /*
+           * The contract refused the round: its bytes are already restored, and the deltas it found are
+           * the next round's facts. The rejected turn already spent its retry, so the loop stays inside
+           * the same cap (A-2b).
+           */
+          if (outcome.violations?.length) {
+            contractFeedback = outcome.violations;
+            contractRejected = true;
+            continue;
+          }
+          /*
            * A validation failure or an infra-error: the prior verdict and bytes stand. A live
            * execution that failed while DEV went unhealthy is the run's infra-error, as before.
            */
@@ -484,6 +512,7 @@ export class FixLoop {
         if (outcome.kind === "cap") break; /* the prior verdict and bytes stand (B-7) */
 
         run = mergeAcceptedRound(run, outcome);
+        contractFeedback = undefined;
         coverageNs = roundNs;
         roundAccepted = true;
         acceptedToken = outcome.accepted;

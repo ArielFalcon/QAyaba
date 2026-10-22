@@ -182,6 +182,7 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(attributedSpecFiles.length ? { attributedSpecFiles } : {}),
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
       ...(enrichment?.coverageGap ? { coverageGap: enrichment.coverageGap } : {}),
+      ...(enrichment?.contractFeedback?.length ? { contractFeedback: enrichment.contractFeedback.map((violation) => ({ ...violation })) } : {}),
       ...(enrichment?.intent ? { intent: toGenerationIntent(enrichment.intent) } : {}),
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRules(enrichment.learnedRules) } : {}),
       ...(reviewerLearnedRules ? { reviewerLearnedRules } : {}),

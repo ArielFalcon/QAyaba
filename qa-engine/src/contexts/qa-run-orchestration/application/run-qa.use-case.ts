@@ -169,6 +169,7 @@ import type { CoordinationTelemetryPort } from "./coordination/coordination-tele
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 import { filterReviewFindings } from "../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey, refKey, type DisputedFinding, type RebuttalEvidence, type ReviewRebuttal } from "../domain/review-rebuttals.service.ts";
+import type { ContractFeedback } from "../domain/contract-feedback.ts";
 import { changeTokens, EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/domain/change-tokens.ts";
 import { diffContracts, type IntentViolation } from "@contexts/objective-signal/domain/test-intent-contract.ts";
 import type { IntentContractPort, SpecIntentView } from "./ports/intent-contract.port.ts";
@@ -923,7 +924,7 @@ export class RunQaUseCase {
         intentState.baselines.set(file, extraction.specs);
       }
     };
-    const contractCheck = async (files: readonly string[]): Promise<{ ok: boolean; reason?: string }> => {
+    const contractCheck = async (files: readonly string[]): Promise<{ ok: boolean; reason?: string; violations?: readonly ContractFeedback[] }> => {
       const extractor = this.deps.intentContract;
       if (!extractor || intentLock.mode === "off" || files.length === 0) return { ok: true };
       const current = await snapshotPort.snapshot(workspace.specDir, [...files]);
@@ -948,7 +949,8 @@ export class RunQaUseCase {
       if (deltas.length === 0) return { ok: true };
       intentState.violations += deltas.length;
       const reason = `contract: ${deltas.map((delta) => `${delta.rule} (${delta.clauseId})`).join(", ")}`;
-      if (intentLock.mode === "enforce") return { ok: false, reason };
+      /* The deltas travel with the refusal: the site that sent the turn hands them to the next one as facts (A-2b). */
+      if (intentLock.mode === "enforce") return { ok: false, reason, violations: deltas };
       /* Signal: the regeneration is accepted and the would-be rejection is recorded. */
       intentState.wouldReject += 1;
       this.deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] intent lock would reject this regeneration — ${reason}` });
@@ -2613,9 +2615,41 @@ export class RunQaUseCase {
         previousRoundCaseCount = reviewCases.length;
         const snapshot = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
         const deliveredBefore = delivered;
-        const regen = await regenerate(signal, { reviewCorrections: reviewResult.corrections });
-        await enforceConfinement();
-        const changedSpecFiles = await suiteChangedFiles(snapshot, regen.specs);
+        let regen: GenerationOutput;
+        let changedSpecFiles: string[] = [];
+        let outcome: Awaited<ReturnType<RegenerationAcceptance["accept"]>> | undefined;
+        /*
+         * One correction round, with the turn's bytes accepted or given back. A round the contract refuses is sent back
+         * once with the violations as facts (A-2b): the generator learns the bound the run holds it to inside the run,
+         * and the retry spends no DEV time because the contract is checked before validation and execution. The bound is
+         * per round, so the review loop's own round budget still caps the whole phase.
+         */
+        let contractFeedback: readonly ContractFeedback[] | undefined;
+        for (let attempt = 0; ; attempt++) {
+          /* A refused attempt's files were restored, so its delivery must not survive into the next one. */
+          delivered = deliveredBefore;
+          regen = await regenerate(signal, {
+            reviewCorrections: reviewResult.corrections,
+            ...(contractFeedback ? { contractFeedback } : {}),
+          });
+          await enforceConfinement();
+          changedSpecFiles = await suiteChangedFiles(snapshot, regen.specs);
+          if (regen.specs.length === 0) break;
+          outcome = await acceptance.accept({
+            specDir: workspace.specDir,
+            changedSpecFiles,
+            namespace: `${input.runId}-acc${acceptanceCalls++}`,
+            snapshot,
+            ...(closedLoop ? { closedLoop } : {}),
+            deadline: runDeadlinePort,
+            validate: validateAccepted,
+            execute: executeAccepted,
+          });
+          if (outcome.kind !== "rejected" || !outcome.violations?.length || attempt >= 1) break;
+          /* The refused attempt is one rejected regeneration, even though the round goes on to answer it. */
+          integrityCounters.rejected += 1;
+          contractFeedback = outcome.violations;
+        }
         /*
          * A rebuttal answers a reviewer finding; the deterministic pre-check is the orchestrator's own evidence and is
          * never rebuttable, so only a model round's findings are open to one. A verified rebuttal withdraws its finding;
@@ -2678,20 +2712,10 @@ export class RunQaUseCase {
           previousRoundBlocking = outstanding.length;
         }
         /*
-         * The regenerated specs stand only once they execute green (or reuse a proof): they go through the same acceptance as the
-         * coverage regen. Never let unaccepted bytes stand.
+         * The regenerated specs stand only once they execute green (or reuse a proof): they went through the same
+         * acceptance as the coverage regen. Never let unaccepted bytes stand.
          */
-        const outcome = await acceptance.accept({
-          specDir: workspace.specDir,
-          changedSpecFiles,
-          namespace: `${input.runId}-acc${acceptanceCalls++}`,
-          snapshot,
-          ...(closedLoop ? { closedLoop } : {}),
-          deadline: runDeadlinePort,
-          validate: validateAccepted,
-          execute: executeAccepted,
-        });
-        if (outcome.kind === "accepted") {
+        if (outcome?.kind === "accepted") {
           integrityCounters.acceptances += 1;
           if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
           acceptedRegenAfterMeasure = true;
@@ -2707,8 +2731,8 @@ export class RunQaUseCase {
           delivered = deliveredBefore;
           reviewerApproved = false;
           finalReviewerCorrections = reviewResult.corrections;
-          if (outcome.kind === "rejected") integrityCounters.rejected += 1;
-          else integrityCounters.capHit = true;
+          if (outcome?.kind === "cap") integrityCounters.capHit = true;
+          else integrityCounters.rejected += 1;
           break;
         }
       }

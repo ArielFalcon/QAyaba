@@ -8796,6 +8796,68 @@ test("with the master switch off, the intent lock is off whatever the app config
   }
 });
 
+/*
+ * A-2b: a correction turn whose bytes the intent lock rejects is sent back once with the violations as
+ * facts, inside the same review round. The generator learns the bound the run holds it to without a
+ * second reviewer round, and the round stays bounded by its own budget.
+ */
+/* The primary's own assertion stays first, so the clause it holds keeps its id: what this turn adds is an
+   assertion the contract never held, never a weakening of one it did. */
+const INTENT_STRONGER = `test("checkout", async ({ page }) => {
+  await expect(page.getByText("Pay now")).toHaveText("Pay now");
+  await expect(page.getByText("Pay now")).toBeVisible();
+});`;
+
+test("a correction turn rejected by the contract earns one more turn carrying the violations", async () => {
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED, INTENT_STRONGER]);
+  try {
+    const enrichments: Array<readonly { rule: string }[] | undefined> = [];
+    let reviews = 0;
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      execute: async () => ({
+        verdict: "pass" as const,
+        cases: [{ name: "checkout", file: "a.spec.ts", status: "pass" as const }],
+        logs: "",
+      }),
+      review: async () => {
+        reviews += 1;
+        return reviews === 1
+          ? {
+              approved: false,
+              corrections: ["[wrong-objective] a.spec.ts: the checkout total is never asserted"],
+              severities: ["blocking" as const],
+              citations: [{ kind: "execution" as const, ref: "a.spec.ts" }],
+              blockingCount: 1,
+              parsed: true,
+            }
+          : { approved: true, corrections: [], blockingCount: 0, rationale: "the discount is now asserted", parsed: true };
+      },
+    });
+    const scripted = real.generate;
+    ports.generation.generate = async (objectives, specDir, signal, diff, enrichment) => {
+      enrichments.push(enrichment?.contractFeedback as readonly { rule: string }[] | undefined);
+      return scripted(objectives, specDir, signal, diff, enrichment);
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "intent-contract-feedback" });
+
+    assert.equal(enrichments.length, 3, "the primary pass, the rejected correction and the one turn that answers it");
+    assert.equal(enrichments[1], undefined, "the first correction turn has nothing to answer");
+    assert.deepEqual(enrichments[2]?.map((entry) => entry.rule), ["weakened-matcher"], "the retry is handed the rule the contract found");
+    assert.equal(out.gateSignals.integrity?.rejected, 1, "the weakened turn still went through acceptance and was rejected");
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "pr", "the turn that answered the contract publishes");
+  } finally {
+    real.cleanup();
+  }
+});
+
 /* The findings filter: a reviewer rejection only stands on evidence the orchestrator can verify. */
 function citedReview(citation: { kind: "contract" | "execution" | "dom"; ref: string } | undefined) {
   return async () => ({
