@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { specSnapshotPort } from "@contexts/qa-run-orchestration/infrastructure/bridges/spec-snapshot.adapter.ts";
+import { MAX_SPEC_SOURCE_BYTES } from "../../../../../src/shared-infrastructure/spec-path-confinement.ts";
 
 const bytesOf = (text: string): Uint8Array => new TextEncoder().encode(text);
 const textOf = (bytes: Uint8Array | undefined): string => (bytes === undefined ? "" : Buffer.from(bytes).toString("utf8"));
@@ -68,4 +69,33 @@ test("a snapshot that meets a symbolic link throws: a faithful before cannot be 
 
     await assert.rejects(() => port.snapshot(root.specDir, ["flows/planted.spec.ts"]));
   });
+});
+
+/*
+ * The snapshot covers the specs and the support files beside them, because a rejected turn must put both
+ * back. A support file the confined reader refuses (too large, an odd entry) is left out rather than
+ * failing the run: nothing restores it, and the specs that import it still execute. A spec is different:
+ * a proof cannot rest on bytes the run could not read, so that refusal stops the acceptance.
+ */
+test("a support file the reader refuses is left out of the snapshot; a spec that cannot be read stops it", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "qa-snap-support-"));
+  try {
+    const mirror = join(tmp, "mirror");
+    const specDir = join(mirror, "e2e");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "a.spec.ts"), "// a\n");
+    writeFileSync(join(specDir, "fixtures.ts"), "// support\n");
+    /* A support file past the reader's cap: real suites carry data files, and none of them may stop an acceptance. */
+    writeFileSync(join(specDir, "seed.json"), "x".repeat(MAX_SPEC_SOURCE_BYTES + 1));
+    const port = specSnapshotPort({ mirrorDir: mirror, specDir });
+
+    const snapshot = await port.snapshot(specDir, ["a.spec.ts", "fixtures.ts", "seed.json"]);
+    assert.deepEqual([...snapshot.files.keys()].sort(), ["a.spec.ts", "fixtures.ts"]);
+
+    const specTooLarge = join(specDir, "huge.spec.ts");
+    writeFileSync(specTooLarge, "x".repeat(MAX_SPEC_SOURCE_BYTES + 1));
+    await assert.rejects(port.snapshot(specDir, ["huge.spec.ts"]), /larger than/i, "a spec the run cannot read has no proof");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });

@@ -1,5 +1,5 @@
 /*
- * SpecSnapshotPort over the run's own spec directory: the pre-turn bytes of the specs a regeneration may change.
+ * SpecSnapshotPort over the run's own spec directory: the pre-turn bytes of the files a regeneration may change.
  * A snapshot reads every file through the confined reader, so a refusal throws (a "before" that cannot be vouched
  * for must not stand in for the proven bytes); a restore writes the captured bytes back through `writeOwnedSpecFile`
  * and removes the files the turn created through `removeOwnedSpecFile`. The result is that the bytes on disk always
@@ -18,7 +18,12 @@ export function specSnapshotPort(root: SpecRoot): SpecSnapshotPort {
         const read = readOwnedSpecFile(root, file, MAX_SPEC_SOURCE_BYTES);
         /* A file that is not there is simply not in the snapshot: the turn may create it, and a restore then removes it. */
         if ("absent" in read) continue;
-        if ("reason" in read) throw new Error(`${file}: ${read.reason}`);
+        if ("reason" in read) {
+          /* A spec the run cannot read has no proof and must stop the acceptance; a support file it cannot read
+             (too large, an odd entry) is left out: nothing restores it, and the run still executes what imports it. */
+          if (file.endsWith(".spec.ts")) throw new Error(`${file}: ${read.reason}`);
+          continue;
+        }
         files.set(file, read.bytes);
       }
       return { files };

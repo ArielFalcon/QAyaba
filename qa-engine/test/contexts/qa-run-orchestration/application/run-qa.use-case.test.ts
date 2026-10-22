@@ -9064,3 +9064,81 @@ test("with the integrity switch off, a rebuttal is not read: the rejection path 
     fixtures.cleanup();
   }
 });
+
+/*
+ * A correction may change a file the specs import (the project's fixtures, a helper) without touching a
+ * spec. Re-executing only the specs whose bytes changed would prove nothing about the ones that read it,
+ * so an acceptance that sees a support file change runs the whole suite; a correction that stays inside
+ * the specs keeps the cheap path.
+ */
+function supportChangeWorkspace(): { prepare: WorkspacePort["prepare"]; write: (file: string, text: string) => void; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "qa-support-"));
+  const specDir = join(dir, "e2e");
+  mkdirSync(specDir, { recursive: true });
+  return {
+    prepare: async () => ({ specDir, mirrorDir: dir }),
+    write: (file, text) => {
+      mkdirSync(join(specDir, file, ".."), { recursive: true });
+      writeFileSync(join(specDir, file), text);
+    },
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+function correctiveReview() {
+  let round = 0;
+  return async () => {
+    round += 1;
+    return round === 1
+      ? {
+          approved: false,
+          corrections: ["[wrong-objective] a.spec.ts: the total is never asserted"],
+          severities: ["blocking" as const],
+          citations: [{ kind: "execution" as const, ref: "a.spec.ts" }],
+          blockingCount: 1,
+          parsed: true,
+        }
+      : { approved: true, corrections: [], blockingCount: 0, rationale: "the total is asserted", parsed: true };
+  };
+}
+
+for (const [label, change, expected] of [
+  ["a support file the specs import", "fixtures.ts", ["a.spec.ts", "b.spec.ts"]],
+  ["the delivered spec itself", "a.spec.ts", ["a.spec.ts"]],
+] as const) {
+  test(`a correction that changes ${label} re-executes ${expected.length === 2 ? "the whole suite" : "only the changed spec"}`, async () => {
+    const ws = supportChangeWorkspace();
+    try {
+      ws.write("fixtures.ts", "export const helper = 1;\n");
+      ws.write("b.spec.ts", "test('b', async () => {});\n");
+      const executed: string[][] = [];
+      let turn = 0;
+      const { ports } = stubPorts({
+        prepare: ws.prepare,
+        execute: async (_dir, opts) => {
+          const files = (opts as { specFiles?: string[] }).specFiles;
+          if (files) executed.push(files);
+          return { verdict: "pass" as const, cases: [{ name: "a", file: "a.spec.ts", status: "pass" as const }], logs: "" };
+        },
+        review: correctiveReview(),
+      });
+      ports.generation.generate = async () => {
+        turn += 1;
+        if (turn === 1) {
+          ws.write("a.spec.ts", "test('a', async () => {});\n");
+          return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+        }
+        ws.write(change, change === "fixtures.ts" ? "export const helper = 2;\n" : "test('a', async () => { expect(1).toBe(1); });\n");
+        return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+      };
+      const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true } });
+
+      await useCase.run({ ...baseInput, runId: `support-change-${change}` });
+
+      const acceptance = executed.find((files) => files.includes("a.spec.ts"));
+      assert.deepEqual([...(acceptance ?? [])].sort(), [...expected].sort(), "the acceptance executes what the change can affect");
+    } finally {
+      ws.cleanup();
+    }
+  });
+}

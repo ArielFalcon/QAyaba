@@ -153,7 +153,7 @@ import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
 import { precheckSpecsAgainstDom } from "../domain/deterministic-review-precheck.ts";
 import { correctionClassOf } from "@contexts/generation/domain/review-output.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/domain/review-fingerprint.ts";
-import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { readConfinedSpecFile, listSpecFiles, listSuiteFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { sha256Hex } from "../../../shared-infrastructure/content-hash.ts";
 import { specSnapshotPort } from "../infrastructure/bridges/spec-snapshot.adapter.ts";
 import { RegenerationAcceptance } from "./regeneration-acceptance.ts";
@@ -969,13 +969,20 @@ export class RunQaUseCase {
     /* Whether an accepted regeneration rewrote specs after the last coverage measurement: the coverage ratio is then stale. */
     let acceptedRegenAfterMeasure = false;
 
-    /* The suite's specs the turn may change, read by name through the confined reader: a spec that was rewritten without the turn reporting it is covered. */
+    /*
+     * The suite's files a turn may change — the specs and the support files they import, both read by name
+     * through the confined reader — so a spec rewritten without the turn reporting it is covered, and so is
+     * a fixture the specs now read differently.
+     */
     const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
     const suiteChangedFiles = async (before: SpecSnapshot, regenSpecs: readonly string[]): Promise<string[]> => {
-      const current = listSpecFiles(workspace.specDir);
+      const listing = listSuiteFiles(workspace.specDir);
+      /* A listing the walk could not finish cannot say what changed: the caller then judges the whole suite. */
+      if (listing.cut) return [...new Set([...before.files.keys(), ...regenSpecs.map((file) => file.replaceAll("\\", "/"))])];
+      const current = listing.files;
       const after = await snapshotPort.snapshot(workspace.specDir, current);
       const changed = new Set<string>();
-      /* Created, rewritten and deleted alike: a spec that was there before and is gone now is a change acceptance must judge. */
+      /* Created, rewritten and deleted alike: a file that was there before and is gone now is a change acceptance must judge. */
       for (const file of before.files.keys()) {
         if (!after.files.has(file)) changed.add(file);
       }
@@ -989,6 +996,17 @@ export class RunQaUseCase {
         if (normalized.endsWith(".spec.ts") && after.files.has(normalized)) changed.add(normalized);
       }
       return [...changed];
+    };
+    /*
+     * What one acceptance must execute: the specs the turn changed, and — when the turn touched anything the
+     * specs import (a fixture, a helper, the login setup), or the suite could not be listed — every spec, since
+     * a spec whose own bytes did not change can still read differently now (B-4, and the proof it rests on).
+     */
+    const snapshotSuite = (): Promise<SpecSnapshot> => snapshotPort.snapshot(workspace.specDir, listSuiteFiles(workspace.specDir).files);
+    const acceptanceScope = (changed: readonly string[]): string[] => {
+      const specs = changed.filter((file) => file.endsWith(".spec.ts"));
+      const supportChanged = specs.length !== changed.length;
+      return supportChanged ? listSpecFiles(workspace.specDir) : specs;
     };
 
     /*
@@ -1966,10 +1984,11 @@ export class RunQaUseCase {
        * correctness fix, never behind the review-loop switch.
        */
       const fixLoopAcceptance: FixLoopAcceptancePort = {
-        begin: () => snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir)),
+        begin: () => snapshotSuite(),
         accept: async ({ round, specs, namespace }) => {
           const snapshot = round as SpecSnapshot;
-          const changedSpecFiles = await suiteChangedFiles(snapshot, specs);
+          /* A round that changed anything the specs import is accepted over the whole suite, never over its specs alone. */
+          const changedSpecFiles = acceptanceScope(await suiteChangedFiles(snapshot, specs));
           if (changedSpecFiles.length === 0) {
             /* The turn changed no bytes: nothing to accept, and the round's current bytes are its token. */
             return { kind: "accepted", changedSpecFiles, accepted: snapshot };
@@ -1989,7 +2008,7 @@ export class RunQaUseCase {
             integrityCounters.acceptances += 1;
             if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
             /* The bytes this round leaves behind are the token a later, worse round is measured against. */
-            const accepted = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
+            const accepted = await snapshotSuite();
             return {
               kind: "accepted",
               changedSpecFiles,
@@ -2198,15 +2217,16 @@ export class RunQaUseCase {
       if (blocksPublish && input.mode === "diff" && !input.triggerRepo) {
         try {
           const gap = renderCoverageGap(signal.uncovered ?? []);
-          const snapshot = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
+          const snapshot = await snapshotSuite();
           const deliveredBefore = delivered;
           const regen = await regenerate(undefined, { coverageGap: gap });
           await enforceConfinement();
-          const changedSpecFiles = await suiteChangedFiles(snapshot, regen.specs);
+          const changedFiles = await suiteChangedFiles(snapshot, regen.specs);
+          const changedSpecFiles = acceptanceScope(changedFiles);
           if (regen.specs.length === 0) {
             /* A coverage turn that delivers no specs is not a change to accept: whatever it wrote is put back. */
-            if (changedSpecFiles.length > 0) {
-              await snapshotPort.restore(workspace.specDir, snapshot, changedSpecFiles.filter((file) => !snapshot.files.has(file)));
+            if (changedFiles.length > 0) {
+              await snapshotPort.restore(workspace.specDir, snapshot, changedFiles.filter((file) => !snapshot.files.has(file)));
             }
             delivered = deliveredBefore;
           } else if (changedSpecFiles.length > 0) {
@@ -2613,10 +2633,11 @@ export class RunQaUseCase {
         previousRoundBlocking = reviewedBlocking;
         previousRoundSpecs = reviewedSpecs;
         previousRoundCaseCount = reviewCases.length;
-        const snapshot = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
+        const snapshot = await snapshotSuite();
         const deliveredBefore = delivered;
         let regen: GenerationOutput;
         let changedSpecFiles: string[] = [];
+        let changedSupportFiles: string[] = [];
         let outcome: Awaited<ReturnType<RegenerationAcceptance["accept"]>> | undefined;
         /*
          * One correction round, with the turn's bytes accepted or given back. A round the contract refuses is sent back
@@ -2633,7 +2654,9 @@ export class RunQaUseCase {
             ...(contractFeedback ? { contractFeedback } : {}),
           });
           await enforceConfinement();
-          changedSpecFiles = await suiteChangedFiles(snapshot, regen.specs);
+          const changed = await suiteChangedFiles(snapshot, regen.specs);
+          changedSpecFiles = acceptanceScope(changed);
+          changedSupportFiles = changed.filter((file) => !file.endsWith(".spec.ts"));
           if (regen.specs.length === 0) break;
           outcome = await acceptance.accept({
             specDir: workspace.specDir,
@@ -2674,8 +2697,9 @@ export class RunQaUseCase {
         }
         if (regen.specs.length === 0) {
           /* A regen that produced no reviewable specs must not inherit the generator's self-approval; whatever its turn wrote is put back. */
-          if (changedSpecFiles.length > 0) {
-            await snapshotPort.restore(workspace.specDir, snapshot, changedSpecFiles.filter((file) => !snapshot.files.has(file)));
+          const restored = [...new Set([...changedSpecFiles, ...changedSupportFiles])];
+          if (restored.length > 0) {
+            await snapshotPort.restore(workspace.specDir, snapshot, restored.filter((file) => !snapshot.files.has(file)));
           }
           delivered = deliveredBefore;
           /* Every blocking finding withdrawn with evidence, and no new bytes: the reviewed bytes stand approved. */

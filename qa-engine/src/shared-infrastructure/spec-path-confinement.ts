@@ -229,6 +229,44 @@ export function listSpecFiles(dir: string): string[] {
   return scanSpecTree(dir).specs;
 }
 
+/*
+ * Every regular file below `dir`, specs and the support files they import (fixtures, helpers, the login
+ * setup) alike, relative to it: what a turn may change and what a proof has to account for. The same walk
+ * discipline as the specs: installed packages and dot-directories are skipped, a link is never taken (a
+ * link to a file is not offered as a regular file), and no more entries are looked at than the budget
+ * allows. A directory that cannot be listed contributes nothing.
+ */
+export interface SuiteFiles {
+  /** The regular files the walk took, relative to the directory and "/"-separated as the platform joins them. */
+  files: string[];
+  /** The walk looked at fewer entries than the directory holds, so the list is not the whole suite. */
+  cut: boolean;
+}
+
+export function listSuiteFiles(dir: string, maxEntries: number = MAX_SPEC_WALK_ENTRIES): SuiteFiles {
+  const walk = { files: [] as string[], cut: false };
+  walkSuiteFiles(dir, "", walk, { left: maxEntries, cap: maxEntries });
+  return walk;
+}
+
+function walkSuiteFiles(dir: string, rel: string, walk: SuiteFiles, budget: WalkBudget): void {
+  const read = readWalkEntries(dir, budget);
+  if (read === undefined) return;
+  if (read.cut) {
+    walk.cut = true;
+    return;
+  }
+  for (const entry of read.entries) {
+    const entryRel = join(rel, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      walkSuiteFiles(join(dir, entry.name), entryRel, walk, budget);
+    } else if (entry.isFile()) {
+      walk.files.push(entryRel);
+    }
+  }
+}
+
 /* How many entries a walk may still look at, and how many it was given. */
 interface WalkBudget {
   left: number;
