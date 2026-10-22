@@ -14,6 +14,9 @@ import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, valid
 import { fingerprintGreenSuite, runFixLoop } from "./phases/fix-loop.steps.ts";
 import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
 import { remeasureStaleCoverage, remeasuresStaleCoverage, reviewTests, reviewsRun } from "./phases/review.steps.ts";
+import { decideRun, guardFinalProof, guardsFinalProof, recordCoordinationOutcome } from "./phases/decide.steps.ts";
+import { captureContextMap, enforceConfinement, keepAcceptedSuite, keepsSuite, publishDecision, publishes, pruneAfterPublish } from "./phases/publish.steps.ts";
+import { finishRun, learnFromOutcome, learnsFromRun, persistOutcome } from "./phases/persist.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, stopIfAbortedBeforeGate, waitForDeploy } from "./phases/opening.steps.ts";
 
 export const BEFORE_WORKSPACE: ReadonlyArray<FlowStep<RunState, RunContext, RunQaResult>> = [
@@ -53,4 +56,15 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext,
   { name: "regenerate once at the uncovered lines", runs: regeneratesForCoverage, run: regenerateForCoverage },
   { name: "review the green run's specs with the independent reviewer", phase: "review", runs: reviewsRun, run: reviewTests },
   { name: "re-measure a coverage that an accepted regeneration made stale", runs: remeasuresStaleCoverage, run: remeasureStaleCoverage },
+  { name: "prove the delivered bytes are the ones that executed green", runs: guardsFinalProof, run: guardFinalProof },
+  { name: "decide from the run's evidence", phase: "decide", run: decideRun },
+  { name: "record how a coordinated run ended", run: recordCoordinationOutcome },
+  { name: "enforce write-confinement before publishing", run: enforceConfinement },
+  { name: "capture the context map before publication", phase: "publish", run: captureContextMap },
+  { name: "keep the accepted suite before publication", runs: keepsSuite, run: keepAcceptedSuite },
+  { name: "publish the pull request or Issue the decision calls for", runs: publishes, run: publishDecision },
+  { name: "prune the mirror once the git write is done", run: pruneAfterPublish },
+  { name: "derive and save the run's outcome", run: persistOutcome },
+  { name: "learn from the saved outcome", phase: "learn", runs: learnsFromRun, run: learnFromOutcome },
+  { name: "end the run with its result", run: finishRun },
 ];

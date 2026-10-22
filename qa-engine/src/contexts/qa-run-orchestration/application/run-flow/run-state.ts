@@ -19,6 +19,9 @@ import type {
 } from "../ports/index.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
+import type { RunDecision } from "../../domain/run-decision.ts";
+import type { RunEvidence } from "../../domain/run-decision.service.ts";
 
 /* What the classifier said about the change. Only a diff run classifies: every other run generates and has no diff. */
 export interface Classification {
@@ -149,6 +152,27 @@ export interface ReviewOutcome {
   reviewerSignal: RunOutcome["gateSignals"]["reviewer"];
 }
 
+/* What the decide phase concluded from the run's evidence; undefined until it has run. */
+export interface DecidedOutcome {
+  evidence: RunEvidence;
+  decision: RunDecision;
+  /** A clean context-mode pass produced an architecture map, not tests: it neither persists nor folds. */
+  isContextCleanPass: boolean;
+}
+
+/* What the publish phase did; undefined `publishOutcome` means publication was not called. */
+export interface PublicationOutcome {
+  publishOutcome: string | undefined;
+}
+
+/* What the persist phase derived and saved; undefined until it has run. */
+export interface PersistedOutcome {
+  errorClass: string | null;
+  loopSignal: ClosedLoopGateSignal | undefined;
+  /** Absent for a clean context pass, which persists nothing. */
+  mainlineOutcome: RunOutcome | undefined;
+}
+
 export interface RunState {
   classification: Classification;
   setup: SetupOutcome;
@@ -158,6 +182,9 @@ export interface RunState {
   fixLoop: FixLoopOutcome;
   coverage: CoverageOutcome;
   review: ReviewOutcome;
+  decided: DecidedOutcome | undefined;
+  publication: PublicationOutcome;
+  persisted: PersistedOutcome | undefined;
 }
 
 export function initialRunState(): RunState {
@@ -218,5 +245,8 @@ export function initialRunState(): RunState {
       valueStale: false,
     },
     review: { reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], reviewerSignal: undefined },
+    decided: undefined,
+    publication: { publishOutcome: undefined },
+    persisted: undefined,
   };
 }

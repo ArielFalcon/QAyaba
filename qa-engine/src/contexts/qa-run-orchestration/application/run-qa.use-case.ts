@@ -57,13 +57,13 @@ import type {
   ContextMapCapturePort,
   SuiteStorePort,
 } from "./ports/index.ts";
-import { reviewerApprovalOf, type RunDeadlinePort } from "./ports/index.ts";
+import type { RunDeadlinePort } from "./ports/index.ts";
 
 const NO_GROUNDING_SIGNALS = { preExecAmbiguityCatches: 0, deterministicSelectorBlocks: 0, catalogGateInWindow: 0, catalogGateAdvisory: 0, catalogGateFailClosed: 0 };
 
 /** What a terminal exit knows beyond its verdict; each field is absent unless that exit genuinely has it — never fabricated. */
 export interface TerminalOptions {
-  /** Present only when a reviewer ran; see reviewerApprovalOf. */
+  /** Present only when a reviewer ran; see `reviewerApprovalOf` in the ports. */
   reviewerApproved?: boolean | undefined;
   /**
    * Context-mode invalid does not persist or fold (Issue only), like a clean context pass. Unlike an
@@ -111,7 +111,7 @@ export interface PreconditionFailure {
   note: string;
   ms: number;
 }
-import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
+import { decide } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock, type RunPhase } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
@@ -119,10 +119,8 @@ import { runFlow } from "./run-flow/run-flow.ts";
 import { initialRunState } from "./run-flow/run-state.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
 import type { RunContext, RunEnds, WorkspaceRunContext } from "./run-flow/run-context.ts";
-import { reviewsTests as reviewsTestsOf } from "./run-flow/phases/review.steps.ts";
-import { resolveTested as resolveTestedOf } from "./run-flow/phases/fix-loop.steps.ts";
 import { BEFORE_WORKSPACE, IN_WORKSPACE } from "./run-flow/run-steps.ts";
-import { ProbeSweepError, closedLoopSignal as closedLoopSignalOf } from "./run-flow/phases/generation-services.ts";
+import { ProbeSweepError } from "./run-flow/phases/generation-services.ts";
 import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
@@ -139,7 +137,6 @@ import type { CoordinationTelemetryPort } from "./coordination/coordination-tele
 import type { DisputedFinding } from "../domain/review-rebuttals.service.ts";
 import type { IntentContractPort } from "./ports/intent-contract.port.ts";
 import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
-import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import { isRunDeadlineError, type RunDeadlineExceededError } from "../../../shared-kernel/run-deadline.ts";
 import { renderRunDeadlineNote } from "../domain/run-time-budget.ts";
@@ -493,6 +490,60 @@ export interface RunTrail {
   geolocation?: GeolocationHandle;
 }
 
+/*
+ * What a persisted outcome may carry beyond the decision. reviewerApproved, valueScore and rulesRetrieved are optional: early exits
+ * never reached those phases and must not fabricate them. Pre-exec counters default to 0 (not undefined) when the gate never ran.
+ */
+export interface OutcomeExtras {
+  /* Only callers whose path genuinely passed the static gate thread true; default is false. */
+  staticOk?: boolean;
+  reviewerApproved?: boolean;
+  /* Only the mainline post-review caller threads real corrections; others get []. */
+  reviewerCorrections?: string[];
+  /* Only the marker-scoped reviewer-unavailable exit threads a rationale. */
+  reviewerRationale?: string;
+  /* What the review phase cost and decided; absent when no reviewer phase ran. */
+  reviewer?: RunOutcome["gateSignals"]["reviewer"];
+  valueScore?: number | null;
+  /* Same "never ran" (absent) vs "ran and found zero" distinction as the sibling counts below. */
+  mutantCount?: number;
+  killedCount?: number;
+  note?: string;
+  rulesRetrieved?: string[];
+  diffArchetypes?: string[];
+  preExecAmbiguityCatches?: number;
+  deterministicSelectorBlocks?: number;
+  catalogGateInWindow?: number;
+  catalogGateAdvisory?: number;
+  catalogGateFailClosed?: number;
+  /* Optional telemetry. Construction uses conditional-spread, not `?? 0`. */
+  structuralSignalBytes?: number;
+  serviceLinksCount?: number;
+  contractDriftCount?: number;
+  /* Same "never ran" vs "ran and found zero" distinction as the sibling counts. */
+  crossRepoImpactedCount?: number;
+  /* Only the mainline post-execute caller has real logs. */
+  logs?: string;
+  /* Only the mainline post-FixLoop caller has a real adjudication class. */
+  adjudicationClass?: string;
+  /* Omitted entirely when confinement never ran — never a fabricated {strays:0}. */
+  confinement?: { strays: number; dangerous: number; reverted: string[] };
+  /* Absent when the run did not grant the run_spec tool. */
+  closedLoop?: ClosedLoopGateSignal;
+  /* Absent when the run did not grant the authenticated agent browser. */
+  agentBrowser?: AgentBrowserGateSignal;
+  /* The recorded coverage predates the bytes an accepted regeneration wrote (signal mode reuses it). */
+  coverage?: { stale: boolean };
+  /* The recorded value score has the same staleness; the oracle stays signal-only. */
+  value?: { stale: boolean };
+  /* What the run's regeneration acceptance did; absent when no regeneration came through it. */
+  integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
+  /* The test-intent lock's derived clauses and deltas; absent when the lock is off or nothing was derived. */
+  intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
+  /* The kind a declared no-op named; absent for every run that is not one. */
+  noop?: { kind: NoopKind };
+}
+
 export class RunQaUseCase {
   private readonly telemetry: TelemetryPort;
 
@@ -814,6 +865,10 @@ export class RunQaUseCase {
       announcePrecondition: (failure, ends) => this.announcePrecondition(failure, ends),
       preconditionNote: (failure) => this.preconditionNote(failure),
       terminal: (verdict, ev, opts) => this.terminalResult(verdict, cfg, input, ev, opts),
+      coordination: () => this.coordinationOf.get(input),
+      deriveErrorClass: (verdict, coverageRatio, valueScore, reviewerCorrections, endings) => this.deriveErrorClass(verdict, coverageRatio, valueScore, reviewerCorrections, endings),
+      toRunOutcome: (decision, cases, retries, coverageRatio, errorClass, extra) => this.toRunOutcome(input, decision, cases, retries, coverageRatio, errorClass, extra),
+      toReflectionInput: (outcome, archetype) => this.toReflectionInput(outcome, archetype),
       reviewerUnavailable: (reason, passedCases, exit) => this.reviewerUnavailableResult(cfg, input, reason, passedCases, exit),
       reviewDisputed: (disputed, passedCases, exit) => this.reviewDisputedResult(cfg, input, disputed, passedCases, exit),
     };
@@ -832,431 +887,8 @@ export class RunQaUseCase {
     const flow = await runFlow(IN_WORKSPACE, state, ctx, enter);
     if ("end" in flow) return flow.end;
 
-    /* The steps not yet in the table read the run's state and services by their former names. */
-    const { specRoot, proofLedger, integrityCounters, snapshotPort, intentLock, intentState } = services;
-    const enforceConfinement = services.confinement.enforce;
-    const { diff: classificationDiff, intent: classificationIntent, reason: classificationReason, contradiction: classificationContradiction, generating } = state.classification;
-    const { suiteRestored } = state.setup;
-    const { agentBrowser } = trail;
-    const agentBrowserSignal = (): AgentBrowserGateSignal | undefined => agentBrowser?.signals();
-    const {
-      diffArchetypes, retrievedRuleIds, offeredArchetypes,
-      blastRadiusSignal, serviceLinks: resolvedServiceLinks, contractDrift: resolvedContractDrift, crossRepoImpact,
-    } = state.grounding;
-
-    /* The generation and the pre-exec grounding the generate phase left, and the generation closures the later phases still call. */
-    let generated = state.generation.generated;
-    const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
-    const generation = ctx.generation;
-    const closedLoopSignal = (): Promise<ClosedLoopGateSignal | undefined> => closedLoopSignalOf(ctx);
-
-    /* What the static-fix loop, the fix loop, the coverage regeneration and the review's correction rounds came to. */
-    const { retries, run, validation, lastGenerated, authVerifiedSha256 } = state.execution;
-    /* What the fix loop came to; the defaults stand when it never engaged. */
-    const { lastAdjudicatorVerdict, devNotRenderedConclusive } = state.fixLoop;
-    const lastAdjudicatorVerdictClass: string | undefined = lastAdjudicatorVerdict?.class;
-    const deterministicSelectorBlocks = 0;
-    const resolveTested = (): { flow?: string; objective?: string }[] | undefined => resolveTestedOf(state);
-
-    /* What the coverage phase measured, the review phase decided and the stale re-measure refreshed. */
-    const { blocksPublish, coverageRatio, coverageStatus, valueScore, mutantCount, killedCount, coverageStale, valueStale } = state.coverage;
-    const { reviewerApproved, finalReviewerCorrections, reviewerSignal } = state.review;
-    const reviewsTests = reviewsTestsOf(ctx);
-    /* Default reviewerApproved to generation's own flag (needsReview only) so fail/flaky/invalid paths still have a value. A genuine review call overwrites it. */
-    const reviewerApprovedForOutcome: boolean | undefined = state.review.reviewerApprovedForOutcome ?? reviewerApprovalOf(lastGenerated);
-
-    /*
-     * The bytes on disk are the proof. Before the run decides, fingerprint the delivered specs once more and put back the proven
-     * bytes of any file that changed after its acceptance; a file with no proof, or a restore that does not verify, ends the run
-     * as a loud infra-error. No proof means no publication (fails closed).
-     */
-    if (run.verdict === "pass" && generating && input.mode !== "context" && !cfg.isCode) {
-      const deliveredFiles = [...new Set(generation.delivered.map((d) => d.file))].filter((file) => file.endsWith(".spec.ts"));
-      if (deliveredFiles.length > 0) {
-        let current: ReadonlyMap<string, string> = new Map();
-        if (this.deps.suiteStore) {
-          try {
-            current = await this.deps.suiteStore.fingerprint(specRoot, deliveredFiles);
-          } catch (err) {
-            return await this.infraErrorResult(
-              `the final proof guard could not fingerprint the delivered specs: ${err instanceof Error ? err.message : String(err)}`,
-              workspace.mirrorDir,
-            );
-          }
-        }
-        for (const file of deliveredFiles) {
-          const proof = proofLedger.get(file);
-          if (proof && current.get(file) === proof.sha256) continue;
-          if (!proof) {
-            return await this.infraErrorResult(
-              `the final proof guard found no proof for ${file}: the run cannot publish bytes that never executed green`,
-              workspace.mirrorDir,
-            );
-          }
-          if (proof.bytes === undefined) {
-            return await this.infraErrorResult(
-              `the final proof guard found ${file} changed after it executed green, but holds no proven bytes to restore`,
-              workspace.mirrorDir,
-            );
-          }
-          try {
-            await snapshotPort.restore(workspace.specDir, { files: new Map([[file, proof.bytes]]) }, []);
-          } catch (err) {
-            return await this.infraErrorResult(
-              `the final proof guard could not restore ${file}: ${err instanceof Error ? err.message : String(err)}`,
-              workspace.mirrorDir,
-            );
-          }
-          if (!this.deps.suiteStore) {
-            return await this.infraErrorResult(
-              `the final proof guard cannot verify the restored ${file}: no suite store is composed`,
-              workspace.mirrorDir,
-            );
-          }
-          let restored: ReadonlyMap<string, string>;
-          try {
-            restored = await this.deps.suiteStore.fingerprint(specRoot, [file]);
-          } catch (err) {
-            return await this.infraErrorResult(
-              `the final proof guard could not verify the restored ${file}: ${err instanceof Error ? err.message : String(err)}`,
-              workspace.mirrorDir,
-            );
-          }
-          if (restored.get(file) !== proof.sha256) {
-            return await this.infraErrorResult(
-              `the final proof guard restored ${file} but its bytes still differ from the proven ones`,
-              workspace.mirrorDir,
-            );
-          }
-        }
-      }
-    }
-
-    /* Publish never emits its own step; "decide" covers the decide+publish pair. */
-    trail.phases.enter("decide");
-    this.deps.observer?.onStep("decide");
-    const evidence: RunEvidence = {
-      verdict: run.verdict,
-      generating,
-      needsReview: reviewsTests,
-      reviewerApproved,
-      blocksPublish,
-      shadow: cfg.shadow,
-      onFailure: cfg.onFailure,
-    };
-    const decision = decide(evidence);
-
-    /* A coordinated run says how it ended: the verdict with the quality sampled at the same instant, and how many flows were handed back. */
-    const coordinationSignal = this.coordinationOf.get(input);
-    if (coordinationSignal && this.deps.coordinationTelemetry) {
-      /* Read from the same honest source as the persisted outcome: absent when no reviewer looked at this run. */
-      const reviewOutcome =
-        !reviewsTests ? "skipped" as const
-        : reviewerApprovedForOutcome === true ? "approved" as const
-        : reviewerApprovedForOutcome === false ? "rejected" as const
-        : "n/a" as const;
-      this.deps.coordinationTelemetry.record({
-        runId: input.runId,
-        app: input.app,
-        kind: "outcome",
-        action: coordinationSignal.plan === "fanout" ? "delegate" : "direct",
-        reason: `pipeline verdict=${decision.verdict}; flows ${coordinationSignal.delivered}/${coordinationSignal.flows} delivered${coordinationSignal.takeover ? "; the lead took over" : ""}`,
-        finalOutcome: decision.verdict,
-        reviewOutcome,
-        /* Quality sampled at the same instant the outcome is stamped. */
-        ...(coverageRatio !== undefined ? { coverageRatio } : {}),
-        ...(valueScore !== null ? { valueScore } : {}),
-        escalations: coordinationSignal.incomplete + (coordinationSignal.takeover ? 1 : 0),
-        durationMs: Date.now() - startedAt,
-        at: Date.now(),
-      });
-    }
-
-    /*
-     * Every side-effect-bearing decision calls publish — not just "pr". "none" is
-     * the only skip. Thread this run's reviewerApproved and blocksPublish so a
-     * green-but-rejected run opens an Issue and an enforce coverage fail holds the PR.
-     * e2eChanged is omitted (no computed source — do not fabricate).
-     * Cross-repo Issues file in triggerRepo; PRs still target the primary.
-     */
-    await enforceConfinement();
-    /*
-     * A clean context-mode pass neither persists nor folds: it produced an architecture map, not
-     * tests. A context run whose map failed validation already ended through terminalResult,
-     * without persisting or folding either.
-     */
-    trail.phases.enter("publish");
-    const isContextCleanPass = input.mode === "context" && decision.verdict === "pass";
-    /*
-     * A clean context-mode pass wrote the FE<->BE architecture map to the mirror's
-     * e2e/.qa/context.json. That file does not survive the mirror's next `git checkout -f` +
-     * `git clean -fd`, so the orchestrator captures it into the durable store BEFORE publication —
-     * in both shadow and non-shadow runs, whatever publish() then does with a context.json PR
-     * (including throwing). Off-path: a capture fault is logged and never changes the verdict.
-     */
-    if (isContextCleanPass && this.deps.contextMapCapture) {
-      try {
-        await this.deps.contextMapCapture.capture(workspace.specDir, input.app, input.sha.toString());
-      } catch (captureErr) {
-        console.warn(
-          `[qa] context-map capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`,
-        );
-      }
-    }
-    /*
-     * An accepted run proved its suite, whatever happens to the pull request (and in shadow mode none is opened): the suite is kept
-     * before publication, so the next run's checkout cannot wipe it. Off-path: a fault is logged and never changes the verdict.
-     */
-    if (this.deps.suiteStore && suiteRestored && isAccepted(evidence)) {
-      try {
-        const kept = await this.deps.suiteStore.capture({
-          mirrorDir: workspace.mirrorDir,
-          specDir: workspace.specDir,
-          runId: input.runId,
-          sha: input.sha.toString(),
-          /* The ledger's own hashes: every file admitted is one whose green bytes this run holds. */
-          executedGreen: new Map([...proofLedger].map(([file, proof]) => [file, proof.sha256])),
-          ...(authVerifiedSha256 !== undefined ? { authVerifiedSha256 } : {}),
-        });
-        this.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
-      } catch (captureErr) {
-        rethrowIfUntrusted(captureErr);
-        this.announceSuite(`[qa] suite store capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`, "warn");
-      }
-    }
-    let publishOutcome: string | undefined;
-    if (decision.sideEffect !== "none") {
-      /*
-       * Publication can throw after a verdict is already decided. Catch here, keep
-       * the decided record, and surface the hop failure as a diagnostic. Non-Error
-       * throws still escape.
-       */
-      let published: Awaited<ReturnType<PublicationPort["publish"]>>;
-      try {
-        published = await this.deps.publication.publish({
-        verdict: run.verdict,
-        cases: run.cases,
-        logs: run.logs,
-        reviewerApproved,
-        coverageBlocks: blocksPublish,
-        ...(input.triggerRepo ? { issueRepo: input.triggerRepo } : {}),
-        /* Adjudication is absent when FixLoop never engaged — never fabricated. */
-        ...(lastAdjudicatorVerdict ? { adjudication: lastAdjudicatorVerdict } : {}),
-        /* Real per-run mirrorDir + sha for the "pr" git-write. This is the only pr-capable call site. */
-        mirrorDir: workspace.mirrorDir,
-        sha: input.sha.toString(),
-        /*
-         * tested omitted when empty. parentRunId only from /continue — never fabricated.
-         * Intra-run regens reuse this same input object.
-         */
-        ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
-        isCode: cfg.isCode,
-        ...(resolveTested()?.length ? { tested: resolveTested() } : {}),
-      });
-      } catch (pubErr) {
-        return this.infraErrorResult(
-          `publication failed after verdict was decided (decided: ${run.verdict}, reviewerApproved: ${reviewerApproved}): ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`,
-          workspace.mirrorDir,
-        );
-      }
-      publishOutcome = published.outcome;
-      /*
-       * Merge denylist reverts into gateSignals.confinement. Count only
-       * revertedDangerous toward dangerous — not every revert is a secret leak.
-       * Absent revertedDangerous is treated as zero, never "everything is dangerous".
-       */
-      if (published.revertedDenylisted?.length) {
-        services.confinement.add({
-          strays: published.revertedDenylisted.length,
-          dangerous: published.revertedDangerous?.length ?? 0,
-          reverted: [...published.revertedDenylisted],
-        });
-      }
-    }
-
-    /* Once, after confinement and publish, so gc never races this run's git write. */
-    await this.pruneMirrorIfWired(workspace.mirrorDir);
-
-    /* Derive errorClass/valueScore once for both the persisted outcome and the returned result. */
-    const gateValueScore = valueScore;
-    const loopSignal = await closedLoopSignal();
-    /* Thread the review loop's real final-round corrections into errorClass derivation. */
-    const errorClass = this.deriveErrorClass(decision.verdict, coverageRatio, gateValueScore, finalReviewerCorrections, {
-      ...(devNotRenderedConclusive ? { preconditionFailed: true } : {}),
-    });
-    let mainlineOutcome: RunOutcome | undefined;
-    if (!isContextCleanPass) {
-      mainlineOutcome = this.toRunOutcome(input, decision, run.cases, retries, coverageRatio, errorClass, {
-        staticOk: validation.ok,
-        reviewerApproved: reviewerApprovedForOutcome,
-        valueScore: gateValueScore,
-        /* Real oracle counts when threaded; absent (never a fabricated 0) when the oracle never measured. */
-        mutantCount,
-        killedCount,
-        reviewerCorrections: finalReviewerCorrections,
-        ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
-        /* Publish outcome string — never fabricated when publish() was not called. */
-        ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
-        /* Rule ids on the mainline persist only. Other exits omit them. */
-        ...(retrievedRuleIds.length ? { rulesRetrieved: retrievedRuleIds } : {}),
-        ...(diffArchetypes ? { diffArchetypes } : {}),
-        /* Real pre-exec counters, not a hardcoded 0. */
-        preExecAmbiguityCatches,
-        deterministicSelectorBlocks,
-        catalogGateInWindow,
-        catalogGateAdvisory,
-        catalogGateFailClosed,
-        /*
-         * structuralSignalBytes is gated on a non-empty render (empty is not "0 bytes").
-         * serviceLinksCount/contractDriftCount are gated on the resolver being wired,
-         * so 0 means "ran, found none", distinct from unwired.
-         */
-        ...(blastRadiusSignal ? { structuralSignalBytes: Buffer.byteLength(blastRadiusSignal, "utf8") } : {}),
-        ...(this.deps.serviceLinks
-          ? { serviceLinksCount: resolvedServiceLinks.length, contractDriftCount: resolvedContractDrift.length }
-          : {}),
-        /*
-         * impactedLinksCount is gated on the result, not the collaborator's presence:
-         * a same-repo run stays undefined (never ran), not a fabricated 0.
-         */
-        ...(crossRepoImpact ? { crossRepoImpactedCount: crossRepoImpact.impactedLinks.length } : {}),
-        logs: run.logs,
-        adjudicationClass: lastAdjudicatorVerdictClass,
-        /* Merged confinement across every enforce() this run made. Omitted when never wired. */
-        ...(services.confinement.totals !== undefined ? { confinement: services.confinement.totals } : {}),
-        ...(loopSignal ? { closedLoop: loopSignal } : {}),
-        ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
-        ...(coverageStale ? { coverage: { stale: true } } : {}),
-        ...(valueStale ? { value: { stale: true } } : {}),
-        ...(integrityCounters.acceptances > 0 || integrityCounters.rejected > 0 || integrityCounters.capHit
-          ? { integrity: { ...integrityCounters } }
-          : {}),
-        ...(intentState.clauses > 0 || intentState.violations > 0
-          ? {
-              intent: {
-                mode: intentLock.mode,
-                violations: intentState.violations,
-                wouldReject: intentState.wouldReject,
-                clauses: intentState.clauses,
-                opaque: intentState.opaque,
-                opacityHigh: intentState.opacityHigh,
-              },
-            }
-          : {}),
-      });
-      await this.deps.runHistory.save(mainlineOutcome);
-      trail.phases.enter("learn");
-
-      /*
-       * What this outcome may teach is decided in one place (learningGates). Off-path: never gates
-       * the verdict. app_defect suppresses the fold so the flywheel never learns to weaken a test
-       * that caught a real bug.
-       */
-      const learning = learningGates({
-        stage: "mainline",
-        mode: input.mode,
-        verdict: decision.verdict,
-        errorClass: mainlineOutcome.errorClass,
-        isCode: cfg.isCode,
-        adjudicationClass: mainlineOutcome.adjudication?.class,
-      });
-      if (learning.fold) {
-        await this.deps.learning.fold(mainlineOutcome);
-      }
-
-      /*
-       * Off-path. Deliberately NOT gated on the learning gates: app_defect is the
-       * curriculum's strongest positive signal. Only the mainline exit folds —
-       * invalid/infra-error never executed a suite.
-       */
-      if (offeredArchetypes.length > 0) {
-        await this.deps.curriculum?.fold({
-          offered: offeredArchetypes,
-          verdict: decision.verdict,
-          ...(mainlineOutcome.adjudication?.class !== undefined ? { adjudicationClass: mainlineOutcome.adjudication.class } : {}),
-          ...(coverageStatus !== undefined ? { coverageStatus } : {}),
-        });
-      }
-
-      /*
-       * Stricter than fold: no flaky verdict, and errorClass must be a real class that teaches
-       * (a green pass must not mint a reflection rule). Fold-on-green is unchanged.
-       * Fault-isolated in the adapter.
-       */
-      if (this.deps.reflector && learning.reflect) {
-        /* reflect() is awaited inline so the persisted outcome includes the back-fill before the run closes. */
-        const reflectStartedAt = Date.now();
-        /* Archetype from classificationDiff; undefined outside diff mode — never fabricated. */
-        const archetype = detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []);
-        await this.deps.reflector.reflect(this.toReflectionInput(mainlineOutcome, archetype));
-        const reflectMs = Date.now() - reflectStartedAt;
-        this.deps.observer?.onEvent({
-          type: "log.line",
-          level: "info",
-          text: `[qa] reflect() for run ${mainlineOutcome.runId} took ${reflectMs}ms`,
-        });
-      }
-
-      /* Same gate as reflect, so processAudit and reflector stay independently optional. */
-      if (this.deps.processAudit && learning.reflect) {
-        /* Audit duration on the existing log.line channel. */
-        const auditStartedAt = Date.now();
-        await this.deps.processAudit.audit(mainlineOutcome);
-        const auditMs = Date.now() - auditStartedAt;
-        this.deps.observer?.onEvent({
-          type: "log.line",
-          level: "info",
-          text: `[qa] processAudit.audit() for run ${mainlineOutcome.runId} took ${auditMs}ms`,
-        });
-      }
-    }
-
-    this.deps.observer?.onStep("done");
-    return {
-      decision,
-      errorClass,
-      ...(mainlineOutcome ? { outcome: mainlineOutcome } : {}),
-      /* Same publish outcome on the returned result for callers with no history read-back. */
-      ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
-      /* A clean context pass never persists, so the returned result must not report retrieved rules either. */
-      rulesRetrieved: isContextCleanPass ? [] : retrievedRuleIds,
-      gateSignals: {
-        /* Clean context pass reports static:false — nothing was genuinely persisted. */
-        static: isContextCleanPass ? false : validation.ok,
-        coverageRatio,
-        valueScore: gateValueScore,
-        /* Clean context pass omits reviewerApproved — nothing was genuinely persisted. */
-        ...(!isContextCleanPass && reviewerApprovedForOutcome !== undefined ? { reviewerApproved: reviewerApprovedForOutcome } : {}),
-        ...(!isContextCleanPass && reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
-        retries,
-        preExecAmbiguityCatches,
-        deterministicSelectorBlocks,
-        catalogGateInWindow,
-        catalogGateAdvisory,
-        catalogGateFailClosed,
-        ...(loopSignal ? { closedLoop: loopSignal } : {}),
-        ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
-        ...(coverageStale ? { coverage: { stale: true } } : {}),
-        ...(valueStale ? { value: { stale: true } } : {}),
-        ...(integrityCounters.acceptances > 0 || integrityCounters.rejected > 0 || integrityCounters.capHit
-          ? { integrity: { ...integrityCounters } }
-          : {}),
-        ...(intentState.clauses > 0 || intentState.violations > 0
-          ? {
-              intent: {
-                mode: intentLock.mode,
-                violations: intentState.violations,
-                wouldReject: intentState.wouldReject,
-                clauses: intentState.clauses,
-                opaque: intentState.opaque,
-                opacityHigh: intentState.opacityHigh,
-              },
-            }
-          : {}),
-      },
-      cases: run.cases,
-      logs: run.logs,
-    };
+    /* The table's last step ends the run, so a walk that finishes without an end is a defect in the table. */
+    throw new Error("the run's steps ended without a result");
   }
 
   /*
@@ -1322,60 +954,7 @@ export class RunQaUseCase {
     retries: number,
     coverageRatio: number | null,
     errorClass: string | null,
-    /*
-     * reviewerApproved, valueScore, and rulesRetrieved are optional: early exits
-     * never reached those phases and must not fabricate them. Pre-exec counters
-     * default to 0 (not undefined) when the gate never ran.
-     */
-    extra?: {
-      /* Only callers whose path genuinely passed the static gate thread true; default is false. */
-      staticOk?: boolean;
-      reviewerApproved?: boolean;
-      /* Only the mainline post-review caller threads real corrections; others get []. */
-      reviewerCorrections?: string[];
-      /* Only the marker-scoped reviewer-unavailable exit threads a rationale. */
-      reviewerRationale?: string;
-      /* What the review phase cost and decided; absent when no reviewer phase ran. */
-      reviewer?: RunOutcome["gateSignals"]["reviewer"];
-      valueScore?: number | null;
-      /* Same "never ran" (absent) vs "ran and found zero" distinction as the sibling counts below. */
-      mutantCount?: number;
-      killedCount?: number;
-      note?: string;
-      rulesRetrieved?: string[];
-      diffArchetypes?: string[];
-      preExecAmbiguityCatches?: number;
-      deterministicSelectorBlocks?: number;
-      catalogGateInWindow?: number;
-      catalogGateAdvisory?: number;
-      catalogGateFailClosed?: number;
-      /* Optional telemetry. Construction uses conditional-spread, not `?? 0`. */
-      structuralSignalBytes?: number;
-      serviceLinksCount?: number;
-      contractDriftCount?: number;
-      /* Same "never ran" vs "ran and found zero" distinction as the sibling counts. */
-      crossRepoImpactedCount?: number;
-      /* Only the mainline post-execute caller has real logs. */
-      logs?: string;
-      /* Only the mainline post-FixLoop caller has a real adjudication class. */
-      adjudicationClass?: string;
-      /* Omitted entirely when confinement never ran — never a fabricated {strays:0}. */
-      confinement?: { strays: number; dangerous: number; reverted: string[] };
-      /* Absent when the run did not grant the run_spec tool. */
-      closedLoop?: ClosedLoopGateSignal;
-      /* Absent when the run did not grant the authenticated agent browser. */
-      agentBrowser?: AgentBrowserGateSignal;
-      /* The recorded coverage predates the bytes an accepted regeneration wrote (signal mode reuses it). */
-      coverage?: { stale: boolean };
-      /* The recorded value score has the same staleness; the oracle stays signal-only. */
-      value?: { stale: boolean };
-      /* What the run's regeneration acceptance did; absent when no regeneration came through it. */
-      integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
-      /* The test-intent lock's derived clauses and deltas; absent when the lock is off or nothing was derived. */
-      intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
-      /* The kind a declared no-op named; absent for every run that is not one. */
-      noop?: { kind: NoopKind };
-    },
+    extra?: OutcomeExtras,
   ) {
     const gateCoverageRatio = coverageRatio;
     const gateValueScore = extra?.valueScore ?? null;

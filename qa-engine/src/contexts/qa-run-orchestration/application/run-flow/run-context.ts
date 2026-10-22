@@ -4,10 +4,15 @@ import type { CycleBudget } from "../../domain/cycle-budget.ts";
 import type { WallClockBudget } from "../../domain/wall-clock-budget.ts";
 import type { DisputedFinding } from "../../domain/review-rebuttals.service.ts";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
-import type { PreconditionFailure, RunQaConfig, RunQaInput, RunQaResult, RunQaUseCaseDeps, RunTrail, TerminalOptions } from "../run-qa.use-case.ts";
+import type { OutcomeExtras, PreconditionFailure, RunQaConfig, RunQaInput, RunQaResult, RunQaUseCaseDeps, RunTrail, TerminalOptions } from "../run-qa.use-case.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
+import type { RunOutcome } from "@kernel/run-outcome.ts";
+import type { QaCase } from "@kernel/qa-case.ts";
+import type { GenerationEndKind } from "@kernel/generation-end.ts";
+import type { ReflectionInput } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { RunDecision } from "../../domain/run-decision.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { PreparedWorkspace, RunServices, ConfinementTotals } from "./run-services.ts";
@@ -31,6 +36,20 @@ export interface RunEnds {
   preconditionNote(failure: PreconditionFailure): string;
   /** Ends the run with a persisted invalid or infra-error verdict. */
   terminal(verdict: "invalid" | "infra-error", ev: { generating: boolean; static: boolean }, opts?: TerminalOptions): Promise<RunQaResult>;
+  /** What the lead/sidekick mode came to, as recorded for this run; absent when the run was not coordinated. */
+  coordination(): CoordinationGateSignal | undefined;
+  /** The error class a verdict resolves to, with the run's own ways to end. */
+  deriveErrorClass(
+    verdict: string,
+    coverageRatio: number | null,
+    valueScore: number | null,
+    reviewerCorrections?: string[],
+    ends?: { generationEnd?: GenerationEndKind | undefined; preconditionFailed?: boolean | undefined; reviewerUnavailable?: boolean | undefined; reviewDisputed?: boolean | undefined },
+  ): string | null;
+  /** The outcome the run persists for a decision, bound to this run's input. */
+  toRunOutcome(decision: RunDecision, cases: QaCase[], retries: number, coverageRatio: number | null, errorClass: string | null, extra?: OutcomeExtras): RunOutcome;
+  /** The narrow view of a persisted outcome the reflector learns from. */
+  toReflectionInput(outcome: RunOutcome, archetype: string | null): ReflectionInput;
   /** Ends a green run whose reviewer could not be reached: a persisted infra-error with the reviewer's reason on the record, nothing learned. */
   reviewerUnavailable(reason: string | undefined, passedCases: number, exit: Omit<TerminalOptions, "note" | "reviewerUnavailable" | "reviewerRationale"> & { static: boolean }): Promise<RunQaResult>;
   /** Ends a green run whose reviewer and generator could not settle a verified finding: a persisted infra-error, nothing learned. */
