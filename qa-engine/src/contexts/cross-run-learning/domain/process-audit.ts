@@ -47,6 +47,9 @@ export interface AuditInput {
   rules: RuleView[];
 }
 
+/* A run whose triage found the change missing from DEV (the adjudicator's dev_not_rendered class, conclusive or not) is an environment/deploy condition, never a test defect: a streak of them is visible to an operator and nothing more. */
+const DEV_NOT_RENDERED_CLASS = "dev_not_rendered";
+
 const RECUR_WINDOW = 3;
 const NOISE_USES = 3;
 const CHURN_RETRIES = 2;
@@ -66,7 +69,23 @@ export function auditProcess(input: AuditInput): ProcessFinding[] {
   if (recurringCls) {
     const shas = input.recent.slice(0, RECUR_WINDOW).map((r) => r.sha.slice(0, 7)).join(", ");
     const evidence = `last ${RECUR_WINDOW} outcomes errorClass=${recurringCls} (sha ${shas})`;
-    if (MAP_GROUNDED_CLASSES.has(recurringCls)) {
+    /*
+     * A dev_not_rendered streak is its own operating signal, above the class branches: the conclusive
+     * case ends as E-PRECONDITION, the inconclusive one as a fail, and both belong to the same DEV
+     * condition. It is observed and nothing else.
+     */
+    const devNotRenderedStreak =
+      input.recent.slice(0, RECUR_WINDOW).length >= RECUR_WINDOW &&
+      input.recent.slice(0, RECUR_WINDOW).every((r) => r.adjudication?.class === DEV_NOT_RENDERED_CLASS);
+    if (devNotRenderedStreak) {
+      findings.push({
+        kind: "recurring-dev-not-rendered",
+        disposition: "observe",
+        severity: "warn",
+        summary: `The change was not rendered on DEV ${RECUR_WINDOW} runs in a row (triage class ${DEV_NOT_RENDERED_CLASS}) — a deploy or environment condition; visibility only, never an engine fix, a learned rule or a maintainer incident.`,
+        evidence: `${evidence} adjudication=${DEV_NOT_RENDERED_CLASS}`,
+      });
+    } else if (MAP_GROUNDED_CLASSES.has(recurringCls)) {
       /* UI/grounding mismatch → rebuild the (likely stale) map first, autonomously. No PR. */
       findings.push({
         kind: "recurring-ui-mismatch",
