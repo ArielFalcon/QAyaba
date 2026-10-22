@@ -54,7 +54,17 @@ export const RUN_SPEC_STATUS = {
 
 export type RunSpecStatus = (typeof RUN_SPEC_STATUS)[keyof typeof RUN_SPEC_STATUS];
 
-/* One call that ran: the spec's bytes at that moment (their sha256), how it ended, under which namespace, how long it took and how many writes it sent to DEV. */
+/* What the orchestrator kept of one failing test of a call: its error (redacted, bounded), the page it ended on by pathname, the results the app's declared data state showed there, the server status, the runtime errors the page raised and whether the page was still changing when it was read. The facts a failure is classified from. */
+export interface RunSpecFailureFact {
+  detail?: string;
+  path?: string;
+  resultCount?: number;
+  httpStatus?: number;
+  runtimeErrors?: readonly { type: string; text: string }[];
+  unsettled?: true;
+}
+
+/* One call that ran: the spec's bytes at that moment (their sha256), how it ended, under which namespace, how long it took, how many writes it sent to DEV and the facts of the tests that failed. */
 export interface LedgerEntry {
   path: string;
   sha256: string;
@@ -62,6 +72,7 @@ export interface LedgerEntry {
   namespace: string;
   ms: number;
   devWrites: number;
+  failures?: readonly RunSpecFailureFact[];
 }
 
 export interface CallBudget {

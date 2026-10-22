@@ -153,3 +153,20 @@ test("ground(): a diff with no changed label gives the pack no literals", async 
   const input = await packInputFor({}, diff);
   assert.equal("changedLiterals" in input, false);
 });
+
+test("ground() hands the run the pages the pack read with results under the declared data state, by pathname, and nothing when it read none", async () => {
+  const withPages = (pages: unknown[]): PreGenerationGroundingPortAdapter =>
+    new PreGenerationGroundingPortAdapter(
+      { e2eDir: "/mirrors/org/app/e2e" },
+      { buildContextPack: async () => ({ text: "## Context Pack", domBytes: 1, contractBytes: 0, trace: { rankedRoutes: [], capturablePages: pages.length, pages, pageDeliveries: [], changedTestIds: [], contractIds: [], omittedLines: 0 } as never }) },
+    );
+  const pages = [
+    { route: "/restaurantes/madrid", finalUrl: "https://dev.example/restaurantes/madrid", resultExpected: true, resultCount: 3 },
+    { route: "/restaurantes", finalUrl: "https://dev.example/restaurantes", resultExpected: true, resultCount: 0 },
+    { route: "/home", finalUrl: "https://dev.example/home" },
+  ];
+  const grounded = await withPages(pages).ground("/tmp/qa-golden/e2e", undefined, labelDiff, { sha: "abc1234" });
+  assert.deepEqual(grounded.packConfirmedDataRoutes, [{ path: "/restaurantes/madrid", resultCount: 3 }]);
+  const none = await withPages([pages[1], pages[2]]).ground("/tmp/qa-golden/e2e", undefined, labelDiff, { sha: "abc1234" });
+  assert.equal("packConfirmedDataRoutes" in none, false);
+});

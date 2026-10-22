@@ -1865,3 +1865,152 @@ test("a contract rejection that keeps failing is bounded by the retry cap, never
   assert.equal(rec.generates.length, 2, "one turn per retry, and the last rejection ends the loop");
   assert.equal(result.run.verdict, "fail");
 });
+
+/* ── Observation conflict: the failure-point data state contradicts the Context Pack's read ───────── */
+
+const EMPTY_LIST_FAULT = "expect(locator).toBeVisible() failed\n\nLocator: locator('app-list')\nExpected: visible\nError: element(s) not found";
+const PACK_CONFIRMED = [{ path: "/owners/list", resultCount: 3 }] as const;
+
+function emptyListCase(overrides: Partial<QaCase> = {}): QaCase {
+  return makeCase({
+    name: "owners list",
+    file: "owners.spec.ts",
+    detail: EMPTY_LIST_FAULT,
+    failureDom: "heading: Owners\ntext: 0 results",
+    finalUrl: "https://dev.example/owners/list",
+    failureResultCount: 0,
+    ...overrides,
+  });
+}
+
+test("an empty data state on a route the Context Pack read with results, empty again on a second read, ends as a precondition without a repair turn", async () => {
+  const failing = emptyListCase();
+  const { loop, rec } = recordingLoop({ runs: [{ verdict: "fail", cases: [failing] }] });
+
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [failing] },
+      integrity: integrity({ hasGreenProof: async () => false }),
+      packConfirmedDataRoutes: PACK_CONFIRMED,
+    }),
+  );
+
+  assert.equal(rec.generates.length, 0, "a contradicted observation is not repaired: the test is not what the evidence blames");
+  assert.equal(rec.executes.length, 1, "the conflict spends the one triage re-read");
+  assert.equal(rec.executes[0]!.retries, 0);
+  assert.deepEqual(rec.executes[0]!.specFiles, ["owners.spec.ts"]);
+  assert.equal(result.run.verdict, "infra-error");
+  assert.equal(result.preconditionFailed, true);
+  assert.equal(result.realBugDetected, false);
+  assert.equal(result.lastAdjudicatorVerdict?.class, "dev_not_rendered");
+});
+
+test("an empty data state the second read does not repeat makes the run flaky, never a rewrite", async () => {
+  const failing = emptyListCase();
+  const { loop, rec } = recordingLoop({ runs: [{ verdict: "pass", cases: [{ name: "owners list", status: "pass", file: "owners.spec.ts" }] }] });
+
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [failing] },
+      integrity: integrity({ hasGreenProof: async () => false }),
+      packConfirmedDataRoutes: PACK_CONFIRMED,
+    }),
+  );
+
+  assert.equal(rec.generates.length, 0);
+  assert.equal(result.run.verdict, "flaky");
+});
+
+test("an empty data state on a route the Context Pack did not confirm with results is repaired as before", async () => {
+  const failing = emptyListCase({ finalUrl: "https://dev.example/owners/archive" });
+  const { loop, rec } = recordingLoop({ regen: noFix });
+
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [failing] },
+      integrity: integrity({ hasGreenProof: async () => false }),
+      packConfirmedDataRoutes: PACK_CONFIRMED,
+    }),
+  );
+
+  assert.equal(rec.executes.length, 0, "no conflict: no triage re-read");
+  assert.equal(rec.generates.length, 1, "the loop asks for a repair as before");
+  assert.equal(result.preconditionFailed, false);
+});
+
+test("with the review-loop integrity capability absent, a contradicted data state is repaired as before", async () => {
+  const failing = emptyListCase();
+  const { loop, rec } = recordingLoop({ regen: noFix });
+
+  await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] }, packConfirmedDataRoutes: PACK_CONFIRMED }));
+
+  assert.equal(rec.executes.length, 0);
+  assert.equal(rec.generates.length, 1);
+});
+
+/* ── The triage's own record: what made it re-read and what the re-read came to ─────────────────── */
+
+test("a contradicted data state whose re-read passes reports a pack-conflict triage that passed", async () => {
+  const { loop } = recordingLoop({ runs: [{ verdict: "pass", cases: [{ name: "owners list", status: "pass", file: "owners.spec.ts" }] }] });
+
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [emptyListCase()] },
+      integrity: integrity({ hasGreenProof: async () => false }),
+      packConfirmedDataRoutes: PACK_CONFIRMED,
+    }),
+  );
+
+  assert.deepEqual(result.triage, { trigger: "pack-conflict", outcome: "passed", files: 1 });
+});
+
+test("a target absent on both reads with a green proof reports an absent-selectors triage that found DEV not rendering it", async () => {
+  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
+  const { loop } = recordingLoop({ runs: [{ verdict: "fail", cases: [failing] }], check: () => findings({ absentKeys: new Set(["data-testid=discount"]) }) });
+
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] }, integrity: integrity() }));
+
+  assert.deepEqual(result.triage, { trigger: "absent-selectors", outcome: "dev-not-rendered", files: 1 });
+});
+
+test("a different target absent on the second read reports an inconclusive triage", async () => {
+  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
+  const { loop } = recordingLoop({
+    runs: [{ verdict: "fail", cases: [{ ...failing, detail: "locator.click: element(s) not found" }] }],
+    check: (round) => findings({ absentKeys: new Set([round === 1 ? "data-testid=discount" : "data-testid=other"]) }),
+  });
+
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] }, integrity: integrity() }));
+
+  assert.deepEqual(result.triage, { trigger: "absent-selectors", outcome: "inconclusive", files: 1 });
+});
+
+test("a triage with no execution left reports no-budget and spends no re-read", async () => {
+  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
+  const { loop, rec } = recordingLoop({ check: () => findings({ absentKeys: new Set(["data-testid=discount"]) }) });
+
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] }, integrity: integrity({ spendExecution: () => false }) }));
+
+  assert.equal(rec.executes.length, 0);
+  assert.deepEqual(result.triage, { trigger: "absent-selectors", outcome: "no-budget", files: 1 });
+});
+
+test("an absent target whose bytes have no green proof reports an unproven triage candidate and is repaired as before", async () => {
+  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
+  const { loop, rec } = recordingLoop({ check: () => findings({ absentKeys: new Set(["data-testid=discount"]) }), regen: noFix });
+
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] }, integrity: integrity({ hasGreenProof: async () => false }) }));
+
+  assert.equal(rec.executes.length, 0, "no proof: no re-read");
+  assert.equal(rec.generates.length, 1);
+  assert.deepEqual(result.triage, { trigger: "absent-selectors", outcome: "unproven", files: 1 });
+});
+
+test("with the review-loop integrity capability absent, no triage is reported", async () => {
+  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
+  const { loop } = recordingLoop({ check: () => findings({ absentKeys: new Set(["data-testid=discount"]) }), regen: noFix });
+
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] } }));
+
+  assert.equal(result.triage, undefined);
+});

@@ -149,6 +149,8 @@ export interface FixLoopInput {
   /* True only when this run will be measured for change-coverage — filtering a retry would then undercount passing specs. Defaults to false (never filter). */
   coverageWillMeasure?: boolean;
   failureDomSnapshot?: string;
+  /* The pages this run's Context Pack read with results (> 0) under the app's declared data state, by pathname. A failure that reads an empty data state on one of them contradicts the pack. */
+  packConfirmedDataRoutes?: readonly { path: string; resultCount: number }[];
   specDir?: string;
   /* Present only while the review-loop integrity switch is on: enables triage and reads a typed test-correct claim. */
   integrity?: FixLoopIntegrity;
@@ -169,6 +171,17 @@ export interface FixLoopResult {
   preconditionFailed: boolean;
   /* Typed test-correct claims the loop rejected as unverified evidence (each asked for another repair). */
   rejectedClaims: number;
+  /* The triage's record: what made a failure a candidate for the one re-read, and what came of it. Absent when no failure was a candidate. */
+  triage?: FixLoopTriage;
+}
+
+export interface FixLoopTriage {
+  /* `pack-conflict`: the failures read an empty data state on pages the Context Pack read with results; `absent-selectors`: their target was absent from the failure-point tree. */
+  trigger: "pack-conflict" | "absent-selectors";
+  /* `passed`: the re-read passed (the run is flaky); `dev-not-rendered`: it failed the same way; `inconclusive`: it failed differently; `no-budget`: no execution was left for it; `unproven`: an absent target whose bytes had no green proof, so no re-read was spent. */
+  outcome: "passed" | "dev-not-rendered" | "inconclusive" | "no-budget" | "unproven";
+  /* The spec files the re-read covered. */
+  files: number;
 }
 
 const failCount = (r: FixLoopRun): number => r.cases.filter((c) => c.status === "fail").length;
@@ -204,6 +217,22 @@ function mergeAcceptedRound(current: FixLoopRun, outcome: Extract<FixLoopAccepta
         ? "flaky"
         : "pass";
   return { verdict, cases };
+}
+
+function pathnameOf(url: string | undefined): string | undefined {
+  if (url === undefined) return undefined;
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return undefined;
+  }
+}
+
+/* A failed case whose failure point read an empty data state on a page the Context Pack read with results: two observations of the same page disagree, so the failure is no evidence against the test. */
+function contradictsPack(c: QaCase, confirmed: readonly { path: string; resultCount: number }[] | undefined): boolean {
+  if (!confirmed?.length || c.failureResultCount !== 0) return false;
+  const path = pathnameOf(c.finalUrl);
+  return path !== undefined && confirmed.some((route) => route.path === path && route.resultCount > 0);
 }
 
 function buildFailureDomLines(failureDom: string | undefined): string[] {
@@ -256,6 +285,7 @@ export class FixLoop {
     let rejectedClaims = 0;
     /* The one triage re-execution this loop may spend. */
     let triaged = false;
+    let triage: FixLoopTriage | undefined;
     /* A rejected test-correct claim earns one repair even when the progress gate would stop the round. */
     let claimRejected = false;
     /* A round the contract refused never executed, so the progress gate would read it as no progress: it earns one repair all the same. */
@@ -326,23 +356,33 @@ export class FixLoop {
        * re-execution (no retries) reads it a second time; a conclusive read ends the loop as a
        * precondition, an inconclusive one as a possible environment cause. Only while the switch is on.
        */
+      /*
+       * The second witness: every failure read an empty data state on a page the Context Pack read with
+       * results in this same run. The pack stands where a green proof would, since it saw the target's data.
+       */
       let devNotRendered: AdjudicatorEvidence["devNotRendered"];
+      const packConflict = failed.length > 0 && failed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes));
       if (
         !triaged &&
         input.integrity &&
         !input.isCode &&
-        absentKeys.size > 0 &&
+        (absentKeys.size > 0 || packConflict) &&
         failureClasses.length > 0 &&
         failureClasses.every((failure) => failure === "locator" || failure === "timeout") &&
         failed.every((c) => !!c.file)
       ) {
         const failedFiles = [...new Set(failed.map((c) => c.file as string))];
-        const proofs = await Promise.all(failedFiles.map((file) => input.integrity!.hasGreenProof(file)));
-        if (proofs.every(Boolean)) {
+        const proofs = packConflict ? [] : await Promise.all(failedFiles.map((file) => input.integrity!.hasGreenProof(file)));
+        const record = (outcome: FixLoopTriage["outcome"]): void => {
+          triage ??= { trigger: packConflict ? "pack-conflict" : "absent-selectors", outcome, files: failedFiles.length };
+        };
+        if (!packConflict && !proofs.every(Boolean)) record("unproven");
+        if (packConflict || proofs.every(Boolean)) {
           triaged = true;
           const remaining = input.integrity.remainingMs();
           if ((remaining !== undefined && remaining <= 0) || !input.integrity.spendExecution()) {
             devNotRendered = "inconclusive";
+            record("no-budget");
           } else {
             const triageRun = await this.deps.execution.execute({
               namespace: `${input.namespace}-triage`,
@@ -356,14 +396,19 @@ export class FixLoop {
                 verdict: "flaky",
                 cases: [...run.cases.filter((c) => !reportedFiles.has(c.file)), ...triageRun.cases],
               };
+              record("passed");
               break;
             }
             const triageFailed = triageRun.cases.filter((c) => c.status === "fail");
             const triageTrees = triageFailed.map((c) => buildFailureDomLines(c.failureDom)).filter((tree) => tree.length > 0);
             const triageAbsentKeys = this.deps.selectorCheck.check(specSources, triageTrees).absentKeys;
             const stable =
-              triageRun.verdict === "fail" && [...absentKeys].every((key) => triageAbsentKeys.has(key));
+              triageRun.verdict === "fail" &&
+              (packConflict
+                ? triageFailed.length > 0 && triageFailed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes))
+                : [...absentKeys].every((key) => triageAbsentKeys.has(key)));
             devNotRendered = stable ? "conclusive" : "inconclusive";
+            record(stable ? "dev-not-rendered" : "inconclusive");
           }
         }
       }
@@ -622,6 +667,7 @@ export class FixLoop {
       lastSpecMetas: lastRegenResult?.specMetas,
       preconditionFailed,
       rejectedClaims,
+      ...(triage ? { triage } : {}),
     };
   }
 }

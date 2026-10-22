@@ -336,6 +336,17 @@ export interface FlowLedgerEntry {
   sha256: string;
   status: string;
   devWrites: number;
+  /** The facts of the call's failing tests: error, page by pathname, results read, server status, runtime errors, whether the page was still changing. */
+  failures?: readonly FlowFailureFact[];
+}
+/** One failing test of a flow's run_spec call, as the orchestrator kept it. */
+export interface FlowFailureFact {
+  detail?: string;
+  path?: string;
+  resultCount?: number;
+  httpStatus?: number;
+  runtimeErrors?: readonly { type: string; text: string }[];
+  unsettled?: true;
 }
 export interface FlowLoopHandle {
   /** What the flow's prompt states about the tool: its own share. */
@@ -345,6 +356,8 @@ export interface FlowLoopHandle {
   ledger(): readonly FlowLedgerEntry[];
   /** Whether the spec the sidekick holds now is the one whose last call passed. */
   isClosed(): Promise<boolean>;
+  /** Whether the spec the sidekick holds now has these bytes (their sha256). */
+  holds(sha256: string): Promise<boolean>;
   /** Revokes the flow's right and cleans the data of a call that was in flight. Never throws. */
   close(): Promise<void>;
 }
@@ -802,6 +815,8 @@ export interface GroundingResult {
   harnessFacts?: HarnessFacts;
   /** The added labels whose changed-value line in the pack said more nodes than unchanged lines of the file. Absent when none did, or when no pack carries such lines. */
   changedValuesWithMoreNodes?: string[];
+  /** The pages the pack read with results (> 0) under the app's declared data state, by pathname. Absent when it read none. */
+  packConfirmedDataRoutes?: { path: string; resultCount: number }[];
 }
 /**
  * Pre-generate first-write grounding (DOM/route/context pack), run once after

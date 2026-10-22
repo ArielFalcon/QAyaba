@@ -1709,3 +1709,18 @@ test("renderArchitectureContextParts reports no map-cap omission when every list
   };
   assert.deepEqual(renderArchitectureContextParts(ctx, undefined, {})?.omissions, []);
 });
+
+test("buildPrompt fix-cases section states a failure tree read while the page was still changing as not settled", () => {
+  const unsettled: QaCase = { name: "owners list", status: "fail", failureSettle: { inFlight: 2, quietMs: 30, treeStable: false }, failureResultCount: 0 };
+  const text = buildPrompt(mkInput({ fixCases: [unsettled] }));
+  assert.match(text, /not settled/i, "a capture with data requests in flight or a changing tree must be stated as not settled");
+  assert.match(text, /2 data request/, "the in-flight count is stated");
+  assert.match(text, /result count[^\n]*\b0\b/i, "the declared data state's count at the failure point is stated");
+});
+
+test("buildPrompt fix-cases section states a settled failure tree as settled", () => {
+  const settled: QaCase = { name: "owners list", status: "fail", failureSettle: { inFlight: 0, quietMs: 4200, treeStable: true } };
+  const text = buildPrompt(mkInput({ fixCases: [settled] }));
+  assert.match(text, /settled/i);
+  assert.doesNotMatch(text, /not settled/i, "a quiet page with a stable tree is not stated as unsettled");
+});

@@ -260,7 +260,7 @@ test("ensureFailureCapture: first injection appends the block; existing lines un
     assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename");
     assert.match(after, /createHash\("sha1"\)\.update\(`\$\{file\}\/\$\{title\}`\)/, "the filename hash must fold in the file AND the full title (no 80-char truncation)");
     assert.match(after, /\$\{safeProject\}__\$\{hash\}__\$\{testInfo\.retry\}\.json/, "the filename must be project__hash__retry");
-    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors, networkErrors");
+    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, settle, resultCount \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors, networkErrors");
     /* ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
     assert.doesNotMatch(after, /require\(/, "the injected block must not use require() (ReferenceError in ESM — dead capture)");
     assert.match(after, /await import\("node:fs"\)/, "the injected block must pull node:fs via dynamic import()");
@@ -1047,7 +1047,7 @@ test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('requestfailed' an
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("networkErrors"), "FAILURE_CAPTURE_BLOCK must carry networkErrors");
   assert.match(
     FAILURE_CAPTURE_BLOCK,
-    /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors \}\)/,
+    /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, settle, resultCount \}\)/,
     "FAILURE_CAPTURE_BLOCK's dump body must carry networkErrors alongside runtimeErrors",
   );
 });
@@ -1407,4 +1407,71 @@ test("the install child is handed no variables of its own: the launcher's instal
   });
   await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
   assert.deepEqual(seen?.env, {});
+});
+
+/* ── The capture runs as a fixture, which reaches every spec file ─────────────────────────────────
+   A hook declared in fixtures.ts binds only to the first spec file a worker loads (the module is
+   evaluated once per worker), so the seed runs the capture from an auto fixture; the block's own hooks
+   stand in only where no fixture could be added, and setup says so. */
+
+const FIXTURE_MARKER = ">>> qa-capture-fixture (system-owned: do not edit) >>>";
+
+function warningsOf(run: () => void): string[] {
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+  try {
+    run();
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
+}
+
+test("the seed runs the failure capture from an auto fixture", () => {
+  const seed = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  assert.ok(seed.includes(FIXTURE_MARKER), "the seed must carry the capture fixture");
+  assert.ok(seed.indexOf(FIXTURE_MARKER) < seed.indexOf("\nexport { expect };"), "the fixture lives inside the seed's test.extend");
+});
+
+test("setup gives a fixtures.ts from the seed that ran the capture from hooks the capture fixture, matching the current seed", () => {
+  let after = "";
+  const warnings = warningsOf(() => {
+    after = afterEnsure("fixtures.ts", shippedRevision("fixtures.rev-hooks.txt"), (adapter, dir) => adapter.ensureFailureCapture(dir));
+  });
+  assert.equal(after, readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8"));
+  assert.deepEqual(warnings, []);
+});
+
+test("setup leaves the current seed's fixtures.ts as it is and says nothing", () => {
+  const seed = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  let after = "";
+  const warnings = warningsOf(() => {
+    after = afterEnsure("fixtures.ts", seed, (adapter, dir) => adapter.ensureFailureCapture(dir));
+  });
+  assert.equal(after, seed);
+  assert.deepEqual(warnings, []);
+});
+
+test("a fixtures.ts not shaped like the seed gets the block's hooks and setup warns that the capture covers only the first spec file", () => {
+  let after = "";
+  const warnings = warningsOf(() => {
+    after = afterEnsure("fixtures.ts", REPO_FIXTURES, (adapter, dir) => adapter.ensureFailureCapture(dir));
+  });
+  assert.ok(after.includes(FAILURE_CAPTURE_MARKER), "the block is appended");
+  assert.equal(after.includes(FIXTURE_MARKER), false, "no fixture is written into a test.extend setup does not know");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /only the first spec file/);
+});
+
+test("a seed-shaped fixtures.ts whose capture block was edited gets no fixture, and setup warns", () => {
+  const edited = shippedRevision("fixtures.rev-hooks.txt").replace("let dataInFlight = 0;", "let dataInFlight = 0; // edited");
+  assert.notEqual(edited, shippedRevision("fixtures.rev-hooks.txt"), "test precondition: the edit applied");
+  let after = "";
+  const warnings = warningsOf(() => {
+    after = afterEnsure("fixtures.ts", edited, (adapter, dir) => adapter.ensureFailureCapture(dir));
+  });
+  assert.equal(after, edited);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /only the first spec file/);
 });

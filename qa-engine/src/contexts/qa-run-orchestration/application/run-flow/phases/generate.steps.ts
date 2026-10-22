@@ -13,6 +13,7 @@ import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rul
 import { reviewerApprovalOf } from "../../ports/index.ts";
 import type { GenerationOutput } from "../../ports/index.ts";
 import type { CoordinateResult } from "../../coordination/lead-sidekicks.ts";
+import { evidenceFromPackDataRoutes } from "../../coordination/evidence-from.ts";
 import type { RunQaResult } from "../../run-qa.use-case.ts";
 import type { StepResult } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
@@ -52,6 +53,8 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       ...(agentBrowser ? { agentBrowser } : {}),
       ...(geolocation ? { geolocation } : {}),
       ...(deps.sidekickDevBaseUrl ? { devBaseUrl: deps.sidekickDevBaseUrl } : {}),
+      /* The pages the pack read with results: every sidekick's brief states them, and a flow's empty read of one is checked against them. */
+      ...(state.grounding.confirmedDataRoutes?.length ? { knownFacts: evidenceFromPackDataRoutes(state.grounding.confirmedDataRoutes) } : {}),
       ...(deps.generation.plan
         ? { plan: (planning) => deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, ...geolocationEnrichment(ctx), planning }) }
         : {}),

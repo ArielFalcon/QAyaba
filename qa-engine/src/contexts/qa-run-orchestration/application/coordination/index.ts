@@ -13,10 +13,12 @@ export {
   evidenceFromBudget,
   evidenceFromChangeAnalysis,
   evidenceFromCoverage,
+  evidenceFromEmptyRead,
   evidenceFromExecution,
   evidenceFromFailureClass,
   evidenceFromFixLoop,
   evidenceFromGeneration,
+  evidenceFromPackDataRoutes,
   evidenceFromReview,
   evidenceFromSelectors,
   evidenceFromValidation,
@@ -24,6 +26,7 @@ export {
 export {
   agentClaimInvalidatedBy,
   confidenceRank,
+  observationConflictIn,
   preferredEvidence,
 } from "./evidence-precedence.ts";
 

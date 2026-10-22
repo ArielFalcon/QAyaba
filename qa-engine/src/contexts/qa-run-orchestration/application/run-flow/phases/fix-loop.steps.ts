@@ -242,6 +242,7 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
     coverageWillMeasure,
     ...(initialSpecSources?.length ? { initialSpecSources } : {}),
     ...(failureDomSnapshot ? { failureDomSnapshot } : {}),
+    ...(state.grounding.confirmedDataRoutes?.length ? { packConfirmedDataRoutes: state.grounding.confirmedDataRoutes } : {}),
     specDir: workspace.specDir,
     ...(cfg.reviewLoopIntegrity
       ? {
@@ -273,6 +274,13 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
       "qayaba.fix_loop.failing_before": failingBefore,
       "qayaba.fix_loop.failing_after": failingAfter,
       "qayaba.fix_loop.absent_selectors": fixLoopResult.absentSelectors,
+      ...(fixLoopResult.triage
+        ? {
+            "qayaba.fix_loop.triage_trigger": fixLoopResult.triage.trigger,
+            "qayaba.fix_loop.triage_outcome": fixLoopResult.triage.outcome,
+            "qayaba.fix_loop.triage_files": fixLoopResult.triage.files,
+          }
+        : {}),
       ...(specShaBefore !== undefined && specShaAfter !== undefined
         ? {
             "qayaba.fix_loop.spec_sha_before": specShaBefore,

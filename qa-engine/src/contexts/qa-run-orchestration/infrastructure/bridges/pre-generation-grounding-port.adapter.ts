@@ -236,6 +236,20 @@ function changedLabelsOf(diff: string, ctx: PreGenerationGroundingStaticContext,
   }
 }
 
+/* The pages a capture read with results under the app's declared data state, by the pathname they ended on. */
+function confirmedDataRoutes(pages: readonly { route: string; finalUrl?: string; resultExpected?: boolean; resultCount?: number }[]): { path: string; resultCount: number }[] {
+  const out: { path: string; resultCount: number }[] = [];
+  for (const page of pages) {
+    if (page.resultExpected !== true || page.resultCount === undefined || page.resultCount <= 0) continue;
+    let path = page.route;
+    try {
+      if (page.finalUrl !== undefined) path = new URL(page.finalUrl).pathname;
+    } catch { /* the route asked for stands */ }
+    if (!out.some((r) => r.path === path)) out.push({ path, resultCount: page.resultCount });
+  }
+  return out;
+}
+
 export class PreGenerationGroundingPortAdapter implements PreGenerationGroundingPort {
   constructor(
     private readonly ctx: PreGenerationGroundingStaticContext,
@@ -367,6 +381,8 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
         result.contextPackOmissions = delivery.omissions;
       }
       if (packResult.changedValuesWithMoreNodes?.length) result.changedValuesWithMoreNodes = packResult.changedValuesWithMoreNodes;
+      const confirmed = confirmedDataRoutes(packResult.trace?.pages ?? []);
+      if (confirmed.length > 0) result.packConfirmedDataRoutes = confirmed;
       this.tell(() => this.collaborators.trace?.pack?.(packResult));    } catch (err) {
       if (isAbortError(err)) return result; /* abort: return whatever was gathered so far, never throw — see the note above. */
       console.warn(`[qa] WARNING: context-pack build FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);

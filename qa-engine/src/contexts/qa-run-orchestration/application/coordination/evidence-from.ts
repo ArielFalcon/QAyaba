@@ -120,3 +120,30 @@ export function evidenceFromFailureClass(errorClass: string): EvidenceRef {
     dataRef: "resolveErrorClass",
   };
 }
+
+export const PACK_DATA_EVIDENCE_PREFIX = "pack-data:";
+export const EMPTY_READ_EVIDENCE_PREFIX = "empty-read:";
+
+/* The pages the run's Context Pack read with results under the app's declared data state: one fact per page, its pathname in dataRef. */
+export function evidenceFromPackDataRoutes(routes: readonly { path: string; resultCount: number }[]): EvidenceRef[] {
+  return routes.map((route) => ({
+    id: `${PACK_DATA_EVIDENCE_PREFIX}${route.path}`,
+    kind: "grounding",
+    source: "ContextPack",
+    summary: scrub(`the Context Pack read ${route.resultCount} results on ${route.path} under the app's declared data state`),
+    confidence: "deterministic",
+    dataRef: route.path,
+  }));
+}
+
+/* A run_spec call the orchestrator ran for a flow ended a failing test on this page with no results read: its pathname in dataRef. */
+export function evidenceFromEmptyRead(path: string): EvidenceRef {
+  return {
+    id: `${EMPTY_READ_EVIDENCE_PREFIX}${path}`,
+    kind: "execution",
+    source: "run_spec",
+    summary: scrub(`a run_spec call of this flow read no results on ${path} at its failure point`),
+    confidence: "observed",
+    dataRef: path,
+  };
+}

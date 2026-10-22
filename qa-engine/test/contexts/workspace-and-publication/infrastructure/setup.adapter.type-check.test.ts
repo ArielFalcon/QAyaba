@@ -31,17 +31,20 @@ function realAdapter(): SetupAdapter {
 const PLAYWRIGHT_TYPES_STAND_IN = `export interface Request { resourceType(): string; url(): string; method(): string; failure(): { errorText?: string } | null }
 export interface Response { status(): number; url(): string; request(): Request }
 export interface ConsoleMessage { type(): string; text(): string }
-export interface Locator { ariaSnapshot(options?: { timeout?: number }): Promise<string> }
+export interface Locator { ariaSnapshot(options?: { timeout?: number }): Promise<string>; first(): Locator; innerText(options?: { timeout?: number }): Promise<string>; count(): Promise<number> }
 export interface APIRequestContext { fetch(urlOrRequest: string | Request, options?: { method?: string }): Promise<unknown>; post(url: string): Promise<unknown> }
 export interface BrowserContext { on(event: "request", listener: (request: Request) => unknown): this; request: APIRequestContext }
 export interface Page {
   context(): BrowserContext;
+  on(event: "request", listener: (request: Request) => unknown): this;
+  on(event: "requestfinished", listener: (request: Request) => unknown): this;
   on(event: "response", listener: (response: Response) => unknown): this;
   on(event: "requestfailed", listener: (request: Request) => unknown): this;
   on(event: "console", listener: (message: ConsoleMessage) => unknown): this;
   on(event: "pageerror", listener: (error: Error) => unknown): this;
   url(): string;
   locator(selector: string): Locator;
+  waitForTimeout(timeout: number): Promise<void>;
 }
 export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
 export interface TestInfo { status?: TestStatus; expectedStatus: TestStatus; titlePath: string[]; project: { name: string }; file: string; retry: number; testId: string; title: string; workerIndex: number }

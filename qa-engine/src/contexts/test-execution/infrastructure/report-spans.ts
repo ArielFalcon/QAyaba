@@ -15,7 +15,8 @@ import { activeExecScope, runScopeKey, type RunScope } from "../../../shared-inf
 import { runChildOptions } from "../../../shared-infrastructure/telemetry/run-spans.ts";
 import { guardTelemetry } from "../../../shared-kernel/telemetry/guarded-telemetry.ts";
 import type { TelemetryPort } from "../../../shared-kernel/telemetry/telemetry.port.ts";
-import type { QaCase } from "../../../shared-kernel/qa-case.ts";
+import type { QaCase, FailureAttemptEvidence } from "../../../shared-kernel/qa-case.ts";
+import type { Attrs } from "../../../shared-kernel/telemetry/attribute-registry.ts";
 import { planReport, type PlannedAttempt, type PlannedCase } from "../domain/playwright-report-plan.ts";
 import { summarizePlaywrightFailure } from "../domain/playwright-error-summary.ts";
 
@@ -125,7 +126,7 @@ function emitCase(telemetry: TelemetryPort, fileSpan: ReturnType<TelemetryPort["
       ...(e?.networkClass !== undefined ? { "qayaba.test.network_class": e.networkClass } : {}),
     },
   });
-  for (const a of c.attempts) emitAttempt(telemetry, span, a, options);
+  for (const a of c.attempts) emitAttempt(telemetry, span, a, options, e?.failureAttempts !== undefined, e?.failureAttempts?.find((f) => f.retry === a.index));
   const failedStatus = c.status === "failed" || c.status === "timedOut" || c.status === "interrupted" ? c.status : undefined;
   if (failedStatus !== undefined) {
     const failedAttempt = c.attempts.find((a) => a.status === "failed" || a.status === "timedOut" || a.status === "interrupted");
@@ -145,7 +146,8 @@ function emitCase(telemetry: TelemetryPort, fileSpan: ReturnType<TelemetryPort["
   span.end(c.endMs);
 }
 
-function emitAttempt(telemetry: TelemetryPort, testSpan: ReturnType<TelemetryPort["startSpan"]>, a: PlannedAttempt, options: ReturnType<typeof runChildOptions>): void {
+/* `captureRan`: the execution captured failure points for this case, so an attempt that did not pass and has no capture lost it. */
+function emitAttempt(telemetry: TelemetryPort, testSpan: ReturnType<TelemetryPort["startSpan"]>, a: PlannedAttempt, options: ReturnType<typeof runChildOptions>, captureRan: boolean, capture: FailureAttemptEvidence | undefined): void {
   const span = telemetry.startSpan("qayaba.attempt", {
     kind: "internal",
     ...(options.secrets ? { secrets: options.secrets } : {}),
@@ -159,10 +161,27 @@ function emitAttempt(telemetry: TelemetryPort, testSpan: ReturnType<TelemetryPor
       ...(a.failureCategory !== undefined ? { "qayaba.test.failure_category": a.failureCategory } : {}),
       ...(a.strategy !== undefined ? { "qayaba.selector.strategy": a.strategy } : {}),
       ...(a.errorMessage !== undefined ? { "qayaba.error.message": summarizePlaywrightFailure(a.errorMessage) } : {}),
+      ...(captureRan && a.status !== "passed" && a.status !== "skipped" ? { "qayaba.failure.captured": capture !== undefined, ...(capture !== undefined ? captureAttrs(capture) : {}) } : {}),
     },
   });
   if (a.strictMatchCount !== undefined) {
     span.addEvent("strict_mode_violation", { "qayaba.selector.match_count": a.strictMatchCount, ...(a.strategy !== undefined ? { "qayaba.selector.strategy": a.strategy } : {}) }, a.endMs);
   }
   span.end(a.endMs);
+}
+
+/* What the attempt's page showed when it failed: the facts that tell a test defect from a page that was not there yet. */
+function captureAttrs(c: FailureAttemptEvidence): Attrs {
+  return {
+    ...(c.finalUrl !== undefined ? { "qayaba.failure.final_url": c.finalUrl } : {}),
+    ...(c.httpStatus !== undefined ? { "qayaba.failure.http_status": c.httpStatus } : {}),
+    ...(c.resultCount !== undefined ? { "qayaba.failure.result_count": c.resultCount } : {}),
+    ...(c.settle !== undefined ? { "qayaba.failure.data_in_flight": c.settle.inFlight, "qayaba.failure.tree_stable": c.settle.treeStable } : {}),
+    ...(c.settle?.quietMs !== undefined ? { "qayaba.failure.quiet_ms": c.settle.quietMs } : {}),
+    "qayaba.failure.runtime_error_count": c.runtimeErrorCount,
+    ...(c.runtimeError !== undefined ? { "qayaba.failure.runtime_error": c.runtimeError } : {}),
+    "qayaba.failure.network_error_count": c.networkErrorCount,
+    ...(c.domLines !== undefined ? { "qayaba.failure.dom_lines": c.domLines } : {}),
+    ...(c.domSha256 !== undefined ? { "qayaba.failure.dom_sha256": c.domSha256 } : {}),
+  };
 }

@@ -714,6 +714,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
   const e2eExecuteDeps: E2eExecuteDeps = {
     ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), exec, env.PW_ACTION_TIMEOUT_MS),
     ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
+    ...(app.dev?.dataState ? { dataState: app.dev.dataState } : {}),
     recordAudit,
   };
   const execution = new ExecutionPortAdapter(
@@ -991,6 +992,7 @@ export function buildRewrittenCompositionConfig(
   const e2eExecuteDeps: E2eExecuteDeps = {
     ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs),
     ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
+    ...(app.dev?.dataState ? { dataState: app.dev.dataState } : {}),
     recordAudit,
     /* The Playwright report as spans (spec files, cases, attempts) under the phase that executes. */
     ...(deps.telemetry ? { onReport: (report, cases) => synthesizeReportSpans({ telemetry: deps.telemetry! }, report, cases) } : {}),

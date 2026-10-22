@@ -1,9 +1,10 @@
 /* E2E Playwright runner against live DEV. Timeouts and recordAudit are injected — this module never reads process.env and never imports src/orchestrator. */
 
+import { createHash } from "node:crypto";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import type { QaCase, CaseStatus } from "@kernel/qa-case.ts";
+import type { QaCase, CaseStatus, FailureSettle, FailureAttemptEvidence } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
@@ -127,14 +128,22 @@ export interface E2eRunOutput {
   signal?: string;
 }
 
+/* The app's declared data state (dev.dataState): per route, the selector that shows its result count. The failure capture reads it at the failure point, with the route matching the Context Pack's capture uses. */
+export interface E2eDataState {
+  routes: Record<string, { resultSelector?: string; resultTextSelector?: string }>;
+}
+
 export interface E2eExecuteDeps {
   /* The app's browser position, handed to every suite child. Absent: the suite's own default. */
   geolocation?: { latitude: number; longitude: number };
+  /* The app's declared data state, handed to every suite child. Absent: the capture records no result count. */
+  dataState?: E2eDataState;
   runSuite(args: {
     dir: string;
     baseUrl: string;
     namespace: string;
     geolocation?: { latitude: number; longitude: number };
+    dataState?: E2eDataState;
     testIdAttribute?: string;
     faultInject?: boolean;
     project?: string;
@@ -230,6 +239,7 @@ export async function runE2E(
     baseUrl: opts.baseUrl,
     namespace: opts.namespace,
     ...(deps.geolocation ? { geolocation: deps.geolocation } : {}),
+    ...(deps.dataState ? { dataState: deps.dataState } : {}),
     faultInject: opts.faultInject,
     /* No project unless one is configured: the repo owns its playwright.config.ts, so every project it defines runs. The seed keeps its login setup project out of a suite run itself (it is defined only under PW_AUTH_SETUP). */
     project: opts.project,
@@ -339,12 +349,14 @@ export async function runE2E(
     }, parsed.executed);
   }
 
-  /* Post-run harvest: read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom, plus the runtime evidence (httpStatus, finalUrl, runtimeErrors, networkErrors). The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md). The dumps are read ONCE and attached to EVERY case (pass and flaky included): a pass case's dump exists only when the fixture wrote one, and a flaky case's first-attempt dump is its evidence. Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the fields we set here because the runtime objects are identical. */
+  /* Post-run harvest: read the aria snapshot dump written by the qa-failure-capture fixture and populate QaCase.failureDom, plus the runtime evidence (httpStatus, finalUrl, runtimeErrors, networkErrors). The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md). The dumps are read ONCE and attached to EVERY case (pass and flaky included): a pass case's dump exists only when the fixture wrote one, and a flaky case's first-attempt dump is its evidence. Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the fields we set here because the runtime objects are identical. */
   const dumps = failureCaptureDir ? readFailureDumps(failureCaptureDir, FAILURE_DUMP_LIMITS, failureCaptureRoot) : [];
   const deniedHosts = activeExecScope()?.report.denied ?? [];
   for (const c of parsed.cases) {
     const qa = c as unknown as QaCase;
-    const dump = matchFailureDumps(c.name, dumps);
+    const caseDumps = failureDumpsOf(c.name, dumps);
+    const dump = caseDumps[0] ?? null;
+    if (failureCaptureDir) qa.failureAttempts = caseDumps.filter((d) => d.project === caseDumps[0]!.project).map(attemptEvidence).sort((a, b) => a.retry - b.retry);
     if (dump?.yaml) {
       const nodes = parseAriaSnapshot(dump.yaml);
       if (nodes.length > 0) qa.failureDom = nodes.join("\n");
@@ -356,6 +368,8 @@ export async function runE2E(
       qa.networkErrors = dump.networkErrors;
       qa.networkClass = deriveNetworkClass(dump.networkErrors, deniedHosts);
     }
+    if (dump?.settle !== undefined) qa.failureSettle = dump.settle;
+    if (dump?.resultCount !== undefined) qa.failureResultCount = dump.resultCount;
     /* No dump (or an unparseable one) for a FAILED case: loud WARNING (grounding gap — never swallow). */
     if (c.status === "fail" && !qa.failureDom) {
       console.warn(`[qa] WARNING: no failure-point DOM captured for failed case ${JSON.stringify(c.name)} (no fixture dump) — fix-loop will run without grounding.`);
@@ -405,6 +419,13 @@ function redactCaseByValue(c: QaCase): void {
   if (c.failureDom !== undefined) c.failureDom = redactByValue(c.failureDom);
   if (c.finalUrl !== undefined) c.finalUrl = redactByValue(c.finalUrl);
   if (c.runtimeErrors !== undefined) c.runtimeErrors = c.runtimeErrors.map((e) => ({ type: e.type, text: redactByValue(e.text) }));
+  if (c.failureAttempts !== undefined) {
+    c.failureAttempts = c.failureAttempts.map((a) => ({
+      ...a,
+      ...(a.finalUrl !== undefined ? { finalUrl: redactByValue(a.finalUrl) } : {}),
+      ...(a.runtimeError !== undefined ? { runtimeError: redactByValue(a.runtimeError) } : {}),
+    }));
+  }
   if (c.networkErrors !== undefined) {
     c.networkErrors = c.networkErrors.map((e) => ({
       ...e,
@@ -439,6 +460,8 @@ export interface FailureDump {
   finalUrl?: string;
   runtimeErrors?: { type: string; text: string }[];
   networkErrors?: QaCase["networkErrors"];
+  settle?: FailureSettle;
+  resultCount?: number;
 }
 
 /* What the Playwright child leaves in the two directories this module makes for a run: the JSON report and the failure-capture dumps. The child runs the repo's specs, which are code the agent wrote, and it knows both paths, so a named pipe, a link or a file of any size can be there instead of what the reporter or the fixture wrote. Both are read through the strict read of spec-path-confinement, under these caps, which are far beyond any real run: a Playwright report holds a few kilobytes per test (a thousand tests that fail on all three attempts with a 4 KB message each make 12 MiB, and nothing real is larger), and an aria snapshot of a very large page a few megabytes. They are parsed in the orchestrator's one thread, and a document of nothing but empty arrays costs some fifteen times its size in heap and about a second of parse for every 12 MiB (one of 128 MiB took 11 s and 2 GiB), so the caps are also what a freeze or an out-of-memory can cost: at these, about a second and a quarter of a gigabyte for the report, and the same for all the dumps together. A worker thread with a heap limit would bound the heap and not the cost of handing the result back, so the smaller cap is the whole defense. */
@@ -479,9 +502,10 @@ const DUMP_FILE_RE = /__(\d+)\.json$/;
 
 /* One dump, from the file the fixture wrote. Throws on what is not JSON; the reader says that the dump was left out and never quotes why. */
 function toFailureDump(name: string, bytes: Buffer): FailureDump {
-  const body = JSON.parse(bytes.toString("utf8")) as { project?: unknown; file?: unknown; title?: unknown; retry?: unknown; yaml?: unknown; httpStatus?: unknown; finalUrl?: unknown; runtimeErrors?: unknown; networkErrors?: unknown };
+  const body = JSON.parse(bytes.toString("utf8")) as { project?: unknown; file?: unknown; title?: unknown; retry?: unknown; yaml?: unknown; httpStatus?: unknown; finalUrl?: unknown; runtimeErrors?: unknown; networkErrors?: unknown; settle?: unknown; resultCount?: unknown };
   const runtimeErrors = parseRuntimeErrors(body.runtimeErrors);
   const networkErrors = parseNetworkErrors(body.networkErrors);
+  const settle = parseSettle(body.settle);
   return {
     project: typeof body.project === "string" ? body.project : "",
     ...(typeof body.file === "string" ? { file: body.file } : {}),
@@ -493,7 +517,19 @@ function toFailureDump(name: string, bytes: Buffer): FailureDump {
     ...(typeof body.finalUrl === "string" ? { finalUrl: body.finalUrl } : {}),
     ...(runtimeErrors.length > 0 ? { runtimeErrors } : {}),
     ...(networkErrors !== undefined ? { networkErrors } : {}),
+    ...(settle !== undefined ? { settle } : {}),
+    ...(isCount(body.resultCount) ? { resultCount: body.resultCount } : {}),
   };
+}
+
+const isCount = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+
+/* Defensively parses the `settle` field of a capture dump: `inFlight` a non-negative integer and `treeStable` a boolean are required, `quietMs` a non-negative integer is kept when present. Anything else drops the whole object (a settle state with a guessed field would misstate the page). Never throws. */
+function parseSettle(v: unknown): FailureSettle | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const e = v as { inFlight?: unknown; quietMs?: unknown; treeStable?: unknown };
+  if (!isCount(e.inFlight) || typeof e.treeStable !== "boolean") return undefined;
+  return { inFlight: e.inFlight, ...(isCount(e.quietMs) ? { quietMs: e.quietMs } : {}), treeStable: e.treeStable };
 }
 
 /* The failure-capture dumps in `dir`, in the order of their names. Each dump stands for its own failed case, so what cannot be used is left out and the rest is used: the case that lost its dump runs without grounding, which the harvest says case by case. What was left out is said once for the directory, by how many and why, naming no file (the child chooses the names) and quoting nothing a dump holds. Never throws and never waits on a pipe. */
@@ -578,15 +614,34 @@ function deriveNetworkClass(errors: NonNullable<QaCase["networkErrors"]>, denied
 }
 
 export function matchFailureDumps(caseName: string, dumps: FailureDump[]): FailureDump | null {
+  return failureDumpsOf(caseName, dumps)[0] ?? null;
+}
+
+/* Every dump of a case, its first project first and, within a project, the latest retry first. */
+function failureDumpsOf(caseName: string, dumps: FailureDump[]): FailureDump[] {
   const caseSegs = titleSegments(caseName);
   const candidates = dumps.filter((d) => {
     if (!d.title || !segmentsAreTail(caseSegs, titleSegments(d.title))) return false;
     if (d.file && !caseSegs.some((s) => s === d.file || s.endsWith(`/${d.file}`))) return false;
     return true;
   });
-  if (candidates.length === 0) return null;
   candidates.sort((a, b) => (a.project < b.project ? -1 : a.project > b.project ? 1 : b.retry - a.retry));
-  return candidates[0]!;
+  return candidates;
+}
+
+function attemptEvidence(d: FailureDump): FailureAttemptEvidence {
+  const nodes = d.yaml ? parseAriaSnapshot(d.yaml) : [];
+  return {
+    retry: d.retry,
+    ...(d.finalUrl !== undefined ? { finalUrl: d.finalUrl } : {}),
+    ...(d.httpStatus !== undefined ? { httpStatus: d.httpStatus } : {}),
+    ...(d.resultCount !== undefined ? { resultCount: d.resultCount } : {}),
+    ...(d.settle !== undefined ? { settle: d.settle } : {}),
+    runtimeErrorCount: d.runtimeErrors?.length ?? 0,
+    ...(d.runtimeErrors?.[0] !== undefined ? { runtimeError: d.runtimeErrors[0].text } : {}),
+    networkErrorCount: d.networkErrors?.length ?? 0,
+    ...(nodes.length > 0 ? { domLines: nodes.length, domSha256: createHash("sha256").update(nodes.join("\n")).digest("hex") } : {}),
+  };
 }
 
 /** Runs the repo's `e2e/` project (with its own config/fixtures) with the JSON reporter. Playwright is not a dependency of this template (it would pull in browsers): it lives in the environment where the service runs (the orchestrator image is based on the Playwright image). PW_BASE_URL points to DEV; PW_NAMESPACE is the run's data prefix (read by the fixtures). Orphan-data cleanup: runs ONLY cleanup.spec.ts with PW_CLEANUP=1 and the interrupted run's namespace, so a crashed run's namespaced test data is deleted before the next run. Best-effort: it never throws and never blocks the new run (failures are warnings). */
@@ -702,7 +757,7 @@ export function createDefaultE2eExecuteDeps(
       const dir = exec.allocDir("failures", ["dumps"]);
       return { dir: join(dir, "dumps"), root: exec.workDir(), dispose: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ } } };
     },
-    runSuite: ({ dir, baseUrl, namespace, geolocation, testIdAttribute, faultInject, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
+    runSuite: ({ dir, baseUrl, namespace, geolocation, dataState, testIdAttribute, faultInject, project, specFiles, retries, grep, countWrites, cleanupPass, signal, timeoutMs, onEvent, failureCaptureDir }) =>
       new Promise((resolve, reject) => {
         /* The specs to run, as a file the orchestrator writes (root-owned, read-only to the sandbox): the child is told which files by an exact list, never by a pattern. */
         const testListPath = specFiles !== undefined && specFiles.length > 0 ? exec.writeScript("spec-list.txt", specListContent(specFiles)) : undefined;
@@ -734,7 +789,7 @@ export function createDefaultE2eExecuteDeps(
           profile: "suite",
           commandClass: "playwright-test",
           ...(geolocation ? { geolocation } : {}),
-          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) },
+          extraEnv: { PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(cleanupPass ? { PW_CLEANUP: "1" } : {}), ...(countWrites ? { PW_COUNT_DEV_WRITES: "1", PW_COVERAGE: "0" } : {}), ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}), ...(failureCaptureDir && dataState ? { PW_DATA_STATE: JSON.stringify(dataState) } : {}) },
         });
 
         const stderr = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);
