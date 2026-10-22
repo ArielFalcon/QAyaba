@@ -6,6 +6,8 @@ import type {
   ContractDrift,
   GenerationEnrichment,
   GenerationOutput,
+  ExecutionPort,
+  ValidationPort,
   CrossRepoImpact,
   ExplorationBrief,
   GroundingOmission,
@@ -82,11 +84,26 @@ export interface GenerationOutcome {
   groundingAttribution: string[];
 }
 
+/* What the validate, health and execute phases left for the fix loop and the phases after it. */
+export interface ExecutionOutcome {
+  /** The static gate's last verdict; the phase ends the run unless it is ok. */
+  validation: Awaited<ReturnType<ValidationPort["validate"]>>;
+  /** The latest generation attempt: the delivered one, or the last static-fix regeneration. */
+  lastGenerated: GenerationOutput | RegressionStandIn;
+  /** Static-fix rounds so far; the fix loop adds to it, never resets it. */
+  retries: number;
+  /** The hash of the login script that signed in just before execute; only such a file is kept by the suite store. */
+  authVerifiedSha256: string | undefined;
+  /** The primary execution; a context run's is a synthetic pass with no cases. */
+  run: Awaited<ReturnType<ExecutionPort["execute"]>>;
+}
+
 export interface RunState {
   classification: Classification;
   setup: SetupOutcome;
   grounding: Grounding;
   generation: GenerationOutcome;
+  execution: ExecutionOutcome;
 }
 
 export function initialRunState(): RunState {
@@ -123,6 +140,13 @@ export function initialRunState(): RunState {
       catalogGateFailClosed: 0,
       groundingCorrections: [],
       groundingAttribution: [],
+    },
+    execution: {
+      validation: { ok: true, errors: [] },
+      lastGenerated: { specs: [], approved: true, reviewed: false, end: null },
+      retries: 0,
+      authVerifiedSha256: undefined,
+      run: { verdict: "pass", cases: [], logs: "" },
     },
   };
 }

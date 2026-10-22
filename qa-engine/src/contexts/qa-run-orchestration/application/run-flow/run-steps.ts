@@ -10,6 +10,7 @@ import type { RunState } from "./run-state.ts";
 import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite, setUpProject } from "./phases/setup.steps.ts";
 import { assembleEnrichment, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
 import { generateFirstPass, groundBeforeExecution, settleGenerationEnd } from "./phases/generate.steps.ts";
+import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, validateStatically } from "./phases/execute.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, stopIfAbortedBeforeGate, waitForDeploy } from "./phases/opening.steps.ts";
 
 export const BEFORE_WORKSPACE: ReadonlyArray<FlowStep<RunState, RunContext, RunQaResult>> = [
@@ -37,4 +38,9 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext,
   { name: "generate the first pass", phase: "generate", run: generateFirstPass },
   { name: "decide from how the generation ended", run: settleGenerationEnd },
   { name: "ground the specs before they run, with one corrective regeneration", run: groundBeforeExecution },
+  { name: "validate the specs, repairing the static gate's errors", phase: "validate", run: validateStatically },
+  { name: "check DEV is healthy before executing", phase: "health", run: checkHealth },
+  { name: "sign in just before the specs run", runs: (_state, ctx) => ctx.input.mode !== "context" && !ctx.cfg.isCode, run: prepareExecuteAuth },
+  { name: "open the execute phase", phase: "execute", runs: (_state, ctx) => ctx.input.mode !== "context", run: announceExecution },
+  { name: "execute the specs", run: executeSpecs },
 ];

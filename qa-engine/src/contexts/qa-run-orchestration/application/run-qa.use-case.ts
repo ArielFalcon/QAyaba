@@ -9,7 +9,6 @@
  */
 
 import { Sha } from "@kernel/sha.ts";
-import { stripAnsi } from "@kernel/ansi.ts";
 import { createHash } from "node:crypto";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
@@ -19,7 +18,6 @@ import { type NoopKind } from "@kernel/noop-kind.ts";
 import { type CoordinationGateSignal, type CoordinationMode, type CoordinationSettings } from "@kernel/coordination.ts";
 import type { LeadSidekicks } from "./coordination/lead-sidekicks.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import { isOk } from "@kernel/result.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { isSandboxUnavailable, type SandboxUnavailableError } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
@@ -126,6 +124,7 @@ import { runFlow } from "./run-flow/run-flow.ts";
 import { initialRunState } from "./run-flow/run-state.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
 import type { RunContext, RunEnds, WorkspaceRunContext } from "./run-flow/run-context.ts";
+import { checkDevHealth, executeAccepted as executeAcceptedOf, liveExecutionOptions, validateAccepted as validateAcceptedOf } from "./run-flow/phases/execute.steps.ts";
 import { BEFORE_WORKSPACE, IN_WORKSPACE } from "./run-flow/run-steps.ts";
 import { ProbeSweepError, closedLoopSignal as closedLoopSignalOf, loopClosedNow as loopClosedNowOf, regenerate as regenerateOf } from "./run-flow/phases/generation-services.ts";
 import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
@@ -159,16 +158,12 @@ import { diffContracts } from "@contexts/objective-signal/domain/test-intent-con
 import type { IntentContractPort } from "./ports/intent-contract.port.ts";
 import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
-import { MAX_STATIC_FIX_ROUNDS } from "../domain/helpers/derive-cycle-backstop.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import { isRunDeadlineError, type RunDeadlineExceededError } from "../../../shared-kernel/run-deadline.ts";
 import { renderRunDeadlineNote } from "../domain/run-time-budget.ts";
 
 /* Same minRatio the coverage policy uses for the E-COVERAGE-GAP band. */
 const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
-
-/* Caps static-gate error text in the repair regen prompt. */
-const STATIC_GATE_ERROR_DETAIL_MAX_CHARS = 4000;
 
 /*
  * Renders every failing case's failureDom into one prompt-facing block.
@@ -921,7 +916,7 @@ export class RunQaUseCase {
     };
 
     /* Shared retries counter for the static-fix loop AND the FixLoop — accumulate, never reset. */
-    let retries = 0;
+    let retries = state.execution.retries;
     /* Winning FixLoop execute namespace (`${runId}-rN`). Absent when the loop never ran. */
     let coverageNamespace: string | undefined;
     /* Undefined when FixLoop never engaged — never fabricated. */
@@ -935,202 +930,21 @@ export class RunQaUseCase {
     let pendingSelectorContradictions: string[] = state.generation.groundingCorrections;
     let pendingAttributedSpecFiles: string[] = state.generation.groundingAttribution;
 
-    /*
-     * Bounded repair of static-gate errors (MAX_STATIC_FIX_ROUNDS). Skipped when
-     * nothing was generated. Repair rounds get validation errors as fixCases; the
-     * initial generate() does not. lastGenerated is the latest attempt's approved flag.
-     * changedFiles scopes the code-target compile gate; ignored by e2e. Empty outside diff mode.
-     */
-    const validateChangedFiles = classificationIntent?.changedFiles ?? [];
-    trail.phases.enter("validate");
-    this.deps.observer?.onStep("validate");
-    const deliveredNow = (): { deliveredSpecs: string[] } => ({ deliveredSpecs: generation.delivered.map((d) => d.file) });
-    let validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
-    let lastGenerated = generated;
+    /* What the validate, health and execute phases left, and the execution closures the later phases still call. */
+    const { validation, lastGenerated, authVerifiedSha256 } = state.execution;
+    let run = state.execution.run;
+    let devNotRenderedConclusive = false;
+    const devHealthy = async (): Promise<boolean> => (await checkDevHealth(ctx)).healthy;
+    const reviewerApprovedFromGeneration = reviewerApprovalOf(lastGenerated);
     /*
      * Prefer FixLoop's final specMetas when present; otherwise lastGenerated's.
      * Undefined when neither source has anything — the "tested" section is omitted.
      */
     const resolveTested = (): { flow?: string; objective?: string }[] | undefined =>
       fixLoopFinalSpecMetas?.length ? fixLoopFinalSpecMetas : lastGenerated.specMetas;
-    let staticFixRounds = 0;
-    /* The same reasoning: a failing gate on a spec the generator saw pass ends the run invalid instead of rewriting the spec. */
-    const staticFixRetired = !validation.ok && !validation.infra && generating && lastGenerated.specs.length > 0 && (await loopClosedNow());
-    if (staticFixRetired) {
-      this.deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the static gate failed, but every delivered spec was seen passing through run_spec: no static-fix rounds" });
-    }
-    while (!staticFixRetired && !validation.ok && !validation.infra && generating && lastGenerated.specs.length > 0 && staticFixRounds < MAX_STATIC_FIX_ROUNDS) {
-      /* Cancel mid-repair must stop before burning another generate()+validate() round-trip. */
-      if (signal?.aborted) {
-        return this.abortedResult(workspace.mirrorDir);
-      }
-      staticFixRounds++;
-      retries++;
-      this.deps.observer?.onStep("retry", `static-fix round ${staticFixRounds}/${MAX_STATIC_FIX_ROUNDS}`);
-      /* Repair regen reuses the same classificationDiff/intent as the initial generate(). */
-      const staticGateErrorDetail = stripAnsi(validation.errors.join("\n\n")).slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
-      lastGenerated = await regenerate(signal, {
-        fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
-      });
-      await enforceConfinement();
-      validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
-    }
-
-    /*
-     * reviewerApproved default is the reviewer's verdict on the latest generation, and exists only
-     * when a reviewer looked at it: a generation nobody reviewed carries a placeholder flag, never
-     * an approval. A regression stand-in was never reviewed either.
-     */
-    const reviewerApprovedFromGeneration = reviewerApprovalOf(lastGenerated);
-
-    if (!validation.ok) {
-      /*
-       * Context-mode validate() failure does not persist (Issue only).
-       * validation.infra is infra-error: the gate itself could not run, not a code defect.
-       */
-      console.error("[qa] static gate failed:", validation.errors);
-      const staticGateNote = validation.errors.slice(0, 2).join("\n\n") || undefined;
-      /* Last confinement pass immediately before this exit's publish(). */
-      await enforceConfinement();
-      return await this.terminalResult(
-        validation.infra ? "infra-error" : "invalid",
-        cfg,
-        input,
-        { generating, static: false },
-        {
-          reviewerApproved: reviewerApprovedFromGeneration,
-          skipPersist: !validation.infra && input.mode === "context",
-          /* Static-fix retries consumed before the gate gave up. */
-          retries,
-          note: staticGateNote,
-          groundingSignals: { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
-          rulesRetrieved: retrievedRuleIds,
-          diffArchetypes,
-          archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
-          confinement: services.confinement.totals,
-          tested: resolveTested(),
-          mirrorDir: workspace.mirrorDir,
-          closedLoop: await closedLoopSignal(),
-          agentBrowser: agentBrowserSignal(),
-        },
-      );
-    }
-
-    /*
-     * Mid-run DEV pre-flight, distinct from the entry gate. Absent DeployGatePort
-     * (static sites / code) defaults to always-healthy. The InfraError message is
-     * captured as a side effect so FixLoop can keep a boolean-returning contract.
-     */
-    trail.phases.enter("health");
-    this.deps.observer?.onStep("health");
-    let lastHealthCheckError: string | undefined;
-    const devHealthy = async (): Promise<boolean> => {
-      if (!this.deps.deployGate) return true;
-      const result = await this.deps.deployGate.waitUntilServing(input.sha);
-      if (!isOk(result)) {
-        lastHealthCheckError = result.error.message;
-        return false;
-      }
-      return true;
-    };
-    /*
-     * Infra-error between validation and execute (DEV down, login broken): specs were already
-     * generated, so the run is persisted like any other terminal but never folds or reflects.
-     * This exit persists static:false even though validation already passed — the stored field
-     * for this source is false.
-     */
-    const preExecuteInfraError = async (reason: string, ending: { preconditionFailed?: boolean } = {}): Promise<RunQaResult> => {
-      /* Confinement still runs for revert even though this exit does not publish. */
-      await enforceConfinement();
-      return await this.terminalResult(
-        "infra-error",
-        cfg,
-        input,
-        { generating, static: false },
-        {
-          reviewerApproved: reviewerApprovedFromGeneration,
-          retries,
-          note: reason,
-          ...(ending.preconditionFailed ? { preconditionFailed: true } : {}),
-          groundingSignals: { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
-          /* Retrieved ids reach the persisted outcome for diagnosability only. */
-          rulesRetrieved: retrievedRuleIds,
-          diffArchetypes,
-          archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
-          confinement: services.confinement.totals,
-          tested: resolveTested(),
-          mirrorDir: workspace.mirrorDir,
-          closedLoop: await closedLoopSignal(),
-          agentBrowser: agentBrowserSignal(),
-        },
-      );
-    };
-    if (!(await devHealthy())) {
-      const healthReason = lastHealthCheckError ?? "DEV health pre-flight failed before execute";
-      console.error("[qa] health pre-flight failed before execute:", healthReason);
-      return await preExecuteInfraError(healthReason);
-    }
-    if (signal?.aborted) {
-      return this.abortedResult(workspace.mirrorDir);
-    }
-
-    /*
-     * Context mode never executes — context.json is not a Playwright spec.
-     * A successful context generation is an immediate pass with zero cases.
-     */
-    /* The hash of the login script that signed in just before execute; only such a file is kept by the suite store. */
-    let authVerifiedSha256: string | undefined;
-    if (input.mode !== "context" && !cfg.isCode) {
-      const auth = await this.prepareAuth(workspace.specDir, "pre-execute", signal);
-      if ("failed" in auth) return await preExecuteInfraError(auth.failed);
-      if ("precondition" in auth) {
-        if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
-        /* Reached only by a run that generates tests (the guard above), which a failed login always ends. */
-        this.announcePrecondition(auth.precondition, true);
-        return await preExecuteInfraError(this.preconditionNote(auth.precondition), { preconditionFailed: true });
-      }
-      authVerifiedSha256 = auth.setupSha256;
-    }
-    if (input.mode !== "context") {
-      trail.phases.enter("execute");
-      this.deps.observer?.onStep("execute");
-    }
-    /* Live per-case ObserverPort events during execute(). Absent observer: callbacks are no-ops. */
-    const liveExecutionOpts = {
-      ...(signal ? { signal } : {}),
-      onCase: (c: QaCase) => {
-        this.deps.observer?.onEvent(
-          c.status === "pass"
-            ? { type: "test.passed", name: c.name, durationMs: c.durationMs ?? 0 }
-            : c.status === "fail"
-              ? { type: "test.failed", name: c.name, detail: c.detail, ...(c.durationMs !== undefined ? { durationMs: c.durationMs } : {}) }
-              : { type: "test.flaky", name: c.name, attempts: 2 },
-        );
-      },
-      onRunning: (title: string) => {
-        this.deps.observer?.onEvent({ type: "test.started", name: title });
-      },
-      onDiscovered: (title: string, file?: string) => {
-        this.deps.observer?.onEvent({ type: "test.discovered", name: title, ...(file ? { file } : {}) });
-      },
-    };
-    /* The execution and the static gate an acceptance spends: the run's live observer and signal travel with them, as on every other call. */
-    const executeAccepted: ExecutionPort["execute"] = (specDir, opts) =>
-      this.deps.execution.execute(specDir, {
-        ...liveExecutionOpts,
-        ...(opts === undefined ? {} : opts instanceof AbortSignal ? { signal: opts } : opts),
-      });
-    const validateAccepted: ValidationPort["validate"] = (specDir, changedFiles) =>
-      this.deps.validation.validate(specDir, changedFiles, deliveredNow());
-    let run = input.mode === "context"
-      ? { verdict: "pass" as const, cases: [] as QaCase[], logs: generated.note ?? "" }
-      : await this.deps.execution.execute(workspace.specDir, liveExecutionOpts);
-    /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
-    await primeIntentBaseline();
-    let devNotRenderedConclusive = false;
-    if (signal?.aborted) {
-      return this.abortedResult(workspace.mirrorDir);
-    }
+    const liveExecutionOpts = liveExecutionOptions(ctx);
+    const executeAccepted = executeAcceptedOf(ctx);
+    const validateAccepted = validateAcceptedOf(ctx);
 
     /* FixLoop only when the initial verdict is "fail". Context mode's synthetic pass never enters. */
     if (run.verdict === "fail") {
