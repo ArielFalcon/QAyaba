@@ -143,7 +143,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { generationRunsReviewer } from "@contexts/generation/domain/generation-review.ts";
-import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
+import { FixLoop, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
 import { attributeContradictions } from "../domain/helpers/contradiction-attribution.ts";
@@ -1862,12 +1862,69 @@ export class RunQaUseCase {
       const fixLoopSelectorCheck: FixLoopSelectorCheckPort = {
         check: (specSources, trees) => ({ ...checkSpecSelectors(specSources, trees), origins: contradictionOrigins(specSources, trees) }),
       };
+      /*
+       * The run's acceptance of a fix-loop round: the snapshot the turn may change, the validation and
+       * execution of the changed specs (a failing round is adopted so the loop repairs from it), and
+       * the bytes of the round that produced the best run. Always wired: the byte restore is a
+       * correctness fix, never behind the review-loop switch.
+       */
+      const fixLoopAcceptance: FixLoopAcceptancePort = {
+        begin: () => snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir)),
+        accept: async ({ round, specs, namespace }) => {
+          const snapshot = round as SpecSnapshot;
+          const changedSpecFiles = await suiteChangedFiles(snapshot, specs);
+          if (changedSpecFiles.length === 0) {
+            /* The turn changed no bytes: nothing to accept, and the round's current bytes are its token. */
+            return { kind: "accepted", changedSpecFiles, accepted: snapshot };
+          }
+          const outcome = await acceptance.accept({
+            specDir: workspace.specDir,
+            changedSpecFiles,
+            namespace,
+            snapshot,
+            adoptFailures: true,
+            ...(closedLoop ? { closedLoop } : {}),
+            deadline: runDeadlinePort,
+            validate: validateAccepted,
+            execute: executeAccepted,
+          });
+          if (outcome.kind === "accepted") {
+            integrityCounters.acceptances += 1;
+            if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+            /* The bytes this round leaves behind are the token a later, worse round is measured against. */
+            const accepted = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
+            return {
+              kind: "accepted",
+              changedSpecFiles,
+              ...(outcome.execution ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } } : {}),
+              accepted,
+            };
+          }
+          if (outcome.kind === "cap") {
+            integrityCounters.capHit = true;
+            return { kind: "cap" };
+          }
+          integrityCounters.rejected += 1;
+          return {
+            kind: "rejected",
+            reason: outcome.reason,
+            ...(outcome.execution
+              ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } }
+              : {}),
+          };
+        },
+        restore: async (token) => {
+          const snapshot = token as SpecSnapshot;
+          /* Every file created after the best round goes, and its own bytes go back: the suite is exactly the best round's. */
+          const created = listSpecFiles(workspace.specDir).filter((file) => !snapshot.files.has(file));
+          await snapshotPort.restore(workspace.specDir, snapshot, created);
+        },
+      };
       const fixLoop = new FixLoop({
         execution: fixLoopExecution,
         generation: fixLoopGeneration,
         selectorCheck: fixLoopSelectorCheck,
-        /* Re-validate before retry execute so a compile error does not hit live DEV. */
-        revalidate: (specDir) => this.deps.validation.validate(specDir, undefined, deliveredNow()),
+        acceptance: fixLoopAcceptance,
       });
       /*
        * coverageLikelyMeasured omits the cross-repo conjunct on purpose: a false

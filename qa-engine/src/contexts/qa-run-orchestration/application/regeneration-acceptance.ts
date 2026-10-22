@@ -4,7 +4,9 @@
  * is accepted only after it validates and its changed specs execute green (or reuse a proof), and the
  * green bytes are fingerprinted into the run's proof ledger; a regeneration that is not accepted has
  * its pre-turn bytes restored and the files its turn created removed, so the bytes on disk always
- * equal the last bytes that executed green. Built once per run; the run's own counter caps how many
+ * equal the last bytes that executed green. An iterative fix-loop round may adopt a failing execution
+ * (`adoptFailures`): its bytes and cases stand while the loop repairs them, but only green bytes get a
+ * proof, so nothing can publish them. Built once per run; the run's own counter caps how many
  * acceptance executions one run spends, and the run's deadline bounds each of them.
  */
 import type { RunVerdict } from "@kernel/run-verdict.ts";
@@ -31,7 +33,12 @@ export type AcceptanceOutcome =
       /** path → sha256 of the accepted (green) bytes, for the proof ledger. */
       proof: readonly AcceptanceProofEntry[];
     }
-  | { kind: "rejected"; reason: string }
+  | {
+      kind: "rejected";
+      reason: string;
+      /** The execution that rejected the round (an infra-error), when one ran. */
+      execution?: { verdict: RunVerdict; cases: readonly QaCase[]; logs: string };
+    }
   | { kind: "cap" };
 
 export interface RegenerationAcceptanceDeps {
@@ -54,6 +61,12 @@ export interface AcceptanceInput {
   snapshot: SpecSnapshot;
   /** The proof source: a changed file whose current bytes `isClosed([file])` is not executed. Absent: every change is executed. */
   closedLoop?: Pick<ClosedLoopHandle, "isClosed">;
+  /**
+   * An iterative fix-loop round adopts a failing or flaky execution: its bytes and cases stand
+   * because the run is already failing and the loop repairs from them. Validation failures, an
+   * infra-error and the cap still reject and restore, and only green bytes reach the proof ledger.
+   */
+  adoptFailures?: boolean;
   /** No time left: an execution that would start throws the run's deadline error. */
   deadline: RunDeadlinePort;
   validate: ValidationPort["validate"];
@@ -120,21 +133,27 @@ export class RegenerationAcceptance {
     if (toExecute.length > 0) {
       this.executions += 1;
       const result = await input.execute(input.specDir, { specFiles: toExecute, retries: 0, namespace: input.namespace });
-      if (result.verdict !== "pass") {
+      if (result.verdict !== "pass" && (!input.adoptFailures || result.verdict === "infra-error")) {
         await restore();
-        return { kind: "rejected", reason: `execution ended ${result.verdict}` };
+        return {
+          kind: "rejected",
+          reason: `execution ended ${result.verdict}`,
+          execution: { verdict: result.verdict, cases: result.cases, logs: result.logs },
+        };
       }
       execution = { verdict: result.verdict, cases: result.cases, logs: result.logs };
     }
 
-    /* 7. Fingerprint the accepted bytes and record the proof ledger. */
-    const accepted = await this.deps.snapshot.snapshot(input.specDir, [...input.changedSpecFiles]);
+    /* 7. Fingerprint the accepted bytes and record the proof ledger. Only green bytes get a proof: a fix-loop round may adopt a failing execution, but nothing may publish it. */
     const proof: AcceptanceProofEntry[] = [];
-    for (const file of input.changedSpecFiles) {
-      const bytes = accepted.files.get(file);
-      if (bytes !== undefined) proof.push({ file, sha256: this.deps.fingerprint(bytes), bytes });
+    if (execution === undefined || execution.verdict === "pass") {
+      const accepted = await this.deps.snapshot.snapshot(input.specDir, [...input.changedSpecFiles]);
+      for (const file of input.changedSpecFiles) {
+        const bytes = accepted.files.get(file);
+        if (bytes !== undefined) proof.push({ file, sha256: this.deps.fingerprint(bytes), bytes });
+      }
+      for (const entry of proof) await this.deps.ledger(entry);
     }
-    for (const entry of proof) await this.deps.ledger(entry);
 
     return {
       kind: "accepted",

@@ -113,6 +113,51 @@ test("a regeneration that fails execution restores its prior bytes and is reject
   assert.equal(ran, 1, "the execution did run before the bytes were put back");
 });
 
+test("a failing execution is adopted for an iterative fix-loop round: its bytes stay, and no green proof is recorded", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/checkout.spec.ts"],
+    namespace: "run-1-r1",
+    snapshot: snapshotOf(["flows/checkout.spec.ts"]),
+    adoptFailures: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({
+      verdict: "fail",
+      cases: [{ name: "checkout", status: "fail", file: "flows/checkout.spec.ts", detail: "getByRole resolved to 0 elements" }],
+      logs: "",
+    }),
+  });
+
+  assert.equal(outcome.kind, "accepted");
+  if (outcome.kind === "accepted") {
+    assert.equal(outcome.execution?.verdict, "fail", "the loop adopts the round's failing cases to repair from");
+    assert.deepEqual(outcome.proof, [], "a failing round's bytes are never proof of green");
+  }
+  assert.equal(h.restores.length, 0, "the failing bytes stay: the next round repairs them");
+  assert.equal(h.ledgered.length, 0, "nothing green is recorded for a failing round");
+});
+
+test("an infra-error is never adopted: its bytes are restored and the rejection carries the execution", async () => {
+  const h = harness();
+  const outcome = await h.service.accept({
+    specDir: "/w/e2e",
+    changedSpecFiles: ["flows/checkout.spec.ts"],
+    namespace: "run-1-r1",
+    snapshot: snapshotOf(["flows/checkout.spec.ts"]),
+    adoptFailures: true,
+    deadline: deadline(60_000),
+    validate,
+    execute: async () => ({ verdict: "infra-error", cases: [], logs: "browser launch failed" }),
+  });
+
+  assert.equal(outcome.kind, "rejected");
+  if (outcome.kind === "rejected") assert.equal(outcome.execution?.verdict, "infra-error");
+  assert.equal(h.restores.length, 1, "an execution that could not run leaves the prior bytes");
+  assert.equal(h.ledgered.length, 0);
+});
+
 test("a file the turn created is removed when the regeneration is rejected", async () => {
   const h = harness();
   const outcome = await h.service.accept({

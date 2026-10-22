@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   FixLoop,
+  type FixLoopAcceptanceOutcome,
+  type FixLoopAcceptancePort,
   type FixLoopExecuteInput,
   type FixLoopExecutionPort,
   type FixLoopGenerateInput,
@@ -36,6 +38,39 @@ function regenAlwaysSucceeds(): FixLoopGenerationPort {
     generate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
   };
 }
+
+/* A fake acceptance: the test scripts each round's outcome and records the calls the loop makes. */
+function fakeAcceptance(
+  accept: FixLoopAcceptancePort["accept"],
+): FixLoopAcceptancePort & { restored: unknown[]; accepted: Array<{ round: unknown; specs: readonly string[]; namespace: string }> } {
+  const restored: unknown[] = [];
+  const accepted: Array<{ round: unknown; specs: readonly string[]; namespace: string }> = [];
+  let begins = 0;
+  return {
+    begin: async () => ({ round: (begins += 1) }),
+    accept: async (input) => {
+      accepted.push(input);
+      return accept(input);
+    },
+    restore: async (token) => {
+      restored.push(token);
+    },
+    restored,
+    accepted,
+  };
+}
+
+const oneFailure = (): FixLoopRun => ({
+  verdict: "fail",
+  cases: [{ name: "b", status: "fail", file: "b.spec.ts", detail: "getByRole resolved to 0 elements" }],
+});
+const twoFailures = (): FixLoopRun => ({
+  verdict: "fail",
+  cases: [
+    { name: "a", status: "fail", file: "a.spec.ts", detail: "getByRole resolved to 0 elements" },
+    { name: "b", status: "fail", file: "b.spec.ts", detail: "getByRole resolved to 0 elements" },
+  ],
+});
 
 test("break-issue with runner_infra evidence -> infra-error, no regen call", async () => {
   let regenCalled = false;
@@ -574,6 +609,426 @@ test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail
   assert.equal(result.run.cases[0]!.detail?.includes("Expected: 'Paid'"), true);
 });
 
+test("an accepted round's execution replaces its changed file's cases, and the loop never executes directly", async () => {
+  const acceptance = fakeAcceptance(async () => ({
+    kind: "accepted",
+    changedSpecFiles: ["a.spec.ts"],
+    execution: { verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] },
+    accepted: "round-a-v1",
+  }));
+  let executed = false;
+  const execution: FixLoopExecutionPort = {
+    execute: async () => {
+      executed = true;
+      throw new Error("the accepted path must not call the retry execution port");
+    },
+  };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: twoFailures(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.equal(executed, false);
+  assert.equal(acceptance.accepted.length, 1);
+  assert.deepEqual(acceptance.accepted[0]!.specs, ["a.spec.ts"]);
+  assert.deepEqual(acceptance.accepted[0]!.round, { round: 1 }, "the round is accepted against the token begin() captured");
+  assert.equal(acceptance.accepted[0]!.namespace, "qa-bot-abc-r1", "the round's own execution namespace");
+  assert.equal(result.run.verdict, "fail", "b.spec.ts still fails");
+  assert.equal(result.run.cases.find((c) => c.name === "a")?.status, "pass", "the accepted execution's case replaced the old failure");
+  assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1, "unchanged files keep their cases");
+  assert.deepEqual(acceptance.restored, [], "the accepted round is the final run, so nothing is restored");
+});
+
+test("a rejected acceptance keeps the prior run and stops without executing", async () => {
+  const acceptance = fakeAcceptance(async () => ({ kind: "rejected", reason: "TS2554: expected 2 arguments" }));
+  let executed = false;
+  const execution: FixLoopExecutionPort = {
+    execute: async () => {
+      executed = true;
+      throw new Error("a rejected round must not run the retry execution port");
+    },
+  };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: twoFailures(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 2,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.equal(executed, false);
+  assert.equal(acceptance.accepted.length, 1);
+  assert.equal(result.retries, 1);
+  assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 2, "the prior verdict and bytes stand");
+});
+
+test("a capped acceptance keeps the prior run and stops without executing", async () => {
+  const acceptance = fakeAcceptance(async () => ({ kind: "cap" }));
+  let executed = false;
+  const execution: FixLoopExecutionPort = {
+    execute: async () => {
+      executed = true;
+      throw new Error("a capped round must not run the retry execution port");
+    },
+  };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: twoFailures(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 2,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.equal(executed, false);
+  assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 2, "the prior verdict and bytes stand");
+});
+
+test("the best round's snapshot is restored when a later round regresses", async () => {
+  let round = 0;
+  const acceptance = fakeAcceptance(async (): Promise<FixLoopAcceptanceOutcome> => {
+    round += 1;
+    if (round === 1) {
+      return {
+        kind: "accepted",
+        changedSpecFiles: ["a.spec.ts"],
+        execution: { verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] },
+        accepted: "round-a-v1",
+      };
+    }
+    return {
+      kind: "accepted",
+      changedSpecFiles: ["a.spec.ts"],
+      execution: { verdict: "fail", cases: [{ name: "a", status: "fail", file: "a.spec.ts", detail: "getByRole resolved to 0 elements" }] },
+      accepted: "round-a-v2",
+    };
+  });
+  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: twoFailures(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 2,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.deepEqual(acceptance.restored, ["round-a-v1"], "the best round's bytes go back, not the worse round's");
+  assert.equal(result.run.cases.find((c) => c.name === "a")?.status, "pass", "the best round's cases are the run");
+  assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1);
+});
+
+test("an accepted round keeps a case the run cannot attribute to a file", async () => {
+  const acceptance = fakeAcceptance(async () => ({
+    kind: "accepted",
+    changedSpecFiles: ["a.spec.ts"],
+    execution: { verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] },
+    accepted: "round-a-v1",
+  }));
+  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: {
+      verdict: "fail",
+      cases: [
+        { name: "b", status: "fail", file: "b.spec.ts", detail: "getByRole resolved to 0 elements" },
+        { name: "suite", status: "fail", detail: "the whole suite failed before a spec was named" },
+      ],
+    },
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.equal(
+    result.run.cases.some((c) => c.name === "suite" && c.file === undefined),
+    true,
+    "a case with no file cannot be attributed to a changed spec, so the merge keeps it",
+  );
+});
+
+test("the initial run's own bytes are restored when the first accepted round is worse", async () => {
+  const acceptance = fakeAcceptance(async () => ({
+    kind: "accepted",
+    changedSpecFiles: ["a.spec.ts", "c.spec.ts"],
+    execution: {
+      verdict: "fail",
+      cases: [
+        { name: "a", status: "fail", file: "a.spec.ts", detail: "getByRole resolved to 0 elements" },
+        { name: "c", status: "fail", file: "c.spec.ts", detail: "getByRole resolved to 0 elements" },
+      ],
+    },
+    accepted: "round-worse",
+  }));
+  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts", "c.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: oneFailure(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.deepEqual(acceptance.restored, [{ round: 1 }], "the first pre-turn snapshot is the initial run's own bytes");
+  assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1, "the initial run stays the best run");
+});
+
+test("an accepted flaky round makes the run flaky", async () => {
+  const acceptance = fakeAcceptance(async () => ({
+    kind: "accepted",
+    changedSpecFiles: ["a.spec.ts"],
+    execution: { verdict: "flaky", cases: [{ name: "a", status: "flaky", file: "a.spec.ts" }] },
+    accepted: "round-a-flaky",
+  }));
+  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: { verdict: "fail", cases: [{ name: "a", status: "fail", file: "a.spec.ts", detail: "getByRole resolved to 0 elements" }] },
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.equal(result.run.verdict, "flaky", "a retry that only passes on the second attempt is quarantined, not passed");
+});
+
+test("DEV unhealthy before a round's acceptance skips it", async () => {
+  let devCalls = 0;
+  const acceptance = fakeAcceptance(async () => ({ kind: "cap" }));
+  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: oneFailure(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    /* Healthy for the initial snapshot; down by the time the round's acceptance is asked to run. */
+    devHealthy: async () => {
+      devCalls += 1;
+      return devCalls === 1;
+    },
+    namespace: "qa-bot-abc",
+  });
+
+  assert.equal(acceptance.accepted.length, 0, "a round is not accepted while DEV is down");
+  assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1, "the prior run stands");
+});
+
+test("a rejected fail round ends as infra-error when DEV went unhealthy during it", async () => {
+  let devCalls = 0;
+  const acceptance = fakeAcceptance(async () => ({
+    kind: "rejected",
+    reason: "execution failed",
+    execution: { verdict: "fail", cases: [] },
+  }));
+  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: oneFailure(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    /* Healthy for the initial snapshot and the pre-acceptance check; down by the time the rejected failure is classified. */
+    devHealthy: async () => {
+      devCalls += 1;
+      return devCalls <= 2;
+    },
+    namespace: "qa-bot-abc",
+  });
+
+  assert.equal(result.run.verdict, "infra-error");
+});
+
+test("a validation rejection while DEV is down stays a validation rejection, not an infra-error", async () => {
+  let devCalls = 0;
+  const acceptance = fakeAcceptance(async () => ({ kind: "rejected", reason: "TS2554: expected 2 arguments" }));
+  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: oneFailure(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    /* Healthy for the snapshot and the pre-acceptance check; down when the rejection is read. */
+    devHealthy: async () => {
+      devCalls += 1;
+      return devCalls <= 2;
+    },
+    namespace: "qa-bot-abc",
+  });
+
+  assert.equal(result.run.verdict, "fail", "a deterministic validation failure is not an infrastructure failure");
+  assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1, "the prior run stands");
+});
+
+test("a rejected infra-error round ends the run as infra-error", async () => {
+  const acceptance = fakeAcceptance(async () => ({
+    kind: "rejected",
+    reason: "execution ended infra-error",
+    execution: { verdict: "infra-error", cases: [] },
+  }));
+  const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
+  const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
+    acceptance,
+  });
+
+  const result = await loop.run({
+    initialRun: twoFailures(),
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 2,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+
+  assert.equal(result.run.verdict, "infra-error");
+  assert.equal(result.run.cases.length, 0);
+});
+
 /* decideProgress (helpers/progress-gate.ts) downgrades a Signal-B "progress" verdict to spend:false
    when the CURRENT round's reexploreNavigations >= REEXPLORE_FLAIL_THRESHOLD (3). The prior round's
    nav count (result?.reexploreNavigations ?? 0) is read at the next round's gate. Without this
@@ -818,6 +1273,7 @@ function recordingLoop(opts: {
   runs?: FixLoopRun[];
   regen?: (round: number) => FixLoopGenerateResult;
   check?: (round: number) => SpecSelectorFindings;
+  acceptance?: FixLoopAcceptancePort;
 }) {
   const rec = {
     executes: [] as FixLoopExecuteInput[],
@@ -845,6 +1301,7 @@ function recordingLoop(opts: {
         return opts.check ? opts.check(rec.checks.length) : findings();
       },
     },
+    ...(opts.acceptance ? { acceptance: opts.acceptance } : {}),
   });
   return { loop, rec };
 }
@@ -1075,9 +1532,23 @@ test("DEV found down at the adjudication snapshot ends the loop as infra-error, 
 });
 
 test("code mode re-runs the repo's own suite under the run's namespace and keeps that namespace for coverage", async () => {
-  const { loop, rec } = recordingLoop({ regen: () => ({ specs: ["test/cart.test.ts"], approved: true }), runs: [{ verdict: "pass", cases: [{ name: "cart", status: "pass" }] }] });
+  let began = 0;
+  const acceptance: FixLoopAcceptancePort = {
+    begin: async () => {
+      began += 1;
+      return { round: began };
+    },
+    accept: async () => {
+      throw new Error("code mode must not accept an e2e round");
+    },
+    restore: async () => {
+      throw new Error("code mode has no e2e bytes to restore");
+    },
+  };
+  const { loop, rec } = recordingLoop({ regen: () => ({ specs: ["test/cart.test.ts"], approved: true }), runs: [{ verdict: "pass", cases: [{ name: "cart", status: "pass" }] }], acceptance });
   const result = await loop.run(loopInput({ isCode: true, initialRun: { verdict: "fail", cases: [makeCase({ name: "cart", detail: "AssertionError: expected 1 to equal 2" })] } }));
   assert.deepEqual(rec.executes, [{ namespace: "qa-bot-run" }]);
+  assert.equal(began, 0, "a code-mode run has no suite snapshot to take");
   assert.equal(result.run.verdict, "pass");
   assert.equal(result.coverageNamespace, "qa-bot-run");
 });

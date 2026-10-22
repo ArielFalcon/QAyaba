@@ -1,4 +1,4 @@
-/* FixLoop aggregate: triage → selector check → adjudicate → regen → re-execute, with absentKeys short-circuit and a fewest-failures regression guard. Triage and the typed test-correct claim are capabilities the caller grants only while the review-loop integrity switch is on. CycleBudget/WallClockBudget are forwarded unread into every generate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
+/* FixLoop aggregate: triage → selector check → adjudicate → regen → accept (validate + execute the changed specs; a rejected or capped round restores its bytes), with absentKeys short-circuit and a fewest-failures regression guard that restores the best round's bytes too. Triage and the typed test-correct claim are capabilities the caller grants only while the review-loop integrity switch is on. CycleBudget/WallClockBudget are forwarded unread into every generate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
@@ -59,8 +59,53 @@ export interface FixLoopDeps {
   execution: FixLoopExecutionPort;
   generation: FixLoopGenerationPort;
   selectorCheck: FixLoopSelectorCheckPort;
+  /**
+   * The run's acceptance of an e2e round: the pre-turn snapshot, the changed-spec validation and
+   * execution, and the bytes of the round that produced the best run. Always wired by the run (B-9:
+   * the byte restore is a correctness fix, never behind the switch); absent only in aggregate unit
+   * tests that have no working copy, which keep the pre-acceptance retry path below.
+   */
+  acceptance?: FixLoopAcceptancePort;
+  /** Pre-acceptance retry path, kept for a caller with no working copy (aggregate unit tests). */
   revalidate?: (specDir: string) => Promise<{ ok: boolean; errors: string[] }>;
 }
+
+/**
+ * Acceptance of one fix-loop round. The run owns the snapshot and the execution; the aggregate sees
+ * an opaque round token and matches it to the best run it keeps.
+ */
+export interface FixLoopAcceptancePort {
+  /** Before the turn: capture the suite bytes the turn may change. */
+  begin(): Promise<unknown>;
+  /**
+   * After the turn: validate the changed specs and execute them once. A round whose execution fails
+   * is still accepted for an iterative loop (its cases are what the next round repairs); a validation
+   * failure, an infra-error or the cap is rejected and has the pre-turn bytes restored.
+   */
+  accept(input: {
+    /** The token `begin()` returned for this round. */
+    round: unknown;
+    /** The specs the turn delivered, suite-relative. */
+    specs: readonly string[];
+    /** The execution namespace: `${runId}-r<n>`. */
+    namespace: string;
+  }): Promise<FixLoopAcceptanceOutcome>;
+  /** Put back the accepted bytes of the round whose token this is (the best run's snapshot). */
+  restore(token: unknown): Promise<void>;
+}
+
+export type FixLoopAcceptanceOutcome =
+  | {
+      kind: "accepted";
+      /** The specs the turn actually changed (created, rewritten or deleted), suite-relative. */
+      changedSpecFiles: readonly string[];
+      /** The execution of the changed specs; absent when every change already held a green proof. */
+      execution?: FixLoopRun;
+      /** The bytes this round leaves on disk, for restoring it if it is the best run. */
+      accepted: unknown;
+    }
+  | { kind: "rejected"; reason: string; /** The execution that rejected the round (an infra-error), when one ran. */ execution?: FixLoopRun }
+  | { kind: "cap" };
 
 /**
  * What the caller grants the loop while the review-loop integrity switch is on: the evidence the
@@ -123,6 +168,32 @@ function normalizeSpecPath(path: string): string {
   return normalized;
 }
 
+/* An accepted round's execution replaces its changed files' cases; every other file keeps its last result. The merged verdict is never greener than the execution that just ran. */
+function mergeAcceptedRound(current: FixLoopRun, outcome: Extract<FixLoopAcceptanceOutcome, { kind: "accepted" }>): FixLoopRun {
+  const changed = new Set(outcome.changedSpecFiles.map(normalizeSpecPath));
+  const reported = new Set(
+    (outcome.execution?.cases ?? [])
+      .map((c) => c.file)
+      .filter((file): file is string => file !== undefined)
+      .map(normalizeSpecPath),
+  );
+  const cases = [
+    ...current.cases.filter((c) => {
+      if (c.file === undefined) return true;
+      const file = normalizeSpecPath(c.file);
+      return !changed.has(file) && !reported.has(file);
+    }),
+    ...(outcome.execution?.cases ?? []),
+  ];
+  const verdict: RunVerdict =
+    outcome.execution?.verdict === "fail" || cases.some((c) => c.status === "fail")
+      ? "fail"
+      : outcome.execution?.verdict === "flaky" || cases.some((c) => c.status === "flaky")
+        ? "flaky"
+        : "pass";
+  return { verdict, cases };
+}
+
 function buildFailureDomLines(failureDom: string | undefined): string[] {
   if (!failureDom) return [];
   return failureDom.split("\n").filter((l) => l.trim());
@@ -162,6 +233,9 @@ export class FixLoop {
     let retries = 0;
     let prevRound: RoundResult | null = null;
     let bestRunSoFar: FixLoopRun = run;
+    /* The accepted bytes of the best run, and whether a round has ever captured them. */
+    let bestToken: unknown;
+    let hasBestToken = false;
     let realBugDetected = false;
     let adjVerdict: AdjudicatorVerdict | undefined;
     let coverageNs = input.namespace;
@@ -306,6 +380,18 @@ export class FixLoop {
 
       prevRound = curRound;
 
+      /*
+       * The round's bytes, captured before the turn: a rejected or capped round is restored from them,
+       * and the first round's are the initial run's bytes if that run stays the best. The namespace is
+       * unique per attempt so a retry cannot collide with its own prior attempt's test data.
+       */
+      const roundNs = `${input.namespace}-r${retry + 1}`;
+      const roundToken = !input.isCode && this.deps.acceptance ? await this.deps.acceptance.begin() : undefined;
+      if (!input.isCode && this.deps.acceptance && !hasBestToken) {
+        bestToken = roundToken;
+        hasBestToken = true;
+      }
+
       /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread (see the header). */
       const result = await this.deps.generation.generate({
         fixCases: failed,
@@ -366,12 +452,43 @@ export class FixLoop {
         continue;
       }
 
+      /* Whether this round's acceptance accepted it, and the bytes it leaves for the best-run restore. */
+      let roundAccepted = false;
+      let acceptedToken: unknown;
+
       if (input.isCode) {
         /* Code mode: re-run the repo's own test suite directly — this branch never calls deps.revalidate (that seam is e2e-only, below). Code-mode pre-execution compile validation lives in the pipeline's validation phase (CodeValidationStrategy), not per-retry here; a code retry's compile failure surfaces through the execute() run itself (exit-code classification). */
         const codeRun = await this.deps.execution.execute({ namespace: input.namespace });
         run = codeRun;
+      } else if (this.deps.acceptance) {
+        if (!(await input.devHealthy())) break; /* DEV unhealthy before the round's execution */
+
+        const outcome = await this.deps.acceptance.accept({
+          round: roundToken,
+          specs: result.specs,
+          namespace: roundNs,
+        });
+        if (outcome.kind === "rejected") {
+          /*
+           * A validation failure or an infra-error: the prior verdict and bytes stand. A live
+           * execution that failed while DEV went unhealthy is the run's infra-error, as before.
+           */
+          if (
+            outcome.execution?.verdict === "infra-error" ||
+            (outcome.execution?.verdict === "fail" && !(await input.devHealthy()))
+          ) {
+            run = { verdict: "infra-error", cases: [] };
+          }
+          break;
+        }
+        if (outcome.kind === "cap") break; /* the prior verdict and bytes stand (B-7) */
+
+        run = mergeAcceptedRound(run, outcome);
+        coverageNs = roundNs;
+        roundAccepted = true;
+        acceptedToken = outcome.accepted;
       } else {
-        /* Fresh namespace per retry so a retry cannot collide with its own prior attempt's test data. */
+        /* Pre-acceptance retry path, for a caller with no working copy (aggregate unit tests). The run always wires `acceptance`. */
         if (this.deps.revalidate) {
           const reValidation = await this.deps.revalidate(input.specDir ?? "");
           if (!reValidation.ok) break; /* retry validation failed; keep original verdict */
@@ -434,21 +551,29 @@ export class FixLoop {
         coverageNs = retryNs;
       }
 
-      /* Keep the best EXECUTED run seen so far. infra-error is never "better". */
+      /* Keep the best EXECUTED run seen so far, with the bytes that produced it. infra-error is never "better". */
       if (run.verdict !== "infra-error") {
-        bestRunSoFar = bestRound([
+        const best = bestRound([
           { failingCount: failCount(bestRunSoFar), run: bestRunSoFar },
           { failingCount: failCount(run), run },
         ])!.run;
+        bestRunSoFar = best;
+        /* Only an accepted round has bytes of its own; the initial run's are the first pre-turn snapshot. */
+        if (roundAccepted && best === run) {
+          bestToken = acceptedToken;
+          hasBestToken = true;
+        }
       }
     }
 
-    /* Restore bestRunSoFar after the loop — skipped when the real-bug branch fired or the loop ended on infra-error. */
+    /* Restore bestRunSoFar after the loop, bytes included — skipped when the real-bug branch fired or the loop ended on infra-error. */
     if (
       !realBugDetected &&
       run.verdict !== "infra-error" &&
       failCount(bestRunSoFar) < failCount(run)
     ) {
+      /* The best round's own bytes go back first: a failed restore must not leave the worse round's bytes under the best cases. */
+      if (this.deps.acceptance && hasBestToken) await this.deps.acceptance.restore(bestToken);
       run = bestRunSoFar;
     }
 

@@ -3794,14 +3794,16 @@ test("a filtered retry reaches the execution port scoped to the failing spec fil
   assert.deepEqual(capturedSpecFiles[1], ["login.spec.ts"], "the filtered retry must thread ONLY the failed spec file(s) into ExecutionOpts.specFiles");
 });
 
-test("FixLoop filtered-retry: coverageWillMeasure:true (diff mode + coveragePolicyMode!=='off') disables filtering — the retry re-runs the FULL suite (no specFiles)", async () => {
+test("a fix-loop round executes only its changed specs under the round's own namespace, even when change-coverage will measure the run", async () => {
   let executeCallCount = 0;
   const capturedSpecFiles: (string[] | undefined)[] = [];
+  const capturedNamespaces: (string | undefined)[] = [];
   const { ports } = stubPorts({
     execute: async (_specDir, opts) => {
       executeCallCount++;
       const o = opts && !(opts instanceof AbortSignal) ? opts : {};
       capturedSpecFiles.push(o.specFiles);
+      capturedNamespaces.push(o.namespace);
       if (executeCallCount === 1) {
         return {
           verdict: "fail" as const,
@@ -3809,20 +3811,23 @@ test("FixLoop filtered-retry: coverageWillMeasure:true (diff mode + coveragePoli
           logs: "",
         };
       }
-      return { verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" };
+      return { verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "login.spec.ts" }], logs: "" };
     },
     generate: async () => (scriptedGeneration({ specs: ["login.spec.ts"], approved: true })),
   });
-  /* coveragePolicyMode defaults to "signal" in baseConfig -> coverageWillMeasure:true in diff mode
-     -> FixLoop's own canFilter guard (!coverageWillMeasure) must block filtering.
+  /* coveragePolicyMode defaults to "signal" in baseConfig -> coverageWillMeasure:true in diff mode.
+     Acceptance still executes only the specs the round changed; the final coverage measurement, not
+     a widened retry, is what keeps the unchanged cases observable.
    */
   const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
 
-  const out = await useCase.run({ ...baseInput, runId: "filtered-retry-coverage-blocks-filter", mode: "diff" });
+  const out = await useCase.run({ ...baseInput, runId: "fixloop-acceptance-scope", mode: "diff" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.ok(executeCallCount >= 2, "sanity: the FixLoop must have retried at least once");
-  assert.equal(capturedSpecFiles[1], undefined, "when change-coverage WILL measure this run, the retry must NOT be filtered — every prior case's lines must stay observable");
+  assert.ok(executeCallCount >= 2, "sanity: the FixLoop must have accepted at least once");
+  assert.equal(capturedSpecFiles[0], undefined, "the first execution runs the whole suite");
+  assert.deepEqual(capturedSpecFiles[1], ["login.spec.ts"], "the accepted round executes exactly the spec it changed");
+  assert.equal(capturedNamespaces[1], "fixloop-acceptance-scope-r1", "the round's execution carries its own namespace");
 });
 
 /* publish() dispatches for EVERY side-effect-bearing decision ("pr" | "issue" | "quarantine" |
@@ -5844,7 +5849,7 @@ test("the fix-loop generation closure's returned specSources re-arms the NEXT ro
        */
       return {
         verdict: "fail" as const,
-        cases: [{ name: `checkout-${executeCallCount}`, status: "fail" as const, detail: "boom", failureDom: "heading: Owners\nbutton: Cancel" }],
+        cases: [{ name: `checkout-${executeCallCount}`, status: "fail" as const, file: "a.spec.ts", detail: "boom", failureDom: "heading: Owners\nbutton: Cancel" }],
         logs: "x",
       };
     },
@@ -5860,6 +5865,65 @@ test("the fix-loop generation closure's returned specSources re-arms the NEXT ro
     "expected a LATER FixLoop regen call to carry a selectorContradictions entry sourced from the PRIOR round's own regen specSources — proving the closure's returned specSources feeds the next round's Lever-2 check",
   );
   assert.match(roundWithContradiction!.selectorContradictions![0]!, /button.*Submit.*NOT in the captured failure-point tree/);
+});
+
+test("a fix-loop round accepts real bytes, and a later worse round puts the best round's bytes back on disk", async () => {
+  let generationCalls = 0;
+  const executeNamespaces: (string | undefined)[] = [];
+  const { ports, ws } = stubPorts({
+    generate: async () => {
+      const call = generationCalls + 1;
+      generationCalls += 1;
+      if (call === 1) {
+        ws.write("a.spec.ts", "// a v0\n");
+        ws.write("b.spec.ts", "// b v0\n");
+        return scriptedGeneration({ specs: ["a.spec.ts", "b.spec.ts"], approved: true });
+      }
+      ws.write("a.spec.ts", `// a v${call - 1}\n`);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    execute: async (_specDir, opts) => {
+      const o = opts && !(opts instanceof AbortSignal) ? opts : undefined;
+      executeNamespaces.push(o?.namespace);
+      if (o?.specFiles) {
+        /* The acceptance execution: only the changed spec runs, and the bytes on disk decide its result. */
+        const bytes = readFileSync(join(ws.specDir, "a.spec.ts"), "utf8");
+        if (bytes.includes("v1")) {
+          return { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
+        }
+        return {
+          verdict: "fail" as const,
+          cases: [{ name: "a", status: "fail" as const, file: "a.spec.ts", detail: "getByRole resolved to 0 elements" }],
+          logs: "",
+        };
+      }
+      return {
+        verdict: "fail" as const,
+        cases: [
+          { name: "a", status: "fail" as const, file: "a.spec.ts", detail: "getByRole resolved to 0 elements" },
+          { name: "b", status: "fail" as const, file: "b.spec.ts", detail: "getByRole resolved to 0 elements" },
+        ],
+        logs: "",
+      };
+    },
+  });
+  try {
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, maxRetries: 2 } });
+
+    const out = await useCase.run({ ...baseInput, runId: "fixloop-best-bytes", mode: "diff" });
+
+    assert.equal(
+      readFileSync(join(ws.specDir, "a.spec.ts"), "utf8"),
+      "// a v1\n",
+      "the best round's accepted bytes must be back on disk, not the later worse round's",
+    );
+    assert.equal(out.decision.verdict, "fail");
+    assert.equal(out.outcome?.cases?.filter((c) => c.status === "fail").length, 1, "the run keeps the best round's cases");
+    assert.equal(out.outcome?.cases?.find((c) => c.name === "a")?.status, "pass", "the best round fixed a.spec.ts");
+    assert.deepEqual(executeNamespaces.slice(1), ["fixloop-best-bytes-r1", "fixloop-best-bytes-r2"], "each acceptance execution carries its round's namespace");
+  } finally {
+    ws.cleanup();
+  }
 });
 
 test("failureDomSnapshot threads the initial run's failure-point DOM into the FixLoop's regen prompt", async () => {
