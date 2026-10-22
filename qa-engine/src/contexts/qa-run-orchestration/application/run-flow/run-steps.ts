@@ -11,6 +11,7 @@ import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite
 import { assembleEnrichment, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
 import { generateFirstPass, groundBeforeExecution, settleGenerationEnd } from "./phases/generate.steps.ts";
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, validateStatically } from "./phases/execute.steps.ts";
+import { fingerprintGreenSuite, runFixLoop } from "./phases/fix-loop.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, stopIfAbortedBeforeGate, waitForDeploy } from "./phases/opening.steps.ts";
 
 export const BEFORE_WORKSPACE: ReadonlyArray<FlowStep<RunState, RunContext, RunQaResult>> = [
@@ -43,4 +44,6 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext,
   { name: "sign in just before the specs run", runs: (_state, ctx) => ctx.input.mode !== "context" && !ctx.cfg.isCode, run: prepareExecuteAuth },
   { name: "open the execute phase", phase: "execute", runs: (_state, ctx) => ctx.input.mode !== "context", run: announceExecution },
   { name: "execute the specs", run: executeSpecs },
+  { name: "repair a failing execution with the fix loop", phase: "fix_loop", runs: (state) => state.execution.run.verdict === "fail", run: runFixLoop },
+  { name: "fingerprint the green suite for the suite store", run: fingerprintGreenSuite },
 ];

@@ -17,6 +17,7 @@ import type {
   SelectedExemplar,
   ServiceLink,
 } from "../ports/index.ts";
+import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 
 /* What the classifier said about the change. Only a diff run classifies: every other run generates and has no diff. */
 export interface Classification {
@@ -84,7 +85,7 @@ export interface GenerationOutcome {
   groundingAttribution: string[];
 }
 
-/* What the validate, health and execute phases left for the fix loop and the phases after it. */
+/* What the validate, health and execute phases left for the fix loop and the phases after it; the fix loop replaces `run` and adds to `retries`. */
 export interface ExecutionOutcome {
   /** The static gate's last verdict; the phase ends the run unless it is ok. */
   validation: Awaited<ReturnType<ValidationPort["validate"]>>;
@@ -98,12 +99,25 @@ export interface ExecutionOutcome {
   run: Awaited<ReturnType<ExecutionPort["execute"]>>;
 }
 
+/* What the fix loop left for the coverage, review and decide phases; the defaults stand when the loop never engaged. */
+export interface FixLoopOutcome {
+  /** The winning loop execute namespace (`${runId}-rN`); absent when the loop never ran. */
+  coverageNamespace: string | undefined;
+  /** The full adjudicator verdict for the Issue body; undefined when the loop never reached adjudication. */
+  lastAdjudicatorVerdict: AdjudicatorVerdict | undefined;
+  /** The loop's final specMetas; undefined when it never regenerated. */
+  fixLoopFinalSpecMetas: { flow?: string; objective?: string }[] | undefined;
+  /** The loop's triage confirmed DEV did not render the target: the run ends as a precondition failure. */
+  devNotRenderedConclusive: boolean;
+}
+
 export interface RunState {
   classification: Classification;
   setup: SetupOutcome;
   grounding: Grounding;
   generation: GenerationOutcome;
   execution: ExecutionOutcome;
+  fixLoop: FixLoopOutcome;
 }
 
 export function initialRunState(): RunState {
@@ -148,5 +162,6 @@ export function initialRunState(): RunState {
       authVerifiedSha256: undefined,
       run: { verdict: "pass", cases: [], logs: "" },
     },
+    fixLoop: { coverageNamespace: undefined, lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
   };
 }

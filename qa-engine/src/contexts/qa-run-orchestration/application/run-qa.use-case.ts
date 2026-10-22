@@ -9,7 +9,6 @@
  */
 
 import { Sha } from "@kernel/sha.ts";
-import { createHash } from "node:crypto";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
@@ -124,7 +123,8 @@ import { runFlow } from "./run-flow/run-flow.ts";
 import { initialRunState } from "./run-flow/run-state.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
 import type { RunContext, RunEnds, WorkspaceRunContext } from "./run-flow/run-context.ts";
-import { checkDevHealth, executeAccepted as executeAcceptedOf, liveExecutionOptions, validateAccepted as validateAcceptedOf } from "./run-flow/phases/execute.steps.ts";
+import { executeAccepted as executeAcceptedOf, liveExecutionOptions, validateAccepted as validateAcceptedOf } from "./run-flow/phases/execute.steps.ts";
+import { resolveTested as resolveTestedOf } from "./run-flow/phases/fix-loop.steps.ts";
 import { BEFORE_WORKSPACE, IN_WORKSPACE } from "./run-flow/run-steps.ts";
 import { ProbeSweepError, closedLoopSignal as closedLoopSignalOf, loopClosedNow as loopClosedNowOf, regenerate as regenerateOf } from "./run-flow/phases/generation-services.ts";
 import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
@@ -134,16 +134,11 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { generationRunsReviewer } from "@contexts/generation/domain/generation-review.ts";
-import { FixLoop, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
-import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
-import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
-import { attributeContradictions } from "../domain/helpers/contradiction-attribution.ts";
 import { precheckSpecsAgainstDom } from "../domain/deterministic-review-precheck.ts";
 import { correctionClassOf } from "@contexts/generation/domain/review-output.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/domain/review-fingerprint.ts";
-import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { readConfinedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { RegenerationAcceptance } from "./regeneration-acceptance.ts";
-import type { SpecSnapshot } from "./ports/spec-snapshot.port.ts";
 import { ERROR_CLASS, resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
 import { learningGates, observesOperatingSignal } from "../domain/helpers/learning-gates.ts";
@@ -164,38 +159,6 @@ import { renderRunDeadlineNote } from "../domain/run-time-budget.ts";
 
 /* Same minRatio the coverage policy uses for the E-COVERAGE-GAP band. */
 const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
-
-/*
- * Renders every failing case's failureDom into one prompt-facing block.
- * Distinct from the aggregate's per-case line splitter. Undefined when no
- * failing case carries a failureDom.
- */
-function buildFailureDomSnapshot(cases: readonly QaCase[]): string | undefined {
-  const parts: string[] = [];
-  for (const c of cases) {
-    if (c.status !== "fail" || !c.failureDom) continue;
-    const lines = c.failureDom.split("\n").filter((l) => l.trim());
-    if (lines.length === 0) continue;
-    parts.push(`### ${c.name}\n${lines.join("\n")}`);
-  }
-  return parts.length > 0 ? parts.join("\n\n") : undefined;
-}
-
-/* One digest for a whole spec set, so the fix loop can say whether it changed the files. Sorted, sha256 over `file + "\0" + bytes`; undefined when the set is empty or any file cannot be read. */
-function specSetDigest(specRoot: SpecRoot, files: readonly string[]): string | undefined {
-  const unique = [...new Set(files)].sort();
-  if (unique.length === 0) return undefined;
-  const hash = createHash("sha256");
-  for (const file of unique) {
-    try {
-      const bytes = readConfinedSpecFile(specRoot, file);
-      hash.update(file).update("\0").update(bytes);
-    } catch {
-      return undefined;
-    }
-  }
-  return hash.digest("hex");
-}
 
 /** Subset of host AppConfig the composition root passes in. The full shape is a shell concern. */
 export interface RunQaConfig {
@@ -915,291 +878,21 @@ export class RunQaUseCase {
       ...(retrievedRules.length ? { learnedRules: retrievedRules } : {}),
     };
 
-    /* Shared retries counter for the static-fix loop AND the FixLoop — accumulate, never reset. */
+    /* The static-fix loop and the fix loop accumulated these; the review's correction rounds add to them. */
     let retries = state.execution.retries;
-    /* Winning FixLoop execute namespace (`${runId}-rN`). Absent when the loop never ran. */
-    let coverageNamespace: string | undefined;
-    /* Undefined when FixLoop never engaged — never fabricated. */
-    let lastAdjudicatorVerdictClass: string | undefined;
-    /* Full adjudicator verdict for the Issue body. Undefined when FixLoop never engaged. */
-    let lastAdjudicatorVerdict: AdjudicatorVerdict | undefined;
-    /* FixLoop's final specMetas. Undefined when it never regenerated. resolveTested() decides precedence. */
-    let fixLoopFinalSpecMetas: { flow?: string; objective?: string }[] | undefined;
+    let run = state.execution.run;
+    /* What the fix loop came to; the defaults stand when it never engaged. */
+    const { coverageNamespace, lastAdjudicatorVerdict, devNotRenderedConclusive } = state.fixLoop;
+    const lastAdjudicatorVerdictClass: string | undefined = lastAdjudicatorVerdict?.class;
     const deterministicSelectorBlocks = 0;
-    /* Pre-exec corrections, and the files they were attributed to, still feed later FixLoop regens until the first of them consumes them. */
-    let pendingSelectorContradictions: string[] = state.generation.groundingCorrections;
-    let pendingAttributedSpecFiles: string[] = state.generation.groundingAttribution;
 
     /* What the validate, health and execute phases left, and the execution closures the later phases still call. */
     const { validation, lastGenerated, authVerifiedSha256 } = state.execution;
-    let run = state.execution.run;
-    let devNotRenderedConclusive = false;
-    const devHealthy = async (): Promise<boolean> => (await checkDevHealth(ctx)).healthy;
     const reviewerApprovedFromGeneration = reviewerApprovalOf(lastGenerated);
-    /*
-     * Prefer FixLoop's final specMetas when present; otherwise lastGenerated's.
-     * Undefined when neither source has anything — the "tested" section is omitted.
-     */
-    const resolveTested = (): { flow?: string; objective?: string }[] | undefined =>
-      fixLoopFinalSpecMetas?.length ? fixLoopFinalSpecMetas : lastGenerated.specMetas;
+    const resolveTested = (): { flow?: string; objective?: string }[] | undefined => resolveTestedOf(state);
     const liveExecutionOpts = liveExecutionOptions(ctx);
     const executeAccepted = executeAcceptedOf(ctx);
     const validateAccepted = validateAcceptedOf(ctx);
-
-    /* FixLoop only when the initial verdict is "fail". Context mode's synthetic pass never enters. */
-    if (run.verdict === "fail") {
-      trail.phases.enter("fix_loop");
-      this.deps.observer?.onStep("retry", "fix-loop engaged after a failing execute()");
-      const fixLoopExecution: FixLoopExecutionPort = {
-        /*
-         * Filtered retry scopes to failing spec files. Per-attempt namespace
-         * (`${runId}-rN`) isolates Playwright test-data so a retry cannot collide with
-         * its prior attempt on apps with no delete.
-         */
-        execute: async (fixLoopInput) => {
-          const r = await this.deps.execution.execute(workspace.specDir, {
-            ...liveExecutionOpts,
-            ...(fixLoopInput.specFiles ? { specFiles: fixLoopInput.specFiles } : {}),
-            ...(fixLoopInput.namespace ? { namespace: fixLoopInput.namespace } : {}),
-            ...(fixLoopInput.retries !== undefined ? { retries: fixLoopInput.retries } : {}),
-          });
-          return { verdict: r.verdict, cases: r.cases };
-        },
-      };
-      /*
-       * The specs of the latest lead generation: the FixLoop's next Lever-2 check reads their sources,
-       * by index, so the contradictions it finds were raised by these specs.
-       */
-      let latestSpecs: string[] = lastGenerated.specs;
-      const fixLoopGeneration: FixLoopGenerationPort = {
-        /* Forward FixLoopGenerateInput so a retry prompt sees what failed. */
-        generate: async (fixLoopInput) => {
-          /* A spent wall-clock budget starts no further agent turn: the round returns nothing and the loop ends on what it has. */
-          if (wallClockBudget.exhausted(Date.now() - startedAt)) {
-            return { specs: [], approved: lastGenerated.approved, note: "wall-clock budget exhausted: no further regeneration" };
-          }
-          /*
-           * Merge leftover pre-exec selector contradictions with FixLoop's post-failure
-           * check — independent evidence; neither suppresses the other.
-           */
-          const lever2Contradictions = fixLoopInput.selectorContradictions ?? [];
-          const mergedSelectorContradictions = [...pendingSelectorContradictions, ...lever2Contradictions];
-          /* The pre-exec ones come with the files they were attributed to when found; Lever-2's are attributed now, to the specs the check says raised them. */
-          const attributedSpecFiles = [
-            ...new Set([...pendingAttributedSpecFiles, ...attributeContradictions(lever2Contradictions, fixLoopInput.selectorContradictionOrigins, latestSpecs)]),
-          ];
-
-          const r = await regenerate(signal, {
-            fixCases: fixLoopInput.fixCases,
-            ...(mergedSelectorContradictions.length ? { selectorContradictions: mergedSelectorContradictions } : {}),
-            ...(attributedSpecFiles.length ? { attributedSpecFiles } : {}),
-            ...(fixLoopInput.domSnapshot ? { domSnapshot: fixLoopInput.domSnapshot } : {}),
-          });
-          await enforceConfinement();
-          /* Pre-exec corrections are one-shot — clear after the first FixLoop regen. */
-          pendingSelectorContradictions = [];
-          pendingAttributedSpecFiles = [];
-          /* The next Lever-2 check reads this generation's sources: its contradictions will be raised by these specs. */
-          latestSpecs = r.specs;
-          /* Forward just-generated specSources so the next Lever-2 check is not empty. */
-          return {
-            specs: r.specs,
-            approved: r.approved,
-            note: r.note,
-            specSources: r.specSources,
-            ...(r.specMetas ? { specMetas: r.specMetas } : {}),
-            ...(r.testCorrect ? { testCorrect: r.testCorrect } : {}),
-          };
-        },
-      };
-      const fixLoopSelectorCheck: FixLoopSelectorCheckPort = {
-        check: (specSources, trees) => ({ ...checkSpecSelectors(specSources, trees), origins: contradictionOrigins(specSources, trees) }),
-      };
-      /*
-       * The run's acceptance of a fix-loop round: the snapshot the turn may change, the validation and
-       * execution of the changed specs (a failing round is adopted so the loop repairs from it), and
-       * the bytes of the round that produced the best run. Always wired: the byte restore is a
-       * correctness fix, never behind the review-loop switch.
-       */
-      const fixLoopAcceptance: FixLoopAcceptancePort = {
-        begin: () => snapshotSuite(),
-        accept: async ({ round, specs, namespace }) => {
-          const snapshot = round as SpecSnapshot;
-          /* A round that changed anything the specs import is accepted over the whole suite, never over its specs alone. */
-          const changedSpecFiles = acceptanceScope(await suiteChangedFiles(snapshot, specs));
-          if (changedSpecFiles.length === 0) {
-            /* The turn changed no bytes: nothing to accept, and the round's current bytes are its token. */
-            return { kind: "accepted", changedSpecFiles, accepted: snapshot };
-          }
-          const outcome = await acceptance.accept({
-            specDir: workspace.specDir,
-            changedSpecFiles,
-            namespace,
-            snapshot,
-            adoptFailures: true,
-            ...(closedLoop ? { closedLoop } : {}),
-            deadline: runDeadlinePort,
-            validate: validateAccepted,
-            execute: executeAccepted,
-          });
-          if (outcome.kind === "accepted") {
-            integrityCounters.acceptances += 1;
-            if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
-            /* The bytes this round leaves behind are the token a later, worse round is measured against. */
-            const accepted = await snapshotSuite();
-            return {
-              kind: "accepted",
-              changedSpecFiles,
-              ...(outcome.execution ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } } : {}),
-              accepted,
-            };
-          }
-          if (outcome.kind === "cap") {
-            integrityCounters.capHit = true;
-            return { kind: "cap" };
-          }
-          integrityCounters.rejected += 1;
-          return {
-            kind: "rejected",
-            reason: outcome.reason,
-            ...(outcome.execution
-              ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } }
-              : {}),
-          };
-        },
-        restore: async (token) => {
-          const snapshot = token as SpecSnapshot;
-          /* Every file created after the best round goes, and its own bytes go back: the suite is exactly the best round's. */
-          const created = listSpecFiles(workspace.specDir).filter((file) => !snapshot.files.has(file));
-          await snapshotPort.restore(workspace.specDir, snapshot, created);
-        },
-      };
-      const fixLoop = new FixLoop({
-        execution: fixLoopExecution,
-        generation: fixLoopGeneration,
-        selectorCheck: fixLoopSelectorCheck,
-        acceptance: fixLoopAcceptance,
-      });
-      /*
-       * coverageLikelyMeasured omits the cross-repo conjunct on purpose: a false
-       * positive only disables filtered-retry (widens the safety net). Threading true
-       * prevents filtered-retry from undercounting change-coverage's denominator.
-       */
-      const coverageWillMeasure = generating && input.mode === "diff" && cfg.coveragePolicyMode !== "off";
-      /*
-       * The objective a failure is judged against: the change's own files on a diff run, the guidance
-       * a manual run was asked to cover. Feeds the adjudicator's objective_gap rule; empty when the
-       * run has neither (manual without guidance).
-       */
-      const objectiveSource = input.mode === "manual"
-        ? (input.guidance ? [input.guidance] : [])
-        : (classificationIntent?.changedFiles ?? []);
-      /* Round 0 Lever-2 seed. Absent when the adapter has no readSpecSource — never fabricated. */
-      const initialSpecSources = lastGenerated.specSources;
-      /* Failure-point DOM from the initial failing cases, before any FixLoop re-execute. */
-      const failureDomSnapshot = buildFailureDomSnapshot(run.cases);
-      /* The generator saw every delivered spec pass against DEV in these very bytes: a failure now is not one a rewrite is likely to cure, so it is adjudicated for its Issue and not regenerated. */
-      const fixLoopRetired = await loopClosedNow();
-      if (fixLoopRetired) {
-        this.deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the suite failed, but every delivered spec was seen passing through run_spec: the failure is adjudicated and not regenerated" });
-      }
-      /* The failing set and the spec-set digest before the loop, so the phase span can carry what the loop changed. */
-      const fixLoopSpecRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
-      const failingBefore = run.cases.filter((c) => c.status === "fail").length;
-      const specShaBefore = specSetDigest(fixLoopSpecRoot, run.cases.map((c) => c.file).filter((f): f is string => !!f));
-      const fixLoopResult = await fixLoop.run({
-        initialRun: { verdict: run.verdict, cases: run.cases },
-        isCode: cfg.isCode,
-        generating,
-        mode: input.mode,
-        objectiveSource,
-        maxRetries: cfg.maxRetries,
-        ...(fixLoopRetired ? { regenerate: false } : {}),
-        cycleBudget,
-        wallClockBudget,
-        devHealthy,
-        namespace: input.runId,
-        coverageWillMeasure,
-        ...(initialSpecSources?.length ? { initialSpecSources } : {}),
-        ...(failureDomSnapshot ? { failureDomSnapshot } : {}),
-        specDir: workspace.specDir,
-        ...(cfg.reviewLoopIntegrity
-          ? {
-              integrity: {
-                hasGreenProof: async (file: string) => {
-                  if (proofLedger.has(file)) return true;
-                  if (!closedLoop) return false;
-                  try {
-                    return await closedLoop.isClosed([file]);
-                  } catch (err) {
-                    console.error(`[qa] could not read the green proof of ${file} (triage treats it as unproven): ${err instanceof Error ? err.message : String(err)}`);
-                    return false;
-                  }
-                },
-                spendExecution: () => acceptance.spendExecution(),
-                remainingMs: () => runDeadlinePort.remainingMs?.(),
-              },
-            }
-          : {}),
-      });
-      run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, logs: run.logs };
-      /* Accumulate onto shared retries (`+=`); a reassignment would drop static-fix rounds. */
-      retries += fixLoopResult.retries;
-      coverageNamespace = fixLoopResult.coverageNamespace;
-      /* Undefined when the loop never reached adjudicate() — never fabricated. */
-      lastAdjudicatorVerdictClass = fixLoopResult.lastAdjudicatorVerdict?.class;
-      lastAdjudicatorVerdict = fixLoopResult.lastAdjudicatorVerdict;
-      fixLoopFinalSpecMetas = fixLoopResult.lastSpecMetas;
-      /* The fix_loop phase span carries what the loop came to, so a false positive (a failed run the loop changed nothing in) is queryable. */
-      const failingAfter = run.cases.filter((c) => c.status === "fail").length;
-      const specShaAfter = specSetDigest(fixLoopSpecRoot, run.cases.map((c) => c.file).filter((f): f is string => !!f));
-      try {
-        trail.spans.annotate({
-          "qayaba.phase.outcome": run.verdict,
-          "qayaba.fix_loop.rounds": fixLoopResult.retries,
-          "qayaba.fix_loop.failing_before": failingBefore,
-          "qayaba.fix_loop.failing_after": failingAfter,
-          "qayaba.fix_loop.absent_selectors": fixLoopResult.absentSelectors,
-          ...(specShaBefore !== undefined && specShaAfter !== undefined
-            ? {
-                "qayaba.fix_loop.spec_sha_before": specShaBefore,
-                "qayaba.fix_loop.spec_sha_after": specShaAfter,
-                "qayaba.fix_loop.specs_changed": specShaBefore !== specShaAfter,
-              }
-            : {}),
-        });
-      } catch (err) {
-        console.error(`[qa] the fix-loop phase outcome could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
-      }
-      devNotRenderedConclusive = fixLoopResult.preconditionFailed;
-      if (fixLoopResult.rejectedClaims > 0) {
-        this.deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${fixLoopResult.rejectedClaims} test-correct claim(s) rejected as unverified; the loop kept repairing` });
-      }
-    }
-
-    /*
-     * The suite store admits a spec only with the bytes that executed green, so those bytes are fingerprinted here and read into
-     * the proof ledger, before the reviewer's correction rounds or the coverage regeneration can rewrite a file that is never
-     * executed again. Off-path: a fault leaves no evidence, and a capture without evidence admits no spec.
-     */
-    if (this.deps.suiteStore && suiteRestored && run.verdict === "pass") {
-      try {
-        /* The green run executed the whole suite: every delivered spec on disk at this instant has run in these bytes. The store
-         * leaves out a spec it cannot read confined, which seeds no proof (the final guard then refuses to publish it). */
-        const fingerprints = await this.deps.suiteStore.fingerprint(
-          { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
-          generation.delivered.map((d) => d.file),
-        );
-        /* The ledger holds the green bytes themselves when they can be read, so a later restore has them. */
-        for (const [file, sha256] of fingerprints) {
-          const read = readOwnedSpecFile(specRoot, file, MAX_SPEC_SOURCE_BYTES);
-          proofLedger.set(file, "bytes" in read ? { sha256, bytes: read.bytes } : { sha256 });
-        }
-      } catch (fingerprintErr) {
-        rethrowIfUntrusted(fingerprintErr);
-        this.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
-      }
-    }
 
     /*
      * Capture executedRed before `if (run.verdict === "pass")` narrows the type;
