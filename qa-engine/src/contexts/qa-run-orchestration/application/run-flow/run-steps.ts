@@ -13,6 +13,7 @@ import { generateFirstPass, groundBeforeExecution, settleGenerationEnd } from ".
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, validateStatically } from "./phases/execute.steps.ts";
 import { fingerprintGreenSuite, runFixLoop } from "./phases/fix-loop.steps.ts";
 import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
+import { remeasureStaleCoverage, remeasuresStaleCoverage, reviewTests, reviewsRun } from "./phases/review.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, stopIfAbortedBeforeGate, waitForDeploy } from "./phases/opening.steps.ts";
 
 export const BEFORE_WORKSPACE: ReadonlyArray<FlowStep<RunState, RunContext, RunQaResult>> = [
@@ -50,4 +51,6 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext,
   { name: "open the coverage phase", phase: "coverage", runs: announcesCoverage, run: announceCoverage },
   { name: "measure the change-coverage of the green run", runs: measuresCoverage, run: measureCoverage },
   { name: "regenerate once at the uncovered lines", runs: regeneratesForCoverage, run: regenerateForCoverage },
+  { name: "review the green run's specs with the independent reviewer", phase: "review", runs: reviewsRun, run: reviewTests },
+  { name: "re-measure a coverage that an accepted regeneration made stale", runs: remeasuresStaleCoverage, run: remeasureStaleCoverage },
 ];

@@ -2,6 +2,8 @@
 
 import type { CycleBudget } from "../../domain/cycle-budget.ts";
 import type { WallClockBudget } from "../../domain/wall-clock-budget.ts";
+import type { DisputedFinding } from "../../domain/review-rebuttals.service.ts";
+import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { PreconditionFailure, RunQaConfig, RunQaInput, RunQaResult, RunQaUseCaseDeps, RunTrail, TerminalOptions } from "../run-qa.use-case.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
@@ -29,6 +31,10 @@ export interface RunEnds {
   preconditionNote(failure: PreconditionFailure): string;
   /** Ends the run with a persisted invalid or infra-error verdict. */
   terminal(verdict: "invalid" | "infra-error", ev: { generating: boolean; static: boolean }, opts?: TerminalOptions): Promise<RunQaResult>;
+  /** Ends a green run whose reviewer could not be reached: a persisted infra-error with the reviewer's reason on the record, nothing learned. */
+  reviewerUnavailable(reason: string | undefined, passedCases: number, exit: Omit<TerminalOptions, "note" | "reviewerUnavailable" | "reviewerRationale"> & { static: boolean }): Promise<RunQaResult>;
+  /** Ends a green run whose reviewer and generator could not settle a verified finding: a persisted infra-error, nothing learned. */
+  reviewDisputed(disputed: readonly DisputedFinding[], passedCases: number, exit: Omit<TerminalOptions, "note" | "reviewDisputed"> & { static: boolean }): Promise<RunQaResult>;
 }
 
 export interface RunContext {
@@ -36,6 +42,8 @@ export interface RunContext {
   signal: AbortSignal | undefined;
   trail: RunTrail;
   deps: RunQaUseCaseDeps;
+  /** The deps' telemetry behind the guard that keeps a recording fault from failing the run. */
+  telemetry: TelemetryPort;
   cfg: RunQaConfig;
   startedAt: number;
   cycleBudget: CycleBudget;

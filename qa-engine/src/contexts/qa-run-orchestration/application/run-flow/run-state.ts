@@ -18,6 +18,7 @@ import type {
   ServiceLink,
 } from "../ports/index.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
+import type { RunOutcome } from "@kernel/run-outcome.ts";
 
 /* What the classifier said about the change. Only a diff run classifies: every other run generates and has no diff. */
 export interface Classification {
@@ -111,7 +112,7 @@ export interface FixLoopOutcome {
   devNotRenderedConclusive: boolean;
 }
 
-/* What the coverage phase measured; the review phase's acceptances add to the counter and the stale re-measure replaces the measurement. */
+/* What the coverage phase measured; the review phase's acceptances add to the counter and the stale re-measure replaces the measurement or marks it stale. */
 export interface CoverageOutcome {
   /** Unknown never blocks; only the port's own reading of the mode and status sets it. */
   blocksPublish: boolean;
@@ -131,6 +132,21 @@ export interface CoverageOutcome {
   acceptanceCalls: number;
   /** An accepted regeneration rewrote specs after the last measurement: the coverage ratio is then stale. */
   acceptedRegenAfterMeasure: boolean;
+  /** The measurement predates the bytes an accepted regeneration wrote, and the mode reuses it rather than re-measuring. */
+  coverageStale: boolean;
+  /** The same bytes make the value score describe a suite that is no longer on disk. The oracle stays signal-only: stale is recorded, never a gate. */
+  valueStale: boolean;
+}
+
+/* What the review phase decided; the defaults stand when the phase never ran. */
+export interface ReviewOutcome {
+  reviewerApproved: boolean;
+  /** Set once a genuine review verdict stands; undefined while none does, so the run falls back to what the generation itself reported. */
+  reviewerApprovedForOutcome: boolean | undefined;
+  /** Stays [] when the review loop never runs, never fabricated. */
+  finalReviewerCorrections: string[];
+  /** What the review phase cost and decided; absent when the phase never ran. */
+  reviewerSignal: RunOutcome["gateSignals"]["reviewer"];
 }
 
 export interface RunState {
@@ -141,6 +157,7 @@ export interface RunState {
   execution: ExecutionOutcome;
   fixLoop: FixLoopOutcome;
   coverage: CoverageOutcome;
+  review: ReviewOutcome;
 }
 
 export function initialRunState(): RunState {
@@ -197,6 +214,9 @@ export function initialRunState(): RunState {
       uncovered: [],
       acceptanceCalls: 0,
       acceptedRegenAfterMeasure: false,
+      coverageStale: false,
+      valueStale: false,
     },
+    review: { reviewerApproved: true, reviewerApprovedForOutcome: undefined, finalReviewerCorrections: [], reviewerSignal: undefined },
   };
 }
