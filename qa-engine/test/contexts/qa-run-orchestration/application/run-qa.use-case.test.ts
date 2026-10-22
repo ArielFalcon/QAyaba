@@ -2562,7 +2562,7 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
       execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
       measure: async () => {
         measureCalls++;
-        return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+        return { status: "fail" as const, ratio: 0.2, valueScore: 0.25, uncovered: [{ file: "src/a.ts", lines: [1] }] };
       },
       blocks: () => false,
       review: async () => {
@@ -2586,6 +2586,8 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
 
     assert.equal(measureCalls, 1, "signal mode reuses the measurement it has; it never spends a second one");
     assert.equal(out.gateSignals.coverage?.stale, true, "the recorded coverage predates the accepted bytes and is marked so");
+    assert.equal(out.gateSignals.value?.stale, true, "the value score describes the same superseded bytes and is marked stale");
+    assert.equal(out.gateSignals.valueScore, 0.25, "the measured score is kept for the record, never re-measured in signal mode");
     assert.equal(out.decision.sideEffect, "pr", "a stale signal is a recorded caveat, never a block");
   } finally {
     fixtures.cleanup();
@@ -2610,8 +2612,8 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
         measureCalls++;
         measureNamespaces.push(opts?.namespace);
         return measureCalls === 1
-          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
-          : { status: "pass" as const, ratio: 0.9 };
+          ? { status: "fail" as const, ratio: 0.2, valueScore: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9, valueScore: 0.9 };
       },
       blocks: (status) => status === "fail",
       review: async () => {
@@ -2638,6 +2640,8 @@ test("enforce mode — a review regeneration after the measurement gets ONE fina
     assert.equal(executeNamespaces.filter((ns) => ns?.endsWith("-coverage-final")).length, 1);
     assert.equal(out.decision.sideEffect, "pr", "the final measurement, not the superseded first one, decides");
     assert.equal(out.gateSignals.integrity?.acceptances, 2, "the coverage and the review regeneration each went through acceptance");
+    assert.equal(out.gateSignals.valueScore, 0.9, "the final re-measure's value score describes the bytes now on disk");
+    assert.equal(out.gateSignals.value?.stale, undefined, "a refreshed measurement is not stale");
   } finally {
     fixtures.cleanup();
   }

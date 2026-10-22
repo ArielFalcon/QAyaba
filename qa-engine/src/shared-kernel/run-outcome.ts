@@ -24,6 +24,8 @@ export interface RunOutcome {
     /* Absent means the value-oracle never measured this run — never a fabricated 0 (indistinguishable from a genuine measured zero). */
     mutantCount?: number;
     killedCount?: number;
+    /* The value score describes bytes an accepted regeneration rewrote. Signal-only: recorded, never a gate. */
+    value?: { stale: boolean };
     /*
      * The test-intent lock: what this run derived and what it would have rejected. `wouldReject` counts
      * regenerations that were accepted only because the policy is `signal`; the opacity flag is

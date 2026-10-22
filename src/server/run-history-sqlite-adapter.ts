@@ -62,6 +62,7 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
 
       ...(outcome.gateSignals.crossRepoImpactedCount !== undefined ? { crossRepoImpactedCount: outcome.gateSignals.crossRepoImpactedCount } : {}),
       ...(outcome.gateSignals.coverage !== undefined ? { coverage: outcome.gateSignals.coverage } : {}),
+      ...(outcome.gateSignals.value !== undefined ? { value: outcome.gateSignals.value } : {}),
       ...(outcome.gateSignals.integrity !== undefined ? { integrity: outcome.gateSignals.integrity } : {}),
       ...(outcome.gateSignals.intent !== undefined ? { intent: outcome.gateSignals.intent } : {}),
     },
