@@ -7,6 +7,7 @@ import type { RunQaResult } from "../run-qa.use-case.ts";
 import type { FlowStep } from "./run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
 import type { RunState } from "./run-state.ts";
+import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite, setUpProject } from "./phases/setup.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, stopIfAbortedBeforeGate, waitForDeploy } from "./phases/opening.steps.ts";
 
 export const BEFORE_WORKSPACE: ReadonlyArray<FlowStep<RunState, RunContext, RunQaResult>> = [
@@ -18,4 +19,9 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext,
   { name: "classify the change", phase: "classify", runs: (_state, ctx) => ctx.input.mode === "diff", run: classifyChange },
   { name: "arm the run deadline", run: armRunDeadline },
   { name: "bring the code index up to the commit", run: indexMirror },
+  { name: "restore the accepted suite", phase: "setup", run: restoreAcceptedSuite },
+  { name: "set the project up", run: setUpProject },
+  { name: "prepare the app's login", run: prepareLogin },
+  { name: "clean the data of a prior interrupted run", run: cleanPriorRun },
+  { name: "open the authoring location, run_spec loop and agent browser", run: openAuthoringHandles },
 ];

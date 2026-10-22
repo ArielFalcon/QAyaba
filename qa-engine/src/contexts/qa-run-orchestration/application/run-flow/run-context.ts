@@ -2,7 +2,7 @@
 
 import type { CycleBudget } from "../../domain/cycle-budget.ts";
 import type { WallClockBudget } from "../../domain/wall-clock-budget.ts";
-import type { RunQaConfig, RunQaInput, RunQaResult, RunQaUseCaseDeps, RunTrail } from "../run-qa.use-case.ts";
+import type { PreconditionFailure, RunQaConfig, RunQaInput, RunQaResult, RunQaUseCaseDeps, RunTrail, TerminalOptions } from "../run-qa.use-case.ts";
 import type { PreparedWorkspace, RunServices } from "./run-services.ts";
 
 /* The use case's own ways to end a run and the trail notes it keeps, bound to the run. */
@@ -12,6 +12,13 @@ export interface RunEnds {
   skipped(): RunQaResult;
   pruneMirror(mirrorDir: string): Promise<void>;
   noteDeadlineArmed(): void;
+  prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean; setupSha256?: string } | { failed: string } | { precondition: PreconditionFailure }>;
+  replaceRestoredLogin(workspace: { specDir: string; mirrorDir: string }, signal?: AbortSignal): Promise<"replaced" | "unchanged" | "setup-failed">;
+  announceSuite(text: string, level: "info" | "warn"): void;
+  announcePrecondition(failure: PreconditionFailure, ends: boolean): void;
+  preconditionNote(failure: PreconditionFailure): string;
+  /** Ends the run with a persisted invalid or infra-error verdict. */
+  terminal(verdict: "invalid" | "infra-error", ev: { generating: boolean; static: boolean }, opts?: TerminalOptions): Promise<RunQaResult>;
 }
 
 export interface RunContext {

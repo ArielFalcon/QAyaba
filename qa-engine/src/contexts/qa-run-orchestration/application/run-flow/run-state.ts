@@ -12,10 +12,21 @@ export interface Classification {
   generating: boolean;
 }
 
+/* What the setup phase left for the later ones. */
+export interface SetupOutcome {
+  /** The accepted suite was restored from the suite store: a green run may capture it back. */
+  suiteRestored: boolean;
+  /** The login the store brought back; a login that fails to sign in is replaced by the stock seed. */
+  storeRestoredLogin: boolean;
+  /** The auth setup is still the seed: generation may rewrite it, and the authoring handles are not granted. */
+  authSeedUnauthored: boolean;
+}
+
 export interface RunState {
   classification: Classification;
+  setup: SetupOutcome;
 }
 
 export function initialRunState(): RunState {
-  return { classification: { generating: true } };
+  return { classification: { generating: true }, setup: { suiteRestored: false, storeRestoredLogin: false, authSeedUnauthored: false } };
 }

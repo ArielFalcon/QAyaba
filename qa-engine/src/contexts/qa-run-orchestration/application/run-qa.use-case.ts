@@ -14,7 +14,7 @@ import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { relative } from "node:path";
 import { createHash } from "node:crypto";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import { RUN_PURPOSE, type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
+import { type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
@@ -87,7 +87,7 @@ type RegressionStandIn = Omit<GenerationOutput, "end"> & { end: null };
 const NO_GROUNDING_SIGNALS = { preExecAmbiguityCatches: 0, deterministicSelectorBlocks: 0, catalogGateInWindow: 0, catalogGateAdvisory: 0, catalogGateFailClosed: 0 };
 
 /** What a terminal exit knows beyond its verdict; each field is absent unless that exit genuinely has it — never fabricated. */
-interface TerminalOptions {
+export interface TerminalOptions {
   /** Present only when a reviewer ran; see reviewerApprovalOf. */
   reviewerApproved?: boolean | undefined;
   /**
@@ -131,7 +131,7 @@ interface TerminalOptions {
 }
 
 /** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */
-interface PreconditionFailure {
+export interface PreconditionFailure {
   kind: PreconditionKind;
   note: string;
   ms: number;
@@ -166,7 +166,6 @@ import type { SpecSnapshot } from "./ports/spec-snapshot.port.ts";
 import { ERROR_CLASS, resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
-import { terminalForPrecondition } from "../domain/helpers/precondition-terminal.ts";
 import { learningGates, observesOperatingSignal } from "../domain/helpers/learning-gates.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
@@ -893,6 +892,12 @@ export class RunQaUseCase {
       skipped: () => this.skippedResult(),
       pruneMirror: (mirrorDir) => this.pruneMirrorIfWired(mirrorDir),
       noteDeadlineArmed: () => this.noteDeadlineArmed(trail),
+      prepareAuth: (specDir, phase, abortSignal) => this.prepareAuth(specDir, phase, abortSignal),
+      replaceRestoredLogin: (workspace, abortSignal) => this.replaceRestoredLogin(workspace, abortSignal),
+      announceSuite: (text, level) => this.announceSuite(text, level),
+      announcePrecondition: (failure, ends) => this.announcePrecondition(failure, ends),
+      preconditionNote: (failure) => this.preconditionNote(failure),
+      terminal: (verdict, ev, opts) => this.terminalResult(verdict, cfg, input, ev, opts),
     };
     const baseCtx: RunContext = { input, signal, trail, deps: this.deps, cfg, startedAt, cycleBudget, wallClockBudget, ends };
     const enter = (phase: RunPhase): void => trail.phases.enter(phase);
@@ -917,174 +922,9 @@ export class RunQaUseCase {
     /* Whether an accepted regeneration rewrote specs after the last coverage measurement: the coverage ratio is then stale. */
     let acceptedRegenAfterMeasure = false;
 
-    /*
-     * The accepted suite comes back before the project setup: the checkout has just wiped every untracked file of the mirror, and the
-     * setup would otherwise seed the stock login and nothing else. A fault here is a cold run, said aloud, not a failed one; the
-     * run then captures nothing, since the working copy was never compared with the store.
-     */
-    trail.phases.enter("setup");
-    let suiteRestored = false;
-    let storeRestoredLogin = false;
-    if (this.deps.suiteStore && !cfg.isCode && input.mode !== "context") {
-      try {
-        const restored = await this.deps.suiteStore.restore({ mirrorDir: workspace.mirrorDir, specDir: workspace.specDir });
-        suiteRestored = true;
-        storeRestoredLogin = restored.authRestored;
-        this.announceSuite(
-          `[qa] suite store: restored ${restored.restored} file(s), overlaid ${restored.overlaid} unpublished change(s) over git, left ${restored.trackedWins} to git${restored.authRestored ? "; the app's login was restored" : ""}`,
-          "info",
-        );
-      } catch (err) {
-        rethrowIfUntrusted(err);
-        this.announceSuite(`[qa] suite store restore failed (off-path; the run starts cold and keeps nothing): ${err instanceof Error ? err.message : String(err)}`, "warn");
-      }
-    }
-
-    /*
-     * After classify (skip already returned) and before generate. A throw is
-     * infra-error, never a code verdict, and is not persisted.
-     */
-    if (this.deps.setup) {
-      this.deps.observer?.onStep("setup");
-      try {
-        await this.deps.setup.setup(workspace.specDir, signal);
-      } catch (err) {
-        /* Never swallow an integration error into an empty result. */
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error("[qa] setup phase failed:", err);
-        return this.infraErrorResult(`setup failed: ${msg}`, workspace.mirrorDir);
-      }
-    }
-    let authSeedUnauthored = false;
-    if (!cfg.isCode) {
-      let auth = await this.prepareAuth(workspace.specDir, "pre-generate", signal);
-      if ("failed" in auth && storeRestoredLogin) {
-        /* The login the store brought back no longer signs in (the app changed since): the stock seed takes its place and the login is tried once more, which falls into discovery or the unauthored path. */
-        const healed = await this.replaceRestoredLogin(workspace, signal);
-        if (healed === "setup-failed") return this.infraErrorResult("setup failed while the app's stored login was replaced by the stock one", workspace.mirrorDir);
-        if (healed === "replaced") auth = await this.prepareAuth(workspace.specDir, "pre-generate", signal);
-      }
-      if ("failed" in auth) return this.infraErrorResult(auth.failed, workspace.mirrorDir);
-      if ("precondition" in auth) {
-        /* A cancelled run is not a failed login: whatever the killed attempt saw, the abort wins. */
-        if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
-        const terminal = terminalForPrecondition(input.mode);
-        this.announcePrecondition(auth.precondition, terminal.action === "end");
-        if (terminal.action === "end") {
-          return await this.terminalResult(terminal.verdict, cfg, input, { generating, static: false }, {
-            preconditionFailed: true,
-            note: this.preconditionNote(auth.precondition),
-            mirrorDir: workspace.mirrorDir,
-          });
-        }
-      } else {
-        authSeedUnauthored = auth.unauthored;
-      }
-    }
-    if (signal?.aborted) {
-      return this.abortedResult(workspace.mirrorDir);
-    }
-
-    /*
-     * Orphan-data cleanup for a PRIOR interrupted run. e2e-only; requires
-     * previousNamespace. Failure is logged and MUST NEVER alter this run's verdict.
-     */
-    if (this.deps.cleanup && input.previousNamespace && !cfg.isCode) {
-      this.deps.observer?.onStep("setup", "orphan-data cleanup (prior interrupted run)");
-      try {
-        await this.deps.cleanup.cleanup(workspace.specDir, {
-          namespace: input.previousNamespace,
-          signal,
-        });
-      } catch (err) {
-        console.error(`[qa] cleanup warning (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-    if (signal?.aborted) {
-      return this.abortedResult(workspace.mirrorDir);
-    }
-
-    /*
-     * The authoring location: the app's declared default and places, the lead's value and one value per flow. Opened before the
-     * browser and the loop so both can consume it; a fault opening it costs the run only the location. Its facts are read again
-     * on every generation turn, since the lead may move it while it authors.
-     */
-    let geolocation: GeolocationHandle | undefined;
-    if (this.deps.geolocation && generating && !cfg.isCode && input.mode !== "context" && input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP && !authSeedUnauthored) {
-      try {
-        geolocation = await this.deps.geolocation.open({
-          runId: input.runId,
-          app: input.app,
-          mode: input.mode,
-          ...(signal ? { signal } : {}),
-        });
-      } catch (err) {
-        rethrowIfRunDeadline(err);
-        console.error(`[qa] the authoring location could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
-      }
-      trail.geolocation = geolocation;
-    }
+    const { suiteRestored, authSeedUnauthored } = state.setup;
+    const { geolocation, closedLoop, agentBrowser } = trail;
     const geolocationEnrichment = (): { geolocation?: GeolocationFacts } => (geolocation ? { geolocation: geolocation.facts() } : {});
-
-    /*
-     * The run_spec loop: only for a run that writes e2e tests with a login the suite can use. A fault opening it costs the run only
-     * the loop. Its facts reach every generation of the run (the first pass and each regeneration) through baseEnrichment.
-     */
-    let closedLoop: ClosedLoopHandle | undefined;
-    if (
-      this.deps.closedLoop &&
-      generating &&
-      !cfg.isCode &&
-      input.mode !== "context" &&
-      input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP &&
-      !authSeedUnauthored
-    ) {
-      try {
-        closedLoop = await this.deps.closedLoop.open({
-          runId: input.runId,
-          app: input.app,
-          mode: input.mode,
-          mirrorDir: workspace.mirrorDir,
-          specDir: workspace.specDir,
-          ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
-          ...(input.closedLoop !== undefined ? { enabled: input.closedLoop } : {}),
-          ...(signal ? { signal } : {}),
-        });
-      } catch (err) {
-        rethrowIfRunDeadline(err);
-        console.error(`[qa] the run_spec loop could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
-      }
-      trail.closedLoop = closedLoop;
-    }
-
-    /* The authenticated agent browser: the same runs, the same moment. A fault opening it costs the run only the browser. */
-    let agentBrowser: AgentBrowserHandle | undefined;
-    if (
-      this.deps.agentBrowser &&
-      generating &&
-      !cfg.isCode &&
-      input.mode !== "context" &&
-      input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP &&
-      !authSeedUnauthored
-    ) {
-      try {
-        const geo = geolocation;
-        agentBrowser = await this.deps.agentBrowser.open({
-          runId: input.runId,
-          app: input.app,
-          mode: input.mode,
-          specDir: workspace.specDir,
-          ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
-          ...(input.agentBrowser !== undefined ? { enabled: input.agentBrowser } : {}),
-          ...(signal ? { signal } : {}),
-          ...(geo ? { geolocation: { default: geo.default, forSession: (sessionId: string) => geo.forSession(sessionId) } } : {}),
-        });
-      } catch (err) {
-        rethrowIfRunDeadline(err);
-        console.error(`[qa] the agent browser could not be opened (the run goes on without it): ${err instanceof Error ? err.message : String(err)}`);
-      }
-      trail.agentBrowser = agentBrowser;
-    }
     const agentBrowserSignal = (): AgentBrowserGateSignal | undefined => agentBrowser?.signals();
 
     /*

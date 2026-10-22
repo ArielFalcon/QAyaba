@@ -21,7 +21,7 @@ Branch: `feat/regeneration-session-continuation` (worktree `regen-session`). Del
 | ID | Specs | Scope (F = run-qa.use-case.ts lines at baseline 2dac84fa) | Route | Status | Commit |
 |---|---|---|---|---|---|
 | T1 | S2-S4 | runner, RunState/RunContext, run services (workspace closures F:909-1086), steps gate, workspace, classify, index (F:874-1140) | inline | done (gate green: 10402 pass / 0 fail) | 7b785189 |
-| T2 | S2-S4 | setup (F:1141-1335) | delegated (context backstop) | pending | |
+| T2 | S2-S4 | setup (F:1141-1335) | delegated (context backstop) | done (gate green: 10402 pass / 0 fail / 3 skipped) | this commit (git log -- odd/tasks/run-state-machine.md) |
 | T3 | S2-S4 | ground (F:1339-1590) | delegated | pending | |
 | T4 | S2-S4 | generate + pre-exec grounding (F:1592-1754) | delegated | pending | |
 | T5 | S2-S4 | validate/static fix, health, pre-execute auth, execute (F:1763-1952) | delegated | pending | |
@@ -37,3 +37,4 @@ Branch: `feat/regeneration-session-continuation` (worktree `regen-session`). Del
 - L2 (2026-10-22, user): "Sí, empieza el refactor con ese diseño en esta rama"
 - L3: Mapping (explorer): execute F:873-3316; 15 `trail.phases.enter` boundaries match RUN_PHASES; ~25 closures capture locals; 13 test files construct RunQaUseCase and all go through `run()`; seam-parity pins RunOutcome; mutate.ts carry-forward has 18 drifted ranges of F.
 - L4: T1 done in 7b785189. Conventions: `application/run-flow/` holds run-flow.ts (runner), run-state.ts (RunState sections), run-context.ts (RunContext, WorkspaceRunContext, RunEnds bound to the use case), run-services.ts (live services), run-steps.ts (BEFORE_WORKSPACE, IN_WORKSPACE tables) and phases/*.steps.ts (step functions). execute() runs the tables, then rebinds state/services to their former local names for the not-yet-moved remainder. Each later task appends steps to IN_WORKSPACE and shrinks the remainder. RED for the runner was not observed separately (new module, tests written alongside); behavior-preservation is pinned by the existing 13 run-qa test files.
+- L5: T2 done. New RunState section `setup: { suiteRestored, storeRestoredLogin, authSeedUnauthored }`; RunEnds gained prepareAuth, replaceRestoredLogin, announceSuite, announcePrecondition, preconditionNote and terminal (bound terminalResult). The live handles (geolocation, closedLoop, agentBrowser) stay on `trail`; the remainder rebinds them from it. The setup phase is five steps in phases/setup.steps.ts; the ground-phase prelude (diffArchetypes) before `phases.enter("ground")` stays in the remainder for T3.
