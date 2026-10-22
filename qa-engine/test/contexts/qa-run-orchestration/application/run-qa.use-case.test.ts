@@ -1765,7 +1765,6 @@ test("mainline fold — generated_test_defect (the default fallthrough) still fo
       logs: "x",
     }),
   });
-  ports.runHistory.save = async (outcome) => { savedAdjudicationClass = outcome.adjudication?.class; };
   ports.learning.fold = async (outcome) => { foldCallCount++; savedAdjudicationClass = outcome.adjudication?.class; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -1774,6 +1773,41 @@ test("mainline fold — generated_test_defect (the default fallthrough) still fo
   assert.equal(out.decision.verdict, "fail");
   assert.equal(savedAdjudicationClass, "generated_test_defect", "the persisted RunOutcome must carry the adjudicator's generated_test_defect classification");
   assert.equal(foldCallCount, 1, "learning.fold() must still be called when adjudication.class is generated_test_defect (only app_defect suppresses)");
+});
+
+test("a failing diff run hands the change's own files to the adjudicator, so an objective gap can be named", async () => {
+  let calls = 0;
+  const { ports, savedOutcomes } = stubPorts({
+    classify: async () => ({
+      action: "generate" as const,
+      reason: "diff touches src/checkout.ts",
+      diff: "diff --git a/src/checkout.ts b/src/checkout.ts",
+      intent: { type: "feat", breaking: false, message: "add checkout", changedFiles: ["src/checkout.ts"] },
+    }),
+    /* The first round fails on a plain value mismatch (no 5xx, no locator error) in a spec that shares
+       no file basename with the change; the retry passes, so the loop ends with the first round's
+       objective_gap adjudication as its last one. */
+    execute: async () => {
+      calls += 1;
+      if (calls > 1) return { verdict: "pass" as const, cases: [], logs: "" };
+      return {
+        verdict: "fail" as const,
+        cases: [{ name: "login", status: "fail" as const, detail: "expected 'Total: 10' to contain 'Total: 20'", file: "e2e/login.spec.ts" }],
+        logs: "x",
+      };
+    },
+  });
+  /* One round: the retry that follows the objective_gap verdict is the last execution. */
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, maxRetries: 1 } });
+
+  const out = await useCase.run({ ...baseInput, runId: "objective-source-diff" });
+
+  assert.equal(out.decision.verdict, "fail");
+  assert.equal(
+    savedOutcomes.at(-1)?.adjudication?.class,
+    "objective_gap",
+    "the run must pass the change's changed files as the objective source; without them the adjudicator cannot see the gap",
+  );
 });
 
 test("a run whose FixLoop never invoked the adjudicator (passed first try) persists adjudication:undefined and still folds", async () => {

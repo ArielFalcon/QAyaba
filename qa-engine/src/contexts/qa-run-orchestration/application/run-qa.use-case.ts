@@ -1932,6 +1932,14 @@ export class RunQaUseCase {
        * prevents filtered-retry from undercounting change-coverage's denominator.
        */
       const coverageWillMeasure = generating && input.mode === "diff" && cfg.coveragePolicyMode !== "off";
+      /*
+       * The objective a failure is judged against: the change's own files on a diff run, the guidance
+       * a manual run was asked to cover. Feeds the adjudicator's objective_gap rule; empty when the
+       * run has neither (manual without guidance).
+       */
+      const objectiveSource = input.mode === "manual"
+        ? (input.guidance ? [input.guidance] : [])
+        : (classificationIntent?.changedFiles ?? []);
       /* Round 0 Lever-2 seed. Absent when the adapter has no readSpecSource — never fabricated. */
       const initialSpecSources = lastGenerated.specSources;
       /* Failure-point DOM from the initial failing cases, before any FixLoop re-execute. */
@@ -1946,7 +1954,7 @@ export class RunQaUseCase {
         isCode: cfg.isCode,
         generating,
         mode: input.mode,
-        objectiveSource: [],
+        objectiveSource,
         maxRetries: cfg.maxRetries,
         ...(fixLoopRetired ? { regenerate: false } : {}),
         cycleBudget,
