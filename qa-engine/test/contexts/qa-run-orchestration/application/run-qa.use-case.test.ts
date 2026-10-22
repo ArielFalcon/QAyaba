@@ -8766,3 +8766,99 @@ test("a new run is never bound by a previous run's contract", async () => {
     real.cleanup();
   }
 });
+
+/* The findings filter: a reviewer rejection only stands on evidence the orchestrator can verify. */
+function citedReview(citation: { kind: "contract" | "execution" | "dom"; ref: string } | undefined) {
+  return async () => ({
+    approved: false,
+    corrections: ["[wrong-objective] the stock auth spec is not part of this change"],
+    severities: ["blocking" as const],
+    citations: [citation],
+    blockingCount: 1,
+    parsed: true,
+  });
+}
+
+function findingFixtures() {
+  const fixtures = reviewFixtures();
+  let generation = 0;
+  return {
+    fixtures,
+    generate: async () => {
+      generation++;
+      fixtures.write("flows/checkout.spec.ts", `// generation ${generation}\n`);
+      return scriptedGeneration({ specs: ["flows/checkout.spec.ts"], approved: true });
+    },
+  };
+}
+
+test("with the integrity switch on, a blocking finding that cites a spec outside the run cannot block", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
+    });
+    ports.generation.generate = generate;
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "findings-out-of-scope-dropped" });
+
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "pr", "an unverifiable blocking finding is advisory, so the run still publishes");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("with the switch off, the same finding keeps its pre-change behaviour and the run does not publish", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
+    });
+    ports.generation.generate = generate;
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: false },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "findings-switch-off" });
+
+    assert.notEqual(out.decision.sideEffect, "pr", "the filter is gated by the master switch");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a verified blocking finding on a spec this run delivered still rejects", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({
+        verdict: "pass" as const,
+        cases: [{ name: "checkout", file: "flows/checkout.spec.ts", status: "pass" as const }],
+        logs: "",
+      }),
+      review: citedReview({ kind: "execution", ref: "flows/checkout.spec.ts" }),
+    });
+    ports.generation.generate = generate;
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "findings-verified-blocks" });
+
+    assert.notEqual(out.decision.sideEffect, "pr", "evidence on a delivered spec keeps the rejection standing");
+  } finally {
+    fixtures.cleanup();
+  }
+});

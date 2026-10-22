@@ -165,6 +165,7 @@ import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
 import type { CoordinationTelemetryPort } from "./coordination/coordination-telemetry.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { filterReviewFindings } from "../domain/review-finding-filter.service.ts";
 import { changeTokens, EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/domain/change-tokens.ts";
 import { diffContracts, type IntentViolation } from "@contexts/objective-signal/domain/test-intent-contract.ts";
 import type { IntentContractPort, SpecIntentView } from "./ports/intent-contract.port.ts";
@@ -2422,6 +2423,39 @@ export class RunQaUseCase {
           }
         }
         reviewStats.rounds++;
+        /*
+         * The findings filter (D): only a finding that cites a contract clause, an execution or a DOM
+         * fact this run can verify may block. Everything else is advisory telemetry, never sent to the
+         * generator. The pre-check is the orchestrator's own deterministic evidence, so it is not a
+         * reviewer finding and is never filtered. Gated by the master switch.
+         */
+        if (cfg.reviewLoopIntegrity && decidedBy === "model" && reviewResult.corrections.length > 0) {
+          const findings = reviewResult.corrections.map((text, index) => ({
+            text,
+            severity: reviewResult.severities?.[index] ?? ("blocking" as const),
+            ...(reviewResult.citations?.[index] ? { citation: reviewResult.citations[index]! } : {}),
+          }));
+          const filtered = filterReviewFindings(findings, {
+            inScopeSpecs: new Set(reviewCases.map((c) => c.file ?? c.name)),
+            executedSpecs: new Set(run.cases.map((c) => c.file).filter((file): file is string => !!file)),
+          });
+          if (filtered.dropped.length > 0) {
+            try {
+              this.telemetry.counter("qayaba.review.filtered")(filtered.dropped.length, { "qayaba.app": input.app });
+            } catch (err) {
+              console.error(`[telemetry] the filtered-findings counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+          reviewResult = {
+            ...reviewResult,
+            /* Only a verified finding can keep the reviewer's rejection standing. */
+            approved: filtered.blocking.length === 0,
+            corrections: filtered.blocking,
+            severities: filtered.blocking.map(() => "blocking" as const),
+            citations: filtered.blocking.map(() => undefined),
+            blockingCount: filtered.blocking.length,
+          };
+        }
         const reviewedBlocking = reviewResult.blockingCount ?? reviewResult.corrections.length;
         if (!reviewResult.unavailable) reviewStats.blocking = reviewedBlocking;
         const reviewOutcome = reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected";

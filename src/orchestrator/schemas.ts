@@ -494,10 +494,15 @@ export type ValidatedGeneratorVerdict = z.infer<typeof GeneratorVerdictSchema>;
 
 
 export const CorrectionEntrySchema = z.union([
-  /* Structured entry with severity. */
+  /* Structured entry with severity, and the evidence it rests on. A malformed citation degrades to
+     "no citation" instead of failing the entry: the filter drops an uncited finding on its own. */
   z.object({
     text: z.string(),
     severity: z.enum(["blocking", "advisory"]),
+    citation: z
+      .object({ kind: z.enum(["contract", "execution", "dom"]), ref: z.string() })
+      .optional()
+      .catch(undefined),
   }),
   /* Plain-string entry: treated as blocking (fail-closed). */
   z.string(),
@@ -517,6 +522,11 @@ export function correctionText(entry: CorrectionEntry): string {
 export function correctionSeverity(entry: CorrectionEntry): "blocking" | "advisory" {
   if (typeof entry === "string") return "blocking";
   return entry.severity;
+}
+
+/* Resolve a correction entry's cited evidence, if it carries any. */
+export function correctionCitation(entry: CorrectionEntry): { kind: "contract" | "execution" | "dom"; ref: string } | undefined {
+  return typeof entry === "string" ? undefined : entry.citation;
 }
 
 export const ReviewerVerdictSchema = z.object({

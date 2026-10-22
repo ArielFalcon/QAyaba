@@ -1,7 +1,7 @@
 
 
 import { z } from "zod";
-import { GeneratorVerdictSchema, ReviewerVerdictSchema, correctionText, correctionSeverity } from "../orchestrator/schemas";
+import { GeneratorVerdictSchema, ReviewerVerdictSchema, correctionText, correctionSeverity, correctionCitation } from "../orchestrator/schemas";
 import { lastJsonMatching, isClosingVerdict } from "./verdict-parse";
 import { GRAVE_TAGS } from "../qa/learning/taxonomy";
 
@@ -53,6 +53,8 @@ export interface ReviewerVerdict {
   corrections: string[];
   /* The effective severity of each correction, in the same order. Absent on older parsers. */
   correctionSeverities?: ("blocking" | "advisory")[];
+  /* The evidence each correction cites, in the same order; a hole means that entry cited none. */
+  citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
 
   blockingCount: number;
   valid: boolean;  /* the reviewer JSON satisfied the schema (i.e. `approved` is a clean boolean) */
@@ -77,6 +79,7 @@ export function parseReviewerVerdict(text: string): ReviewerVerdict {
   if (r.success) {
     const corrections = r.data.corrections.map(correctionText);
     const correctionSeverities = r.data.corrections.map((e) => effectiveSeverity(e));
+    const citations = r.data.corrections.map((e) => correctionCitation(e));
 
     const blockingCount = correctionSeverities.filter((s) => s === "blocking").length;
     return {
@@ -84,6 +87,7 @@ export function parseReviewerVerdict(text: string): ReviewerVerdict {
       ...(r.data.rationale && r.data.rationale.trim() ? { rationale: r.data.rationale.trim() } : {}),
       corrections,
       correctionSeverities,
+      citations,
       blockingCount,
       valid: true,
       parsed: true,

@@ -636,6 +636,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     tests: [`${ORCH_TEST}/application/regeneration-acceptance.test.ts`],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "review-findings": {
+    description: "review findings filter: a finding may block only when the orchestrator can verify the evidence it cites",
+    mutate: [`${ORCH}/domain/review-finding-filter.service.ts`],
+    tests: [`${ORCH_TEST}/domain/review-finding-filter.service.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "intent-contract": {
     description: "test-intent contract: change tokens from the diff's added lines, anchoring, and the generic delta rules with their change-derived waivers",
     mutate: [`${OS}/change-tokens.ts`, `${OS}/test-intent-contract.ts`, `${OS_INFRA}/ts-spec-contract.extractor.ts`],

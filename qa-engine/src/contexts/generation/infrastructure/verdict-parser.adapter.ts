@@ -51,6 +51,8 @@ interface LegacyReviewer {
   issues: string[];
   /* The effective severity of each correction, in order, when the parser can tell them apart. */
   correctionSeverities?: ("blocking" | "advisory")[];
+  /* The evidence each correction cites, in order; a hole means that entry cited none. */
+  citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
 }
 
 export interface VerdictParsers {
@@ -99,9 +101,15 @@ export class VerdictParserAdapter implements VerdictParserPort {
       );
     }
     const rationale = boundReviewRationale(r.rationale);
+    /* The caps keep the first REVIEW_CORRECTIONS_MAX entries (blocking first), so the parallel arrays
+       are cut the same way and stay aligned with `corrections`. */
+    const severities = r.correctionSeverities?.slice(0, REVIEW_CORRECTIONS_MAX);
+    const citations = r.citations?.slice(0, REVIEW_CORRECTIONS_MAX);
     return {
       approved: r.approved,
       corrections: boundReviewCorrections(r.corrections, r.correctionSeverities),
+      ...(severities ? { severities } : {}),
+      ...(citations ? { citations } : {}),
       ...(rationale !== undefined ? { rationale } : {}),
       ...(r.blockingCount !== undefined ? { blockingCount: r.blockingCount } : {}),
       ...(r.parsed !== undefined ? { parsed: r.parsed } : {}),

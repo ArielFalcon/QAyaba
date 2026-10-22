@@ -23,6 +23,10 @@ export interface ReviewJudgment {
   parsed?: boolean;
   valid: boolean;
   issues: string[];
+  /* The reviewer's own severity per correction, in order, when it stated one. */
+  severities?: ("blocking" | "advisory")[];
+  /* The evidence each correction cites, in order; a hole means that entry cited none. */
+  citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
 }
 export interface VerdictParserPort {
   /* With the run's specDir, a bare spec file name the agent reported resolves to the one suite spec of that name (suite-relative); without it, names are kept as reported. */
