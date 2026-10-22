@@ -1,4 +1,4 @@
-/* Pre-execution grounding gate. Two sub-gates share one captured route set: (1) ambiguity — MULTIPLE-node contradictions paired per spec to that spec's own routes; feeds one-shot repair and, on a persisting re-check, the deterministic block. (2) catalog — a test-id absent from a captured-and-settled route inside the confident window feeds only one-shot repair, never the deterministic block. Pure: no browser, no I/O. */
+/* Pre-execution grounding. Two sub-checks share one captured route set: (1) ambiguity — MULTIPLE-node contradictions paired per spec to that spec's own routes. It is a regex over the spec text, with false positives that real execution does not have (a locator held in a variable, a name given by a constant or a RegExp), so its findings are ADVISORY telemetry: they are counted and told, never a correction, an origin or a block, and execution decides. (2) catalog — a test-id absent from a captured-and-settled route inside the confident window is the only thing that feeds the one-shot repair, and never a block. Pure: no browser, no I/O. */
 
 import {
   unscopedMultipleContradictions,
@@ -23,9 +23,12 @@ export interface PreExecGroundingInput {
 }
 
 export interface PreExecGroundingResult {
+  /* What the one-shot repair is asked to fix: the catalog gate's test-ids. Never an ambiguity. */
   corrections: string[];
-  /* The spec each correction was raised on, by its index among the input's specSources: a correction two specs raise has an origin for each. Only the specs that raised a correction are origins; one that holds the same selector disambiguated, scoped or on another route is not. */
+  /* The spec each correction was raised on, by its index among the input's specSources: a correction two specs raise has an origin for each. Only the specs that raised a correction are origins; one that uses a test-id the page has, or is on another route, is not. */
   origins: ContradictionOrigin[];
+  /* The ambiguities the check found, each told once however many specs raise it. Advisory: for the log and the signal, never for the repair, the block or the verdict. */
+  ambiguities: string[];
   preExecAmbiguityCatches: number;
   catalogGateInWindow: number;
   catalogGateAdvisory: number;
@@ -53,19 +56,13 @@ function extractGotoRoutes(specSrc: string): Set<string> {
   return out;
 }
 
-/* Each ambiguity is told once, however many specs raise it; `origins` has one entry for each spec that raised it. */
-function ambiguityContradictions(
-  specSources: readonly string[],
-  routes: readonly RouteTree[],
-): { contradictions: string[]; origins: ContradictionOrigin[] } {
-  const origins: ContradictionOrigin[] = [];
-  for (const [specIndex, specSrc] of specSources.entries()) {
-    const paired = routesForSpec(specSrc, routes);
-    const trees = paired.map((r) => r.nodes).filter((n) => n.length > 0);
-    const raised = unscopedMultipleContradictions([specSrc], trees, "pre-write");
-    for (const contradiction of raised) origins.push({ contradiction, specIndex });
-  }
-  return { contradictions: [...new Set(origins.map((origin) => origin.contradiction))], origins };
+/* Each ambiguity is told once, however many specs raise it. */
+function ambiguityContradictions(specSources: readonly string[], routes: readonly RouteTree[]): string[] {
+  const raised = specSources.flatMap((specSrc) => {
+    const trees = routesForSpec(specSrc, routes).map((r) => r.nodes).filter((n) => n.length > 0);
+    return unscopedMultipleContradictions([specSrc], trees, "pre-write");
+  });
+  return [...new Set(raised)];
 }
 
 function catalogCorrections(
@@ -105,21 +102,18 @@ function catalogCorrections(
   return { origins, inWindow, advisory };
 }
 
-/* One-shot pre-execution grounding: combined ambiguity + catalog corrections for one corrective regen. This function never blocks — the caller captures routes, feeds corrections into one regen, and re-invokes (or just the ambiguity half) to decide whether a persisting ambiguity should escalate. */
+/* One-shot pre-execution grounding: the catalog corrections for one corrective regen, and the ambiguities as an advisory. This function never blocks — the caller captures routes and feeds the corrections into one regen. */
 export function checkPreExecGrounding(input: PreExecGroundingInput): PreExecGroundingResult {
   const { specSources, routes } = input;
   const ambiguities = ambiguityContradictions(specSources, routes);
   const catalog = catalogCorrections(specSources, routes);
   return {
-    corrections: [...ambiguities.contradictions, ...catalog.origins.map((origin) => origin.contradiction)],
-    origins: [...ambiguities.origins, ...catalog.origins],
-    preExecAmbiguityCatches: ambiguities.contradictions.length,
+    corrections: catalog.origins.map((origin) => origin.contradiction),
+    origins: catalog.origins,
+    ambiguities,
+    preExecAmbiguityCatches: ambiguities.length,
     catalogGateInWindow: catalog.inWindow,
     catalogGateAdvisory: catalog.advisory,
     catalogGateFailClosed: catalog.origins.length,
   };
-}
-
-export function checkPersistingAmbiguity(input: PreExecGroundingInput): string[] {
-  return ambiguityContradictions(input.specSources, input.routes).contradictions;
 }

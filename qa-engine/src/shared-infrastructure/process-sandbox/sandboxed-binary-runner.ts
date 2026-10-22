@@ -1,5 +1,6 @@
 /* Spawn wrapper for untrusted/external binaries: scrubbed env and a process-tree kill on timeout or abort. */
 
+import type { ChildProcess } from "node:child_process";
 import type { ProcessKillPort } from "../../shared-kernel/process-sandbox/process-kill.port.ts";
 
 export interface SandboxedRunRequest {
@@ -26,6 +27,8 @@ export interface SandboxedBinaryRunner {
 
 export interface SandboxedBinaryRunnerDeps {
   processKill: ProcessKillPort;
+  /* Starts the child. Absent: a plain detached spawn, for the trusted binaries this runner serves (git, the code graph). A runner for agent-influenced code passes the execution launcher here, so that the child is sandboxed (exec-binary-runner.ts). */
+  launch?(req: SandboxedRunRequest): ChildProcess;
   /* Chars of each stream a run without `outputKeepChars` may produce before it is killed and rejected. Defaults to DEFAULT_MAX_OUTPUT_CHARS. */
   maxOutputChars?: number;
 }

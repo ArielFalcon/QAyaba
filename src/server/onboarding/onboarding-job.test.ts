@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   ONBOARD_STATE,
   ONBOARD_OUTCOME,
+  LOGIN_STATUS,
   createOnboardingJob,
   type OnboardingJobDeps,
   type OnboardingJobStatus,
@@ -96,7 +97,7 @@ function buildDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDep
 test("ONBOARD_STATE is a const-object, not a raw string union (typescript SKILL convention)", () => {
   assert.deepEqual(
     Object.values(ONBOARD_STATE).sort(),
-    ["done", "failed", "idle", "indexing", "mapping", "proposing", "resolvingMirrors", "scoring"].sort(),
+    ["done", "failed", "idle", "indexing", "login", "mapping", "proposing", "resolvingMirrors", "scoring"].sort(),
   );
 });
 
@@ -883,4 +884,177 @@ test("map completing with verdict fail is still successful onboarding — verdic
   assert.equal(status.outcome, "winner");
   assert.equal(status.mappingProgress?.verdict, "fail");
   assert.equal(status.error, undefined, "a failed map verdict must not be copied into job error");
+});
+
+
+/* ── The login phase: after the map, a run that authors the app's login and proves it ── */
+
+function buildLoginDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDeps {
+  return buildMappedDeps({
+    enqueueLoginRun: () => "run_login_1",
+    getLoginRun: () => ({ runId: "run_login_1", status: "done", step: "decide", verdict: "pass" }),
+    loginPollMs: 1,
+    ...overrides,
+  });
+}
+
+async function onboardAndConfirm(job: ReturnType<typeof createOnboardingJob>): Promise<void> {
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+}
+
+test("ONBOARD_STATE has a login phase and LOGIN_STATUS names its three endings", () => {
+  assert.equal(ONBOARD_STATE.login, "login");
+  assert.deepEqual(Object.values(LOGIN_STATUS).sort(), ["failed", "unauthored", "verified"]);
+});
+
+test("confirm() maps THEN logs in THEN done: the login starts only after the map ended, and an accepted login run is verified", async () => {
+  const order: string[] = [];
+  const job = createOnboardingJob(buildLoginDeps({
+    enqueueContextRun: () => { order.push("map"); return "run_map_1"; },
+    enqueueLoginRun: ({ app, mirrorDir }) => { order.push(`login:${app}:${mirrorDir}`); return "run_login_1"; },
+  }));
+  await onboardAndConfirm(job);
+
+  const status = job.status();
+  assert.deepEqual(order.map((o) => o.split(":")[0]), ["map", "login"]);
+  assert.equal(order[1]?.startsWith("login:nname:"), true, "the login run is for the onboarded app, at its front mirror");
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.deepEqual(status.loginProgress, { runId: "run_login_1", step: "decide", verdict: "pass", status: "verified" });
+  assert.equal(status.error, undefined);
+});
+
+test("the observed state after the map is login, never a premature done, and the login does not hold the onboarding mutex", async () => {
+  let resolveLogin!: (id: string) => void;
+  const job = createOnboardingJob(buildLoginDeps({ enqueueLoginRun: () => new Promise<string>((resolve) => { resolveLogin = resolve; }) }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  for (let i = 0; i < 50 && job.status().state !== ONBOARD_STATE.login; i++) await new Promise((r) => setImmediate(r));
+
+  assert.equal(job.status().state, ONBOARD_STATE.login);
+  assert.equal(job.isActive(), false, "busy is released so the login run is not parked");
+  const rejected = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  assert.deepEqual(rejected instanceof Promise ? undefined : rejected, { ok: false, error: "an onboarding job is already running" });
+
+  resolveLogin("run_login_1");
+  await job.settled();
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+});
+
+test("a login run's verdict decides the login status: pass verified, infra-error failed, anything else unauthored", async () => {
+  const expected: Array<[string, string]> = [["pass", "verified"], ["infra-error", "failed"], ["fail", "unauthored"], ["invalid", "unauthored"], ["skipped", "unauthored"], ["flaky", "unauthored"]];
+  for (const [verdict, login] of expected) {
+    const job = createOnboardingJob(buildLoginDeps({ getLoginRun: () => ({ runId: "run_login_1", status: "done", verdict }) }));
+    await onboardAndConfirm(job);
+    assert.equal(job.status().loginProgress?.status, login, verdict);
+    assert.equal(job.status().state, ONBOARD_STATE.done, `${verdict}: a login that did not verify never fails onboarding`);
+  }
+});
+
+test("a login run that ends with no verdict is failed: it did not tell", async () => {
+  const job = createOnboardingJob(buildLoginDeps({ getLoginRun: () => ({ runId: "run_login_1", status: "done" }) }));
+  await onboardAndConfirm(job);
+  assert.equal(job.status().loginProgress?.status, "failed");
+});
+
+test("the login run is followed through the context run lookup when no login lookup is wired", async () => {
+  const job = createOnboardingJob(buildLoginDeps({
+    getLoginRun: undefined,
+    getContextRun: (id) => ({ runId: id, status: "done", step: "decide", verdict: id === "run_login_1" ? "pass" : "pass" }),
+  }));
+  await onboardAndConfirm(job);
+  assert.equal(job.status().loginProgress?.status, "verified");
+});
+
+test("a login run that never ends is failed once loginTimeoutMs passes, and onboarding is still done", async () => {
+  const job = createOnboardingJob(buildLoginDeps({
+    loginPollMs: 5,
+    loginTimeoutMs: 20,
+    getLoginRun: () => ({ runId: "run_login_1", status: "running", step: "generate" }),
+  }));
+  await onboardAndConfirm(job);
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.deepEqual(status.loginProgress, { runId: "run_login_1", step: "generate", verdict: undefined, status: "failed" });
+});
+
+test("a login phase that throws is failed and logged once, redacted; onboarding is still done/winner", async () => {
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const job = createOnboardingJob(buildLoginDeps({ enqueueLoginRun: () => { throw new Error("queue exploded"); } }));
+    await onboardAndConfirm(job);
+    const status = job.status();
+    assert.equal(status.state, ONBOARD_STATE.done);
+    assert.equal(status.outcome, "winner");
+    assert.equal(status.loginProgress?.status, "failed");
+    assert.equal(status.error, undefined, "the login is advisory: it is reported on loginProgress, not as a job error");
+    assert.equal(logged.filter((line) => line.includes("onboarding runLogin failed")).length, 1);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("an empty run id (the service is shutting down) leaves no login progress and the job done", async () => {
+  const job = createOnboardingJob(buildLoginDeps({ enqueueLoginRun: () => "" }));
+  await onboardAndConfirm(job);
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+  assert.equal(job.status().loginProgress, undefined);
+});
+
+test("an app without a form login, a code app, and a job without enqueueLoginRun never start the login phase", async () => {
+  for (const [name, over] of [
+    ["no login", { hasLogin: () => false }],
+    ["code app", { isCodeApp: () => true }],
+    ["hasLogin throws", { hasLogin: () => { throw new Error("config gone"); } }],
+    ["not wired", { enqueueLoginRun: undefined }],
+  ] as const) {
+    let enqueued = 0;
+    const job = createOnboardingJob(buildLoginDeps({ enqueueLoginRun: () => { enqueued += 1; return "run_login_1"; }, ...over }));
+    await onboardAndConfirm(job);
+    assert.equal(enqueued, 0, name);
+    assert.equal(job.status().loginProgress, undefined, name);
+    assert.equal(job.status().state, ONBOARD_STATE.done, name);
+  }
+});
+
+test("a map that timed out leaves the queue occupied, so no login run is enqueued behind it", async () => {
+  let enqueued = 0;
+  const job = createOnboardingJob(buildLoginDeps({
+    mappingPollMs: 5,
+    mappingTimeoutMs: 20,
+    getContextRun: () => ({ runId: "run_map_1", status: "running" }),
+    enqueueLoginRun: () => { enqueued += 1; return "run_login_1"; },
+  }));
+  await onboardAndConfirm(job);
+  assert.equal(enqueued, 0);
+  assert.match(job.status().error ?? "", /architecture map timed out/);
+  assert.equal(job.status().loginProgress, undefined);
+});
+
+test("a job with a login phase but no map still logs in after confirm", async () => {
+  const job = createOnboardingJob(buildLoginDeps({ enqueueContextRun: undefined, getContextRun: undefined }));
+  await onboardAndConfirm(job);
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+  assert.equal(job.status().mappingProgress, undefined);
+  assert.equal(job.status().loginProgress?.status, "verified");
+});
+
+test("a no-profile round maps, logs in, then lands done/no-profile", async () => {
+  const states: string[] = [];
+  const job = createOnboardingJob(buildLoginDeps({
+    buildProposer: () => noWinnerProposer(),
+    indexRepo: undefined,
+    getLoginRun: () => { states.push(job.status().state); return { runId: "run_login_1", status: "done", verdict: "pass" }; },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  await job.settled();
+  const status = job.status();
+  assert.deepEqual(states, [ONBOARD_STATE.login]);
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, ONBOARD_OUTCOME.noProfile);
+  assert.equal(status.loginProgress?.status, "verified");
 });

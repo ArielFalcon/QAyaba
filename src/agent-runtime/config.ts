@@ -24,10 +24,10 @@ export interface PublicAgentConfig {
 const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["assignments"], string>> = {
   opencode: {
     /* Must match agents/opencode.json qa-generator. */
-    primary: "opencode-go/glm-5.3-flash",
+    primary: "opencode-go/minimax-m3.1-flash-free",
     /* Must match qa-reviewer and differ from primary — two models guarantee independent judgment. */
-    reviewer: "opencode-go/muse-spark-1.3-contributor",
-    chat: "opencode-go/glm-5.3-flash",
+    reviewer: "opencode/deepseek-v4.1-flash-free",
+    chat: "opencode/deepseek-v4.1-flash-free",
   },
   codex: {
     primary: "gpt-5.4",

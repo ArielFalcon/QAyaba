@@ -5,7 +5,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { assemble, section, Section } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
+import { createRunSecretScope, redactByValue, withRunSecretScope } from "../../../../../src/shared-infrastructure/run-secret-redaction.ts";
 
 test("assemble: sections are emitted in canonical role order regardless of input order", () => {
   const sections: Section[] = [
@@ -674,4 +676,70 @@ test("assemble: a section dropped for exceeding its own cap contributes no claim
     }),
   ]);
   assert.deepEqual(claims, {});
+});
+
+/* A grounding section the assembler capped or shed delivers no item ids, and says so with the right omission. */
+test("assemble: a capped grounding section delivers no item ids and counts the cap as an omission", () => {
+  const { sectionItems } = assemble([
+    section("context-pack", "volatile", "X".repeat(1000), {
+      priority: 0,
+      maxBytes: 50,
+      overflow: "summarize",
+      itemIds: ["dom:/a#b"],
+      omissions: [{ class: "truncation", reason: "node-cap", count: 3 }],
+    }),
+  ]);
+  assert.deepEqual(sectionItems["context-pack"], {
+    itemIds: [],
+    omissions: [
+      { class: "truncation", reason: "node-cap", count: 3 },
+      { class: "truncation", reason: "section-cap", count: 1 },
+    ],
+    capped: true,
+  });
+});
+
+test("assemble: a shed grounding section delivers no item ids and counts the shed as an omission", () => {
+  const { sectionItems } = assemble([
+    section("context-pack", "volatile", "Y".repeat(400), { priority: 0, overflow: "drop", itemIds: ["dom:/a#b"] }),
+    section("task", "task", "TASK"),
+  ], { budgetBytes: 20 });
+  assert.deepEqual(sectionItems["context-pack"], {
+    itemIds: [],
+    omissions: [{ class: "truncation", reason: "section-shed", count: 1 }],
+    capped: false,
+  });
+});
+
+/* Hashes: one per surviving section, over its bytes with the run's secrets taken out. The whole prompt's hash is the transport's, over what it sends. */
+test("assemble: every surviving section has a sha256 of its bytes", () => {
+  const { sectionHashes } = assemble([section("rules", "stable-prefix", "RULES"), section("task", "task", "TASK")]);
+  assert.equal(sectionHashes?.["rules"], createHash("sha256").update("RULES", "utf8").digest("hex"));
+  assert.ok(sectionHashes?.["task"]);
+});
+
+test("assemble: a changed section changes its own hash and no other section's", () => {
+  const before = assemble([section("rules", "stable-prefix", "RULES"), section("task", "task", "TASK one")]);
+  const after = assemble([section("rules", "stable-prefix", "RULES"), section("task", "task", "TASK two")]);
+  assert.equal(before.sectionHashes?.["rules"], after.sectionHashes?.["rules"]);
+  assert.notEqual(before.sectionHashes?.["task"], after.sectionHashes?.["task"]);
+});
+
+test("assemble: a shed section has no hash and is listed as dropped, with the budget it was assembled to", () => {
+  const shed = assemble([section("rules", "stable-prefix", "RULES"), section("dom", "volatile", "D".repeat(400))], { budgetBytes: 40 });
+  assert.equal(shed.sectionHashes?.["dom"], undefined);
+  assert.deepEqual(shed.droppedSections, ["dom"]);
+  assert.equal(shed.budgetBytes, 40);
+});
+
+test("assemble: the hash of a section that carries a run secret equals the hash of the redacted section, and the secret leaves no trace in it", () => {
+  const secrets = createRunSecretScope();
+  secrets.addAccountSecrets(["hunter2-pass"]);
+  const withSecret = withRunSecretScope(secrets, () => assemble([section("task", "task", "log in with hunter2-pass please")]));
+  const redactedSection = withRunSecretScope(secrets, () => redactByValue("log in with hunter2-pass please"));
+  assert.ok(!redactedSection.includes("hunter2"));
+  assert.equal(withSecret.sectionHashes?.["task"], createHash("sha256").update(redactedSection, "utf8").digest("hex"));
+  assert.ok(!JSON.stringify(withSecret.sectionHashes).includes("hunter2"));
+  /* The text itself is untouched: the transport redacts it at the last seam, as it always did. */
+  assert.match(withSecret.text, /hunter2-pass/);
 });

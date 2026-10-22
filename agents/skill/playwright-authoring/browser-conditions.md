@@ -3,8 +3,9 @@
 ## Geolocation
 
 The app places the user on a map and, when uploading a photo, lists **nearby
-places**. There is a deterministic default location in the config. To force a
-different one (e.g. so specific places appear), use the helper:
+places**. It declares a deterministic default location in `dev.geolocation`, and may
+declare named places there; the prompt lists both. To make a test depend on another
+location, set it explicitly before the first navigation that reads it:
 
 ```ts
 import { setLocation } from "../fixtures";
@@ -16,7 +17,9 @@ test("shows places near the location", async ({ page, context }) => {
 });
 ```
 The `geolocation` permission is already granted in the config. `setLocation` also
-grants it in case the test created a new context.
+grants it in case the test created a new context. Call it with the exact coordinates
+the assertion depends on: the authoring browser's `set_geolocation` value is context
+for the run, and the suite does not see it when it runs later.
 
 ## Mobile mode
 

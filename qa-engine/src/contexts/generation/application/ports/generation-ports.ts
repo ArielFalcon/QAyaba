@@ -1,10 +1,15 @@
-/* Canonical generation input types (OpencodeRunInput / ReviewInput / ParallelWorkerInput). */
+/* Canonical generation input types (OpencodeRunInput / ReviewInput). */
 
 import type { TestTarget, RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
+import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
+import type { GeolocationFacts } from "@kernel/geolocation.ts";
+import type { PlanningLimits } from "@kernel/coordination.ts";
 import type { ServiceLink, ContractDrift } from "@contexts/service-topology/domain/index.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
+import type { Omission } from "@kernel/telemetry/section-meta.ts";
 
 
 export type CommitType =
@@ -24,7 +29,7 @@ export interface RouteEntry {
   name?: string;
   component?: string;
   source?: string;
-  /* The files that implement the page. Optional and unchecked by the map's form validation: route ranking reads it only after checking its shape. */
+  /* Repo-relative paths of the files a change to the route's page would touch. Optional: the map loader keeps only well-formed entries (see loadContextMapFromDisk), and route ranking still checks the shape where it reads it. */
   implementationFiles?: string[];
 }
 export interface ApiOperation {
@@ -120,6 +125,8 @@ export interface OpencodeRunInput {
   fixCases?: QaCase[];
   reviewCorrections?: string[];
   coverageGap?: string;
+  /* The intent lock's violations of the previous turn, as facts: rule, clause, and what the contract held before and after. Absent when the previous turn broke no contract. */
+  contractFeedback?: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[];
   selectorContradictions?: string[];
   /* Every spec the run has delivered so far whose file still exists, on a regeneration turn only: the lead's declared flow and objective where it declared them, a sidekick's spec by path alone. Absent on a first pass, and when none is left. What an agent wrote, so the suite listing of the prompt sanitizes and caps it. */
   deliveredSpecs?: readonly DeliveredSpec[];
@@ -140,17 +147,25 @@ export interface OpencodeRunInput {
   reviewerStepLimit?: number;
   contextBrief?: ExplorationBrief; /* the distilled blast radius from the explorer pass (set internally → buildPrompt) */
   contextPack?: string;
+  /* The grounding ids and omissions of the context pack, computed at pack-build time from the kept lines (packDeliveredItemIds). Threaded alongside the pack text so the prompt's delivered span is read from the assembly, never parsed from the text. */
+  contextPackItemIds?: readonly string[];
+  contextPackOmissions?: readonly Omission[];
   /* Facts about the suite's harness (test-id attribute, fixtures exports), rendered as data only. Absent = no section. */
   harnessFacts?: HarnessFacts;
+  /* The limits of the run_spec tool this run granted the generator (calls, time per call, DEV writes), stated as facts. Present only when the run granted it, which only an e2e run on the OpenCode runtime does; absent = no section. */
+  closedLoop?: ClosedLoopLimits;
+  /* The limits of the authenticated browser this run granted the authoring agents (calls, time per call), stated as facts. Present only when the run granted it, which only an e2e run on the OpenCode runtime does; absent = no section. */
+  agentBrowser?: AgentBrowserLimits;
+  /* The app's declared location and the location this authoring scope works at, stated as facts. Present only when the app declares geolocation; absent = no section. */
+  geolocation?: GeolocationFacts;
+  /* Present only on the one turn a coordinated run asks its lead for a plan instead of specs: the limits the plan will be held to. Absent = an ordinary turn, and no section. */
+  planning?: PlanningLimits;
   /* App login is declared but <e2eRelDir>/auth.setup.ts is still the stock seed and did not sign in: the generator must rewrite it before writing specs. Absent = nothing to rewrite. */
   authSeedUnauthored?: boolean;
   /* Static signal: deterministic pre-computed analysis rendered as a prompt section. Empty string or absent = no section added. Signal-only, fail-open. */
   staticSignal?: string;
   /* True when the static signal names symbols (impacted or callers): only then does it stand for an explored blast radius. Absent = a signal of co-change files alone (or no signal), which names no blast radius. */
   staticSignalHasSymbols?: boolean;
-  diffArchetypes?: string[];
-  /* Fed into prompts.ts's matchExemplars/renderExemplarsForPrompt loop to render a "Skill exemplars" section. Absent or empty = no section (never fabricated). Restoration-only: no live production caller populates this yet (mirrors diffArchetypes' own still-open wiring gap into the rewritten engine). */
-  structuralPatterns?: StructuralPattern[];
   skillExemplars?: readonly {
     id: string; name: string; template: string; archetype: string; proven: boolean; promotionCount: number;
   }[];
@@ -165,6 +180,8 @@ export interface OpencodeRunInput {
 export interface ReviewInput {
   diff: string;
   specs: string[];
+  /* The suite's existing specs, listed as context only: never judged, never a reason to reject. */
+  existingSpecFiles?: string[];
   mirrorDir: string;
   e2eRelDir: string;
   baseUrl?: string;
@@ -178,30 +195,10 @@ export interface ReviewInput {
   domSnapshot?: string;
   runId?: string;
   priorCorrections?: string[];
+  /* On a second round: the spec lines that changed since the reviewer's last rejection. The round is
+   * judged against this change plus the prior corrections; unchanged specs are not re-reviewed. */
+  specChanges?: string;
   executionResult?: string;
   /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
   stepLimit?: number;
-}
-
-export interface ParallelWorkerInput {
-  objective: string;
-  flow: string;
-  symbols: string[];
-  needsUi: boolean;
-  brief?: ExplorationBrief;
-  specFile: string;
-  repo: string;
-  mirrorDir: string;
-  e2eRelDir: string;
-  namespace: string;
-  baseUrl?: string;
-  appName: string;
-  mode: RunMode;
-  learnedRules?: string;
-  domSnapshot?: string;
-  runId?: string;
-  staticSignal?: string; /* deterministic pre-computed analysis (signal-only, fail-open) */
-  serviceLinks?: ServiceLink[];
-  contractDrift?: ContractDrift[];
-  crossRepoImpact?: { impactedLinks: Array<{ link: ServiceLink; tier: string }> };
 }

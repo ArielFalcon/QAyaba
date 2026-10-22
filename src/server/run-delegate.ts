@@ -4,6 +4,7 @@
  */
 
 import type { RunMode, TestTarget } from "../types";
+import type { CoordinationMode } from "@kernel/coordination";
 
 export interface DelegateRunInput {
   app: string;
@@ -14,6 +15,14 @@ export interface DelegateRunInput {
   target?: TestTarget;
   mode: RunMode;
   guidance?: string;
+  /** The run's own choice about the run_spec loop (an A/B arm), overriding the app's setting. */
+  closedLoop?: boolean;
+  /** The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting. */
+  agentBrowser?: boolean;
+  /** The run's own choice of coordination mode (an A/B arm), overriding the app's setting. */
+  coordinationMode?: CoordinationMode;
+  /** The run's own choice of grounding sources (an A/B arm), overriding the app's settings. */
+  grounding?: { domPack?: boolean };
 }
 
 export interface DelegateRunDeps {
@@ -55,6 +64,10 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
       ...(input.target ? { target: input.target } : {}),
       mode: input.mode,
       ...(input.guidance ? { guidance: input.guidance } : {}),
+      ...(input.closedLoop !== undefined ? { closedLoop: input.closedLoop } : {}),
+      ...(input.agentBrowser !== undefined ? { agentBrowser: input.agentBrowser } : {}),
+      ...(input.coordinationMode !== undefined ? { coordinationMode: input.coordinationMode } : {}),
+      ...(input.grounding ? { grounding: input.grounding } : {}),
     }),
   });
   const createBody = (await createRes.json().catch(() => ({}))) as Record<string, unknown>;
@@ -80,7 +93,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
       continue;
     }
     if (res.status === 401 || res.status === 403) {
-      throw new Error("the service rejected the token (401/403) — set QA_API_TOKEN or config/.api_token");
+      throw new Error("the service rejected the token (401/403) — set QA_API_TOKEN, or check data/.api_token (inside the container: /app/data/.api_token)");
     }
     if (res.ok) {
       const rec = (await res.json().catch(() => null)) as Record<string, unknown> | null;

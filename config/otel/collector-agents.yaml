@@ -1,0 +1,137 @@
+# UNTRUSTED collector of the local telemetry stack (docs/telemetry-local.md, docs/observability-design.md §9.2, D13).
+#
+# It runs as its own service on agent-otlp (where the agents container reaches it) plus telemetry-internal (only to
+# export to lgtm), and hosts the single receiver the agents write to (:4319). Everything the agents emit is a viewing
+# aid, never evidence: this pipeline deletes every key that could forge orchestrator-owned facts or leak content, then
+# stamps qayaba.trust=agent. The tag cannot be spoofed because the agents reach no other receiver.
+#
+# The strip and the stamp are applied to the resource, the scope, every span, span event, span link and log record.
+# `error_mode: propagate` makes a statement that fails drop the batch instead of letting a forged key through.
+# Statements use fully qualified paths (resource.attributes, ...) so the collector does not rewrite them at start.
+#
+# OpenCode 1.17.7 exports one process-wide trace with no root and ignores an inbound traceparent, so its spans cannot be
+# joined to a run: the trace pipeline drops them whole. Its logs are kept (they carry severity, time and, on some paths,
+# the session id) and pass through the same strip and stamp.
+
+receivers:
+  otlp/agents:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4319
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+  # Same coarse secret redaction as the trusted collector (see collector.yaml).
+  redaction:
+    allow_all_keys: true
+    summary: info
+    ignored_key_patterns:
+      - '^gen_ai\.usage\..*'
+    blocked_key_patterns:
+      - '(?i)(^|[._-])(password|passwd|secret|api[_-]?key|authorization|auth[_-]?token|access[_-]?token|refresh[_-]?token|cookie|set[_-]?cookie)($|[._-])'
+    blocked_values:
+      - '(?i)bearer\s+[a-z0-9._~+/=-]{8,}'
+      - '(?i)basic\s+[a-z0-9+/=]{8,}'
+      - '(?i)(password|passwd|pwd|secret|token|api[_-]?key)\s*[=:]\s*\S+'
+      - '(?i)(set-)?cookie\s*:\s*\S+'
+      - '[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@]+:[^\s/@]+@'
+      - 'gh[pousr]_[A-Za-z0-9]{20,}'
+      - 'github_pat_[A-Za-z0-9_]{20,}'
+      - 'sk-[A-Za-z0-9_-]{16,}'
+      - 'AKIA[0-9A-Z]{16}'
+      - 'AIza[0-9A-Za-z_-]{30,}'
+      - 'xox[abp]-[A-Za-z0-9-]{10,}'
+      - 'npm_[A-Za-z0-9]{30,}'
+      - 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
+      - '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+
+  # Order matters inside each context: delete first, then stamp, so a forged qayaba.trust is overwritten, not kept.
+  transform/agents:
+    error_mode: propagate
+    trace_statements:
+      - context: resource
+        statements:
+          - 'delete_matching_keys(resource.attributes, "^(qayaba|langfuse)\\..*")'
+          - 'delete_matching_keys(resource.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")'
+          - 'delete_matching_keys(resource.attributes, "^ai\\.(prompt.*|response\\..*|toolCall\\.(args|result))$")'
+          - set(resource.attributes["qayaba.trust"], "agent")
+      - context: scope
+        statements:
+          - 'delete_matching_keys(scope.attributes, "^(qayaba|langfuse)\\..*")'
+          - 'delete_matching_keys(scope.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")'
+          - 'delete_matching_keys(scope.attributes, "^ai\\.(prompt.*|response\\..*|toolCall\\.(args|result))$")'
+      - context: span
+        statements:
+          - 'delete_matching_keys(span.attributes, "^(qayaba|langfuse)\\..*")'
+          - 'delete_matching_keys(span.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")'
+          - 'delete_matching_keys(span.attributes, "^ai\\.(prompt.*|response\\..*|toolCall\\.(args|result))$")'
+          - set(span.attributes["qayaba.trust"], "agent")
+          - set(span.links, nil)
+      - context: spanevent
+        statements:
+          - 'delete_matching_keys(spanevent.attributes, "^(qayaba|langfuse)\\..*")'
+          - 'delete_matching_keys(spanevent.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")'
+          - 'delete_matching_keys(spanevent.attributes, "^ai\\.(prompt.*|response\\..*|toolCall\\.(args|result))$")'
+    log_statements:
+      - context: resource
+        statements:
+          - 'delete_matching_keys(resource.attributes, "^(qayaba|langfuse)\\..*")'
+          - 'delete_matching_keys(resource.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")'
+          - 'delete_matching_keys(resource.attributes, "^ai\\.(prompt.*|response\\..*|toolCall\\.(args|result))$")'
+          - set(resource.attributes["qayaba.trust"], "agent")
+      - context: scope
+        statements:
+          - 'delete_matching_keys(scope.attributes, "^(qayaba|langfuse)\\..*")'
+          - 'delete_matching_keys(scope.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")'
+          - 'delete_matching_keys(scope.attributes, "^ai\\.(prompt.*|response\\..*|toolCall\\.(args|result))$")'
+      - context: log
+        statements:
+          - 'delete_matching_keys(log.attributes, "^(qayaba|langfuse)\\..*")'
+          - 'delete_matching_keys(log.attributes, "^gen_ai\\.(input\\.messages|output\\.messages|system_instructions|tool\\.call\\.arguments|tool\\.call\\.result)$")'
+          - 'delete_matching_keys(log.attributes, "^ai\\.(prompt.*|response\\..*|toolCall\\.(args|result))$")'
+          - set(log.attributes["qayaba.trust"], "agent")
+
+  # A trace of one process, without a root or a link to the run it served, is not evidence. Dropping it keeps Tempo
+  # readable and costs nothing the orchestrator's own attempt span does not already carry.
+  filter/drop_opencode_traces:
+    error_mode: ignore
+    traces:
+      span:
+        - 'resource.attributes["service.name"] == "opencode"'
+
+exporters:
+  otlphttp/lgtm:
+    endpoint: http://lgtm:4318
+
+  # Rotating on-disk copy of the agents' traces, a different file from the trusted collector's, in the same volume.
+  file/debug:
+    path: /var/lib/otel-debug/agents-traces.jsonl
+    rotation:
+      max_megabytes: 100
+      max_backups: 3
+
+  # Off by default: not referenced by any pipeline.
+  debug:
+    verbosity: basic
+
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces/agents:
+      receivers: [otlp/agents]
+      processors: [memory_limiter, filter/drop_opencode_traces, transform/agents, redaction, batch]
+      exporters: [otlphttp/lgtm, file/debug]
+    logs/agents:
+      receivers: [otlp/agents]
+      processors: [memory_limiter, transform/agents, redaction, batch]
+      exporters: [otlphttp/lgtm]

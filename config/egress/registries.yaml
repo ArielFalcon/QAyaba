@@ -1,0 +1,29 @@
+# Package registries the execution sandbox's INSTALL children may reach (the e2e project's `npm ci`, and a
+# code-mode app's install and test command). This is data, not code: a registry added here is reachable by
+# every app's install step, nothing else is. An app adds a private registry or a mirror of its own with
+# `egress.installOrigins` in its config, and the origins its specs may reach with `dev.allowedOrigins`.
+#
+# An origin is scheme://host[:port], or scheme://*.suffix[:port] for every subdomain of a suffix (at least two
+# labels). Hosts only, never IP literals over https. A group is used when the run's target needs it: the e2e
+# target uses `npm`; the code target uses all of them, since its ecosystem is detected from the repository.
+npm:
+  - https://registry.npmjs.org
+maven:
+  - https://repo.maven.apache.org
+  - https://repo1.maven.org
+gradle:
+  - https://plugins.gradle.org
+  - https://services.gradle.org
+  - https://downloads.gradle.org
+  - https://repo.gradle.org
+pip:
+  - https://pypi.org
+  - https://files.pythonhosted.org
+go:
+  - https://proxy.golang.org
+  - https://sum.golang.org
+  - https://storage.googleapis.com
+cargo:
+  - https://index.crates.io
+  - https://static.crates.io
+  - https://crates.io

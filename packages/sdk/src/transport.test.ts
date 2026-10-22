@@ -154,3 +154,16 @@ test("assistant questions are not cut off by the short default request timeout",
   assert.equal((await client.ask("r1", "why did it fail?")).answer, "ok");
   assert.equal((await client.help("how do I onboard an app?")).answer, "ok");
 });
+
+test("getCampaignRuns encodes the campaign id and sends each variant label as a variant.<key> filter", async () => {
+  const urls: string[] = [];
+  const fetchImpl = (async (url: string) => {
+    urls.push(url);
+    return new Response(JSON.stringify({ schemaVersion: 1, campaignId: "a b", runs: [], complete: false }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as unknown as typeof fetch;
+  const client = createClient({ baseUrl: "http://x", fetchImpl });
+  await client.getCampaignRuns("a b");
+  await client.getCampaignRuns("a b", { arm: "treat ment", "model.name": "m1" });
+  assert.equal(urls[0], "http://x/api/v1/campaigns/a%20b/runs");
+  assert.equal(urls[1], "http://x/api/v1/campaigns/a%20b/runs?variant.arm=treat%20ment&variant.model.name=m1");
+});

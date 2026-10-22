@@ -15,6 +15,7 @@ import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort, VerdictParserPort, ReviewJudgment } from "@contexts/generation/application/ports/index.ts";
 import type { ReviewInput, StepLimitRole } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 
 function fakeRuntime(output: string): AgentRuntimePort {
   return {
@@ -29,7 +30,6 @@ function fakeRendering(): PromptRenderingPort {
   return {
     render: () => "",
     renderMain: () => ({ text: "", sectionSizes: {} }),
-    renderWorker: () => ({ text: "", sectionSizes: {} }),
     renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: {} }),
     renderExplorer: () => "",
     specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
@@ -415,4 +415,148 @@ test("review() sends its prompt with no limit key when there is no resolver, or 
 
   assert.equal(sent.length, 2);
   for (const opts of sent) assert.equal("stepLimit" in (opts ?? {}), false);
+});
+
+test("review() lets the run's deadline through: a reviewer turn the run's time ran out on is the run's end, not a reviewer to fail closed on", async () => {
+  const runtime: AgentRuntimePort = { openSession: async () => { throw new RunDeadlineExceededError(60_000, "manual", "reviewer", "before-turn"); } };
+  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+  await assert.rejects(adapter.review("/mirrors/org/app/e2e", cases), (err: unknown) => err instanceof RunDeadlineExceededError);
+});
+
+/* An unavailable reviewer is told apart from a rejection, and from a reviewer that answered unreadably. */
+
+const REVIEW_CTX = { diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff" as const };
+
+test("review() marks a reviewer whose session failed as unavailable, in either place it can fail", async () => {
+  const failAtOpen: AgentRuntimePort = { openSession: async () => { throw new Error("HTTP 400: model not supported"); } };
+  const failAtPrompt: AgentRuntimePort = { openSession: async () => ({ prompt: async () => { throw new Error("stalled: no activity"); }, dispose: async () => {} }) };
+  for (const runtime of [failAtOpen, failAtPrompt]) {
+    const result = await new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+    assert.equal(result.unavailable, true);
+    assert.equal(result.approved, false);
+    assert.equal(result.parsed, false);
+  }
+});
+
+test("review() marks a reviewer that returned nothing as unavailable: an empty answer judged nothing", async () => {
+  for (const output of ["", "  \n "]) {
+    const result = await new ReviewPortAdapter({ runtime: fakeRuntime(output), rendering: fakeRendering(), verdicts: approving }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+    assert.equal(result.unavailable, true, JSON.stringify(output));
+    assert.match(result.rationale ?? "", /reviewer unavailable: the reviewer returned no output/);
+  }
+});
+
+test("review() does not mark a real rejection as unavailable, and keeps it exactly as it was", async () => {
+  const rejecting = fakeVerdicts({ approved: false, corrections: ["[false-positive] asserts nothing"], blockingCount: 1, parsed: true, valid: true, issues: [], rationale: "asserts nothing real" });
+  const result = await new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts: rejecting }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+  assert.equal("unavailable" in result, false);
+  assert.deepEqual([result.approved, result.parsed, result.blockingCount, result.corrections], [false, true, 1, ["[false-positive] asserts nothing"]]);
+});
+
+test("review() does not mark an answer it could not read as unavailable: the reviewer was reached, only its verdict is a parse miss", async () => {
+  const unreadable = fakeVerdicts({ approved: false, corrections: [], parsed: false, valid: false, issues: ["no verdict JSON found"] });
+  const result = await new ReviewPortAdapter({ runtime: fakeRuntime("I think the tests look fine"), rendering: fakeRendering(), verdicts: unreadable }, REVIEW_CTX).review("/mirrors/org/app/e2e", cases);
+  assert.equal("unavailable" in result, false);
+  assert.equal(result.parsed, false);
+  assert.equal(result.approved, false);
+});
+
+/* The verdict is the model's spoken answer: reasoning parts are dropped before parsing, and the turn
+ * reports what it cost so the run can persist it (never read back into the verdict). */
+
+test("review() asks for the final answer only (textOnly), so reasoning prose never reaches the parser", async () => {
+  const sent: Array<Record<string, unknown> | undefined> = [];
+  const adapter = new ReviewPortAdapter({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+
+  await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(sent[0]?.textOnly, true);
+});
+
+test("review() reports the turn's duration, tokens, cost and steps", async () => {
+  const runtime: AgentRuntimePort = {
+    openSession: async (_role, _cwd, opts) => {
+      opts?.onUsage?.({ input: 900, output: 120, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.004 });
+      return {
+        prompt: async (_text, promptOpts) => {
+          promptOpts?.onTurnStats?.({ maxSteps: 12, stepsUsed: 1, exhausted: false, writeCount: 0, observationComplete: true });
+          return { output: '{"approved":true,"rationale":"ok","corrections":[]}' };
+        },
+        dispose: async () => {},
+      };
+    },
+  };
+  const adapter = new ReviewPortAdapter({ runtime, rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.ok(result.stats, "a review that opened a session reports what it cost");
+  assert.equal(result.stats?.outputTokens, 120);
+  assert.equal(result.stats?.inputTokens, 900);
+  assert.equal(result.stats?.costUsd, 0.004);
+  assert.equal(result.stats?.steps, 1);
+  assert.ok(result.stats!.durationMs >= 0);
+  assert.equal(result.stats?.promptBytes, Buffer.byteLength("reviewer-prompt", "utf8"));
+});
+
+test("review() reports no fabricated token count when the runtime reports no usage", async () => {
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+
+  const result = await adapter.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(result.stats?.outputTokens, undefined, "absent usage stays absent, never 0");
+  assert.equal(result.stats?.costUsd, undefined);
+});
+
+test("review() maps enrichment.specChanges onto ReviewInput.specChanges verbatim", async () => {
+  let seenInput: { specChanges?: string } | undefined;
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seenInput = input as { specChanges?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts: approving }, REVIEW_CONTEXT);
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { specChanges: "### a.spec.ts\n- old\n+ new" });
+
+  assert.equal(seenInput?.specChanges, "### a.spec.ts\n- old\n+ new");
+});
+
+/* enrichment.executionEvidence must reach the prompt as the reviewer's execution result: the run's own
+   captured statuses and URLs, rendered by the one renderer that bounds and sanitizes them. */
+test("review() renders the run's execution evidence into the reviewer prompt, bounded like every other section", async () => {
+  let seenInput: { executionResult?: string } | undefined;
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seenInput = input as { executionResult?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
+  });
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, {
+    executionEvidence: { verdict: "pass", cases: [{ name: "checkout flow", status: "pass", httpStatus: 500, finalUrl: "http://dev/checkout", detail: "the server rejected card-4242" }] },
+  });
+
+  assert.match(seenInput?.executionResult ?? "", /RUNTIME EXECUTION RESULT/);
+  assert.match(seenInput?.executionResult ?? "", /Verdict: pass/);
+  assert.match(seenInput?.executionResult ?? "", /httpStatus: 500/);
+  assert.match(seenInput?.executionResult ?? "", /finalUrl: http:\/\/dev\/checkout/);
+  assert.doesNotMatch(seenInput?.executionResult ?? "", /\bauthoritative\b/i, "execution evidence is evidence, not an authority");
+});
+
+test("review() with no execution evidence omits the section entirely (never an empty one)", async () => {
+  let seenInput: { executionResult?: string } | undefined;
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seenInput = input as { executionResult?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
+  });
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, {});
+
+  assert.equal(seenInput?.executionResult, undefined);
 });

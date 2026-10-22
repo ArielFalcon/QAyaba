@@ -29,6 +29,7 @@ function turnEvent(runId: string, overrides: Partial<AgentTurnEvent> = {}): Agen
     sectionSizes: null,
     stepBudget: null,
     callMetrics: null,
+    durationMs: null,
     ...overrides,
   };
 }
@@ -39,11 +40,17 @@ const measuredMetrics = {
   observationComplete: true,
   callsBeforeFirstWrite: 10,
   writeCount: 1,
+  commandCount: 1,
   redundantReadCount: 2,
   duplicateCallCount: 1,
   promptProvidedReadCount: 1,
   pathProvidedReadCount: 2,
-  buckets: { code_read: 8, browser: 2, write: 1, validate_run: 1, memory: 0, subagent: 0, other: 0 },
+  buckets: { code_read: 8, browser: 2, write: 1, validate_run: 1, script_run: 0, memory: 0, subagent: 0, other: 0 },
+  timeToFirstCallMs: 1_200,
+  timeToFirstWriteMs: 80_000,
+  deniedCallCount: 1,
+  toolSequence: [{ tool: "read", target: "src/a.ts" }, { tool: "bash", target: "ls", denied: true as const }],
+  usage: { input: 900, output: 80, reasoning: 0, cacheRead: 40_000, cacheWrite: 0, cost: 0.02, steps: 9 },
 };
 
 function outcome(runId: string, app: string): RunOutcome {
@@ -56,7 +63,7 @@ function outcome(runId: string, app: string): RunOutcome {
 
 test("every stored turn, measured or not, validates against the documented turn schema with no undocumented field", () => {
   const runId = `run-contract-turns-${Date.now()}`;
-  saveAgentTurnEvent(turnEvent(runId, { stepBudget: { maxSteps: 50, exhausted: false }, callMetrics: measuredMetrics }));
+  saveAgentTurnEvent(turnEvent(runId, { stepBudget: { maxSteps: 50, exhausted: false }, callMetrics: measuredMetrics, durationMs: 42_000 }));
   saveAgentTurnEvent(turnEvent(runId));
 
   const turns = getAgentTurns(runId);

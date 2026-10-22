@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NON_LEARNING, learningGates } from "@contexts/qa-run-orchestration/domain/helpers/learning-gates.ts";
+import { NON_LEARNING, OBSERVED_OPERATING, learningGates, observesOperatingSignal } from "@contexts/qa-run-orchestration/domain/helpers/learning-gates.ts";
 import { ERROR_CLASS, ERROR_CLASSES, type ErrorClass } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 
@@ -23,6 +23,12 @@ const CLASS_LEARNS: Record<ErrorClass, boolean> = {
   "E-STEP-BUDGET": true,
   "E-NO-DECISION": false,
   "E-PRECONDITION": false,
+  "E-TIME-BUDGET": false,
+  "E-REVIEWER-UNAVAILABLE": false,
+  "E-REVIEW-DISPUTED": false,
+  "E-SANDBOX": false,
+  "internal-error": false,
+  "security-refusal": false,
 };
 
 const VERDICTS: readonly RunVerdict[] = ["pass", "fail", "flaky", "invalid", "infra-error", "skipped"];
@@ -120,4 +126,28 @@ test("a context-mode run neither folds nor reflects, whatever its stage, verdict
       }
     }
   }
+});
+
+test("the classes whose recurrence is observed are all classes that teach nothing: observing never smuggles a lesson in", () => {
+  for (const cls of OBSERVED_OPERATING) assert.ok(NON_LEARNING.has(cls), cls);
+});
+
+test("a run that ended on its time budget, or with its reviewer unavailable, reaches the audit's operating signal alone: no fold, no reflection", () => {
+  for (const errorClass of [ERROR_CLASS.TIME_BUDGET, ERROR_CLASS.REVIEWER_UNAVAILABLE]) {
+    assert.equal(observesOperatingSignal({ mode: "diff", errorClass }), true, errorClass);
+    assert.deepEqual(learningGates({ stage: "terminal", verdict: "infra-error", errorClass, ...OPEN }), { fold: false, reflect: false }, errorClass);
+  }
+});
+
+test("every other class, and a run with none, has no operating signal to observe", () => {
+  for (const cls of ERROR_CLASSES) {
+    if (OBSERVED_OPERATING.has(cls)) continue;
+    assert.equal(observesOperatingSignal({ mode: "diff", errorClass: cls }), false, cls);
+  }
+  assert.equal(observesOperatingSignal({ mode: "diff", errorClass: null }), false);
+  assert.equal(observesOperatingSignal({ mode: "diff", errorClass: undefined }), false);
+});
+
+test("a context run is never audited, whatever it ended on", () => {
+  assert.equal(observesOperatingSignal({ mode: "context", errorClass: ERROR_CLASS.TIME_BUDGET }), false);
 });

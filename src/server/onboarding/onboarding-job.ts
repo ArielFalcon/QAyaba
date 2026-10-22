@@ -23,6 +23,11 @@ export const ONBOARD_STATE = {
    * (holding it would park the context run on isOnboardingActive). propose() still rejects.
    */
   mapping: "mapping",
+  /*
+   * Post-mapping login phase: a manual run that authors the app's login and proves it, kept in the suite store once accepted.
+   * Like mapping it is NOT terminal and does NOT hold `busy` (its run would park on isOnboardingActive).
+   */
+  login: "login",
   done: "done",
   failed: "failed",
 } as const;
@@ -73,12 +78,37 @@ export interface OnboardingJobStatus {
   /** Architecture-map run progress, populated once the mapping phase starts. Absent when the job
    *  has no enqueueContextRun dep or the app is code-mode. */
   mappingProgress?: MappingProgress;
+  /** Login-phase progress, populated once the phase starts. Absent for an app with no form login to bootstrap
+   *  and for a job without enqueueLoginRun. */
+  loginProgress?: LoginProgress;
 }
 
 export interface MappingProgress {
   runId?: string;
   step?: string;
   verdict?: string;
+}
+
+/** How the login phase ended: signed in and proven by an accepted run, not authored by its run, or the run could not tell. */
+export const LOGIN_STATUS = {
+  verified: "verified",
+  unauthored: "unauthored",
+  failed: "failed",
+} as const;
+
+export type LoginStatus = (typeof LOGIN_STATUS)[keyof typeof LOGIN_STATUS];
+
+/** The login phase's run, copied off its run record while it runs; `status` appears once it has ended. */
+export interface LoginProgress {
+  runId?: string;
+  step?: string;
+  verdict?: string;
+  status?: LoginStatus;
+}
+
+export interface LoginRunRequest {
+  app: string;
+  mirrorDir: string;
 }
 
 export interface ContextMapRunRequest {
@@ -146,6 +176,15 @@ export interface OnboardingJobDeps {
   isCodeApp?(app: string): boolean;
   mappingPollMs?: number;
   mappingTimeoutMs?: number;
+  /** OPTIONAL: enqueue the run that authors the app's login and proves it (purpose login-bootstrap), after mapping.
+   *  Absent → skip the login phase. Returns "" while the service is shutting down (a clean skip). */
+  enqueueLoginRun?(input: LoginRunRequest): string | Promise<string>;
+  /** OPTIONAL: poll the login run. Defaults to getContextRun (both read the same run records). Missing after a successful enqueue ⇒ the login is `failed`. */
+  getLoginRun?(runId: string): ContextMapRunSnapshot | undefined;
+  /** OPTIONAL: true for an app that declares a form login. Missing ⇒ the app is taken to have one (when enqueueLoginRun is wired). */
+  hasLogin?(app: string): boolean;
+  loginPollMs?: number;
+  loginTimeoutMs?: number;
 }
 
 const DEFAULT_MIRROR_TIMEOUT_MS = 5 * 60 * 1000;
@@ -154,6 +193,8 @@ const DEFAULT_INDEX_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_RESOLVE_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_MAPPING_POLL_MS = 1500;
 const DEFAULT_MAPPING_TIMEOUT_MS = 60 * 60 * 1000;
+const DEFAULT_LOGIN_POLL_MS = 1500;
+const DEFAULT_LOGIN_TIMEOUT_MS = 60 * 60 * 1000;
 
 function defaultConfigPath(app: string): string {
   return `config/apps/${app}.yaml`;
@@ -216,7 +257,7 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
    * cannot be indexed under a new round's profile.
    */
   let lastRepoRefs: RepoRef[] = [];
-  let pendingNoProfileMap = false;
+  let pendingNoProfileTail = false;
 
   function fail(error: string): void {
     status = { ...status, state: ONBOARD_STATE.failed, error, finishedAt: new Date().toISOString() };
@@ -227,6 +268,23 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
     if (!deps.isCodeApp) return true;
     try {
       return !deps.isCodeApp(app);
+    } catch {
+      return false;
+    }
+  }
+
+  function shouldLogin(app: string): boolean {
+    if (!deps.enqueueLoginRun) return false;
+    if (deps.isCodeApp) {
+      try {
+        if (deps.isCodeApp(app)) return false;
+      } catch {
+        return false;
+      }
+    }
+    if (!deps.hasLogin) return true;
+    try {
+      return deps.hasLogin(app);
     } catch {
       return false;
     }
@@ -276,19 +334,21 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
     }
   }
 
-  async function runMapping(app: string, mirrorDir: string): Promise<void> {
+  /*
+   * Runs the architecture-map phase and returns how the job should finish: the patch for finishDone, and whether the mapping
+   * ran to its end (a map still running when its bound passed leaves the queue occupied, so nothing more is enqueued behind it).
+   */
+  async function runMapping(app: string, mirrorDir: string): Promise<{ patch: Partial<OnboardingJobStatus>; completed: boolean }> {
     status = { ...status, state: ONBOARD_STATE.mapping };
     try {
       const runId = await deps.enqueueContextRun!({ app, mirrorDir });
       if (!runId) {
         /* Spec skip: enqueue "" (shutdown) is not a fail-open warning. */
-        finishDone();
-        return;
+        return { patch: {}, completed: false };
       }
       status = { ...status, mappingProgress: { runId } };
       if (!deps.getContextRun) {
-        finishDone({ error: "architecture map status unavailable" });
-        return;
+        return { patch: { error: "architecture map status unavailable" }, completed: false };
       }
       const pollMs = deps.mappingPollMs ?? DEFAULT_MAPPING_POLL_MS;
       const timeoutMs = deps.mappingTimeoutMs ?? DEFAULT_MAPPING_TIMEOUT_MS;
@@ -303,17 +363,80 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
           if (snap.status === "done") break;
         }
         if (Date.now() - started > timeoutMs) {
-          finishDone({ error: "architecture map timed out" });
+          return { patch: { error: "architecture map timed out" }, completed: false };
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
+      return { patch: {}, completed: true };
+    } catch (err) {
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runMapping failed (fail-open, advisory only)", { app, error });
+      return { patch: { error }, completed: false };
+    }
+  }
+
+  /* What a login run's verdict says about the login: only a pass is an accepted run, and an accepted run is what keeps the login. */
+  function loginStatusOf(verdict: string | undefined): LoginStatus {
+    if (verdict === "pass") return LOGIN_STATUS.verified;
+    if (verdict === "infra-error" || verdict === undefined) return LOGIN_STATUS.failed;
+    return LOGIN_STATUS.unauthored;
+  }
+
+  /*
+   * The login phase: enqueue the run that authors the app's login and proves it, and follow it. Advisory like mapping: whatever
+   * happens, onboarding stays done; the outcome is the login's own status. Never rethrows.
+   */
+  async function runLogin(app: string, mirrorDir: string): Promise<void> {
+    status = { ...status, state: ONBOARD_STATE.login, loginProgress: {} };
+    try {
+      const runId = await deps.enqueueLoginRun!({ app, mirrorDir });
+      if (!runId) {
+        /* Shutdown: nothing was enqueued, so there is no login to report on. */
+        const { loginProgress: _none, ...rest } = status;
+        status = rest;
+        return;
+      }
+      status = { ...status, loginProgress: { runId } };
+      const getRun = deps.getLoginRun ?? deps.getContextRun;
+      if (!getRun) {
+        status = { ...status, loginProgress: { runId, status: LOGIN_STATUS.failed } };
+        return;
+      }
+      const pollMs = deps.loginPollMs ?? DEFAULT_LOGIN_POLL_MS;
+      const timeoutMs = deps.loginTimeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS;
+      const started = Date.now();
+      for (;;) {
+        const snap = getRun(runId);
+        if (snap) {
+          status = { ...status, loginProgress: { runId, step: snap.step, verdict: snap.verdict } };
+          if (snap.status === "done") {
+            status = { ...status, loginProgress: { runId, step: snap.step, verdict: snap.verdict, status: loginStatusOf(snap.verdict) } };
+            return;
+          }
+        }
+        if (Date.now() - started > timeoutMs) {
+          status = { ...status, loginProgress: { runId, step: snap?.step, verdict: snap?.verdict, status: LOGIN_STATUS.failed } };
           return;
         }
         await new Promise((r) => setTimeout(r, pollMs));
       }
-      finishDone();
     } catch (err) {
-      const error = redactionPort.redactError(err);
-      logJson("warn", "onboarding runMapping failed (fail-open, advisory only)", { app, error });
-      finishDone({ error });
+      logJson("warn", "onboarding runLogin failed (fail-open, advisory only)", { app, error: redactionPort.redactError(err) });
+      status = { ...status, loginProgress: { ...status.loginProgress, status: LOGIN_STATUS.failed } };
     }
+  }
+
+  /* What follows confirm (or a no-profile round): the map, then the login, then done. The login waits for a map that ran to its end. */
+  async function runTail(app: string, mirrorDir: string, withMap: boolean): Promise<void> {
+    let patch: Partial<OnboardingJobStatus> = {};
+    let mapSettled = true;
+    if (withMap) {
+      const mapped = await runMapping(app, mirrorDir);
+      patch = mapped.patch;
+      mapSettled = mapped.completed || Object.keys(mapped.patch).length === 0;
+    }
+    if (mapSettled && shouldLogin(app)) await runLogin(app, mirrorDir);
+    finishDone(patch);
   }
 
   async function runPostConfirm(repoRefs: RepoRef[]): Promise<void> {
@@ -323,13 +446,13 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
       }
       const app = status.app ?? "";
       const front = repoRefs[0];
-      if (shouldMap(app) && front) {
-        await runMapping(app, front.mirrorDir);
+      if (front && (shouldMap(app) || shouldLogin(app))) {
+        await runTail(app, front.mirrorDir, shouldMap(app));
       } else {
         finishDone();
       }
     } catch (err) {
-      /* Defensive-only: runIndexing/runMapping never rethrow. Stay fail-open so a corrected app's
+      /* Defensive-only: runIndexing/runMapping/runLogin never rethrow. Stay fail-open so a corrected app's
        * boundaries (already written by confirm() before this ran) are never re-litigated. */
       const error = redactionPort.redactError(err);
       logJson("warn", "onboarding runPostConfirm failed unexpectedly (fail-open, defensive-only)", { error });
@@ -343,7 +466,7 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
     const startedAt = new Date().toISOString();
     status = { state: ONBOARD_STATE.resolvingMirrors, app: req.app, round: 0, ceiling: 3, candidatesScored: 0, startedAt };
     lastRepoRefs = [];  /* fresh round — never index a stale round's mirrors under this round's profile */
-    pendingNoProfileMap = false;
+    pendingNoProfileTail = false;
 
     try {
       /* Env-guard before the runner-busy guard and before resolvingMirrors — a missing key/agent must never burn a mirror cycle. */
@@ -435,13 +558,14 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
           }
         }
         status = { ...status, state: ONBOARD_STATE.done, outcome: ONBOARD_OUTCOME.winner, resolvedProfile: result.profile, resolution, finishedAt };
-      } else if (shouldMap(req.app) && lastRepoRefs.length > 0) {
+      } else if ((shouldMap(req.app) || shouldLogin(req.app)) && lastRepoRefs.length > 0) {
         /*
-         * Set mapping BEFORE run() returns so the TUI never observes a premature done/no-profile
-         * and stops polling. busy is released in finally; propose()'s continuation then maps.
+         * Set the tail's first state (mapping, or login for an app that is not mapped) BEFORE run() returns so the TUI never
+         * observes a premature done/no-profile and stops polling. busy is released in finally; propose()'s continuation then
+         * runs the tail.
          */
-        status = { ...status, state: ONBOARD_STATE.mapping, outcome: ONBOARD_OUTCOME.noProfile };
-        pendingNoProfileMap = true;
+        status = { ...status, state: shouldMap(req.app) ? ONBOARD_STATE.mapping : ONBOARD_STATE.login, outcome: ONBOARD_OUTCOME.noProfile };
+        pendingNoProfileTail = true;
       } else {
         status = { ...status, state: ONBOARD_STATE.done, outcome: ONBOARD_OUTCOME.noProfile, finishedAt };
       }
@@ -475,15 +599,16 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
     },
 
     propose(req: ProposeBoundariesRequest): ProposeResult | Promise<ProposeResult> {
-      if (busy || status.state === ONBOARD_STATE.mapping || status.state === ONBOARD_STATE.indexing) {
+      if (busy || status.state === ONBOARD_STATE.mapping || status.state === ONBOARD_STATE.login || status.state === ONBOARD_STATE.indexing) {
         return { ok: false, error: "an onboarding job is already running" };
       }
       busy = true;
       const promise = run(req).then(async (): Promise<ProposeResult> => {
-        if (pendingNoProfileMap) {
-          pendingNoProfileMap = false;
+        if (pendingNoProfileTail) {
+          pendingNoProfileTail = false;
           const front = lastRepoRefs[0];
-          if (front) await runMapping(status.app ?? req.app, front.mirrorDir);
+          const app = status.app ?? req.app;
+          if (front) await runTail(app, front.mirrorDir, shouldMap(app));
         }
         return { ok: true };
       });
@@ -521,7 +646,8 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
        */
       const wantsIndex = Boolean(deps.indexRepo && lastRepoRefs.length > 0);
       const wantsMap = shouldMap(resolvedApp) && lastRepoRefs.length > 0;
-      if (wantsIndex || wantsMap) {
+      const wantsLogin = shouldLogin(resolvedApp) && lastRepoRefs.length > 0;
+      if (wantsIndex || wantsMap || wantsLogin) {
         inFlight = runPostConfirm(lastRepoRefs);
       }
       return { ok: true };

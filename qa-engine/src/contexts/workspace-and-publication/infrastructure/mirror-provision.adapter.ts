@@ -64,6 +64,7 @@ export class MirrorProvisionAdapter {
   private async syncAndCheckout(repo: string, rev: string): Promise<string> {
     const dir = await this.syncMirror(repo);
     await this.deps.git(["checkout", "-f", rev], dir);
+    /* The clean takes every untracked file: a suite that git does not hold lives in the suite store and is restored after the checkout. */
     await this.deps.git(["clean", "-fd", "-e", "node_modules"], dir);
     return dir;
   }

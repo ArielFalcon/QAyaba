@@ -33,6 +33,8 @@ import { hasSymbolBlocks, renderBlastRadiusSignal } from "@contexts/qa-run-orche
 import {
   countDirectives,
   findingKey,
+  AGENT_BROWSER_SECTION_ID,
+  CLOSED_LOOP_SECTION_ID,
   HARNESS_FACTS_SECTION_ID,
   STEP_LIMIT_SECTION_ID,
   lintCell,
@@ -45,6 +47,9 @@ import type {
   ExplorationBrief,
   OpencodeRunInput,
 } from "@contexts/generation/application/ports/generation-ports.ts";
+import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop.ts";
+import { DEFAULT_AGENT_BROWSER_LIMITS } from "@kernel/agent-browser.ts";
+import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { LISTING_MAX_DO_NOT_REWRITE, LISTING_MAX_UNNAMED_EDITABLE } from "@contexts/generation/domain/suite-listing.ts";
 import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
@@ -81,6 +86,12 @@ export const DIMENSIONS = {
   service: [false, true],
   /* Whether the run lists any spec: the suite as the grounding folded it, on a diff or a manual run, and on a regeneration the specs the run has delivered. `large` is the worst case of a listing: a diff or manual run that delivered more specs than the listing shows of the ones it can say nothing of, over a suite that has more than it shows of the ones to leave alone, and then could not say which spec to change. */
   suite: ["listed", "none", "large"],
+  /* Whether the run granted the generator the run_spec tool, so its prompt states the budget. Only the OpenCode layer can have it (the Codex runtime cannot call a custom tool), and only an e2e run that writes tests. */
+  closedLoop: [false, true],
+  /* Whether the run also granted the authoring agents the authenticated browser, so its prompt states that budget as well. Like the run_spec budget, only the OpenCode layer can have it; the combinations that carry it are the granted ones of the run_spec budget, since its block is as small and as independent of every other. */
+  agentBrowser: [false, true],
+  /* Whether the prompt is the planning turn of a coordinated run, so it carries the plan contract. Only the OpenCode layer can have it (the lead must be held from writing on that turn, which only that runtime can do), and only the first pass of an e2e run that writes tests. */
+  planning: [false, true],
 } as const;
 
 export type CellSpec = { -readonly [K in keyof typeof DIMENSIONS]: (typeof DIMENSIONS)[K][number] };
@@ -130,25 +141,49 @@ export function isValidSpec(spec: CellSpec): boolean {
     if (!cannotSayWhich || !listsItsSuite || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
     if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom) return false;
   }
+  /* The budget is one small block that bears on no other decision: it meets every phase, tree and grounding of an e2e run that writes tests, with the plain signals and none of the optional blocks. */
+  if (spec.closedLoop) {
+    if (isContext || isCode || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
+    if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom || spec.suite !== "listed") return false;
+  }
+  /* The browser's budget meets exactly the shapes the run_spec budget does, and is granted on top of it. */
+  if (spec.agentBrowser && !spec.closedLoop) return false;
+  /* The plan contract is one block that bears on no other decision: it meets the first pass of an e2e run that writes tests, over every grounding, with the plain signals and none of the optional blocks, and apart from the tool budgets. */
+  if (spec.planning) {
+    if (isContext || isCode || spec.phase !== "first" || spec.tree !== "none" || spec.closedLoop || spec.agentBrowser) return false;
+    if (spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect) return false;
+    if (spec.structuralSignal !== "none" || spec.briefBlast === "empty" || !spec.packDom || spec.suite !== "listed") return false;
+  }
   /* The service block belongs to the diff-shaped first pass and to every regeneration of an e2e run. */
   if (spec.service && (isContext || (spec.mode !== "diff" && spec.phase === "first"))) return false;
   return true;
 }
 
-function* everySpec(): Generator<CellSpec> {
-  const walk = function* (index: number, partial: Partial<Record<DimensionName, unknown>>): Generator<CellSpec> {
-    const name = DIMENSION_NAMES[index];
-    if (name === undefined) {
-      yield partial as unknown as CellSpec;
-      return;
-    }
-    for (const value of DIMENSIONS[name] as readonly unknown[]) yield* walk(index + 1, { ...partial, [name]: value });
-  };
-  yield* walk(0, {});
+let validSpecs: CellSpec[] | undefined;
+
+/* Every combination of the dimensions that can reach the agent. Cached: the walk covers the full
+   cross product and every caller only reads the list.
+   shortcut: the cached array is shared, not copied; keep callers read-only (today all are filter/find/map/for). */
+export function allValidSpecs(): CellSpec[] {
+  return (validSpecs ??= collectValidSpecs());
 }
 
-export function allValidSpecs(): CellSpec[] {
-  return [...everySpec()].filter(isValidSpec);
+function collectValidSpecs(): CellSpec[] {
+  const specs: CellSpec[] = [];
+  const partial = {} as Partial<Record<DimensionName, unknown>>;
+  const walk = (index: number): void => {
+    const name = DIMENSION_NAMES[index];
+    if (name === undefined) {
+      if (isValidSpec(partial as unknown as CellSpec)) specs.push({ ...partial } as CellSpec);
+      return;
+    }
+    for (const value of DIMENSIONS[name] as readonly unknown[]) {
+      partial[name] = value;
+      walk(index + 1);
+    }
+  };
+  walk(0);
+  return specs;
 }
 
 /* How a signal that holds something is named in a cell name and a bucket. */
@@ -167,6 +202,9 @@ export function cellName(spec: CellSpec): string {
     spec.service ? "service" : "",
     spec.suite === "none" ? "nosuite" : "",
     spec.suite === "large" ? "largesuite" : "",
+    spec.closedLoop ? "loop" : "",
+    spec.agentBrowser ? "browser" : "",
+    spec.planning ? "planning" : "",
   ].filter(Boolean);
   return [
     spec.mode,
@@ -350,6 +388,15 @@ function deliveredSpecsFor(spec: CellSpec): DeliveredSpec[] | undefined {
 /* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap; the Codex runtime has no step cap to report (the `stepLimits` asymmetry documented in src/agent-runtime/contract-parity.test.ts), so a Codex prompt is built with none. */
 export const MATRIX_STEP_LIMIT = 40;
 
+/* The run_spec budget a granted cell is assembled with: the shipped defaults. */
+export const MATRIX_CLOSED_LOOP = DEFAULT_CLOSED_LOOP_LIMITS;
+
+/* The browser budget a granted cell is assembled with: the shipped defaults. */
+export const MATRIX_AGENT_BROWSER = DEFAULT_AGENT_BROWSER_LIMITS;
+
+/* The limits a planning cell is assembled with: the shipped defaults of the lead/sidekick mode. */
+export const MATRIX_PLANNING = { maxFlows: DEFAULT_COORDINATION_SETTINGS.maxFlows, maxParallel: DEFAULT_COORDINATION_SETTINGS.maxParallel, budgetMs: DEFAULT_COORDINATION_SETTINGS.planBudgetMs };
+
 /* The run input of a combination; `stepLimit` is the cap the runtime resolved for the generator, absent when it states none. */
 export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<OpencodeRunInput> {
   const isCode = spec.target === "code";
@@ -379,6 +426,9 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
     ...(suiteLines ? { existingSpecFiles: suiteLines } : {}),
     ...(deliveredSpecs ? { deliveredSpecs } : {}),
     ...(stepLimit !== undefined ? { stepLimit } : {}),
+    ...(spec.closedLoop ? { closedLoop: MATRIX_CLOSED_LOOP } : {}),
+    ...(spec.agentBrowser ? { agentBrowser: MATRIX_AGENT_BROWSER } : {}),
+    ...(spec.planning ? { planning: MATRIX_PLANNING } : {}),
   };
 
   if (spec.grounding === "brief" || spec.grounding === "brief+pack") input.contextBrief = briefFor(spec);
@@ -469,7 +519,7 @@ export function assembledLintSections(assembled: AssembledPrompt): LintSection[]
     text,
     claims: assembled.claims[id] ?? [],
     ...(VERBATIM_SECTION_IDS.has(id) ? { verbatim: true } : {}),
-    ...(id === HARNESS_FACTS_SECTION_ID || id === STEP_LIMIT_SECTION_ID ? { factsOnly: true } : {}),
+    ...(id === HARNESS_FACTS_SECTION_ID || id === STEP_LIMIT_SECTION_ID || id === CLOSED_LOOP_SECTION_ID || id === AGENT_BROWSER_SECTION_ID ? { factsOnly: true } : {}),
   }));
 }
 
@@ -506,6 +556,9 @@ function combinationBucket(spec: CellSpec): string {
     ...(spec.service ? ["service"] : []),
     ...(spec.suite === "none" ? ["no-suite"] : []),
     ...(spec.suite === "large" ? ["large-suite"] : []),
+    ...(spec.closedLoop ? ["loop"] : []),
+    ...(spec.agentBrowser ? ["browser"] : []),
+    ...(spec.planning ? ["planning"] : []),
   ].join("/");
 }
 
@@ -546,6 +599,8 @@ export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[
   const cells: MatrixCell[] = [];
   for (const spec of specs) {
     for (const layer of layers) {
+      /* The Codex runtime cannot call the tool, so a run on it is never granted it: no cell of that layer states a budget. */
+      if ((spec.closedLoop || spec.agentBrowser || spec.planning) && layer === "codex") continue;
       /* A layer's cell is assembled from the input its own runtime hands the prompt, and records the limit that input carries. */
       const input = await buildInput(spec, STEP_LIMIT_BY_LAYER[layer]);
       /* Budget 0 disables shedding: the matrix measures the full prompt, independent of the model window catalog. */

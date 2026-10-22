@@ -1,9 +1,23 @@
 
 import { z } from "zod";
+import { TURN_ENDS } from "../turn-end";
 import { LoginPathSchema } from "../login-path";
 import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "./events";
+import { CAMPAIGN_ID_PATTERN, CAMPAIGN_LABEL_PATTERN, MAX_CAMPAIGN_REPLICATE, MAX_VARIANT_KEYS } from "../campaign";
+import { CAPTURE_MODES } from "../telemetry/capture-mode";
 
 export const CaseStatusSchema = z.enum(["pass", "fail", "flaky"]);
+
+export const NetworkErrorSchema = z.object({
+  /* origin+pathname only — never a query or fragment. */
+  url: z.string(),
+  status: z.number().int().optional(),
+  errorText: z.string().optional(),
+  resourceType: z.string().optional(),
+});
+
+/* Derived from the case's network errors and the run's egress report, never reported by the browser. */
+export const NetworkClassSchema = z.enum(["egress", "backend", "dns", "other"]);
 
 export const QaCaseSchema = z.object({
   name: z.string(),
@@ -13,6 +27,8 @@ export const QaCaseSchema = z.object({
   objective: z.string().optional(),
   reason: z.string().optional(),
   durationMs: z.number().nonnegative().optional(),
+  networkErrors: z.array(NetworkErrorSchema).optional(),
+  networkClass: NetworkClassSchema.optional(),
 });
 
 export const SpecRecordSchema = z.object({
@@ -108,6 +124,32 @@ export const LoginResponseSchema = z.object({
   expiresAt: z.string(),
 });
 
+/* How much content a run's trace may carry (docs/observability-design.md section 9.2). The server caps what a caller asks for. */
+export const CaptureModeSchema = z.enum(CAPTURE_MODES);
+
+/*
+ * The campaign a run belongs to: stored and echoed as data. The variant labels never change what a run does (section 14):
+ * only the explicit levers and the deployment's configuration do.
+ */
+export const CampaignInputSchema = z.object({
+  id: z.string().regex(CAMPAIGN_ID_PATTERN, { error: "campaign.id must be 1-100 characters of A-Z a-z 0-9 _ . : -" }),
+  variant: z
+    .record(z.string().regex(CAMPAIGN_LABEL_PATTERN, { error: "campaign.variant keys must be 1-64 characters of A-Z a-z 0-9 _ . : -" }), z.string().regex(CAMPAIGN_LABEL_PATTERN, { error: "campaign.variant values must be 1-64 characters of A-Z a-z 0-9 _ . : -" }))
+    .refine((v) => Object.keys(v).length <= MAX_VARIANT_KEYS, { error: `campaign.variant has at most ${MAX_VARIANT_KEYS} keys` })
+    .refine((v) => !Object.hasOwn(v, "__proto__"), { error: "campaign.variant must not use the key __proto__" }),
+  replicate: z.number().int().min(1).max(MAX_CAMPAIGN_REPLICATE),
+});
+
+/* The run's own choice of grounding sources (an A/B arm); every key absent means the app's setting. */
+export const GroundingInputSchema = z.object({
+  explorer: z.boolean().optional(),
+  stitcher: z.boolean().optional(),
+  structuralSignal: z.boolean().optional(),
+  curriculum: z.boolean().optional(),
+  domPack: z.boolean().optional(),
+});
+export type GroundingInput = z.infer<typeof GroundingInputSchema>;
+
 export const CreateRunInputSchema = z.object({
   app: z.string(),
   target: TestTargetSchema,
@@ -120,9 +162,22 @@ export const CreateRunInputSchema = z.object({
   shadow: z.boolean().optional(),
   /* diff mode only: how many commits ending at the run's SHA the diff spans (default 1). Lets a run analyze a short series as one blast radius, not just the tip commit. */
   commits: z.number().int().min(1).max(20).optional(),
+  /* The run's own choice about the run_spec loop (an A/B arm), overriding the app's qa.closedLoop.enabled. Absent: the app's setting decides. */
+  closedLoop: z.boolean().optional(),
+  /* The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's qa.agentBrowser.enabled. Absent: the app's setting decides. */
+  agentBrowser: z.boolean().optional(),
+  /* The run's own choice of coordination mode (an A/B arm), overriding the app's qa.coordination.mode: "single" (the lead authors the change alone) or "lead-sidekicks" (the lead plans, sidekicks author the flows in parallel). Absent: the app's setting decides. */
+  coordinationMode: z.enum(["single", "lead-sidekicks"]).optional(),
+  /* The campaign this run is a replicate of. Absent: an ordinary run. */
+  campaign: CampaignInputSchema.optional(),
+  /* The content capture the run's trace may carry, capped by the server's QA_TELEMETRY_MAX_CAPTURE (default metadata). The applied value is in the run's effectiveConfig. */
+  captureMode: CaptureModeSchema.optional(),
+  /* The run's own choice of grounding sources (an A/B arm), overriding the app's settings. Absent: the app decides. */
+  grounding: GroundingInputSchema.optional(),
 });
 
 export const CreateRunResultSchema = z.object({
+  schemaVersion: z.literal(1),
   id: z.string(),
   app: z.string(),
   sha: z.string(),
@@ -278,7 +333,18 @@ export const MappingProgressSchema = z.object({
   verdict: z.string().optional(),
 });
 
-export const OnboardStateSchema = z.enum(["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "mapping", "done", "failed"]);
+/** How the app's login stands once the login phase has judged its run: signed in and proven by an accepted run (verified), not authored by that run (unauthored), or the run could not tell (failed: the login could not be completed, or the run did not finish). */
+export const LoginBootstrapStatusSchema = z.enum(["verified", "unauthored", "failed"]);
+
+/** The login phase's run, copied off its run record while it runs; `status` appears once the run has ended. */
+export const LoginProgressSchema = z.object({
+  runId: z.string().optional(),
+  step: z.string().optional(),
+  verdict: z.string().optional(),
+  status: LoginBootstrapStatusSchema.optional(),
+});
+
+export const OnboardStateSchema = z.enum(["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "mapping", "login", "done", "failed"]);
 export const OnboardOutcomeSchema = z.enum(["winner", "no-profile"]);
 
 export const RepoIndexStatusSchema = z.enum(["ok", "failed"]);
@@ -320,7 +386,17 @@ export const OnboardingJobStatusSchema = z.object({
   finishedAt: z.string().optional(),
   indexProgress: z.array(RepoIndexOutcomeSchema).optional(),
   mappingProgress: MappingProgressSchema.optional(),
+  /** Present once the login phase has started; absent for an app with no form login to bootstrap. */
+  loginProgress: LoginProgressSchema.optional(),
   resolution: ResolutionSummarySchema.optional(),
+});
+
+/** What POST /apps/{name}/login-bootstrap answers: the run that establishes and proves the app's login, enqueued. */
+export const LoginBootstrapResultSchema = z.object({
+  id: z.string(),
+  app: z.string(),
+  sha: z.string(),
+  status: z.string(),
 });
 
 export const ProposeBoundariesInputSchema = z.object({
@@ -418,14 +494,203 @@ export const AgentRestartResponseSchema = z.object({
   health: AgentProviderHealthSchema,
 });
 
+/* GET /api/v1/telemetry/health (docs/observability-design.md §14). Counts and flags only. */
+export const TelemetryHealthSchema = z.object({
+  schemaVersion: z.literal(1),
+  mode: z.enum(["off", "local"]),
+  campaignFreeze: z.boolean(),
+  otlp: z.object({
+    configured: z.boolean(),
+    lastExportAt: z.string().optional(),
+    lastError: z.string().optional(),
+    dropped: z.number().int().min(0),
+  }),
+  ledger: z.object({
+    ok: z.boolean(),
+    spans: z.number().int().min(0),
+    writeErrors: z.number().int().min(0),
+  }),
+  scoreSink: z.object({
+    configured: z.boolean(),
+    faults: z.number().int().min(1).optional(),
+    lastExportAt: z.string().optional(),
+    lastError: z.string().optional(),
+  }),
+  droppedAttributes: z.number().int().min(0),
+  /* Present when the process runs host health (docs/observability-design.md §7). */
+  host: z
+    .object({
+      suspends: z.number().int().min(0),
+      lastSuspendAt: z.string().optional(),
+      lastSuspendMs: z.number().min(0).optional(),
+      blockedLoops: z.number().int().min(0),
+      eventLoopP99Ms: z.number().min(0).optional(),
+      zombies: z.number().int().min(0).optional(),
+    })
+    .optional(),
+});
+
 export type QaCase = z.infer<typeof QaCaseSchema>;
 export type SpecRecord = z.infer<typeof SpecRecordSchema>;
 export type AgentActivity = z.infer<typeof AgentActivitySchema>;
+/* Public evaluation contract (docs/observability-design.md section 14). Every body below carries schemaVersion 1, errors included. */
+
+/* The body of every non-2xx answer of the evaluation and run endpoints. */
+export const ApiErrorSchema = z.object({ schemaVersion: z.literal(1), error: z.string() });
+
+export const ScoreSchema = z.object({
+  name: z.string(),
+  value: z.union([z.number(), z.boolean(), z.string()]),
+  dataType: z.enum(["NUMERIC", "BOOLEAN", "CATEGORICAL"]),
+  polarity: z.enum(["higher_better", "lower_better", "none"]),
+  source: z.enum(["deterministic", "llm_judge", "human"]),
+  graderVersion: z.string(),
+  comment: z.string().optional(),
+  observationId: z.string().optional(),
+  /* Additive (section 14): present on `llm_judge` scores only, the model that answered. The prompt version is in `graderVersion`. */
+  judgeModel: z.string().optional(),
+});
+
+export const RunEvaluationSchema = z.object({
+  schemaVersion: z.literal(1),
+  runId: z.string(),
+  /* Null when the run was not traced (QA_TELEMETRY=off). */
+  traceId: z.string().nullable(),
+  status: z.enum(["pending", "complete", "failed"]),
+  /* Latest grader version per name by default; every stored version with ?versions=all. */
+  scores: z.array(ScoreSchema),
+});
+
+export const EvaluationCatalogSchema = z.object({
+  schemaVersion: z.literal(1),
+  /* The canonical pipeline phase order: the ordinal of furthest_phase and the order of GET /runs/:id phases. */
+  phases: z.array(z.string()),
+  /* Base names only; a family entry lists its closed set of suffixes (a score `<base>.<suffix>` inherits the base). */
+  scores: z.array(
+    z.object({
+      name: z.string(),
+      dataType: z.enum(["NUMERIC", "BOOLEAN", "CATEGORICAL"]),
+      polarity: z.enum(["higher_better", "lower_better", "none"]),
+      range: z.object({ min: z.number(), max: z.number().optional() }).optional(),
+      categories: z.array(z.string()).optional(),
+      suffixes: z.array(z.string()).optional(),
+      graderVersion: z.string(),
+      /* Additive (section 14): present on LLM-judge entries only. `experimental` is every judge's default; `calibrated` needs a passing calibration against human labels for the prompt version and model in force. No gate reads it. */
+      status: z.enum(["experimental", "calibrated"]).optional(),
+    }),
+  ),
+});
+
+/* Exactly one of runIds, campaignId or since selects the runs; graders optionally narrows the re-run to some base names. */
+export const RegradeRequestSchema = z
+  .object({
+    runIds: z.array(z.string()).min(1).max(500).optional(),
+    campaignId: z.string().min(1).optional(),
+    since: z.string().min(1).optional(),
+    graders: z.array(z.string()).min(1).optional(),
+  })
+  .refine((r) => [r.runIds, r.campaignId, r.since].filter((v) => v !== undefined).length === 1, { message: "give exactly one of runIds, campaignId or since" });
+
+export const RegradeStartedSchema = z.object({ schemaVersion: z.literal(1), jobId: z.string(), runs: z.number().int().min(0) });
+
+export const RegradeJobSchema = z.object({
+  schemaVersion: z.literal(1),
+  jobId: z.string(),
+  status: z.enum(["pending", "running", "complete", "failed"]),
+  runs: z.number().int().min(0),
+  graded: z.number().int().min(0),
+  failed: z.array(z.object({ runId: z.string(), error: z.string() })),
+  startedAt: z.string(),
+  finishedAt: z.string().optional(),
+});
+
+/*
+ * What a run actually ran with, recorded at run time (docs/observability-design.md section 14). Every key is always present; a setting
+ * that does not apply, or that the run did not record, is null. `agents` lists only the roles the run invoked.
+ */
+export const EffectiveConfigSchema = z.object({
+  levers: z.object({
+    closedLoop: z.boolean().nullable(),
+    agentBrowser: z.boolean().nullable(),
+    coordinationMode: z.enum(["single", "lead-sidekicks"]).nullable(),
+    captureMode: CaptureModeSchema.nullable(),
+  }),
+  campaignFreeze: z.boolean().nullable(),
+  runtime: z.string().nullable(),
+  agents: z.record(
+    z.string(),
+    z.object({
+      provider: z.string().nullable(),
+      model: z.string().nullable(),
+      reasoningEffort: z.string().nullable(),
+      stepLimit: z.number().int().min(0).nullable(),
+    }),
+  ),
+  prompt: z.object({ staticHash: z.string().nullable() }),
+  grounding: z.object({
+    explorer: z.boolean().nullable(),
+    stitcher: z.string().nullable(),
+    structuralSignal: z.string().nullable(),
+    curriculum: z.string().nullable(),
+    domPack: z.boolean().nullable(),
+  }),
+  coverage: z.object({ mode: z.string().nullable(), minRatio: z.number().nullable() }),
+  reflector: z.boolean().nullable(),
+});
+
+/* GET /campaigns/:id/runs: the campaign's runs, optionally narrowed by variant labels. */
+export const CampaignRunsSchema = z.object({
+  schemaVersion: z.literal(1),
+  campaignId: z.string(),
+  runs: z.array(
+    z.object({
+      id: z.string(),
+      variant: z.record(z.string(), z.string()),
+      replicate: z.number().int().min(1),
+      status: RunStatusSchema,
+      verdict: RunVerdictSchema.optional(),
+      evaluationStatus: z.enum(["pending", "complete", "failed"]),
+    }),
+  ),
+  /* True when every run of the campaign is done and graded (the server does not know the matrix the client requested). */
+  complete: z.boolean(),
+});
+
+/* GET /runs/:id: the run record plus what observability knows about how it ended. Fields only add to RunRecord. */
+export const RunDetailSchema = RunRecordSchema.extend({
+  schemaVersion: z.literal(1),
+  /* Null only when telemetry is off. traceUrl is present when QA_TRACE_URL_TEMPLATE is set. */
+  telemetry: z.object({ traceId: z.string(), traceUrl: z.string().optional() }).nullable(),
+  /* Time per phase the run entered, in canonical pipeline order. */
+  phases: z.array(z.object({ name: z.string(), durationMs: z.number().min(0) })),
+  furthestPhase: z.string().nullable(),
+  usage: z.object({
+    inputTokens: z.number().min(0),
+    outputTokens: z.number().min(0),
+    reasoningTokens: z.number().min(0),
+    cacheReadTokens: z.number().min(0),
+    cacheWriteTokens: z.number().min(0),
+    costUsd: z.number().min(0),
+  }),
+  /*
+   * Counts of the specs this run delivered. (`specs`, the list of those specs, keeps its place on RunRecord.) `valid` is null until the
+   * run got past the validate phase; `passed` is null when valid is unknown or the cases cannot be tied to the specs.
+   */
+  specCounts: z.object({ generated: z.number().int().min(0), valid: z.number().int().min(0).nullable(), passed: z.number().int().min(0).nullable() }),
+  /* "pr" | "issue" | "shadow-log" | "quarantine" | "none"; null for a run that recorded none. */
+  decision: z.string().nullable(),
+  budgets: z.object({ exhausted: z.boolean(), limit: z.string().optional(), role: z.string().optional() }),
+  /* Present only for a run that belongs to a campaign. */
+  campaign: z.object({ id: z.string(), variant: z.record(z.string(), z.string()), replicate: z.number().int().min(1) }).optional(),
+  effectiveConfig: EffectiveConfigSchema,
+});
+
 export type RunRecord = z.infer<typeof RunRecordSchema>;
 export type AppView = z.infer<typeof AppViewSchema>;
 export type QueueStatus = z.infer<typeof QueueStatusSchema>;
 export type ChatEntry = z.infer<typeof ChatEntrySchema>;
 export type VersionInfo = z.infer<typeof VersionInfoSchema>;
+export type TelemetryHealthView = z.infer<typeof TelemetryHealthSchema>;
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
 export type CreateRunInput = z.infer<typeof CreateRunInputSchema>;
@@ -444,6 +709,7 @@ export type RepoListItem = z.infer<typeof RepoListItemSchema>;
 export type RepoListResponse = z.infer<typeof RepoListResponseSchema>;
 export type BoundaryProfileWire = z.infer<typeof BoundaryProfileSchema>;
 export type OnboardingJobStatus = z.infer<typeof OnboardingJobStatusSchema>;
+export type LoginBootstrapResult = z.infer<typeof LoginBootstrapResultSchema>;
 export type ProposeBoundariesInput = z.infer<typeof ProposeBoundariesInputSchema>;
 export type ConfirmBoundariesInput = z.infer<typeof ConfirmBoundariesInputSchema>;
 export type AgentProvider = z.infer<typeof AgentProviderSchema>;
@@ -700,6 +966,8 @@ export const ArchitectureRouteSchema = z.object({
   name: z.string().optional(),
   component: z.string().optional(),
   source: z.string().optional(),
+  /** Repo-relative paths of the files a change to the route's page would touch. */
+  implementationFiles: z.array(z.string()).optional(),
 });
 
 export const ArchitectureApiOperationSchema = z.object({
@@ -743,7 +1011,26 @@ export type RunReportView = z.infer<typeof RunReportViewSchema>;
 
 const nullableCount = z.number().int().nonnegative().nullable();
 
-/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, memory, subagent, other); counts only, never paths or targets. */
+/** What a turn spent over every step it finished; the turn's own tokens and cost fields are those of its last assistant message alone. */
+export const TurnUsageViewSchema = z.object({
+  input: z.number().nonnegative(),
+  output: z.number().nonnegative(),
+  reasoning: z.number().nonnegative(),
+  cacheRead: z.number().nonnegative(),
+  cacheWrite: z.number().nonnegative(),
+  cost: z.number().nonnegative(),
+  steps: z.number().int().nonnegative(),
+});
+
+/** One call of a turn's tool sequence: the tool, what it pointed at (null when it pointed at nothing), the path a search ran in, and whether the runtime refused it. */
+export const ToolSequenceEntryViewSchema = z.object({
+  tool: z.string(),
+  target: z.string().nullable(),
+  scope: z.string().optional(),
+  denied: z.literal(true).optional(),
+});
+
+/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, script_run, memory, subagent, other); counts only, never paths or targets. ended says how the turn ended (completed, exhausted, timeout, aborted); null for a turn recorded before it was kept or by a runtime that does not say. A turn that ended by timeout or abort has empty outputText and only the calls measured up to its end. durationMs is the turn's wall time; timeToFirstCallMs and timeToFirstWriteMs count from when the turn started (null when it made no call / wrote nothing); deniedCallCount counts the calls the runtime refused under a permission rule (null, never 0, when the turn was not measured); toolSequence lists the turn's calls in order, each with the redacted, capped file, pattern, url or command it pointed at (never what it typed or wrote). usageTotal sums the tokens and cost of every step the turn finished, which the tokens and cost fields above (the last assistant message's alone) do not; null when the steps were not all observed or none finished. */
 export const AgentTurnViewSchema = z.object({
   runId: z.string().nullable(),
   sessionId: z.string(),
@@ -772,6 +1059,13 @@ export const AgentTurnViewSchema = z.object({
   pathProvidedReadCount: nullableCount,
   exhausted: z.boolean().nullable(),
   callBuckets: z.record(z.string(), z.number()).nullable(),
+  ended: z.enum(TURN_ENDS).nullable(),
+  durationMs: nullableCount,
+  timeToFirstCallMs: nullableCount,
+  timeToFirstWriteMs: nullableCount,
+  deniedCallCount: nullableCount,
+  toolSequence: z.array(ToolSequenceEntryViewSchema).nullable(),
+  usageTotal: TurnUsageViewSchema.nullable(),
 });
 
 export type AgentTurnView = z.infer<typeof AgentTurnViewSchema>;
@@ -814,3 +1108,14 @@ export const AppTelemetryViewSchema = z.object({
 });
 
 export type AppTelemetryView = z.infer<typeof AppTelemetryViewSchema>;
+export type ApiError = z.infer<typeof ApiErrorSchema>;
+export type Score = z.infer<typeof ScoreSchema>;
+export type RunEvaluation = z.infer<typeof RunEvaluationSchema>;
+export type EvaluationCatalog = z.infer<typeof EvaluationCatalogSchema>;
+export type RegradeRequest = z.infer<typeof RegradeRequestSchema>;
+export type RegradeStarted = z.infer<typeof RegradeStartedSchema>;
+export type RegradeJob = z.infer<typeof RegradeJobSchema>;
+export type EffectiveConfig = z.infer<typeof EffectiveConfigSchema>;
+export type CampaignRuns = z.infer<typeof CampaignRunsSchema>;
+export type CampaignInput = z.infer<typeof CampaignInputSchema>;
+export type RunDetail = z.infer<typeof RunDetailSchema>;

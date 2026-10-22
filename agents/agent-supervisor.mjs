@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,12 +26,17 @@ const RUNTIME_ENV_KEYS = new Set([
 
 // Mirrors src/agent-runtime/codex-strategy.ts codexExecEnv: never hand the agent
 // the orchestrator's secrets (GITHUB_TOKEN, WEBHOOK_SECRET, QA_API_TOKEN, …).
-const CODEX_EXEC_ENV_EXACT = new Set([
+export const CODEX_EXEC_ENV_EXACT = new Set([
   "PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "TMPDIR", "TEMPDIR", "TMP", "TEMP",
   "CI", "NO_COLOR", "FORCE_COLOR", "DEBUG", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
   "https_proxy", "http_proxy", "no_proxy", "CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_HOME", "CODEX_BIN",
+  // The W3C trace context of the attempt the exec belongs to: `codex exec` parents its own spans on it. Exact names, since the
+  // prefix list does not match them. Only a value built from a validated request header reaches them (see traceEnvFromHeaders).
+  "TRACEPARENT", "TRACESTATE",
 ]);
-const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_|AGENT_)/;
+// DEV_ENV_* (the HTTP Basic gate of DEV) reaches the agent; DEV_TEST_* (the app's test account) never does:
+// the login is the orchestrator's, and the agent only ever gets the session it saves.
+export const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_(?!TEST_)|AGENT_)/;
 const MAX_PROMPT_BYTES = 2 * 1024 * 1024;
 
 // When codex has a stored login (auth.json — e.g. a ChatGPT subscription created by `codex login`),
@@ -41,7 +47,18 @@ function codexHasStoredAuth(env = process.env) {
   return existsSync(`${home}/auth.json`);
 }
 
-function codexExecEnv(env = process.env) {
+// The trace context of an exec comes from its request header and from nowhere else: a TRACEPARENT the supervisor's own process
+// happens to hold is dropped, so an exec's spans never hang under something that is not the attempt that asked for it.
+const TRACEPARENT_RE = /^00-(?!0{32})[0-9a-f]{32}-(?!0{16})[0-9a-f]{16}-[0-9a-f]{2}$/;
+const TRACESTATE_RE = /^[\x20-\x7e]{1,512}$/;
+export function traceEnvFromHeaders(headers) {
+  const traceparent = headers?.traceparent;
+  if (typeof traceparent !== "string" || !TRACEPARENT_RE.test(traceparent)) return {};
+  const tracestate = headers.tracestate;
+  return { TRACEPARENT: traceparent, ...(typeof tracestate === "string" && TRACESTATE_RE.test(tracestate) ? { TRACESTATE: tracestate } : {}) };
+}
+
+export function codexExecEnv(env = process.env) {
   const storedAuth = codexHasStoredAuth(env);
   const out = {};
   for (const [key, value] of Object.entries(env)) {
@@ -54,10 +71,10 @@ function codexExecEnv(env = process.env) {
 
 // The codex/opencode CLIs can echo a key in an auth-failure message; never return
 // it raw. Masks our configured key values verbatim plus common token shapes.
-function redactForResponse(msg) {
+export function redactForResponse(msg) {
   if (typeof msg !== "string") return msg;
   let out = msg;
-  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY"]) {
+  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "OPENCODE_SERVER_PASSWORD", "QA_TOOLS_TOKEN"]) {
     const value = process.env[name];
     if (value && value.length >= 6 && out.includes(value)) out = out.split(value).join("[REDACTED_CREDENTIAL]");
   }
@@ -90,13 +107,52 @@ function selectedProviders() {
   return [single];
 }
 
-function commandFor(provider) {
+// `opencode serve` answers anyone who can reach port 4096 unless OPENCODE_SERVER_PASSWORD is set, and it
+// only warns when it is not. The password compose gives both services is what the orchestrator
+// authenticates with; with none set, a random one is generated for this process (kept across respawns)
+// so the server is never open, and the orchestrator's calls fail loudly until the variable is aligned.
+let generatedServerPassword;
+export function openCodeServerEnv(env = process.env, { warn = console.warn } = {}) {
+  const configured = env.OPENCODE_SERVER_PASSWORD?.trim();
+  if (configured) return { ...env, OPENCODE_SERVER_PASSWORD: configured };
+  if (!generatedServerPassword) {
+    generatedServerPassword = randomBytes(32).toString("hex");
+    warn("[supervisor] OPENCODE_SERVER_PASSWORD is not set: generated a random one for this boot. The orchestrator cannot authenticate with it; set the same OPENCODE_SERVER_PASSWORD on the orchestrator and agents services (see .env.example).");
+  }
+  return { ...env, OPENCODE_SERVER_PASSWORD: generatedServerPassword };
+}
+
+// The service token of the run_spec tool (agents/tool/run_spec.ts), which the orchestrator checks on its internal endpoint: the same
+// value on both services (compose). Unset, a random one is generated for this process (kept across respawns), so the tool never
+// runs with a token the orchestrator could mistake for its own; its calls are then refused, with a message that names the variable.
+let generatedToolsToken;
+export function qaToolsEnv(env = process.env, { warn = console.warn } = {}) {
+  const configured = env.QA_TOOLS_TOKEN?.trim();
+  if (configured) return { ...env, QA_TOOLS_TOKEN: configured };
+  if (!generatedToolsToken) {
+    generatedToolsToken = randomBytes(32).toString("hex");
+    warn("[supervisor] QA_TOOLS_TOKEN is not set: generated a random one for this boot. The orchestrator will refuse the run_spec tool; set the same QA_TOOLS_TOKEN on the orchestrator and agents services (see .env.example).");
+  }
+  return { ...env, QA_TOOLS_TOKEN: generatedToolsToken };
+}
+
+// OpenCode merges the opencode.json and .opencode/ (agents, plugins, MCP servers, permission overrides) of a
+// session's directory over its own configuration. A session directory is a watched repo's working copy, so
+// the server ignores project configuration altogether. The baseline experiment (scripts/baseline-agent.ts)
+// defines its agent in the copy's opencode.json and is the only reason to opt back in, with exactly
+// AGENT_ALLOW_PROJECT_CONFIG=true on the agents service, for every role of that container.
+function projectConfigEnv(env) {
+  const { OPENCODE_DISABLE_PROJECT_CONFIG: _ignored, ...rest } = env;
+  return env.AGENT_ALLOW_PROJECT_CONFIG === "true" ? rest : { ...rest, OPENCODE_DISABLE_PROJECT_CONFIG: "true" };
+}
+
+export function commandFor(provider, env = process.env) {
   // Only OpenCode is a managed long-lived process.
   if (provider === "opencode") {
     return {
       cmd: "opencode",
-      args: ["serve", "--hostname", process.env.OPENCODE_SERVE_HOSTNAME || "0.0.0.0", "--port", "4096"],
-      env: { ...process.env },
+      args: ["serve", "--hostname", env.OPENCODE_SERVE_HOSTNAME || "0.0.0.0", "--port", "4096"],
+      env: projectConfigEnv(qaToolsEnv(openCodeServerEnv(env))),
     };
   }
   return undefined;
@@ -286,9 +342,10 @@ export function buildCodexExecArgs({ cwd, model, sandbox }) {
 }
 
 // Runs one `codex exec` turn in the agent container and resolves with Codex's
-// final assistant message. This is the execution half of the orchestrator's
+// final assistant message and the usage it reported for the turn (absent when it
+// reported none). This is the execution half of the orchestrator's
 // CodexRuntimeStrategy → SupervisorExecTransport HTTP boundary.
-function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }) {
+export function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }, traceEnv = {}) {
   return new Promise((resolve, reject) => {
     if (!process.env.CODEX_API_KEY) return reject(new Error("CODEX_API_KEY is not configured"));
     if (typeof cwd !== "string" || !cwd.startsWith("/") || !existsSync(cwd)) return reject(new Error("cwd must be an existing absolute path"));
@@ -305,9 +362,10 @@ function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }) {
     } catch (err) {
       return reject(err);
     }
+    const { TRACEPARENT: _ambient, TRACESTATE: _ambientState, ...ambient } = process.env;
     const child = spawn(CODEX_BIN, args, {
       cwd,
-      env: codexExecEnv(process.env),
+      env: codexExecEnv({ ...ambient, ...traceEnv }),
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -324,8 +382,10 @@ function runCodexExec({ cwd, prompt, model, timeoutMs, sandbox }) {
     child.on("error", (err) => { if (timer) clearTimeout(timer); reject(err); });
     child.on("close", (code) => {
       if (timer) clearTimeout(timer);
-      if (code === 0) resolve(extractCodexLastMessage(stdout) || stdout.trim());
-      else reject(new Error(`codex exec exited ${code}: ${stderr.trim() || stdout.trim()}`));
+      if (code === 0) {
+        const usage = extractCodexUsage(stdout);
+        resolve({ message: extractCodexLastMessage(stdout) || stdout.trim(), ...(usage ? { usage } : {}) });
+      } else reject(new Error(`codex exec exited ${code}: ${stderr.trim() || stdout.trim()}`));
     });
     child.stdin.end(prompt);
   });
@@ -351,9 +411,47 @@ function extractCodexLastMessage(jsonl) {
   return last;
 }
 
+// What the turn spent, from the `turn.completed` events of `codex exec --json` (0.139.0):
+// {"type":"turn.completed","usage":{"input_tokens","cached_input_tokens","output_tokens","reasoning_output_tokens"}}.
+// `input_tokens` includes the cached part and `output_tokens` the reasoning part. Several completed turns are added up. A field
+// that is not a plain non-negative count is read as none, so a change in the event's shape under-reports rather than invents.
+// Returns undefined when no turn reported a usage object.
+const USAGE_FIELDS = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"];
+export function extractCodexUsage(jsonl) {
+  let total;
+  for (const line of jsonl.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event?.type !== "turn.completed" || typeof event.usage !== "object" || event.usage === null) continue;
+    // A usage object with no valid count says nothing: it is no usage, which is not zero usage.
+    if (!USAGE_FIELDS.some((field) => Number.isSafeInteger(event.usage[field]) && event.usage[field] >= 0)) continue;
+    total ??= Object.fromEntries(USAGE_FIELDS.map((field) => [field, 0]));
+    for (const field of USAGE_FIELDS) {
+      const value = event.usage[field];
+      if (Number.isSafeInteger(value) && value >= 0) total[field] += value;
+    }
+  }
+  return total;
+}
+
 function json(res, status, body) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+// One POST /codex/exec: the final message and the usage on success, the (redacted) reason on failure.
+export async function handleCodexExec(body, headers) {
+  try {
+    const { message, usage } = await runCodexExec(body, traceEnvFromHeaders(headers));
+    return { status: 200, body: { message, ...(usage ? { usage } : {}) } };
+  } catch (err) {
+    return { status: 400, body: { error: redactForResponse(err instanceof Error ? err.message : String(err)) } };
+  }
 }
 
 async function readJson(req) {
@@ -383,13 +481,15 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (req.method === "POST" && url.pathname === "/codex/exec") {
+    let body;
     try {
-      const body = await readJson(req);
-      const message = await runCodexExec(body);
-      json(res, 200, { message });
+      body = await readJson(req);
     } catch (err) {
       json(res, 400, { error: redactForResponse(err instanceof Error ? err.message : String(err)) });
+      return;
     }
+    const answer = await handleCodexExec(body, req.headers);
+    json(res, answer.status, answer.body);
     return;
   }
   json(res, 404, { error: "not found" });
@@ -400,6 +500,41 @@ async function shutdown() {
   shuttingDown = true;
   await Promise.all(PROVIDERS.map((provider) => stopProvider(provider)));
   server.close(() => process.exit(0));
+}
+
+// Codex's own trace export, applied ONLY when the operator names an OTLP/HTTP endpoint (QA_AGENT_OTLP_ENDPOINT; the telemetry
+// compose file sets it, plain compose does not). Traces only: the metrics exporter defaults to a vendor endpoint and the log
+// exporter is switched off, and prompt text is never logged. The block sits between two comment markers so a boot without the
+// endpoint can take it out again without touching anything else; a table the operator wrote themselves is left alone.
+const OTEL_BEGIN = "# BEGIN qayaba-otel (written by the supervisor from QA_AGENT_OTLP_ENDPOINT)";
+const OTEL_END = "# END qayaba-otel";
+const OTEL_REGION = new RegExp(`\\n?${OTEL_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${OTEL_END}\\n?`);
+
+// The traces URL of a plain http(s) address without credentials, or undefined for anything else. Built from the parsed URL, so
+// nothing of the operator's text reaches the file but a scheme, a host, a port and a path.
+export function codexTracesUrl(endpoint) {
+  if (typeof endpoint !== "string" || endpoint.trim() === "") return undefined;
+  let url;
+  try {
+    url = new URL(endpoint.trim());
+  } catch {
+    return undefined;
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.hostname === "" || url.username !== "" || url.password !== "") return undefined;
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}/v1/traces`;
+}
+
+function codexOtelToml(tracesUrl) {
+  return [
+    OTEL_BEGIN,
+    "[otel]",
+    "log_user_prompt = false",
+    'exporter = "none"',
+    'metrics_exporter = "none"',
+    `trace_exporter = { otlp-http = { endpoint = ${JSON.stringify(tracesUrl)}, protocol = "binary" } }`,
+    OTEL_END,
+    "",
+  ].join("\n");
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────
@@ -443,10 +578,36 @@ export function ensureCodexConfig(codexHome, env = process.env) {
   // disabled tool is disabled for all Codex roles. engram's `mem_session_summary` is disabled because no
   // pipeline role has a session to close, and the server's own instructions call the summary mandatory
   // before an agent says it is done, which competes with the role's verdict as its last action.
+  //
+  // The same list disables, for every Codex role, the tools that run code of the agent's own choosing in
+  // the browser (`browser_run_code_unsafe`, `browser_evaluate`), push a file from its disk into the live app
+  // (`browser_file_upload`, `browser_drop`) or open a shell through the code-navigation server
+  // (`execute_shell_command`). A role that authors against live DEV observes it (navigate, snapshot, click,
+  // type); only a generated spec writes to it. opencode.json denies the same tools to the generator and the
+  // sidekick, and a test pins that the two lists agree. No Codex role needs any of them.
+  //
+  // RESIDUAL GAP, not closed here: the built-in shell. OpenCode gives the generator no shell at all
+  // (`permission.bash` is denied outright; the orchestrator validates and runs what it writes). Codex
+  // cannot: a write role runs with `--dangerously-bypass-approvals-and-sandbox` (buildCodexExecArgs), there
+  // is no per-command allow-list in `codex exec`, and an execpolicy `.rules` file can forbid chosen prefixes
+  // but has no catch-all deny (nor was it shown to bind under the bypass flag). The feature switches that
+  // remove the shell tools (`shell_tool`, `unified_exec`) are not applied either: Codex has no file-read
+  // tool, so a role without its shell would also lose its eyes on the repo (not tried: no Codex credentials in
+  // the container to run a role). So a Codex generator can still write a script and run it with its shell
+  // against DEV. The prompt asks it not to; nothing enforces it. The container boundary and the
+  // orchestrator's revert of anything outside `e2e/` bound what such a script can reach, not what it does
+  // to DEV.
+  const BROWSER_CODE_AND_FILE_TOOLS = [
+    "browser_run_code_unsafe",
+    "browser_evaluate",
+    "browser_file_upload",
+    "browser_drop",
+  ];
   const MCP_SERVERS = [
     {
       name: "serena",
       command: ["serena", "start-mcp-server", "--transport", "stdio", "--context", "ide-assistant"],
+      disabledTools: ["execute_shell_command"],
     },
     {
       name: "engram",
@@ -457,6 +618,7 @@ export function ensureCodexConfig(codexHome, env = process.env) {
     {
       name: "playwright",
       command: ["npx", "@playwright/mcp", "--browser", "chromium", "--headless"],
+      disabledTools: BROWSER_CODE_AND_FILE_TOOLS,
     },
   ];
 
@@ -490,6 +652,13 @@ export function ensureCodexConfig(codexHome, env = process.env) {
   // Ensure the directory exists (codex-data volume may not have pre-created it).
   mkdirSync(codexHome, { recursive: true });
 
+  // Our own telemetry block, when the operator asked for one and it can be written safely. It is appended after the MCP tables.
+  const endpoint = typeof env.QA_AGENT_OTLP_ENDPOINT === "string" ? env.QA_AGENT_OTLP_ENDPOINT.trim() : "";
+  const tracesUrl = codexTracesUrl(endpoint);
+  if (endpoint !== "" && tracesUrl === undefined) {
+    console.warn("[agent-supervisor] QA_AGENT_OTLP_ENDPOINT is not a plain http(s) address without credentials: Codex trace export stays off");
+  }
+
   if (existsSync(configPath)) {
     // Preserve any non-mcp_servers content (e.g. [auth] from the codex-data volume).
     // Strip all existing [mcp_servers.*] sections from the file and append fresh ones.
@@ -497,7 +666,9 @@ export function ensureCodexConfig(codexHome, env = process.env) {
     // Strategy: split the file into "blocks" by top-level section headers (lines that
     // start with "[" but are NOT continuation lines of a value). Each block starts at a
     // section header line. Skip any block whose header starts with [mcp_servers.
-    const existing = readFileSync(configPath, "utf8");
+    const original = readFileSync(configPath, "utf8");
+    // Our telemetry block from an earlier boot goes out first, so the file converges whether or not the endpoint is still set.
+    const existing = original.replace(OTEL_REGION, "\n");
     const lines = existing.split(/\r?\n/);
     const blocks = []; // [{header: string|null, body: string[]}]
     let current = { header: null, body: [] };
@@ -512,9 +683,11 @@ export function ensureCodexConfig(codexHome, env = process.env) {
     }
     blocks.push(current);
 
-    // Keep only non-mcp_servers blocks (discard any [mcp_servers.*] block).
+    // Keep only the blocks that are neither ours to regenerate ([mcp_servers.*]) nor a project trust
+    // ([projects.*]): codex loads a trusted project's own .codex/config.toml (MCP servers, hooks), and a
+    // mirror is a watched repo's working copy, so no project is ever trusted.
     const kept = blocks.filter(
-      (b) => b.header === null || !b.header.startsWith("[mcp_servers.")
+      (b) => b.header === null || !(b.header.startsWith("[mcp_servers.") || b.header.startsWith("[projects."))
     );
 
     // Reconstruct retained content.
@@ -523,14 +696,21 @@ export function ensureCodexConfig(codexHome, env = process.env) {
       return parts.join("\n");
     }).join("\n").trimEnd();
 
+    // A table of the operator's own would be defined twice by ours, which TOML rejects: theirs wins.
+    // In any spelling: [otel], [ otel ], [otel.x], [[otel]], and a key of the file's top level (otel = ..., otel.x = ..., "otel".x = ...).
+    const OTEL_TABLE = /^\s*\[\[?\s*(?:otel|"otel")\s*(?:[\].]|$)/;
+    const OTEL_KEY = /^\s*(?:otel|"otel")\s*[.=]/;
+    const ownOtel = existing.split(/\r?\n/).some((line) => OTEL_TABLE.test(line)) || (blocks[0]?.body ?? []).some((line) => OTEL_KEY.test(line));
+    if (tracesUrl !== undefined && ownOtel) console.warn("[agent-supervisor] config.toml already has an [otel] table of its own: QA_AGENT_OTLP_ENDPOINT is not applied");
+    const otelBlock = tracesUrl !== undefined && !ownOtel ? "\n" + codexOtelToml(tracesUrl) : "";
     const mcpBlock = mcpToml.trimEnd() + "\n";
-    const merged = (retained ? retained + "\n\n" : "") + mcpBlock;
-    // Idempotent: only write if content differs.
-    if (merged !== existing) {
+    const merged = (retained ? retained + "\n\n" : "") + mcpBlock + otelBlock;
+    // Idempotent: only write if content differs from what is on disk.
+    if (merged !== original) {
       writeFileSync(configPath, merged, "utf8");
     }
   } else {
-    writeFileSync(configPath, mcpToml.trimEnd() + "\n", "utf8");
+    writeFileSync(configPath, mcpToml.trimEnd() + "\n" + (tracesUrl !== undefined ? "\n" + codexOtelToml(tracesUrl) : ""), "utf8");
   }
 }
 

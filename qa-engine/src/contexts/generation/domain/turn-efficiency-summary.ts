@@ -7,6 +7,8 @@
 import { CALL_BUCKETS, type CallBucket } from "./tool-call-taxonomy.ts";
 import type { CallSequenceSummary } from "./call-sequence.ts";
 import { stepExhaustionState, type StepExhaustionInput } from "./step-exhaustion.ts";
+import type { ToolSequenceEntry } from "./tool-sequence.ts";
+import type { TurnTrace } from "./turn-trace.ts";
 
 export { CALL_BUCKETS };
 export type { CallBucket };
@@ -17,6 +19,18 @@ export interface TurnStepBudget {
   exhausted: boolean | null;
 }
 
+/** What a turn spent over every step it finished (the sum of its step-finish parts), as opposed to the usage of the last assistant message alone. */
+export interface TurnUsage {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+  /** How many finished steps the sums cover. */
+  steps: number;
+}
+
 export interface TurnCallMetrics {
   totalCalls: number;
   /** Steps the turn opened; null unless every one of them was observed. */
@@ -25,12 +39,26 @@ export interface TurnCallMetrics {
   observationComplete: boolean;
   callsBeforeFirstWrite: number;
   writeCount: number;
+  /** Calls made through a shell tool, whatever their command line did: the quantity the coarse classifier counts as commands. Held in memory for the turn's stats; not persisted. */
+  commandCount: number;
   redundantReadCount: number;
   duplicateCallCount: number;
   promptProvidedReadCount: number;
   /** Content reads of a file the prompt listed by path as already rendered (even compactly). Counted by path, apart from the content-based `promptProvidedReadCount`. */
   pathProvidedReadCount: number;
   buckets: Record<CallBucket, number>;
+  /** Milliseconds from the turn's start to its first call; null when the turn made none or its start was not observed. */
+  timeToFirstCallMs: number | null;
+  /** Milliseconds from the turn's start to its first write; null when the turn wrote nothing or its start was not observed. */
+  timeToFirstWriteMs: number | null;
+  /** Calls the runtime refused under a permission rule, whether or not they ever ran. */
+  deniedCallCount: number;
+  /** The turn's calls in order, each with the sanitized, capped target it pointed at (see `tool-sequence.ts`). */
+  toolSequence: ToolSequenceEntry[];
+  /** Usage summed over the turn's finished steps; null unless every step was observed and at least one finished. A step still running when a turn timed out is not in the sum. */
+  usage: TurnUsage | null;
+  /** The turn step by step and call by call, for its trace. Held in memory for the turn; never persisted. Absent from a turn that was not observed. */
+  trace?: TurnTrace;
 }
 
 const ZERO_BUCKETS: Record<CallBucket, number> = {
@@ -38,6 +66,7 @@ const ZERO_BUCKETS: Record<CallBucket, number> = {
   [CALL_BUCKETS.BROWSER]: 0,
   [CALL_BUCKETS.WRITE]: 0,
   [CALL_BUCKETS.VALIDATE_RUN]: 0,
+  [CALL_BUCKETS.SCRIPT_RUN]: 0,
   [CALL_BUCKETS.MEMORY]: 0,
   [CALL_BUCKETS.SUBAGENT]: 0,
   [CALL_BUCKETS.OTHER]: 0,
@@ -59,6 +88,12 @@ export interface BuildTurnCallMetricsInput {
   pathProvidedReadCount: number;
   stepsUsed: number | null;
   observationComplete: boolean;
+  timeToFirstCallMs: number | null;
+  timeToFirstWriteMs: number | null;
+  deniedCallCount: number;
+  toolSequence: ToolSequenceEntry[];
+  usage: TurnUsage | null;
+  trace?: TurnTrace;
 }
 
 /** Assembles the pinned `TurnCallMetrics` shape from a `CallSequenceSummary`
@@ -71,11 +106,18 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     observationComplete: input.observationComplete,
     callsBeforeFirstWrite: input.sequence.callsBeforeFirstWrite,
     writeCount: input.sequence.writeCount,
+    commandCount: input.sequence.commandCount,
     redundantReadCount: input.redundantReadCount,
     duplicateCallCount: input.sequence.repeatedCallCount,
     promptProvidedReadCount: input.promptProvidedReadCount,
     pathProvidedReadCount: input.pathProvidedReadCount,
     buckets: tallyBuckets(input.buckets),
+    timeToFirstCallMs: input.timeToFirstCallMs,
+    timeToFirstWriteMs: input.timeToFirstWriteMs,
+    deniedCallCount: input.deniedCallCount,
+    toolSequence: input.toolSequence,
+    usage: input.usage,
+    ...(input.trace ? { trace: input.trace } : {}),
   };
 }
 

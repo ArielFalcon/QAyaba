@@ -1,6 +1,6 @@
 /* Code-mode runner: install the repo's deps and classify by exit code (binary pass/fail, no flaky). Sandbox is injected — this module never reads process.env. A missing runtime is infra-error, never a pass. Local result type so this file stays src/-free. */
 
-import { spawn, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
@@ -13,8 +13,7 @@ import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/gi
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
-import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
-import { sandboxSpawnOptions, type Sandbox } from "../../../shared-infrastructure/process-sandbox/sandbox.ts";
+import type { ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
 /** Local result shape so this file stays src/-free. */
@@ -478,9 +477,9 @@ function headTail(s: string, maxChars: number): string {
   return `${s.slice(0, half)}\n…[${s.length - maxChars} chars omitted]…\n${s.slice(-half)}`;
 }
 
-/** The REAL, spawning CodeExecuteDeps — a FACTORY (not a plain constant) because the privilege-drop sandbox is now injected rather than resolved internally (see this file's header, difference #2). `processKill` defaults to a fresh ProcessKillAdapter — mirrors CodebaseMemoryClient's own constructor-default convention for the same shared-infrastructure primitive. */
+/** The REAL, spawning CodeExecuteDeps — a FACTORY (not a plain constant) because the execution launcher (which owns the privilege drop) is injected rather than resolved internally (see this file's header, difference #2). `processKill` defaults to a fresh ProcessKillAdapter — mirrors CodebaseMemoryClient's own constructor-default convention for the same shared-infrastructure primitive. */
 export function createDefaultCodeExecuteDeps(
-  sandbox: Sandbox | null,
+  exec: ExecSandboxPort,
   processKill: ProcessKillPort = new ProcessKillAdapter(),
   timers: CodeTimers = realCodeTimers,
 ): CodeExecuteDeps {
@@ -491,7 +490,8 @@ export function createDefaultCodeExecuteDeps(
     runTests: (project, repoDir, opts) =>
       new Promise((resolve) => {
         const { cmd, args } = project.test;
-        const child = spawn(cmd, args, { cwd: repoDir, detached: true, ...sandboxSpawnOptions(scrubEnv(), sandbox) });
+        /* The watched repo's own test command: the sandbox's `install` profile (toolchain variables, registries as the only network). */
+        const child = exec.spawn(cmd, args, { cwd: repoDir, profile: "install", commandClass: "code-test" });
         const stdout = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
         const stderr = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
         const stdoutEvidence = new TestRunEvidence(project.ecosystem);
@@ -519,10 +519,10 @@ export function createDefaultCodeExecuteDeps(
           }, { once: true });
         }
 
-        child.stdout.setEncoding("utf8");
-        child.stderr.setEncoding("utf8");
-        child.stdout.on("data", (d: string) => { stdout.append(d); stdoutEvidence.feed(d); });
-        child.stderr.on("data", (d: string) => { stderr.append(d); stderrEvidence.feed(d); });
+        child.stdout!.setEncoding("utf8");
+        child.stderr!.setEncoding("utf8");
+        child.stdout!.on("data", (d: string) => { stdout.append(d); stdoutEvidence.feed(d); });
+        child.stderr!.on("data", (d: string) => { stderr.append(d); stderrEvidence.feed(d); });
         child.on("error", (err) => finish({ exitCode: null, logs: `${stderr.text()}${stdout.text()}`, spawnError: String(err) }));
         child.on("close", (code) => {
           stdoutEvidence.end();
@@ -559,10 +559,10 @@ export function coverageCommand(project: CodeProject, repoDir: string, c8Bin: st
   };
 }
 
-/** runCodeCoverage produces coverage/lcov.info for the repo's suite, best-effort. Returns without throwing on any failure (missing c8, non-node ecosystem, timeout, crash) so the caller falls back to "unmeasured". It never reports pass/fail — only a side-effect report. `sandbox` is INJECTED (see this file's header, difference #2) — the composition-root shell resolves it once and passes it to every code-mode entry point (setup/execute/coverage) alike. */
+/** runCodeCoverage produces coverage/lcov.info for the repo's suite, best-effort. Returns without throwing on any failure (missing c8, non-node ecosystem, timeout, crash) so the caller falls back to "unmeasured". It never reports pass/fail — only a side-effect report. `exec` is INJECTED (see this file's header, difference #2) — the composition-root shell builds it once and passes it to every code-mode entry point (setup/execute/coverage) alike. */
 export async function runCodeCoverage(
   repoDir: string,
-  sandbox: Sandbox | null,
+  exec: ExecSandboxPort,
   opts?: { signal?: AbortSignal; timeoutMs?: number },
   processKill: ProcessKillPort = new ProcessKillAdapter(),
   timers: CodeTimers = realCodeTimers,
@@ -573,7 +573,7 @@ export async function runCodeCoverage(
   const command = coverageCommand(detectCodeProject(repoDir), repoDir, c8Bin);
   if (!command) return;
   await new Promise<void>((resolve) => {
-    const child = spawn(command.cmd, command.args, { cwd: repoDir, detached: true, ...sandboxSpawnOptions(scrubEnv(), sandbox) });
+    const child = exec.spawn(command.cmd, command.args, { cwd: repoDir, profile: "install", commandClass: "code-test" });
     let done = false;
     const finish = () => {
       if (done) return;

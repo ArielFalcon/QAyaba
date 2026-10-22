@@ -107,7 +107,6 @@ function makeGenerationPorts(capturedInput: { value: OpencodeRunInput | undefine
         capturedInput.value = input;
         return { text: "BASE_PROMPT", sectionSizes: {} };
       },
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,

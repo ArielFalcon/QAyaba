@@ -1,0 +1,128 @@
+/* What a sandboxed child needs to know about the run it belongs to, carried through the run's async calls (AsyncLocalStorage) like the run's secret scope, so that the many spawn sites do not each take the run's directories and credentials as parameters. The run opens it (`withExecScope`); the launcher reads it. Outside a run there is none, and the launcher refuses to spawn. */
+
+import { AsyncLocalStorage } from "node:async_hooks";
+import type { Attrs } from "../../shared-kernel/telemetry/attribute-registry.ts";
+import type { TelemetryContext } from "../../shared-kernel/telemetry/telemetry.port.ts";
+
+/* What the egress layer made of the run, for the run's gate signals. */
+export interface SandboxReport {
+  /* "enforced": every sandboxed child was held to its profile's origins. "unenforced": the filter was unavailable and the operator allowed that (warn mode). "not-applicable": no child was spawned. */
+  egress: "enforced" | "unenforced" | "not-applicable";
+  /* Hosts a child tried to reach that the run's policy does not declare, without duplicates, in first-seen order. */
+  denied: string[];
+  /* Why the launcher refused to start a child in this run, when it did: the run then ends E-SANDBOX whatever path it took to its infra-error. */
+  refusal?: "uid" | "files" | "egress" | "residue";
+  /* Told every refusal while a window is open (openDeniedWindow), a host the run was already refused included: `denied` keeps each host once, which cannot say whether a given child met it. */
+  watchers?: Set<(host: string) => void>;
+}
+
+export interface RunScope {
+  runId: string;
+  /* `/tmp/qa-exec/<runId>`: the one directory the sandbox uid writes in. */
+  workDir: string;
+  /* The orchestrator-only directory holding the saved session and certificate. Never opened to a child; a spawn gets a copy. */
+  authDir?: string;
+  /* The DEV gate's HTTP Basic credentials, when the app has one. */
+  gateCreds?: { user: string; pass: string };
+  /* The test account, for a suite whose app opted in (e2e.specCredentials: account). Absent: specs never see the account. */
+  suiteAccount?: { user: string; pass: string };
+  /* The origins each kind of child may reach: `dev` for a suite or a login, `install` for a package-manager or toolchain child. A child of the offline profile reaches none. */
+  egress: { dev: readonly string[]; install: readonly string[] };
+  report: SandboxReport;
+  /* The mirrors the launcher gave the sandbox's group for this run; the scope's end gives them back. */
+  openedMirrors?: Set<string>;
+  /* Set on a scope derived from the run's (withExecScopeParent): the run's own scope, which anything kept per run is keyed by. */
+  base?: RunScope;
+  /* Where the run's trace stands, set by the run: the launcher parents the span of each child to `parent()`, the phase that is open. Absent or undefined: the active context decides. */
+  telemetry?: {
+    parent(): TelemetryContext | undefined;
+    /* Wall-clock ms the open phase started at, when known: spans synthesized from what a child reported are kept after it. */
+    phaseStart?(): number | undefined;
+    /* Sets attributes on the open phase's span. */
+    annotate?(attrs: Attrs): void;
+  };
+}
+
+const store = new AsyncLocalStorage<RunScope>();
+
+export function withExecScope<T>(scope: RunScope, fn: () => T): T {
+  return store.run(scope, fn);
+}
+
+/* The scope anything kept per run is keyed by: the run's own, whether the active scope is it or one derived from it. */
+export function runScopeKey(scope: RunScope): RunScope {
+  return scope.base ?? scope;
+}
+
+/*
+ * Runs `fn` in the active scope with the parent of every child's span replaced: a tool call the orchestrator serves for an agent
+ * (run_spec) hangs its children under the call's own span, not under the phase that happens to be open. The phase's other hooks stay
+ * (`phaseStart`, `annotate`) unless the call gives its own: a report read inside the call is placed after the call's start and what
+ * it annotates goes on the call's span. The copy shares the run's report, mirrors and directories (they are references) and names
+ * the run's scope as its `base`, so state kept per run is still the run's. Outside a run there is no scope to change.
+ */
+export function withExecScopeParent<T>(parent: TelemetryContext, fn: () => T, own: { startedAt?: number; annotate?: (attrs: Attrs) => void } = {}): T {
+  const scope = store.getStore();
+  if (!scope) return fn();
+  const phase = scope.telemetry;
+  const telemetry: NonNullable<RunScope["telemetry"]> = {
+    parent: () => parent,
+    ...(own.startedAt !== undefined ? { phaseStart: () => own.startedAt } : phase?.phaseStart ? { phaseStart: () => phase.phaseStart!() } : {}),
+    ...(own.annotate ? { annotate: own.annotate } : phase?.annotate ? { annotate: (attrs: Attrs) => phase.annotate!(attrs) } : {}),
+  };
+  return store.run({ ...scope, base: scope.base ?? scope, telemetry }, fn);
+}
+
+export function activeExecScope(): RunScope | undefined {
+  return store.getStore();
+}
+
+export function newSandboxReport(): SandboxReport {
+  return { egress: "not-applicable", denied: [] };
+}
+
+/* The scope of a run that never got one: the sandbox refused to open it, and the run's last words are said inside this one so that the refusal is what classifies how it ended. It has no work dir and spawns nothing. */
+export function refusedScope(runId: string, refusal: NonNullable<SandboxReport["refusal"]>): RunScope {
+  return { runId, workDir: "", egress: { dev: [], install: [] }, report: { egress: "not-applicable", denied: [], refusal } };
+}
+
+/* What a run's sandbox did, for the persisted gate signals: absent when no child was ever started or refused. */
+export function sandboxSignal(): { egress: SandboxReport["egress"]; denied: string[] } | undefined {
+  const report = store.getStore()?.report;
+  if (report === undefined || (report.egress === "not-applicable" && report.denied.length === 0)) return undefined;
+  return { egress: report.egress, denied: [...report.denied] };
+}
+
+/* A stretch of a run in which the hosts the egress filter refused are collected on their own, apart from the run's list (which keeps each host once, from its first sighting): a caller that must know whether the children it started were refused something asks for one before it starts them. Outside a run it hears nothing. */
+export function openDeniedWindow(scope?: RunScope): { hosts(): string[]; close(): void } {
+  const report = (scope ?? store.getStore())?.report;
+  const heard: string[] = [];
+  const watcher = (host: string): void => {
+    if (heard.length < MAX_WINDOW_HOSTS && !heard.includes(host)) heard.push(host);
+  };
+  if (report) (report.watchers ??= new Set()).add(watcher);
+  return {
+    hosts: () => [...heard],
+    close: () => {
+      report?.watchers?.delete(watcher);
+    },
+  };
+}
+
+const MAX_WINDOW_HOSTS = 64;
+
+/* True when the launcher refused a child in the run this call is part of. */
+export function sandboxRefused(): boolean {
+  return store.getStore()?.report.refusal !== undefined;
+}
+
+/* The run's sandbox as the use case sees it: the scope is opened for the run and its work dir is removed when the run ends, however it ends. */
+export interface ExecScopeSession {
+  run<T>(fn: () => T): T;
+  close(): void;
+}
+
+export interface ExecScopePort {
+  /* Async because bringing the egress filter up for a run's origins is. */
+  open(input: { runId: string }): ExecScopeSession | Promise<ExecScopeSession>;
+}

@@ -1,9 +1,10 @@
 
 
 import { z } from "zod";
-import { GeneratorVerdictSchema, ReviewerVerdictSchema, correctionText, correctionSeverity } from "../orchestrator/schemas";
+import { GeneratorVerdictSchema, ReviewerVerdictSchema, correctionText, correctionSeverity, correctionCitation } from "../orchestrator/schemas";
 import { lastJsonMatching, isClosingVerdict } from "./verdict-parse";
 import { GRAVE_TAGS } from "../qa/learning/taxonomy";
+import { NOOP_KIND } from "@kernel/noop-kind";
 
 
 /*
@@ -51,6 +52,10 @@ export interface ReviewerVerdict {
   rationale?: string;
   /* Flat list of ALL correction texts (blocking + advisory), for backward-compat logging. */
   corrections: string[];
+  /* The effective severity of each correction, in the same order. Absent on older parsers. */
+  correctionSeverities?: ("blocking" | "advisory")[];
+  /* The evidence each correction cites, in the same order; a hole means that entry cited none. */
+  citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
 
   blockingCount: number;
   valid: boolean;  /* the reviewer JSON satisfied the schema (i.e. `approved` is a clean boolean) */
@@ -74,12 +79,16 @@ export function parseReviewerVerdict(text: string): ReviewerVerdict {
   const r = ReviewerVerdictSchema.safeParse(candidate);
   if (r.success) {
     const corrections = r.data.corrections.map(correctionText);
+    const correctionSeverities = r.data.corrections.map((e) => effectiveSeverity(e));
+    const citations = r.data.corrections.map((e) => correctionCitation(e));
 
-    const blockingCount = r.data.corrections.filter((e) => effectiveSeverity(e) === "blocking").length;
+    const blockingCount = correctionSeverities.filter((s) => s === "blocking").length;
     return {
       approved: r.data.approved,
       ...(r.data.rationale && r.data.rationale.trim() ? { rationale: r.data.rationale.trim() } : {}),
       corrections,
+      correctionSeverities,
+      citations,
       blockingCount,
       valid: true,
       parsed: true,
@@ -142,8 +151,8 @@ export interface RepairInstructionOpts {
 export function repairInstruction(kind: "generator" | "reviewer", issues: string[], opts?: RepairInstructionOpts): string {
   const shape =
     kind === "generator"
-      ? `{"specs": string[], "specMetas"?: [{"file","flow","objective","targets": string[]}], "note"?: string, "noop"?: {"reason": string}}` +
-        `\nIf you wrote no specs, "specs" is [] and "noop" gives the reason.`
+      ? `{"specs": string[], "specMetas"?: [{"file","flow","objective","targets": string[]}], "note"?: string, "noop"?: {"kind": "${NOOP_KIND.NOT_WORTH}" | "${NOOP_KIND.UNOBSERVABLE}", "reason": string}}` +
+        `\nIf you wrote no specs, "specs" is [] and "noop" gives its kind and the reason.`
       : `{"approved": boolean, "rationale": string, "corrections": string[]}`;
   const tail = opts?.priorResponseTail ? stripFrameMarkers(opts.priorResponseTail).trim() : "";
   const tailBlock = tail

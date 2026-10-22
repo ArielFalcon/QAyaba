@@ -18,5 +18,6 @@
       "@contexts/*": ["../qa-engine/src/contexts/*"]
     }
   },
-  "include": ["."]
+  "include": ["."],
+  "exclude": ["sandbox-smoke"]
 }

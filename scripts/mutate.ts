@@ -72,6 +72,8 @@ const TOPO = "qa-engine/src/contexts/service-topology/infrastructure";
 const TOPO_TEST = "qa-engine/test/contexts/service-topology/infrastructure";
 const TE_INFRA = "qa-engine/src/contexts/test-execution/infrastructure";
 const TE_INFRA_TEST = "qa-engine/test/contexts/test-execution/infrastructure";
+const TE = "qa-engine/src/contexts/test-execution";
+const TE_TEST = "qa-engine/test/contexts/test-execution";
 
 const DEFAULT_THRESHOLDS: MutationThresholds = { high: 90, low: 80, break: null };
 
@@ -107,7 +109,6 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH_TEST}/domain/fix-loop.aggregate.test.ts`,
       `${ORCH_TEST}/domain/fix-loop-characterization.test.ts`,
       `${ORCH_TEST}/application/run-qa.use-case.test.ts`,
-      `${ORCH_TEST}/application/coordination-fixloop.use-case.test.ts`,
       `${ORCH_TEST}/infrastructure/bridges/generation-port.adapter.test.ts`,
       "qa-engine/test/contract/coordination-seam.contract.test.ts",
     ],
@@ -129,8 +130,6 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/test/contract/coordination-delegation.contract.test.ts",
       "qa-engine/test/contract/coordination-sidekick.contract.test.ts",
       "qa-engine/test/contract/coordination-seam.contract.test.ts",
-      `${ORCH_TEST}/application/coordination-active.use-case.test.ts`,
-      `${ORCH_TEST}/application/coordination-fixloop.use-case.test.ts`,
       "src/server/coordination-events.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
@@ -139,21 +138,25 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "agent efficiency metrics: tool taxonomy, call sequence/redundancy, prompt-provided reads, step exhaustion, coarse windows, turn summary, and the in-session call tracker with its call identity",
     mutate: [
       `${GEN}/domain/tool-call-taxonomy.ts`,
+      `${GEN}/domain/shell-command-class.ts`,
       `${GEN}/domain/call-sequence.ts`,
       `${GEN}/domain/provided-context.ts`,
       `${GEN}/domain/step-exhaustion.ts`,
       `${GEN}/domain/coarse-run-efficiency.ts`,
       `${GEN}/domain/turn-efficiency-summary.ts`,
+      `${GEN}/domain/tool-sequence.ts`,
       `${GEN}/infrastructure/sse/call-efficiency-tracker.ts`,
       `${GEN}/infrastructure/sse/call-fingerprint.ts`,
     ],
     tests: [
       `${GEN_TEST}/domain/tool-call-taxonomy.test.ts`,
+      `${GEN_TEST}/domain/shell-command-class.test.ts`,
       `${GEN_TEST}/domain/call-sequence.test.ts`,
       `${GEN_TEST}/domain/provided-context.test.ts`,
       `${GEN_TEST}/domain/step-exhaustion.test.ts`,
       `${GEN_TEST}/domain/coarse-run-efficiency.test.ts`,
       `${GEN_TEST}/domain/turn-efficiency-summary.test.ts`,
+      `${GEN_TEST}/domain/tool-sequence.test.ts`,
       `${GEN_TEST}/infrastructure/sse/call-efficiency-tracker.test.ts`,
       `${GEN_TEST}/infrastructure/sse/call-fingerprint.test.ts`,
       `${GEN_TEST}/infrastructure/sse/event-stream.test.ts`,
@@ -178,6 +181,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "generator-time-budget": {
+    description: "generator time budget: which diff runs the generator's first pass is bounded for, the time each effort tier allows and the ceiling the transport's own deadline puts on it",
+    mutate: [`${GEN}/domain/generator-time-budget.ts`],
+    tests: [`${GEN_TEST}/domain/generator-time-budget.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "precondition-verdict": {
     description: "auth precondition: the typed error, the run terminal it maps to, the E-PRECONDITION class and where it is resolved, and the audit finding that keeps it out of learning",
     mutate: [
@@ -185,10 +194,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/domain/helpers/precondition-terminal.ts`,
       /* Only the lines that name and resolve the class: the rest of these modules belongs to other classes. */
       `${ORCH}/domain/helpers/error-class.ts:18-18`,
-      `${ORCH}/domain/helpers/error-class.ts:29-29`,
-      `${ORCH}/domain/helpers/error-class.ts:111-111`,
+      `${ORCH}/domain/helpers/error-class.ts:32-32`,
+      `${ORCH}/domain/helpers/error-class.ts:122-122`,
       `${LEARN}/process-audit.ts:27-27`,
-      `${LEARN}/process-audit.ts:80-87`,
+      `${LEARN}/process-audit.ts:102-109`,
     ],
     tests: [
       `${ORCH_TEST}/domain/auth-precondition.test.ts`,
@@ -214,14 +223,19 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [
       "qa-engine/src/shared-kernel/route-capturability.ts",
       `${GEN}/domain/route-ranking.ts`,
-      /* Only the lines that rank the derived routes, filter the candidates, cut them, log and list what was left out. */
-      `${GEN}/infrastructure/context-pack.ts:129-138`,
-      `${GEN}/infrastructure/context-pack.ts:201-209`,
-      `${GEN}/infrastructure/context-pack.ts:246-255`,
+      `${GEN}/domain/route-instantiation.ts`,
+      `${GEN}/infrastructure/loggable-route.ts`,
+      /* Only the lines that rank the derived routes, filter the candidates, cut them, open the templates through links, log and list what was left out, and the capture that reports which pages it grounded and the links they showed. */
+      `${GEN}/infrastructure/dom-snapshot.ts:326-351`,
+      `${GEN}/infrastructure/context-pack.ts:139-164`,
+      `${GEN}/infrastructure/context-pack.ts:241-340`,
+      `${GEN}/infrastructure/context-pack.ts:361-371`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/route-capturability.test.ts",
       `${GEN_TEST}/domain/route-ranking.test.ts`,
+      `${GEN_TEST}/domain/route-instantiation.test.ts`,
+      `${GEN_TEST}/infrastructure/loggable-route.test.ts`,
       `${GEN_TEST}/infrastructure/context-pack.test.ts`,
       `${GEN_TEST}/infrastructure/dom-snapshot.test.ts`,
     ],
@@ -239,46 +253,42 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
-      `${GEN}/application/generate-tests.use-case.ts:128-129`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:105-111`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:137-138`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:146-146`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:179-179`,
+      `${GEN}/application/generate-tests.use-case.ts:263-264`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:147-153`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:179-180`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:188-188`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:131-131`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:209-209`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:266-266`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
       `${ORCH}/domain/helpers/selector-check.ts:401-405`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:57-62`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:66-66`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:68-68`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts:73-73`,
       `${ORCH}/domain/pre-exec-grounding.service.ts:76-76`,
       `${ORCH}/domain/pre-exec-grounding.service.ts:79-79`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:82-82`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:95-98`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:105-105`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:114-115`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:119-119`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:124-124`,
-      `${ORCH}/domain/fix-loop.aggregate.ts:193-193`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts:92-95`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts:102-102`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts:111-112`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts:117-117`,
+      `${ORCH}/domain/fix-loop.aggregate.ts:197-197`,
       /* The run's own lines: what it has delivered, the regeneration that is handed it, the merge after the first pass and the sidekick's, and the attribution of each contradiction. */
-      `${ORCH}/application/run-qa.use-case.ts:766-776`,
-      `${ORCH}/application/run-qa.use-case.ts:1017-1018`,
-      `${ORCH}/application/run-qa.use-case.ts:1023-1023`,
-      `${ORCH}/application/run-qa.use-case.ts:1110-1111`,
-      `${ORCH}/application/run-qa.use-case.ts:1117-1117`,
-      `${ORCH}/application/run-qa.use-case.ts:1123-1123`,
-      `${ORCH}/application/run-qa.use-case.ts:1126-1129`,
-      `${ORCH}/application/run-qa.use-case.ts:1137-1137`,
-      `${ORCH}/application/run-qa.use-case.ts:1166-1168`,
-      `${ORCH}/application/run-qa.use-case.ts:1371-1371`,
-      `${ORCH}/application/run-qa.use-case.ts:1380-1385`,
-      `${ORCH}/application/run-qa.use-case.ts:1577-1579`,
-      `${ORCH}/application/run-qa.use-case.ts:1600-1601`,
-      `${ORCH}/application/run-qa.use-case.ts:1603-1603`,
-      `${ORCH}/application/run-qa.use-case.ts:1609-1611`,
-      `${ORCH}/application/run-qa.use-case.ts:1623-1623`,
-      `${ORCH}/application/run-qa.use-case.ts:1739-1739`,
-      `${ORCH}/application/run-qa.use-case.ts:1871-1871`,
+      `${ORCH}/application/run-qa.use-case.ts:1043-1043`,
+      `${ORCH}/application/run-qa.use-case.ts:1066-1075`,
+      `${ORCH}/application/run-qa.use-case.ts:1155-1155`,
+      `${ORCH}/application/run-qa.use-case.ts:1160-1160`,
+      `${ORCH}/application/run-qa.use-case.ts:1253-1254`,
+      `${ORCH}/application/run-qa.use-case.ts:1265-1265`,
+      `${ORCH}/application/run-qa.use-case.ts:1271-1271`,
+      `${ORCH}/application/run-qa.use-case.ts:1279-1282`,
+      `${ORCH}/application/run-qa.use-case.ts:1290-1290`,
+      `${ORCH}/application/run-qa.use-case.ts:1324-1326`,
+      `${ORCH}/application/run-qa.use-case.ts:1496-1496`,
+      `${ORCH}/application/run-qa.use-case.ts:1508-1513`,
+      `${ORCH}/application/run-qa.use-case.ts:1515-1516`,
+      `${ORCH}/application/run-qa.use-case.ts:1518-1518`,
+      `${ORCH}/application/run-qa.use-case.ts:1524-1526`,
+      `${ORCH}/application/run-qa.use-case.ts:1538-1538`,
+      `${ORCH}/application/run-qa.use-case.ts:1680-1680`,
+      `${ORCH}/application/run-qa.use-case.ts:1825-1825`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/spec-path.test.ts",
@@ -303,13 +313,14 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "redirect-advisory": {
     description: "redirect advisory: why a route degraded and where a redirect led, the state line and the advisory block that render it, and the split that keeps the block out of the live DOM section",
     mutate: [
-      `${GEN}/infrastructure/route-catalog.ts:14-24`,
-      `${GEN}/infrastructure/route-catalog.ts:65-128`,
+      `${GEN}/infrastructure/route-catalog.ts:15-25`,
+      `${GEN}/infrastructure/route-catalog.ts:66-129`,
       /* Only the lines that state a degraded route, build the advisory block and the capture, and warn about a gated app: the tree rendering they call is older code. */
-      `${GEN}/infrastructure/dom-snapshot.ts:227-231`,
-      `${GEN}/infrastructure/dom-snapshot.ts:251-287`,
-      `${GEN}/infrastructure/context-pack.ts:175-178`,
-      `${GEN}/infrastructure/context-pack.ts:215-216`,
+      `${GEN}/infrastructure/dom-snapshot.ts:225-229`,
+      `${GEN}/infrastructure/dom-snapshot.ts:250-277`,
+      `${GEN}/infrastructure/context-pack.ts:200-212`,
+      `${GEN}/infrastructure/context-pack.ts:268-269`,
+      `${GEN}/infrastructure/context-pack.ts:309-309`,
     ],
     tests: [
       `${GEN_TEST}/infrastructure/route-catalog.test.ts`,
@@ -333,7 +344,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/harness-facts.ts`,
       `${GEN}/domain/step-limit.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:122-171`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:156-205`,
     ],
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
@@ -352,6 +363,26 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "agent-browser": {
+    description: "authenticated agent browser: the route guard, the session-invalidation detector, the capability, the call's use case and the account lock its calls queue on",
+    mutate: [
+      `${TE}/domain/account-lock.ts`,
+      `${TE}/domain/agent-browser-route-guard.ts`,
+      `${TE}/domain/agent-browser-session-invalidation.ts`,
+      `${TE}/domain/agent-browser-capability.ts`,
+      `${TE}/application/agent-browser.use-case.ts`,
+    ],
+    tests: [
+      `${TE_TEST}/domain/account-lock.test.ts`,
+      `${TE_TEST}/domain/agent-browser-capability.test.ts`,
+      `${TE_TEST}/domain/agent-browser-route-guard.test.ts`,
+      `${TE_TEST}/domain/agent-browser-session-invalidation.test.ts`,
+      `${TE_TEST}/application/agent-browser.use-case.test.ts`,
+      `${ORCH_TEST}/infrastructure/agent-browser-registry.test.ts`,
+      `${ORCH_TEST}/infrastructure/bridges/agent-browser-port.adapter.test.ts`,
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "step-limit": {
     description: "step limit: the cap each role runs under, read live from the runtime (the agent-list read, the judgment of a cap, the OpenCode mapping and its warnings, the facades' routing by provider), the baked reader's order of names and the per-run memo that hands each role its limit (one read, a deadline, one warning)",
     mutate: [
@@ -361,11 +392,11 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/opencode-strategy.ts:158-166",
       "src/agent-runtime/facades.ts:49-51",
       "src/agent-runtime/facades.ts:103-115",
-      "src/integrations/opencode-client.ts:201-202",
-      "src/integrations/opencode-client.ts:314-316",
-      "src/integrations/opencode-client.ts:324-334",
+      "src/integrations/opencode-client.ts:217-218",
+      "src/integrations/opencode-client.ts:330-332",
+      "src/integrations/opencode-client.ts:340-350",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
-      "src/server/rewritten-engine-factory.ts:515-547",
+      "src/server/rewritten-engine-factory.ts:563-595",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",
@@ -375,6 +406,20 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/integrations/opencode-client.test.ts",
       /* Apart from rewritten-engine-factory.test.ts, whose many tests would all run once per mutant. */
       "src/server/rewritten-engine-factory.step-limit.test.ts",
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "tool-link-and-codex-usage": {
+    description: "the join of a tool call to the orchestrator's span of it (a tie excludes both sides, a worse rank never claims what a better one left), Codex's usage put in the shape every row holds, and the reading of what an exec reported it spent (a usage with no valid count is none, not zero)",
+    mutate: [
+      `${GEN}/domain/tool-link.ts`,
+      "qa-engine/src/shared-kernel/telemetry/genai-semconv.ts:99-107",
+      "src/agent-runtime/codex-strategy.ts:668-708",
+    ],
+    tests: [
+      `${GEN_TEST}/domain/tool-link.test.ts`,
+      "qa-engine/test/shared-kernel/telemetry/genai-semconv.test.ts",
+      "src/agent-runtime/codex-strategy.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -416,19 +461,19 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/infrastructure/manifest-fs.ts:7-46`,
       `${GEN}/infrastructure/manifest-fs.ts:79-92`,
       /* The read gate's zero-assertion scan (a spec it cannot vouch for, and a path it could not walk, are findings) and its manifest check, whose output goes back to the agent. */
-      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:71-111",
-      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:147-159",
+      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:72-112",
+      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:149-161",
       /* The context map: a strict read, and warnings that say nothing of what the file holds. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:86-117`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:91-151`,
       /* Setup: the caps, the strict copy of the seed (the mark of a project last) and the wiring of the real strict calls, the entries of .qa that are removed when they are not ordinary, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
-      `${PUB_INFRA}/setup.adapter.ts:25-27`,
-      `${PUB_INFRA}/setup.adapter.ts:223-275`,
-      `${PUB_INFRA}/setup.adapter.ts:285-288`,
-      `${PUB_INFRA}/setup.adapter.ts:331-524`,
-      `${PUB_INFRA}/setup.adapter.ts:528-529`,
+      `${PUB_INFRA}/setup.adapter.ts:24-26`,
+      `${PUB_INFRA}/setup.adapter.ts:317-369`,
+      `${PUB_INFRA}/setup.adapter.ts:379-382`,
+      `${PUB_INFRA}/setup.adapter.ts:432-625`,
+      `${PUB_INFRA}/setup.adapter.ts:629-630`,
       /* The login's stock check: a strict read whose refusal fails the login. */
-      `${ORCH}/infrastructure/auth-session.adapter.ts:73-73`,
-      `${ORCH}/infrastructure/auth-session.adapter.ts:231-237`,
+      `${ORCH}/infrastructure/auth-session.adapter.ts:84-84`,
+      `${ORCH}/infrastructure/auth-session.adapter.ts:272-278`,
       /* The verdict parser's listing of the suite: the one walk of the specs, with its cap. */
       `${GEN}/infrastructure/verdict-parser.adapter.ts:15-18`,
     ],
@@ -478,6 +523,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_INFRA_TEST}/coverage-dump-reader.confinement.test.ts`,
       `${OS_INFRA_TEST}/fault-injection-counter-reader.test.ts`,
       `${OS_INFRA_TEST}/fault-injection-oracle.adapter.test.ts`,
+      /* What a dump and a counter are rebuilt as before they reach the mirror the readers read. */
+      `${OS_INFRA_TEST}/dump-sanitizers.test.ts`,
       /* The real readers behind the collector the factory builds. */
       `${OS_INFRA_TEST}/target-coverage-collector.test.ts`,
       /* Apart from rewritten-engine-factory.test.ts, whose many tests would all run once per mutant. */
@@ -491,13 +538,13 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "what the e2e runner reads back from the Playwright child, which runs code the agent wrote: the JSON report (a strict, capped read that never waits on a pipe or follows a link, and a report that cannot be used is a run with no result, infrastructure and never a pass, said with the reason and nothing the report held) and the failure-capture dumps (each read strictly under a cap, each that cannot be used left out so that its case runs without grounding, said once for the directory with a count and a reason and no file's name or content), with the lines of the runner that read them back and that distrust a pass the child did not exit 0 for (the status or the signal that ended it) and leave the report of a run that is settled unread",
     mutate: [
       /* Why a pass is not believed, and what the runner makes of it. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:143-148",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:260-271",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:166-171",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:300-311",
       /* The caps, the report's read, the dump's decoding and the dumps' read. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:347-414",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:414-480",
       /* What the runner does when the child is gone: reads the report unless the run is settled, before the directory it is in is removed (a line apart, which is the removal and not a read), and says why when it could not. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:601-603",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:605-608",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:691-693",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:696-699",
     ],
     tests: [
       "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
@@ -552,12 +599,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "what a code run reads of its repository's working copy and writes into it, which the agent writes into: the manifest that names the test command (a strict, capped read that never waits on a pipe or follows a link; one that cannot be used is a refusal, said with the reason and nothing the file held, which the project carries: a run of it is infrastructure and the setup of it fails) and the mutation oracle's config (replaced through a temporary file, never written through a link, and a config that cannot be written leaves the run unmeasured without starting Stryker) and report (a strict, capped read; one that cannot be used is a run that produced none)",
     mutate: [
       /* The manifest: what is a refusal, the strict read, the project that carries a refusal, and what a run and a setup make of it. */
-      `${TE_INFRA}/code-execution.runner.ts:44-47`,
-      `${TE_INFRA}/code-execution.runner.ts:54-81`,
-      `${TE_INFRA}/code-execution.runner.ts:92-94`,
-      `${TE_INFRA}/code-execution.runner.ts:100-100`,
-      `${TE_INFRA}/code-execution.runner.ts:378-387`,
-      `${TE_INFRA}/code-setup.ts:40-41`,
+      `${TE_INFRA}/code-execution.runner.ts:43-46`,
+      `${TE_INFRA}/code-execution.runner.ts:53-80`,
+      `${TE_INFRA}/code-execution.runner.ts:91-93`,
+      `${TE_INFRA}/code-execution.runner.ts:99-99`,
+      `${TE_INFRA}/code-execution.runner.ts:377-386`,
+      `${TE_INFRA}/code-setup.ts:39-40`,
       `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:16-17`,
       /* The write of the config (not what the config holds, which is other code) and the read of the report. */
       `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:57-58`,
@@ -573,13 +620,32 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "run-decision": {
-    description: "run decision: verdict → side effect (pr/issue/shadow-log/quarantine/none)",
+    description: "run decision: verdict → side effect (pr/issue/shadow-log/quarantine/none), and whether a run's suite is accepted",
     mutate: [`${ORCH}/domain/run-decision.service.ts`, `${ORCH}/domain/run-decision.ts`],
     tests: [
+      `${ORCH_TEST}/domain/run-acceptance.test.ts`,
       `${ORCH_TEST}/domain/run-decision.service.test.ts`,
       `${ORCH_TEST}/domain/run-decision.test.ts`,
       `${ORCH_TEST}/domain/run-decision-parity.test.ts`,
     ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "regeneration-acceptance": {
+    description: "regeneration acceptance: validate → execute the changed specs (retries 0, a per-run cap) or reuse a proof, fingerprint into the ledger, else restore the snapshot and purge the files the turn created",
+    mutate: [`${ORCH}/application/regeneration-acceptance.ts`],
+    tests: [`${ORCH_TEST}/application/regeneration-acceptance.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "review-findings": {
+    description: "review findings and rebuttals: a finding may block only when the orchestrator can verify the evidence it cites, and a rebuttal withdraws it only against evidence the run can check",
+    mutate: [`${ORCH}/domain/review-finding-filter.service.ts`, `${ORCH}/domain/review-rebuttals.service.ts`],
+    tests: [`${ORCH_TEST}/domain/review-finding-filter.service.test.ts`, `${ORCH_TEST}/domain/review-rebuttals.service.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "intent-contract": {
+    description: "test-intent contract: change tokens from the diff's added lines, anchoring, and the generic delta rules with their change-derived waivers",
+    mutate: [`${OS}/change-tokens.ts`, `${OS}/test-intent-contract.ts`, `${OS_INFRA}/ts-spec-contract.extractor.ts`],
+    tests: [`${OS_TEST}/test-intent-contract.test.ts`, `${OS_INFRA_TEST}/ts-spec-contract.extractor.test.ts`],
     thresholds: DEFAULT_THRESHOLDS,
   },
 };

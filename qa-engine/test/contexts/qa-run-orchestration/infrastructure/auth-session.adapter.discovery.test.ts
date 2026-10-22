@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +33,8 @@ interface Scenario {
   actionTimeoutMs?: string;
   env?: Record<string, string>;
   unwired?: boolean;
+  /** A directory the login child writes its session in, apart from the auth directory. */
+  staging?: boolean;
 }
 
 interface Run {
@@ -40,6 +42,7 @@ interface Run {
   seeded: number;
   authDir: string;
   specDir: string;
+  stagingDir: string;
   prepare(over?: Partial<AuthSessionRequest>, signal?: AbortSignal): ReturnType<AuthSessionAdapter["prepare"]>;
   cleanup(): void;
 }
@@ -47,16 +50,21 @@ interface Run {
 function scenario(s: Scenario = {}): Run {
   const specDir = mkdtempSync(join(tmpdir(), "auth-spec-"));
   const authDir = mkdtempSync(join(tmpdir(), "auth-dir-"));
+  const stagingRoot = mkdtempSync(join(tmpdir(), "auth-staging-"));
+  const stagingDir = join(stagingRoot, "login");
+  mkdirSync(stagingDir);
   if (s.setup !== null) writeFileSync(join(specDir, "auth.setup.ts"), s.setup ?? SEED);
   const run: Run = {
     discovered: [],
     seeded: 0,
     authDir,
     specDir,
+    stagingDir,
     prepare: (over = {}, signal) => adapter.prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-generate", auth: FORM, ...over }, signal),
     cleanup: () => {
       rmSync(specDir, { recursive: true, force: true });
       rmSync(authDir, { recursive: true, force: true });
+      rmSync(stagingRoot, { recursive: true, force: true });
     },
   };
   const ticks = [...(s.clock ?? [1_000, 1_450])];
@@ -74,6 +82,7 @@ function scenario(s: Scenario = {}): Run {
     authDir,
     ...(s.actionTimeoutMs ? { actionTimeoutMs: s.actionTimeoutMs } : {}),
     ...(s.unwired ? {} : { discovery }),
+    ...(s.staging ? { loginStaging: () => ({ dir: stagingDir, root: stagingRoot }) } : {}),
     spawnSetup: async (_dir, env) => {
       run.seeded += 1;
       return (s.seed ?? (() => ({ exitCode: 1, logs: "seed-log-marker" })))(env);
@@ -235,8 +244,7 @@ test("discovery is given the declared login path, the app's capturable routes, t
     assert.equal(input?.actionTimeoutMs, 12_000);
     assert.equal(input?.env.DEV_TEST_USER, USER);
     assert.equal(input?.env.DEV_TEST_PASS, PASS);
-    assert.equal(input?.env.DEV_ENV_USER, "gate");
-    assert.equal(input?.env.DEV_ENV_PASS, "gate-pass");
+    assert.equal("DEV_ENV_USER" in (input?.env ?? {}), false, "the gate credentials come from the launcher's scope, not from the child's variables");
     assert.equal(JSON.stringify({ ...input, env: undefined }).includes(PASS), false);
   });
 });
@@ -258,5 +266,33 @@ test("with no login path declared, no context map and no action timeout, discove
     assert.equal(input !== undefined && "loginPath" in input, false);
     assert.equal(input !== undefined && "actionTimeoutMs" in input, false);
     assert.deepEqual(input?.routes, []);
+  });
+});
+
+/* A login child that cannot open the auth directory writes its session in a staging directory of its own, and the orchestrator brings a confirmed one in. */
+test("a session the discovery child wrote in its staging directory is moved into the auth directory, locked down, and leaves no copy behind", async () => {
+  await withScenario({ staging: true, discover: (input) => { writesSession(input); return scriptedLoginEvidence(SIGNED_IN); } }, async (run) => {
+    const session = await run.prepare();
+    assert.equal(session.storageStatePath, join(run.authDir, AUTH_MATERIAL_FILES.storageState));
+    assert.equal(readFileSync(session.storageStatePath!, "utf8"), '{"cookies":[]}');
+    assert.equal(statSync(session.storageStatePath!).mode & 0o777, 0o600);
+    assert.equal(existsSync(join(run.stagingDir, AUTH_MATERIAL_FILES.storageState)), false);
+    assert.equal(run.discovered[0]?.storageStatePath, join(run.stagingDir, AUTH_MATERIAL_FILES.storageState), "the child is told to write in staging");
+  });
+});
+
+test("a session the seed child wrote in staging is moved into the auth directory", async () => {
+  await withScenario({ staging: true, seed: seedSignsIn }, async (run) => {
+    const session = await run.prepare();
+    assert.equal(readFileSync(session.storageStatePath!, "utf8"), '{"cookies":[]}');
+    assert.equal(existsSync(join(run.stagingDir, AUTH_MATERIAL_FILES.storageState)), false);
+  });
+});
+
+test("a session file in staging that is a link is not taken: the login has no session", async () => {
+  await withScenario({ staging: true, discover: (input) => { symlinkSync("/etc/hostname", input.storageStatePath); return scriptedLoginEvidence(SIGNED_IN); } }, async (run) => {
+    const session = await run.prepare();
+    assert.equal(session.storageStatePath, undefined);
+    assert.equal(existsSync(join(run.authDir, AUTH_MATERIAL_FILES.storageState)), false);
   });
 });

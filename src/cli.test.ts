@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { parseArgs, delegateRunInput } from "./cli";
 
@@ -37,5 +37,61 @@ describe("parseArgs", () => {
       Object.keys(a).sort(),
       ["app", "baseSha", "guidance", "learning", "mode", "sha", "target"].sort(),
     );
+  });
+});
+
+describe("--closed-loop", () => {
+  it("is the run's own choice about the run_spec loop and reaches the service, and is absent unless given", () => {
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--closed-loop", "on"]).closedLoop, true);
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--closed-loop", "off"]).closedLoop, false);
+    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
+    assert.equal("closedLoop" in plain, false);
+    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--closed-loop", "off"]), "e2e").closedLoop, false);
+    assert.equal("closedLoop" in delegateRunInput(plain, "e2e"), false);
+  });
+});
+
+describe("--agent-browser", () => {
+  it("is the run's own choice about the authenticated agent browser and reaches the service, and is absent unless given", () => {
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--agent-browser", "on"]).agentBrowser, true);
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--agent-browser", "off"]).agentBrowser, false);
+    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
+    assert.equal("agentBrowser" in plain, false);
+    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--agent-browser", "off"]), "e2e").agentBrowser, false);
+    assert.equal("agentBrowser" in delegateRunInput(plain, "e2e"), false);
+  });
+});
+
+describe("--coordination", () => {
+  it("is the run's own choice of coordination mode and reaches the service, and is absent unless given", () => {
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "lead-sidekicks"]).coordinationMode, "lead-sidekicks");
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "single"]).coordinationMode, "single");
+    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
+    assert.equal("coordinationMode" in plain, false);
+    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "single"]), "e2e").coordinationMode, "single");
+    assert.equal("coordinationMode" in delegateRunInput(plain, "e2e"), false);
+  });
+});
+
+describe("--dom-pack", () => {
+  it("is the run's own choice about the pre-generation pack's live-DOM capture and reaches the service as grounding, absent unless given", () => {
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "on"]).domPack, true);
+    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"]).domPack, false);
+    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
+    assert.equal("domPack" in plain, false);
+    assert.deepEqual(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "off"]), "e2e").grounding, { domPack: false });
+    assert.equal("grounding" in delegateRunInput(plain, "e2e"), false);
+  });
+
+  it("rejects any value other than on or off", () => {
+    const exit = mock.method(process, "exit", () => { throw new Error("process.exit called"); });
+    const error = mock.method(console, "error", () => {});
+    try {
+      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "bogus"]));
+      assert.equal(exit.mock.callCount(), 1, "an invalid --dom-pack value exits");
+    } finally {
+      exit.mock.restore();
+      error.mock.restore();
+    }
   });
 });

@@ -11,6 +11,8 @@ export const PROMPT_HEADINGS = {
   groundTruthAtFailure: "GROUND TRUTH AT FAILURE",
   liveDevTree: "Live DEV accessibility tree",
   crossServiceLinks: "Cross-service links",
+  /* The code-graph exploration a structural signal that names symbols is titled with. */
+  structuralBlastRadius: "Structural blast radius",
   appLogin: "App login",
   harnessFacts: "Harness facts",
   /* The listing of the specs that already exist, titled by the id of its section. */
@@ -19,6 +21,14 @@ export const PROMPT_HEADINGS = {
   coChangeFiles: "Files that historically change together",
   /* The cap the runtime enforces for the turn: titles the statement of a generator, an explorer and a reviewer prompt alike. */
   stepLimit: "Step limit",
+  /* The calls, time and DEV writes a run grants the generator's run_spec tool; a prompt states it only when the run granted the tool. */
+  closedLoop: "Run spec budget",
+  /* The calls and time a run grants the authoring agents' authenticated browser; a prompt states it only when the run granted the tools. */
+  agentBrowser: "Authenticated browser budget",
+  /* The app's default location, its declared places and where this authoring scope is; a prompt states it only when the app declares geolocation. */
+  geolocation: "Device location",
+  /* The plan a lead is asked for when its run is coordinated; a prompt carries it only on the planning turn. */
+  leadPlan: "Lead plan contract",
 } as const;
 
 /* The lines of the suite listing's groups on a turn that has specs to change. The editable label is the one place a prompt tells the agent to read the specs it is about to change; the new-spec line says a turn that covers changed lines may add a spec of its own; the last label says which specs are left as they are. */
@@ -38,6 +48,8 @@ export const PACK_HEADINGS = {
   contracts: "Relevant API contracts",
   notCapturable: "Routes not capturable",
   redirected: "Pages reached by redirect",
+  /* What the captured pages say of the labels the change added and removed. */
+  changedValues: "Changed values",
 } as const;
 
 /* The artifacts only some prompts assemble: static role text is unconditional, so it must not name any of them. */
@@ -54,6 +66,10 @@ export const ASSEMBLED_ARTIFACT_NAMES: readonly string[] = [
   PROMPT_HEADINGS.existingSuiteManifest,
   PROMPT_HEADINGS.coChangeFiles,
   PROMPT_HEADINGS.stepLimit,
+  PROMPT_HEADINGS.closedLoop,
+  PROMPT_HEADINGS.agentBrowser,
+  PROMPT_HEADINGS.geolocation,
+  PROMPT_HEADINGS.leadPlan,
   /* The phrases a directive uses for the brief and for grounding it points back at. */
   "the brief",
   "the grounding above",

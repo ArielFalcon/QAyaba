@@ -1,0 +1,26 @@
+{
+  "app": "my-app",
+  "cases": [
+    {
+      "id": "checkout-coupon",
+      "kind": "diff",
+      "sha": "0123456789abcdef0123456789abcdef01234567",
+      "expected": { "outcome": "spec", "mustVerify": "applying a valid coupon lowers the order total and an invalid one shows the refusal" }
+    },
+    {
+      "id": "copy-tweak",
+      "kind": "diff",
+      "sha": "89abcdef0123456789abcdef0123456789abcdef",
+      "expected": { "outcome": "noop", "mustVerify": "nothing: the change has no user-visible behavior" }
+    },
+    {
+      "id": "orders-duplicate-line",
+      "kind": "cross-repo",
+      "sha": "fedcba9876543210fedcba9876543210fedcba98",
+      "serviceRepo": "my-org/orders-service",
+      "groundTruth": "config/benchmarks/ground-truth/orders-duplicate-line.json",
+      "expected": { "outcome": "spec", "mustVerify": "adding a duplicate order line in the UI shows the refusal the service now returns" },
+      "cleanup": { "spec": "cleanup-orders.spec.ts" }
+    }
+  ]
+}

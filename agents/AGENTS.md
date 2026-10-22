@@ -11,17 +11,14 @@ produce reliable end-to-end tests for the change you are given.
 - **What the prompt supplies comes first.** Use each part at the confidence the prompt
   states for it, and look up only what it lacks, or marks as unverified or stale, when a
   test depends on it. To look something up, orient cheaply first: skim the file TREE and
-  NAMES (glob/grep/`find`: the diff's own paths, plus `*routes*`, `*client*`,
+  NAMES (glob/grep: the diff's own paths, plus `*routes*`, `*client*`,
   `*.service.*`, `*controller*`, test folders) to locate WHICH symbol you need — semantic
   tools are a scalpel for targets already located, not a way to discover what exists.
-- The `serena` MCP (when available) is your PRIMARY way to read code: semantic,
-  symbol-level navigation via a language server. Once oriented, activate the project on
-  your current directory (`activate_project`). Then, instead of reading whole files
-  (expensive and noisy, especially in Java):
-  - `get_symbols_overview` → a file's "skeleton" (signatures, not bodies);
-  - `find_symbol` → only the symbol you need;
-  - `find_referencing_symbols` → who uses something = the change's **blast radius**.
-  Read a symbol's full body only when you truly need it.
+- When you must read code the prompt does not provide, the `serena` MCP (when available) does it at
+  symbol level through a language server: activate the project on your current directory
+  (`activate_project`), then prefer `get_symbols_overview` (a file's signatures, not bodies),
+  `find_symbol` (only the symbol you need) and `find_referencing_symbols` (who uses it: the change's
+  **blast radius**) to reading whole files, and read a symbol's full body only when you need it.
 - The `playwright` MCP gives you a REAL Chromium browser. For a route the prompt supplies no
   DOM tree for, explore the live DEV page before writing: navigate, take a snapshot, and use
   ONLY selectors verified against the actual page. Never invent a selector from code analysis alone —
@@ -33,15 +30,8 @@ produce reliable end-to-end tests for the change you are given.
   formatting in the test. A re-derived value drifts from what the app actually renders
   (locale, timezone, rounding, truncation) and fails on a CORRECT app; the browser is
   the only oracle for a rendered value, exactly as it is for a selector.
-- The `engram` MCP is your persistent episodic memory for **operational context about
-  this app** — its topology, routes, auth quirks, environment gotchas, and which
-  flows are fragile in practice. Consult it only for an operational fact the prompt lacks;
-  save only a lesson this run newly learned. **engram is NEVER for test-authoring rules** (a selector
-  preference, an assertion pattern, a "skip this kind of check" habit) — those
-  belong exclusively to the governed learning ledger, which vets a rule through
-  objective outcomes before it can influence generation. A "lesson" that tells a
-  FUTURE run how to write or judge a test, rather than what the app under test
-  looks like, does not belong in engram — see Protocol 3 below.
+- The `engram` MCP is your persistent memory of this app. Consult it only for an operational fact the
+  prompt lacks; Protocol 3 below governs what you save.
 - **OpenAPI/Swagger contracts** are the backend's source of truth. When the affected
   flow touches a backend endpoint and the prompt lacks a contract fact a test needs
   (fields, enums, validations, error responses; an operation's id, method and path
@@ -77,6 +67,18 @@ produce reliable end-to-end tests for the change you are given.
 - **Namespaced test data**: every entity you create carries the given prefix
   (`qa-bot-<sha>`). Never depend on pre-existing real data, and never modify it.
   Clean up what you create.
+- **Authoring-time DEV exploration observes; it never writes.** Navigate, snapshot and follow
+  links; submitting, uploading and creating or deleting data happen only in the generated specs,
+  under the namespace prefix. Never write or run an ad-hoc script to explore. `run_spec`
+  executions are the only DEV writes during authoring: they run a spec you wrote, under the
+  namespace the orchestrator assigns, within its caps. The authenticated browser (`authbrowser_*`),
+  when your task states its budget, observes the same way: it is read-only and the orchestrator
+  blocks any request that would write.
+- **A test that depends on a location pins it.** When the expected result depends on the
+  device location, call `setLocation(context, latitude, longitude)` from the suite's fixtures
+  before the first navigation that reads it. The location an authoring browser is at
+  (`set_geolocation`) is context for the run and is not available to the suite when it runs
+  later: a spec that relies on it without pinning it fails on a later run.
 - The DEV test-account credentials arrive via the environment at run time. Do NOT
   write them literally in the specs (use `process.env`).
 - Be concise and outcome-oriented.
@@ -93,8 +95,8 @@ from accumulated junk:
    from what the prompt supplies, else by search — read it, and update it. Create a new
    one only if there is no equivalent. Do not duplicate coverage.
 3. **Disciplined memory writes (`engram`) — OPERATIONAL context only, never
-   test-authoring rules.** Save only reusable OPERATIONAL lessons: a fragile flow,
-   an environment gotcha, an auth quirk, app topology — facts about the app under
+   test-authoring rules.** Save a reusable OPERATIONAL lesson only when this run learned a new one:
+   a fragile flow, an environment gotcha, an auth quirk, app topology — facts about the app under
    test, structured (`{flow, lesson, sha}`) and deduplicated (if a lesson about that
    flow already exists, update it via `topic_key` instead of adding another). Never
    dump transcripts or ephemeral run details. Always include the `project` parameter

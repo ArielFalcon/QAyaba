@@ -27,6 +27,8 @@ export interface LearningRule {
   source: string;
   status: RuleStatus;
   at: string;
+  /** When an operator quarantined the rule (set it aside without deleting it); null while it is in force. A quarantined rule is never retrieved and never credited an outcome. */
+  quarantinedAt?: string | null;
 }
 
 export interface RuleUpsert {

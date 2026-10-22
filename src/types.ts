@@ -165,6 +165,17 @@ export interface QaCase {
    * generated-test defect.
    */
   runtimeErrors?: { type: string; text: string }[];
+  /*
+   * Browser network failures observed during the case: a 4xx/5xx response or a requestfailed event.
+   * The URL is reduced to origin+pathname (a query string or fragment never reaches the record) and
+   * the list is deduped and capped. Diagnostic only, same best-effort contract as runtimeErrors.
+   */
+  networkErrors?: { url: string; status?: number; errorText?: string; resourceType?: string }[];
+  /*
+   * How the case's network failures read, derived from the URLs and the run's egress report:
+   * egress (a host the filter refused), backend (a 5xx), dns (name resolution) or other.
+   */
+  networkClass?: "egress" | "backend" | "dns" | "other";
 }
 
 export interface QaRunResult {
@@ -270,6 +281,23 @@ export interface RunOutcome {
      * can state it without re-deriving from corrections. Absent when review was disabled/not reached.
      */
     reviewerApproved?: boolean;
+    /* What the review phase cost and decided. Absent when no reviewer phase ran. Persist-only. */
+    reviewer?: {
+      rounds: number;
+      modelRounds: number;
+      approved: boolean;
+      corrections: number;
+      blocking: number;
+      durationMs: number;
+      promptBytes: number;
+      outputTokens: number | null;
+      costUsd: number | null;
+      steps: number | null;
+      preCheckRejects: number;
+      skippedRounds: number;
+      /* The class of the final blocking correction (`none` when approved), from the closed review tags. */
+      correctionClass?: string;
+    };
     flaky: boolean;
     retries: number;
     /*
@@ -289,11 +317,15 @@ export interface RunOutcome {
      * Absent on a run that recorded nothing (e.g. a pre-classify skip). Never affects verdict.
      */
     phaseTimings?: Record<string, number>;
+    /* The pipeline phase the run got furthest into. Absent when the run entered none. */
+    furthestPhase?: string;
     /*
      * Pre-execution deterministic selector check (observation-only). `preExecAmbiguityCatches`:
-     * strict-mode ambiguities against the live pre-write DOM; `deterministicSelectorBlocks`: how
-     * many persisted after corrective regen and triggered the deterministic block. Never affects
-     * the verdict on their own (the static gate does). Absent when the check did not run.
+     * strict-mode ambiguities against the live pre-write DOM, an advisory the run only counts and
+     * logs (the check is a regex over the spec text: real execution decides, so it never asks for a
+     * regeneration or folds the verdict). `deterministicSelectorBlocks`: how many of them held the
+     * run; always 0 since the check became advisory, kept so earlier runs and the benchmark read
+     * the same record. Absent when the check did not run.
      */
     preExecAmbiguityCatches?: number;
     deterministicSelectorBlocks?: number;
@@ -304,12 +336,30 @@ export interface RunOutcome {
     catalogGateInWindow?: number;
     catalogGateAdvisory?: number;
     catalogGateFailClosed?: number;
+    /* What the execution sandbox did for the run (egress filter state, hosts denied); absent when no child was started. */
+    sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
+    /* How the generator used run_spec this run and whether the loop ended closed; absent when the tool was not granted. */
+    closedLoop?: { calls: number; devWrites: number; closed: boolean };
+    /* How the authoring agents used the authenticated browser this run; absent when it was not granted. */
+    agentBrowser?: { calls: number; blocks: number; invalidations: number; renewals: number };
+    /* How the run was coordinated when it asked for the lead/sidekick mode; absent for a run in the single mode. */
+    coordination?: { mode: "single" | "lead-sidekicks"; plan?: string; downgrade?: string; flows: number; delivered: number; incomplete: number; takeover: boolean; authoring?: string };
+    /* The reason a declared no-op named (`unspecified` when it named none); absent for a run that is not one. Persist-only. */
+    noop?: { kind: "not-worth" | "unobservable" | "unspecified" };
 
     structuralSignalBytes?: number;
     serviceLinksCount?: number;
     contractDriftCount?: number;
 
     crossRepoImpactedCount?: number;
+    /* The coverage signal was measured before the specs an accepted regeneration rewrote: the ratio no longer describes the bytes on disk. Persist-only. */
+    coverage?: { stale: boolean };
+    /* The value score has the same staleness (an accepted regeneration rewrote the suite). Persist-only, never a gate. */
+    value?: { stale: boolean };
+    /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
+    integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
+    /* The test-intent lock: derived clauses, deltas and would-be rejections, with the opacity flag. Persist-only. */
+    intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
   };
   rulesRetrieved: string[];
   reflection?: StructuredReflection;

@@ -328,3 +328,4 @@ test("a repo name that resolves to the mirrors root or above it is never deleted
     assert.deepEqual(d.removedTrees, [], `${repo} would have deleted a directory that is not a mirror`);
   }
 });
+

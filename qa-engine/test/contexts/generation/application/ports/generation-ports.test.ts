@@ -4,13 +4,13 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-test("OpencodeRunInput accepts the full deterministic-signal field set (contextPack/domSnapshot/staticSignal/staticSignalHasSymbols/diffArchetypes)", () => {
+test("OpencodeRunInput accepts the full deterministic-signal field set (contextPack/domSnapshot/staticSignal/staticSignalHasSymbols)", () => {
   const input: OpencodeRunInput = {
     repo: "o/a", sha: "abc", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "qa-bot-abc",
     needsReview: true, target: "e2e", mode: "diff", appName: "a",
-    contextPack: "pack", domSnapshot: "dom", staticSignal: "sig", staticSignalHasSymbols: true, diffArchetypes: ["auth-flow"],
+    contextPack: "pack", domSnapshot: "dom", staticSignal: "sig", staticSignalHasSymbols: true,
   };
   assert.equal(input.target, "e2e"); /* compile-time is the real assertion; this keeps node:test happy */
 });
@@ -22,13 +22,4 @@ test("ReviewInput accepts the full reviewer field set (specs/blockingCount input
     domSnapshot: "dom", priorCorrections: ["fix selector"], executionResult: "500 on /login",
   };
   assert.equal(input.specs.length, 1);
-});
-
-test("ParallelWorkerInput accepts the full worker field set (objective/flow/specFile/staticSignal)", () => {
-  const input: ParallelWorkerInput = {
-    objective: "login flow", flow: "login", symbols: ["AuthService.login"], needsUi: true,
-    specFile: "flows/login.spec.ts", repo: "o/a", mirrorDir: "/m", e2eRelDir: "e2e",
-    namespace: "qa-bot-abc", appName: "a", mode: "diff", staticSignal: "sig",
-  };
-  assert.equal(input.flow, "login");
 });

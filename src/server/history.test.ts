@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
+import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, childrenOf, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, quarantineLearningRules, releaseLearningRuleQuarantine, listAllLearningRules, getLearningRule, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, lastContextHealRequestAt, recordContextHealRequest, saveAgentTurn, getAgentTurns, getAgentTurnTraces, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap, recordRunPhases, getRunPhases, getRunFunnel, saveCrashedRunOutcome } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -22,6 +22,18 @@ test("a marked context-stale flag stays armed across reads until it is cleared",
   assert.equal(isContextStale(app), true, "reading the flag must not disarm it");
   clearContextStale(app);
   assert.equal(isContextStale(app), false);
+});
+
+test("a context-heal request timestamp survives the flag and drives the 6h dedupe", () => {
+  const app = "hist-ctx-heal";
+  assert.equal(lastContextHealRequestAt(app), undefined);
+  recordContextHealRequest(app);
+  assert.equal(typeof lastContextHealRequestAt(app), "string");
+  const first = lastContextHealRequestAt(app);
+  recordContextHealRequest(app);
+  assert.equal(typeof lastContextHealRequestAt(app), "string");
+  assert.ok(lastContextHealRequestAt(app) !== undefined);
+  assert.ok(first !== undefined);
 });
 
 test("createRecord stores an enqueued record findable by id", () => {
@@ -156,6 +168,14 @@ test("updateRecord stamps stepStartedAt whenever the step changes", () => {
   assert.ok(ts2 && ts2 !== ts1 || Date.parse(ts2!) >= Date.parse(ts1!));
 });
 
+test("a step written with a detail and then without one clears the detail", () => {
+  const r = createRecord({ target: "e2e", app: "hist-step-detail", sha: "det0001", mode: "diff" });
+  updateRecord(r.id, { step: "retry", stepDetail: "fix-loop engaged" });
+  assert.equal(getRecord(r.id)!.stepDetail, "fix-loop engaged");
+  updateRecord(r.id, { step: "coverage", stepDetail: null });
+  assert.equal(getRecord(r.id)!.stepDetail, undefined);
+});
+
 test("continuationDepth walks the parentRunId chain", () => {
   const grandparent = createRecord({ target: "e2e", app: "hist-f", sha: "aaa0001", mode: "diff" });
   const parent = createRecord({ target: "e2e", app: "hist-f", sha: "aaa0001", mode: "diff", parentRunId: grandparent.id });
@@ -163,6 +183,17 @@ test("continuationDepth walks the parentRunId chain", () => {
   assert.equal(continuationDepth(grandparent), 0);
   assert.equal(continuationDepth(parent), 1);
   assert.equal(continuationDepth(child), 2);
+});
+
+test("childrenOf lists the runs that name a parent, newest first, and none for a leaf", () => {
+  const parent = createRecord({ target: "e2e", app: "hist-children", sha: "aaa0001", mode: "diff" });
+  const heal = createRecord({ target: "e2e", app: "hist-children", sha: "aaa0001", mode: "context", parentRunId: parent.id });
+  const continuation = createRecord({ target: "e2e", app: "hist-children", sha: "aaa0001", mode: "diff", parentRunId: parent.id });
+
+  const children = childrenOf(parent.id);
+  assert.deepEqual(children.map((c) => c.id), [continuation.id, heal.id], "every run that names the parent is listed, newest first");
+
+  assert.equal(childrenOf(heal.id).length, 0, "a leaf run has no children");
 });
 
 test("recordRuleOutcome accumulates a running mean and earns promotion (never overwrites)", () => {
@@ -286,6 +317,72 @@ test("listLearningRulesForGovernance: excludes deprecated/superseded rows, same 
   assert.ok(ids.includes("gov-active"));
   assert.ok(ids.includes("gov-candidate"));
   assert.ok(!ids.includes("gov-deprecated"), "deprecated rows must never reach governance retrieval");
+});
+
+/* ── Quarantine: a rule set aside, never deleted ───────────────────────────────────────────────── */
+
+const QUARANTINE_AT = "2026-10-12T10:00:00.000Z";
+
+function seedQuarantineApp(app: string): void {
+  upsertLearningRule({ id: `${app}-cand`, app, trigger: "t1", action: "a", errorClass: "E-STATIC", source: "run-1" });
+  upsertLearningRule({ id: `${app}-act`, app, trigger: "t2", action: "a", errorClass: "E-STATIC", source: "run-2", initialStatus: "active" });
+  upsertLearningRule({ id: `${app}-other`, app, trigger: "t3", action: "a", errorClass: "E-STATIC", source: "run-3" });
+}
+
+test("quarantineLearningRules marks the named rules, keeps them in the ledger and returns how many it newly marked", () => {
+  const app = "hist-quarantine-mark";
+  seedQuarantineApp(app);
+  assert.equal(quarantineLearningRules(app, [`${app}-cand`, `${app}-act`], QUARANTINE_AT), 2);
+  assert.equal(getLearningRule(app, `${app}-cand`)?.quarantinedAt, QUARANTINE_AT);
+  assert.equal(getLearningRule(app, `${app}-act`)?.quarantinedAt, QUARANTINE_AT);
+  assert.equal(getLearningRule(app, `${app}-other`)?.quarantinedAt, null, "a rule not named is left in force");
+  assert.equal(listAllLearningRules(app).length, 3, "nothing is deleted");
+});
+
+test("a quarantined rule is never retrieved, listed as live or folded onto, whatever its status", () => {
+  const app = "hist-quarantine-excluded";
+  seedQuarantineApp(app);
+  quarantineLearningRules(app, [`${app}-cand`, `${app}-act`], QUARANTINE_AT);
+  assert.deepEqual(listLearningRulesForGovernance(app).map((r) => r.id), [`${app}-other`]);
+  assert.deepEqual(listLearningRules(app, 50).map((r) => r.id), [`${app}-other`]);
+  recordRuleOutcome(`${app}-cand`, 1);
+  recordRuleOutcome(`${app}-act`, 1);
+  assert.equal(getLearningRule(app, `${app}-cand`)?.outcomeCount, 0, "a run that retrieved the rule before the quarantine credits it nothing");
+  assert.equal(getLearningRule(app, `${app}-act`)?.outcomeCount, 0);
+});
+
+test("quarantining again marks nothing and keeps the first mark: the command is idempotent", () => {
+  const app = "hist-quarantine-idempotent";
+  seedQuarantineApp(app);
+  assert.equal(quarantineLearningRules(app, [`${app}-cand`], QUARANTINE_AT), 1);
+  assert.equal(quarantineLearningRules(app, [`${app}-cand`], "2026-12-01T00:00:00.000Z"), 0);
+  assert.equal(getLearningRule(app, `${app}-cand`)?.quarantinedAt, QUARANTINE_AT);
+});
+
+test("a quarantine reaches only the app it was given, even for an id that exists in another app", () => {
+  seedQuarantineApp("hist-quarantine-a");
+  seedQuarantineApp("hist-quarantine-b");
+  assert.equal(quarantineLearningRules("hist-quarantine-a", ["hist-quarantine-b-cand"], QUARANTINE_AT), 0);
+  assert.equal(getLearningRule("hist-quarantine-b", "hist-quarantine-b-cand")?.quarantinedAt, null);
+});
+
+test("saving a rule again (a fold's upsert) does not lift its quarantine", () => {
+  const app = "hist-quarantine-upsert";
+  seedQuarantineApp(app);
+  quarantineLearningRules(app, [`${app}-cand`], QUARANTINE_AT);
+  upsertLearningRule({ id: `${app}-cand`, app, trigger: "t1", action: "a", errorClass: "E-STATIC", source: "run-1" });
+  assert.equal(getLearningRule(app, `${app}-cand`)?.quarantinedAt, QUARANTINE_AT);
+});
+
+test("releasing a quarantined rule puts it back in force, and an unknown or unquarantined rule is reported as such", () => {
+  const app = "hist-quarantine-release";
+  seedQuarantineApp(app);
+  quarantineLearningRules(app, [`${app}-cand`], QUARANTINE_AT);
+  assert.equal(releaseLearningRuleQuarantine(`${app}-cand`), true);
+  assert.equal(getLearningRule(app, `${app}-cand`)?.quarantinedAt, null);
+  assert.ok(listLearningRulesForGovernance(app).some((r) => r.id === `${app}-cand`));
+  assert.equal(releaseLearningRuleQuarantine(`${app}-cand`), false, "nothing to release the second time");
+  assert.equal(releaseLearningRuleQuarantine("no-such-rule"), false);
 });
 
 test("createRecord persists triggerRepo and getRecord returns it", () => {
@@ -485,6 +582,31 @@ test("getRunOutcome returns the single run's outcome and round-trips the reviewe
   }
 });
 
+test("a crash reclassifies the outcome the engine persisted, keeping the evidence it carried, and writes one where none was", () => {
+  const app = "hist-crashed-class";
+  try {
+    const withEvidence = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+    saveRunOutcome({
+      runId: withEvidence.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict: "infra-error", errorClass: "E-INFRA",
+      gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, mutantCount: 7 },
+      rulesRetrieved: [], at: "2026-10-19T00:00:00.000Z",
+    });
+
+    saveCrashedRunOutcome(getRecord(withEvidence.id)!, "internal-error");
+    const reclassified = getRunOutcome(withEvidence.id)!;
+    assert.equal(reclassified.errorClass, "internal-error");
+    assert.equal(reclassified.verdict, "infra-error");
+    assert.equal(reclassified.gateSignals.mutantCount, 7, "the evidence the engine kept is not replaced with a bare row");
+
+    const bare = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+    saveCrashedRunOutcome(getRecord(bare.id)!, "internal-error");
+    assert.equal(getRunOutcome(bare.id)?.verdict, "infra-error");
+    assert.equal(getRunOutcome(bare.id)?.errorClass, "internal-error");
+  } finally {
+    deleteAppHistory(app);
+  }
+});
+
 test("backupDatabase keeps only the last 7 backups", async () => {
   const tmpRoot = mkdtempSync(join(tmpdir(), "hist-backup-prune-"));
   const prevRoot = process.env.QAYABA_ROOT;
@@ -573,6 +695,7 @@ function makeTurnEvent(overrides: Partial<AgentTurnEvent> = {}): AgentTurnEvent 
     sectionSizes: null,
     stepBudget: null,
     callMetrics: null,
+    durationMs: null,
     ...overrides,
   };
 }
@@ -589,12 +712,23 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
         observationComplete: true,
         callsBeforeFirstWrite: 27,
         writeCount: 2,
+        commandCount: 1,
         redundantReadCount: 6,
         duplicateCallCount: 4,
         promptProvidedReadCount: 3,
         pathProvidedReadCount: 2,
-        buckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 },
+        buckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, script_run: 0, memory: 0, subagent: 0, other: 2 },
+        timeToFirstCallMs: 1_800,
+        timeToFirstWriteMs: 95_000,
+        deniedCallCount: 2,
+        toolSequence: [
+          { tool: "read", target: "src/app/a.ts" },
+          { tool: "grep", target: "createUser", scope: "src" },
+          { tool: "bash", target: "rm -rf /", denied: true },
+        ],
+        usage: { input: 52_000, output: 1_900, reasoning: 400, cacheRead: 1_200_000, cacheWrite: 0, cost: 0.0421, steps: 50 },
       },
+      durationMs: 361_500,
     }),
   );
   const [saved] = getAgentTurns(runId);
@@ -608,7 +742,109 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
   assert.equal(saved!.duplicateCallCount, 4);
   assert.equal(saved!.promptProvidedReadCount, 3);
   assert.equal(saved!.pathProvidedReadCount, 2, "the path-provided count is stored apart from the content-provided one");
-  assert.deepEqual(saved!.callBuckets, { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 });
+  assert.deepEqual(saved!.callBuckets, { code_read: 20, browser: 6, write: 2, validate_run: 1, script_run: 0, memory: 0, subagent: 0, other: 2 });
+  assert.equal(saved!.durationMs, 361_500);
+  assert.equal(saved!.timeToFirstCallMs, 1_800);
+  assert.equal(saved!.timeToFirstWriteMs, 95_000);
+  assert.equal(saved!.deniedCallCount, 2);
+  assert.deepEqual(saved!.usageTotal, { input: 52_000, output: 1_900, reasoning: 400, cacheRead: 1_200_000, cacheWrite: 0, cost: 0.0421, steps: 50 }, "the usage of every step is kept apart from the last message's tokens");
+  assert.deepEqual(saved!.toolSequence, [
+    { tool: "read", target: "src/app/a.ts" },
+    { tool: "grep", target: "createUser", scope: "src" },
+    { tool: "bash", target: "rm -rf /", denied: true },
+  ]);
+});
+
+test("saveAgentTurnEvent keeps the model asked for and the one that answered, the attempt, the error class, the prompt's hashes and the limits", () => {
+  const runId = "run-event-trace-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({
+    runId,
+    sessionId: "s-traced",
+    sectionSizes: { task: 120, "working-rules": 4_000 },
+    modelRequested: "prov/asked",
+    modelAnswered: "answered-model",
+    provider: "prov",
+    attempt: 2,
+    fallbackUsed: true,
+    errorType: "socket_closed",
+    sectionHashes: { task: "a".repeat(64), "working-rules": "b".repeat(64) },
+    promptHash: "c".repeat(64),
+    limitApplied: "tier-budget",
+    limitFired: "step-cap",
+  }));
+  saveAgentTurnEvent(makeTurnEvent({ runId, sessionId: "s-untraced" }));
+  const turns = getAgentTurnTraces(runId);
+  assert.equal(getAgentTurns(runId).length, 2, "the public turn view still lists both rows");
+  const traced = turns.find((t) => t.sessionId === "s-traced")!;
+  assert.deepEqual(
+    [traced.modelRequested, traced.modelAnswered, traced.provider, traced.attempt, traced.fallbackUsed, traced.errorType, traced.limitApplied, traced.limitFired],
+    ["prov/asked", "answered-model", "prov", 2, true, "socket_closed", "tier-budget", "step-cap"],
+  );
+  assert.deepEqual(traced.sectionSizes, { task: 120, "working-rules": 4_000 });
+  assert.deepEqual(traced.sectionHashes, { task: "a".repeat(64), "working-rules": "b".repeat(64) });
+  assert.equal(traced.promptHash, "c".repeat(64));
+  const untraced = turns.find((t) => t.sessionId === "s-untraced")!;
+  assert.deepEqual(
+    [untraced.modelRequested, untraced.modelAnswered, untraced.provider, untraced.attempt, untraced.fallbackUsed, untraced.errorType, untraced.sectionSizes, untraced.sectionHashes, untraced.promptHash, untraced.limitApplied, untraced.limitFired],
+    [null, null, null, null, null, null, null, null, null, null, null],
+    "a turn that carries none of it reads back as unknown, never as an empty value",
+  );
+});
+
+test("a turn that wrote nothing keeps its unknown time to first write and an empty tool sequence apart from a turn that was not measured", () => {
+  const runId = "run-event-sequence-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({
+    runId,
+    sessionId: "s-measured",
+    callMetrics: {
+      totalCalls: 0, stepsUsed: 1, observationComplete: true, callsBeforeFirstWrite: 0, writeCount: 0, commandCount: 0, redundantReadCount: 0,
+      duplicateCallCount: 0, promptProvidedReadCount: 0, pathProvidedReadCount: 0,
+      buckets: { code_read: 0, browser: 0, write: 0, validate_run: 0, script_run: 0, memory: 0, subagent: 0, other: 0 },
+      timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: 0, toolSequence: [], usage: null,
+    },
+  }));
+  saveAgentTurnEvent(makeTurnEvent({ runId, sessionId: "s-unmeasured", callMetrics: null }));
+  const turns = getAgentTurns(runId);
+  const measured = turns.find((t) => t.sessionId === "s-measured")!;
+  assert.equal(measured.deniedCallCount, 0);
+  assert.deepEqual(measured.toolSequence, []);
+  assert.equal(measured.usageTotal, null, "a measured turn with no finished step has no usage, not a zero one");
+  assert.equal(measured.timeToFirstWriteMs, null);
+  const unmeasured = turns.find((t) => t.sessionId === "s-unmeasured")!;
+  assert.equal(unmeasured.deniedCallCount, null, "no measurement is not zero denials");
+  assert.equal(unmeasured.toolSequence, null);
+  assert.equal(unmeasured.usageTotal, null);
+  assert.equal(unmeasured.durationMs, null);
+});
+
+test("saveAgentTurnEvent keeps how a turn ended, and a turn that never answered reads back with its partial calls and empty output", () => {
+  const runId = "run-event-ended-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId, round: 0, ended: "completed" }));
+  saveAgentTurnEvent(makeTurnEvent({
+    runId,
+    round: 1,
+    outputText: "",
+    ended: "timeout",
+    stepBudget: { maxSteps: 50, exhausted: false },
+    callMetrics: {
+      totalCalls: 31, stepsUsed: 12, observationComplete: true, callsBeforeFirstWrite: 31, writeCount: 0, commandCount: 0, redundantReadCount: 0,
+      duplicateCallCount: 0, promptProvidedReadCount: 0, pathProvidedReadCount: 0,
+      buckets: { code_read: 20, browser: 6, write: 0, validate_run: 1, script_run: 4, memory: 0, subagent: 0, other: 0 },
+      timeToFirstCallMs: 70_000, timeToFirstWriteMs: null, deniedCallCount: 0, toolSequence: [], usage: null,
+    },
+  }));
+  const [answered, timedOut] = getAgentTurns(runId);
+  assert.equal(answered!.ended, "completed");
+  assert.equal(timedOut!.ended, "timeout");
+  assert.equal(timedOut!.outputText, "");
+  assert.equal(timedOut!.totalCalls, 31);
+  assert.equal(timedOut!.callBuckets?.script_run, 4);
+});
+
+test("saveAgentTurnEvent leaves the end null, never a guess, when the transport does not say how the turn ended", () => {
+  const runId = "run-event-ended-null-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId }));
+  assert.equal(getAgentTurns(runId)[0]!.ended, null);
 });
 
 test("saveAgentTurnEvent stores nulls, never zero or false, when a runtime reports no step budget or call metrics", () => {
@@ -800,4 +1036,112 @@ test("opening a pre-existing agent_turns table twice adds each efficiency column
     assert.equal(columns.filter((c) => c === name).length, 1, `${name} is present exactly once`);
     assert.equal(row[name], null, `${name} reads NULL on a row written before the column existed`);
   }
+});
+
+test("the phases a run reached are stored on its record and read back, null for a run that recorded none", () => {
+  const withPhases = createRecord({ target: "e2e", app: "hist-phases-a", sha: "abcdef1234", mode: "diff" });
+  const without = createRecord({ target: "e2e", app: "hist-phases-a", sha: "abcdef1235", mode: "diff" });
+  recordRunPhases(withPhases.id, { furthestPhase: "execute", phaseTimings: { gate: 3, execute: 900 } });
+
+  assert.deepEqual(getRunPhases(withPhases.id), { furthestPhase: "execute", phaseTimings: { gate: 3, execute: 900 } });
+  assert.deepEqual(getRunPhases(without.id), { furthestPhase: null, phaseTimings: null });
+});
+
+test("opening a runs table that predates the phase columns adds them, and a run on it records its phases", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "history-legacy-runs-phases-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const legacyPath = join(dir, "legacy.db");
+  const legacy = new Database(legacyPath);
+  legacy.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '')");
+  legacy.close();
+  const previousPath = process.env.HISTORY_DB_PATH;
+  process.env.HISTORY_DB_PATH = legacyPath;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
+    else process.env.HISTORY_DB_PATH = previousPath;
+  });
+
+  const store = (await import(new URL("./history.ts?open=phases", import.meta.url).href)) as typeof import("./history");
+  const run = store.createRecord({ target: "e2e", app: "old", sha: "abcdef1", mode: "diff" });
+  store.recordRunPhases(run.id, { furthestPhase: "setup", phaseTimings: { setup: 4 } });
+
+  assert.deepEqual(store.getRunPhases(run.id), { furthestPhase: "setup", phaseTimings: { setup: 4 } });
+});
+
+test("opening a runs table that predates the run facts adds their columns, and a run on it stores its trace id and decision", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "history-legacy-runs-facts-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const legacyPath = join(dir, "legacy.db");
+  const legacy = new Database(legacyPath);
+  legacy.exec("CREATE TABLE runs (id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff', status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT, retrying INTEGER DEFAULT 0, parent_run_id TEXT, trigger_repo TEXT, at TEXT NOT NULL, step_started_at TEXT, logs TEXT DEFAULT '', furthest_phase TEXT, phase_timings TEXT)");
+  legacy.close();
+  const previousPath = process.env.HISTORY_DB_PATH;
+  process.env.HISTORY_DB_PATH = legacyPath;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
+    else process.env.HISTORY_DB_PATH = previousPath;
+  });
+
+  const store = (await import(new URL("./history.ts?open=facts", import.meta.url).href)) as typeof import("./history");
+  const run = store.createRecord({ target: "e2e", app: "old", sha: "abcdef1", mode: "diff" });
+  assert.equal(store.getRunFacts(run.id)?.traceId, null);
+  assert.equal(store.getRunFacts(run.id)?.reviewRequired, null);
+  store.updateRecord(run.id, { status: "done", facts: { traceId: "c".repeat(32), decision: "pr", reviewRequired: true, coverageStatus: "pass", coverageMode: "enforce", coverageMinRatio: 0.8 } });
+  const facts = store.getRunFacts(run.id)!;
+  assert.deepEqual([facts.traceId, facts.decision, facts.reviewRequired, facts.coverageStatus, facts.coverageMode, facts.coverageMinRatio], ["c".repeat(32), "pr", true, "pass", "enforce", 0.8]);
+  store.updateRecord(run.id, { facts: { cancelled: true } });
+  assert.equal(store.getRunFacts(run.id)?.cancelled, true, "a partial facts patch leaves the other facts alone");
+  assert.equal(store.getRunFacts(run.id)?.decision, "pr");
+  assert.equal(store.getRunEvaluationStatus(run.id), null);
+});
+
+function finishedRun(app: string, verdict: RunOutcome["verdict"], furthestPhase: string | null, errorClass: string | null, at?: string): string {
+  const r = createRecord({ target: "e2e", app, sha: "abcdef1234", mode: "diff" });
+  updateRecord(r.id, { status: "done", verdict });
+  if (furthestPhase) recordRunPhases(r.id, { furthestPhase, phaseTimings: {} });
+  if (errorClass !== null) {
+    saveRunOutcome({
+      runId: r.id, app, sha: "abcdef1234", mode: "diff", target: "e2e", verdict, errorClass: errorClass as RunOutcome["errorClass"],
+      gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [], at: at ?? new Date().toISOString(),
+    });
+  }
+  return r.id;
+}
+
+test("the funnel counts finished runs by furthest phase, verdict and error class, earliest phase first", () => {
+  const app = "hist-funnel-a";
+  finishedRun(app, "pass", "learn", null);
+  finishedRun(app, "pass", "learn", null);
+  finishedRun(app, "infra-error", "setup", "E-INFRA");
+  finishedRun(app, "infra-error", "setup", "E-INFRA");
+  finishedRun(app, "infra-error", "generate", "E-STEP-BUDGET");
+
+  assert.deepEqual(getRunFunnel({ app }), [
+    { furthestPhase: "setup", verdict: "infra-error", errorClass: "E-INFRA", count: 2 },
+    { furthestPhase: "generate", verdict: "infra-error", errorClass: "E-STEP-BUDGET", count: 1 },
+    { furthestPhase: "learn", verdict: "pass", errorClass: null, count: 2 },
+  ]);
+});
+
+test("the funnel groups a run that recorded no phase apart, and leaves out runs that have not finished and other apps", () => {
+  const app = "hist-funnel-b";
+  finishedRun(app, "infra-error", null, null);
+  finishedRun("hist-funnel-other", "pass", "learn", null);
+  createRecord({ target: "e2e", app, sha: "abcdef1299", mode: "diff" });
+
+  assert.deepEqual(getRunFunnel({ app }), [{ furthestPhase: null, verdict: "infra-error", errorClass: null, count: 1 }]);
+});
+
+test("the funnel narrowed by a date leaves out the runs before it, whatever the date's spelling", () => {
+  const app = "hist-funnel-c";
+  const id = finishedRun(app, "pass", "learn", null);
+  const raw = new Database(process.env.HISTORY_DB_PATH!);
+  raw.prepare("UPDATE runs SET at = ? WHERE id = ?").run("2026-10-01T12:00:00.000Z", id);
+  raw.close();
+
+  assert.equal(getRunFunnel({ app, since: "2026-10-01T12:00:01.000Z" }).length, 0);
+  assert.equal(getRunFunnel({ app, since: "2026-10-01T11:59:59.000Z" }).length, 1);
+  assert.equal(getRunFunnel({ app, since: "2026-10-01 12:00:01" }).length, 0, "a date without the T compares as a date, not as text");
+  assert.equal(getRunFunnel({ app, since: "2026-10-01 11:00" }).length, 1);
 });

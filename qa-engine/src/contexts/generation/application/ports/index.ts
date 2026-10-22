@@ -2,8 +2,10 @@
 
 import type { Objective } from "@kernel/objective.ts";
 import type { QaCase, SpecMeta } from "@kernel/qa-case.ts";
-import type { OpencodeRunInput, ReviewInput, ParallelWorkerInput, ExplorationBrief } from "./generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput, ExplorationBrief } from "./generation-ports.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
+import type { RenderedPromptFacts } from "../../domain/prompt-facts.ts";
+import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 export type { ManifestEntry };
 export interface ManifestRepositoryPort {
@@ -13,7 +15,7 @@ export interface ManifestRepositoryPort {
 }
 
 /** Free-form LLM text → structured deliverable. Fail-closed on an unparseable verdict. parsed is FALSE only on a parse miss, not a deliberate no-op. specMetas drives the disk-reconciled manifest upsert (disk over the agent's word). noopReason is the generator's stated reason for writing nothing (never inferred from `approved`); outputTail is the end of the agent's output. Both are already redacted and bounded to the note limit. */
-export interface GeneratorDeliverable { specs: string[]; note?: string; parsed?: boolean; specMetas?: SpecMeta[]; noopReason?: string; outputTail?: string; }
+export interface GeneratorDeliverable { specs: string[]; note?: string; parsed?: boolean; specMetas?: SpecMeta[]; noopReason?: string; noopKind?: NoopKind; outputTail?: string; plan?: Record<string, unknown>; testCorrect?: { cause: "env" | "app"; reason: string }; rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[]; }
 export interface ReviewJudgment {
   approved: boolean;
   corrections: string[];
@@ -22,6 +24,10 @@ export interface ReviewJudgment {
   parsed?: boolean;
   valid: boolean;
   issues: string[];
+  /* The reviewer's own severity per correction, in order, when it stated one. */
+  severities?: ("blocking" | "advisory")[];
+  /* The evidence each correction cites, in order; a hole means that entry cited none. */
+  citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
 }
 export interface VerdictParserPort {
   /* With the run's specDir, a bare spec file name the agent reported resolves to the one suite spec of that name (suite-relative); without it, names are kept as reported. */
@@ -32,9 +38,8 @@ export interface VerdictParserPort {
 export interface PromptSection { heading: string; body: string; }
 export interface PromptRenderingPort {
   render(sections: readonly PromptSection[]): string;
-  renderMain(input: OpencodeRunInput): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] };
-  renderWorker(w: ParallelWorkerInput): { text: string; sectionSizes: Record<string, number> };
-  renderReviewer(input: ReviewInput): { text: string; sectionSizes: Record<string, number> };
+  renderMain(input: OpencodeRunInput): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } & RenderedPromptFacts;
+  renderReviewer(input: ReviewInput): { text: string; sectionSizes: Record<string, number> } & RenderedPromptFacts;
   renderExplorer(input: OpencodeRunInput): string;
   specFileForFlow(flow: string): string;
 }

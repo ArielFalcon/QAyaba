@@ -1,0 +1,7 @@
+{
+  "case": "free text: which change this ground truth belongs to",
+  "affectedFiles": ["path/in/the/app/under/test/affected.ts"],
+  "affectedRoutes": ["/route/the/change/affects"],
+  "notAffectedFiles": ["path/in/the/app/that/only/reads/the/data.ts"],
+  "notAffectedRoutes": []
+}

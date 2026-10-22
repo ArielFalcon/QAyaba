@@ -133,6 +133,13 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts",
   /*
+   * Decides which files of the agent-written suite outlive a run, and writes them back into the watched repo's working copy
+   * through the confined writers: admitting a credential, a login session, or a login that never signed in (or following a link
+   * on restore) would persist an attacker-influenced file into every later run. The login it keeps is the one that executes
+   * with the test account's credentials.
+   */
+  "qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts",
+  /*
    * The spawn primitives for the untrusted-code-execution sandbox (sandbox.ts, already protected,
    * delegates the actual spawn to these) — they receive an already-scrubbed env and run untrusted
    * agent-authored binaries; weakening the spawn/kill contract here is the same class of risk as
@@ -195,6 +202,8 @@ export const PROTECTED_PATHS: string[] = [
    * agent-authored code).
    */
   "src/agent-runtime/codex-strategy.ts",
+  /* The twin of codexExecEnv inside the agents container (the allowlist for `codex exec`, the trace context it forwards, the config.toml it writes): the two allowlists are pinned equal, so loosening one is loosening both. */
+  "agents/agent-supervisor.mjs",
   /*
    * reviewerPrimaryCollisionErrors is the SOLE guard that reviewer/primary use different models in
    * dual mode — deleting or weakening it silently collapses independent-judgment review into a
@@ -239,6 +248,33 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/test-execution/infrastructure/code-execution.runner.ts",
   "qa-engine/src/contexts/test-execution/infrastructure/code-setup.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts",
+  /* The execution sandbox: the one launcher every child that runs agent-influenced code starts through (sandbox uid, per-profile environment allowlist, per-run work dir, egress lease), its environment builder, the work-dir and scope modules, the runner that puts it behind the collecting runner, and the composition that wires it. An autonomous fix that widened a profile's environment, dropped the uid or reopened the network would silently undo the isolation without touching any caller. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-env.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-workdir.ts",
+  "qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner.ts",
+  /* The reaper that kills, by uid, whatever a sandboxed child left running (a daemon would share the uid with the next child and read its environment), and fails closed when something survives. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/sandbox-reaper.ts",
+  /* Which mirror the sandbox group may traverse, and when it is closed again. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/mirror-access.ts",
+  "src/server/exec-sandbox-factory.ts",
+  /* The egress filter: the policy compiler, the transparent proxy that decides on the name a connection asks for, the DNS filter, the iptables rules and their applier, the controller that holds the leases, and the wiring that reads the declared origins; plus the registries file, which is the list of package registries every install may reach. Widening any of them hands agent code a network. */
+  "qa-engine/src/shared-infrastructure/egress/",
+  "src/server/egress-wiring.ts",
+  "src/server/dns-forward.ts",
+  "src/server/sandbox-health.ts",
+  /* The file boundary's boot check: what the sandbox uid must see refused, the probing child that tries it as that uid, the judgment and the status the launcher refuses agent code on; plus where the API token lives, out of the host's config folder. An autonomous fix that dropped a probe or trusted a missing status would let agent code read the token or rewrite the orchestrator on a host whose filesystem does not enforce permissions. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/file-boundary.ts",
+  "src/server/file-boundary.ts",
+  "src/server/file-boundary-check.ts",
+  "src/server/file-boundary-probe.mjs",
+  "src/server/api-token.ts",
+  "config/egress/",
+  /* The container's entrypoint and the egress self-test: the file permissions that keep the sandbox uid out of the API token, the auth material and the provider keys, and the kernel filter that holds its network to the declared origins. */
+  "bin/container-entrypoint.sh",
+  "bin/egress-init.sh",
   /* The single definition of the git hardening (hooks, ownership, config-driven execution, git-dir trust) that repo-mirror.ts re-exports and every qa-engine git call uses. */
   "qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts",
   /* The hardening flags themselves (hooks, fsmonitor, bare repositories): the arch gate lets only the two hardening modules import them, so no engine module can run git with the flags but without the working-copy check. */
@@ -257,6 +293,45 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-kernel/process-sandbox/bounded-whole-output.ts",
 
   "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts",
+  /* What a suite's fixtures write into the mirror's dump folders is carried over only through this bridge (the sandbox uid cannot write the mirror), and only after the checks of the two sanitizers it uses. */
+  "qa-engine/src/contexts/test-execution/infrastructure/run-dump-bridge.ts",
+  /* The authenticated agent browser: the route guard that decides every request its browser makes, the detector of a lost session, the capability and the call's use case, the host, launcher and DevTools bridge of the browser (which import no file API and hold the session in memory only), the sweep that ends a browser a restart left, the kernel types of its limits, the endpoint that serves its calls, and the tools and client the agents call it through. An autonomous fix that loosened any of them could let an agent write to DEV, reach a host the run does not declare or drive the browser around the guard, without touching a caller. */
+  "qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts",
+  "qa-engine/src/contexts/test-execution/domain/agent-browser-session-invalidation.ts",
+  "qa-engine/src/contexts/test-execution/domain/agent-browser-capability.ts",
+  "qa-engine/src/contexts/test-execution/application/agent-browser.use-case.ts",
+  "qa-engine/src/contexts/test-execution/application/ports/agent-browser.ports.ts",
+  "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/",
+  "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
+  "qa-engine/src/shared-kernel/agent-browser.ts",
+  /* Which session holds the browser (the registry), the adapter that serves the calls and the one place a session is renewed: the bridges/ prefix covers the last two, and they are listed so that narrowing it cannot unprotect them, like the closed-loop twins below. */
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-session-material.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/trusted-session-renewal.ts",
+  /* The one place a prompt's tools are decided for the runtime: the denial of writes for a read-only turn, the tools a session's run denied it, and which sessions are granted the browser. A fix that loosened it would hand a planning turn or a sidekick tools its run withheld. */
+  "src/integrations/opencode-client.ts",
+  "src/server/tools-endpoint.ts",
+  "agents/tool/authbrowser.ts",
+  "agents/lib/authbrowser-client.mjs",
+  /* What an authoring agent may do against DEV and in the working copy while it writes: the lease that decides who acts on DEV and whether an action may write, the capability and the use case of run_spec (its calls, time, writes and the one spec a flow may run), the registry and the adapter that decide which session holds which loop, the tool and the client the agents call it through, and the workspace a sidekick works in with the one rule by which its files come back. An autonomous fix that loosened any of them could let a sidekick act on DEV at the same time as another action, run a spec that is not its own, or put into the suite a file its brief never named. */
+  "qa-engine/src/contexts/test-execution/domain/dev-lease.ts",
+  "qa-engine/src/contexts/test-execution/domain/account-lock.ts",
+  "qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts",
+  "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
+  "agents/tool/run_spec.ts",
+  /* What decides which flows a plan admits, where each may write, what each sidekick may author with and when the lead takes a change back: the plan's admission, the coordinator and the choice of tools. */
+  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-plan.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts",
+  "agents/lib/run-spec-client.mjs",
+  /* The spans a served call runs under and how its outcome is told: bridges/ covers them, and they are listed so that narrowing that prefix cannot unprotect them. */
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-trace.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-outcome.ts",
   /* 4. build/topology the canary cannot verify (image rebuild only) */
   ".github/",
   "Dockerfile",
@@ -265,6 +340,7 @@ export const PROTECTED_PATHS: string[] = [
   ".dockerignore",
   "docker-compose.yml",
   "docker-compose.override.yml",
+  "docker-compose.telemetry.yml",
   "package.json",
   "package-lock.json",
 ];
@@ -304,6 +380,7 @@ export function isProtectedPath(file: string): boolean {
 export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/contexts/workspace-and-publication/",
   "qa-engine/src/shared-infrastructure/process-sandbox/",
+  "qa-engine/src/shared-infrastructure/egress/",
   "qa-engine/src/contexts/generation/infrastructure/",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/",

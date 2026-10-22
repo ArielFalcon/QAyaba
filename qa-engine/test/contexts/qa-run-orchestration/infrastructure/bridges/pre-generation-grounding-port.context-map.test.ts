@@ -68,13 +68,85 @@ const NO_NAMED_PIPES = (() => {
 /* A file whose mode is 000 cannot be read by an account that the mode binds: not by root, and not on a platform without modes. */
 const NO_MODE_RESTRICTIONS = process.platform === "win32" || process.getuid?.() === 0 ? "the account that runs the tests is not bound by file modes, so the case that relies on them is not exercised" : false;
 
+const MAPPED_CONTEXT = { ...VALID_CONTEXT, routes: [{ path: "/owners", implementationFiles: ["src/pages/owners/OwnersPage.tsx"] }] };
+
 test("a valid context map is returned, and nothing is said", async () => {
   await withSuite((e2e) => {
-    writeContext(e2e, JSON.stringify(VALID_CONTEXT));
+    writeContext(e2e, JSON.stringify(MAPPED_CONTEXT));
 
     const { map, warnings } = load(e2e);
 
-    assert.deepEqual(map, VALID_CONTEXT);
+    assert.deepEqual(map, MAPPED_CONTEXT);
+    assert.deepEqual(warnings, []);
+  });
+});
+
+test("the files that implement a route survive the read, so route ranking can tie a changed page file to its route", async () => {
+  await withSuite((e2e) => {
+    const files = ["src/pages/owners/OwnersPage.tsx", "src/pages/owners/owners.css"];
+    writeContext(e2e, JSON.stringify({ ...VALID_CONTEXT, routes: [{ path: "/owners", implementationFiles: files }] }));
+
+    const { map } = load(e2e);
+
+    assert.deepEqual(map?.routes[0]?.implementationFiles, files);
+  });
+});
+
+test("entries of implementationFiles that are not relative paths are dropped, never the route or the map", async () => {
+  await withSuite((e2e) => {
+    const malformed = [42, null, "", "   ", "/etc/passwd", "C:\\Users\\x\\Page.tsx", "\\\\host\\share\\Page.tsx", "../outside/Page.tsx", "src/../../outside/Page.tsx", { file: "src/Page.tsx" }];
+    writeContext(e2e, JSON.stringify({ ...VALID_CONTEXT, routes: [{ path: "/owners", implementationFiles: ["src/pages/OwnersPage.tsx", ...malformed, "src/pages/owners.css"] }] }));
+
+    const { map } = load(e2e);
+
+    assert.ok(map, "a malformed entry never costs the map");
+    assert.deepEqual(map.routes[0]?.path, "/owners");
+    assert.deepEqual(map.routes[0]?.implementationFiles, ["src/pages/OwnersPage.tsx", "src/pages/owners.css"]);
+  });
+});
+
+test("an implementationFiles that is not a list, or holds nothing usable, leaves the route without it and keeps the map", async () => {
+  await withSuite((e2e) => {
+    writeContext(e2e, JSON.stringify({ ...VALID_CONTEXT, routes: [{ path: "/owners", implementationFiles: "src/pages/OwnersPage.tsx" }, { path: "/vets", implementationFiles: ["/abs/Vets.tsx", 7] }] }));
+
+    const { map } = load(e2e);
+
+    assert.ok(map);
+    assert.deepEqual(map.routes.map((r) => r.path), ["/owners", "/vets"]);
+    assert.deepEqual(map.routes.map((r) => r.implementationFiles), [undefined, undefined]);
+  });
+});
+
+test("a map with routes that name no implementing files is read whole, with one warning that counts those routes and quotes nothing of the file", async () => {
+  await withSuite((e2e) => {
+    writeContext(e2e, JSON.stringify({
+      ...VALID_CONTEXT,
+      routes: [
+        { path: "/owners", implementationFiles: ["src/pages/OwnersPage.tsx"] },
+        { path: "/vets", name: SECRET_MARK },
+        { path: "/pets", implementationFiles: [] },
+        { path: "/visits" },
+      ],
+      feBe: [],
+    }));
+
+    const { map, warnings } = load(e2e);
+
+    assert.equal(map?.routes.length, 4);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /\b3\b/, "the warning carries the number of routes without implementing files");
+    assert.match(warnings[0]!, /\b4\b/, "and the number of routes in the map");
+    assert.ok(warnings[0]!.includes(contextPath(e2e)));
+    assert.ok(!warnings[0]!.includes(SECRET_MARK));
+  });
+});
+
+test("a map whose every route names its implementing files is read without a word", async () => {
+  await withSuite((e2e) => {
+    writeContext(e2e, JSON.stringify({ ...VALID_CONTEXT, routes: [{ path: "/a", implementationFiles: ["src/A.tsx"] }, { path: "/b", implementationFiles: ["src/B.tsx"] }], feBe: [] }));
+
+    const { warnings } = load(e2e);
+
     assert.deepEqual(warnings, []);
   });
 });

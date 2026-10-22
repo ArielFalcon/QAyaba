@@ -18,7 +18,9 @@ import {
   QueueStatusSchema,
   RepoListResponseSchema,
   RunRecordSchema,
+  TelemetryHealthSchema,
 } from "../contract/commands";
+import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
 import { RunEventSchema, RunEvent } from "../contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
 import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
@@ -299,19 +301,42 @@ test("GET /api/apps/:name/context-map returns 200 with the stored map and passes
   assert.equal(body.map.routes[0].path, "/owners");
 });
 
+test("GET /api/apps/:name/context-map keeps the files that implement each route", async () => {
+  const view = {
+    app: "demo",
+    map: {
+      builtAtSha: "abc1234",
+      routes: [{ path: "/owners", implementationFiles: ["src/pages/owners/OwnersPage.tsx"] }],
+      api: [{ operationId: "getOwners", method: "GET", path: "/api/owners" }],
+      feBe: [{ route: "/owners", operationId: "getOwners" }],
+    },
+    builtAtSha: "abc1234",
+    updatedAt: "2026-09-20T10:15:00Z",
+  };
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => view }));
+  assert.equal(r.status, 200);
+  assert.deepEqual(JSON.parse(r.body).map.routes[0].implementationFiles, ["src/pages/owners/OwnersPage.tsx"]);
+});
+
 const measuredTurn: AgentTurnRecord = {
   runId: "p1", sessionId: "sess-1", role: "qa-generator", round: 0, isRepair: false,
   ts: "2026-09-28T10:00:00.000Z", objective: null, promptText: "the prompt", outputText: "the output", promptBytes: 10,
   tokensInput: 100, tokensOutput: 50, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.01,
   totalCalls: 31, stepsUsed: 50, maxSteps: 50, callsBeforeFirstWrite: 27, writeCount: 2, redundantReadCount: 6,
   duplicateCallCount: 4, promptProvidedReadCount: 3, pathProvidedReadCount: 2, exhausted: true,
-  callBuckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 },
+  callBuckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, script_run: 3, memory: 0, subagent: 0, other: 2 },
+  ended: "timeout",
+  durationMs: 360_000, timeToFirstCallMs: 70_000, timeToFirstWriteMs: 150_000, deniedCallCount: 2,
+  toolSequence: [{ tool: "read", target: "src/a.ts" }, { tool: "bash", target: "rm -rf /", denied: true }],
+  usageTotal: { input: 100, output: 20, reasoning: 0, cacheRead: 5_000, cacheWrite: 0, cost: 0.05, steps: 31 },
 };
 
 test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, null where unmeasured", async () => {
   const unmeasured: AgentTurnRecord = {
     ...measuredTurn, sessionId: "sess-2", totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null,
-    writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null,
+    writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
+    durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null, usageTotal: null,
   };
   const r = mkRes();
   await handleApi(
@@ -324,6 +349,18 @@ test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, n
   assert.equal(first.totalCalls, 31);
   assert.equal(first.exhausted, true);
   assert.equal(first.callBuckets.code_read, 20);
+  assert.equal(first.callBuckets.script_run, 3);
+  assert.equal(first.ended, "timeout", "how the turn ended is served with it");
+  assert.equal(second.ended, null);
+  assert.equal(first.durationMs, 360_000);
+  assert.equal(first.timeToFirstWriteMs, 150_000);
+  assert.equal(first.deniedCallCount, 2);
+  assert.deepEqual(first.toolSequence[1], { tool: "bash", target: "rm -rf /", denied: true });
+  assert.equal(second.durationMs, null);
+  assert.equal(second.deniedCallCount, null, "an unmeasured turn has no denial count, not zero");
+  assert.equal(second.toolSequence, null);
+  assert.equal(first.usageTotal.steps, 31);
+  assert.equal(second.usageTotal, null);
   assert.equal(first.promptText, "the prompt", "existing fields are unchanged");
   assert.equal(second.totalCalls, null);
   assert.equal(second.exhausted, null);
@@ -372,7 +409,12 @@ test("GET /trends?format=csv returns a flat CSV", async () => {
 test("GET /api/runs/:id sanitizes logs/cases/note before egress", async () => {
   const leaky: RunRecord = {
     id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", verdict: "fail",
-    cases: [{ name: "x", status: "fail", detail: "boom token: ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }],
+    cases: [{
+      name: "x",
+      status: "fail",
+      detail: "boom token: ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      networkErrors: [{ url: "https://dev.example/ghp_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", status: 504 }],
+    }],
     logs: ["running... token: ghp_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB end"],
     note: "failed; secret ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     at: "t",
@@ -380,7 +422,7 @@ test("GET /api/runs/:id sanitizes logs/cases/note before egress", async () => {
   const res = mkRes();
   await handleApi(mkReq("GET", "/api/runs/r1"), res, deps({ getRecord: () => leaky }));
   assert.equal(res.status, 200);
-  assert.doesNotMatch(res.body, /ghp_AAAA|ghp_BBBB|ghp_CCCC/, "logs/cases/note must be redacted on egress");
+  assert.doesNotMatch(res.body, /ghp_AAAA|ghp_BBBB|ghp_CCCC|ghp_DDDD/, "logs/cases/note/network errors must be redacted on egress");
 });
 
 test("GET /api/runs/:id: a null/absent case detail does not 500 the contract (egress omits it)", async () => {
@@ -618,6 +660,83 @@ test("GET /api/health → 200", async () => {
   const res = mkRes();
   await handleApi(mkReq("GET", "/api/health"), res, deps());
   assert.equal(res.status, 200);
+});
+
+const telemetryHealth: TelemetryHealth = {
+  mode: "local",
+  campaignFreeze: false,
+  otlp: { configured: true, lastExportAt: "2026-10-17T10:00:00.000Z", dropped: 3 },
+  ledger: { ok: true, spans: 120, writeErrors: 0 },
+  scoreSink: { configured: false },
+  droppedAttributes: 2,
+};
+
+test("GET /api/v1/telemetry/health returns the health with schemaVersion 1, validated by the contract schema", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth }));
+  assert.equal(res.status, 200);
+  const body = TelemetryHealthSchema.parse(JSON.parse(res.body));
+  assert.equal(body.schemaVersion, 1);
+  assert.deepEqual({ ...body, schemaVersion: undefined }, { ...telemetryHealth, schemaVersion: undefined });
+});
+
+test("GET /api/v1/telemetry/health serves the score sink's faults and last export, and the otlp block advertises no faults", async () => {
+  const sink = { configured: true, faults: 4, lastExportAt: "2026-10-17T10:05:00.000Z", lastError: "score configs are not ensured" };
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => ({ ...telemetryHealth, scoreSink: sink }) }));
+  const raw = JSON.parse(res.body) as { scoreSink: Record<string, unknown>; otlp: Record<string, unknown> };
+  assert.deepEqual(raw.scoreSink, sink);
+  assert.equal("faults" in raw.otlp, false);
+});
+
+test("GET /api/v1/telemetry/health carries the host block when host health is wired, and omits it otherwise", async () => {
+  const host = { suspends: 2, lastSuspendAt: "2026-10-17T09:00:00.000Z", lastSuspendMs: 1_920_000, blockedLoops: 1, eventLoopP99Ms: 42.5, zombies: 0 };
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => host }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(TelemetryHealthSchema.parse(JSON.parse(res.body)).host, host);
+  const bare = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), bare, deps({ telemetryHealth: () => telemetryHealth }));
+  assert.equal(JSON.parse(bare.body).host, undefined);
+  const minimal = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), minimal, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => ({ suspends: 0, blockedLoops: 0 }) }));
+  assert.deepEqual(JSON.parse(minimal.body).host, { suspends: 0, blockedLoops: 0 });
+});
+
+test("a host health that throws does not take the telemetry health down", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, hostHealth: () => { throw new Error("boom"); } }));
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).host, undefined);
+});
+
+test("GET /api/telemetry/health answers on the unversioned path too", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth }));
+  assert.equal(res.status, 200);
+});
+
+test("GET /api/v1/telemetry/health is 501 with schemaVersion when telemetry is not wired", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps());
+  assert.equal(res.status, 501);
+  assert.equal(JSON.parse(res.body).schemaVersion, 1);
+});
+
+test("GET /api/health carries a telemetry summary without secrets, and omits it when not wired", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/health"), res, deps({ telemetryHealth: () => ({ ...telemetryHealth, otlp: { configured: true, lastError: "ECONNREFUSED http://internal:4318", dropped: 3 } }) }));
+  const body = JSON.parse(res.body);
+  assert.deepEqual(body.telemetry, { mode: "local", ledgerOk: true, otlpConfigured: true });
+  assert.ok(!res.body.includes("internal:4318"));
+  const bare = mkRes();
+  await handleApi(mkReq("GET", "/api/health"), bare, deps());
+  assert.equal(JSON.parse(bare.body).telemetry, undefined);
+});
+
+test("the telemetry health route is not a public control-plane route", async () => {
+  const { isPublicControlPlaneRoute } = await import("./auth");
+  assert.equal(isPublicControlPlaneRoute("GET", "/api/telemetry/health"), false);
 });
 
 const publicAgentConfig = {
@@ -1261,7 +1380,8 @@ test("phase-0b: GET /api/runs/:id/turns returns 404 when the run is not found", 
 /* The efficiency fields a stored turn carries when nothing measured them (what getAgentTurns returns for an unmeasured turn). */
 const UNMEASURED_TURN_FIELDS = {
   totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null,
-  redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null,
+  redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
+  durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null, usageTotal: null,
 };
 
 test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a JSON array", async () => {
@@ -1412,4 +1532,127 @@ test("POST /api/apps/:name/boundaries/confirm forwards :name into deps.boundarie
   await handleApi(mkReq("POST", "/api/apps/shop/boundaries/confirm", JSON.stringify({ confirm: true })), res, deps({ boundaries }));
   assert.equal(res.status, 200);
   assert.deepEqual(calls.confirm, ["shop"]);
+});
+
+
+/* ── POST /api/apps/:name/login-bootstrap: enqueue the run that establishes and proves the app's login ── */
+
+const formLoginApp: any = { ...appConfig, baseBranch: "develop", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } };
+const loginDeps = (over: Partial<ApiDeps> = {}): ApiDeps =>
+  deps({ loadApp: (n) => { if (n === "demo") return formLoginApp; if (n === "pub") return appConfig; if (n === "cli") return { ...formLoginApp, code: true }; throw new Error("not found"); }, ...over });
+
+test("POST /api/apps/:name/login-bootstrap enqueues the login run at the base branch head and answers 202 with the run", async () => {
+  const resolved: string[][] = [];
+  const bootstrapped: string[][] = [];
+  const res = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), res, loginDeps({
+    resolveRef: async (repo, ref) => { resolved.push([repo, ref]); return "a".repeat(40); },
+    bootstrapLogin: (app, sha) => { bootstrapped.push([app, sha]); return "run-login-1"; },
+  }));
+  assert.equal(res.status, 202);
+  assert.deepEqual(JSON.parse(res.body), { id: "run-login-1", app: "demo", sha: "a".repeat(40), status: "enqueued" });
+  assert.deepEqual(resolved, [["org/demo", "develop"]]);
+  assert.deepEqual(bootstrapped, [["demo", "a".repeat(40)]]);
+});
+
+test("login-bootstrap refuses what has no login to bootstrap: an unknown app (404), a public app and a code app (409)", async () => {
+  let enqueued = 0;
+  const over = { bootstrapLogin: () => { enqueued += 1; return "run-login-1"; } };
+  const unknown = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/nope/login-bootstrap"), unknown, loginDeps(over));
+  assert.equal(unknown.status, 404);
+  const pub = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/pub/login-bootstrap"), pub, loginDeps(over));
+  assert.equal(pub.status, 409);
+  assert.match(JSON.parse(pub.body).error, /form login/);
+  const code = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/cli/login-bootstrap"), code, loginDeps(over));
+  assert.equal(code.status, 409);
+  assert.equal(enqueued, 0);
+});
+
+test("login-bootstrap answers 501 when the capability is not wired, 503 while shutting down, 400 for a ref that does not resolve and 500 for an enqueue that throws", async () => {
+  const none = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), none, loginDeps());
+  assert.equal(none.status, 501);
+
+  const draining = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), draining, loginDeps({ bootstrapLogin: () => "" }));
+  assert.equal(draining.status, 503);
+
+  const badRef = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), badRef, loginDeps({ bootstrapLogin: () => "x", resolveRef: async () => { throw new Error("ls-remote failed"); } }));
+  assert.equal(badRef.status, 400);
+
+  const boom = mkRes();
+  await handleApi(mkReq("POST", "/api/apps/demo/login-bootstrap"), boom, loginDeps({ bootstrapLogin: () => { throw new Error("queue exploded"); } }));
+  assert.equal(boom.status, 500);
+});
+
+test("login-bootstrap is a POST only: a GET on the path is not the route", async () => {
+  const res = mkRes();
+  const handled = await handleApi(mkReq("GET", "/api/apps/demo/login-bootstrap"), res, loginDeps({ bootstrapLogin: () => "run-login-1" }));
+  assert.equal(handled === true && res.status === 202, false);
+});
+
+test("POST /api/v1/runs forwards a run's own choice about the run_spec loop, and a plain run carries none", async () => {
+  const seen: Array<boolean | undefined> = [];
+  const enqueue: ApiDeps["enqueue"] = (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, _baseSha, closedLoop) => { seen.push(closedLoop); return "run-loop"; };
+  for (const body of [{ closedLoop: true }, { closedLoop: false }, {}]) {
+    const res = mkRes();
+    await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));
+    assert.equal(res.status, 202);
+  }
+  assert.deepEqual(seen, [true, false, undefined]);
+});
+
+test("POST /api/v1/runs rejects a closedLoop that is not a boolean (nothing is enqueued)", async () => {
+  let enqueued = false;
+  const res = mkRes();
+  await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", closedLoop: "yes" })), res, deps({ enqueue: () => { enqueued = true; return "x"; } }));
+  assert.equal(res.status, 400);
+  assert.match(res.body, /closedLoop/);
+  assert.equal(enqueued, false);
+});
+
+test("POST /api/v1/runs forwards a run's own choice about the agent browser, and a plain run carries none", async () => {
+  const seen: Array<boolean | undefined> = [];
+  const enqueue: ApiDeps["enqueue"] = (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, _baseSha, _closedLoop, agentBrowser) => { seen.push(agentBrowser); return "run-browser"; };
+  for (const body of [{ agentBrowser: true }, { agentBrowser: false }, {}]) {
+    const res = mkRes();
+    await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));
+    assert.equal(res.status, 202);
+  }
+  assert.deepEqual(seen, [true, false, undefined]);
+});
+
+test("POST /api/v1/runs rejects an agentBrowser that is not a boolean (nothing is enqueued)", async () => {
+  let enqueued = false;
+  const res = mkRes();
+  await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", agentBrowser: "yes" })), res, deps({ enqueue: () => { enqueued = true; return "x"; } }));
+  assert.equal(res.status, 400);
+  assert.match(res.body, /agentBrowser/);
+  assert.equal(enqueued, false);
+});
+
+test("POST /api/v1/runs forwards a run's own choice of coordination mode, and a plain run carries none", async () => {
+  const seen: Array<string | undefined> = [];
+  const enqueue: ApiDeps["enqueue"] = (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, _baseSha, _closedLoop, _agentBrowser, coordinationMode) => { seen.push(coordinationMode); return "run-coordination"; };
+  for (const body of [{ coordinationMode: "lead-sidekicks" }, { coordinationMode: "single" }, {}]) {
+    const res = mkRes();
+    await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", ...body })), res, deps({ enqueue }));
+    assert.equal(res.status, 202);
+  }
+  assert.deepEqual(seen, ["lead-sidekicks", "single", undefined]);
+});
+
+test("POST /api/v1/runs rejects a coordinationMode that is not one of the modes (nothing is enqueued)", async () => {
+  for (const coordinationMode of ["swarm", true, 1]) {
+    let enqueued = false;
+    const res = mkRes();
+    await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e", coordinationMode })), res, deps({ enqueue: () => { enqueued = true; return "x"; } }));
+    assert.equal(res.status, 400, JSON.stringify(coordinationMode));
+    assert.match(res.body, /coordinationMode/);
+    assert.equal(enqueued, false);
+  }
 });

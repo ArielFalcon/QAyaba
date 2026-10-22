@@ -18,6 +18,7 @@ import {
   type E2eExecuteDeps,
   type E2eRunOutput,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
+import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { watchNamedPipe, withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";
 
@@ -221,7 +222,7 @@ async function until<T>(probe: () => T | undefined, ms = 10_000): Promise<T> {
 
 test("a report the child left is the result of the run: its case is read and the verdict follows it", { timeout: 60_000 }, async () => {
   await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)});`, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec());
 
     const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
 
@@ -232,7 +233,7 @@ test("a report the child left is the result of the run: its case is read and the
 
 test("a report the child replaced by a named pipe after it wrote it is not waited on: the run has no result and says why, and is infrastructure, never a pass", { skip: NO_NAMED_PIPES, timeout: 60_000 }, async () => {
   await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); fs.rmSync(out); execFileSync("mkfifo", [out]); announce();`, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec());
     const running = runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
     const reportPath = await until(() => (existsSync(join(root, "report-path.txt")) ? readFileSync(join(root, "report-path.txt"), "utf8") : undefined));
     const watch = watchNamedPipe(reportPath);
@@ -249,7 +250,7 @@ test("a report the child replaced by a named pipe after it wrote it is not waite
 
 test("a report the child replaced by a link to a passing report is no result: the run is infrastructure, never a pass", { timeout: 60_000 }, async () => {
   await withStandInPlaywright(`const outside = path.join(__dirname, "forged.json"); fs.writeFileSync(outside, ${JSON.stringify(PASSING_REPORT)}); fs.rmSync(out, { force: true }); fs.symlinkSync(outside, out);`, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec());
 
     const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
 
@@ -261,7 +262,7 @@ test("a report the child replaced by a link to a passing report is no result: th
 test("a report over the production cap makes a run with no result: the cap the runner reads with is the one that is tested", { timeout: 60_000 }, async () => {
   const megabytes = MAX_PLAYWRIGHT_REPORT_BYTES / (1024 * 1024);
   await withStandInPlaywright(`const fd = fs.openSync(out, "w"); fs.writeSync(fd, ${JSON.stringify(PASSING_REPORT)}); const chunk = Buffer.alloc(1048576, 32); for (let i = 0; i < ${megabytes}; i++) fs.writeSync(fd, chunk); fs.closeSync(fd);`, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec());
 
     const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
 
@@ -272,7 +273,7 @@ test("a report over the production cap makes a run with no result: the cap the r
 
 test("a run whose child left no report at all has the logs of its child and nothing added: there is no refusal to say", { timeout: 60_000 }, async () => {
   await withStandInPlaywright(`process.stderr.write("browser crashed\\n");`, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec());
 
     const output = await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns" });
 
@@ -283,7 +284,7 @@ test("a run whose child left no report at all has the logs of its child and noth
 
 test("the logs of a run whose report was refused say that it was, with the reason of the refusal and nothing the report held", { timeout: 60_000 }, async () => {
   await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(`${SECRET} `.repeat(4))}); fs.rmSync(out); fs.mkdirSync(out);`, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec());
 
     const output = await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns" });
 
@@ -338,7 +339,7 @@ test("a report of failures is a fail whatever the exit status: the status only t
 
 test("the child that exits with a failure status after writing a passing report makes a run that is not a pass, through the real runner", { timeout: 60_000 }, async () => {
   await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); process.exit(1);`, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec());
 
     const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
 
@@ -349,7 +350,7 @@ test("the child that exits with a failure status after writing a passing report 
 
 test("the child that a signal ends after writing a passing report makes a run that is not a pass, through the real runner", { timeout: 60_000 }, async () => {
   await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); process.kill(process.pid, "SIGKILL");`, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec());
 
     const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
 
@@ -371,7 +372,7 @@ async function untilRunnerCleanedUp(root: string): Promise<void> {
 test("the report of a child that exited is read once, by the path the runner handed it", { timeout: 60_000 }, async () => {
   await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); fs.writeFileSync(path.join(__dirname, "report-path.txt"), out);`, async (root) => {
     const reads: string[] = [];
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"), undefined, (path) => { reads.push(path); return readPlaywrightReport(path); });
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec(), undefined, (path) => { reads.push(path); return readPlaywrightReport(path); });
 
     const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
 
@@ -384,7 +385,7 @@ test("the report of a child that exited is read once, by the path the runner han
 test("the report of a child that outlived the deadline of the run is not read: nobody waits for it, and a report made slow to parse costs nothing once the run is over", { timeout: 60_000 }, async () => {
   await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); announce();`, async (root) => {
     const reads: string[] = [];
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"), undefined, (path) => { reads.push(path); return readPlaywrightReport(path); });
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec(), undefined, (path) => { reads.push(path); return readPlaywrightReport(path); });
 
     /* A deadline far enough for the stand-in to start and write its report on a machine that is running the whole suite, and near enough for the test not to wait long. */
     const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns", timeoutMs: 4_000 }, deps);
@@ -399,7 +400,7 @@ test("the report of a child that outlived the deadline of the run is not read: n
 test("the report of a child that the operator cancelled is not read either", { timeout: 60_000 }, async () => {
   await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); announce();`, async (root) => {
     const reads: string[] = [];
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"), undefined, (path) => { reads.push(path); return readPlaywrightReport(path); });
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec(), undefined, (path) => { reads.push(path); return readPlaywrightReport(path); });
     const controller = new AbortController();
 
     const running = runE2E(root, { baseUrl: "http://localhost", namespace: "ns", signal: controller.signal }, deps);
@@ -698,4 +699,16 @@ test("a failure dump that is a link puts nothing of the file behind it in the fa
   } finally {
     rmSync(outsideDir, { recursive: true, force: true });
   }
+});
+
+test("a cleanup pass hands the Playwright child PW_CLEANUP=1 and the base namespace, and an ordinary run does not", { timeout: 60_000 }, async () => {
+  await withStandInPlaywright(`fs.writeFileSync(path.join(__dirname, "env-" + (process.env.PW_CLEANUP ?? "unset") + ".txt"), process.env.PW_NAMESPACE ?? ""); fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)});`, async (root) => {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, sharedTestExec());
+
+    await runE2E(root, { baseUrl: "http://localhost", namespace: "qa-bot", cleanupPass: true }, deps);
+    assert.equal(readFileSync(join(root, "env-1.txt"), "utf8"), "qa-bot");
+
+    await runE2E(root, { baseUrl: "http://localhost", namespace: "qa-bot-run" }, deps);
+    assert.equal(existsSync(join(root, "env-unset.txt")), true);
+  });
 });

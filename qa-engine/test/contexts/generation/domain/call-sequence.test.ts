@@ -9,8 +9,8 @@ import {
 } from "@contexts/generation/domain/call-sequence.ts";
 import { CALL_BUCKETS } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 
-function call(callId: string, status: CallRecord["status"], bucket: CallRecord["bucket"], repeatKey = callId): CallRecord {
-  return { callId, status, bucket, repeatKey };
+function call(callId: string, status: CallRecord["status"], bucket: CallRecord["bucket"], repeatKey = callId, shellCall = false): CallRecord {
+  return { callId, status, bucket, repeatKey, shellCall };
 }
 
 test("a call counts once, at its first running/completed sighting", () => {
@@ -69,17 +69,29 @@ test("callsBeforeFirstWrite equals totalCalls when the turn has no write", () =>
   assert.equal(summary.callsBeforeFirstWrite, 2);
 });
 
-test("writeCount/commandCount/subagentCount tally by bucket", () => {
+test("writeCount/subagentCount tally by bucket and commandCount by shell call", () => {
   const summary = summarizeCallSequence([
     call("c1", "completed", CALL_BUCKETS.WRITE),
     call("c2", "completed", CALL_BUCKETS.WRITE),
-    call("c3", "completed", CALL_BUCKETS.VALIDATE_RUN),
+    call("c3", "completed", CALL_BUCKETS.VALIDATE_RUN, "c3", true),
     call("c4", "completed", CALL_BUCKETS.SUBAGENT),
     call("c5", "completed", CALL_BUCKETS.OTHER),
   ]);
   assert.equal(summary.writeCount, 2);
   assert.equal(summary.commandCount, 1);
   assert.equal(summary.subagentCount, 1);
+});
+
+test("commandCount counts every shell call, whatever its command was doing, and nothing else", () => {
+  const summary = summarizeCallSequence([
+    call("c1", "completed", CALL_BUCKETS.CODE_READ, "c1", true),
+    call("c2", "completed", CALL_BUCKETS.VALIDATE_RUN, "c2", true),
+    call("c3", "completed", CALL_BUCKETS.SCRIPT_RUN, "c3", true),
+    call("c4", "completed", CALL_BUCKETS.OTHER, "c4", true),
+    call("c5", "completed", CALL_BUCKETS.CODE_READ),
+    call("c6", "completed", CALL_BUCKETS.VALIDATE_RUN),
+  ]);
+  assert.equal(summary.commandCount, 4);
 });
 
 test("repeatedCallCount flags the second+ occurrence of the same repeatKey, not the first", () => {

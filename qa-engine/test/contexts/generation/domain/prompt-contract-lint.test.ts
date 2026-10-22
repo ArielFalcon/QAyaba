@@ -853,3 +853,33 @@ test("only the artifact's own provider meets its reference, and words that merel
     }
   }
 });
+
+/*
+ * R15: the orchestrator owns acceptance. A prompt may describe evidence and what to do about it; it
+ * may not order compliance with every item it is handed, nor hand judgment to another model's word.
+ */
+test("R15: a section that orders compliance with every item is reported", () => {
+  const findings = lintCell(cell([sec("reviewer-corrections", [], { text: "An independent reviewer rejected these specs. Fix EACH item below precisely." })]));
+  assert.deepEqual(findings.map((f) => f.rule), ["R15"]);
+  assert.deepEqual(findings[0]?.sections, ["reviewer-corrections"]);
+});
+
+test("R15: the static layer never calls a model's output authoritative, and captured data is not prose", () => {
+  const authoritative = "A separate reviewer judges you and its verdict is authoritative.";
+  const authority = lintCell(cell([{ ...sec("reviewer-role", [], { text: authoritative }), layer: "static" }]));
+  assert.ok(authority.some((f) => f.rule === "R15"), JSON.stringify(authority));
+  /* An assembled section is judged by R14 for the same word (trust language needs a declared framing). */
+  assert.ok(!lintCell(cell([sec("reviewer-role", [], { text: authoritative })])).some((f) => f.rule === "R15"));
+  const data = lintCell(cell([{ ...sec("diff", [], { text: "authoritative\nfix each item", verbatim: true }), layer: "static" }]));
+  assert.deepEqual(data.map((f) => f.rule), []);
+});
+
+test("R15: evidence-bound wording is clean", () => {
+  const findings = lintCell(
+    cell([
+      sec("reviewer-corrections", [], { text: "Address each finding below: fix it, or rebut it with evidence when you can show it is wrong." }),
+      sec("reviewer-role", [], { text: "The orchestrator verifies every finding's citation before it can block a run." }),
+    ]),
+  );
+  assert.deepEqual(findings, []);
+});

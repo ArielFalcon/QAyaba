@@ -3,7 +3,8 @@
  * manual run is queued, recorded in history and addressable. It then drains the queue and
  * exits with the run's verdict.
  * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
- * [--target e2e|code] [--guidance "..."]
+ * [--target e2e|code] [--guidance "..."] [--closed-loop on|off]
+ * [--agent-browser on|off] [--dom-pack on|off] [--coordination single|lead-sidekicks]
  * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
  * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
@@ -18,8 +19,10 @@ import { fileURLToPath } from "node:url";
 import { JobQueue } from "./server/queue";
 import { qayabaRoot } from "./paths";
 import { enqueueTrackedRun } from "./server/runner";
+import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./server/run-delegate";
+import { discoverApiToken } from "./server/api-token";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getRecord, getRunOutcome, listRunOutcomes, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadCurriculum } from "./server/history";
@@ -28,6 +31,7 @@ import { loadAppConfig } from "./orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "./orchestrator/schemas";
 import { RUN_MODES, RunMode, TestTarget } from "./types";
 import { runSucceeded } from "./cli-exit";
+import { isCoordinationMode, type CoordinationMode } from "@kernel/coordination";
 import { renderRunReport } from "./qa/value-report";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { defaultEnvStoreFs } from "./server/env-store";
@@ -46,10 +50,18 @@ const cliAgentRuntime = createAgentRuntimeManager({
   },
   hasOpenSessions: () => getOpenSessionCount() > 0,
 });
-const cliEngineFactory = createRewrittenEngineFactory({
-  getAgentDeps: () => cliAgentRuntime.facade().deps(),
-  getAgentFacade: () => cliAgentRuntime.facade(),
-});
+/* Built on first use, by which time main() has built this process's telemetry (a run that is delegated to the service builds none). */
+let cliFactory: ReturnType<typeof createRewrittenEngineFactory> | undefined;
+const cliEngineFactory: ReturnType<typeof createRewrittenEngineFactory> = (...args) => {
+  const telemetry = processTelemetry();
+  cliFactory ??= createRewrittenEngineFactory({
+    getAgentDeps: () => cliAgentRuntime.facade().deps(),
+    getAgentFacade: () => cliAgentRuntime.facade(),
+    telemetry: telemetry.telemetry,
+    clock: telemetry.clock,
+  });
+  return cliFactory(...args);
+};
 
 /*
  * Probe the local service's unauthenticated liveness endpoint. A 200 means a long-lived
@@ -67,17 +79,11 @@ async function localServiceIsRunning(): Promise<boolean> {
 
 /*
  * The control-plane token, discovered the same way the server resolves it (env wins, then the
- * persisted config/.api_token file) so delegation authenticates without the operator typing it.
+ * persisted data/.api_token, then an earlier version's config/.api_token) so delegation
+ * authenticates without the operator typing it.
  */
-function discoverApiToken(): string | undefined {
-  if (process.env.QA_API_TOKEN) return process.env.QA_API_TOKEN;
-  try {
-    const root = qayabaRoot();
-    const token = readFileSync(join(root, "config", ".api_token"), "utf8").trim();
-    return token || undefined;
-  } catch {
-    return undefined;
-  }
+function cliApiToken(): string | undefined {
+  return discoverApiToken(process.env, qayabaRoot());
 }
 
 /*
@@ -87,7 +93,7 @@ function discoverApiToken(): string | undefined {
  */
 /** The run handed to the service. Carries --base-sha so the delegated run's diff spans the same range the standalone CLI and the webhook use. */
 export function delegateRunInput(
-  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string },
+  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; coordinationMode?: CoordinationMode; domPack?: boolean },
   target: TestTarget,
 ): DelegateRunInput {
   return {
@@ -97,10 +103,14 @@ export function delegateRunInput(
     target,
     mode: args.mode,
     guidance: args.guidance,
+    ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
+    ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
+    ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}),
+    ...(args.domPack !== undefined ? { grounding: { domPack: args.domPack } } : {}),
   };
 }
 
-async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string }): Promise<void> {
+async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; coordinationMode?: CoordinationMode; domPack?: boolean }): Promise<void> {
   const port = resolvePort(process.env);
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
@@ -117,7 +127,7 @@ async function runViaService(args: { app: string; sha: string; baseSha?: string;
       {
         fetch,
         baseUrl,
-        token: discoverApiToken(),
+        token: cliApiToken(),
         onUpdate: (r) => process.stdout.write(`\r[qa] ${r.status}${r.step ? " · " + r.step : ""}                    `),
       },
     );
@@ -158,36 +168,48 @@ async function main(): Promise<void> {
     return;  /* runViaService always exits the process with the verdict's code */
   }
 
-  const queue = new JobQueue();
-  /*
-   * Persist run events to the SAME durable store the server uses. A standalone CLI run lives in
-   * its own process, so the server's in-process event bus never sees it — persisting here is what
-   * lets the TUI (attached to the server) replay and tail this run's progress instead of freezing
-   * on an empty stream.
-   */
-  const runEvents = createDurableRunEventStore();
-  /*
-   * When --target is not given, derive it from the app config: a `code: true` app must run
-   * code mode (running e2e against it would hit the no-dev defensive infra-error).
-   */
-  const appCfg = loadAppConfig(args.app);
-  const target = args.target ?? (appCfg.code ? "code" : "e2e");
-  const id = enqueueTrackedRun(queue, {
-    app: args.app,
-    sha: args.sha,
-    baseSha: args.baseSha,
-    target,
-    mode: args.mode,
-    guidance: args.guidance,
-    source: "manual",
-  }, { runEvents, engineFactory: cliEngineFactory });
-  await queue.drain();
-  const record = getRecord(id);
-  /*
-   * Print the deterministic value signals the run already persisted. In shadow mode there is no
-   * PR/Issue artifact to inspect.
-   */
-  if (record) printRunReport(record, appCfg);
+  /* Built once for this process (a mistyped QA_TELEMETRY stops it here); the engine factory takes `telemetry.telemetry` as a dep. */
+  const telemetry = processTelemetry();
+  let record: ReturnType<typeof getRecord>;
+  try {
+    const queue = new JobQueue();
+    /*
+     * Persist run events to the SAME durable store the server uses. A standalone CLI run lives in
+     * its own process, so the server's in-process event bus never sees it — persisting here is what
+     * lets the TUI (attached to the server) replay and tail this run's progress instead of freezing
+     * on an empty stream.
+     */
+    const runEvents = createDurableRunEventStore();
+    /*
+     * When --target is not given, derive it from the app config: a `code: true` app must run
+     * code mode (running e2e against it would hit the no-dev defensive infra-error).
+     */
+    const appCfg = loadAppConfig(args.app);
+    const target = args.target ?? (appCfg.code ? "code" : "e2e");
+    const id = enqueueTrackedRun(queue, {
+      app: args.app,
+      sha: args.sha,
+      baseSha: args.baseSha,
+      target,
+      mode: args.mode,
+      guidance: args.guidance,
+      source: "manual",
+      trigger: "cli",
+      ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
+      ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
+      ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}),
+      ...(args.domPack !== undefined ? { grounding: { domPack: args.domPack } } : {}),
+    }, { runEvents, engineFactory: cliEngineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock });
+    await queue.drain();
+    record = getRecord(id);
+    /*
+     * Print the deterministic value signals the run already persisted. In shadow mode there is no
+     * PR/Issue artifact to inspect.
+     */
+    if (record) printRunReport(record, appCfg);
+  } finally {
+    await telemetry.shutdown(TELEMETRY_SHUTDOWN_TIMEOUT_MS);
+  }
   /*
    * A run SUCCEEDED when the engine produced a trustworthy result — including a real bug found
    * (verdict `fail` → Issue). Only an engine error (infra-error/invalid, or no verdict) exits non-zero.
@@ -238,7 +260,7 @@ function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: Retur
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; learning: boolean } {
+export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; coordinationMode?: CoordinationMode; domPack?: boolean; learning: boolean } {
   const out: Record<string, string> = {};
   let learning = false;
   for (let i = 0; i < argv.length; i++) {
@@ -249,7 +271,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
   }
   if (!learning && (!out.app || !out.sha)) {
     console.error(
-      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."]`,
+      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off] [--coordination single|lead-sidekicks]`,
     );
     console.error('       npm run qa -- --app <app> --learning');
     process.exit(2);
@@ -261,7 +283,31 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
   const mode = (RUN_MODES as readonly string[]).includes(out.mode ?? "") ? (out.mode as RunMode) : "diff";
   /* Undefined when not passed → the caller derives it from the app config (code vs e2e). */
   const target = (TARGETS as string[]).includes(out.target ?? "") ? (out.target as TestTarget) : undefined;
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, learning };
+  /* The run's own choice about the run_spec loop; absent unless given, so the app's setting decides. */
+  const closedLoop = out["closed-loop"] === "on" ? true : out["closed-loop"] === "off" ? false : undefined;
+  if (out["closed-loop"] !== undefined && closedLoop === undefined) {
+    console.error('--closed-loop takes "on" or "off"');
+    process.exit(2);
+  }
+  /* The run's own choice about the authenticated agent browser; absent unless given, so the app's setting decides. */
+  const agentBrowser = out["agent-browser"] === "on" ? true : out["agent-browser"] === "off" ? false : undefined;
+  if (out["agent-browser"] !== undefined && agentBrowser === undefined) {
+    console.error('--agent-browser takes "on" or "off"');
+    process.exit(2);
+  }
+  /* The run's own choice of coordination mode; absent unless given, so the app's setting decides. */
+  const coordinationMode = isCoordinationMode(out.coordination) ? out.coordination : undefined;
+  if (out.coordination !== undefined && coordinationMode === undefined) {
+    console.error('--coordination takes "single" or "lead-sidekicks"');
+    process.exit(2);
+  }
+  /* The run's own choice about the pre-generation context pack's live-DOM capture (an A/B arm); absent unless given, so the app's setting decides. */
+  const domPack = out["dom-pack"] === "on" ? true : out["dom-pack"] === "off" ? false : undefined;
+  if (out["dom-pack"] !== undefined && domPack === undefined) {
+    console.error('--dom-pack takes "on" or "off"');
+    process.exit(2);
+  }
+  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(coordinationMode !== undefined ? { coordinationMode } : {}), ...(domPack !== undefined ? { domPack } : {}), learning };
 }
 
 function showLearning(app: string): void {

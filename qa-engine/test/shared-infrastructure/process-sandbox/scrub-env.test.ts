@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scrubEnv } from "../../../src/shared-infrastructure/process-sandbox/scrub-env.ts";
+import { scrubEnv, scrubEnvFrom } from "../../../src/shared-infrastructure/process-sandbox/scrub-env.ts";
 /* NOTE: 3 leading ../ from qa-engine/test/shared-infrastructure/process-sandbox/ to qa-engine/src/ */
 
 /* Safe env restore: `process.env = orig` assigns Record<string,string|undefined> to NodeJS.ProcessEnv
@@ -18,6 +18,17 @@ test("scrubEnv drops secrets even if extraAllowed would match", () => {
     assert.equal("DOPPLER_TOKEN" in out, false);
   } finally {
     for (const k of added) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  }
+});
+
+test("scrubEnv drops the OpenCode server password even if extraAllowed would match", () => {
+  const key = "OPENCODE_SERVER_PASSWORD";
+  const saved = process.env[key];
+  try {
+    process.env[key] = "server-secret";
+    assert.equal(key in scrubEnv({ extraAllowed: /^OPENCODE_/ }), false);
+  } finally {
+    if (saved === undefined) delete process.env[key]; else process.env[key] = saved;
   }
 });
 
@@ -100,4 +111,9 @@ test("scrubEnv preserves prefix-family language vars (npm_config_*, CARGO_*, LC_
   } finally {
     for (const k of added) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   }
+});
+
+test("scrubEnvFrom drops the Langfuse project keys even if a caller widens the allowlist to LANGFUSE_", () => {
+  const out = scrubEnvFrom({ PATH: "/usr/bin", LANGFUSE_PUBLIC_KEY: "pk-lf-x", LANGFUSE_SECRET_KEY: "sk-lf-x" }, { extraAllowed: /^LANGFUSE_/, quiet: true });
+  assert.deepEqual(out, { PATH: "/usr/bin" });
 });

@@ -14,7 +14,7 @@ import {
   CreateAppInputSchema, UpdateAppInputSchema, CreateAppResultSchema,
   DeleteAppResultSchema, RepoInfoSchema, OnboardServiceInputSchema, AppAuthInputSchema,
   RepoListItemSchema, RepoListResponseSchema,
-  OnboardingJobStatusSchema, ProposeBoundariesInputSchema, ConfirmBoundariesInputSchema,
+  OnboardingJobStatusSchema, ProposeBoundariesInputSchema, ConfirmBoundariesInputSchema, LoginBootstrapResultSchema,
   PublicAgentConfigSchema, AgentConfigUpdateSchema, AgentConfigApplyResultSchema,
   AgentModelsResponseSchema, AgentRestartRequestSchema, AgentRestartResponseSchema,
   AgentProviderHealthSchema, AgentModelInfoSchema, RoleAssignmentSchema,
@@ -24,7 +24,8 @@ import {
   TrendWindowSchema, CoverageTrendSchema, ValueTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
   ArchitectureContextSchema, ContextMapViewSchema,
-  AgentTurnViewSchema, AppTelemetryViewSchema,
+  AgentTurnViewSchema, AppTelemetryViewSchema, TelemetryHealthSchema,
+  ApiErrorSchema, ScoreSchema, RunEvaluationSchema, EvaluationCatalogSchema, RegradeRequestSchema, RegradeStartedSchema, RegradeJobSchema, RunDetailSchema, CampaignRunsSchema,
 } from "./commands";
 
 export const API_VERSION = "1.0.0";
@@ -61,6 +62,7 @@ const NAMED_SCHEMAS = {
   OnboardingJobStatus: OnboardingJobStatusSchema,
   ProposeBoundariesInput: ProposeBoundariesInputSchema,
   ConfirmBoundariesInput: ConfirmBoundariesInputSchema,
+  LoginBootstrapResult: LoginBootstrapResultSchema,
   PublicAgentConfig: PublicAgentConfigSchema,
   AgentConfigUpdate: AgentConfigUpdateSchema,
   AgentConfigApplyResult: AgentConfigApplyResultSchema,
@@ -90,6 +92,16 @@ const NAMED_SCHEMAS = {
   ContextMapView: ContextMapViewSchema,
   AgentTurnView: AgentTurnViewSchema,
   AppTelemetryView: AppTelemetryViewSchema,
+  TelemetryHealth: TelemetryHealthSchema,
+  ApiError: ApiErrorSchema,
+  Score: ScoreSchema,
+  RunEvaluation: RunEvaluationSchema,
+  EvaluationCatalog: EvaluationCatalogSchema,
+  RegradeRequest: RegradeRequestSchema,
+  RegradeStarted: RegradeStartedSchema,
+  RegradeJob: RegradeJobSchema,
+  RunDetail: RunDetailSchema,
+  CampaignRuns: CampaignRunsSchema,
 } as const;
 
 function componentSchemas(): Record<string, unknown> {
@@ -152,7 +164,11 @@ function paths(): Record<string, unknown> {
       post: {
         operationId: "createRun", summary: "Enqueue a run",
         requestBody: { required: true, content: jsonBody("CreateRunInput") },
-        responses: { "202": { description: "enqueued", content: jsonBody("CreateRunResult") } },
+        responses: {
+          "202": { description: "enqueued", content: jsonBody("CreateRunResult") },
+          "400": { description: "invalid request", content: jsonBody("ApiError") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+        },
       },
       get: {
         operationId: "listRuns", summary: "List recent runs for an app",
@@ -164,8 +180,74 @@ function paths(): Record<string, unknown> {
       },
     },
     "/api/v1/runs/{id}": {
-      get: { operationId: "getRun", parameters: [idParam], responses: { "200": { description: "run", content: jsonBody("RunRecord") } } },
+      get: {
+        operationId: "getRun",
+        summary: "A run with its trace, phase timings, usage, spec counts, decision and budget outcome",
+        parameters: [idParam],
+        responses: {
+          "200": { description: "run", content: jsonBody("RunDetail") },
+          "404": { description: "no such run", content: jsonBody("ApiError") },
+        },
+      },
       delete: { operationId: "cancelRun", summary: "Cancel a run", parameters: [idParam], responses: { "200": { description: "cancelled" } } },
+    },
+    "/api/v1/runs/{id}/evaluation": {
+      get: {
+        operationId: "getRunEvaluation",
+        summary: "The run's scores: the latest grader version per name by default, every stored version with ?versions=all",
+        parameters: [idParam, { name: "versions", in: "query", schema: { type: "string", enum: ["all"] } }],
+        responses: {
+          "200": { description: "the run's evaluation", content: jsonBody("RunEvaluation") },
+          "404": { description: "no such run", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/campaigns/{id}/runs": {
+      get: {
+        operationId: "getCampaignRuns",
+        summary: "The runs of a campaign with their variant labels, replicate, status and grading state; variant.<key>=<value> query parameters narrow them to the runs carrying every label named",
+        parameters: [idParam],
+        responses: {
+          "200": { description: "the campaign's runs; complete is true when every one of them is done and graded", content: jsonBody("CampaignRuns") },
+          "400": { description: "a query parameter that is not a variant filter", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/evaluations/catalog": {
+      get: {
+        operationId: "getEvaluationCatalog",
+        summary: "The canonical phase order and every score a grader can emit, with type, range, categories, polarity and suffix families",
+        responses: {
+          "200": { description: "the catalog", content: jsonBody("EvaluationCatalog") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/evaluations/regrade": {
+      post: {
+        operationId: "regrade",
+        summary: "Re-grade finished runs with the current graders, as a background job",
+        requestBody: { required: true, content: jsonBody("RegradeRequest") },
+        responses: {
+          "202": { description: "job accepted", content: jsonBody("RegradeStarted") },
+          "400": { description: "invalid request", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
+    },
+    "/api/v1/evaluations/regrade/{jobId}": {
+      get: {
+        operationId: "getRegradeJob",
+        summary: "Progress of a regrade job",
+        parameters: [{ name: "jobId", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": { description: "the job", content: jsonBody("RegradeJob") },
+          "404": { description: "no such job", content: jsonBody("ApiError") },
+          "501": { description: "evaluation is not wired in this process", content: jsonBody("ApiError") },
+        },
+      },
     },
     "/api/v1/runs/{id}/events": {
       get: {
@@ -262,6 +344,19 @@ function paths(): Record<string, unknown> {
           "200": { description: "boundaries: block written", content: jsonBody("CreateAppResult") },
           "409": { description: "no confirmable boundary profile for this app" },
           "422": { description: "no confirmable boundary profile for this app" },
+        },
+      },
+    },
+    "/api/v1/apps/{name}/login-bootstrap": {
+      post: {
+        operationId: "bootstrapLogin",
+        summary: "Enqueue the run that establishes and proves the app's login (a manual run for the login purpose); the login is kept once the run is accepted",
+        parameters: [nameParam],
+        responses: {
+          "202": { description: "login-bootstrap run enqueued", content: jsonBody("LoginBootstrapResult") },
+          "404": { description: "app not found" },
+          "409": { description: "the app has no form login to bootstrap, or an onboarding job is running" },
+          "503": { description: "service shutting down" },
         },
       },
     },
@@ -364,6 +459,16 @@ function paths(): Record<string, unknown> {
         operationId: "listAgentModels",
         parameters: [{ name: "provider", in: "query", required: true, schema: { type: "string", enum: ["opencode", "codex"] } }],
         responses: { "200": { description: "models for provider", content: jsonBody("AgentModelsResponse") } },
+      },
+    },
+    "/api/v1/telemetry/health": {
+      get: {
+        operationId: "telemetryHealth",
+        summary: "Telemetry stack health: mode, span ledger, OTLP export status and dropped-attribute count (Bearer-protected; counts and flags only)",
+        responses: {
+          "200": { description: "telemetry health", content: jsonBody("TelemetryHealth") },
+          "501": { description: "telemetry is not wired in this process" },
+        },
       },
     },
     "/api/v1/agent/restart": {

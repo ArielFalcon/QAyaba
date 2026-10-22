@@ -23,8 +23,15 @@ import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/lear
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import { parseRetentionDays, parseCampaignRetentionDays, DEFAULT_SPAN_RETENTION_DAYS, DEFAULT_CAMPAIGN_RETENTION_DAYS } from "../telemetry/config";
+import type { CampaignIdentity } from "@kernel/campaign";
+import type { CaptureMode } from "@kernel/telemetry/capture-mode";
+import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
+import type { TurnEnd } from "@kernel/turn-end";
+import type { ToolSequenceEntry } from "@contexts/generation/domain/tool-sequence";
+import type { TurnUsage } from "@contexts/generation/domain/turn-efficiency-summary";
 
 const redactionPort = new RedactionPortAdapter();
 
@@ -62,6 +69,35 @@ export interface AgentTurnRecord {
   pathProvidedReadCount?: number | null;
   exhausted?: boolean | null;
   callBuckets?: Record<string, number> | null;
+  /* How the turn ended; null when the row predates the column or the runtime does not say. A turn that ended by timeout or abort has empty output_text and only the calls measured up to its end. */
+  ended?: TurnEnd | null;
+  /* Wall time of the turn, from the prompt being sent to its end; null when the row predates the column or the runtime did not measure it. */
+  durationMs?: number | null;
+  /* Milliseconds from the turn's start to its first call / first write; null when none was made, the start was not observed, or the row predates the column. */
+  timeToFirstCallMs?: number | null;
+  timeToFirstWriteMs?: number | null;
+  /* Calls the runtime refused under a permission rule; null (never 0) when the turn was not measured. */
+  deniedCallCount?: number | null;
+  /* The turn's calls in order, each with a redacted, capped target; null when the turn was not measured. */
+  toolSequence?: ToolSequenceEntry[] | null;
+  /* What the turn spent over every step it finished. The tokens_* columns hold the usage of the last assistant message alone (what the blocking prompt answers with), so a many-step turn reads there as one step. Null when the steps were not all observed, none finished, or the row predates the column. */
+  usageTotal?: TurnUsage | null;
+  /* What the turn's trace mirrors. Written with the row and read back through `getAgentTurnTraces`; `getAgentTurns` (the public turn view) does not carry them. */
+  /* The model the prompt asked for (null: the agent's configured one), the one that answered, its provider, the attempt that ended the turn (1 primary, 2 fallback) and whether the fallback answered. Null where the runtime cannot say or the row predates the column. */
+  modelRequested?: string | null;
+  modelAnswered?: string | null;
+  provider?: string | null;
+  attempt?: number | null;
+  fallbackUsed?: boolean | null;
+  /* The class of the last failure an attempt of the turn met. */
+  errorType?: string | null;
+  /* Byte sizes and sha256 of the prompt's sections, by section id, and the sha256 of the bytes sent. */
+  sectionSizes?: Record<string, number> | null;
+  sectionHashes?: Record<string, string> | null;
+  promptHash?: string | null;
+  /* The time limit that bound the prompt, and the limit that ended the turn. */
+  limitApplied?: string | null;
+  limitFired?: string | null;
 }
 
 /*
@@ -82,6 +118,28 @@ export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: 
   { name: "exhausted", type: "INTEGER" },
   { name: "call_buckets", type: "TEXT" },
   { name: "path_provided_read_count", type: "INTEGER" },
+  { name: "ended", type: "TEXT" },
+  { name: "duration_ms", type: "INTEGER" },
+  { name: "time_to_first_call_ms", type: "INTEGER" },
+  { name: "time_to_first_write_ms", type: "INTEGER" },
+  { name: "denied_call_count", type: "INTEGER" },
+  /* A JSON-encoded ToolSequenceEntry[], like call_buckets. */
+  { name: "tool_sequence", type: "TEXT" },
+  /* A JSON-encoded TurnUsage. */
+  { name: "usage_total", type: "TEXT" },
+  /* What the turn's trace mirrors (these columns are the record; the spans copy them): the model asked for and the one that answered, the attempt, the error class, the prompt's sizes and hashes and the limits. */
+  { name: "model_requested", type: "TEXT" },
+  { name: "model_answered", type: "TEXT" },
+  { name: "provider", type: "TEXT" },
+  { name: "attempt", type: "INTEGER" },
+  { name: "fallback_used", type: "INTEGER" },
+  { name: "error_type", type: "TEXT" },
+  /* JSON objects keyed by section id: byte sizes, and sha256 of each section as sent. */
+  { name: "section_sizes", type: "TEXT" },
+  { name: "section_hashes", type: "TEXT" },
+  { name: "prompt_hash", type: "TEXT" },
+  { name: "limit_applied", type: "TEXT" },
+  { name: "limit_fired", type: "TEXT" },
 ];
 
 const DELETE_MAX_AGE_DAYS = 30;
@@ -90,6 +148,7 @@ let db!: Database.Database;
 let insertRun!: Database.Statement;
 let getRunStmt!: Database.Statement;
 let listRunsStmt!: Database.Statement;
+let childrenStmt!: Database.Statement;
 let currentRunStmt!: Database.Statement;
 let interruptedStmt!: Database.Statement;
 let deleteCaseByName!: Database.Statement;
@@ -159,7 +218,18 @@ function ensureDb(): void {
       trigger_repo TEXT,
       at TEXT NOT NULL,
       step_started_at TEXT,
-      logs TEXT DEFAULT ''
+      logs TEXT DEFAULT '',
+      furthest_phase TEXT,
+      phase_timings TEXT,
+      trace_id TEXT,
+      decision TEXT,
+      limit_fired TEXT,
+      limit_role TEXT,
+      review_required INTEGER,
+      coverage_status TEXT,
+      coverage_mode TEXT,
+      coverage_min_ratio REAL,
+      cancelled INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS cases (
@@ -167,7 +237,8 @@ function ensureDb(): void {
       run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       status TEXT NOT NULL,
-      detail TEXT
+      detail TEXT,
+      file TEXT
     );
 
     CREATE TABLE IF NOT EXISTS specs (
@@ -222,6 +293,115 @@ function ensureDb(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events(run_id);
 
+    -- The span ledger (docs/observability-design.md §3.3): every span of every run, metadata only. A row is
+    -- written when the span starts (end_ns NULL) and updated when it ends, so a hung or crashed run leaves its
+    -- open spans behind as evidence. Times are epoch nanoseconds, bound as BigInt (they exceed 2^53).
+    CREATE TABLE IF NOT EXISTS run_spans (
+      trace_id TEXT NOT NULL,
+      span_id TEXT NOT NULL,
+      parent_span_id TEXT,
+      run_id TEXT,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      start_ns INTEGER NOT NULL,
+      end_ns INTEGER,
+      status TEXT NOT NULL DEFAULT 'unset',
+      status_message TEXT,
+      attrs TEXT NOT NULL DEFAULT '{}',
+      events TEXT NOT NULL DEFAULT '[]',
+      links TEXT NOT NULL DEFAULT '[]',
+      PRIMARY KEY (trace_id, span_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_spans_run_id ON run_spans(run_id);
+    CREATE INDEX IF NOT EXISTS idx_run_spans_trace_id ON run_spans(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_run_spans_start_ns ON run_spans(start_ns);
+
+    -- Evaluation scores (docs/observability-design.md section 11): one row per (run, score name, grader version), replaced on a regrade.
+    -- Never pruned: they are tiny, and a campaign compares them long after the run's spans are gone. No foreign key to runs, for the same reason.
+    CREATE TABLE IF NOT EXISTS run_scores (
+      run_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      grader_version TEXT NOT NULL,
+      data_type TEXT NOT NULL,
+      polarity TEXT NOT NULL,
+      source TEXT NOT NULL,
+      value TEXT NOT NULL,
+      comment TEXT,
+      observation_id TEXT,
+      graded_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, name, grader_version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_scores_name ON run_scores(name);
+
+    -- Whether a run's evaluation is pending, complete or failed. A run with no row was never graded: pending.
+    CREATE TABLE IF NOT EXISTS run_evaluations (
+      run_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    -- Regrade jobs (POST /evaluations/regrade): the request's runs, progress and the runs that failed.
+    CREATE TABLE IF NOT EXISTS regrade_jobs (
+      job_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      run_ids TEXT NOT NULL,
+      graders TEXT,
+      runs INTEGER NOT NULL,
+      graded INTEGER NOT NULL DEFAULT 0,
+      failed TEXT NOT NULL DEFAULT '[]',
+      started_at TEXT NOT NULL,
+      finished_at TEXT
+    );
+
+    -- The text of the specs a run held when it validated them (docs/observability-design.md §11.1), redacted and capped, so
+    -- a run can be graded after its working copy is gone. One row per (run, path, bytes): a spec rewritten during the run is
+    -- kept in each version. Same retention as run_spans.
+    CREATE TABLE IF NOT EXISTS run_spec_snapshots (
+      run_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      text TEXT NOT NULL,
+      bytes INTEGER NOT NULL,
+      captured_at INTEGER NOT NULL,
+      delivered INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (run_id, path, sha256)
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_spec_snapshots_captured_at ON run_spec_snapshots(captured_at);
+
+    -- LLM-judge bookkeeping (docs/observability-design.md section 11.3). One row per judge attempt: what was asked, how it ended and the
+    -- tokens it spent (the day's budget is the sum of a day's rows). Never pruned, like run_scores: they are tiny.
+    CREATE TABLE IF NOT EXISTS judge_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      judge TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      model TEXT,
+      outcome TEXT NOT NULL,
+      tokens INTEGER NOT NULL DEFAULT 0,
+      detail TEXT,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_judge_attempts_run ON judge_attempts(run_id, judge, prompt_version);
+    CREATE INDEX IF NOT EXISTS idx_judge_attempts_at ON judge_attempts(at);
+
+    -- Calibration reports of a judge against human labels: one row per computation, the newest of a (judge, prompt version) is in force.
+    CREATE TABLE IF NOT EXISTS judge_calibrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      judge TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      model TEXT NOT NULL,
+      train_n INTEGER NOT NULL,
+      dev_n INTEGER NOT NULL,
+      test_n INTEGER NOT NULL,
+      tpr REAL,
+      tnr REAL,
+      agreement REAL,
+      status TEXT NOT NULL,
+      report TEXT NOT NULL,
+      computed_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_judge_calibrations_judge ON judge_calibrations(judge, prompt_version);
+
     CREATE TABLE IF NOT EXISTS learning_rules (
       id TEXT PRIMARY KEY,
       app TEXT NOT NULL,
@@ -237,7 +417,8 @@ function ensureDb(): void {
       source TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'candidate',
       archetype TEXT,
-      at TEXT NOT NULL
+      at TEXT NOT NULL,
+      quarantined_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_rules_app ON learning_rules(app);
@@ -260,6 +441,14 @@ function ensureDb(): void {
     -- git clean -fd on every run, so a file-level invalidation never survives to the next run. This
     -- flag does, and is CONSUMED (cleared) by the next generating run for the app.
     CREATE TABLE IF NOT EXISTS context_stale (
+      app TEXT PRIMARY KEY,
+      at TEXT NOT NULL
+    );
+
+    -- When an off-path context-map rebuild was last requested, so a SHA/age-stale map does not
+    -- enqueue one on every run. The context_stale flag is cleared when the queue accepts a rebuild;
+    -- this timestamp survives that and is the 6h dedupe bound.
+    CREATE TABLE IF NOT EXISTS context_heal_requests (
       app TEXT PRIMARY KEY,
       at TEXT NOT NULL
     );
@@ -317,9 +506,50 @@ function ensureDb(): void {
   if (!columnExists("learning_rules", "oracle_outcome_count")) {
     db.exec("ALTER TABLE learning_rules ADD COLUMN oracle_outcome_count INTEGER NOT NULL DEFAULT 0");
   }
+  /* A rule an operator set aside (learning:quarantine): NULL while in force. Existing rows stay in force. */
+  if (!columnExists("learning_rules", "quarantined_at")) {
+    db.exec("ALTER TABLE learning_rules ADD COLUMN quarantined_at TEXT");
+  }
   if (!columnExists("runs", "trigger_repo")) {
     db.exec("ALTER TABLE runs ADD COLUMN trigger_repo TEXT");
   }
+  /* Where the run got in the pipeline and the JSON of its time per phase: NULL for a run that recorded none (an older run, a cancelled one). */
+  if (!columnExists("runs", "furthest_phase")) {
+    db.exec("ALTER TABLE runs ADD COLUMN furthest_phase TEXT");
+  }
+  /* The first build of the snapshot table had no flag; every row it kept is a delivered spec or an unmarked suite spec, and stays visible. */
+  if (!columnExists("run_spec_snapshots", "delivered")) {
+    db.exec("ALTER TABLE run_spec_snapshots ADD COLUMN delivered INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!columnExists("runs", "phase_timings")) {
+    db.exec("ALTER TABLE runs ADD COLUMN phase_timings TEXT");
+  }
+  /* The spec file a case ran from, as the parsed report named it (NULL for a case recorded before the column, or one the report gave no file). */
+  if (!columnExists("cases", "file")) {
+    db.exec("ALTER TABLE cases ADD COLUMN file TEXT");
+  }
+  /* What the run's trace and decision said about how it ended (NULL for a run that recorded none): the trace id, the publication decision, the limit that stopped it and the role it stopped. */
+  for (const name of ["trace_id", "decision", "limit_fired", "limit_role", "coverage_status", "coverage_mode"]) {
+    if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} TEXT`);
+  }
+  /* A Langfuse score finds its run by trace id (getRunIdByTraceId). */
+  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_trace_id ON runs(trace_id)");
+  /* Facts the engine decided at run time and grading must not recompute: whether a reviewer ran, the coverage decision and its policy, and whether an operator cancelled the run. */
+  for (const [name, type] of [["review_required", "INTEGER"], ["coverage_min_ratio", "REAL"], ["cancelled", "INTEGER"]] as const) {
+    if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
+  }
+  /*
+   * The campaign a run is a replicate of, how much content its trace may carry, and what it actually ran with (section 14). Stored as the
+   * request named them and as the run resolved them; nothing reads the labels to decide what a run does. NULL for an ordinary run.
+   */
+  for (const [name, type] of [["campaign_id", "TEXT"], ["campaign_variant", "TEXT"], ["campaign_replicate", "INTEGER"], ["capture_mode", "TEXT"], ["effective_config", "TEXT"]] as const) {
+    if (!columnExists("runs", name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_campaign_id ON runs(campaign_id)");
+  /* The parent-linked child runs (a context heal, a /continue) of a run: childrenOf(parentRunId) reads this. */
+  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_parent_run_id ON runs(parent_run_id)");
+  /* The model an LLM judge answered with, beside the prompt version in grader_version (NULL for every other score). */
+  if (!columnExists("run_scores", "judge_model")) db.exec("ALTER TABLE run_scores ADD COLUMN judge_model TEXT");
   /*
    * Every agent_turns efficiency column
    * is added by this guarded ALTER (fresh and pre-existing DBs alike), so the
@@ -341,15 +571,16 @@ function ensureDb(): void {
   db.exec("UPDATE learning_rules SET status = 'candidate' WHERE status = 'pending'");
 
   insertRun = db.prepare(`
-    INSERT INTO runs (id, app, sha, ref, target, mode, status, step, step_detail, verdict, passed, failed, note, retrying, parent_run_id, trigger_repo, at, logs)
-    VALUES (@id, @app, @sha, @ref, @target, @mode, @status, @step, @stepDetail, @verdict, @passed, @failed, @note, @retrying, @parentRunId, @triggerRepo, @at, @logs)
+    INSERT INTO runs (id, app, sha, ref, target, mode, status, step, step_detail, verdict, passed, failed, note, retrying, parent_run_id, trigger_repo, at, logs, campaign_id, campaign_variant, campaign_replicate, capture_mode)
+    VALUES (@id, @app, @sha, @ref, @target, @mode, @status, @step, @stepDetail, @verdict, @passed, @failed, @note, @retrying, @parentRunId, @triggerRepo, @at, @logs, @campaignId, @campaignVariant, @campaignReplicate, @captureMode)
   `);
   getRunStmt = db.prepare("SELECT * FROM runs WHERE id = ?");
   listRunsStmt = db.prepare("SELECT * FROM runs WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
+  childrenStmt = db.prepare("SELECT * FROM runs WHERE parent_run_id = ? ORDER BY at DESC, rowid DESC");
   currentRunStmt = db.prepare("SELECT * FROM runs WHERE status IN ('running', 'enqueued') ORDER BY (status='running') DESC, at ASC, rowid ASC LIMIT 1");
   interruptedStmt = db.prepare("SELECT * FROM runs WHERE status IN ('running', 'enqueued')");
   deleteCaseByName = db.prepare("DELETE FROM cases WHERE run_id = ? AND name = ?");
-  insertCase = db.prepare("INSERT INTO cases (run_id, name, status, detail) VALUES (@runId, @name, @status, @detail)");
+  insertCase = db.prepare("INSERT INTO cases (run_id, name, status, detail, file) VALUES (@runId, @name, @status, @detail, @file)");
   getCasesStmt = db.prepare("SELECT * FROM cases WHERE run_id = ?");
   countCasesStmt = db.prepare("SELECT status, COUNT(*) AS cnt FROM cases WHERE run_id = ? GROUP BY status");
   getSpecsStmt = db.prepare("SELECT * FROM specs WHERE run_id = ?");
@@ -384,7 +615,7 @@ function ensureDb(): void {
       -- insert (a rule's identity/shape never changes). Distilled IDs are random so this branch only
       -- fires on an explicit stable-ID re-upsert (tests), where preserving the original is correct.
   `);
-  listRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') ORDER BY (status = 'active') DESC, COALESCE(success_rate, 0) DESC, at DESC LIMIT ?");
+  listRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') AND quarantined_at IS NULL ORDER BY (status = 'active') DESC, COALESCE(success_rate, 0) DESC, at DESC LIMIT ?");
   /*
    * Governance-path fetch (backs listLearningRulesForGovernance, below): every retrievable row, no
    * ORDER BY and no LIMIT — ranking is RuleGovernanceService's job alone (see that service's own
@@ -392,7 +623,7 @@ function ensureDb(): void {
    * match governance's ranking (success rate plus the per-run relevance bias, plus the newest-
    * candidate exploration slots), so a cap always hides rules governance would pick.
    */
-  listRetrievableRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate')");
+  listRetrievableRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') AND quarantined_at IS NULL");
   getRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE id = ?");
   getAppRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND id = ?");
   listAllRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? ORDER BY at DESC LIMIT ?");
@@ -415,19 +646,30 @@ function ensureDb(): void {
        tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, cost,
        total_calls, steps_used, max_steps, calls_before_first_write, write_count,
        redundant_read_count, duplicate_call_count, prompt_provided_read_count, exhausted, call_buckets,
-       path_provided_read_count)
+       path_provided_read_count, ended,
+       duration_ms, time_to_first_call_ms, time_to_first_write_ms, denied_call_count, tool_sequence, usage_total,
+       model_requested, model_answered, provider, attempt, fallback_used, error_type,
+       section_sizes, section_hashes, prompt_hash, limit_applied, limit_fired)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
        @tokensInput, @tokensOutput, @tokensReasoning, @tokensCacheRead, @tokensCacheWrite, @cost,
        @totalCalls, @stepsUsed, @maxSteps, @callsBeforeFirstWrite, @writeCount,
        @redundantReadCount, @duplicateCallCount, @promptProvidedReadCount, @exhausted, @callBuckets,
-       @pathProvidedReadCount)
+       @pathProvidedReadCount, @ended,
+       @durationMs, @timeToFirstCallMs, @timeToFirstWriteMs, @deniedCallCount, @toolSequence, @usageTotal,
+       @modelRequested, @modelAnswered, @provider, @attempt, @fallbackUsed, @errorType,
+       @sectionSizes, @sectionHashes, @promptHash, @limitApplied, @limitFired)
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
   /* Prune old runs once on first use. */
-  db.prepare(`DELETE FROM runs WHERE at < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')`).run();
+  /*
+   * Campaign-tagged runs are the baselines later graders and judges re-score (R4): they keep the run row, its agent turns and its spans
+   * for the campaign window (QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS, default 180) instead of the ordinary one.
+   */
+  const campaignDays = campaignRetentionDays();
+  db.prepare(`DELETE FROM runs WHERE at < datetime('now', '-${DELETE_MAX_AGE_DAYS} days') AND (campaign_id IS NULL OR datetime(at) < datetime('now', '-' || ? || ' days'))`).run(campaignDays);
   /* Bound the durable event log: drop events older than the run retention window (ts is epoch ms). */
   db.prepare("DELETE FROM run_events WHERE ts < ?").run(Date.now() - DELETE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
   /*
@@ -437,7 +679,17 @@ function ensureDb(): void {
    * Wrap ts in datetime() so BOTH sides are SQLite's canonical datetime form: a correct boundary
    * compare, consistent with run_events (which prunes correctly via its own typed epoch-ms compare).
    */
-  db.prepare(`DELETE FROM agent_turns WHERE datetime(ts) < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')`).run();
+  db.prepare(
+    `DELETE FROM agent_turns WHERE datetime(ts) < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')
+       AND (run_id IS NULL OR run_id NOT IN (SELECT id FROM runs WHERE campaign_id IS NOT NULL AND datetime(at) >= datetime('now', '-' || ? || ' days')))`,
+  ).run(campaignDays);
+  /* The span ledger keeps its own window (QA_TELEMETRY_RETENTION_DAYS, default 30). A malformed value is reported loudly by the telemetry bootstrap; here it must not stop the history from opening. */
+  try {
+    pruneRunSpans(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
+    pruneSpecSnapshots(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
+  } catch (error) {
+    console.error(`[telemetry] span ledger prune failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   initialized = true;
 }
@@ -513,6 +765,8 @@ function rowToRecord(row: Record<string, unknown>): RunRecord {
 
 export function createRecord(opts: {
   app: string; sha: string; ref?: string; target: TestTarget; mode: RunMode; parentRunId?: string; triggerRepo?: string;
+  /* The campaign replicate this run is, and the content capture its trace was granted (already capped by the server). */
+  campaign?: CampaignIdentity; captureMode?: CaptureMode;
 }): RunRecord {
   ensureDb();
   const id = `run-${opts.sha.slice(0, 7)}-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
@@ -537,6 +791,10 @@ export function createRecord(opts: {
     triggerRepo: opts.triggerRepo ?? null,
     at,
     logs: "",
+    campaignId: opts.campaign?.id ?? null,
+    campaignVariant: opts.campaign ? JSON.stringify(opts.campaign.variant) : null,
+    campaignReplicate: opts.campaign?.replicate ?? null,
+    captureMode: opts.captureMode ?? null,
   });
 
   return {
@@ -555,6 +813,148 @@ export function createRecord(opts: {
   };
 }
 
+/* What a run recorded about its phases. Kept off RunRecord, which is the API's shape. */
+export interface RunPhases {
+  furthestPhase: string | null;
+  phaseTimings: Record<string, number> | null;
+}
+
+/* Stores where a run got and how long each phase took. Called once, when the run is finalized. */
+export function recordRunPhases(id: string, phases: { furthestPhase: string; phaseTimings: Record<string, number> }): void {
+  ensureDb();
+  db.prepare("UPDATE runs SET furthest_phase = ?, phase_timings = ? WHERE id = ?").run(phases.furthestPhase, JSON.stringify(phases.phaseTimings), id);
+}
+
+export function getRunPhases(id: string): RunPhases | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT furthest_phase, phase_timings FROM runs WHERE id = ?").get(id) as { furthest_phase: string | null; phase_timings: string | null } | undefined;
+  if (!row) return undefined;
+  return {
+    furthestPhase: row.furthest_phase,
+    phaseTimings: row.phase_timings === null ? null : safeJsonParse<Record<string, number> | null>(row.phase_timings, null),
+  };
+}
+
+/* The run whose trace has this id; the join from a Langfuse score back to the run store. Undefined for an unknown trace. */
+export function getRunIdByTraceId(traceId: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT id FROM runs WHERE trace_id = ? LIMIT 1").get(traceId) as { id: string } | undefined;
+  return row?.id;
+}
+
+/* What a run recorded about how it ended, beyond its verdict. Undefined: no such run. */
+export function getRunFacts(id: string): Required<RunFactsPatch> | undefined {
+  ensureDb();
+  const row = db.prepare(`SELECT ${FACT_COLUMNS.map(([, c]) => c).join(", ")} FROM runs WHERE id = ?`).get(id) as Record<string, string | number | null> | undefined;
+  if (!row) return undefined;
+  const flag = (v: string | number | null): boolean | null => (v === null ? null : v === 1);
+  return {
+    traceId: row.trace_id as string | null,
+    decision: row.decision as string | null,
+    limitFired: row.limit_fired as string | null,
+    limitRole: row.limit_role as string | null,
+    reviewRequired: flag(row.review_required!),
+    coverageStatus: row.coverage_status as string | null,
+    coverageMode: row.coverage_mode as string | null,
+    coverageMinRatio: row.coverage_min_ratio as number | null,
+    cancelled: flag(row.cancelled!),
+  };
+}
+
+/* The campaign a run belongs to, or undefined for an ordinary run (or no such run). */
+export function getRunCampaign(id: string): CampaignIdentity | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT campaign_id, campaign_variant, campaign_replicate FROM runs WHERE id = ?").get(id) as { campaign_id: string | null; campaign_variant: string | null; campaign_replicate: number | null } | undefined;
+  if (!row || row.campaign_id === null) return undefined;
+  return { id: row.campaign_id, variant: safeJsonParse<Record<string, string>>(row.campaign_variant ?? "{}", {}), replicate: row.campaign_replicate ?? 1 };
+}
+
+/* The capture mode the campaign's runs were granted (they all share one), or undefined when it has no run yet. */
+export function getCampaignCaptureMode(campaignId: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT capture_mode FROM runs WHERE campaign_id = ? AND capture_mode IS NOT NULL ORDER BY at ASC, rowid ASC LIMIT 1").get(campaignId) as { capture_mode: string } | undefined;
+  return row?.capture_mode;
+}
+
+export interface CampaignRunRecord {
+  id: string;
+  variant: Record<string, string>;
+  replicate: number;
+  status: string;
+  verdict: string | null;
+  evaluationStatus: string | null;
+}
+
+/* Every run of a campaign, oldest first, with its grading status (null: never graded). */
+export function listCampaignRuns(campaignId: string): CampaignRunRecord[] {
+  ensureDb();
+  const rows = db
+    .prepare(
+      `SELECT r.id, r.campaign_variant, r.campaign_replicate, r.status, r.verdict, e.status AS evaluation_status
+       FROM runs r LEFT JOIN run_evaluations e ON e.run_id = r.id
+       WHERE r.campaign_id = ? ORDER BY r.at ASC, r.rowid ASC`,
+    )
+    .all(campaignId) as Array<{ id: string; campaign_variant: string | null; campaign_replicate: number | null; status: string; verdict: string | null; evaluation_status: string | null }>;
+  return rows.map((r) => ({
+    id: r.id,
+    variant: safeJsonParse<Record<string, string>>(r.campaign_variant ?? "{}", {}),
+    replicate: r.campaign_replicate ?? 1,
+    status: r.status,
+    verdict: r.verdict,
+    evaluationStatus: r.evaluation_status,
+  }));
+}
+
+/* The finished runs of a campaign (a regrade covers only runs that are over). One more than `limit` is returned at most, so the caller can tell it was exceeded. */
+export function listFinishedCampaignRunIds(campaignId: string, limit: number): string[] {
+  ensureDb();
+  return (db.prepare("SELECT id FROM runs WHERE campaign_id = ? AND status = 'done' ORDER BY at ASC, rowid ASC LIMIT ?").all(campaignId, limit + 1) as Array<{ id: string }>).map((r) => r.id);
+}
+
+/* What the run recorded about the configuration it ran with at run time (JSON text; undefined: none recorded, or no such run), and the capture mode it applied. */
+export function recordEffectiveConfig(id: string, json: string): void {
+  ensureDb();
+  db.prepare("UPDATE runs SET effective_config = ? WHERE id = ?").run(json, id);
+}
+
+export function getStoredEffectiveConfig(id: string): { json: string | null; captureMode: string | null } | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT effective_config, capture_mode FROM runs WHERE id = ?").get(id) as { effective_config: string | null; capture_mode: string | null } | undefined;
+  return row ? { json: row.effective_config, captureMode: row.capture_mode } : undefined;
+}
+
+export interface RunFunnelRow {
+  furthestPhase: string | null;
+  verdict: string | null;
+  errorClass: string | null;
+  count: number;
+}
+
+/*
+ * How many finished runs ended where: grouped by the phase they got furthest into, their verdict and their error class
+ * (from the run's outcome row, null when it has none). A run that recorded no phase groups under null. Earliest phase
+ * first. Read-only.
+ */
+export function getRunFunnel(opts: { app?: string; since?: string } = {}): RunFunnelRow[] {
+  ensureDb();
+  const where = ["r.status = 'done'"];
+  const params: string[] = [];
+  if (opts.app !== undefined) { where.push("r.app = ?"); params.push(opts.app); }
+  if (opts.since !== undefined) { where.push("datetime(r.at) >= datetime(?)"); params.push(opts.since); }
+  const rows = db.prepare(
+    `SELECT r.furthest_phase AS furthestPhase, r.verdict AS verdict, o.error_class AS errorClass, COUNT(*) AS count
+     FROM runs r LEFT JOIN run_outcomes o ON o.id = r.id
+     WHERE ${where.join(" AND ")}
+     GROUP BY r.furthest_phase, r.verdict, o.error_class`,
+  ).all(...params) as RunFunnelRow[];
+  const rank = (phase: string | null): number => {
+    const i = phase === null ? -1 : (RUN_PHASES as readonly string[]).indexOf(phase);
+    return i === -1 ? RUN_PHASES.length : i;
+  };
+  const text = (v: string | null): string => v ?? "";
+  return rows.sort((a, b) => rank(a.furthestPhase) - rank(b.furthestPhase) || text(a.verdict).localeCompare(text(b.verdict)) || text(a.errorClass).localeCompare(text(b.errorClass)));
+}
+
 export function getRecord(id: string): RunRecord | undefined {
   ensureDb();
   const row = getRunStmt.get(id) as Record<string, unknown> | undefined;
@@ -567,13 +967,70 @@ export function listRecords(app: string, limit = 10): RunRecord[] {
   return rows.map(rowToRecord);
 }
 
+/* The runs that name `parentRunId` as their parent (a context heal, a /continue), newest first. Empty for a leaf run. */
+export function childrenOf(parentRunId: string): RunRecord[] {
+  ensureDb();
+  const rows = childrenStmt.all(parentRunId) as Record<string, unknown>[];
+  return rows.map(rowToRecord);
+}
+
 export function currentRun(): RunRecord | undefined {
   ensureDb();
   const row = currentRunStmt.get() as Record<string, unknown> | undefined;
   return row ? rowToRecord(row) : undefined;
 }
 
-export function updateRecord(id: string, patch: Partial<RunRecord>): void {
+/* A run's phase record as updateRecord takes it: written in the same statement as the status it accompanies. */
+export interface RunPhasesPatch {
+  furthestPhase: string;
+  /* Already known to serialize; see serializablePhases. */
+  phaseTimings: Record<string, number>;
+}
+
+/* The phases as they can be stored, or undefined (said on the console) when they cannot: a phase record never costs a run its final status. */
+export function serializablePhases(phases: RunPhasesPatch | undefined): RunPhasesPatch | undefined {
+  if (!phases) return undefined;
+  try {
+    JSON.stringify(phases.phaseTimings);
+    return phases;
+  } catch (err) {
+    console.error(`[qa] the phase record of a run could not be stored and is dropped: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+}
+
+/*
+ * What a run's trace and engine said about how it ended, stored with its final status. A key left out is not touched; null stores
+ * "the run recorded none". Grading reads these columns and never recomputes them from the app's current configuration.
+ */
+export interface RunFactsPatch {
+  traceId?: string | null;
+  decision?: string | null;
+  limitFired?: string | null;
+  limitRole?: string | null;
+  /* Whether the engine ran a reviewer for the run. */
+  reviewRequired?: boolean | null;
+  /* The engine's change-coverage decision (pass|fail|unknown), the policy mode and threshold in force. */
+  coverageStatus?: string | null;
+  coverageMode?: string | null;
+  coverageMinRatio?: number | null;
+  /* An operator cancelled the run. */
+  cancelled?: boolean | null;
+}
+
+const FACT_COLUMNS: ReadonlyArray<[keyof RunFactsPatch, string]> = [
+  ["traceId", "trace_id"], ["decision", "decision"], ["limitFired", "limit_fired"], ["limitRole", "limit_role"], ["reviewRequired", "review_required"],
+  ["coverageStatus", "coverage_status"], ["coverageMode", "coverage_mode"], ["coverageMinRatio", "coverage_min_ratio"], ["cancelled", "cancelled"],
+];
+
+/* The patch updateRecord takes: like RunRecord's optional fields, except stepDetail may be an explicit null so a step change can clear the last detail. */
+export type RunRecordPatch = Omit<Partial<RunRecord>, "stepDetail"> & {
+  stepDetail?: string | null;
+  phases?: RunPhasesPatch;
+  facts?: RunFactsPatch;
+};
+
+export function updateRecord(id: string, patch: RunRecordPatch): void {
   ensureDb();
   const setClauses: string[] = [];
   const params: Array<unknown> = [];
@@ -596,6 +1053,17 @@ export function updateRecord(id: string, patch: Partial<RunRecord>): void {
   if (patch.failed !== undefined) add("failed", patch.failed);
   if (patch.note !== undefined) add("note", patch.note);
   if (patch.retrying !== undefined) add("retrying", patch.retrying ? 1 : 0);
+  if (patch.phases !== undefined) {
+    add("furthest_phase", patch.phases.furthestPhase);
+    add("phase_timings", JSON.stringify(patch.phases.phaseTimings));
+  }
+  if (patch.facts !== undefined) {
+    for (const [key, column] of FACT_COLUMNS) {
+      const v = patch.facts[key];
+      if (v === undefined) continue;
+      add(column, typeof v === "boolean" ? (v ? 1 : 0) : v);
+    }
+  }
 
   if (setClauses.length > 0) {
     params.push(id);
@@ -626,6 +1094,7 @@ export function addCase(id: string, c: QaCase): void {
     name: c.name,
     status: c.status,
     detail: c.detail ?? null,
+    file: c.file ?? null,
   });
 
   const { passed, failed } = recalcCounts(id);
@@ -704,6 +1173,30 @@ export function saveRunOutcome(outcome: RunOutcome): void {
     rulesRetrieved: JSON.stringify(outcome.rulesRetrieved),
     reflection: outcome.reflection ? JSON.stringify(outcome.reflection) : null,
     at: outcome.at,
+  });
+}
+
+/*
+ * A run that ended on an unhandled error keeps the class the shell reports. The engine may already have persisted an outcome
+ * carrying the evidence the sandbox saw, with a placeholder class: that row is reclassified, never replaced, and a run that has
+ * no outcome row gets the minimal one. The run's record, its outcome, the trace root, the run metric and the infra_error grader
+ * then name one class, and the outcome says the verdict the record does.
+ */
+export function saveCrashedRunOutcome(record: RunRecord, errorClass: ErrorClass): void {
+  ensureDb();
+  const reclassified = db.prepare("UPDATE run_outcomes SET verdict = 'infra-error', error_class = ? WHERE id = ?").run(errorClass, record.id).changes;
+  if (reclassified > 0) return;
+  saveRunOutcome({
+    runId: record.id,
+    app: record.app,
+    sha: record.sha,
+    mode: record.mode,
+    target: record.target,
+    verdict: "infra-error",
+    errorClass,
+    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: [],
+    at: new Date().toISOString(),
   });
 }
 
@@ -796,6 +1289,7 @@ function rowToRule(row: Record<string, unknown>): LearningRule {
     source: row.source as string,
     status: normalizeRuleStatus(row.status),
     at: row.at as string,
+    quarantinedAt: (row.quarantined_at as string | null | undefined) ?? null,
   };
 }
 
@@ -879,6 +1373,8 @@ export function recordRuleOutcome(ruleId: string, score: number, coverageCreditC
   if (!row) return;
   const current = rowToRule(row);
   if (current.status !== "active" && current.status !== "candidate") return;
+  /* A rule an operator set aside accrues nothing, even for a run that retrieved it before the quarantine. */
+  if (current.quarantinedAt) return;
   /*
    * rowToRule already normalized a retired "pending" status to "candidate" (RuleStatus no longer
    * carries it), so the shell LearningRule is structurally assignable to the fold's own
@@ -916,6 +1412,29 @@ export function setRuleStatusByHuman(ruleId: string, status: "deprecated" | "act
 }
 
 /*
+ * Operator quarantine (npm run learning:quarantine): sets the named rules of ONE app aside without deleting them. A
+ * quarantined rule is excluded from every retrieval and live-ledger read above and refused by recordRuleOutcome, so it
+ * is never injected into a prompt and never credited. Only rules not yet quarantined are marked, so the first mark is
+ * kept and a second run of the command changes nothing. Returns how many rules this call newly marked.
+ */
+export function quarantineLearningRules(app: string, ruleIds: readonly string[], at: string): number {
+  ensureDb();
+  const mark = db.prepare("UPDATE learning_rules SET quarantined_at = ? WHERE app = ? AND id = ? AND quarantined_at IS NULL");
+  const markAll = db.transaction((ids: readonly string[]) => {
+    let marked = 0;
+    for (const id of ids) marked += mark.run(at, app, id).changes;
+    return marked;
+  });
+  return markAll(ruleIds);
+}
+
+/* Lifts a quarantine: the rule is in force again. False when the rule is unknown or was not quarantined. */
+export function releaseLearningRuleQuarantine(ruleId: string): boolean {
+  ensureDb();
+  return db.prepare("UPDATE learning_rules SET quarantined_at = NULL WHERE id = ? AND quarantined_at IS NOT NULL").run(ruleId).changes > 0;
+}
+
+/*
  * Mark an app's architecture map as stale so the next generating run rebuilds it. Used by the
  * process-audit context-heal: a file-level invalidation of e2e/.qa/context.json does NOT survive
  * the next run's `git checkout -f`/`git clean -fd`, but this DB flag does. Idempotent (latest wins).
@@ -935,6 +1454,19 @@ export function isContextStale(app: string): boolean {
 export function clearContextStale(app: string): void {
   ensureDb();
   db.prepare("DELETE FROM context_stale WHERE app = ?").run(app);
+}
+
+/* When an off-path context-map rebuild was last requested for the app, ISO-8601; undefined when never. */
+export function lastContextHealRequestAt(app: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT at FROM context_heal_requests WHERE app = ?").get(app) as { at: string } | undefined;
+  return row?.at;
+}
+
+/* Record that an off-path rebuild was requested now. Idempotent: the latest request wins. */
+export function recordContextHealRequest(app: string): void {
+  ensureDb();
+  db.prepare("INSERT OR REPLACE INTO context_heal_requests (app, at) VALUES (?, ?)").run(app, new Date().toISOString());
 }
 
 /*
@@ -975,6 +1507,430 @@ export function saveRunEvent(event: { runId: string; seq: number; ts: number; bo
     event.ts,
     JSON.stringify(event.body),
   );
+}
+
+/* One row of the span ledger. `startNs`/`endNs` are epoch nanoseconds. */
+export interface RunSpanRow {
+  traceId: string;
+  spanId: string;
+  parentSpanId: string | null;
+  runId: string | null;
+  name: string;
+  kind: string;
+  startNs: bigint;
+  endNs: bigint | null;
+  status: string;
+  statusMessage: string | null;
+  /* JSON text. */
+  attrs: string;
+  events: string;
+  links: string;
+}
+
+function campaignRetentionDays(): number {
+  try {
+    return parseCampaignRetentionDays(process.env.QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS);
+  } catch (error) {
+    console.error(`[telemetry] ${error instanceof Error ? error.message : String(error)}; keeping ${DEFAULT_CAMPAIGN_RETENTION_DAYS} days`);
+    return DEFAULT_CAMPAIGN_RETENTION_DAYS;
+  }
+}
+
+function spanRetentionDays(): number {
+  try {
+    return parseRetentionDays(process.env.QA_TELEMETRY_RETENTION_DAYS);
+  } catch (error) {
+    console.error(`[telemetry] ${error instanceof Error ? error.message : String(error)}; keeping ${DEFAULT_SPAN_RETENTION_DAYS} days`);
+    return DEFAULT_SPAN_RETENTION_DAYS;
+  }
+}
+
+/*
+ * Upserts a batch of ledger rows in ONE transaction. A row carries every column, so an update of a span whose
+ * start row was lost (a failed earlier batch) still lands complete.
+ */
+export function commitRunSpans(rows: readonly RunSpanRow[]): void {
+  ensureDb();
+  const upsert = db.prepare(`
+    INSERT INTO run_spans (trace_id, span_id, parent_span_id, run_id, name, kind, start_ns, end_ns, status, status_message, attrs, events, links)
+    VALUES (@traceId, @spanId, @parentSpanId, @runId, @name, @kind, @startNs, @endNs, @status, @statusMessage, @attrs, @events, @links)
+    ON CONFLICT(trace_id, span_id) DO UPDATE SET
+      parent_span_id = excluded.parent_span_id, run_id = excluded.run_id, name = excluded.name, kind = excluded.kind,
+      start_ns = excluded.start_ns, end_ns = excluded.end_ns, status = excluded.status, status_message = excluded.status_message,
+      attrs = excluded.attrs, events = excluded.events, links = excluded.links`);
+  db.transaction((batch: readonly RunSpanRow[]) => {
+    for (const row of batch) upsert.run(row);
+  })(rows);
+}
+
+export function listRunSpans(runId: string): RunSpanRow[] {
+  ensureDb();
+  const rows = db
+    .prepare("SELECT * FROM run_spans WHERE run_id = ? ORDER BY start_ns, span_id")
+    .safeIntegers()
+    .all(runId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    traceId: r.trace_id as string,
+    spanId: r.span_id as string,
+    parentSpanId: (r.parent_span_id as string | null) ?? null,
+    runId: (r.run_id as string | null) ?? null,
+    name: r.name as string,
+    kind: r.kind as string,
+    startNs: r.start_ns as bigint,
+    endNs: (r.end_ns as bigint | null) ?? null,
+    status: r.status as string,
+    statusMessage: (r.status_message as string | null) ?? null,
+    attrs: r.attrs as string,
+    events: r.events as string,
+    links: r.links as string,
+  }));
+}
+
+/* A stored score as the evaluation store reads and writes it; `value` is the typed value, serialized as JSON in the table. */
+export interface ScoreRow {
+  runId: string;
+  name: string;
+  graderVersion: string;
+  dataType: string;
+  polarity: string;
+  source: string;
+  value: number | boolean | string;
+  comment: string | null;
+  observationId: string | null;
+  /* LLM-judge scores only. */
+  judgeModel?: string | null;
+}
+
+/*
+ * Stores scores in one transaction. First it deletes what the regrade supersedes (a name the graders no longer emit must not
+ * outlive it): every row of the run at `graderVersion`, or only the given base names and their `.<suffix>` expansions. Then it
+ * inserts. The key is (run, name, grader version).
+ */
+export function replaceRunScores(rows: readonly ScoreRow[], gradedAt: string, scope?: { runId: string; graderVersion: string; baseNames?: readonly string[] }): void {
+  ensureDb();
+  const upsert = db.prepare(`
+    INSERT INTO run_scores (run_id, name, grader_version, data_type, polarity, source, value, comment, observation_id, graded_at, judge_model)
+    VALUES (@runId, @name, @graderVersion, @dataType, @polarity, @source, @value, @comment, @observationId, @gradedAt, @judgeModel)
+    ON CONFLICT(run_id, name, grader_version) DO UPDATE SET
+      data_type = excluded.data_type, polarity = excluded.polarity, source = excluded.source, value = excluded.value,
+      comment = excluded.comment, observation_id = excluded.observation_id, graded_at = excluded.graded_at, judge_model = excluded.judge_model`);
+  const deleteAll = db.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ?");
+  /* substr, not LIKE: the underscore in a score name is a LIKE wildcard. */
+  const deleteNamed = db.prepare("DELETE FROM run_scores WHERE run_id = ? AND grader_version = ? AND (name = ? OR substr(name, 1, ?) = ?)");
+  db.transaction((batch: readonly ScoreRow[]) => {
+    if (scope) {
+      if (scope.baseNames) {
+        for (const base of scope.baseNames) deleteNamed.run(scope.runId, scope.graderVersion, base, base.length + 1, `${base}.`);
+      } else {
+        deleteAll.run(scope.runId, scope.graderVersion);
+      }
+    }
+    for (const r of batch) upsert.run({ ...r, judgeModel: r.judgeModel ?? null, value: JSON.stringify(r.value), gradedAt });
+  })(rows);
+}
+
+/* A stored value must be of the type its row declares; a row that is not is skipped and said, never shipped as an empty or wrong value. */
+function scoreValueOf(raw: string, dataType: string): number | boolean | string | undefined {
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (dataType === "NUMERIC") return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  if (dataType === "BOOLEAN") return typeof v === "boolean" ? v : undefined;
+  if (dataType === "CATEGORICAL") return typeof v === "string" ? v : undefined;
+  return undefined;
+}
+
+export function listRunScoreRows(runId: string): ScoreRow[] {
+  ensureDb();
+  const rows = db.prepare("SELECT * FROM run_scores WHERE run_id = ? ORDER BY name, grader_version").all(runId) as Array<Record<string, unknown>>;
+  const out: ScoreRow[] = [];
+  for (const r of rows) {
+    const value = scoreValueOf(r.value as string, r.data_type as string);
+    if (value === undefined) {
+      console.error(`[evaluation] skipping a corrupt score row: run ${runId}, ${String(r.name)}@${String(r.grader_version)} (${String(r.data_type)})`);
+      continue;
+    }
+    out.push({
+      runId: r.run_id as string,
+      name: r.name as string,
+      graderVersion: r.grader_version as string,
+      dataType: r.data_type as string,
+      polarity: r.polarity as string,
+      source: r.source as string,
+      value,
+      comment: (r.comment as string | null) ?? null,
+      observationId: (r.observation_id as string | null) ?? null,
+      judgeModel: (r.judge_model as string | null) ?? null,
+    });
+  }
+  return out;
+}
+
+export interface JudgeAttemptRow {
+  runId: string;
+  judge: string;
+  promptVersion: string;
+  model: string | null;
+  outcome: string;
+  tokens: number;
+  detail: string | null;
+  at: string;
+}
+
+export function insertJudgeAttempt(row: JudgeAttemptRow): void {
+  ensureDb();
+  db.prepare(
+    "INSERT INTO judge_attempts (run_id, judge, prompt_version, model, outcome, tokens, detail, at) VALUES (@runId, @judge, @promptVersion, @model, @outcome, @tokens, @detail, @at)",
+  ).run(row);
+}
+
+/* The newest outcome recorded for the run, judge and prompt version; undefined when never attempted. */
+export function lastJudgeOutcome(runId: string, judge: string, promptVersion: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT outcome FROM judge_attempts WHERE run_id = ? AND judge = ? AND prompt_version = ? ORDER BY id DESC LIMIT 1").get(runId, judge, promptVersion) as { outcome: string } | undefined;
+  return row?.outcome;
+}
+
+/* The model that answered the judge's newest scored attempt of the prompt version; undefined when it has none. */
+export function latestJudgeModel(judge: string, promptVersion: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT model FROM judge_attempts WHERE judge = ? AND prompt_version = ? AND outcome = 'scored' AND model IS NOT NULL ORDER BY id DESC LIMIT 1").get(judge, promptVersion) as { model: string } | undefined;
+  return row?.model;
+}
+
+/* Tokens the judge attempts of a UTC day (YYYY-MM-DD) used. */
+export function judgeTokensUsedOn(day: string): number {
+  ensureDb();
+  const row = db.prepare("SELECT COALESCE(SUM(tokens), 0) AS used FROM judge_attempts WHERE substr(at, 1, 10) = ?").get(day) as { used: number };
+  return row.used;
+}
+
+/* How many attempts ended each way over the window starting at `sinceIso`: the count of unparseable replies is what a judge's prompt author reads. */
+export function judgeOutcomeCounts(judge: string, sinceIso: string): Record<string, number> {
+  ensureDb();
+  const rows = db.prepare("SELECT outcome, COUNT(*) AS n FROM judge_attempts WHERE judge = ? AND at >= ? GROUP BY outcome").all(judge, sinceIso) as Array<{ outcome: string; n: number }>;
+  return Object.fromEntries(rows.map((r) => [r.outcome, r.n]));
+}
+
+export interface JudgeCalibrationRow {
+  judge: string;
+  promptVersion: string;
+  model: string;
+  trainN: number;
+  devN: number;
+  testN: number;
+  tpr: number | null;
+  tnr: number | null;
+  agreement: number | null;
+  status: string;
+  /* The full report as JSON. */
+  report: string;
+  computedAt: string;
+}
+
+export function insertJudgeCalibration(row: JudgeCalibrationRow): void {
+  ensureDb();
+  db.prepare(
+    `INSERT INTO judge_calibrations (judge, prompt_version, model, train_n, dev_n, test_n, tpr, tnr, agreement, status, report, computed_at)
+     VALUES (@judge, @promptVersion, @model, @trainN, @devN, @testN, @tpr, @tnr, @agreement, @status, @report, @computedAt)`,
+  ).run(row);
+}
+
+/* The newest calibration of the judge for exactly this prompt version. */
+export function latestJudgeCalibration(judge: string, promptVersion: string): JudgeCalibrationRow | undefined {
+  ensureDb();
+  const r = db.prepare("SELECT * FROM judge_calibrations WHERE judge = ? AND prompt_version = ? ORDER BY id DESC LIMIT 1").get(judge, promptVersion) as Record<string, unknown> | undefined;
+  if (!r) return undefined;
+  return {
+    judge: r.judge as string,
+    promptVersion: r.prompt_version as string,
+    model: r.model as string,
+    trainN: r.train_n as number,
+    devN: r.dev_n as number,
+    testN: r.test_n as number,
+    tpr: (r.tpr as number | null) ?? null,
+    tnr: (r.tnr as number | null) ?? null,
+    agreement: (r.agreement as number | null) ?? null,
+    status: r.status as string,
+    report: r.report as string,
+    computedAt: r.computed_at as string,
+  };
+}
+
+/*
+ * The scores of the judge's newest (grader version, model) group paired with the human labels of the same runs. "Newest" is the group
+ * with the latest graded_at: a judge whose prompt or model changed is calibrated for what it is now, never for what it was.
+ */
+export function listJudgeLabelPairs(judge: string): { graderVersion: string; model: string; pairs: Array<{ runId: string; human: number | boolean | string; judge: number | boolean | string }> } | undefined {
+  ensureDb();
+  const newest = db
+    .prepare("SELECT grader_version, judge_model FROM run_scores WHERE name = ? AND source = 'llm_judge' ORDER BY graded_at DESC, rowid DESC LIMIT 1")
+    .get(judge) as { grader_version: string; judge_model: string | null } | undefined;
+  if (!newest) return undefined;
+  const judged = db
+    .prepare("SELECT run_id, value, data_type FROM run_scores WHERE name = ? AND source = 'llm_judge' AND grader_version = ? AND judge_model IS ?")
+    .all(judge, newest.grader_version, newest.judge_model) as Array<{ run_id: string; value: string; data_type: string }>;
+  const labels = new Map(
+    (db.prepare("SELECT run_id, value, data_type FROM run_scores WHERE name = ? AND source = 'human'").all(judge) as Array<{ run_id: string; value: string; data_type: string }>).map((r) => [r.run_id, r]),
+  );
+  const pairs: Array<{ runId: string; human: number | boolean | string; judge: number | boolean | string }> = [];
+  for (const j of judged) {
+    const human = labels.get(j.run_id);
+    if (!human) continue;
+    const humanValue = scoreValueOf(human.value, human.data_type);
+    const judgeValue = scoreValueOf(j.value, j.data_type);
+    if (humanValue !== undefined && judgeValue !== undefined) pairs.push({ runId: j.run_id, human: humanValue, judge: judgeValue });
+  }
+  return { graderVersion: newest.grader_version, model: newest.judge_model ?? "unknown", pairs };
+}
+
+export function setRunEvaluationStatus(runId: string, status: string, at: string): void {
+  ensureDb();
+  db.prepare(
+    "INSERT INTO run_evaluations (run_id, status, updated_at) VALUES (?, ?, ?) ON CONFLICT(run_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at",
+  ).run(runId, status, at);
+}
+
+/* Null: the run was never graded. */
+export function getRunEvaluationStatus(runId: string): string | null {
+  ensureDb();
+  const row = db.prepare("SELECT status FROM run_evaluations WHERE run_id = ?").get(runId) as { status: string } | undefined;
+  return row?.status ?? null;
+}
+
+export function runExists(runId: string): boolean {
+  ensureDb();
+  return db.prepare("SELECT 1 FROM runs WHERE id = ?").get(runId) !== undefined;
+}
+
+/* Ids of the runs that finished (status done) at or after `sinceIso`, oldest first. */
+export function listFinishedRunIdsSince(sinceIso: string): string[] {
+  ensureDb();
+  const rows = db.prepare("SELECT id FROM runs WHERE status = 'done' AND datetime(at) >= datetime(?) ORDER BY at, rowid").all(sinceIso) as Array<{ id: string }>;
+  return rows.map((r) => r.id);
+}
+
+export interface RegradeJobRow {
+  jobId: string;
+  status: string;
+  runIds: string[];
+  graders: string[] | null;
+  runs: number;
+  graded: number;
+  failed: Array<{ runId: string; error: string }>;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export function saveRegradeJob(job: RegradeJobRow): void {
+  ensureDb();
+  db.prepare(`
+    INSERT INTO regrade_jobs (job_id, status, run_ids, graders, runs, graded, failed, started_at, finished_at)
+    VALUES (@jobId, @status, @runIds, @graders, @runs, @graded, @failed, @startedAt, @finishedAt)
+    ON CONFLICT(job_id) DO UPDATE SET status = excluded.status, graded = excluded.graded, failed = excluded.failed, finished_at = excluded.finished_at`)
+    .run({ ...job, runIds: JSON.stringify(job.runIds), graders: job.graders ? JSON.stringify(job.graders) : null, failed: JSON.stringify(job.failed) });
+}
+
+export function getRegradeJob(jobId: string): RegradeJobRow | undefined {
+  ensureDb();
+  const r = db.prepare("SELECT * FROM regrade_jobs WHERE job_id = ?").get(jobId) as Record<string, unknown> | undefined;
+  if (!r) return undefined;
+  return {
+    jobId: r.job_id as string,
+    status: r.status as string,
+    runIds: safeJsonParse<string[]>(r.run_ids as string, []),
+    graders: typeof r.graders === "string" ? safeJsonParse<string[] | null>(r.graders, null) : null,
+    runs: r.runs as number,
+    graded: r.graded as number,
+    failed: safeJsonParse<Array<{ runId: string; error: string }>>(r.failed as string, []),
+    startedAt: r.started_at as string,
+    finishedAt: (r.finished_at as string | null) ?? null,
+  };
+}
+
+/* A job a previous process left pending or running will never finish: it ends failed, with the reason. Returns how many. */
+export function failInterruptedRegradeJobs(at: string): number {
+  ensureDb();
+  return db
+    .prepare("UPDATE regrade_jobs SET status = 'failed', finished_at = ?, failed = json_insert(failed, '$[#]', json_object('runId', '', 'error', 'process restarted while the job was open')) WHERE status IN ('pending', 'running')")
+    .run(at).changes;
+}
+
+export function countRunSpans(): number {
+  ensureDb();
+  return (db.prepare("SELECT COUNT(*) AS n FROM run_spans").get() as { n: number }).n;
+}
+
+/* Rows one prune pass may delete, so a large backlog never holds the write lock for long. */
+export const RUN_SPAN_PRUNE_CHUNK = 5000;
+
+/* Drops up to `limit` ledger spans that started more than `days` before `nowMs`, and returns how many. A non-finite cutoff prunes nothing. */
+export function pruneRunSpans(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK, campaignDays?: number): number {
+  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(cutoffMs)) return 0;
+  const keep = campaignKeepClause("run_id", nowMs, campaignDays);
+  return db
+    .prepare(`DELETE FROM run_spans WHERE rowid IN (SELECT rowid FROM run_spans WHERE start_ns < ? ${keep.sql} LIMIT ?)`)
+    .run(BigInt(Math.floor(cutoffMs)) * 1_000_000n, ...keep.params, limit).changes;
+}
+
+/* The rows of a campaign run younger than the campaign window are exempt from the ordinary window (R4). */
+function campaignKeepClause(column: string, nowMs: number, campaignDays: number | undefined): { sql: string; params: string[] } {
+  if (campaignDays === undefined || !Number.isFinite(nowMs - campaignDays * 86_400_000)) return { sql: "", params: [] };
+  return {
+    sql: `AND (${column} IS NULL OR ${column} NOT IN (SELECT id FROM runs WHERE campaign_id IS NOT NULL AND at >= ?))`,
+    params: [new Date(nowMs - campaignDays * 86_400_000).toISOString()],
+  };
+}
+
+export interface SpecSnapshotRow {
+  runId: string;
+  path: string;
+  sha256: string;
+  text: string;
+  bytes: number;
+  /* Epoch ms. */
+  capturedAt: number;
+  /* 1 when the run delivered the spec. */
+  delivered: number;
+}
+
+/* Keeps the snapshots of a run's specs in ONE transaction. A row already kept (same run, path and bytes) is left as it is. */
+export function commitSpecSnapshots(rows: readonly SpecSnapshotRow[]): void {
+  ensureDb();
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO run_spec_snapshots (run_id, path, sha256, text, bytes, captured_at, delivered)
+    VALUES (@runId, @path, @sha256, @text, @bytes, @capturedAt, @delivered)`);
+  db.transaction((batch: readonly SpecSnapshotRow[]) => {
+    for (const row of batch) insert.run(row);
+  })(rows);
+}
+
+export function listSpecSnapshots(runId: string): SpecSnapshotRow[] {
+  ensureDb();
+  const rows = db.prepare("SELECT * FROM run_spec_snapshots WHERE run_id = ? ORDER BY captured_at, path").all(runId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    runId: r.run_id as string,
+    path: r.path as string,
+    sha256: r.sha256 as string,
+    text: r.text as string,
+    bytes: r.bytes as number,
+    capturedAt: r.captured_at as number,
+    delivered: r.delivered as number,
+  }));
+}
+
+/* Drops up to `limit` snapshots kept more than `days` before `nowMs`, and returns how many: the window of the span ledger. */
+export function pruneSpecSnapshots(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK, campaignDays?: number): number {
+  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(cutoffMs)) return 0;
+  const keep = campaignKeepClause("run_id", nowMs, campaignDays);
+  return db
+    .prepare(`DELETE FROM run_spec_snapshots WHERE rowid IN (SELECT rowid FROM run_spec_snapshots WHERE captured_at < ? ${keep.sql} LIMIT ?)`)
+    .run(Math.floor(cutoffMs), ...keep.params, limit).changes;
 }
 
 export function loadRunEvents(runId: string, afterSeq = -1): Array<{ runId: string; seq: number; ts: number; body: unknown }> {
@@ -1020,6 +1976,25 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
     /* exhausted is tri-state: NULL = unknown, 0 = known not exhausted, 1 = exhausted. */
     exhausted: turn.exhausted == null ? null : turn.exhausted ? 1 : 0,
     callBuckets: turn.callBuckets ? JSON.stringify(turn.callBuckets) : null,
+    ended: turn.ended ?? null,
+    durationMs: turn.durationMs ?? null,
+    timeToFirstCallMs: turn.timeToFirstCallMs ?? null,
+    timeToFirstWriteMs: turn.timeToFirstWriteMs ?? null,
+    deniedCallCount: turn.deniedCallCount ?? null,
+    toolSequence: turn.toolSequence ? JSON.stringify(turn.toolSequence) : null,
+    usageTotal: turn.usageTotal ? JSON.stringify(turn.usageTotal) : null,
+    modelRequested: turn.modelRequested ?? null,
+    modelAnswered: turn.modelAnswered ?? null,
+    provider: turn.provider ?? null,
+    attempt: turn.attempt ?? null,
+    /* fallback_used is tri-state like exhausted: NULL = unknown. */
+    fallbackUsed: turn.fallbackUsed == null ? null : turn.fallbackUsed ? 1 : 0,
+    errorType: turn.errorType ?? null,
+    sectionSizes: turn.sectionSizes ? JSON.stringify(turn.sectionSizes) : null,
+    sectionHashes: turn.sectionHashes ? JSON.stringify(turn.sectionHashes) : null,
+    promptHash: turn.promptHash ?? null,
+    limitApplied: turn.limitApplied ?? null,
+    limitFired: turn.limitFired ?? null,
   });
 }
 
@@ -1057,6 +2032,24 @@ export function saveAgentTurnEvent(t: AgentTurnEvent): void {
     promptProvidedReadCount: t.callMetrics?.promptProvidedReadCount ?? null,
     pathProvidedReadCount: t.callMetrics?.pathProvidedReadCount ?? null,
     callBuckets: t.callMetrics?.buckets ?? null,
+    ended: t.ended ?? null,
+    durationMs: t.durationMs ?? null,
+    timeToFirstCallMs: t.callMetrics?.timeToFirstCallMs ?? null,
+    timeToFirstWriteMs: t.callMetrics?.timeToFirstWriteMs ?? null,
+    deniedCallCount: t.callMetrics?.deniedCallCount ?? null,
+    toolSequence: t.callMetrics?.toolSequence ?? null,
+    usageTotal: t.callMetrics?.usage ?? null,
+    modelRequested: t.modelRequested ?? null,
+    modelAnswered: t.modelAnswered ?? null,
+    provider: t.provider ?? null,
+    attempt: t.attempt ?? null,
+    fallbackUsed: t.fallbackUsed ?? null,
+    errorType: t.errorType ?? null,
+    sectionSizes: t.sectionSizes,
+    sectionHashes: t.sectionHashes ?? null,
+    promptHash: t.promptHash ?? null,
+    limitApplied: t.limitApplied ?? null,
+    limitFired: t.limitFired ?? null,
   });
 }
 
@@ -1092,7 +2085,77 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
     pathProvidedReadCount: (r.path_provided_read_count as number | null) ?? null,
     exhausted: r.exhausted == null ? null : Boolean(r.exhausted),
     callBuckets: typeof r.call_buckets === "string" ? safeJsonParse<Record<string, number> | null>(r.call_buckets, null) : null,
+    ended: (r.ended as TurnEnd | null) ?? null,
+    durationMs: (r.duration_ms as number | null) ?? null,
+    timeToFirstCallMs: (r.time_to_first_call_ms as number | null) ?? null,
+    timeToFirstWriteMs: (r.time_to_first_write_ms as number | null) ?? null,
+    deniedCallCount: (r.denied_call_count as number | null) ?? null,
+    toolSequence: typeof r.tool_sequence === "string" ? toolSequenceOrNull(safeJsonParse<unknown>(r.tool_sequence, null)) : null,
+    usageTotal: typeof r.usage_total === "string" ? safeJsonParse<TurnUsage | null>(r.usage_total, null) : null,
   }));
+}
+
+/* What a turn's trace mirrors, in the order of `getAgentTurns` for the same run (the rows are the same, by id). Separate from the public turn view, which does not carry it. Every field is null for a turn that carried none of it. */
+export interface AgentTurnTraceRecord {
+  sessionId: string;
+  round: number;
+  modelRequested: string | null;
+  modelAnswered: string | null;
+  provider: string | null;
+  attempt: number | null;
+  fallbackUsed: boolean | null;
+  errorType: string | null;
+  sectionSizes: Record<string, number> | null;
+  sectionHashes: Record<string, string> | null;
+  promptHash: string | null;
+  limitApplied: string | null;
+  limitFired: string | null;
+}
+
+/* What each turn of a run says about the role that ran it: the model asked for and the one that answered, its provider and the step limit the prompt stated. In turn order. */
+export interface AgentRoleFacts {
+  role: string;
+  provider: string | null;
+  modelRequested: string | null;
+  modelAnswered: string | null;
+  maxSteps: number | null;
+}
+
+export function getAgentRoleFacts(runId: string): AgentRoleFacts[] {
+  ensureDb();
+  const rows = db.prepare("SELECT role, provider, model_requested, model_answered, max_steps FROM agent_turns WHERE run_id = ? ORDER BY id ASC").all(runId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    role: r.role as string,
+    provider: (r.provider as string | null) ?? null,
+    modelRequested: (r.model_requested as string | null) ?? null,
+    modelAnswered: (r.model_answered as string | null) ?? null,
+    maxSteps: (r.max_steps as number | null) ?? null,
+  }));
+}
+
+export function getAgentTurnTraces(runId: string): AgentTurnTraceRecord[] {
+  ensureDb();
+  const rows = getAgentTurnsStmt.all(runId) as Array<Record<string, unknown>>;
+  return rows.map((r) => ({
+    sessionId: r.session_id as string,
+    round: r.round as number,
+    modelRequested: (r.model_requested as string | null) ?? null,
+    modelAnswered: (r.model_answered as string | null) ?? null,
+    provider: (r.provider as string | null) ?? null,
+    attempt: (r.attempt as number | null) ?? null,
+    fallbackUsed: r.fallback_used == null ? null : Boolean(r.fallback_used),
+    errorType: (r.error_type as string | null) ?? null,
+    sectionSizes: typeof r.section_sizes === "string" ? safeJsonParse<Record<string, number> | null>(r.section_sizes, null) : null,
+    sectionHashes: typeof r.section_hashes === "string" ? safeJsonParse<Record<string, string> | null>(r.section_hashes, null) : null,
+    promptHash: (r.prompt_hash as string | null) ?? null,
+    limitApplied: (r.limit_applied as string | null) ?? null,
+    limitFired: (r.limit_fired as string | null) ?? null,
+  }));
+}
+
+/* A stored sequence is only trusted as a list of entries; anything else reads as unknown. */
+function toolSequenceOrNull(value: unknown): ToolSequenceEntry[] | null {
+  return Array.isArray(value) ? (value as ToolSequenceEntry[]) : null;
 }
 
 /*

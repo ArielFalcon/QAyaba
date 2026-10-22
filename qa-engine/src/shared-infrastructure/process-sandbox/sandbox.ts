@@ -1,7 +1,7 @@
 /* Privilege-drop sandbox for untrusted code. scrubEnv removes secrets from the environment, but watched-repo commands still run as the orchestrator user (root in the container) with its filesystem — a test could read the API token, tamper with /app, write sibling mirrors, or plant a .git hook that later runs as root on publish. Untrusted spawns run as the image's `sandbox` user; the working copy is chowned to it. `.git` stays root-owned. NETWORK is left intact (Maven/Gradle resolve deps). `resolveSandbox` does not read process.env — the composition-root shell passes env in (the one standing env-read exception in qa-engine is scrub-env.ts). */
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { ALLOWED_ENV_PREFIX } from "./scrub-env.ts";
 
@@ -73,14 +73,17 @@ function rebaseUnderHome(value: string, fromHome: string, toHome: string): strin
 export function sandboxSpawnOptions(
   base: Record<string, string>,
   sandbox: Sandbox | null,
+  /* The home the child gets. The launcher passes a directory inside the run's work dir, which dies with the run: a home that persisted would carry what one child planted (a toolchain cache, a config, a shell profile) into every later child and every later run. Absent: the sandbox's own home, which is only for a caller outside a run. */
+  home: string | undefined = sandbox?.home,
 ): { env: Record<string, string>; uid?: number; gid?: number } {
   if (!sandbox) return { env: base };
+  const toHome = home ?? sandbox.home;
   const fromHome = base.HOME ?? "";
-  const env: Record<string, string> = { HOME: sandbox.home, USER: "sandbox", LOGNAME: "sandbox" };
+  const env: Record<string, string> = { HOME: toHome, USER: "sandbox", LOGNAME: "sandbox" };
   for (const [key, value] of Object.entries(base)) {
     if (key === "HOME" || key === "USER" || key === "LOGNAME") continue;
     if (SANDBOX_DROP_ENV_EXACT.has(key)) continue;
-    env[key] = ALLOWED_ENV_PREFIX.test(key) ? rebaseUnderHome(value, fromHome, sandbox.home) : value;
+    env[key] = ALLOWED_ENV_PREFIX.test(key) ? rebaseUnderHome(value, fromHome, toHome) : value;
   }
   return { env, uid: sandbox.uid, gid: sandbox.gid };
 }
@@ -91,4 +94,38 @@ export function prepareSandboxWorkdir(repoDir: string, sandbox: Sandbox | null):
   execFileSync("chown", ["-R", `${sandbox.uid}:${sandbox.gid}`, repoDir], { stdio: "ignore" });
   const gitDir = join(repoDir, ".git");
   if (existsSync(gitDir)) execFileSync("chown", ["-R", "0:0", gitDir], { stdio: "ignore" });
+}
+
+export type ChownRunner = (args: readonly string[]) => void;
+const defaultChown: ChownRunner = (args) => { execFileSync("chown", [...args], { stdio: "ignore" }); };
+
+/* An e2e project is installed by the sandbox uid (its package.json lifecycle scripts are agent-authored), and its mirror is read-only to that uid: only `node_modules` and the project directory entry itself are handed over for the install, and `sealInstallTree` takes both back. A `node_modules` that is not a real directory (a link planted there) is removed first, so the recursive chown can never be pointed elsewhere. No-op when the sandbox does not apply. */
+export function openInstallTree(projectDir: string, sandbox: Sandbox | null, chown: ChownRunner = defaultChown): void {
+  if (!sandbox) return;
+  const modules = join(projectDir, "node_modules");
+  const owner = `${sandbox.uid}:${sandbox.gid}`;
+  try {
+    if (!lstatSync(modules).isDirectory()) rmSync(modules, { force: true, recursive: true });
+  } catch { /* absent */ }
+  mkdirSync(modules, { recursive: true });
+  chown(["-R", owner, modules]);
+  chown([owner, projectDir]);
+  const lock = join(projectDir, "package-lock.json");
+  try {
+    if (lstatSync(lock).isFile()) chown([owner, lock]);
+  } catch { /* no lock yet */ }
+}
+
+/* What the install left belongs to the orchestrator again: the sandbox uid can read the installed packages when it runs the suite and can no longer change a byte of them, so a package that rewrote itself during install cannot do it again during a run. */
+export function sealInstallTree(projectDir: string, sandbox: Sandbox | null, chown: ChownRunner = defaultChown): void {
+  if (!sandbox) return;
+  const modules = join(projectDir, "node_modules");
+  try {
+    if (lstatSync(modules).isDirectory()) chown(["-R", "0:0", modules]);
+  } catch { /* nothing was installed */ }
+  chown(["0:0", projectDir]);
+  const lock = join(projectDir, "package-lock.json");
+  try {
+    if (lstatSync(lock).isFile()) chown(["0:0", lock]);
+  } catch { /* no lock */ }
 }

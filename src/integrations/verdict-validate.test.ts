@@ -15,6 +15,51 @@ test("checkGeneratorVerdict accepts an empty specs list that carries a reasoned 
   assert.deepEqual(c.issues, []);
 });
 
+test("checkGeneratorVerdict accepts an empty specs list that carries a valid test-correct claim", () => {
+  const c = checkGeneratorVerdict('{"specs":[],"testCorrect":{"cause":"env","reason":"DEV did not render the discount"}}');
+  assert.equal(c.valid, true);
+  assert.deepEqual(c.issues, []);
+});
+
+test("checkGeneratorVerdict rejects a malformed test-correct claim, naming the missing decision", () => {
+  for (const claim of ['{"cause":"env"}', '{"cause":"env","reason":"   "}', '{"cause":"other","reason":"x"}', '{"cause":"app","reason":7}', "true", '"app"']) {
+    const c = checkGeneratorVerdict(`{"specs":[],"testCorrect":${claim}}`);
+    assert.equal(c.valid, false, claim);
+    assert.ok(c.issues.some((i) => i.includes("noop")), `${claim}: ${c.issues.join("; ")}`);
+  }
+});
+
+test("checkGeneratorVerdict ignores a test-correct claim that sits beside real specs, even a malformed one", () => {
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"testCorrect":{"cause":"app","reason":"the total is wrong"}}').valid, true);
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"testCorrect":true}').valid, true);
+});
+
+test("checkGeneratorVerdict accepts an empty specs list that carries a typed rebuttal", () => {
+  const c = checkGeneratorVerdict(
+    '{"specs":[],"rebuttals":[{"finding":"[false-positive] a.spec.ts: asserts nothing","basis":"execution","ref":"a.spec.ts","reason":"the case ran green on these bytes"}]}',
+  );
+  assert.equal(c.valid, true);
+  assert.deepEqual(c.issues, []);
+});
+
+test("checkGeneratorVerdict rejects a rebuttal nothing could be checked against, naming the missing decision", () => {
+  for (const entry of [
+    '{"finding":"[false-positive] a.spec.ts","reason":"trust me"}',
+    '{"finding":"[false-positive] a.spec.ts","basis":"opinion","ref":"a.spec.ts","reason":"trust me"}',
+    '{"finding":"","basis":"execution","ref":"a.spec.ts","reason":"trust me"}',
+    '{"finding":"[false-positive] a.spec.ts","basis":"execution","ref":"  ","reason":"trust me"}',
+    '{"finding":"[false-positive] a.spec.ts","basis":"execution","ref":"a.spec.ts","reason":""}',
+  ]) {
+    const c = checkGeneratorVerdict(`{"specs":[],"rebuttals":[${entry}]}`);
+    assert.equal(c.valid, false, entry);
+    assert.ok(c.issues.some((i) => i.includes("noop")), `${entry}: ${c.issues.join("; ")}`);
+  }
+});
+
+test("checkGeneratorVerdict ignores a rebuttal that sits beside real specs, even a malformed one", () => {
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"rebuttals":[{"finding":"x"}]}').valid, true);
+});
+
 test("checkGeneratorVerdict rejects an empty specs list with no no-op decision, naming the missing field", () => {
   const c = checkGeneratorVerdict('{"specs":[],"note":"nothing in this change is worth an E2E test"}');
   assert.equal(c.valid, false);
@@ -423,4 +468,63 @@ test("repairInstruction: marker lines with surrounding whitespace are also strip
   const msg = repairInstruction("reviewer", ["approved: required"], { priorResponseTail: evil });
   const closes = msg.split(TAIL_CLOSE).length - 1;
   assert.equal(closes, 1, "a whitespace-padded marker line must also be stripped, not embedded");
+});
+
+test("a plan is a decision for the parser and the validator alike: it needs no specs and no no-op", () => {
+  const text = 'planning done.\n{"plan":{"kind":"fanout","flows":[{"id":"cart","objective":"the total shows the coupon"},{"id":"login","objective":"sign in works"}]}}';
+  const parsed = parseVerdict(text);
+  assert.equal(parsed.parsed, true);
+  assert.deepEqual(parsed.specs, []);
+  assert.deepEqual((parsed.plan as { kind?: string }).kind, "fanout");
+  assert.equal(parsed.noopReason, undefined, "a plan is not a declared no-op");
+  const c = checkGeneratorVerdict(text);
+  assert.equal(c.valid, true, c.issues.join("; "));
+});
+
+test("a plan that is not an object is no plan: the verdict is read as one that decided nothing", () => {
+  for (const plan of ['"single"', "7", "null", "[]"]) {
+    const text = `{"plan":${plan}}`;
+    assert.equal(parseVerdict(text).plan, undefined, plan);
+    assert.equal(checkGeneratorVerdict(text).valid, false, plan);
+  }
+});
+
+test("a verdict with no plan key carries no plan", () => {
+  assert.equal("plan" in parseVerdict('{"specs":["a.spec.ts"]}'), false);
+});
+
+
+/* The reviewer's answer is a verdict, not a report: the live run's second review answered 49 KB
+ * around its JSON. The parser still finds the JSON and the qa-engine adapter keeps only the bounded
+ * fields the record stores. */
+test("a 49 KB reviewer answer parses, and the adapter keeps only a bounded verdict", async () => {
+  const { VerdictParserAdapter } = await import("@contexts/generation/infrastructure/verdict-parser.adapter");
+  const prose = "The spec asserts an empty state while the page shows results, so it would stay green. ".repeat(650);
+  const text = `${prose}\n{"approved":false,"rationale":"${"r".repeat(800)}","corrections":["[false-positive] spec: ${"c".repeat(700)}"]}`;
+  const adapter = new VerdictParserAdapter({
+    parseVerdict: () => ({ parsed: true, specs: [] }),
+    parseReviewerVerdict,
+  });
+
+  const j = adapter.parseReview(text);
+
+  assert.equal(j.parsed, true, "the JSON at the end of the prose is still found");
+  assert.equal(j.approved, false, "the verdict itself is untouched");
+  assert.ok((j.rationale ?? "").length <= 320, `rationale capped, got ${j.rationale?.length}`);
+  assert.equal(j.corrections.length, 1);
+  assert.ok(j.corrections[0]!.length <= 400, `correction capped, got ${j.corrections[0]?.length}`);
+});
+
+test("the correction cap never hides a blocking finding behind six advisory ones", async () => {
+  const { VerdictParserAdapter } = await import("@contexts/generation/infrastructure/verdict-parser.adapter");
+  const advisory = Array.from({ length: 6 }, (_, i) => ({ text: `[fragile-selector] spec: advisory ${i}`, severity: "advisory" }));
+  const corrections = [...advisory, { text: "[false-positive] spec: the discount is never asserted", severity: "advisory" }];
+  const text = JSON.stringify({ approved: false, rationale: "rejected", corrections });
+  const adapter = new VerdictParserAdapter({ parseVerdict: () => ({ parsed: true, specs: [] }), parseReviewerVerdict });
+
+  const j = adapter.parseReview(text);
+
+  assert.equal(j.corrections.length, 6);
+  assert.match(j.corrections[0] ?? "", /^\[false-positive\]/, "the blocking correction survives the count cap, first");
+  assert.ok(j.corrections.slice(1).every((c) => c.startsWith("[fragile-selector]")));
 });

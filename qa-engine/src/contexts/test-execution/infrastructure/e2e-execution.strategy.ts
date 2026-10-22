@@ -6,7 +6,7 @@ import type {
 import type { QaCase } from "@kernel/qa-case.ts";
 import { InfraError } from "@kernel/domain-error.ts";
 
-interface LegacyRunResult { verdict: string; cases: QaCase[]; logs: string; }
+interface LegacyRunResult { verdict: string; cases: QaCase[]; logs: string; devWrites?: number; }
 type RunE2eFn = (
   specDir: string,
   opts: {
@@ -14,6 +14,9 @@ type RunE2eFn = (
     namespace: string;
     faultInject?: boolean;
     specFiles?: string[];
+    retries?: number;
+    grep?: string;
+    countWrites?: boolean;
     signal?: AbortSignal;
     timeoutMs?: number;
     testIdAttribute?: string;
@@ -34,6 +37,9 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
       namespace: req.namespace,
       ...(req.faultInject !== undefined ? { faultInject: req.faultInject } : {}),
       ...(req.specFiles ? { specFiles: req.specFiles } : {}),
+      ...(req.retries !== undefined ? { retries: req.retries } : {}),
+      ...(req.grep !== undefined ? { grep: req.grep } : {}),
+      ...(req.countWrites ? { countWrites: true } : {}),
       ...(req.signal ? { signal: req.signal } : {}),
       ...(req.timeoutMs !== undefined ? { timeoutMs: req.timeoutMs } : {}),
       ...(req.testIdAttribute !== undefined ? { testIdAttribute: req.testIdAttribute } : {}),
@@ -48,6 +54,6 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
      * production callers (this strategy AND the fault-injection oracle's own re-run) depend on
      * that SAME upstream check, so this strategy does not re-derive it.
      */
-    return { verdict: result.verdict as ExecutionResult["verdict"], cases: result.cases, logs: result.logs };
+    return { verdict: result.verdict as ExecutionResult["verdict"], cases: result.cases, logs: result.logs, ...(result.devWrites !== undefined ? { devWrites: result.devWrites } : {}) };
   }
 }

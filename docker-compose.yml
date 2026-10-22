@@ -12,26 +12,36 @@
 # This base file is the PRODUCTION definition: the orchestrator runs the src/ baked into the
 # image (COPY in the Dockerfile), so the maintainer hot-swap (which rewrites src/ + package
 # files) works on a normal filesystem. docker-compose.override.yml — auto-loaded by plain
-# `docker compose up` for local dev — bind-mounts the host source for live editing; those bind
-# mounts make src/ a mountpoint and the package files bind-files, which the swap canNOT rewrite
-# (EBUSY), so hot-swap is intentionally a no-op in dev. For production run WITHOUT the override:
+# `docker compose up` for local dev — bind-mounts the host source READ-ONLY for live editing; the
+# swap canNOT rewrite a read-only src/ or package file (EROFS), so hot-swap is intentionally a no-op in dev. For production run WITHOUT the override:
 #   docker compose -f docker-compose.yml up --build
 
 services:
   orchestrator:
     build: .
+    # An init as PID 1: the run's Playwright browsers (spawned as the sandbox uid) and tsx's esbuild are children whose parent can
+    # exit first, and an orphan is reparented to PID 1. The service's own main process does not reap what it did not start, so
+    # without an init those orphans stay defunct for the life of the container (the host-health gauge counts them).
+    init: true
     env_file: .env
     restart: always
-    # Defense-in-depth for the untrusted code the orchestrator executes (code-mode runs the
-    # watched repo's own install/test command; e2e runs agent-authored specs). The orchestrator
-    # DROPS PRIVILEGE for those spawns to the unprivileged `sandbox` user (uid 1001) and chowns the
-    # working copy to it (src/qa/code-runner.ts → resolveSandbox), so untrusted code cannot read the
-    # root-owned API token, tamper with the orchestrator's files, or write sibling repos — see
-    # docs/code-mode-sandbox.md. no-new-privileges blocks the dropped child from re-acquiring root via
-    # setuid. NETWORK egress restriction (the one isolation kept out-of-app so Maven/Gradle can resolve
-    # deps) remains a deploy-layer control: add an egress firewall / network policy in production.
+    # Defense-in-depth for the untrusted code the orchestrator executes (agent-authored specs, the e2e
+    # project's own tooling and installs, a login script, and — for code-mode — the watched repo's own
+    # install/test command). Every such child starts through one launcher, which DROPS PRIVILEGE to the
+    # unprivileged `sandbox` user (uid 1002) with an environment built from an allowlist per profile,
+    # so it cannot read the root-owned API token, the auth material, another repo's mirror or the
+    # provider keys, tamper with the orchestrator's files, or write the mirror it runs in — see
+    # docs/execution-sandbox.md. The entrypoint proves the file side at every boot by trying, as that uid, what it must not do
+    # (src/server/file-boundary-check.ts); a boundary that does not hold refuses agent code (E-SANDBOX). no-new-privileges blocks the dropped child from re-acquiring root via
+    # setuid. NET_ADMIN is for the egress filter (bin/egress-init.sh): an iptables chain that holds the
+    # sandbox uid's network to the origins the app declares.
     security_opt:
       - no-new-privileges:true
+    # The egress filter (bin/egress-init.sh) is an iptables chain on this container's own network namespace. NET_ADMIN is
+    # the capability to write it; the sandbox uid, which runs the untrusted code, does not have it (a dropped uid keeps
+    # no capabilities) and cannot undo the chain.
+    cap_add:
+      - NET_ADMIN
     # The graceful-shutdown drain (src/index.ts) needs up to 25s to close the in-flight run;
     # Docker's default 10s grace would SIGKILL it mid-drain on every `docker stop`/redeploy.
     stop_grace_period: 35s
@@ -59,6 +69,9 @@ services:
       # BIND_ADDR above decides whether that port is exposed beyond the host.
       LISTEN_HOST: 0.0.0.0
       OPENCODE_SERVE_URL: http://agents:4096
+      # Basic-auth password of `opencode serve` on the agents service: the SAME value on both services (the
+      # supervisor generates a random one when it is unset, and the orchestrator then fails loudly on every call).
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       AGENT_SUPERVISOR_URL: http://agents:4097
       MIRROR_DIR: /app/.mirrors
       # codebase-memory's graph store (one SQLite db per indexed project). Explicit so the volume
@@ -68,11 +81,28 @@ services:
       # noble drift: the image's `sandbox` user is uid 1002 (pwuser took 1001 on Ubuntu 24.04) — keep
       # code-runner.ts (CODE_SANDBOX_UID ?? 1001) in sync with the Dockerfile so privilege-drop resolves.
       CODE_SANDBOX_UID: "1002"
+      # `required`: a run that cannot drop to the sandbox uid refuses to execute agent code and ends E-SANDBOX.
+      # `best-effort` (the engine's default outside this file) runs as the current user with a loud warning, for a
+      # host without the uid.
+      QA_EXEC_SANDBOX: ${QA_EXEC_SANDBOX:-required}
+      # `enforce` (default): a run that would execute agent code without the egress filter ends E-SANDBOX. `warn`: it runs
+      # with the container's full network and says so (gate signal sandbox.egress "unenforced"). Declare the origins a
+      # run may reach with dev.allowedOrigins in the app config and egress.installOrigins for registries.
+      QA_EGRESS_MODE: ${QA_EGRESS_MODE:-enforce}
+      # The agents' tools' internal endpoint (run_spec and the authenticated browser; a second listener, NOT published above) and the
+      # service token the agents service authenticates to it with: the SAME value on both services. Unset on the orchestrator, no run is
+      # granted either tool; unset on the agents service only, their calls are refused with a message naming the variable. A run gets
+      # run_spec only when its app sets qa.closedLoop.enabled, and the browser only when it sets qa.agentBrowser.enabled.
+      QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
+      QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
     volumes:
-      - ./config:/app/config # app configs + the config/e2e seed (read-mostly; not hot-swapped)
+      # App configs + the config/e2e seed (read-mostly; not hot-swapped). Mounted under /app/.host, a directory only root may
+      # enter (/app/config is a link to it, see the Dockerfile): the host folder's own permissions may not be enforced (Docker
+      # Desktop's file sharing), the parent's always are, so the sandbox uid cannot reach the configs on any host.
+      - ./config:/app/.host/config
       # NOTE: src/ and package files are NOT bind-mounted here on purpose — the hot-swap must be
-      # able to rewrite them (a bind mount → EBUSY). They ship baked in the image. The dev
-      # override re-adds them for live editing. The E2E suite is NOT in a volume: it lives in git.
+      # able to rewrite them (a read-only bind mount → EROFS). They ship baked in the image. The dev
+      # override re-adds them, read-only, for live editing. The E2E suite is NOT in a volume: it lives in git.
       - mirrors:/app/.mirrors # local working copies (shared with the agents container); the harness runs over <repo>/e2e here
       - qa-data:/app/data # run history + maintainer state (markers/ledger/failure memory) — persists across restarts
       # The code graph indexed at onboarding (onboarding-auto-index). Regenerable cache — losing it
@@ -99,14 +129,18 @@ services:
   agents:
     build: ./agents # dual agent runtime: OpenCode + Codex + uv/JDK (Serena) + engram
     restart: always
+    # Same init: the browser of the Playwright MCP and the runtimes' own tool children can outlive the process that started them.
+    init: true
     # Same explicit resolvers as the orchestrator: the agent must reach the model gateway and
     # the live DEV site (Playwright MCP) regardless of host/VPN DNS quirks.
     dns:
       - 1.1.1.1
       - 8.8.8.8
     # SECURITY: the agent container does NOT get the full .env. It receives ONLY the
-    # model-provider keys and the DEV credentials it needs for Playwright login — NEVER
-    # GITHUB_TOKEN / WEBHOOK_SECRET / QA_API_TOKEN. Git writes are the orchestrator's
+    # model-provider keys, the shared OpenCode server password, the run_spec service token and DEV_ENV_* (the HTTP Basic gate
+    # of DEV, read by the baseline arm's Playwright config and a Codex shell) — NEVER the test
+    # account (DEV_TEST_*: the app login is the orchestrator's and the agent only gets the saved
+    # session) nor GITHUB_TOKEN / WEBHOOK_SECRET / QA_API_TOKEN. Git writes are the orchestrator's
     # job, so the agent has no push credential to exfiltrate. (docker compose reads
     # ./.env for ${VAR} interpolation, so this works locally and under Doppler.)
     environment:
@@ -125,11 +159,17 @@ services:
       OPENCODE_PRINT_LOGS: "true"
       OPENCODE_LOG_LEVEL: ${OPENCODE_LOG_LEVEL:-INFO}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+      # Required by `opencode serve` (port 4096 is open to every container on the network); see the orchestrator entry.
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+      # run_spec and authbrowser_* tools (agents/tool/): where the orchestrator's internal endpoint is, and the service token it requires.
+      QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
+      QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
       CODEX_API_KEY: ${CODEX_API_KEY:-}
       DEV_ENV_USER: ${DEV_ENV_USER:-}
       DEV_ENV_PASS: ${DEV_ENV_PASS:-}
-      DEV_TEST_USER: ${DEV_TEST_USER:-}
-      DEV_TEST_PASS: ${DEV_TEST_PASS:-}
+      # `opencode serve` ignores a watched repo's own opencode.json/.opencode (they could re-grant a shell or run a
+      # plugin). Only the baseline experiment needs them: set exactly "true" for that run, never in production.
+      AGENT_ALLOW_PROJECT_CONFIG: ${AGENT_ALLOW_PROJECT_CONFIG:-}
     volumes:
       - ./agents:/root/.config/opencode:ro # opencode.json + agents + AGENTS.md + skills (read-only: agents must NOT rewrite their own prompts)
       - ./agent:/root/.config/agent:ro # provider-neutral prompts/skills for Codex and future OpenCode config

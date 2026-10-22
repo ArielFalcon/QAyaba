@@ -51,7 +51,28 @@ function pathToCompare(declared: unknown, roots: readonly string[] | undefined):
   return root === undefined ? undefined : path.slice(root.length + 1);
 }
 
-export function rankRoutesByChange(routes: readonly string[], map: RankableMap | undefined, change: RankingChange): string[] {
+/* One route with the rank its declared links gave it. `relevant` is false only when the change names nothing on the route. */
+export interface RankedRoute {
+  route: string;
+  rank: number;
+  relevant: boolean;
+}
+
+/* The changed files (spelled as given) the map links to a page of the app: the ones a route declares as an implementation file, which already include the non-code files those declare, or as its source. A single repo only: across repos the changed files are the service's, and nothing here links them. */
+export function filesLinkedToPages(map: RankableMap | undefined, changedFiles: readonly string[]): Set<string> {
+  const declared = entriesOf(map?.routes).flatMap((entry) => {
+    const implementationFiles = entry[ROUTE_LINK_FIELDS.implementationFiles];
+    return [...(isPathList(implementationFiles) ? implementationFiles : []), ...(isText(entry[ROUTE_LINK_FIELDS.source]) ? [entry[ROUTE_LINK_FIELDS.source] as string] : [])].map(normalize);
+  });
+  return new Set(
+    changedFiles.filter((file) => {
+      const path = normalize(file);
+      return path !== "" && declared.some((link) => link !== "" && sameFile(link, path, MIN_SEGMENTS_IN_A_SINGLE_REPO));
+    }),
+  );
+}
+
+export function rankRoutesWithRelevance(routes: readonly string[], map: RankableMap | undefined, change: RankingChange): RankedRoute[] {
   const changed = change.changedFiles.filter(isText).map(normalize).filter((file) => file !== "");
   const roots = change.stagedRoots?.filter(isText).map(normalize);
   const crossRepo = roots !== undefined;
@@ -81,7 +102,10 @@ export function rankRoutesByChange(routes: readonly string[], map: RankableMap |
       ...routeEntries.filter((entry) => !crossRepo && entry.path === route).map(ownRank),
     );
   return routes
-    .map((route) => ({ route, rank: rankOf(route) }))
-    .sort((a, b) => a.rank - b.rank)
-    .map(({ route }) => route);
+    .map((route) => ({ route, rank: rankOf(route), relevant: rankOf(route) < RANK.rest }))
+    .sort((a, b) => a.rank - b.rank);
+}
+
+export function rankRoutesByChange(routes: readonly string[], map: RankableMap | undefined, change: RankingChange): string[] {
+  return rankRoutesWithRelevance(routes, map, change).map((entry) => entry.route);
 }

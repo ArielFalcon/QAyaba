@@ -39,7 +39,7 @@ Read `Routes` arrays with serena `find_symbol`. For each route:
 - `path` → the URL pattern (concatenate parent + child paths with `/`)
 - `component` → the class name (e.g. `CheckoutPageComponent`)
 - `source` → the file declaring it
-- `implementationFiles` (optional) → the files that implement the page
+- `implementationFiles` → repo-relative files that implement the page, and its template and style files when separate (set it on every route)
 
 ### File-based (standalone components with Route config)
 ```typescript

@@ -3,6 +3,30 @@ import type { LearningRule } from "../application/ports/index.ts";
 
 const RETRIEVABLE: ReadonlySet<LearningRule["status"]> = new Set(["active", "candidate"]);
 
+/**
+ * The `source` prefix of a rule a deterministic distiller authored from measured evidence. Every other rule, including every rule
+ * stored before authorship was recorded, came from the reflector, the only author there was.
+ */
+export const DETERMINISTIC_RULE_SOURCE_PREFIX = "distiller:";
+
+function isReflectorAuthored(rule: LearningRule): boolean {
+  return !rule.source.startsWith(DETERMINISTIC_RULE_SOURCE_PREFIX);
+}
+
+/**
+ * Which rules may be injected into a prompt. `reflectorUnproven: false` keeps out what the reflector authored until it has earned its
+ * place: a candidate, and an active rule whose confidence has fallen to low. An unproven rule a deterministic distiller authored keeps
+ * its normal governance (it is retrievable, and competes for the exploration slots) whatever this says.
+ */
+export interface InjectionPolicy {
+  reflectorUnproven: boolean;
+}
+const INJECT_EVERYTHING: InjectionPolicy = { reflectorUnproven: true };
+
+function isProven(rule: LearningRule): boolean {
+  return rule.status === "active" && rule.confidence !== "low";
+}
+
 export interface RelevanceBias {
   errorClass?: string | null;
   archetypes?: readonly string[];
@@ -45,7 +69,7 @@ export class RuleGovernanceService {
     });
   }
 
-  topRules(rules: readonly LearningRule[], limit: number, relevance?: RelevanceBias): LearningRule[] {
+  topRules(rules: readonly LearningRule[], limit: number, relevance?: RelevanceBias, policy: InjectionPolicy = INJECT_EVERYTHING): LearningRule[] {
     const bias = relevance
       ? (r: LearningRule): number => {
           let s = 0;
@@ -54,7 +78,8 @@ export class RuleGovernanceService {
           return s;
         }
       : undefined;
-    const eligible = rules.filter((r) => RETRIEVABLE.has(r.status));
+    /* A quarantined rule is set aside whatever its status: it is never retrieved, so it cannot be injected or credited. */
+    const eligible = rules.filter((r) => RETRIEVABLE.has(r.status) && !r.quarantinedAt && (policy.reflectorUnproven || isProven(r) || !isReflectorAuthored(r)));
     const picked = this.rank(eligible, bias).slice(0, limit);
 
     /*

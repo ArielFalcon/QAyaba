@@ -1,3 +1,4 @@
+import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -7,8 +8,8 @@ import {
   extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
   buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE,
-  formatDomCapture, formatRedirectAdvisory,
-  type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
+  formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed,
+  type CapturedPage, type CaptureDataState, type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
 } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { countDirectives, hasTrustLanguage } from "@contexts/generation/domain/prompt-contract-lint.ts";
@@ -1429,6 +1430,35 @@ test("buildCaptureScript applies PW_STORAGE_STATE and PW_CLIENT_CERT_PATH on new
   assert.match(script, /clientCertificates/);
 });
 
+test("buildCaptureScript reads PW_GEO_LAT/LNG into the browser context's geolocation", () => {
+  const script = buildCaptureScript();
+  assert.match(script, /process\.env\.PW_GEO_LAT/);
+  assert.match(script, /process\.env\.PW_GEO_LNG/);
+  assert.match(script, /contextOptions\.geolocation = \{ latitude: geoLat, longitude: geoLng \}/);
+  assert.match(script, /contextOptions\.permissions = \["geolocation"\]/);
+});
+
+test("createCaptureDomDeps carries the app's geolocation", () => {
+  const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+  const deps = createCaptureDomDeps(sharedTestExec(), undefined, undefined, geolocation);
+  assert.deepEqual(deps.geolocation, geolocation);
+});
+
+test("createCaptureDomDeps carries the app's dataState", () => {
+  const dataState: CaptureDataState = { routes: { "/home": { resultTextSelector: ".count", timeoutMs: 3000 } } };
+  const deps = createCaptureDomDeps(sharedTestExec(), undefined, undefined, undefined, dataState);
+  assert.deepEqual(deps.dataState, dataState);
+});
+
+test("dataStateUnconfirmed is false without a data state, and true only for an unconfirmed one", () => {
+  assert.equal(dataStateUnconfirmed({}), false);
+  assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true, resultCount: 0 }), true);
+  assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true }), true, "a missing result count is unconfirmed");
+  assert.equal(dataStateUnconfirmed({ dataState: true, resultExpected: true, resultCount: 11 }), false);
+  assert.equal(dataStateUnconfirmed({ dataState: true, ready: false }), true);
+  assert.equal(dataStateUnconfirmed({ dataState: true, ready: true }), false);
+});
+
 test("buildCaptureScript wires DEV_ENV_USER/DEV_ENV_PASS into httpCredentials on newContext()", () => {
   const script = buildCaptureScript();
   assert.match(script, /process\.env\.DEV_ENV_USER/, "must read DEV_ENV_USER from the child's env");
@@ -1486,7 +1516,7 @@ test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
 });
 
 /* ── authDir is REQUIRED — no silent fallback to e2eDir ──────────────────────────────────────
-   createCaptureDomDeps(authDir) used to accept an OPTIONAL authDir and fall back to e2eDir when
+   createCaptureDomDeps(sharedTestExec()) used to accept an OPTIONAL authDir and fall back to e2eDir when
    omitted — an omitted override at any of the three composition seams (pre-exec/review-dom
    grounding bridges, the context-pack default deps) would silently put auth material back into the
    agent-visible mirror. authDir is now a required parameter: a real (TypeScript) caller that forgets
@@ -1498,21 +1528,21 @@ test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
    instead of silently degrading if it is ever actually invoked.
  */
 
-test("createCaptureDomDeps requires authDir — omitting it throws immediately (fail-closed, no silent e2eDir fallback)", () => {
+test("createCaptureDomDeps requires an execution launcher — omitting it throws immediately (fail-closed, no silent run of the project's package as the orchestrator)", () => {
   assert.throws(
     () =>
-      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      // @ts-expect-error the launcher is required; omitting it must be a compile error for a real (TypeScript) caller too.
       createCaptureDomDeps(),
-    /authDir/i,
-    "createCaptureDomDeps must throw naming the missing authDir, never silently fall back to e2eDir",
+    /execution launcher/i,
+    "createCaptureDomDeps must throw naming the missing launcher",
   );
 });
 
 test("defaultCaptureDomDeps is an inert placeholder — it must never silently capture using e2eDir, it must reject loudly if actually invoked", async () => {
   await assert.rejects(
     () => defaultCaptureDomDeps.render("/some/e2e/dir", "https://dev.example.com", ["/home"]),
-    /authDir/i,
-    "the placeholder must name authDir in its error, never silently fall back to e2eDir",
+    /launcher/i,
+    "the placeholder must name the launcher in its error, never silently capture on its own",
   );
 });
 
@@ -1541,7 +1571,7 @@ test("a DOM capture whose output passes the bound is killed and yields no snapsh
   await withStandInNode(flood, async (root) => {
     const warned = mock.method(console, "warn", () => {});
     try {
-      const deps = createCaptureDomDeps(join(root, "auth"), 20_000);
+      const deps = createCaptureDomDeps(sharedTestExec(), 20_000);
       const snaps = await deps.render(root, "http://localhost", ["/"]);
       assert.deepEqual(snaps, [], "no grounding rather than a snapshot parsed from a truncated document");
       assert.ok(warned.mock.calls.some((c) => /exceed/i.test(String(c.arguments[0]))), "the run says why there is no grounding");
@@ -1554,9 +1584,243 @@ test("a DOM capture whose output passes the bound is killed and yields no snapsh
 test("a DOM capture within the output bound still yields its snapshots", { timeout: 30_000 }, async () => {
   const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \\\"Save\\\"' }]));";
   await withStandInNode(script, async (root) => {
-    const deps = createCaptureDomDeps(join(root, "auth"), 20_000);
+    const deps = createCaptureDomDeps(sharedTestExec(), 20_000);
     const snaps = await deps.render(root, "http://localhost", ["/home"]);
     assert.equal(snaps.length, 1);
     assert.equal(snaps[0]?.route, "/home");
+  });
+});
+
+test("a DOM capture parses the data-state fields onto the snapshot", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \\\"Save\\\"', dataState: true, ready: true, resultExpected: true, resultCount: 11, effectiveLocation: 'Madrid', captureAttempts: 2 }]));";
+  await withStandInNode(script, async (root) => {
+    const deps = createCaptureDomDeps(sharedTestExec(), 20_000);
+    const snaps = await deps.render(root, "http://localhost", ["/home"]);
+    assert.equal(snaps[0]?.dataState, true);
+    assert.equal(snaps[0]?.ready, true);
+    assert.equal(snaps[0]?.resultExpected, true);
+    assert.equal(snaps[0]?.resultCount, 11);
+    assert.equal(snaps[0]?.effectiveLocation, "Madrid");
+    assert.equal(snaps[0]?.captureAttempts, 2);
+  });
+});
+
+/* ── links the pages showed: the real addresses a route template is filled from ───────────────── */
+
+const pageWithLinks = (route: string, links: string[]): RouteSnapshot => ({ route, nodes: [`heading: ${route}`], links });
+
+test("captureDomForRoutes reports each page it rendered with the links it showed, in the order rendered", async () => {
+  const deps: CaptureDomDeps = {
+    render: async () => [pageWithLinks("/a", ["/x", "/y"]), pageWithLinks("/b", ["/y", "/z"])],
+  };
+  const seen: CapturedPage[][] = [];
+  await captureDomForRoutes(["/a", "/b"], { e2eDir: "/m", baseUrl: "http://dev", onPages: (pages) => seen.push(pages) }, deps);
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0]!.map((page) => page.route), ["/a", "/b"]);
+  assert.deepEqual(seen[0]!.map((page) => page.links), [["/x", "/y"], ["/y", "/z"]]);
+});
+
+test("captureDomForRoutes tells which pages it grounded: one that errored, rendered empty or ended on another address is not", async () => {
+  const deps: CaptureDomDeps = {
+    render: async () => [
+      { route: "/ok", nodes: ["heading: ok"], finalUrl: "http://dev/ok/" },
+      { route: "/boom", error: "timeout" },
+      { route: "/blank", nodes: [] },
+      { route: "/moved", nodes: ["heading: login"], finalUrl: "http://dev/login" },
+    ],
+  };
+  const seen: CapturedPage[] = [];
+  await captureDomForRoutes(["/ok", "/boom", "/blank", "/moved"], { e2eDir: "/m", baseUrl: "http://dev", onPages: (pages) => seen.push(...pages) }, deps);
+  assert.deepEqual(seen.map((page) => [page.route, page.grounded]), [["/ok", true], ["/boom", false], ["/blank", false], ["/moved", false]]);
+});
+
+test("captureDomForRoutes reports a seed page too, grounded or not", async () => {
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => routes.map((route) => (route === "/" ? { route, error: "timeout" } : pageWithLinks(route, []))) };
+  const seen: CapturedPage[] = [];
+  await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onPages: (pages) => seen.push(...pages) }, deps);
+  assert.deepEqual(seen.map((page) => [page.route, page.grounded]), [["/a", true], ["/", false]]);
+});
+
+test("captureDomForRoutes tells nobody about pages when the render itself fails", async () => {
+  const deps: CaptureDomDeps = { render: async () => { throw new Error("browser gone"); } };
+  const seen: CapturedPage[][] = [];
+  const text = await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev", onPages: (pages) => seen.push(pages) }, deps);
+  assert.equal(text, undefined);
+  assert.deepEqual(seen, []);
+});
+
+test("captureDomForRoutes renders a link seed for its links and leaves it out of the text", async () => {
+  const rendered: string[][] = [];
+  const deps: CaptureDomDeps = {
+    render: async (_e2eDir, _baseUrl, routes) => {
+      rendered.push(routes);
+      return routes.map((route) => pageWithLinks(route, [`/from${route}`]));
+    },
+  };
+  const links: string[] = [];
+  const text = (await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onPages: (pages) => links.push(...pages.flatMap((page) => page.links)) }, deps)) ?? "";
+  assert.deepEqual(rendered[0], ["/a", "/"], "the seed is rendered after the routes asked for");
+  assert.ok(text.includes("route /a:"));
+  assert.equal(text.includes("route /:"), false, "and is not part of the report");
+  assert.ok(links.includes("/from/"), "its links are reported");
+});
+
+test("captureDomForRoutes with only a link seed reports its links and no text", async () => {
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => routes.map((route) => pageWithLinks(route, ["/shops/madrid/madrid"])) };
+  const links: string[] = [];
+  const text = await captureDomForRoutes([], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"], onPages: (pages) => links.push(...pages.flatMap((page) => page.links)) }, deps);
+  assert.equal(text, undefined);
+  assert.deepEqual(links, ["/shops/madrid/madrid"]);
+});
+
+test("captureDomForRoutes does not render a seed twice when the routes asked for already include it", async () => {
+  const rendered: string[][] = [];
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => { rendered.push(routes); return routes.map((route) => pageWithLinks(route, [])); } };
+  const text = (await captureDomForRoutes(["/", "/a"], { e2eDir: "/m", baseUrl: "http://dev", linkSeeds: ["/"] }, deps)) ?? "";
+  assert.deepEqual(rendered[0], ["/", "/a"]);
+  assert.ok(text.includes("route /:"), "a seed that was also asked for stays in the report");
+});
+
+test("captureDomForRoutes without a seed or a listener renders exactly what it did before", async () => {
+  const rendered: string[][] = [];
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => { rendered.push(routes); return routes.map((route) => pageWithLinks(route, ["/x"])); } };
+  await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev" }, deps);
+  assert.deepEqual(rendered, [["/a"]]);
+});
+
+test("captureDomForRoutes labels a page opened from a template with both the address and the template", async () => {
+  const deps: CaptureDomDeps = { render: async (_e2eDir, _baseUrl, routes) => routes.map((route) => ({ route, nodes: ["button: Filter"] })) };
+  const text = (await captureDomForRoutes(["/shops/madrid/madrid"], { e2eDir: "/m", baseUrl: "http://dev", instanceOf: new Map([["/shops/madrid/madrid", "/shops/:province/:city"]]) }, deps)) ?? "";
+  const header = text.split("\n").find((line) => line.startsWith("route ")) ?? "";
+  assert.ok(header.includes("/shops/madrid/madrid") && header.includes("/shops/:province/:city"), header);
+});
+
+test("a page opened from a template that did not render says so under both names as well", () => {
+  const text = formatDomSnapshot([{ route: "/shops/a/b", template: "/shops/:p/:c", error: "timeout" }]);
+  assert.ok(text.includes("/shops/a/b") && text.includes("/shops/:p/:c") && text.includes("timeout"));
+});
+
+test("a page with no template is labelled as before", () => {
+  assert.ok(formatDomSnapshot([{ route: "/a", nodes: ["button: Go"] }]).startsWith("route /a:"));
+});
+
+/* A route in a log line may come from a link a page showed, so the log carries it cleaned and bounded. */
+async function warningsOf(run: () => Promise<unknown>): Promise<string> {
+  const warned: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warned.push(args.map(String).join(" ")); };
+  try {
+    await run();
+  } finally {
+    console.warn = origWarn;
+  }
+  return warned.join("\n");
+}
+
+test("captureDomForRoutes does not put a secret or an unbounded route of a page into the log of a failed capture", async () => {
+  const hostile = [`/reset/ghp_${"A".repeat(36)}`, `/${"x".repeat(5000)}`];
+  const deps: CaptureDomDeps = { render: async () => { throw new Error("browser gone"); } };
+  const log = await warningsOf(() => captureDomForRoutes(hostile, { e2eDir: "/m", baseUrl: "http://dev" }, deps));
+  assert.ok(log.includes("browser gone"), "the failure is still logged");
+  assert.equal(log.includes("ghp_AAAA"), false, "the token is redacted");
+  assert.ok(log.length < 1000, `the line is bounded (${log.length})`);
+});
+
+test("captureDomForRoutes does not put a secret of a page into the log of a degraded route", async () => {
+  const route = `/reset/ghp_${"A".repeat(36)}`;
+  const deps: CaptureDomDeps = { render: async () => [{ route, nodes: ["heading: x"], finalUrl: `http://dev/login/ghp_${"B".repeat(36)}` }] };
+  const log = await warningsOf(() => captureDomForRoutes([route], { e2eDir: "/m", baseUrl: "http://dev" }, deps));
+  assert.ok(log.includes("DEGRADED"));
+  assert.equal(/ghp_[AB]{4}/.test(log), false, "neither the route nor the page it reached leaks a token");
+});
+
+/* The capture script is the process boundary: a stand-in `playwright` module plays the browser, so what the script reports and what the orchestrator reads of it are the real ones. */
+function withFakeBrowser<T>(anchors: unknown[], body: (e2eDir: string, authDir: string) => Promise<T>): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "fake-browser-"));
+  const module = join(root, "node_modules", "playwright");
+  mkdirSync(module, { recursive: true });
+  writeFileSync(join(module, "index.js"), `
+const anchors = ${JSON.stringify(anchors)};
+let current = "";
+const gotoCounts = Object.create(null);
+const page = {
+  on() {},
+  goto: async (url) => {
+    gotoCounts[url] = (gotoCounts[url] ?? 0) + 1;
+    if (url.includes("/no-retry") && gotoCounts[url] > 1) throw new Error("read a second time without a data state");
+    current = url;
+  },
+  waitForLoadState: async () => {},
+  waitForSelector: async () => {},
+  url: () => current,
+  locator: (selector) => ({
+    ariaSnapshot: async () => '- link "Home"',
+    count: async () => 0,
+    first: () => ({ innerText: async () => selector === ".count" ? ((gotoCounts[current] ?? 0) > 1 ? "11 resultados" : "0 resultados") : "" }),
+  }),
+  evaluate: async (fn, arg) => {
+    globalThis.document = { querySelectorAll: (selector) => (selector === "a[href]" ? anchors.map((href) => ({ href, getAttribute: () => href })) : []), getElementById: () => null };
+    return fn(arg);
+  },
+};
+exports.chromium = { launch: async () => ({ newContext: async () => ({ newPage: async () => page }), close: async () => {} }) };
+`);
+  return body(root, join(root, "auth")).finally(() => rmSync(root, { recursive: true, force: true }));
+}
+
+test("a data-state capture retries once when the result is empty, keeps the later tree and reports the retry", { timeout: 30_000 }, async () => {
+  await withFakeBrowser([], async (e2eDir) => {
+    const dataState: CaptureDataState = { routes: { "/restaurantes/*": { resultTextSelector: ".count", timeoutMs: 100 } } };
+    const snaps = await createCaptureDomDeps(sharedTestExec(), undefined, undefined, undefined, dataState).render(e2eDir, "http://dev.example", ["/restaurantes/madrid"]);
+    assert.equal(snaps[0]?.dataState, true);
+    assert.equal(snaps[0]?.resultExpected, true);
+    assert.equal(snaps[0]?.resultCount, 11, "the retry read the populated tree, not the empty first read");
+    assert.equal(snaps[0]?.captureAttempts, 2);
+    assert.equal(dataStateUnconfirmed(snaps[0]!), false);
+  });
+});
+
+test("a route with no matched data state is read once: a second goto would throw in the fake browser", { timeout: 30_000 }, async () => {
+  await withFakeBrowser([], async (e2eDir) => {
+    const dataState: CaptureDataState = { routes: { "/restaurantes/*": { resultTextSelector: ".count", timeoutMs: 100 } } };
+    const snaps = await createCaptureDomDeps(sharedTestExec(), undefined, undefined, undefined, dataState).render(e2eDir, "http://dev.example", ["/no-retry"]);
+    assert.equal(snaps[0]?.error, undefined);
+    assert.equal(snaps[0]?.dataState, undefined);
+    assert.equal(snaps[0]?.captureAttempts, undefined);
+  });
+});
+
+test("a capture reports the same-origin links of each page it opened", { timeout: 30_000 }, async () => {
+  const anchors = ["http://dev.example/shops/madrid/madrid?page=2", "http://dev.example/about#team", "https://elsewhere.example/x", "mailto:a@b.example"];
+  await withFakeBrowser(anchors, async (e2eDir, authDir) => {
+    const snaps = await createCaptureDomDeps(sharedTestExec()).render(e2eDir, "http://dev.example", ["/"]);
+    assert.deepEqual(snaps[0]?.links, ["/shops/madrid/madrid", "/about"]);
+  });
+});
+
+test("a page that shows no links has none reported", { timeout: 30_000 }, async () => {
+  await withFakeBrowser([], async (e2eDir, authDir) => {
+    const snaps = await createCaptureDomDeps(sharedTestExec()).render(e2eDir, "http://dev.example", ["/"]);
+    assert.equal(snaps[0]?.links, undefined);
+  });
+});
+
+test("a capture output whose links are not a list of strings yields the page without links", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \"Save\"', hrefs: 'nope' }, { route: '/b', yaml: '- button \"Save\"', hrefs: [1, null, 'http://localhost/ok'] }]));";
+  await withStandInNode(script, async (root) => {
+    const snaps = await createCaptureDomDeps(sharedTestExec()).render(root, "http://localhost", ["/home", "/b"]);
+    assert.equal(snaps[0]?.links, undefined);
+    assert.deepEqual(snaps[1]?.links, ["/ok"]);
+  });
+});
+
+test("one page with huge or foreign links does not stop the capture of the others: the script bounds what it reports of links", { timeout: 30_000 }, async () => {
+  const huge = `http://dev.example/${"x".repeat(2_000_000)}`;
+  const foreign = Array.from({ length: 2000 }, (_, i) => `https://elsewhere.example/${i}`);
+  const anchors = [huge, ...foreign, "http://dev.example/shops/madrid/madrid"];
+  await withFakeBrowser(anchors, async (e2eDir, authDir) => {
+    const snaps = await createCaptureDomDeps(sharedTestExec(), 200_000).render(e2eDir, "http://dev.example", ["/", "/b"]);
+    assert.equal(snaps.length, 2, "the output stayed within its bound, so both pages were read");
+    assert.deepEqual(snaps[0]?.links, ["/shops/madrid/madrid"]);
   });
 });

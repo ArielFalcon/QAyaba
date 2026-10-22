@@ -1,5 +1,5 @@
 /* ValidationPort → target-dispatched gates. e2e uses StaticGateAdapter.validateAll (full gate including the zero-assertion guard) — never the granular methods, which would skip that guard. Code uses CodeValidationStrategy (compile-feedback before execution). */
-import type { ValidationPort } from "../../application/ports/index.ts";
+import type { ValidationPort, ValidationRunInfo } from "../../application/ports/index.ts";
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
 import type { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy.ts";
 import type { TestTarget } from "@kernel/run-mode.ts";
@@ -19,7 +19,7 @@ export class ValidationPortAdapter implements ValidationPort {
     private readonly ctx: ValidationPortStaticContext,
   ) {}
 
-  async validate(specDir: string, changedFiles?: string[]): Promise<{ ok: boolean; errors: string[]; infra?: boolean }> {
+  async validate(specDir: string, changedFiles?: string[], _run?: ValidationRunInfo): Promise<{ ok: boolean; errors: string[]; infra?: boolean }> {
     const result =
       this.ctx.target === "code"
         ? await this.strategies.code.validate(specDir, changedFiles)

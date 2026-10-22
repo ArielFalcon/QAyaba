@@ -51,15 +51,30 @@ function reasonFor(text: string): RouteReason | undefined {
   return undefined;
 }
 
-/** Splits routes into those that can be captured and those that cannot, each trimmed and listed once in the order asked. An empty entry asked for nothing and is in neither list. */
-export function partitionRoutes(routes: readonly string[]): RoutePartition {
-  const partition: RoutePartition = { capturable: [], uncapturable: [] };
+/** One route as asked, trimmed, with why it names no single page when it does not. */
+export interface ClassifiedRoute {
+  route: string;
+  reason?: RouteReason;
+}
+
+/** The routes in the order asked, each trimmed and listed once, with the class of each. An empty entry asked for nothing and is left out. */
+export function classifyRoutes(routes: readonly string[]): ClassifiedRoute[] {
+  const out: ClassifiedRoute[] = [];
   const seen = new Set<string>();
   for (const raw of routes) {
     const route = raw.trim();
     if (route === "" || seen.has(route)) continue;
     seen.add(route);
     const reason = reasonFor(route);
+    out.push(reason === undefined ? { route } : { route, reason });
+  }
+  return out;
+}
+
+/** Splits routes into those that can be captured and those that cannot, each trimmed and listed once in the order asked. An empty entry asked for nothing and is in neither list. */
+export function partitionRoutes(routes: readonly string[]): RoutePartition {
+  const partition: RoutePartition = { capturable: [], uncapturable: [] };
+  for (const { route, reason } of classifyRoutes(routes)) {
     if (reason === undefined) partition.capturable.push(route);
     else partition.uncapturable.push({ route, reason });
   }

@@ -110,8 +110,7 @@ locator or an unexpected state, not timing.
 
 ## Diagnosing flakiness
 
-The config saves a **trace on-first-retry**. If a test is flaky, open the trace
-(`npx playwright show-trace`) and look at the exact failing step: it is almost
-always an ambiguous locator, an assertion on something not yet rendered, or
-non-namespaced data that collides. Fix it at the source; do **not** raise retries
-or add sleeps.
+The config saves a **trace on-first-retry**, and the orchestrator reports a flaky
+test back to you with the failing step. That step is almost always an ambiguous
+locator, an assertion on something not yet rendered, or non-namespaced data that
+collides. Fix it at the source; do **not** raise retries or add sleeps.

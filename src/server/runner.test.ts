@@ -4,6 +4,7 @@ import { JobQueue } from "./queue";
 import {
   enqueueTrackedRun,
   enqueueContextMapRun,
+  enqueueLoginBootstrapRun,
   cancelTrackedRun,
   ONBOARDING_WAIT_MAX_MS,
   ONBOARDING_MIRROR_CEILING_MS,
@@ -11,7 +12,8 @@ import {
   ONBOARDING_INDEXING_CEILING_MS,
   ONBOARDING_WAIT_MARGIN_MS,
 } from "./runner";
-import { getRecord, createRecord, updateRecord } from "./history";
+import { getRecord, createRecord, updateRecord, getRunPhases } from "./history";
+import { recordPhaseSnapshot } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import { AppConfig } from "../orchestrator/config-loader";
 import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
@@ -158,6 +160,125 @@ test("a context-map run is an e2e context-mode run at the given sha, from a manu
   assert.equal(run?.target, "e2e");
   assert.equal(run?.source, "manual");
   assert.equal(run?.triggerRepo, undefined, "context mode cannot be driven from a service repo");
+});
+
+test("a login-bootstrap run is an e2e manual run for the login purpose, guided to author the login and prove it, never tied to a service repo", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueLoginBootstrapRun(queue, "runner-login-bootstrap", "c0ffee1", { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+  const [run] = calls;
+  assert.equal(getRecord(id)?.status, "done");
+  assert.equal(run?.mode, "manual");
+  assert.equal(run?.target, "e2e");
+  assert.equal(run?.source, "manual");
+  assert.equal(run?.purpose, "login-bootstrap");
+  assert.equal(run?.triggerRepo, undefined);
+  assert.match(run?.guidance ?? "", /auth\.setup\.ts/);
+  assert.match(run?.guidance ?? "", /one smoke spec/);
+});
+
+/* An app onboarded before the suite store has no verified login to start from: the queue authors it first, once, ahead of the run
+   that asked, and never again on its own. The decision reads the app's own declaration and the store through an injected question. */
+const withLogin = (name: string): AppConfig => ({ ...cfg(name), auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } });
+
+function bootstrapRig(over: { holds?: (app: string) => boolean; load?: (name: string) => AppConfig; withoutQuestion?: boolean } = {}) {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const deps = {
+    loadApp: over.load ?? withLogin,
+    engineFactory: () => port,
+    ...(over.withoutQuestion ? {} : { suiteHoldsVerifiedLogin: over.holds ?? (() => false) }),
+  };
+  const run = (app: string, extra: Partial<Parameters<typeof enqueueTrackedRun>[1]> = {}): string =>
+    enqueueTrackedRun(queue, { app, sha: "abc1234", target: "e2e", mode: "diff", source: "webhook", ...extra }, deps);
+  return { queue, calls, run, deps };
+}
+
+test("a run for an app that declares a login and has none verified is preceded by the app's login bootstrap, on the same sha, in queue order", async () => {
+  const r = bootstrapRig();
+  r.run("runner-boot-first");
+  await r.queue.drain();
+  assert.deepEqual(r.calls.map((c) => c.purpose ?? c.mode), ["login-bootstrap", "diff"]);
+  assert.equal(r.calls[0]?.sha.value, "abc1234");
+  assert.equal(r.calls[0]?.mode, "manual");
+});
+
+test("the bootstrap is asked for once per app and process: a later run does not queue another, whether or not the first worked", async () => {
+  const r = bootstrapRig();
+  r.run("runner-boot-once");
+  r.run("runner-boot-once");
+  await r.queue.drain();
+  r.run("runner-boot-once");
+  await r.queue.drain();
+  assert.equal(r.calls.filter((c) => c.purpose === "login-bootstrap").length, 1);
+  assert.equal(r.calls.filter((c) => c.purpose === undefined).length, 3);
+});
+
+test("a bootstrap an operator already asked for is not asked for again by the next run", async () => {
+  const r = bootstrapRig();
+  enqueueLoginBootstrapRun(r.queue, "runner-boot-explicit", "c0ffee1", r.deps);
+  r.run("runner-boot-explicit");
+  await r.queue.drain();
+  assert.equal(r.calls.filter((c) => c.purpose === "login-bootstrap").length, 1);
+});
+
+test("no bootstrap is queued for a public app, an app that already holds a verified login, a run that cannot use one, or when the question is not wired", async () => {
+  const none = (r: ReturnType<typeof bootstrapRig>): number => r.calls.filter((c) => c.purpose === "login-bootstrap").length;
+
+  const pub = bootstrapRig({ load: cfg });
+  pub.run("runner-boot-public");
+  await pub.queue.drain();
+  assert.equal(none(pub), 0, "a public app has no login to author");
+
+  const warm = bootstrapRig({ holds: () => true });
+  warm.run("runner-boot-warm");
+  await warm.queue.drain();
+  assert.equal(none(warm), 0, "the store already holds a verified login");
+
+  const frozen = bootstrapRig({ withoutQuestion: true });
+  frozen.run("runner-boot-frozen");
+  await frozen.queue.drain();
+  assert.equal(none(frozen), 0, "a campaign controls warmth itself");
+
+  const other = bootstrapRig();
+  other.run("runner-boot-code", { target: "code" });
+  other.run("runner-boot-context", { mode: "context" });
+  other.run("runner-boot-service", { triggerRepo: "org/service" });
+  other.run("runner-boot-continue", { parentRunId: "run-earlier" });
+  other.run("runner-boot-purpose", { purpose: "login-bootstrap" });
+  await other.queue.drain();
+  assert.equal(none(other), 1, "only the run that was itself the bootstrap");
+});
+
+test("a store that cannot be asked, or an app that cannot be loaded for the question, never keeps the requested run from running", async () => {
+  const broken = bootstrapRig({ holds: () => { throw new Error("manifest unreadable"); } });
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(" "));
+  try {
+    broken.run("runner-boot-broken");
+    await broken.queue.drain();
+  } finally {
+    console.warn = original;
+  }
+  assert.deepEqual(broken.calls.map((c) => c.purpose ?? c.mode), ["diff"]);
+  assert.ok(warnings.some((w) => w.includes("runner-boot-broken") && w.includes("manifest unreadable")), "the operator is told why no bootstrap was queued");
+});
+
+test("a bootstrap queued ahead of a run is announced in the log with the app and the reason", async () => {
+  const r = bootstrapRig();
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => void lines.push(args.map(String).join(" "));
+  try {
+    r.run("runner-boot-log");
+    await r.queue.drain();
+  } finally {
+    console.log = original;
+  }
+  const said = lines.find((l) => l.includes("login bootstrap"));
+  assert.ok(said?.includes("runner-boot-log"));
 });
 
 test("PIPELINE_ENGINE=legacy (stale operator setting) — still routes through the rewritten engineFactory (accepted-but-ignored)", async () => {
@@ -1814,4 +1935,126 @@ test("multi-run FIFO during onboarding: several runs enqueued while onboarding i
     assert.equal(getRecord(id)!.status, "done");
     assert.equal(getRecord(id)!.verdict, "pass");
   }
+});
+
+test("the runner hands the run's own choice about the run_spec loop to the engine, and invents none", async () => {
+  const prev = process.env.PIPELINE_ENGINE;
+  process.env.PIPELINE_ENGINE = "rewritten";
+  try {
+    const queue = new JobQueue();
+    const { port, calls } = fakePort({ verdict: "pass" });
+    enqueueTrackedRun(queue, { app: "runner-loop-on", sha: "def5678", target: "e2e", mode: "diff", source: "manual", closedLoop: true }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-loop-off", sha: "def5678", target: "e2e", mode: "diff", source: "manual", closedLoop: false }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-loop-none", sha: "def5678", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+    await queue.drain();
+    assert.deepEqual(calls.map((c) => c.closedLoop), [true, false, undefined]);
+  } finally {
+    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
+    else process.env.PIPELINE_ENGINE = prev;
+  }
+});
+
+test("the runner hands the run's own choice about the agent browser to the engine, and invents none", async () => {
+  const prev = process.env.PIPELINE_ENGINE;
+  process.env.PIPELINE_ENGINE = "rewritten";
+  try {
+    const queue = new JobQueue();
+    const { port, calls } = fakePort({ verdict: "pass" });
+    enqueueTrackedRun(queue, { app: "runner-browser-on", sha: "def5678", target: "e2e", mode: "diff", source: "manual", agentBrowser: true }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-browser-off", sha: "def5678", target: "e2e", mode: "diff", source: "manual", agentBrowser: false }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-browser-none", sha: "def5678", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+    await queue.drain();
+    assert.deepEqual(calls.map((c) => c.agentBrowser), [true, false, undefined]);
+  } finally {
+    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
+    else process.env.PIPELINE_ENGINE = prev;
+  }
+});
+
+test("the runner hands the run's own choice of coordination mode to the engine, and invents none", async () => {
+  const prev = process.env.PIPELINE_ENGINE;
+  process.env.PIPELINE_ENGINE = "rewritten";
+  try {
+    const queue = new JobQueue();
+    const { port, calls } = fakePort({ verdict: "pass" });
+    enqueueTrackedRun(queue, { app: "runner-coord-on", sha: "def5678", target: "e2e", mode: "diff", source: "manual", coordinationMode: "lead-sidekicks" }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-coord-off", sha: "def5678", target: "e2e", mode: "diff", source: "manual", coordinationMode: "single" }, { loadApp: cfg, engineFactory: () => port });
+    enqueueTrackedRun(queue, { app: "runner-coord-none", sha: "def5678", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+    await queue.drain();
+    assert.deepEqual(calls.map((c) => c.coordinationMode), ["lead-sidekicks", "single", undefined]);
+  } finally {
+    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
+    else process.env.PIPELINE_ENGINE = prev;
+  }
+});
+
+test("a finished run records the furthest phase and the phase timings its outcome carried", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({
+    verdict: "infra-error",
+    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } },
+  });
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-recorded", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.deepEqual(getRunPhases(id), { furthestPhase: "setup", phaseTimings: { gate: 2, setup: 700 } });
+});
+
+test("a run whose outcome carries no phase record leaves the phase columns empty", async () => {
+  const queue = new JobQueue();
+  const { port } = fakePort({ verdict: "pass" });
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-absent", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.deepEqual(getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+});
+
+test("a run the engine ended with an error still records how far it got", async () => {
+  const queue = new JobQueue();
+  const failure = new Error("agent runtime failed mid-turn");
+  recordPhaseSnapshot(failure, { furthestPhase: "generate", phaseTimings: { gate: 1, generate: 5_000 } });
+  const port: RunPipelinePort = { async run() { throw failure; } };
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-on-error", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.equal(getRecord(id)!.verdict, "infra-error");
+  assert.deepEqual(getRunPhases(id), { furthestPhase: "generate", phaseTimings: { gate: 1, generate: 5_000 } });
+});
+
+test("a run that ended with an error nobody recorded phases for leaves the phase columns empty", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = { async run() { throw new Error("the factory blew up"); } };
+  const id = enqueueTrackedRun(queue, { app: "runner-phases-error-bare", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+
+  assert.deepEqual(getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+});
+
+test("a phase record that cannot be stored never stops the failed run from being finalized, announced and reported", async () => {
+  const queue = new JobQueue();
+  const failure = new Error("agent runtime failed mid-turn");
+  recordPhaseSnapshot(failure, { furthestPhase: "generate", phaseTimings: { generate: 10n as unknown as number } });
+  const port: RunPipelinePort = { async run() { throw failure; } };
+  const events = createRunEventStore();
+  const incidentsBefore = getIncidents().length;
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+  let id: string;
+  try {
+    id = enqueueTrackedRun(queue, { app: "runner-phases-unstorable", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port, runEvents: events });
+    await queue.drain();
+  } finally {
+    console.error = originalError;
+  }
+
+  const r = getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error");
+  assert.deepEqual(getRunPhases(id), { furthestPhase: null, phaseTimings: null });
+  const bodies = events.replay(id).map((e) => e.body.type);
+  assert.ok(bodies.includes("agent.error"));
+  assert.ok(bodies.includes("run.verdict"));
+  assert.equal(getIncidents().length, incidentsBefore + 1, "an unexpected internal error still opens its incident");
+  assert.ok(errors.some((l) => /phase/i.test(l)), "the dropped phase record is said aloud");
 });

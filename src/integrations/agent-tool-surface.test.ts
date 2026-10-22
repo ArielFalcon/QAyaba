@@ -42,10 +42,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
+import { AGENT_BROWSER_TOOLS } from "../../qa-engine/src/shared-kernel/agent-browser";
+import { AGENT_BROWSER_AGENTS } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-capability";
+import { NO_TOOLS } from "./opencode-client";
 import type { AgentRole } from "../agent-runtime/types";
 
 /* The ONLY MCP servers the agents may reach. None of these runs the orchestrator's
@@ -159,6 +162,29 @@ const SESSION_SUMMARY_REASON =
   "instructions call the summary mandatory before an agent says it is done, which competes with the role's " +
   "verdict as its last action and spends a step of a hard cap. The denial is runtime config, not prompt wording.";
 
+const ARBITRARY_CODE_REASON =
+  "It runs code of the agent's own choosing in the page or in the browser process. Live DEV is observed while " +
+  "authoring (navigate, snapshot, click, type); a script that logs in and submits a record writes to DEV outside " +
+  "the harness and without the app's test-data prefix. Code that touches DEV belongs in a generated spec.";
+
+const FILE_PUSH_REASON =
+  "It pushes a file from the agent's disk into the live app (an upload, a drop). An upload is a write to DEV, " +
+  "which only a generated spec may do, under the app's test-data prefix.";
+
+const SHELL_REASON =
+  "A shell tool of the code-navigation server would be a second route around the denial of the built-in shell.";
+
+/* What a role that authors against live DEV is denied of the servers it holds. The Playwright ids are the
+   ones the MCP lists (`tools/list` of `@playwright/mcp`, PLAYWRIGHT_TOOL_NAMES); the runtime reports them
+   prefixed with the server name. */
+const AUTHORING_EXECUTION_DENIALS: Readonly<Record<string, string>> = {
+  playwright_browser_run_code_unsafe: ARBITRARY_CODE_REASON,
+  playwright_browser_evaluate: ARBITRARY_CODE_REASON,
+  playwright_browser_file_upload: FILE_PUSH_REASON,
+  playwright_browser_drop: FILE_PUSH_REASON,
+  serena_execute_shell_command: SHELL_REASON,
+};
+
 /* Tools of a server an agent otherwise holds that it is DELIBERATELY denied, by agent and then by the
    id the runtime reports (server name, an underscore, the tool), each with the reason. The prefixed
    id is the denial that binds; its bare twin is the redundant half of the belt-and-braces. Adding an
@@ -170,7 +196,9 @@ const DELIBERATE_MCP_TOOL_DENIALS: ToolDenials = {
     engram_mem_judge: MEMORY_MAINTENANCE_REASON,
     engram_mem_compare: MEMORY_MAINTENANCE_REASON,
     engram_mem_session_summary: SESSION_SUMMARY_REASON,
+    ...AUTHORING_EXECUTION_DENIALS,
   },
+  "qa-sidekick": AUTHORING_EXECUTION_DENIALS,
   "qa-explorer": {
     engram_mem_session_summary: SESSION_SUMMARY_REASON,
   },
@@ -192,6 +220,9 @@ const BUILTIN_TOOL_KEYS = new Set([
   "invalid",
   "apply_patch",
 ]);
+
+/* Tools the repo ships itself (agents/tool/*.ts) rather than OpenCode or an MCP server: run_spec lets an authoring role ask the orchestrator to run a spec it wrote, and set_geolocation moves the run's authoring location. */
+const CUSTOM_TOOL_KEYS = new Set<string>(["run_spec", "set_geolocation", ...AGENT_BROWSER_TOOLS]);
 
 function loadRawConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(process.cwd(), "agents", "opencode.json"), "utf8")) as Record<string, unknown>;
@@ -534,7 +565,6 @@ test("qa-generator keeps serena+engram+playwright as the test author, minus the 
   const tools = agentTools(generator);
   assert.equal(tools.write, true, "qa-generator must have write");
   assert.equal(tools.edit, true, "qa-generator must have edit");
-  assert.equal(tools.bash, true, "qa-generator must have bash");
   for (const server of MCP_ALLOWLIST) assertMcpServerAllowed("qa-generator", tools, server);
   /* Recalling and saving memory stays open under both ids; only judging and comparing memories is denied. */
   for (const tool of ["mem_search", "mem_save", "mem_get_observation", "mem_context"]) {
@@ -544,6 +574,222 @@ test("qa-generator keeps serena+engram+playwright as the test author, minus the 
   for (const tool of ["engram_mem_judge", "engram_mem_compare", "mem_judge", "mem_compare"]) {
     assert.equal(tools[tool], false, `qa-generator must deny "${tool}"`);
   }
+});
+
+/* The generator has no shell at all. A command allow-list is not an execution boundary: even the suite listing
+   (`npx playwright test --list`) loads the Playwright config and every spec module, which the generator itself
+   writes, and `npx` resolves whatever a planted `node_modules/.bin` offers. The orchestrator's Validate and
+   Execute phases run tsc, ESLint, the listing and the suite, so the author has nothing left to run. */
+test("the generator has no shell: bash is denied outright, for every target", () => {
+  const { agents } = loadAgentConfig();
+  const generator = agents["qa-generator"] as { permission?: Record<string, unknown> };
+  assert.equal(generator.permission?.bash, "deny", "permission.bash must be a plain deny, not a pattern map");
+  assert.notEqual(
+    agentTools(generator).bash,
+    true,
+    "a tools.bash:true could be merged over the denial by a runtime; the tool stays absent from tools{}",
+  );
+  assert.equal(agentTools(generator).serena_execute_shell_command, false, "serena's shell would be a second route");
+});
+
+/* Rules that apply to every role (the file's top-level `permission`, merged under each agent's own). */
+function globalPermission(): Record<string, unknown> {
+  const permission = loadRawConfig().permission;
+  assert.ok(permission && typeof permission === "object", "expected a top-level permission block");
+  return permission as Record<string, unknown>;
+}
+
+test("every role answers doom_loop and external_directory with a denial, since nobody answers an 'ask' in a run", () => {
+  const permission = globalPermission();
+  assert.equal(permission.doom_loop, "deny");
+  const external = permission.external_directory as Record<string, unknown>;
+  assert.equal(external["*"], "deny", "the catch-all denies a directory outside the project");
+  assert.equal(Object.keys(external)[0], "*", "the catch-all comes first so that the exceptions after it are the last match");
+  for (const [pattern, action] of Object.entries(external)) {
+    if (pattern !== "*") assert.equal(action, "allow", `"${pattern}" is an exception to the catch-all and must allow`);
+  }
+});
+
+function actionsIn(rule: unknown): unknown[] {
+  return typeof rule === "string" ? [rule] : Object.values(rule as Record<string, unknown>);
+}
+
+test("no declared permission block answers 'ask' (a run has nobody to answer, so it would hang)", () => {
+  const { agents } = loadAgentConfig();
+  const blocks: Array<[string, Record<string, unknown>]> = [["the top level", globalPermission()]];
+  for (const [name, agent] of Object.entries(agents)) {
+    const permission = (agent as { permission?: Record<string, unknown> }).permission;
+    if (permission) blocks.push([`agent "${name}"`, permission]);
+  }
+  assert.ok(blocks.length >= 2, "expected the top level and at least one agent to declare a permission block");
+  for (const [owner, permission] of blocks) {
+    for (const [tool, rule] of Object.entries(permission)) {
+      assert.ok(!actionsIn(rule).includes("ask"), `${owner} answers "ask" for ${tool}`);
+    }
+  }
+});
+
+interface ResolvedRule {
+  permission: string;
+  pattern: string;
+  action: string;
+}
+
+/* An agent as `GET /agent` returns it. The recording is made on the pinned OpenCode build with the same
+   `permission` blocks the real config declares (src/integrations/fixtures/README.md). */
+function recordedAgents(): Array<{ name: string; native?: boolean; permission: ResolvedRule[] }> {
+  return JSON.parse(readFileSync(join(process.cwd(), "src", "integrations", "fixtures", "opencode-agent-list.json"), "utf8"));
+}
+
+/* The runtime's own defaults carry 'ask' rules (doom_loop, external_directory, an env file read); the
+   configuration is merged after them and the last rule that matches decides. A default 'ask' is therefore
+   still in force unless a later rule of the same permission answers the same pattern, or every path (`*`),
+   with something else: that later rule is the last match for whatever the 'ask' would have covered. */
+function unansweredAsks(rules: ResolvedRule[]): ResolvedRule[] {
+  return rules.filter(
+    (rule, index) =>
+      rule.action === "ask" &&
+      !rules
+        .slice(index + 1)
+        .some((later) => later.permission === rule.permission && (later.pattern === rule.pattern || later.pattern === "*") && later.action !== "ask"),
+  );
+}
+
+test("the resolved permissions of every configured role leave no 'ask' standing", () => {
+  /* The `qa-` agents of the recording carry the real roles' `tools` and `permission`; the `probe-` ones exist
+     for their step caps and carry neither. */
+  const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
+  assert.ok(configured.length >= 3, "expected the recorded generator, reviewer and explorer");
+  for (const agent of configured) {
+    assert.deepEqual(unansweredAsks(agent.permission), [], `the server resolves an 'ask' for "${agent.name}"`);
+  }
+});
+
+/* A path pattern as OpenCode's permission matcher reads it: `*` is any run of characters (a `/` too), `?` is one. */
+function patternMatches(pattern: string, path: string): boolean {
+  const source = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${source}$`, "s").test(path);
+}
+
+/* The rule that decides a read: the last one of the resolved list that matches (the runtime's defaults come
+   first, the configuration after them). */
+function readDecision(rules: ResolvedRule[], path: string): string | undefined {
+  return rules.filter((rule) => rule.permission === "read" && patternMatches(rule.pattern, path)).pop()?.action;
+}
+
+/* Files that hold a credential or a login session, wherever a watched repo's working copy keeps them. */
+const SECRET_PATHS = [
+  "/mirrors/shop/.env",
+  "/mirrors/shop/e2e/.env",
+  "/mirrors/shop/service.env",
+  "/mirrors/shop/e2e/.env.local",
+  "/mirrors/shop/e2e/.env.production",
+  "/mirrors/shop/e2e/.auth/user.json",
+  "/mirrors/shop/e2e/.auth/client.p12",
+  "/mirrors/shop/e2e/storageState.json",
+  "/mirrors/shop/e2e/storageState.admin.json",
+  "/mirrors/shop/e2e/cert.pass",
+];
+
+/* Folders and files of a watched app that merely look like auth material: its own code is what a test author reads to learn the app. The orchestrator's auth directory is not mounted into the agents container, so no rule names it. */
+const APP_AUTH_SOURCES = [
+  "/mirrors/shop/src/app/data/auth/auth.service.ts",
+  "/mirrors/shop/src/app/data/auth/login.component.html",
+  "/mirrors/shop/src/app/.auth/session.ts",
+  "/mirrors/shop/e2e/flows/auth/login.spec.ts",
+];
+
+test("every role of the real configuration is in the recording, so the resolved rules below cover all of them", () => {
+  const recorded = new Set(recordedAgents().map((agent) => agent.name));
+  for (const name of Object.keys(loadAgentConfig().agents)) {
+    assert.ok(recorded.has(name), `"${name}" is configured but absent from the recorded GET /agent body: re-record it (fixtures/README.md)`);
+  }
+});
+
+test("no role can read an env file, a stored login session or the orchestrator's auth material, whatever else its tools allow", () => {
+  /* The runtime's default allows every read, asks for an env file and is followed by the role's own
+     `tools.read: true` (`read * allow`): a rule that only the role's `permission` block, merged last, can outweigh. */
+  const configured = recordedAgents().filter((agent) => agent.name.startsWith("qa-"));
+  assert.ok(configured.length >= 8, `expected every configured role in the recording, got ${configured.length}`);
+  for (const agent of configured) {
+    for (const path of SECRET_PATHS) {
+      assert.equal(readDecision(agent.permission, path), "deny", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);
+    }
+  }
+});
+
+test("a role still reads an app's own auth source code: only the suite's session directory and storage-state files are closed", () => {
+  const { agents } = loadAgentConfig();
+  const readers = recordedAgents().filter((agent) => agent.name.startsWith("qa-") && agentTools(agents[agent.name]).read === true);
+  assert.ok(readers.length >= 6, `expected the reading roles to be checked, got ${readers.length}`);
+  for (const agent of readers) {
+    for (const path of APP_AUTH_SOURCES) {
+      assert.equal(readDecision(agent.permission, path), "allow", `"${agent.name}" resolves a read of ${path} to ${readDecision(agent.permission, path)}`);
+    }
+  }
+});
+
+test("a role still reads the example env file and an ordinary source file when its tools allow reading", () => {
+  const generator = recordedAgents().find((agent) => agent.name === "qa-generator");
+  assert.ok(generator, "expected the recorded qa-generator");
+  assert.equal(readDecision(generator.permission, "/mirrors/shop/e2e/tests/login.spec.ts"), "allow");
+  assert.equal(readDecision(generator.permission, "/mirrors/shop/.env.example"), "allow", "an example file carries no secret and the runtime allows it");
+});
+
+test("every role that reads declares the same read denial in its own permission block, which overrides its tools.read", () => {
+  /* `tools.read: true` becomes the permission key "read" and a `permission.read` of the same agent replaces it: the
+     map therefore restates the catch-all allow first, and the denials after it are the last match. A role whose
+     tools turn reading off keeps the `read: deny` that tools map gives it, so a map there would re-open it. */
+  const { agents } = loadAgentConfig();
+  let canonical: string | undefined;
+  let readers = 0;
+  for (const [name, agent] of Object.entries(agents)) {
+    const read = (agent as { permission?: { read?: unknown } }).permission?.read;
+    if (agentTools(agent).read !== true) {
+      assert.equal(read, undefined, `"${name}" cannot read, and a permission.read would replace the denial its tools give it`);
+      continue;
+    }
+    readers += 1;
+    assert.ok(read && typeof read === "object", `"${name}" reads and must declare permission.read as a pattern map`);
+    const entries = Object.entries(read as Record<string, unknown>);
+    assert.deepEqual(entries[0], ["*", "allow"], `"${name}": the catch-all allow comes first so that every denial after it is the last match`);
+    assert.ok(entries.every(([, action]) => action === "deny" || action === "allow"), `"${name}" answers a read with neither deny nor allow`);
+    const serialized = JSON.stringify(entries);
+    canonical ??= serialized;
+    assert.equal(serialized, canonical, `"${name}" declares a different read denial than the other roles`);
+  }
+  assert.ok(readers >= 6, `expected the reading roles to be checked, got ${readers}`);
+});
+
+test("the resolved generator has no allowed shell command and keeps the runtime's tool-output directory", () => {
+  const generator = recordedAgents().find((agent) => agent.name === "qa-generator");
+  assert.ok(generator, "expected the recorded qa-generator");
+  const bash = generator.permission.filter((rule) => rule.permission === "bash");
+  assert.ok(bash.length > 0, "the generator carries a bash rule");
+  assert.deepEqual(
+    bash.filter((rule) => rule.action !== "deny"),
+    [],
+    "every bash rule the server resolves for the generator denies",
+  );
+  const external = generator.permission.filter((rule) => rule.permission === "external_directory");
+  assert.equal(external[external.length - 1]?.action, "allow", "the runtime's tool-output directory stays allowed last");
+});
+
+test("the Playwright tools that run code or push a file are denied to every role that drives the browser and writes", () => {
+  const { agents } = loadAgentConfig();
+  let checked = 0;
+  for (const [name, agent] of Object.entries(agents)) {
+    const tools = agentTools(agent);
+    const writes = tools.write === true || tools.edit === true;
+    const drivesBrowser = tools["playwright*"] !== false;
+    if (!writes || !drivesBrowser) continue;
+    checked++;
+    for (const tool of ["browser_run_code_unsafe", "browser_evaluate", "browser_file_upload", "browser_drop"]) {
+      assert.equal(tools[`playwright_${tool}`], false, `SECURITY: ${name} must deny "playwright_${tool}"`);
+      assert.equal(tools[tool], false, `SECURITY: ${name} must deny "${tool}"`);
+    }
+  }
+  assert.ok(checked >= 2, `expected the generator and the sidekick, got ${checked} role(s)`);
 });
 
 test("the generator and the explorer are denied the session summary under both tool ids, and still recall and save memory", () => {
@@ -621,18 +867,6 @@ test("qa-maintainer keeps serena+engram but denies playwright (never drives a br
   assertMcpServerDenied("qa-maintainer", tools, "playwright");
 });
 
-test("qa-worker and qa-worker-code keep serena only (engram and playwright denied)", () => {
-  const { agents } = loadAgentConfig();
-  for (const name of ["qa-worker", "qa-worker-code"]) {
-    const worker = agents[name];
-    assert.ok(worker, `expected a ${name} agent`);
-    const tools = agentTools(worker);
-    assertMcpServerAllowed(name, tools, "serena");
-    assertMcpServerDenied(name, tools, "engram");
-    assertMcpServerDenied(name, tools, "playwright");
-  }
-});
-
 test("qa-reviewer's mode matches how it is actually invoked (direct prompt, not subagent delegation)", () => {
   /* qa-engine review-port bridge) — no other opencode agent delegates to it, so the old
      "subagent" label mischaracterized the invocation path. The SDK's AgentConfig documents the
@@ -661,7 +895,7 @@ test("known built-in tool keys are recognized (sanity check for the BUILTIN_TOOL
     for (const key of Object.keys(tools)) {
       const isWildcard = key.endsWith("*");
       const isKnownMcpTool = allMcpToolNames.has(key);
-      const isBuiltin = BUILTIN_TOOL_KEYS.has(key);
+      const isBuiltin = BUILTIN_TOOL_KEYS.has(key) || CUSTOM_TOOL_KEYS.has(key);
       assert.ok(
         isWildcard || isKnownMcpTool || isBuiltin,
         `agent "${name}" declares tools key "${key}" that is neither a known built-in, a known MCP ` +
@@ -669,4 +903,81 @@ test("known built-in tool keys are recognized (sanity check for the BUILTIN_TOOL
       );
     }
   }
+});
+
+test("run_spec is off for every agent by the global tools map and on for the two authoring roles alone", () => {
+  const raw = loadRawConfig();
+  assert.deepEqual((raw.tools as Record<string, unknown> | undefined)?.run_spec, false, "the global default switches the tool off");
+  const { agents } = loadAgentConfig();
+  const on = Object.entries(agents).filter(([, agent]) => agentTools(agent).run_spec === true).map(([name]) => name);
+  assert.deepEqual(on.sort(), ["qa-generator", "qa-sidekick"]);
+  for (const [name, agent] of Object.entries(agents)) {
+    if (name !== "qa-generator" && name !== "qa-sidekick") assert.notEqual(agentTools(agent).run_spec, true, `${name} must not call run_spec`);
+  }
+});
+
+test("the run_spec tool file exists and its package is installed in the agents image", () => {
+  assert.ok(existsSync(join(process.cwd(), "agents", "tool", "run_spec.ts")), "the tool file the config enables exists");
+  const dockerfile = readFileSync(join(process.cwd(), "agents", "Dockerfile"), "utf8");
+  assert.match(dockerfile, /npm ci/, "the tool's package is installed in the image, not taken from a host folder");
+});
+
+/* Whether a tools-map key switches the named tool: the exact name, or a wildcard whose prefix the name starts with. */
+function keyCovers(key: string, name: string): boolean {
+  return key === name || (key.endsWith("*") && name.startsWith(key.slice(0, -1)));
+}
+
+test("the authenticated browser tools are off for every agent by the global tools map and on for the authoring roles alone", () => {
+  const raw = loadRawConfig();
+  const globalTools = (raw.tools ?? {}) as Record<string, unknown>;
+  for (const tool of AGENT_BROWSER_TOOLS) assert.equal(globalTools[tool], false, `the global default switches ${tool} off`);
+
+  const { agents } = loadAgentConfig();
+  const authoring = [...AGENT_BROWSER_AGENTS].sort();
+  const on = Object.entries(agents)
+    .filter(([, agent]) => AGENT_BROWSER_TOOLS.every((tool) => agentTools(agent)[tool] === true))
+    .map(([name]) => name)
+    .sort();
+  assert.deepEqual(on, authoring, "all four tools are on for the authoring roles and for no other agent");
+  for (const [name, agent] of Object.entries(agents)) {
+    if (AGENT_BROWSER_AGENTS.has(name)) continue;
+    for (const [key, value] of Object.entries(agentTools(agent))) {
+      for (const tool of AGENT_BROWSER_TOOLS) assert.ok(!(value === true && keyCovers(key, tool)), `${name} must not enable ${tool} (via "${key}")`);
+    }
+  }
+});
+
+test("every role granted the authenticated browser tools denies webfetch, declared and as the server resolves it", () => {
+  const { agents } = loadAgentConfig();
+  const granted = Object.entries(agents)
+    .filter(([, agent]) => AGENT_BROWSER_TOOLS.some((tool) => agentTools(agent)[tool] === true))
+    .map(([name]) => name);
+  assert.ok(granted.length > 0, "expected at least one role holding the browser tools");
+  const recorded = recordedAgents();
+  for (const name of granted) {
+    assert.equal(agentTools(agents[name]).webfetch, false, `${name} must switch webfetch off in its tools map`);
+    const rules = recorded.find((agent) => agent.name === name)?.permission ?? [];
+    assert.equal(rules.filter((rule) => rule.permission === "webfetch").pop()?.action, "deny", `${name} resolves webfetch to a denial`);
+  }
+});
+
+test("a prompt that asks for no tool at all denies the browser tools too", () => {
+  for (const tool of AGENT_BROWSER_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["authbrowser*"] === false, true, tool);
+});
+
+test("the browser tool file exists, where the tools directory of the config puts it", () => {
+  assert.ok(existsSync(join(process.cwd(), "agents", "tool", "authbrowser.ts")), "the file whose exports are the four tools exists");
+  assert.ok(existsSync(join(process.cwd(), "agents", "lib", "authbrowser-client.mjs")), "and so does the client it calls through");
+});
+
+test("the location tool is off for every agent by the global tools map and on for the two authoring roles alone", () => {
+  const raw = loadRawConfig();
+  assert.deepEqual((raw.tools as Record<string, unknown> | undefined)?.set_geolocation, false, "the global default switches the tool off");
+  const { agents } = loadAgentConfig();
+  const on = Object.entries(agents).filter(([, agent]) => agentTools(agent).set_geolocation === true).map(([name]) => name);
+  assert.deepEqual(on.sort(), ["qa-generator", "qa-sidekick"]);
+  for (const [name, agent] of Object.entries(agents)) {
+    if (name !== "qa-generator" && name !== "qa-sidekick") assert.notEqual(agentTools(agent).set_geolocation, true, `${name} must not move the authoring location`);
+  }
+  assert.ok(existsSync(join(process.cwd(), "agents", "tool", "set_geolocation.ts")), "the tool file the config enables exists");
 });

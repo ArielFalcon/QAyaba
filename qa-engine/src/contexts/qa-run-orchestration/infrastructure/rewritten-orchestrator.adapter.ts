@@ -3,6 +3,7 @@
 import type { RunPipelinePort, RunInput } from "../application/ports/index.ts";
 import { RunQaUseCase, type RunQaUseCaseDeps, type RunQaConfig, type RunQaResult } from "../application/run-qa.use-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import { attachTraceFacts, traceFactsOf } from "@kernel/run-trace-facts.ts";
 
 export interface RewrittenOrchestratorAdapterDeps extends Omit<RunQaUseCaseDeps, "config"> {
   config?: Partial<RunQaConfig>;
@@ -17,7 +18,9 @@ export class RewrittenOrchestratorAdapter implements RunPipelinePort {
 
   async run(input: RunInput, signal?: AbortSignal): Promise<RunOutcome> {
     const result = await this.useCase.run(input, signal);
-    return result.outcome ?? toOutcome(input, result);
+    const outcome = result.outcome ?? toOutcome(input, result);
+    const facts = traceFactsOf(result);
+    return facts ? attachTraceFacts(outcome, facts) : outcome;
   }
 }
 
@@ -37,6 +40,7 @@ function toOutcome(input: RunInput, result: RunQaResult): RunOutcome {
       valueScore: result.gateSignals.valueScore,
       reviewerCorrections: [],
       ...(result.gateSignals.reviewerApproved !== undefined ? { reviewerApproved: result.gateSignals.reviewerApproved } : {}),
+      ...(result.gateSignals.reviewer !== undefined ? { reviewer: result.gateSignals.reviewer } : {}),
       flaky: result.decision.verdict === "flaky",
       retries: result.gateSignals.retries,
       preExecAmbiguityCatches: result.gateSignals.preExecAmbiguityCatches,
@@ -44,6 +48,8 @@ function toOutcome(input: RunInput, result: RunQaResult): RunOutcome {
       catalogGateInWindow: result.gateSignals.catalogGateInWindow,
       catalogGateAdvisory: result.gateSignals.catalogGateAdvisory,
       catalogGateFailClosed: result.gateSignals.catalogGateFailClosed,
+      ...(result.gateSignals.phaseTimings !== undefined ? { phaseTimings: result.gateSignals.phaseTimings } : {}),
+      ...(result.gateSignals.furthestPhase !== undefined ? { furthestPhase: result.gateSignals.furthestPhase } : {}),
     },
     rulesRetrieved: result.rulesRetrieved,
     ...(result.note !== undefined ? { note: result.note } : {}),

@@ -130,7 +130,7 @@ function stripTrailingLineComment(line: string): string {
 }
 
 /* Three passes: drop full-line comments, strip block comments, then trailing line comments. Order matters so a /* inside a block is not treated as a line comment. Result is one space-separated line so Prettier-wrapped calls match as a whole. * / */
-function stripCommentsAndJoin(specSrc: string): string {
+export function stripCommentsAndJoin(specSrc: string): string {
   /* Block comments first on the raw multi-line source (dotall). Each block collapses to a space. */
   const noBlocks = specSrc.replace(/\/\*[\s\S]*?\*\//g, " ");
   return noBlocks
@@ -288,7 +288,7 @@ export function unscopedMultipleContradictions(
 }
 
 /* Internal: also returns start/end index so disambiguation and page-root checks can align with the call site. */
-function extractProposedSelectorsWithIndex(joined: string): Array<{ index: number; endIndex: number; sel: ProposedSelector }> {
+export function extractProposedSelectorsWithIndex(joined: string): Array<{ index: number; endIndex: number; sel: ProposedSelector }> {
   const found: Array<{ index: number; endIndex: number; sel: ProposedSelector }> = [];
 
   const roleRe = /\.getByRole\(\s*["'`]([^"'`]+)["'`](?:\s*,\s*\{([\s\S]*?)\})?\s*\)/g;

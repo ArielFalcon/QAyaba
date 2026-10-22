@@ -16,6 +16,10 @@ export interface QaCase {
   finalUrl?: string;
   /* Deduped, capped browser-console error-level entries and uncaught pageerror exceptions. Diagnostic only — never blocks, auto-passes, or masks a generated-test defect. Absent when capture missed. */
   runtimeErrors?: { type: string; text: string }[];
+  /* Failed requests the page saw, each URL reduced to origin+pathname — never a query or fragment. Diagnostic only — never blocks or masks a defect. Absent when capture missed. */
+  networkErrors?: { url: string; status?: number; errorText?: string; resourceType?: string }[];
+  /* Derived from `networkErrors` and the run's egress report, never reported by the browser. Absent when there are no network errors. */
+  networkClass?: "egress" | "backend" | "dns" | "other";
 }
 
 export interface SpecMeta {

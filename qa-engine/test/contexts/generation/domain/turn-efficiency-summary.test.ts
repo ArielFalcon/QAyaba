@@ -9,12 +9,13 @@ import { CALL_BUCKETS } from "@contexts/generation/domain/tool-call-taxonomy.ts"
 import { summarizeCallSequence, type CallRecord } from "@contexts/generation/domain/call-sequence.ts";
 
 test("tallyBuckets zero-fills every CallBucket key, not just the ones seen", () => {
-  const tally = tallyBuckets([CALL_BUCKETS.WRITE, CALL_BUCKETS.WRITE, CALL_BUCKETS.CODE_READ]);
+  const tally = tallyBuckets([CALL_BUCKETS.WRITE, CALL_BUCKETS.WRITE, CALL_BUCKETS.CODE_READ, CALL_BUCKETS.SCRIPT_RUN]);
   assert.deepEqual(tally, {
     code_read: 1,
     browser: 0,
     write: 2,
     validate_run: 0,
+    script_run: 1,
     memory: 0,
     subagent: 0,
     other: 0,
@@ -23,8 +24,8 @@ test("tallyBuckets zero-fills every CallBucket key, not just the ones seen", () 
 
 test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a call sequence and the extra fine-only counts", () => {
   const calls: CallRecord[] = [
-    { callId: "c1", status: "completed", bucket: CALL_BUCKETS.CODE_READ, repeatKey: "read:/a.ts" },
-    { callId: "c2", status: "completed", bucket: CALL_BUCKETS.WRITE, repeatKey: "write:/a.ts" },
+    { callId: "c1", status: "completed", bucket: CALL_BUCKETS.CODE_READ, shellCall: false, repeatKey: "read:/a.ts" },
+    { callId: "c2", status: "completed", bucket: CALL_BUCKETS.WRITE, shellCall: false, repeatKey: "write:/a.ts" },
   ];
   const sequence = summarizeCallSequence(calls);
 
@@ -36,6 +37,11 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
     pathProvidedReadCount: 2,
     stepsUsed: 4,
     observationComplete: true,
+    timeToFirstCallMs: 1500,
+    timeToFirstWriteMs: 9000,
+    deniedCallCount: 3,
+    toolSequence: [{ tool: "read", target: "a.ts" }, { tool: "write", target: "a.ts" }],
+    usage: { input: 1, output: 2, reasoning: 3, cacheRead: 4, cacheWrite: 5, cost: 0.6, steps: 7 },
   });
 
   assert.equal(metrics.totalCalls, 2);
@@ -48,12 +54,17 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
   assert.equal(metrics.pathProvidedReadCount, 2, "the path-provided count is carried apart from the content-provided one");
   assert.equal(metrics.buckets.code_read, 1);
   assert.equal(metrics.buckets.write, 1);
+  assert.equal(metrics.timeToFirstCallMs, 1500);
+  assert.equal(metrics.timeToFirstWriteMs, 9000);
+  assert.equal(metrics.deniedCallCount, 3);
+  assert.deepEqual(metrics.toolSequence, [{ tool: "read", target: "a.ts" }, { tool: "write", target: "a.ts" }]);
+  assert.deepEqual(metrics.usage, { input: 1, output: 2, reasoning: 3, cacheRead: 4, cacheWrite: 5, cost: 0.6, steps: 7 });
 });
 
 test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence's repeatedCallCount", () => {
   const calls: CallRecord[] = [
-    { callId: "c1", status: "completed", bucket: CALL_BUCKETS.CODE_READ, repeatKey: "read:/a.ts" },
-    { callId: "c2", status: "completed", bucket: CALL_BUCKETS.CODE_READ, repeatKey: "read:/a.ts" },
+    { callId: "c1", status: "completed", bucket: CALL_BUCKETS.CODE_READ, shellCall: false, repeatKey: "read:/a.ts" },
+    { callId: "c2", status: "completed", bucket: CALL_BUCKETS.CODE_READ, shellCall: false, repeatKey: "read:/a.ts" },
   ];
   const sequence = summarizeCallSequence(calls);
   const metrics = buildTurnCallMetrics({
@@ -64,6 +75,11 @@ test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence
     pathProvidedReadCount: 0,
     stepsUsed: null,
     observationComplete: false,
+    timeToFirstCallMs: null,
+    timeToFirstWriteMs: null,
+    deniedCallCount: 0,
+    toolSequence: [],
+    usage: null,
   });
   assert.equal(metrics.duplicateCallCount, 1);
   assert.equal(metrics.stepsUsed, null);

@@ -51,6 +51,13 @@ module.exports = {
       to: { path: "contexts/workspace-and-publication" },
     },
     {
+      name: "no-telemetry-sdk-in-engine",
+      severity: "error",
+      comment: "The engine sees tracing and metrics only through the TelemetryPort in shared-kernel/telemetry (no SDK types). The OpenTelemetry SDK, and any Langfuse client, is imported only by the shell, under src/telemetry/. Swapping or removing the backend must never touch the engine.",
+      from: { path: "^qa-engine/src/" },
+      to: { path: "(^|/)node_modules/(@opentelemetry/|langfuse)" },
+    },
+    {
       name: "no-detached-git-hardening-in-engine",
       severity: "error",
       comment: "Every git call the engine makes on a working copy goes through hardenGitArgs, which verifies the git dir first. The hardening that verifies nothing (a clone, an ls-remote) lives in its own module and is for the shell, which owns such calls. The allowlist of engine importers is empty by design: a git call in the engine that seems to need it has a working copy to pass to hardenGitArgs.",
@@ -63,6 +70,37 @@ module.exports = {
       comment: "The bare hardening flags are the hardening minus the working-copy verification. Only the two hardening modules (hardenGitArgs, which verifies the git dir first, and the detached variant, which the engine may not import) build argv from them: an engine module holding them could run git on a sandbox-touched working copy without its git dir ever being judged.",
       from: { path: "^qa-engine/src/", pathNot: "^qa-engine/src/shared-infrastructure/process-sandbox/(detached-)?git-hardening\\.ts$" },
       to: { path: "^qa-engine/src/shared-infrastructure/process-sandbox/git-hardening-flags\\.ts$" },
+    },
+    {
+      name: "no-child-process-outside-launchers",
+      severity: "error",
+      comment: "Every child process that runs code an agent influenced (a spec, a login script, the e2e project's tsc/eslint/--list and installs, the watched repo's own test command) starts through the execution launcher, which owns the sandbox uid, the profile's environment, the work directory and the egress lease. A module that imports child_process can start a child as the orchestrator, with its environment and its network, so the allowlist is the launcher, the generic runner for trusted binaries (git, the code graph), the git hardening, and the privilege-drop module (chown), and the iptables applier of the egress filter. Type-only imports (ChildProcess) are not a way to start anything.",
+      from: {
+        path: "^qa-engine/src/",
+        pathNot: [
+          "^qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox\\.ts$",
+          "^qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner\\.adapter\\.ts$",
+          "^qa-engine/src/shared-infrastructure/process-sandbox/git-hardening\\.ts$",
+          "^qa-engine/src/shared-infrastructure/process-sandbox/sandbox\\.ts$",
+          "^qa-engine/src/shared-infrastructure/egress/iptables-runner\\.ts$",
+          "^qa-engine/src/contexts/test-execution/infrastructure/code-execution\\.runner\\.ts$",
+        ],
+      },
+      to: { path: "^(node:)?child_process$", dependencyTypes: ["core"], dependencyTypesNot: ["type-only"] },
+    },
+    {
+      name: "no-fs-in-agent-browser",
+      severity: "error",
+      comment: "The authenticated agent browser holds the run's saved session in memory only: the cookies are handed to the browser as data and nothing it refreshes is saved. The module that hosts the browser and the one that starts it import no file API, so a refreshed cookie, a download or a profile written by the host cannot exist; what they hold arrives through their dependencies.",
+      from: { path: "^qa-engine/src/contexts/test-execution/infrastructure/agent-browser/" },
+      to: { path: "^(node:)?(fs|fs/promises)$", dependencyTypes: ["core"] },
+    },
+    {
+      name: "playwright-core-only-in-agent-browser-loader",
+      severity: "error",
+      comment: "The orchestrator process drives a browser only through the agent-browser loader, which hands the host the few methods it uses. A second import of playwright-core would be a second way to open a page in the orchestrator, with its credentials and network, outside the route guard.",
+      from: { path: "^qa-engine/src/", pathNot: "^qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core\\.loader\\.ts$" },
+      to: { path: "(^|/)playwright-core($|/)" },
     },
     {
       // migration-tier-1-2, Slice 5 (corrected judgment-day round-1: the prior comment's "ONLY

@@ -1,7 +1,7 @@
 /* Scrubbed environment for an untrusted spawn. Drops orchestrator secrets; keeps OS + language vars. Callers widen the base only for their own spawns (`extraExact` / `extraAllowed`); CBM_CACHE_DIR is not in the base allowlist. */
 
 /* Secret FAMILIES that must never reach untrusted code (prefix match). Defense-in-depth: the allowlist is the real gate, but blocking secrets explicitly guards against an allowlist entry widening to one. */
-const BLOCKED_ENV_PREFIX = /^(?:GITHUB_TOKEN|GH_TOKEN|OPENCODE_API_KEY|WEBHOOK_SECRET|QA_API_TOKEN|DOPPLER_|AWS_|AZURE_|GCP_|GOOGLE_APPLICATION_CREDENTIALS|NPM_TOKEN|NODE_AUTH_TOKEN)/;
+const BLOCKED_ENV_PREFIX = /^(?:GITHUB_TOKEN|GH_TOKEN|OPENCODE_API_KEY|OPENCODE_SERVER_PASSWORD|WEBHOOK_SECRET|QA_API_TOKEN|DOPPLER_|LANGFUSE_|AWS_|AZURE_|GCP_|GOOGLE_APPLICATION_CREDENTIALS|NPM_TOKEN|NODE_AUTH_TOKEN)/;
 
 /* Allowed exact var names (OS + language essentials that are single vars, not families). */
 const ALLOWED_ENV_EXACT = new Set([
@@ -21,12 +21,19 @@ export const ALLOWED_ENV_PREFIX = /^(?:LC_|npm_config_|PIP_|CGO_|CARGO_|RUSTUP_|
 export interface ScrubEnvOptions {
   extraExact?: Set<string>;
   extraAllowed?: RegExp;
+  /* Skip the warning that names the variables left out; for a caller that scrubs on every spawn. */
+  quiet?: boolean;
 }
 
 export function scrubEnv(opts?: ScrubEnvOptions): Record<string, string> {
+  return scrubEnvFrom(process.env, opts);
+}
+
+/* The same filter over an env the caller hands in, so that a module that must not read process.env (the execution launcher) can reuse the one allowlist. */
+export function scrubEnvFrom(source: NodeJS.ProcessEnv, opts?: ScrubEnvOptions): Record<string, string> {
   const env: Record<string, string> = {};
   const dropped: string[] = [];
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(source)) {
     if (value === undefined) continue;
     if (BLOCKED_ENV_PREFIX.test(key)) continue;
     if (
@@ -40,7 +47,7 @@ export function scrubEnv(opts?: ScrubEnvOptions): Record<string, string> {
       dropped.push(key);
     }
   }
-  if (dropped.length > 0) {
+  if (dropped.length > 0 && opts?.quiet !== true) {
     console.warn(`[qa] scrubEnv dropped ${dropped.length} env var(s) not in allowlist: ${dropped.join(", ")}`);
   }
   return env;

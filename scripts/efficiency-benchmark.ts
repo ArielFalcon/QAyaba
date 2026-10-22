@@ -26,6 +26,7 @@ import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/gener
 import { DIFF_TIER_NAMES, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
 import { CALL_BUCKETS } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
+import { discoverApiToken } from "../src/server/api-token.ts";
 import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 
@@ -198,7 +199,7 @@ export interface RunBenchmarkResult {
 /* A benchmark must be the only work against DEV: the service's queue is the one sequential queue, so a
    busy one means someone else's run would share the interval a case is measured over. The queue's
    `pending` counts the running job too, so an idle queue is exactly one with nothing running and nothing pending. */
-async function assertQueueIdle(service: BenchmarkService): Promise<void> {
+export async function assertQueueIdle(service: BenchmarkService): Promise<void> {
   const headers: Record<string, string> = service.token ? { Authorization: `Bearer ${service.token}` } : {};
   const res = await service.fetch(`${service.baseUrl}/api/v1/queue`, { headers });
   if (!res.ok) throw new Error(`could not read the service's queue (HTTP ${res.status})`);
@@ -283,6 +284,8 @@ export interface TurnMeasurement {
   pathProvidedReadCount: number | null;
   codeRead: number | null;
   memory: number | null;
+  /** Calls that ran a program or script (not a validation); a snapshot taken before this bucket existed has none (undefined, read as unknown). */
+  scriptRun?: number | null;
   stepsUsed: number | null;
   maxSteps: number | null;
 }
@@ -362,6 +365,7 @@ function turnMeasurement(t: AgentTurnRecord): TurnMeasurement {
     pathProvidedReadCount: t.pathProvidedReadCount ?? null,
     codeRead: t.callBuckets?.[CALL_BUCKETS.CODE_READ] ?? null,
     memory: t.callBuckets?.[CALL_BUCKETS.MEMORY] ?? null,
+    scriptRun: t.callBuckets?.[CALL_BUCKETS.SCRIPT_RUN] ?? null,
     stepsUsed: t.stepsUsed ?? null,
     maxSteps: t.maxSteps ?? null,
   };
@@ -579,7 +583,7 @@ function windowLine(w: CoarseRunEfficiency["firstPass"]): string {
 }
 
 function turnLine(t: TurnMeasurement): string {
-  return `turn round ${t.round}: prompt ${val(t.promptBytes)} B · calls ${val(t.totalCalls)} · before 1st write ${val(t.callsBeforeFirstWrite)} · redundant reads ${val(t.redundantReadCount)} · reads provided by content ${val(t.promptProvidedReadCount)} · by path ${val(t.pathProvidedReadCount)} · code reads ${val(t.codeRead)} · memory ${val(t.memory)} · steps used ${val(t.stepsUsed)} · max steps ${val(t.maxSteps)} · step use ${ratioText(stepUseRatio(t.stepsUsed, t.maxSteps))}`;
+  return `turn round ${t.round}: prompt ${val(t.promptBytes)} B · calls ${val(t.totalCalls)} · before 1st write ${val(t.callsBeforeFirstWrite)} · redundant reads ${val(t.redundantReadCount)} · reads provided by content ${val(t.promptProvidedReadCount)} · by path ${val(t.pathProvidedReadCount)} · code reads ${val(t.codeRead)} · memory ${val(t.memory)} · script runs ${val(t.scriptRun)} · steps used ${val(t.stepsUsed)} · max steps ${val(t.maxSteps)} · step use ${ratioText(stepUseRatio(t.stepsUsed, t.maxSteps))}`;
 }
 
 const UNDECLARED_TIER = "undeclared";
@@ -650,18 +654,13 @@ export interface MainOptions {
   env?: Record<string, string | undefined>;
 }
 
-function discoverApiToken(env: Record<string, string | undefined>): string | undefined {
-  if (env.QA_API_TOKEN) return env.QA_API_TOKEN;
-  try {
-    return readFileSync(join(ROOT, "config", ".api_token"), "utf8").trim() || undefined;
-  } catch {
-    return undefined;
-  }
+function serviceApiToken(env: Record<string, string | undefined>): string | undefined {
+  return discoverApiToken(env, ROOT);
 }
 
-async function defaultService(env: Record<string, string | undefined>): Promise<BenchmarkService> {
+export async function defaultService(env: Record<string, string | undefined>): Promise<BenchmarkService> {
   const { resolvePort } = await import("../src/server/port.ts");
-  const token = discoverApiToken(env);
+  const token = serviceApiToken(env);
   return { fetch, baseUrl: `http://localhost:${resolvePort(env)}`, ...(token ? { token } : {}) };
 }
 

@@ -1,5 +1,6 @@
 
 import { REDACTED, SecretLeakError, type RedactionPort } from "../../qa-engine/src/shared-kernel/ports/redaction.port";
+import { redactByValueCounted } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 
 /*
  * Sanitize data leaving the system — execution logs → Issue. Secrets are injected at
@@ -153,12 +154,17 @@ const INTERNAL_HOST_PATTERNS: RegExp[] = [
  */
 const PII_PATTERNS: RegExp[] = [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g];
 
+/* The name the by-value pass reports under in a detection. */
+const RUN_SECRET_PATTERN = "run-secret";
+
 export function sanitizeText(input: string, mode: SanitizeMode = "issue"): { text: string; detection: SecretDetection } {
   if (!input) return { text: input, detection: { redacted: false, patterns: [], count: 0 } };
 
-  let out = input;
-  const matchedPatterns: string[] = [];
-  let totalRedactions = 0;
+  /* The run's own secrets go first, by value: no pattern would find a plain password or a cookie. Outside a run's scope this changes nothing. */
+  const byValue = redactByValueCounted(input);
+  let out = byValue.text;
+  const matchedPatterns: string[] = byValue.count > 0 ? [RUN_SECRET_PATTERN] : [];
+  let totalRedactions = byValue.count;
 
   /* pre‑filter: mask data URIs to avoid base64 false positives */
   const DATA_URI_RE = /data:[^;]+;base64,[A-Za-z0-9+/=]+/gi;

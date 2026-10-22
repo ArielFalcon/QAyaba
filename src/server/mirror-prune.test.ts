@@ -8,6 +8,7 @@ import {
   type MirrorEntry,
   type MirrorPruneDeps,
 } from "./mirror-prune";
+import { DELEGATIONS_DIR, EXPERIMENT_COPIES_DIR, JUDGE_WORKDIR, WARM_SNAPSHOTS_DIR } from "../paths";
 
 const NOW = 1_750_000_000_000;
 const FRESH = NOW - 60_000;
@@ -46,6 +47,34 @@ function makeDeps(overrides: StubOverrides = {}): {
 }
 
 const entry = (name: string, mtimeMs: number): MirrorEntry => ({ name, path: `/mirrors/${name}`, mtimeMs });
+
+test("the directory holding an experiment's throwaway working copies is never pruned, however old and whatever the configured apps", () => {
+  const { deps, removed } = makeDeps({ entries: [entry(EXPERIMENT_COPIES_DIR, STALE), entry("gone__repo", STALE)], configured: [] });
+  const result = pruneMirrors(deps);
+  assert.deepEqual(result.deleted, ["gone__repo"]);
+  assert.deepEqual(removed, ["/mirrors/gone__repo"]);
+});
+
+test("the directory holding an experiment's warm-start snapshots is never pruned, however old and whatever the configured apps", () => {
+  const { deps, removed } = makeDeps({ entries: [entry(WARM_SNAPSHOTS_DIR, STALE), entry("gone__repo", STALE)], configured: [] });
+  const result = pruneMirrors(deps);
+  assert.deepEqual(result.deleted, ["gone__repo"]);
+  assert.deepEqual(removed, ["/mirrors/gone__repo"]);
+});
+
+test("the directory holding the workspaces of a run's sidekicks is never pruned, however old and whatever the configured apps", () => {
+  const { deps, removed } = makeDeps({ entries: [entry(DELEGATIONS_DIR, STALE), entry("gone__repo", STALE)], configured: [] });
+  const result = pruneMirrors(deps);
+  assert.deepEqual(result.deleted, ["gone__repo"]);
+  assert.deepEqual(removed, ["/mirrors/gone__repo"]);
+});
+
+test("the directory the LLM judge opens its sessions in is never pruned, however old and whatever the configured apps", () => {
+  const { deps, removed } = makeDeps({ entries: [entry(JUDGE_WORKDIR, STALE), entry("gone__repo", STALE)], configured: [] });
+  const result = pruneMirrors(deps);
+  assert.deepEqual(result.deleted, ["gone__repo"]);
+  assert.deepEqual(removed, ["/mirrors/gone__repo"]);
+});
 
 test("orphan mirror (repo not in any app config) is deleted even when fresh", () => {
   const { deps, removed } = makeDeps({

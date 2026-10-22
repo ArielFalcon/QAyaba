@@ -5,14 +5,14 @@
  */
 
 import { join } from "node:path";
-import { qayabaDataDir, qayabaRoot } from "../paths";
+import { DELEGATIONS_DIR, qayabaDataDir, qayabaRoot } from "../paths";
 import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentTimeout, withTimeout } from "../integrations/opencode-client";
-import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent-runtime/types";
+import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
+import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type StepLimits } from "../agent-runtime/types";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 
 import {
@@ -21,6 +21,8 @@ import {
   withSessionRegistration,
   registerRunSession,
   unregisterRunSession,
+  observeUnwatchedSession,
+  unobserveUnwatchedSession,
   stallMs,
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
@@ -28,16 +30,48 @@ import { buildProduction, type CompositionConfig } from "@contexts/qa-run-orches
 import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
 import { createDiscoverLogin } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
+import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capture-trace";
+import { traceValidateDeps } from "@contexts/test-execution/infrastructure/static-gate.trace";
+import { synthesizeReportSpans } from "@contexts/test-execution/infrastructure/report-spans";
+import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
 import { Sha, shaMatches } from "@kernel/sha";
+import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
+import { resolveCoordinationSettings } from "@kernel/coordination";
+import { DevLease } from "@contexts/test-execution/domain/dev-lease";
+import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
+import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
+import type { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
+import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
+import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
+import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
+import { ValidationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/validation-port.adapter";
+import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter";
+import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/objective-signal-port.adapter";
+import { ReviewPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter";
+import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service";
+import type { ExecutionPort, ObjectiveSignalPort, ReviewPort, ValidationPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
 
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case";
+import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
+import { RunDeadline } from "@contexts/qa-run-orchestration/domain/run-deadline";
+import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
+import { CONTEXT_HEAL_MIN_INTERVAL_MS, CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
+import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
+import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
+import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
+import { watchSpanForHost } from "../telemetry/host-listeners";
+import { SYSTEM_CLOCK } from "./run-trace";
+import { observeUnwatchedFromEnv, stepIntentContextFor } from "./turn-telemetry-config";
+import { resolveRunTimeBudgets } from "@contexts/qa-run-orchestration/domain/run-time-budget";
+import { RunDeadlineRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-deadline-runtime.adapter";
+import { RunRoundRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-round-runtime.adapter";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
 import { ManifestRepositoryAdapter } from "@contexts/generation/infrastructure/manifest-repository.adapter";
@@ -60,6 +94,7 @@ import { VcsWriteAdapter } from "@contexts/workspace-and-publication/infrastruct
 import { CONFINEMENT_DENYLIST, WriteConfinementService } from "@contexts/workspace-and-publication/domain/write-confinement.service";
 import { WriteConfinementAdapter } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter";
 import { MirrorGcAdapter } from "@contexts/workspace-and-publication/infrastructure/mirror-gc.adapter";
+import { SuiteStoreAdapter, gitListTracked } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 import type { VcsPublishCollaborator } from "@contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage";
@@ -74,7 +109,6 @@ import { IndexStatusAdapter } from "@contexts/qa-run-orchestration/infrastructur
 
 import {
   buildPromptAssembled,
-  buildWorkerPromptAssembled,
   buildReviewerPromptAssembled,
   buildExplorerPrompt,
   specFileForFlow,
@@ -105,22 +139,29 @@ import {
 
 import {
   validateSpecs,
-  defaultValidateDeps,
+  createValidateDeps,
   validateCodeProject,
-  defaultCodeValidateDeps,
+  createCodeValidateDeps,
 } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks";
-import { scrubEnv } from "../../qa-engine/src/shared-infrastructure/process-sandbox/scrub-env";
-import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { resolveSandbox, openInstallTree, sealInstallTree, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import type { ExecSandboxPort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
+import { createExecBinaryRunner } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-binary-runner";
+import { buildExecWiring, suiteAccountFor } from "./exec-sandbox-factory";
+import { blockedHostMatcher, egressGateFor, loadRegistryGroups, resolveRunOrigins } from "./egress-wiring";
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
+import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import { requireEnv } from "../util/env";
 import { RedactionPortAdapter, recordAudit } from "../orchestrator/sanitizer";
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
+import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, lastContextHealRequestAt, recordContextHealRequest, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import { recordIncident } from "./maintainer";
+import { resolveCampaignFreeze } from "./campaign-freeze";
+import { serviceTopologyWired, structuralSignalsOn as structuralSignalsOnFor, toolsApply } from "./run-config-gates";
+import { resolveReflectorEnabled } from "./reflector-switch";
 import { attributableRules, preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
@@ -139,24 +180,14 @@ export function resolveCoordinationTelemetryPath(): string {
   );
 }
 
-/*
- * Per-delegation wall-clock cap (ms), env-tunable. qa-engine's composition-root never reads
- * process.env itself (CLAUDE.md invariant) — this shell resolves the env var ONCE and threads the
- * result into CompositionConfig.sidekickTimeoutMs; composition-root falls back to its own hardcoded
- * default (420_000) when this returns undefined (env absent/invalid).
- */
-export function resolveSidekickTimeoutMsFromEnv(): number | undefined {
-  const raw = Number(process.env.COORDINATION_SIDEKICK_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : undefined;
-}
-
 export function roleToAgentName(role: AgentRole): string {
   return AGENT_NAME_FOR_ROLE[role];
 }
 
 
 const E2E_PUBLISH_ADD = ["e2e"];
-const E2E_PUBLISH_EXCLUDES = ["node_modules/", "e2e/.qa/coverage/", "e2e/.qa/measured.json", "e2e/.qa/service-context/", "e2e/.qa/*.tmp", "e2e/.auth/"];
+/* `e2e/.qa-probe/` holds the throwaway specs the generator tries with run_spec: swept after every generation and never a deliverable, excluded here as well so that a sweep that left something cannot publish it. */
+const E2E_PUBLISH_EXCLUDES = ["node_modules/", "e2e/.qa/coverage/", "e2e/.qa/fault-injection/", "e2e/.qa-probe/", "e2e/.qa/measured.json", "e2e/.qa/service-context/", "e2e/.qa/*.tmp", "e2e/.auth/"];
 const CODE_PUBLISH_ADD = ["."];
 
 const CONTEXT_PUBLISH_ADD = ["e2e/.qa/context.json"];
@@ -289,11 +320,16 @@ export function githubHttpDeps(fetchFn: typeof fetch = fetch): GitHubHttpDeps {
 }
 
 
-export function buildSetupAdapter(): SetupAdapter {
+/*
+ * The e2e project's `npm ci` runs the project's own lifecycle scripts, which the agent can edit: it runs as the sandbox
+ * uid through the launcher's `install` profile, and the tree it writes is handed over before and sealed after.
+ */
+export function buildSetupAdapter(exec: ExecSandboxPort, sandbox: Sandbox | null): SetupAdapter {
   return new SetupAdapter({
     fs: nodeFsDeps,
-    runner: new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() }),
+    runner: createExecBinaryRunner({ exec, profile: "install", commandClass: "npm-ci", processKill: new ProcessKillAdapter() }),
     seedDir: join(qayabaRoot(), "config", "e2e"),
+    installGuard: { open: (dir) => openInstallTree(dir, sandbox), seal: (dir) => sealInstallTree(dir, sandbox) },
   });
 }
 
@@ -351,7 +387,9 @@ export function historyLearningStore(appName: string): LearningStore {
         last_verified: r.lastVerified,
         source: r.source,
         at: r.at,
+        quarantined_at: r.quarantinedAt ?? null,
       })),
+    quarantine: (app, ids, at) => quarantineLearningRules(app, ids, at),
     upsert: (rule) =>
       upsertLearningRule({
         id: rule.id,
@@ -425,13 +463,24 @@ export function historyLearningStore(appName: string): LearningStore {
   };
 }
 
+/*
+ * DEV is held through one lease for the whole process, whichever run an action belongs to: two uses of one test account never
+ * interleave, and an action that may write holds DEV alone. The proxy has no read-only mode yet, so nothing is built to believe a
+ * read-only claim and every action is exclusive; the lease is built to, once there is one to say so.
+ */
+const PROCESS_ACCOUNT_LOCK = new DevLease();
+
+/* The most a browser process of the agent tools lives, whatever happens to the orchestrator: longer than any run. */
+const AGENT_BROWSER_LIFETIME_SECONDS = 3 * 60 * 60;
+
 /* The host's already-built real collaborators this factory reuses instead of re-assembling. */
 export interface RewrittenEngineFactoryDeps {
   /*
    * Reads the SAME AgentDeps facade the host's currentAgentDeps() resolves (src/index.ts) — the
    * real :4097 supervisor, not a second AgentRuntimeManager instance.
    */
-  getAgentDeps: () => AgentDeps;
+  /* The host's agent sessions. A run passes the context that classifies its agents' steps for the trace; a host that traces nothing ignores it. */
+  getAgentDeps: (turn?: TurnTelemetryContext) => AgentDeps;
   /*
    * The agent runtime's CURRENT facade, resolved once per run: the runtime is switchable, so a facade held any
    * longer could be the wrong runtime's. It is where the step limit each role runs under is read from. Optional:
@@ -441,6 +490,29 @@ export interface RewrittenEngineFactoryDeps {
 
   historyFilePath?: string;
   env?: Record<string, string | undefined>;
+  /* Test seam: the clock the run-level deadline counts down on. Absent: the system clock. */
+  now?: () => number;
+  /*
+   * The process's telemetry port (src/telemetry/process-telemetry.ts) and the wall clock it was built on. Absent: nothing is
+   * traced. The clock times the run's phases and starts and ends their spans, so the phase record and the trace cannot disagree.
+   */
+  telemetry?: TelemetryPort;
+  clock?: TelemetryClock;
+  /*
+   * Where the generator's sessions find the run's run_spec loop. One per process, shared with the tools endpoint that serves the
+   * tool's calls. Absent: no run is ever granted the tool.
+   */
+  closedLoopRegistry?: ClosedLoopRegistry;
+  /*
+   * Where the authoring agents' sessions find the run's authenticated browser. One per process, shared with the tools endpoint
+   * that serves the browser's calls. Absent: no run is ever granted the browser.
+   */
+  agentBrowserRegistry?: AgentBrowserRegistry;
+  /*
+   * Where the authoring agents' sessions find the run's location. One per process, shared with the tools endpoint that serves the
+   * set_geolocation tool. Absent: no run carries an authoring location.
+   */
+  geolocationRegistry?: GeolocationRegistry;
   mirrorRoot?: string;
   /* Test seam: inject spies for the two mirror primitives instead of real git/disk. */
   mirror?: {
@@ -462,6 +534,8 @@ export interface ContextHealRunRequest {
   app: string;
   /* The triggering run's own sha: the one DEV serves for a gated app that got this far. */
   sha: string;
+  /* The run whose stale map asked for this rebuild. Optional: onboarding/tests may enqueue an unlinked heal. */
+  parentRunId?: string;
 }
 
 /* Persist a context run's validated map; a fresh map replaces the one the stale flag condemned. */
@@ -486,6 +560,7 @@ function requestContextHeal(
   app: string,
   sha: string | undefined,
   enqueue: RewrittenEngineFactoryDeps["enqueueContextRun"],
+  parentRunId?: string,
 ): void {
   const keepArmed = (why: string): void => {
     console.warn(`[qa] WARNING: context-map rebuild for ${app} not enqueued (${why}); the stale flag stays armed for the next run.`);
@@ -494,7 +569,7 @@ function requestContextHeal(
   if (!sha) return keepArmed("the run has no sha to rebuild at");
   let pending: Promise<string>;
   try {
-    pending = Promise.resolve(enqueue({ app, sha }));
+    pending = Promise.resolve(enqueue({ app, sha, ...(parentRunId ? { parentRunId } : {}) }));
   } catch (err) {
     return keepArmed(err instanceof Error ? err.message : String(err));
   }
@@ -556,6 +631,14 @@ export function appAuthDir(root: string, appName: string): string {
 }
 
 /*
+ * An app's suite store under QAYABA_ROOT/data — the qa-data volume, never mounted into the agents container: the accepted e2e
+ * suite and the login that was proven to work. Removed with the app on a purge.
+ */
+export function appSuiteStoreDir(root: string, appName: string): string {
+  return join(root, "data", "suites", appName);
+}
+
+/*
  * The sandbox untrusted code runs as, or null when there is none. Its group is registered with the git hardening in the
  * same step: a git dir that group can write is never trusted, even when it is also the orchestrator's own group.
  */
@@ -565,16 +648,103 @@ export function resolveCodeSandbox(env: NodeJS.ProcessEnv, resolve: (env: NodeJS
   return sandbox;
 }
 
+export interface AcceptanceHarnessInput {
+  app: AppConfig;
+  /* The throwaway working copy an experiment arm delivered its specs in: the suite lives at <copyDir>/e2e. */
+  copyDir: string;
+  /* The launcher the specs run through; its run scope is the caller's (a script opens one, as the pipeline's run does). */
+  exec: ExecSandboxPort;
+  /* The host's agent sessions, for the reviewer. Absent: no reviewer is composed. */
+  getAgentDeps?: (turn?: TurnTelemetryContext) => AgentDeps;
+}
+
+export interface AcceptanceHarness {
+  validation: ValidationPort;
+  execution: ExecutionPort;
+  objectiveSignal: ObjectiveSignalPort;
+  review?: ReviewPort;
+}
+
+/*
+ * The acceptance an experiment judges every arm by (accept-delivered-specs.use-case.ts), over the same parts the pipeline's own run uses: the
+ * static gate, the Playwright runner, the change-coverage collector under the app's coverage policy (the value oracle off: it doubles a DEV
+ * run and decides nothing here) and the independent reviewer. It is built over a copy of the working copy, never over a mirror.
+ */
+export function buildAcceptanceHarness(input: AcceptanceHarnessInput): AcceptanceHarness {
+  const { app, copyDir, exec } = input;
+  if (!app.dev?.baseUrl) throw new Error(`App "${app.name}" has no dev.baseUrl: its specs cannot be accepted without a DEV site`);
+  const e2eRelDir = "e2e";
+  const e2eDir = join(copyDir, e2eRelDir);
+  const baseUrl = app.dev.baseUrl;
+  const env = process.env;
+
+  const validateDeps = createValidateDeps(exec);
+  const staticGate = new StaticGateAdapter({
+    typecheck: validateDeps.typecheck,
+    lint: validateDeps.lint,
+    listTests: validateDeps.listTests,
+    checkManifest: validateDeps.checkManifest,
+    validateAll: (specDir) => validateSpecs(specDir, validateDeps),
+  });
+  const refuseCode = (): never => {
+    throw new Error("the acceptance harness has no code target");
+  };
+  const validation = new ValidationPortAdapter({ e2e: staticGate, code: { validate: async () => refuseCode() } as never }, { target: "e2e" });
+
+  const e2eExecuteDeps: E2eExecuteDeps = {
+    ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eTimeoutMs(env), exec, env.PW_ACTION_TIMEOUT_MS),
+    ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
+    recordAudit,
+  };
+  const execution = new ExecutionPortAdapter(
+    { e2e: new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps)), code: { run: async () => refuseCode() } as never },
+    { target: "e2e", namespace: `${app.qa.testDataPrefix}-acceptance`, baseUrl, ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}) },
+  );
+
+  const policy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
+  const objectiveSignal = new ObjectiveSignalPortAdapter(
+    {
+      collector: makeTargetCoverageCollector({ target: "e2e", repoDir: copyDir, e2eDir, changedFiles: [] }),
+      decide: new DecideCoverageService(),
+      oracle: new NullValueOracleAdapter(),
+    },
+    { policy, repoDir: copyDir, namespace: `${app.qa.testDataPrefix}-acceptance`, assembleChangeCoverage },
+  );
+
+  const getAgentDeps = input.getAgentDeps;
+  /* The reviewer's steps are classified from the app's own configuration here too. */
+  const acceptanceTurn: TurnTelemetryContext = {
+    intent: stepIntentContextFor({ target: "e2e", e2eRelDir, ...(baseUrl ? { baseUrl } : {}), ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}), reviewAgents: [roleToAgentName("reviewer")] }),
+  };
+  const review = getAgentDeps
+    ? new ReviewPortAdapter(
+        {
+          runtime: new AgentRuntimeAdapter({ open: async (agent, cwd, opts) => getAgentDeps(acceptanceTurn).open(agent, cwd, { ...(opts?.signal ? { signal: opts.signal } : {}), ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}), ...(opts?.model ? { model: opts.model } : {}), ...(opts?.onUsage ? { onUsage: opts.onUsage } : {}), ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}) }) }, roleToAgentName),
+          rendering: new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow }),
+          verdicts: new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict }),
+        },
+        { diff: "", mirrorDir: copyDir, e2eRelDir, appName: app.name, mode: "diff", target: "e2e", baseUrl, timeoutMs: REVIEWER_TIMEOUT_MS },
+      )
+    : undefined;
+
+  return { validation, execution, objectiveSignal, ...(review ? { review } : {}) };
+}
+
 export function buildRewrittenCompositionConfig(
   app: AppConfig,
   deps: RewrittenEngineFactoryDeps,
   namespace: string,
-  run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string },
+  run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] },
 
   observer?: ObserverPort,
 ): CompositionConfig {
   const target: TestTarget = run.target ?? (app.code === true ? "code" : "e2e");
   const isCode = target === "code";
+  /* The pre-generation context pack's live-DOM arm (an A/B lever): the resolved effective config already carries it, so this is always a boolean here. */
+  const domPack = run.grounding?.domPack ?? app.qa.domPack ?? true;
+  if (domPack === false) {
+    console.warn(`[qa] grounding.domPack is OFF for ${app.name}: the pre-generation context pack carries no live DOM. The review, pre-exec and post-failure DOM seams are independent and unchanged; the authenticated-browser alternative is available only when the app and tools grant it.`);
+  }
   /*
    * An e2e-target run without a live DEV URL cannot be composed — fail loud here, before any
    * git clone/agent session/Playwright spawn.
@@ -591,10 +761,10 @@ export function buildRewrittenCompositionConfig(
   const e2eDefaultTimeoutMs = e2eTimeoutMs(process.env);
   const pwActionTimeoutMs = process.env.PW_ACTION_TIMEOUT_MS;
 
-  const codeSandbox = resolveCodeSandbox(process.env);
+  const codeSandbox = resolveCodeSandbox(deps.env ?? process.env);
 
   const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
-  const sidekickTimeoutMs = resolveSidekickTimeoutMsFromEnv();
+  const intentLock = { mode: app.qa.intentLock?.mode ?? "signal", opacityFlagRatio: app.qa.intentLock?.opacityFlagRatio ?? 0.5 } as const;
 
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
   /*
@@ -620,7 +790,34 @@ export function buildRewrittenCompositionConfig(
   const root = qayabaRoot();
   const dataDir = qayabaDataDir();
   const authDir = appAuthDir(root, app.name);
+  /*
+   * The execution sandbox: every child that runs code an agent influenced (specs, the project's own tsc/eslint/--list and
+   * installs, a login script, the watched repo's test command) starts through `exec`, and each run opens its scope
+   * (work dir, auth copies, egress policy) in `execScope`.
+   */
+  const suiteAccount = suiteAccountFor(app, deps.env ?? process.env);
+  const egressGate = egressGateFor(deps.env ?? process.env, codeSandbox);
+  const execWiring = buildExecWiring({
+    env: deps.env ?? process.env,
+    sandbox: codeSandbox,
+    authDir,
+    mirrorRoot,
+    egressOrigins: resolveRunOrigins(app, target, loadRegistryGroups(root)),
+    ...(egressGate ? { egress: egressGate } : {}),
+    ...(suiteAccount ? { suiteAccount } : {}),
+    ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
+  });
+  const exec = execWiring.exec;
 
+
+  /*
+   * QA_CAMPAIGN_FREEZE (operator switch, off by default; read here once because qa-engine never reads process.env):
+   * the run reads and writes no cross-run learning state. The collaborators below are left out, which the
+   * composition root reads as "not wired" (a provable no-op), never as a stub that pretends to learn.
+   */
+  const campaignFrozen = resolveCampaignFreeze(deps.env ?? process.env);
+  /* OFF by default (QA_REFLECTOR_ENABLED, see reflector-switch.ts): no reflection pass, and only proven rules reach a prompt. */
+  const reflectorEnabled = resolveReflectorEnabled(deps.env ?? process.env);
 
   const triggerService =
     run.triggerRepo && run.triggerRepo !== app.repo
@@ -642,10 +839,29 @@ export function buildRewrittenCompositionConfig(
    * `!triggerService` (a service-triggered run's sha belongs to the service repo, not the primary).
    */
   const contextStale = !isCode && run.mode !== "context" && !triggerService && isContextStale(app.name);
-  if (contextStale) {
+  if (contextStale && campaignFrozen) {
+    /* A campaign's queue holds only its own runs: the rebuild is left for after it, and the flag stays as the campaign found it. */
+    console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run; the campaign freeze requests no rebuild.`);
+  } else if (contextStale) {
     console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run and requesting a rebuild.`);
-    requestContextHeal(app.name, run.sha, deps.enqueueContextRun);
+    requestContextHeal(app.name, run.sha, deps.enqueueContextRun, run.runId);
   }
+
+  /* Where the map the run actually used came from, and how fresh it was (observe-only). */
+  let mapProvenance: ContextProvenance | undefined;
+  /* An off-path rebuild for a map stale by SHA/age, deduped to one request per app per 6h. The
+   * process-audit flag keeps its own path above; this one never clears that flag. */
+  const requestMapHealIfDue = (): void => {
+    if (campaignFrozen || !mapProvenance?.stale) return;
+    const last = lastContextHealRequestAt(app.name);
+    if (last !== undefined && Date.now() - Date.parse(last) < CONTEXT_HEAL_MIN_INTERVAL_MS) {
+      mapProvenance = { ...mapProvenance, recapture: "skipped" };
+      return;
+    }
+    recordContextHealRequest(app.name);
+    mapProvenance = { ...mapProvenance, recapture: "requested" };
+    requestContextHeal(app.name, run.sha, deps.enqueueContextRun, run.runId);
+  };
 
   /*
    * deps.mirror is a test seam only. Production checkout always uses defaultMirrorDeps
@@ -659,6 +875,7 @@ export function buildRewrittenCompositionConfig(
   const branch = namespace;
 
   const runner = new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() });
+  const loginRunner = createExecBinaryRunner({ exec, profile: "login", commandClass: "login", processKill: new ProcessKillAdapter() });
   /*
    * Cross-repo composition (bug fix): the diff/classify SOURCE is the SERVICE mirror at the event
    * sha for a cross-repo run — never the primary. Same dir formula as mirrorDir above
@@ -669,25 +886,50 @@ export function buildRewrittenCompositionConfig(
   const vcs = new GitMirrorReadAdapter(vcsDir, runner);
 
 
-  const structuralSignalsMode = app.qa.structuralSignals?.mode ?? "signal";
-  const structuralSignalsOn = structuralSignalsMode !== "off";
+  const grounding = run.grounding;
+  const structuralSignalsOn = grounding?.structuralSignal === false || grounding?.structuralSignal === "off" ? false : structuralSignalsOnFor(app);
+  const serviceTopologyOn = grounding?.stitcher === false || grounding?.stitcher === "off" ? false : serviceTopologyWired(app);
+  const toolsApplyToRun = toolsApply(target, app);
 
+  /* What classifies this run's agent steps in its trace: the app's own configuration, never a name. */
+  const turnTelemetry: TurnTelemetryContext = {
+    intent: stepIntentContextFor({
+      target,
+      e2eRelDir,
+      ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
+      ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}),
+      reviewAgents: [roleToAgentName("reviewer")],
+    }),
+  };
   /* Reuse the host AgentDeps. Forward descriptor so session registration sees the real runId. */
   const runtimeAdapter = new AgentRuntimeAdapter(
     {
       open: async (agent, cwd, opts) => {
-        const real = deps.getAgentDeps();
+        const real = deps.getAgentDeps(turnTelemetry);
         return real.open(agent, cwd, {
           ...(opts?.signal ? { signal: opts.signal } : {}),
           ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+          ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}),
           ...(opts?.model ? { model: opts.model } : {}),
+          ...(opts?.onUsage ? { onUsage: opts.onUsage } : {}),
           ...(opts?.descriptor ? { descriptor: opts.descriptor } : {}),
         });
       },
     },
     roleToAgentName,
   );
-  const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow });
+  /*
+   * The run-level wall-clock deadline: one per run (this factory builds the engine for one run), armed by the use case
+   * after classification and read by every agent turn of the run through the bounded runtime below, so no turn (a
+   * regeneration, a fix-loop round, a repair, the coverage regen, the reviewer, the explorer, a sidekick) outlives it.
+   * QA_RUN_TIME_BUDGET_MS_* override a kind of run's time; read here once because qa-engine never reads process.env. A
+   * mistyped value throws. The reflector keeps the unbounded runtime: it runs after the run's verdict is made.
+   */
+  const runDeadline = new RunDeadline({ now: deps.now ?? Date.now, budgets: resolveRunTimeBudgets(deps.env ?? process.env) });
+  const boundedRuntime = new RunDeadlineRuntime(runtimeAdapter, runDeadline, { hostPromptCapMs: agentPromptCapMs() });
+  /* Run-level round per role: numbers each role's generated turns across sessions, so a regeneration's turn reads round 1, not the transport's session-local 0. */
+  const roundRuntime = new RunRoundRuntime(boundedRuntime);
+  const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow });
   const verdicts = new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
 
   /* Bounded contract-repair for malformed generator/reviewer verdicts — fail-closed if still invalid. */
@@ -697,34 +939,47 @@ export function buildRewrittenCompositionConfig(
   };
 
   const generationUseCase = new GenerateTestsUseCase({
-    runtime: runtimeAdapter,
+    runtime: roundRuntime,
     rendering,
     verdicts,
     manifest: new ManifestRepositoryAdapter({ readManifest, reconcileManifest }),
     budget: new PromptBudgetAdapter(roleWindowBytes, capDiff, capText),
     repair,
+    /* The transport's own deadline: the generator's time budget is never set above it. */
+    promptCapMs: agentPromptCapMs(),
+    /* QA_DIFF_TIME_BUDGET_MS_{TINY,FOCUSED,BROAD} override a tier's time; read here once because qa-engine never reads process.env. A mistyped value throws. */
+    timeBudgets: resolveDiffTimeBudgets(deps.env ?? process.env),
   });
 
 
+  const plainValidateDeps = createValidateDeps(exec);
+  /* Each static check is a span of its own under the validate phase (telemetry off: the checks as they are). */
+  const validateDeps = deps.telemetry ? traceValidateDeps(plainValidateDeps, deps.telemetry) : plainValidateDeps;
   const staticGate = new StaticGateAdapter({
-    typecheck: defaultValidateDeps.typecheck,
-    lint: defaultValidateDeps.lint,
-    listTests: defaultValidateDeps.listTests,
-    checkManifest: defaultValidateDeps.checkManifest,
-    validateAll: (specDir) => validateSpecs(specDir, defaultValidateDeps),
+    typecheck: validateDeps.typecheck,
+    lint: validateDeps.lint,
+    listTests: validateDeps.listTests,
+    checkManifest: validateDeps.checkManifest,
+    validateAll: (specDir) => validateSpecs(specDir, validateDeps),
   });
   /* Code-target Filter B: compile-feedback before execution. */
-  const codeValidate = new CodeValidationStrategy((repoDir, opts) => validateCodeProject(repoDir, defaultCodeValidateDeps, opts));
+  const codeValidate = new CodeValidationStrategy((repoDir, opts) => validateCodeProject(repoDir, createCodeValidateDeps(exec), opts));
 
 
-  const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, authDir, pwActionTimeoutMs), recordAudit };
-  const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), authDir);
-  /* One authDir-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
-  const captureDomDeps = createCaptureDomDeps(authDir);
+  const e2eExecuteDeps: E2eExecuteDeps = {
+    ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, exec, pwActionTimeoutMs),
+    ...(app.dev?.geolocation ? { geolocation: app.dev.geolocation } : {}),
+    recordAudit,
+    /* The Playwright report as spans (spec files, cases, attempts) under the phase that executes. */
+    ...(deps.telemetry ? { onReport: (report, cases) => synthesizeReportSpans({ telemetry: deps.telemetry! }, report, cases) } : {}),
+  };
+  const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), exec);
+  /* One launcher-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
+  const captureDomDeps = createCaptureDomDeps(exec, undefined, deps.telemetry ? domCaptureObserver(deps.telemetry) : undefined, app.dev?.geolocation, app.dev?.dataState);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
-  const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(codeSandbox), recordAudit };
-  const codeSetupDeps = createDefaultCodeSetupDeps(codeSandbox);
+  const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(exec), recordAudit };
+  const codeSetupDeps = createDefaultCodeSetupDeps(codeSandbox, exec);
   const code = new CodeExecutionStrategy((repoDir, opts) => runCodeTests(repoDir, opts, codeExecuteDeps));
 
   /*
@@ -737,7 +992,7 @@ export function buildRewrittenCompositionConfig(
   const collector: typeof rawCollector = isCode
     ? {
         collect: async (specDir, namespace, changedFiles) => {
-          await runCodeCoverage(mirrorDir, codeSandbox).catch(() => {});
+          await runCodeCoverage(mirrorDir, exec).catch(() => {});
           return rawCollector.collect(specDir, namespace, changedFiles);
         },
       }
@@ -750,7 +1005,7 @@ export function buildRewrittenCompositionConfig(
      */
     runE2E(dir, { baseUrl, namespace, faultInject: true }, e2eExecuteDeps);
 
-  const mutationOracleDeps = { spawn, detectCodeProject, scrubEnv, processKill: new ProcessKillAdapter() };
+  const mutationOracleDeps = { spawn: (cmd: string, args: string[], o: { cwd: string }) => exec.spawn(cmd, args, { cwd: o.cwd, profile: "install" }), detectCodeProject, processKill: new ProcessKillAdapter() };
 
   /*
    * Honor YAML qa.valueOracle (and the shadow-aware default the CLI already reports).
@@ -787,16 +1042,17 @@ export function buildRewrittenCompositionConfig(
   const checkout = (checkoutSha: Sha): Promise<string> => multiRepoCheckout.checkout(checkoutSha);
 
 
-  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name));
+  /* Built even when frozen (cheap, no I/O): the frozen config simply does not hand it to the engine. */
+  const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name), { reflectorUnproven: reflectorEnabled });
 
 
-  const setupAdapter = buildSetupAdapter();
+  const setupAdapter = buildSetupAdapter(exec, codeSandbox);
   /*
    * `??`, not `||`: app.qa.explorer is a tri-state (true/false/unconfigured). An explicit
    * `explorer: false` must win over the services-length auto-detect, never be swallowed by it —
    * `||` treated false and unconfigured identically, silently ignoring an operator's opt-out.
    */
-  const shouldExplore = app.qa.explorer ?? (app.services?.length ?? 0) > 0;
+  const shouldExplore = grounding?.explorer ?? (app.qa.explorer ?? (app.services?.length ?? 0) > 0);
 
   const explorerBriefAdapter = new ExplorerBriefSessionAdapter(
     {
@@ -814,7 +1070,7 @@ export function buildRewrittenCompositionConfig(
         ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
         : {}),
     },
-    { runtime: runtimeAdapter, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor },
+    { runtime: roundRuntime, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor, ...(observeUnwatchedFromEnv(deps.env ?? process.env) ? { observeUnwatched: true } : {}) },
   );
 
   return {
@@ -829,9 +1085,13 @@ export function buildRewrittenCompositionConfig(
     ...(run.guidance ? { guidance: run.guidance } : {}),
     needsReview: app.qa.needsReview,
     shadow: app.qa.shadow ?? false,
+    integrity: { reviewLoop: app.qa.reviewLoopIntegrity ?? true },
     onFailure: app.report.onFailure,
     maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
     isCode,
+    domPack,
+    /* A context-mode run's prompt discards the pack; building it would spend the live-DOM capture for nothing. */
+    contextPack: run.mode !== "context",
     /*
      * Multi-agent coordination is always wired. Fail-open paths inside RunQaUseCase are the
      * incident safety net; telemetry lands in the durable JSONL sink. Distinct from qa.shadow
@@ -850,12 +1110,14 @@ export function buildRewrittenCompositionConfig(
      * Per-delegation wall-clock cap — env-tunable here (the shell), never read by qa-engine's
      * composition-root itself. Absent → composition-root's own hardcoded default (420_000).
      */
-    ...(sidekickTimeoutMs !== undefined ? { sidekickTimeoutMs } : {}),
     /*
      * The same coveragePolicy that configures the objective signal (computed once, above), so
      * the policy that measures coverage and the one that decides whether it blocks never diverge.
      */
     coveragePolicyMode: coveragePolicy.mode,
+    coverageMinRatio: coveragePolicy.minRatio,
+    /* The same intentLock that configures the contract check, so the derived policy has one source. */
+    intentLock,
     agentTimeoutMs: agentTimeout(run.mode),
     ...(app.qa.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: app.qa.wallClockBudgetMs } : {}),
     ...(app.qa.iterationBudget !== undefined ? { iterationBudget: app.qa.iterationBudget } : {}),
@@ -865,8 +1127,13 @@ export function buildRewrittenCompositionConfig(
     vcs,
     generationUseCase,
     ...(stepLimitFor ? { stepLimitFor } : {}),
+    runDeadline,
+    ...(deps.telemetry ? { telemetry: deps.telemetry, toolAttempts: agentTurnTraces } : {}),
+    /* What a run's specs held at validation is kept for after-the-fact grading, as long as the run is traced. */
+    ...(deps.telemetry ? { specSnapshots: new SqliteSpecSnapshotAdapter() } : {}),
+    ...(deps.clock ? { clock: deps.clock } : {}),
     reviewRuntime: {
-      runtime: runtimeAdapter,
+      runtime: roundRuntime,
       rendering,
       verdicts,
     },
@@ -905,12 +1172,52 @@ export function buildRewrittenCompositionConfig(
        * manual context run) replaces the map for later runs.
        */
       loadContextMap: (specDir: string) => {
-        if (contextStale) return undefined;
+        if (contextStale) {
+          mapProvenance = {
+            location: "db:context_maps",
+            stale: true,
+            staleReason: "marked-stale",
+            recapture: campaignFrozen ? "skipped" : "requested",
+          };
+          return undefined;
+        }
         const stored = loadStoredContextMap(app.name);
-        if (stored) return stored.data;
-        return loadContextMapFromDisk(specDir);
+        if (stored) {
+          const capturedMs = Date.parse(stored.updatedAt);
+          const ageMs = Number.isFinite(capturedMs) ? Math.max(0, Date.now() - capturedMs) : undefined;
+          const staleBySha = stored.builtAtSha !== run.sha;
+          const staleByAge = ageMs !== undefined && ageMs > CONTEXT_MAP_MAX_AGE_MS;
+          const stale = staleBySha || staleByAge;
+          mapProvenance = {
+            location: "db:context_maps",
+            capturedAt: stored.updatedAt,
+            capturedSha: stored.builtAtSha,
+            ...(ageMs !== undefined ? { ageMs } : {}),
+            resultCount: contextMapResultCount(stored.data),
+            stale,
+            staleReason: staleBySha ? "sha-mismatch" : staleByAge ? "older-than-max-age" : "none",
+            recapture: "not-needed",
+          };
+          if (stale) requestMapHealIfDue();
+          return stored.data;
+        }
+        const disk = loadContextMapFromDisk(specDir);
+        if (disk) {
+          const stale = disk.builtAtSha !== run.sha;
+          mapProvenance = {
+            location: "file:e2e/.qa/context.json",
+            capturedSha: disk.builtAtSha,
+            resultCount: contextMapResultCount(disk),
+            stale,
+            staleReason: stale ? "sha-mismatch" : "none",
+            recapture: "not-needed",
+          };
+          if (stale) requestMapHealIfDue();
+        }
+        return disk;
       },
     },
+    contextMapProvenance: () => mapProvenance,
     reviewDomGroundingCollaborators: { captureDomDeps },
     preExecGroundingCollaborators: { captureDomDeps },
     /*
@@ -929,7 +1236,7 @@ export function buildRewrittenCompositionConfig(
 
     ...(structuralSignalsOn ? { codebaseMemory: new CodebaseMemoryClient(runner) } : {}),
 
-    ...(structuralSignalsOn && app.services?.length && app.boundaries?.length
+    ...(serviceTopologyOn && app.services
       ? {
           serviceTopology: {
             appName: app.name,
@@ -942,16 +1249,108 @@ export function buildRewrittenCompositionConfig(
         }
       : {}),
 
-    ...(structuralSignalsOn && app.services?.length && app.boundaries?.length
+    ...(serviceTopologyOn
       ? { crossRepoImpact: { mirrorRoot, codebaseMemory: new CodebaseMemoryClient(runner), runner } }
       : {}),
 
+    execScope: execWiring.execScope,
+    /* How this app's runs are coordinated: its qa.coordination with every limit it left out defaulted. A run can override the mode. */
+    coordinationSettings: resolveCoordinationSettings(app.qa.coordination),
+    /*
+     * The lead/sidekick mode: the workspaces of a run's sidekicks lie beside the mirrors, on the volume the agents' runtime can open
+     * a session in; the runtime of the sidekick role is read as it is now (it is switchable), and a host that cannot say is not
+     * assumed to be OpenCode: only OpenCode can call run_spec and the authenticated browser.
+     */
+    ...(!isCode
+      ? {
+          delegation: {
+            workspaceRoot: join(mirrorRoot, DELEGATIONS_DIR),
+            sidekickProvider: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "sidekick").provider : undefined),
+            plannerProvider: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider : undefined),
+            deadline: runDeadline,
+          },
+        }
+      : {}),
+    /*
+     * The run_spec loop: composed for an e2e app whenever the host has a registry; whether a run is granted it is the app's
+     * qa.closedLoop (or the run's own choice), decided when the run opens it. The generator's role is read from the agent
+     * facade as it is now (the runtime is switchable): only OpenCode can call a custom tool, and a host that cannot say is
+     * not assumed to be. The account lock is the process's, since the key is the app's login and the processes share nothing else.
+     */
+    ...(deps.closedLoopRegistry && toolsApplyToRun
+      ? {
+          closedLoop: {
+            registry: deps.closedLoopRegistry,
+            setting: {
+              enabled: app.qa.closedLoop?.enabled === true,
+              limits: {
+                maxCalls: app.qa.closedLoop?.maxCalls ?? DEFAULT_CLOSED_LOOP_LIMITS.maxCalls,
+                perCallMs: app.qa.closedLoop?.perCallMs ?? DEFAULT_CLOSED_LOOP_LIMITS.perCallMs,
+                maxDevWrites: app.qa.closedLoop?.maxDevWrites ?? DEFAULT_CLOSED_LOOP_LIMITS.maxDevWrites,
+              },
+            },
+            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
+            account: `${app.name}/${app.auth?.usernameEnv ?? "public"}`,
+            lock: PROCESS_ACCOUNT_LOCK,
+            deadline: runDeadline,
+            redact: (text: string) => redactionPort.redact(redactByValue(text)),
+          },
+        }
+      : {}),
+    /*
+     * The authenticated agent browser: composed for an e2e app with a DEV url whenever the host has a registry; whether a run is
+     * granted it is the app's qa.agentBrowser (or the run's own choice), decided when the run opens it. It starts in the execution
+     * sandbox (the same launcher, uid and egress lease a spec gets) with a lifetime of its own on Linux, so that a browser the
+     * orchestrator forgot, because it was restarted in place, ends by itself. The generator's runtime is read as it is now, and a
+     * host that cannot say is not assumed to be OpenCode: only OpenCode can call a custom tool, and a Codex role never gets one.
+     */
+    ...(deps.agentBrowserRegistry && toolsApplyToRun
+      ? {
+          agentBrowser: {
+            registry: deps.agentBrowserRegistry,
+            setting: {
+              enabled: app.qa.agentBrowser?.enabled === true,
+              denyRoutes: app.qa.agentBrowser?.denyRoutes ?? [],
+              allowMutating: app.qa.agentBrowser?.allowMutating ?? [],
+            },
+            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
+            launcher: new SandboxedChromiumLauncher({
+              exec: execWiring.exec,
+              chromium: loadPlaywrightChromium,
+              kill: new ProcessKillAdapter(),
+              ...(process.platform === "linux" ? { ttlWrapper: { command: "timeout", seconds: AGENT_BROWSER_LIFETIME_SECONDS } } : {}),
+            }),
+            account: `${app.name}/${app.auth?.usernameEnv ?? "public"}`,
+            lock: PROCESS_ACCOUNT_LOCK,
+            ...(app.auth?.loginPath !== undefined ? { loginPath: app.auth.loginPath } : {}),
+            deadline: runDeadline,
+            redact: (text: string) => redactionPort.redact(redactByValue(text)),
+          },
+        }
+      : {}),
+    /*
+     * The authoring location: the app's declared position (dev.geolocation) and the places it names. The suite and the Context
+     * Pack already get the position through the execution deps; this is the run-scoped value the agent may move for the
+     * authenticated browser and the plan's flows.
+     */
+    ...(deps.geolocationRegistry && toolsApplyToRun && app.dev?.geolocation
+      ? {
+          geolocation: {
+            registry: deps.geolocationRegistry,
+            setting: {
+              default: { latitude: app.dev.geolocation.latitude, longitude: app.dev.geolocation.longitude },
+              places: app.dev.geolocation.places ?? {},
+            },
+          },
+        }
+      : {}),
     ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
     ...(!isCode && app.dev?.baseUrl
       ? {
           authSession: new AuthSessionAdapter({
             env: process.env,
             authDir,
+            ...(deps.telemetry ? { telemetry: deps.telemetry } : {}),
             ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
             ...(pwActionTimeoutMs !== undefined ? { actionTimeoutMs: pwActionTimeoutMs } : {}),
             /*
@@ -961,24 +1360,33 @@ export function buildRewrittenCompositionConfig(
              * Its note passes through the same redaction every other text leaving the system does.
              */
             discovery: {
-              discoverLogin: createDiscoverLogin({ runner }),
+              discoverLogin: createDiscoverLogin({ runner: loginRunner, writeScript: (name, content) => exec.writeScript(name, content) }),
               redact: (text: string) => redactionPort.redact(text),
               loadContextMap: loadContextMapFromDisk,
             },
+            /* The hosts the app leaves blocked on purpose (dev.blockedOrigins) are no evidence that a failed login was the filter's doing. */
+            intentionallyBlocked: blockedHostMatcher(app),
+            /* The login child is the one process that carries the account: the launcher's `login` profile. It writes the session in the run's own `login` folder, and the adapter brings a confirmed one into the auth directory. */
+            loginStaging: () => ({ dir: join(exec.workDir(), "login"), root: exec.workDir() }),
             spawnSetup: async (specDir, env, signal) => {
-              const result = await runner.run({
-                command: "npx",
-                args: ["playwright", "test", "--project=setup"],
-                cwd: specDir,
-                env,
-                timeoutMs: 120_000,
-                ...(signal ? { signal } : {}),
-              });
-              const logs = `${result.stdout}\n${result.stderr}`;
-              return {
-                exitCode: result.timedOut ? 1 : (result.exitCode ?? 1),
-                logs: result.timedOut ? `auth setup timed out\n${logs}` : logs,
-              };
+              const callDir = exec.allocDir("auth-setup", ["results"]);
+              try {
+                const result = await loginRunner.run({
+                  command: "npx",
+                  args: ["playwright", "test", "--project=setup", `--output=${join(callDir, "results")}`],
+                  cwd: specDir,
+                  env,
+                  timeoutMs: 120_000,
+                  ...(signal ? { signal } : {}),
+                });
+                const logs = `${result.stdout}\n${result.stderr}`;
+                return {
+                  exitCode: result.timedOut ? 1 : (result.exitCode ?? 1),
+                  logs: result.timedOut ? `auth setup timed out\n${logs}` : logs,
+                };
+              } finally {
+                rmSync(callDir, { recursive: true, force: true });
+              }
             },
           }),
           ...(app.auth ? { auth: app.auth } : {}),
@@ -1050,7 +1458,7 @@ export function buildRewrittenCompositionConfig(
 
     ...(deps.historyFilePath ? { historyFilePath: deps.historyFilePath } : { runHistory: new SqliteRunHistoryAdapter() }),
 
-    learningRepo,
+    ...(campaignFrozen ? {} : { learningRepo }),
     /*
      * This factory is the one module that may import both qa-engine @contexts aliases and root
      * src/, so it is the only place that can construct ReflectorPortAdapter: same runtimeAdapter
@@ -1058,7 +1466,7 @@ export function buildRewrittenCompositionConfig(
      * REFLECTOR_TIMEOUT_MS parsed here with Number(process.env.X) || default; unset falls back
      * to the adapter's REFLECT_TIMEOUT_MS (60_000).
      */
-    reflectorPort: new ReflectorPortAdapter({
+    ...(campaignFrozen || !reflectorEnabled ? {} : { reflectorPort: new ReflectorPortAdapter({
       runtime: runtimeAdapter,
       repo: learningRepo,
 
@@ -1066,9 +1474,9 @@ export function buildRewrittenCompositionConfig(
       cwd: mirrorDir,
       app: app.name,
       timeoutMs: Number((deps.env ?? process.env).REFLECTOR_TIMEOUT_MS) || REFLECT_TIMEOUT_MS,
-    }),
+    }) }),
 
-    processAudit: new ProcessAuditPortAdapter({
+    ...(campaignFrozen ? {} : { processAudit: new ProcessAuditPortAdapter({
       app: app.name,
       readRecentOutcomes: (a, limit) => listRunOutcomes(a, limit),
       readRules: (a, limit) => listLearningRules(a, limit),
@@ -1094,13 +1502,13 @@ export function buildRewrittenCompositionConfig(
           return false; 
         }
       },
-    }),
+    }) }),
     /*
      * CurriculumPort — per-app scenario-archetype prior. Constructed here because its store is
      * history.ts (src-only; qa-engine may never import it). Wired unconditionally: measure-and-rank
-     * only, never gates a verdict, publish, or coverage decision.
+     * only, never gates a verdict, publish, or coverage decision. Left out under QA_CAMPAIGN_FREEZE.
      */
-    curriculumPort: new CurriculumPortAdapter(app.name, loadCurriculum, saveCurriculum),
+    ...(campaignFrozen || grounding?.curriculum === false || grounding?.curriculum === "off" ? {} : { curriculumPort: new CurriculumPortAdapter(app.name, loadCurriculum, saveCurriculum) }),
     /*
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
      * same reason curriculumPort is: its store is history.ts (src-only; qa-engine may never import
@@ -1110,26 +1518,78 @@ export function buildRewrittenCompositionConfig(
      * fresh: a committed map left untouched is neither stored nor disarms the flag.
      */
     contextMapCapture: new ContextMapCapturePortAdapter(storeFreshContextMap, contextMapWrittenThisRun),
+    /*
+     * The accepted e2e suite of this app, in the qa-data volume (never mounted into the agents container). A checkout wipes every
+     * untracked file of the mirror, and shadow mode never publishes: without the store every run would start cold, re-seed the
+     * stock login and ask the agent to author it again. E2e only; the code target keeps its tests in the repo's own framework.
+     * Under QA_CAMPAIGN_FREEZE the store is read-only: the suite is cross-run state like the learning the freeze already withholds,
+     * and a campaign seeds the store itself (scripts/warm-suite.ts seed-store) before each arm-run.
+     */
+    ...(!isCode
+      ? { suiteStore: new SuiteStoreAdapter({ storeDir: appSuiteStoreDir(root, app.name), app: app.name, repo: app.repo, specRelDir: e2eRelDir, seedDir: join(qayabaRoot(), "config", "e2e"), listTracked: gitListTracked(runner), now: () => new Date(), readOnly: campaignFrozen }) }
+      : {}),
     ...(observer ? { observer } : {}),
   };
 }
 
 
+/* What the composition tells the agent transport about a run, for its trace: how the app's steps are classified. */
+export interface TurnTelemetryContext {
+  intent: StepIntentContext;
+}
+
+/* The classification of a host that was handed none: an e2e suite in `e2e/`, no login of its own, no judging agent. */
+const DEFAULT_STEP_INTENT: StepIntentContext = { specTargets: { kind: "dir", relDir: "e2e" }, authFiles: [], loginUrls: [], authOnlyOrigins: [], reviewAgents: [] };
+
+/* The agent transport the engine opens its sessions through: the host's, with live observation, the stall watchdog and usage, and the run_spec and agent-browser registries told which sessions the agents open for which run. */
+export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry" | "geolocationRegistry" | "telemetry" | "clock">, turn?: TurnTelemetryContext): AgentDeps {
+  const registry = deps.closedLoopRegistry;
+  const browsers = deps.agentBrowserRegistry;
+  const geolocations = deps.geolocationRegistry;
+  const stack = withUsageSink(
+    withStallWatchdog(
+      withSessionRegistration(deps.getAgentDeps(), {
+        register: registerRunSession,
+        unregister: unregisterRunSession,
+        observe: observeUnwatchedSession,
+        unobserve: unobserveUnwatchedSession,
+        bind: (session) => {
+          registry?.bindSession(session);
+          browsers?.bindSession(session);
+          geolocations?.bindSession(session);
+          setSessionToolDeny(session.sessionId, session.denyTools);
+        },
+        unbind: (sessionId) => {
+          registry?.unbindSession(sessionId);
+          browsers?.unbindSession(sessionId);
+          geolocations?.unbindSession(sessionId);
+          setSessionToolDeny(sessionId, undefined);
+        },
+      }),
+      { stallMs: stallMs(), onStall: (sessionId) => agentTurnTraces.fired(sessionId, "stall") },
+    ),
+  );
+  /* The turn span sits outside the stall watchdog, so it sees a watchdog's abort. Without a telemetry port the stack is returned as it is. */
+  if (!deps.telemetry) return stack;
+  return withTurnTelemetry(stack, {
+    telemetry: deps.telemetry,
+    clock: deps.clock ?? SYSTEM_CLOCK,
+    intent: turn?.intent ?? DEFAULT_STEP_INTENT,
+    watchHost: (span) => watchSpanForHost(span),
+    stepLimitFor: (agent) => maxStepsFromConfig(agent),
+    agentConfig: (agent) => agentConfigFacts(agent),
+  });
+}
+
 export function createRewrittenEngineFactory(
   deps: RewrittenEngineFactoryDeps,
-): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
+): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
   const env = deps.env ?? process.env;
   const wrappedDeps: RewrittenEngineFactoryDeps = {
     ...deps,
-    getAgentDeps: () =>
-      withUsageSink(
-        withStallWatchdog(
-          withSessionRegistration(deps.getAgentDeps(), { register: registerRunSession, unregister: unregisterRunSession }),
-          { stallMs: stallMs() },
-        ),
-      ),
+    getAgentDeps: (turn) => engineAgentDeps(deps, turn),
   };
-  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string }, observer?: ObserverPort): RunPipelinePort => {
+  return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
     const cfg = buildRewrittenCompositionConfig(appConfig, wrappedDeps, namespace, run, observer);
     return buildProduction(env, cfg);
   };

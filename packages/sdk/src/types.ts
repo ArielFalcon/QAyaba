@@ -8,6 +8,13 @@ import type { components } from "./types.gen";
 type S = components["schemas"];
 
 export type RunRecord = S["RunRecord"];
+export type RunDetail = S["RunDetail"];
+export type RunEvaluation = S["RunEvaluation"];
+export type EvaluationCatalog = S["EvaluationCatalog"];
+export type RegradeRequest = S["RegradeRequest"];
+export type RegradeStarted = S["RegradeStarted"];
+export type RegradeJob = S["RegradeJob"];
+export type CampaignRuns = S["CampaignRuns"];
 export type QaCase = S["QaCase"];
 export type SpecRecord = S["SpecRecord"];
 export type AgentActivity = S["AgentActivity"];

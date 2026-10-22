@@ -1,4 +1,5 @@
 import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import type { Omission, SectionMeta } from "@kernel/telemetry/section-meta.ts";
 
 export type SectionRole = "stable-prefix" | "semi-stable" | "volatile" | "task" | "critical-recap";
 
@@ -13,16 +14,25 @@ export interface Section {
   language: "scaffold" | "verbatim";
   shedAs?: SectionRole;
   claims?: readonly PromptClaim[];
+  /* Stable ids of the grounding items this section supplies (context-item-ids.ts). Absent for a section that supplies none. */
+  itemIds?: readonly string[];
+  /* The items this section chose to leave out, before the assembler's own cap/shed. */
+  omissions?: readonly Omission[];
 }
 
 export interface AssembledPrompt {
   text: string;
   sectionSizes: Record<string, number>;
   claims: Record<string, readonly PromptClaim[]>;
+  /* What each grounding section supplied and lost, from the kept assembly: its item ids, its omissions and whether the assembler capped it. Keyed by section id. */
+  sectionItems: Record<string, SectionMeta>;
   providedPaths?: readonly string[];
+  sectionHashes?: Record<string, string>;
+  droppedSections?: readonly string[];
+  budgetBytes?: number;
 }
 
-export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs" | "claims">>;
+export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs" | "claims" | "itemIds" | "omissions">>;
 
 export interface AssembleOpts {
   budgetBytes?: number;

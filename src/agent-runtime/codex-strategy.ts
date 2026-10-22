@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { capabilitiesForRole } from "./types";
-import { AgentUnavailableError } from "../errors";
+import { AgentTimeoutError, AgentUnavailableError } from "../errors";
 import { sanitizeText } from "../orchestrator/sanitizer";
+import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import { saveAgentTurnEvent } from "../server/history";
 import {
   checkCodexCircuit,
@@ -15,6 +16,14 @@ import {
 import type { AgentOpenDescriptor, AgentTurnEvent, LiveActivity } from "../integrations/opencode-client";
 import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS } from "../integrations/opencode-client";
 import { extractJsonObjects } from "../integrations/verdict-parse";
+import { sha256Hex } from "../../qa-engine/src/shared-infrastructure/content-hash";
+import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
+import type { AttemptEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
+import { carriedAgentErrorType, carryAgentErrorType, classifyAgentFault, type AgentErrorType } from "@contexts/generation/domain/agent-error-class";
+import { codexUsageAsRuntime, type CodexTokenUsage } from "@kernel/telemetry/genai-semconv";
+import type { TimeLimitSource, TurnLimit } from "@kernel/turn-limit";
+import type { SpanHandle } from "@kernel/telemetry/telemetry.port";
+import { traceparentOf } from "@kernel/telemetry/trace-context";
 import type { RunEventBody } from "../contract/events";
 import {
   AGENT_NAME_FOR_ROLE,
@@ -35,8 +44,8 @@ function envNumber(env: Record<string, string | undefined>, key: string, fallbac
 /*
  * The default deadline for a Codex session that received NO explicit timeoutMs from its caller.
  * Keyed by role, mirroring how opencode-client.ts budgets each role: the reviewer and the explorer
- * get their OWN (smaller) ceilings; every other role (the write-capable primary/maintainer/worker/
- * proposer, plus the read-only chat/reflector which have no dedicated OpenCode-side constant
+ * get their OWN (smaller) ceilings; every other role (the write-capable primary/maintainer/
+ * sidekick/proposer, plus the read-only chat/reflector which have no dedicated OpenCode-side constant
  * either) falls back to the generator's diff-mode budget — the smallest generator ceiling, and a
  * strictly-bounded floor where today there is none at all.
  */
@@ -47,34 +56,46 @@ export function defaultCodexTimeoutMs(role: AgentRole, env: Record<string, strin
 }
 
 
-export const CODEX_USAGE_AVAILABLE = false as boolean;
+/*
+ * What of Codex's usage is wired. PER-TURN usage is: the `turn.completed` usage of an exec reaches the turn's persisted row and its
+ * spans (an exec that reports none leaves them null). RUN-LEVEL usage is not: `openSession`'s `onUsage`, which sums into
+ * `gateSignals.usage`, is never called for Codex, so a Codex-only run still has no run-level usage (never a zero). Both facts are
+ * pinned by a test; wiring the run-level sum is a change of its own (it changes what a run reports).
+ */
+export const CODEX_USAGE_AVAILABLE = true as boolean;
+export const CODEX_RUN_USAGE_FED = false as boolean;
+
+/* The whole message of a deadline a Codex transport fires itself: CodexExecTransport's own timer, or the supervisor's relayed as its error body. Anchored, because the text an exec fails with can mention any timeout of the provider's. */
+const CODEX_OWN_DEADLINE = /^codex (?:prompt: |exec )timed out after \d+ms$/;
+
+const CODEX_AUTH = /\b(401|403|unauthorized|authentication failed|forbidden)\b/;
+const CODEX_QUOTA = /\b(402|out of credits|payment required|billing|quota|insufficient_quota)\b/;
+const CODEX_RATE = /\b(429|too many requests|rate.?limit)\b/;
+const CODEX_ABORT = /\b(aborted|sigterm|abort)\b/;
 
 /*
  * ROOT-CAUSE classifier for Codex: mirrors agentErrorToInfra (opencode-client.ts:1754) for the
- * Codex path. Maps `codex exec` non-zero exit / auth / out-of-credits / timeout to
- * AgentUnavailableError (infra-error) so billing/auth failures never surface as false `fail`/`invalid`
- * verdicts that open a spurious GitHub Issue. Returns null for non-infra outcomes (real test failures).
+ * Codex path. Maps `codex exec` non-zero exit / auth / out-of-credits to AgentUnavailableError and a
+ * deadline to AgentTimeoutError (both infra-error, the latter typed so a caller holding a time budget
+ * can tell it from a provider refusal without reading a message) so billing/auth failures never
+ * surface as false `fail`/`invalid` verdicts that open a spurious GitHub Issue. Returns null for non-infra outcomes (real test failures).
  * IMPORTANT: This classifier operates on a plain Error — `codex exec` (or the supervisor transport)
  * throws bare Error objects; the classification inspects the message for known infra signals.
  * Do NOT extend this to substring-match test-output prose: only known provider/infra error patterns
  * belong here. Any non-matching error returns null (caller decides the verdict).
  */
-export function codexErrorToInfra(error: unknown): AgentUnavailableError | null {
+export function codexErrorToInfra(error: unknown): AgentTimeoutError | AgentUnavailableError | null {
   if (!(error instanceof Error)) return null;
   const msg = error.message.toLowerCase();
   const tail = "INCONCLUSIVE (infrastructure), not a test failure";
 
-  /* Timeout is the highest-priority check: it's the controlled case (CodexExecTransport fires SIGTERM). */
-  if (/timed out after \d+ms/.test(msg)) {
-    return new AgentUnavailableError(`Codex prompt timed out. ${tail}.`, { cause: error });
+  /* Timeout is the highest-priority check: it's the controlled case (CodexExecTransport fires SIGTERM). Only a deadline a transport fired itself is one: a timeout the exec's own stderr mentions is provider text. */
+  if (CODEX_OWN_DEADLINE.test(msg)) {
+    return new AgentTimeoutError(`Codex prompt timed out. ${tail}.`, { cause: error });
   }
 
   /* Auth / credits / billing signals in stderr surfaced through the exit-code path. */
-  if (
-    /\b(401|403|unauthorized|authentication failed|forbidden)\b/.test(msg) ||
-    /\b(402|out of credits|payment required|billing|quota|insufficient_quota)\b/.test(msg) ||
-    /\b(429|too many requests|rate.?limit)\b/.test(msg)
-  ) {
+  if (CODEX_AUTH.test(msg) || CODEX_QUOTA.test(msg) || CODEX_RATE.test(msg)) {
     return new AgentUnavailableError(
       `Codex provider rejected the request (auth / credits / rate-limit): ${error.message}. ${tail}.`,
       { cause: error },
@@ -82,12 +103,32 @@ export function codexErrorToInfra(error: unknown): AgentUnavailableError | null 
   }
 
   /* Abort/SIGTERM from an external AbortSignal (not our internal timeout). */
-  if (/\b(aborted|sigterm|abort)\b/.test(msg)) {
+  if (CODEX_ABORT.test(msg)) {
     return new AgentUnavailableError(`Codex exec was aborted. ${tail}.`, { cause: error });
   }
 
   /* Not an infra error — a genuine non-infra outcome (real test failure, script error, etc.). */
   return null;
+}
+
+/*
+ * The same signals as a closed class for a trace (the classes of AGENT_ERROR_TYPES), read from the text the exec itself failed with.
+ * An infra error codexErrorToInfra made carries that text as its cause, and its own message names all three provider classes at once
+ * ("auth / credits / rate-limit"), so the cause is what is read. A quota is told from a rate limit before either is told from an
+ * auth failure, as a provider answers both quota and rate limiting with a 429.
+ */
+export function classifyCodexFault(error: unknown): AgentErrorType {
+  if (error instanceof AgentTimeoutError) return "timeout";
+  const basis = error instanceof AgentUnavailableError && error.cause instanceof Error ? error.cause : error;
+  if (basis instanceof Error) {
+    const msg = basis.message.toLowerCase();
+    if (CODEX_OWN_DEADLINE.test(msg)) return "timeout";
+    if (CODEX_QUOTA.test(msg)) return "quota_exceeded";
+    if (CODEX_RATE.test(msg)) return "rate_limited";
+    if (CODEX_AUTH.test(msg)) return "auth";
+    if (CODEX_ABORT.test(msg)) return "aborted";
+  }
+  return classifyAgentFault(basis);
 }
 
 /*
@@ -108,9 +149,19 @@ export interface CodexTransportStartInput {
   killSignal?: NodeJS.Signals;
 }
 
+/** What one prompt may state of its own. */
+export interface CodexTransportPromptOpts {
+  /** The longest this prompt may run. Absent: the session's limit stands. */
+  timeoutMs?: number;
+  /** The W3C traceparent of the attempt this prompt is: `codex exec` parents its own spans on it. Only ever a value built from a real span. */
+  traceparent?: string;
+  /** Told what the exec reported it spent, when it reported anything. Never called otherwise; a transport that cannot read usage ignores it. */
+  onUsage?: (usage: CodexTokenUsage) => void;
+}
+
 export interface CodexTransportSession {
   id: string;
-  prompt(text: string): Promise<string>;
+  prompt(text: string, opts?: CodexTransportPromptOpts): Promise<string>;
   dispose(): Promise<void>;
 }
 
@@ -125,6 +176,12 @@ interface CodexRuntimeStrategyOptions {
   env?: Record<string, string | undefined>;
   transport?: CodexHeadlessTransport;
   promptRoot?: string;
+  /* Where a prompt tells its trace what happens (see AttemptEvent). Default: the process-wide registry the turn decorator fills. A fault in it never reaches the prompt. */
+  onAttempt?: (sessionId: string, event: AttemptEvent) => void;
+  /* The limit a layer above the transport fired on a prompt, by session and prompt number. Default: the same registry. */
+  outerLimit?: (sessionId: string, prompt: number) => TurnLimit | undefined;
+  /* The attempt span a session's prompt is in. Default: the same registry. */
+  attemptSpan?: (sessionId: string) => SpanHandle | undefined;
 }
 
 /*
@@ -144,12 +201,16 @@ export const CODEX_MODELS: AgentModelInfo[] = [
   { id: "gpt-5.5", label: "GPT-5.5" },
 ];
 
-const CODEX_EXEC_ENV_EXACT = new Set([
+export const CODEX_EXEC_ENV_EXACT: ReadonlySet<string> = new Set([
   "PATH", "HOME", "USER", "SHELL", "TERM", "LANG", "TMPDIR", "TEMPDIR", "TMP", "TEMP",
   "CI", "NO_COLOR", "FORCE_COLOR", "DEBUG", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
   "https_proxy", "http_proxy", "no_proxy", "CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_HOME", "CODEX_BIN",
+  /* The W3C trace context of the attempt the exec belongs to: `codex exec` parents its own spans on it. Exact names, since the prefix list does not match them; only a value built from a real span reaches them (see traceEnv). */
+  "TRACEPARENT", "TRACESTATE",
 ]);
-const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_|AGENT_)/;
+/* DEV_ENV_* (the HTTP Basic gate of DEV) reaches the agent; DEV_TEST_* (the app's test account) never does:
+   the login is the orchestrator's, and the agent only ever gets the session it saves. */
+export const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_(?!TEST_)|AGENT_)/;
 
 /*
  * Subscription-vs-API-key precedence (prefer a ChatGPT login over a stale/quota'd env key) is handled
@@ -157,6 +218,16 @@ const CODEX_EXEC_ENV_PREFIX = /^(?:DEV_|AGENT_)/;
  * actually runs. It is intentionally NOT replicated here: this orchestrator-side builder must stay a
  * pure, filesystem-independent env projection so it is deterministic under test.
  */
+/*
+ * The environment an exec is built from, with its trace context decided here and nowhere else: whatever trace context the process
+ * itself happens to hold is dropped (an exec's spans belong under the attempt that asked for it, not under a CI pipeline's), and
+ * the attempt's is set when there is one.
+ */
+export function withTraceContext(env: Record<string, string | undefined>, traceparent: string | undefined): Record<string, string | undefined> {
+  const { TRACEPARENT: _ambient, TRACESTATE: _ambientState, ...rest } = env;
+  return traceparent !== undefined ? { ...rest, TRACEPARENT: traceparent } : rest;
+}
+
 export function codexExecEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
@@ -192,8 +263,14 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
   private readonly env: Record<string, string | undefined>;
   private readonly transport: CodexHeadlessTransport;
   private readonly promptRoot: string;
+  private readonly onAttempt: (sessionId: string, event: AttemptEvent) => void;
+  private readonly outerLimit: (sessionId: string, prompt: number) => TurnLimit | undefined;
+  private readonly attemptSpan: (sessionId: string) => SpanHandle | undefined;
 
   constructor(opts: CodexRuntimeStrategyOptions = {}) {
+    this.onAttempt = opts.onAttempt ?? ((sessionId, event) => agentTurnTraces.attempt(sessionId, event));
+    this.outerLimit = opts.outerLimit ?? ((sessionId, prompt) => agentTurnTraces.firedBy(sessionId, prompt));
+    this.attemptSpan = opts.attemptSpan ?? ((sessionId) => agentTurnTraces.attemptSpan(sessionId));
     this.env = opts.env ?? process.env;
     this.transport = opts.transport ?? defaultCodexTransport(this.env);
     this.promptRoot = opts.promptRoot ?? this.env.AGENT_PROMPT_DIR ?? join(process.cwd(), "agent");
@@ -216,6 +293,8 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
     opts?: {
       signal?: AbortSignal;
       timeoutMs?: number;
+      /* Which limit the session's timeout is, for the trace. */
+      timeLimit?: TimeLimitSource;
       model?: string;
       descriptor?: AgentOpenDescriptor;
       onTurn?: (t: AgentTurnEvent) => void;
@@ -271,7 +350,9 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
        * here (AgentTurnRecord documents nulls as acceptable). outputText is sanitized BEFORE the
        * event fires (same as OpenCode), so any DEV-environment data is redacted before storage.
        */
-      prompt: async (text, promptOpts) => {
+      prompt: async (unredacted, promptOpts) => {
+        /* The last seam before the model, as in the OpenCode funnel: the run's own secrets are taken out by value from whatever text got here. */
+        const text = redactByValue(unredacted);
         const thisRound = round++;
         /*
          * Circuit breaker guard — the Codex counterpart of the checkCircuit() gate the OpenCode
@@ -280,14 +361,55 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
          * without spending a codex exec — the error surfaces as infra-error via codexErrorToInfra.
          */
         checkCodexCircuit(breakerRole);
+        const startedAt = Date.now();
+        /* The bytes the exec is sent: the hash of a turn is the hash of these, as in the OpenCode funnel. Built inside the try below, so a failure to build them counts against the circuit breaker as it always has. */
+        let sent = text;
+        /* What the trace is told, as the OpenCode funnel tells it; a fault in it never reaches the prompt. */
+        const notify = (event: AttemptEvent): void => {
+          try {
+            this.onAttempt(session.id, event);
+          } catch (err) {
+            console.error(`[qa] attempt telemetry failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        };
+        /* The limit that binds the prompt: its own, else the session's, else the strategy's default for the role. */
+        const limitApplied: { source: TimeLimitSource; ms: number } =
+          promptOpts?.timeoutMs !== undefined
+            ? { source: promptOpts.timeLimit ?? "prompt-budget", ms: promptOpts.timeoutMs }
+            : usingDefault
+              ? { source: "host-cap", ms: timeoutMs }
+              : { source: opts?.timeLimit ?? "session-timeout", ms: timeoutMs };
+        notify({ kind: "start", prompt: thisRound, attempt: 1, requestedModel: opts?.model, at: startedAt, limitApplied });
+        let usage: CodexTokenUsage | undefined;
         let rawOutput: string;
+        /* The attempt the exec belongs to, as a header its own spans can be parented on; none when nothing is traced. */
+        let traceparent: string | undefined;
         try {
-          rawOutput = await session.prompt(withCodexRolePreamble(role, text, this.promptRoot));
+          const attempt = this.attemptSpan(session.id);
+          traceparent = attempt ? traceparentOf(attempt.context()) : undefined;
+        } catch (err) {
+          console.error(`[qa] attempt trace context failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        try {
+          sent = withCodexRolePreamble(role, text, this.promptRoot);
+          rawOutput = await session.prompt(sent, {
+            ...(promptOpts?.timeoutMs !== undefined ? { timeoutMs: promptOpts.timeoutMs } : {}),
+            ...(traceparent !== undefined ? { traceparent } : {}),
+            onUsage: (reported) => {
+              usage = reported;
+            },
+          });
           recordCodexCircuitSuccess(breakerRole);
         } catch (err) {
           recordCodexCircuitFailure(breakerRole);
+          const errorType = classifyCodexFault(err);
+          /* The class travels beside the error, as the OpenCode funnel's does (the error itself is not touched), so the turn above reads the same class the attempt did. */
+          if (carriedAgentErrorType(err) === undefined) carryAgentErrorType(err, errorType);
+          notify({ kind: "end", prompt: thisRound, attempt: 1, at: Date.now(), error: err, errorType });
           throw err;
         }
+        const reported = usage ? codexUsageAsRuntime(usage) : undefined;
+        notify({ kind: "end", prompt: thisRound, attempt: 1, at: Date.now(), answered: { providerId: this.provider }, ...(reported ? { usage: reported } : {}) });
         /*
          * textOnly: strip chain-of-thought reasoning wrappers (<think>…</think> etc.) from the
          * output, mirroring OpenCode's extractText({textOnly:true}) path (opencode-client.ts:1811).
@@ -300,8 +422,8 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
          * there is to do. The persisted turn is unchanged by it.
          */
         const returned = promptOpts?.finalStepOnly ? stripCodexReasoningWrappers(rawOutput) : output;
-        if (effectiveOnTurn) {
-          effectiveOnTurn({
+        {
+          const turn: AgentTurnEvent = {
             runId: opts?.descriptor?.runId ?? null,
             sessionId: session.id,
             role: opts?.descriptor?.role ?? role,
@@ -311,10 +433,11 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
             promptText: text,
             promptBytes: Buffer.byteLength(text, "utf8"),
             outputText: sanitizeText(output).text,
-            tokensInput: null,
-            tokensOutput: null,
-            tokensReasoning: null,
-            tokensCacheRead: null,
+            /* The tokens in the shape every row holds them (input without the cache): `codex exec` reports no cost and no cache writes, so those stay null, never zero. */
+            tokensInput: reported ? reported.input : null,
+            tokensOutput: reported ? reported.output : null,
+            tokensReasoning: reported ? reported.reasoning : null,
+            tokensCacheRead: reported ? reported.cacheRead : null,
             tokensCacheWrite: null,
             cost: null,
             ts: new Date().toISOString(),
@@ -322,7 +445,21 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
             /* Codex has no step-budget concept and, in production, no tool stream (the supervisor returns only the final message): unknown, never fabricated. */
             stepBudget: null,
             callMetrics: null,
-          });
+            ended: "completed",
+            durationMs: Math.max(0, Date.now() - startedAt),
+            modelRequested: opts?.model ?? null,
+            modelAnswered: null,
+            provider: this.provider,
+            attempt: 1,
+            fallbackUsed: false,
+            errorType: null,
+            sectionHashes: promptOpts?.sectionHashes ?? null,
+            promptHash: sha256Hex(sent),
+            limitApplied: limitApplied.source,
+            limitFired: this.outerLimit(session.id, thisRound) ?? null,
+          };
+          effectiveOnTurn?.(turn);
+          notify({ kind: "turn", prompt: thisRound, turn, at: Date.now() });
         }
         return returned;
       },
@@ -390,7 +527,7 @@ export class CodexExecTransport implements CodexHeadlessTransport {
     const id = randomUUID();
     return {
       id,
-      prompt: (text) => this.runExec(text, input),
+      prompt: (text, opts) => this.runExec(text, input, opts),
       dispose: async () => {},
     };
   }
@@ -409,12 +546,16 @@ export class CodexExecTransport implements CodexHeadlessTransport {
     return this.health();
   }
 
-  private runExec(prompt: string, input: CodexTransportStartInput): Promise<string> {
+  private runExec(prompt: string, session: CodexTransportStartInput, promptOpts?: CodexTransportPromptOpts): Promise<string> {
+    /* A limit the prompt states is the caller's own choice, as the session's is: it stops the child gently, where the strategy's default deadline kills it. */
+    const input: CodexTransportStartInput = promptOpts?.timeoutMs !== undefined
+      ? { ...session, timeoutMs: promptOpts.timeoutMs, killSignal: undefined }
+      : session;
     const args = codexExecArgs(input);
     return new Promise((resolve, reject) => {
       const child = this.spawnFn(this.command, args, {
         cwd: input.cwd,
-        env: codexExecEnv({ ...process.env, ...this.env }),
+        env: codexExecEnv(withTraceContext({ ...process.env, ...this.env }, promptOpts?.traceparent)),
         stdio: ["pipe", "pipe", "pipe"],
         signal: input.signal,
       });
@@ -422,7 +563,7 @@ export class CodexExecTransport implements CodexHeadlessTransport {
       let stderr = "";
       const timeout = input.timeoutMs ? setTimeout(() => {
         child.kill(input.killSignal ?? "SIGTERM");
-        reject(new Error(`Codex prompt: timed out after ${input.timeoutMs}ms`));
+        reject(new AgentTimeoutError(`Codex prompt: timed out after ${input.timeoutMs}ms`));
       }, input.timeoutMs) : undefined;
 
       child.stdout.setEncoding("utf8");
@@ -435,8 +576,11 @@ export class CodexExecTransport implements CodexHeadlessTransport {
       });
       child.on("close", (code) => {
         if (timeout) clearTimeout(timeout);
-        if (code === 0) resolve(extractCodexLastMessage(stdout) || stdout.trim());
-        else {
+        if (code === 0) {
+          const usage = extractCodexTokenUsage(stdout);
+          if (usage) promptOpts?.onUsage?.(usage);
+          resolve(extractCodexLastMessage(stdout) || stdout.trim());
+        } else {
           const raw = new Error(`codex exec exited ${code}: ${stderr.trim() || stdout.trim()}`);
           /*
            * Classify the exit error: infra faults (auth/credits/timeout/abort) become
@@ -474,7 +618,7 @@ export class SupervisorExecTransport implements CodexHeadlessTransport {
     const id = randomUUID();
     return {
       id,
-      prompt: (text) => this.runExec(text, input),
+      prompt: (text, opts) => this.runExec(text, input, opts),
       dispose: async () => {},
     };
   }
@@ -495,26 +639,72 @@ export class SupervisorExecTransport implements CodexHeadlessTransport {
     return CODEX_MODELS;
   }
 
-  private async runExec(prompt: string, input: CodexTransportStartInput): Promise<string> {
+  private async runExec(prompt: string, input: CodexTransportStartInput, promptOpts?: CodexTransportPromptOpts): Promise<string> {
+    const timeoutMs = promptOpts?.timeoutMs ?? input.timeoutMs;
     const res = await this.fetchImpl(`${this.baseUrl}/codex/exec`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(promptOpts?.traceparent !== undefined ? { traceparent: promptOpts.traceparent } : {}) },
       /*
        * `sandbox` is per-role (read-only roles cannot write): the supervisor must pass it through to
        * `codex exec --sandbox`. Sent unconditionally so a read-only role is never silently elevated.
        */
-      body: JSON.stringify({ cwd: input.cwd, prompt, sandbox: codexSandboxForRole(input.role), ...(input.model ? { model: input.model } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) }),
+      body: JSON.stringify({ cwd: input.cwd, prompt, sandbox: codexSandboxForRole(input.role), ...(input.model ? { model: input.model } : {}), ...(timeoutMs ? { timeoutMs } : {}) }),
       ...(input.signal ? { signal: input.signal } : {}),
     });
-    const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+    const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string; usage?: unknown };
     if (!res.ok) {
-      const raw = new Error(`codex exec via supervisor failed (${res.status}): ${body.error ?? "unknown"}`);
-      /* Classify infra errors (auth/credits/rate-limit) so the pipeline can surface infra-error. */
-      const infra = codexErrorToInfra(raw);
+      const detail = body.error ?? "unknown";
+      const raw = new Error(`codex exec via supervisor failed (${res.status}): ${detail}`);
+      /* Classify infra errors (auth/credits/rate-limit) so the pipeline can surface infra-error. The supervisor's own deadline arrives as the whole error body and is read as such; whatever else it relays is the exec's text. */
+      const infra = codexErrorToInfra(CODEX_OWN_DEADLINE.test(detail.toLowerCase()) ? new Error(detail) : raw);
       throw infra ?? raw;
     }
+    const usage = tokenUsageFromSupervisor(body.usage);
+    if (usage) promptOpts?.onUsage?.(usage);
     return body.message ?? "";
   }
+}
+
+const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+/* The usage the supervisor relayed: the four counts of `turn.completed`, each a plain non-negative count, or nothing. A malformed object under-reports rather than invents. */
+function tokenUsageFromSupervisor(raw: unknown): CodexTokenUsage | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  /* An object that holds no valid count says nothing: no usage, which is not zero usage. */
+  if (![r.input_tokens, r.cached_input_tokens, r.output_tokens, r.reasoning_output_tokens].some(isCount)) return undefined;
+  return {
+    inputTokens: isCount(r.input_tokens) ? r.input_tokens : 0,
+    cachedInputTokens: isCount(r.cached_input_tokens) ? r.cached_input_tokens : 0,
+    outputTokens: isCount(r.output_tokens) ? r.output_tokens : 0,
+    reasoningOutputTokens: isCount(r.reasoning_output_tokens) ? r.reasoning_output_tokens : 0,
+  };
+}
+
+/* What a local `codex exec --json` spent: the `usage` of its `turn.completed` events (0.139.0), added up; undefined when none reported one. The same reading the supervisor does in the agents container. */
+export function extractCodexTokenUsage(jsonl: string): CodexTokenUsage | undefined {
+  let total: CodexTokenUsage | undefined;
+  for (const line of jsonl.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let event: { type?: unknown; usage?: unknown };
+    try {
+      event = JSON.parse(line) as typeof event;
+    } catch {
+      continue;
+    }
+    if (event.type !== "turn.completed" || typeof event.usage !== "object" || event.usage === null) continue;
+    const reported = tokenUsageFromSupervisor(event.usage);
+    if (!reported) continue;
+    total = total
+      ? {
+          inputTokens: total.inputTokens + reported.inputTokens,
+          cachedInputTokens: total.cachedInputTokens + reported.cachedInputTokens,
+          outputTokens: total.outputTokens + reported.outputTokens,
+          reasoningOutputTokens: total.reasoningOutputTokens + reported.reasoningOutputTokens,
+        }
+      : reported;
+  }
+  return total;
 }
 
 /*
@@ -530,8 +720,6 @@ function stripCodexReasoningWrappers(s: string): string {
 const ROLE_SKILLS: Partial<Record<AgentRole, readonly string[]>> = {
   primary: ["architecture-mapping", "playwright-authoring", "test-value-review"],
   reviewer: ["test-value-review"],
-  worker: ["playwright-authoring"],
-  workerCode: ["playwright-authoring"],
   sidekick: ["playwright-authoring"],
 };
 
@@ -577,9 +765,9 @@ function withCodexRolePreamble(role: AgentRole, text: string, promptRoot: string
   ].join("\n");
 }
 
-/* The role's prompt is agent/roles/<agent name>.md; workerCode has no prompt of its own and reads the worker's. */
+/* The role's prompt is agent/roles/<agent name>.md. */
 export function rolePromptName(role: AgentRole): string {
-  return AGENT_NAME_FOR_ROLE[role === "workerCode" ? "worker" : role];
+  return AGENT_NAME_FOR_ROLE[role];
 }
 
 function readPrompt(path: string): string {

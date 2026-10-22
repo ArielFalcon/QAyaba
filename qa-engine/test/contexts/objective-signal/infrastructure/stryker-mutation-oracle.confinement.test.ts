@@ -71,7 +71,7 @@ function strykerThat(leave: (cwd: string) => void): { deps: MutationOracleDeps; 
     return child;
   };
   return {
-    deps: { spawn, detectCodeProject: () => ({ ecosystem: "node", test: { cmd: "node", args: ["--test"] } }), scrubEnv: () => ({}), processKill: { killTree: () => {} } },
+    deps: { spawn, detectCodeProject: () => ({ ecosystem: "node", test: { cmd: "node", args: ["--test"] } }), processKill: { killTree: () => {} } },
     started: () => started,
   };
 }

@@ -10,7 +10,6 @@ import assert from "node:assert/strict";
 import {
   buildProduction,
   buildShadow,
-  resolveSidekickTimeoutMs,
   wireBridges,
   type CompositionConfig,
 } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
@@ -25,15 +24,40 @@ import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 
 import { GENERATION_END } from "@kernel/generation-end.ts";
+import { COORDINATION_MODE, resolveCoordinationSettings } from "@kernel/coordination.ts";
+import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
+import { NO_SPEC_SNAPSHOTS } from "@kernel/ports/spec-snapshot.port.ts";
+import { TracedCurriculumPort, TracedLearningPort } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-trace.ts";
+import { SpecSnapshotValidationPort } from "@contexts/qa-run-orchestration/infrastructure/bridges/spec-snapshot-validation.adapter.ts";
+import { TracedSuiteStore } from "@contexts/qa-run-orchestration/infrastructure/bridges/suite-store-trace.ts";
+import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 /* ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
    SAME stub shapes rewritten-orchestrator.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
  */
+/*
+ * The real working copy and store behind every composed run. The run proves the specs it publishes by hashing real bytes, so
+ * this suite cannot hand it a made-up path: the checkout returns a temp mirror that holds the spec its generator delivers.
+ */
+const COMPOSITION_BASE = mkdtempSync(join(tmpdir(), "qa-composition-"));
+const MIRROR = join(COMPOSITION_BASE, "mirror");
+mkdirSync(join(MIRROR, "e2e"), { recursive: true });
+writeFileSync(join(MIRROR, "e2e", "a.spec.ts"), "// fixture a.spec.ts\n");
+const SUITE_STORE = new SuiteStoreAdapter({
+  storeDir: join(COMPOSITION_BASE, "suite-store"),
+  app: "app",
+  repo: "org/app",
+  specRelDir: "e2e",
+  listTracked: async () => new Map(),
+  now: () => new Date(Date.UTC(2026, 0, 1)),
+});
+process.once("exit", () => rmSync(COMPOSITION_BASE, { recursive: true, force: true }));
+
 function fakeConfig(overrides: Partial<CompositionConfig> = {}): CompositionConfig {
   const base: CompositionConfig = {
     repo: "org/app",
     appName: "app",
-    mirrorDir: "/mirrors/org/app",
+    mirrorDir: MIRROR,
     e2eRelDir: "e2e",
     branch: "qa-bot/abc1234",
     target: "e2e",
@@ -78,7 +102,8 @@ function fakeConfig(overrides: Partial<CompositionConfig> = {}): CompositionConf
       topRules: async () => [],
       applyOutcome: async () => {},
     },
-    checkout: async () => "/mirrors/org/app",
+    checkout: async () => MIRROR,
+    suiteStore: SUITE_STORE,
     versionUrl: undefined,
     versionPoll: async () => ({ serving: true }),
     githubPr: { openWithAutoMerge: async () => ({ url: "https://github.com/org/app/pull/1", number: 1 }) },
@@ -843,7 +868,7 @@ test("buildProduction(rewritten) wires structuralSignal when a codebaseMemory co
     mode: "diff",
     codebaseMemory: {
       cli: async (tool: string, jsonArg: string) => {
-        if (tool === "list_projects") return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: "/mirrors/org/app" }] }), stderr: "" };
+        if (tool === "list_projects") return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: MIRROR }] }), stderr: "" };
         const parsed = JSON.parse(jsonArg) as { query: string };
         if (parsed.query.includes("FILE_CHANGES_WITH")) return { code: 0, stdout: JSON.stringify({ columns: ["f_path", "g_path", "coupling_score", "co_changes"], rows: [], total: 0 }), stderr: "" };
         /* impactedSymbols outbound/inbound + callersOf all share the same {columns,rows} shape —
@@ -896,7 +921,7 @@ test("buildProduction(rewritten): a graph that knows only co-change files for th
     mode: "diff",
     codebaseMemory: {
       cli: async (tool: string, jsonArg: string) => {
-        if (tool === "list_projects") return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: "/mirrors/org/app" }] }), stderr: "" };
+        if (tool === "list_projects") return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: MIRROR }] }), stderr: "" };
         const parsed = JSON.parse(jsonArg) as { query: string };
         if (parsed.query.includes("FILE_CHANGES_WITH")) {
           return {
@@ -1467,7 +1492,7 @@ function codebaseMemoryRecording(tools: string[]) {
     cli: async (tool: string, jsonArg: string) => {
       tools.push(tool);
       if (tool === "list_projects") {
-        return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: "/mirrors/org/app" }] }), stderr: "" };
+        return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: MIRROR }] }), stderr: "" };
       }
       if (tool === "index_repository") {
         return { code: 0, stdout: JSON.stringify({ nodes: 1 }), stderr: "" };
@@ -1514,7 +1539,7 @@ test("buildProduction(rewritten) invokes index_repository when indexStatus + cod
   });
 
   assert.ok(tools.includes("index_repository"), "codeGraph.syncTo must reach index_repository when both ports are wired and SHA is new");
-  assert.equal(indexStatus.shas.get("/mirrors/org/app"), "abc1234");
+  assert.equal(indexStatus.shas.get(MIRROR), "abc1234");
   assert.equal(outcome.verdict, "pass");
 });
 
@@ -1558,18 +1583,112 @@ test("buildProduction(rewritten) omits indexing when codebaseMemory is absent ev
   assert.equal(indexStatus.shas.size, 0, "without codebaseMemory there is no codeGraph, so lastIndexedSha must stay unset");
 });
 
-test("resolveSidekickTimeoutMs never reads process.env — only cfg.sidekickTimeoutMs, defaulting to 420000", () => {
-  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-  process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "999";
-  try {
-    assert.equal(
-      resolveSidekickTimeoutMs({}),
-      420_000,
-      "an env var set behind composition-root's back must NOT leak in — qa-engine never reads process.env (the shell resolves it into cfg.sidekickTimeoutMs)",
-    );
-    assert.equal(resolveSidekickTimeoutMs({ sidekickTimeoutMs: 12_345 }), 12_345, "an explicit cfg value must still win");
-  } finally {
-    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
-    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
+/* The run_spec loop is wired only when the shell hands the root its registry; the adapter it builds executes through the run's own execution and cleanup ports. */
+test("wireBridges builds the run_spec loop port from cfg.closedLoop and omits it when the config has none", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts");
+  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
+  const without = wireBridges(fakeConfig());
+  assert.equal("closedLoop" in without, false);
+
+  const registry = new ClosedLoopRegistry();
+  const wired = wireBridges(fakeConfig({
+    closedLoop: {
+      registry,
+      setting: { enabled: true, limits: { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 } },
+      generatorRuntimeCanCall: () => true,
+      account: "app/user",
+      lock: new AccountLock(),
+      redact: (text) => text,
+    },
+  }));
+  const handle = await wired.closedLoop!.open({ runId: "r1", app: "app", mode: "diff", mirrorDir: "/mirrors/org/app", specDir: "/mirrors/org/app/e2e" });
+  assert.deepEqual(handle?.limits, { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 });
+  assert.equal(registry.size, 1);
+  await handle?.close();
+});
+
+test("a code-target composition never gets the run_spec loop, whatever the config says", async () => {
+  const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts");
+  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
+  const wired = wireBridges(fakeConfig({
+    isCode: true,
+    target: "code",
+    closedLoop: { registry: new ClosedLoopRegistry(), setting: { enabled: true, limits: { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 } }, generatorRuntimeCanCall: () => true, account: "a", lock: new AccountLock(), redact: (t) => t },
+  }));
+  assert.equal("closedLoop" in wired, false);
+});
+
+/* The authenticated agent browser is wired only when the shell hands the root its registry, and only for an e2e app with a DEV url. */
+test("wireBridges builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
+  const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts");
+  const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
+  const without = wireBridges(fakeConfig({ baseUrl: "https://dev.example.com" }));
+  assert.equal("agentBrowser" in without, false);
+
+  const wiring = {
+    registry: new AgentBrowserRegistry(),
+    setting: { enabled: true, denyRoutes: [], allowMutating: [] },
+    generatorRuntimeCanCall: () => false,
+    launcher: { launch: async () => { throw new Error("unused"); } },
+    account: "app/user",
+    lock: new AccountLock(),
+    redact: (text: string) => text,
+  };
+  const wired = wireBridges(fakeConfig({ baseUrl: "https://dev.example.com", agentBrowser: wiring }));
+  assert.equal(await wired.agentBrowser!.open({ runId: "r1", app: "app", mode: "diff", specDir: "/m/e2e" }), undefined, "the port is there and applies its own conditions");
+
+  assert.equal("agentBrowser" in wireBridges(fakeConfig({ agentBrowser: wiring })), false, "an app with no DEV url has nothing to browse");
+  assert.equal("agentBrowser" in wireBridges(fakeConfig({ isCode: true, target: "code", baseUrl: "https://dev.example.com", agentBrowser: wiring })), false, "a code target never gets it");
+});
+
+test("wireBridges hands the use case the app's coordination settings, and omits them when the config has none", () => {
+  const without = wireBridges(fakeConfig());
+  assert.equal("coordinationSettings" in without, false);
+  const settings = resolveCoordinationSettings({ mode: COORDINATION_MODE.LEAD_SIDEKICKS });
+  const wired = wireBridges(fakeConfig({ coordinationSettings: settings }));
+  assert.deepEqual(wired.coordinationSettings, settings);
+});
+
+test("wireBridges wires the lead/sidekick mode only for an e2e run whose shell named a place for the workspaces, and never the file-count proposer", () => {
+  const delegation = { workspaceRoot: "/mirrors/.qa-delegations", sidekickProvider: () => "opencode" as const, plannerProvider: () => "opencode" as const };
+  const none = wireBridges(fakeConfig());
+  assert.equal("leadSidekicks" in none, false);
+  assert.equal("sidekickProvider" in none, false);
+
+  const wired = wireBridges(fakeConfig({ delegation }));
+  assert.equal(typeof wired.leadSidekicks?.coordinate, "function");
+  assert.equal(wired.sidekickProvider?.(), "opencode");
+  assert.equal(wired.plannerProvider?.(), "opencode");
+
+  const code = wireBridges(fakeConfig({ delegation, isCode: true }));
+  assert.equal("leadSidekicks" in code, false);
+
+  for (const deps of [none, wired, code]) {
+    assert.equal("coordination" in deps, false, "no proposer decides who authors a change");
+    assert.equal("coordinationEnabledPoints" in deps, false);
+    assert.equal("sidekick" in deps, false);
   }
+});
+
+
+
+/* ── Observability: the sources, the suite store and the validation are traced only when the shell supplied a telemetry port. ── */
+
+test("with a telemetry port the learning, curriculum and suite store ports are traced, and without one they are the plain adapters", () => {
+  const curriculumPort = { select: async () => [], fold: async () => {} };
+  const suiteStore = { restore: async () => ({ restored: 0, trackedWins: 0, overlaid: 0, authRestored: false }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} };
+  const traced = wireBridges(fakeConfig({ telemetry: new NoopTelemetry(), curriculumPort, suiteStore }));
+  assert.ok(traced.learning instanceof TracedLearningPort);
+  assert.ok(traced.curriculum instanceof TracedCurriculumPort);
+  assert.ok(traced.suiteStore instanceof TracedSuiteStore);
+  const plain = wireBridges(fakeConfig({ curriculumPort, suiteStore }));
+  assert.equal(plain.learning instanceof TracedLearningPort, false);
+  assert.equal(plain.curriculum, curriculumPort);
+  assert.equal(plain.suiteStore, suiteStore);
+});
+
+test("spec snapshots wrap the validation of an e2e run only, and only when a snapshot port is supplied", () => {
+  assert.ok(wireBridges(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS })).validation instanceof SpecSnapshotValidationPort);
+  assert.equal(wireBridges(fakeConfig()).validation instanceof SpecSnapshotValidationPort, false);
+  assert.equal(wireBridges(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS, isCode: true, target: "code" })).validation instanceof SpecSnapshotValidationPort, false);
 });

@@ -32,6 +32,11 @@ export class AgentTimeoutError extends InfraError {
   }
 }
 
+/* Whether an error is an agent call's hard deadline, by type or by name (the shell has an error class of its own, so `instanceof` fails across it). A message that merely mentions a timeout is not one. */
+export function isAgentTimeoutError(err: unknown): boolean {
+  return err instanceof AgentTimeoutError || (err instanceof Error && err.name === "AgentTimeoutError");
+}
+
 /**
  * The git dir git would use for a working copy is not the orchestrator's own: untrusted code may have replaced the
  * repository. A security refusal, not an infrastructure fault and not a code defect: it is never turned into an empty

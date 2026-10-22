@@ -24,6 +24,7 @@ import { ok } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 /* so the adapter's own scenario tests are apples-to-apples with the use-case's own 10-scenario
    parity: same green-pr fixture semantics (scenarioApp needsReview:true, makeDeps({}) — generate()
    approved:true with 1 spec, execute() a clean pass, no coverage config, not shadow, onFailure
@@ -45,15 +46,16 @@ function stubPorts(overrides: Partial<{
   waitUntilServing: DeployGatePort["waitUntilServing"];
   save: RunHistoryPort["save"];
 }> = {}) {
+  const ws = runWorkspace("qa-adapter-");
   const savedOutcomes: RunOutcome[] = [];
   const foldedOutcomes: RunOutcome[] = [];
 
   const changeAnalysis: ChangeAnalysisPort = {
     classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })),
   };
-  const generation: GenerationPort = {
+  const generation: GenerationPort = generationOnDisk({
     generate: overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true }))),
-  };
+  });
   const review: ReviewPort = {
     review: overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })),
   };
@@ -76,7 +78,7 @@ function stubPorts(overrides: Partial<{
     retrieve: overrides.retrieve ?? (async () => []),
   };
   const workspace: WorkspacePort = {
-    prepare: overrides.prepare ?? (async () => ({ specDir: "/tmp/qa-golden/e2e", mirrorDir: "/tmp/qa-golden" })),
+    prepare: overrides.prepare ?? (async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })),
   };
   const deployGate: DeployGatePort = {
     waitUntilServing: overrides.waitUntilServing ?? (async () => ok(true)),
@@ -86,7 +88,7 @@ function stubPorts(overrides: Partial<{
   };
 
   return {
-    ports: { changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, deployGate, runHistory },
+    ports: { changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, deployGate, runHistory, suiteStore: ws.suiteStore },
     savedOutcomes,
     foldedOutcomes,
   };
@@ -278,7 +280,10 @@ test("RewrittenOrchestratorAdapter: returns the SAME RunOutcome shape RunHistory
   const outcome = await adapter.run({ ...baseInput, runId: "golden-mapping-proof" });
 
   assert.ok(savedOutcome, "the use-case must have called runHistory.save()");
-  assert.deepEqual(outcome, savedOutcome, "the adapter's returned RunOutcome must equal the SAME outcome persisted via RunHistoryPort.save");
+  /* The returned outcome is the persisted one plus the run's phase record, which the persisted one does not carry. */
+  const { phaseTimings, furthestPhase, ...returnedSignals } = outcome.gateSignals;
+  assert.ok(furthestPhase && phaseTimings, "the returned outcome carries the phase record");
+  assert.deepEqual({ ...outcome, gateSignals: returnedSignals }, savedOutcome, "the adapter's returned RunOutcome must equal the SAME outcome persisted via RunHistoryPort.save, apart from the phase record");
   assert.equal(outcome.gateSignals.coverageRatio, 0.92, "coverageRatio must be threaded through, not dropped");
 });
 
@@ -302,6 +307,16 @@ test("RewrittenOrchestratorAdapter — infra-error (entry gate): DeployGatePort 
 
   assert.equal(outcome.verdict, "infra-error");
   assert.equal(outcome.runId, "golden-infra-error-entry-gate", "even the entry-gate infra-error path must forward runId, not a stub literal");
+});
+
+test("an outcome the use case never persisted still tells how far the run got", async () => {
+  const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
+  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
+
+  const outcome = await adapter.run({ ...baseInput, runId: "phases-entry-gate" });
+
+  assert.equal(outcome.gateSignals.furthestPhase, "gate");
+  assert.deepEqual(Object.keys(outcome.gateSignals.phaseTimings ?? {}), ["gate"]);
 });
 
 /* toOutcome() must mirror the SAME errorClass/valueScore/reviewerApproved the use-case already

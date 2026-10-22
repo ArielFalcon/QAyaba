@@ -213,6 +213,45 @@ func (e AgentRestartRequestProvider) Valid() bool {
 	}
 }
 
+// Defines values for AgentTurnViewEnded.
+const (
+	AgentTurnViewEndedAborted   AgentTurnViewEnded = "aborted"
+	AgentTurnViewEndedCompleted AgentTurnViewEnded = "completed"
+	AgentTurnViewEndedExhausted AgentTurnViewEnded = "exhausted"
+	AgentTurnViewEndedTimeout   AgentTurnViewEnded = "timeout"
+)
+
+// Valid indicates whether the value is a known member of the AgentTurnViewEnded enum.
+func (e AgentTurnViewEnded) Valid() bool {
+	switch e {
+	case AgentTurnViewEndedAborted:
+		return true
+	case AgentTurnViewEndedCompleted:
+		return true
+	case AgentTurnViewEndedExhausted:
+		return true
+	case AgentTurnViewEndedTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentTurnViewToolSequenceDenied.
+const (
+	AgentTurnViewToolSequenceDeniedTrue AgentTurnViewToolSequenceDenied = true
+)
+
+// Valid indicates whether the value is a known member of the AgentTurnViewToolSequenceDenied enum.
+func (e AgentTurnViewToolSequenceDenied) Valid() bool {
+	switch e {
+	case AgentTurnViewToolSequenceDeniedTrue:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AppAuthInputKind.
 const (
 	AppAuthInputKindForm AppAuthInputKind = "form"
@@ -251,13 +290,13 @@ func (e AppViewAuthKind) Valid() bool {
 
 // Defines values for ConfirmBoundariesInputConfirm.
 const (
-	True ConfirmBoundariesInputConfirm = true
+	ConfirmBoundariesInputConfirmTrue ConfirmBoundariesInputConfirm = true
 )
 
 // Valid indicates whether the value is a known member of the ConfirmBoundariesInputConfirm enum.
 func (e ConfirmBoundariesInputConfirm) Valid() bool {
 	switch e {
-	case True:
+	case ConfirmBoundariesInputConfirmTrue:
 		return true
 	default:
 		return false
@@ -425,25 +464,25 @@ func (e LearningRuleViewConfidence) Valid() bool {
 
 // Defines values for LearningRuleViewStatus.
 const (
-	LearningRuleViewStatusActive     LearningRuleViewStatus = "active"
-	LearningRuleViewStatusCandidate  LearningRuleViewStatus = "candidate"
-	LearningRuleViewStatusDeprecated LearningRuleViewStatus = "deprecated"
-	LearningRuleViewStatusPending    LearningRuleViewStatus = "pending"
-	LearningRuleViewStatusSuperseded LearningRuleViewStatus = "superseded"
+	Active     LearningRuleViewStatus = "active"
+	Candidate  LearningRuleViewStatus = "candidate"
+	Deprecated LearningRuleViewStatus = "deprecated"
+	Pending    LearningRuleViewStatus = "pending"
+	Superseded LearningRuleViewStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the LearningRuleViewStatus enum.
 func (e LearningRuleViewStatus) Valid() bool {
 	switch e {
-	case LearningRuleViewStatusActive:
+	case Active:
 		return true
-	case LearningRuleViewStatusCandidate:
+	case Candidate:
 		return true
-	case LearningRuleViewStatusDeprecated:
+	case Deprecated:
 		return true
-	case LearningRuleViewStatusPending:
+	case Pending:
 		return true
-	case LearningRuleViewStatusSuperseded:
+	case Superseded:
 		return true
 	default:
 		return false
@@ -462,6 +501,27 @@ func (e OnboardingJobStatusIndexProgressStatus) Valid() bool {
 	case OnboardingJobStatusIndexProgressStatusFailed:
 		return true
 	case OnboardingJobStatusIndexProgressStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OnboardingJobStatusLoginProgressStatus.
+const (
+	OnboardingJobStatusLoginProgressStatusFailed     OnboardingJobStatusLoginProgressStatus = "failed"
+	OnboardingJobStatusLoginProgressStatusUnauthored OnboardingJobStatusLoginProgressStatus = "unauthored"
+	OnboardingJobStatusLoginProgressStatusVerified   OnboardingJobStatusLoginProgressStatus = "verified"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingJobStatusLoginProgressStatus enum.
+func (e OnboardingJobStatusLoginProgressStatus) Valid() bool {
+	switch e {
+	case OnboardingJobStatusLoginProgressStatusFailed:
+		return true
+	case OnboardingJobStatusLoginProgressStatusUnauthored:
+		return true
+	case OnboardingJobStatusLoginProgressStatusVerified:
 		return true
 	default:
 		return false
@@ -558,6 +618,7 @@ const (
 	OnboardingJobStatusStateFailed           OnboardingJobStatusState = "failed"
 	OnboardingJobStatusStateIdle             OnboardingJobStatusState = "idle"
 	OnboardingJobStatusStateIndexing         OnboardingJobStatusState = "indexing"
+	OnboardingJobStatusStateLogin            OnboardingJobStatusState = "login"
 	OnboardingJobStatusStateMapping          OnboardingJobStatusState = "mapping"
 	OnboardingJobStatusStateProposing        OnboardingJobStatusState = "proposing"
 	OnboardingJobStatusStateResolvingMirrors OnboardingJobStatusState = "resolvingMirrors"
@@ -574,6 +635,8 @@ func (e OnboardingJobStatusState) Valid() bool {
 	case OnboardingJobStatusStateIdle:
 		return true
 	case OnboardingJobStatusStateIndexing:
+		return true
+	case OnboardingJobStatusStateLogin:
 		return true
 	case OnboardingJobStatusStateMapping:
 		return true
@@ -881,19 +944,19 @@ func (e RunRecordMode) Valid() bool {
 
 // Defines values for RunRecordStatus.
 const (
-	RunRecordStatusDone     RunRecordStatus = "done"
-	RunRecordStatusEnqueued RunRecordStatus = "enqueued"
-	RunRecordStatusRunning  RunRecordStatus = "running"
+	Done     RunRecordStatus = "done"
+	Enqueued RunRecordStatus = "enqueued"
+	Running  RunRecordStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordStatus enum.
 func (e RunRecordStatus) Valid() bool {
 	switch e {
-	case RunRecordStatusDone:
+	case Done:
 		return true
-	case RunRecordStatusEnqueued:
+	case Enqueued:
 		return true
-	case RunRecordStatusRunning:
+	case Running:
 		return true
 	default:
 		return false
@@ -1135,12 +1198,16 @@ type AgentTurnView struct {
 	CallBuckets             *map[string]float32 `json:"callBuckets"`
 	CallsBeforeFirstWrite   *int                `json:"callsBeforeFirstWrite"`
 	Cost                    *float32            `json:"cost"`
+	DeniedCallCount         *int                `json:"deniedCallCount"`
 	DuplicateCallCount      *int                `json:"duplicateCallCount"`
+	DurationMs              *int                `json:"durationMs"`
+	Ended                   *AgentTurnViewEnded `json:"ended"`
 	Exhausted               *bool               `json:"exhausted"`
 	IsRepair                bool                `json:"isRepair"`
 	MaxSteps                *int                `json:"maxSteps"`
 	Objective               *string             `json:"objective"`
 	OutputText              string              `json:"outputText"`
+	PathProvidedReadCount   *int                `json:"pathProvidedReadCount"`
 	PromptBytes             int                 `json:"promptBytes"`
 	PromptProvidedReadCount *int                `json:"promptProvidedReadCount"`
 	PromptText              string              `json:"promptText"`
@@ -1150,15 +1217,38 @@ type AgentTurnView struct {
 	RunId                   *string             `json:"runId"`
 	SessionId               string              `json:"sessionId"`
 	StepsUsed               *int                `json:"stepsUsed"`
+	TimeToFirstCallMs       *int                `json:"timeToFirstCallMs"`
+	TimeToFirstWriteMs      *int                `json:"timeToFirstWriteMs"`
 	TokensCacheRead         *float32            `json:"tokensCacheRead"`
 	TokensCacheWrite        *float32            `json:"tokensCacheWrite"`
 	TokensInput             *float32            `json:"tokensInput"`
 	TokensOutput            *float32            `json:"tokensOutput"`
 	TokensReasoning         *float32            `json:"tokensReasoning"`
-	TotalCalls              *int                `json:"totalCalls"`
-	Ts                      string              `json:"ts"`
-	WriteCount              *int                `json:"writeCount"`
+	ToolSequence            *[]struct {
+		Denied *AgentTurnViewToolSequenceDenied `json:"denied,omitempty"`
+		Scope  *string                          `json:"scope,omitempty"`
+		Target *string                          `json:"target"`
+		Tool   string                           `json:"tool"`
+	} `json:"toolSequence"`
+	TotalCalls *int   `json:"totalCalls"`
+	Ts         string `json:"ts"`
+	UsageTotal *struct {
+		CacheRead  float32 `json:"cacheRead"`
+		CacheWrite float32 `json:"cacheWrite"`
+		Cost       float32 `json:"cost"`
+		Input      float32 `json:"input"`
+		Output     float32 `json:"output"`
+		Reasoning  float32 `json:"reasoning"`
+		Steps      int     `json:"steps"`
+	} `json:"usageTotal"`
+	WriteCount *int `json:"writeCount"`
 }
+
+// AgentTurnViewEnded defines model for AgentTurnView.Ended.
+type AgentTurnViewEnded string
+
+// AgentTurnViewToolSequenceDenied defines model for AgentTurnView.ToolSequence.Denied.
+type AgentTurnViewToolSequenceDenied bool
 
 // AppAuthInput defines model for AppAuthInput.
 type AppAuthInput struct {
@@ -1250,10 +1340,11 @@ type ArchitectureContext struct {
 		Routes     []string  `json:"routes"`
 	} `json:"flows,omitempty"`
 	Routes []struct {
-		Component *string `json:"component,omitempty"`
-		Name      *string `json:"name,omitempty"`
-		Path      string  `json:"path"`
-		Source    *string `json:"source,omitempty"`
+		Component           *string   `json:"component,omitempty"`
+		ImplementationFiles *[]string `json:"implementationFiles,omitempty"`
+		Name                *string   `json:"name,omitempty"`
+		Path                string    `json:"path"`
+		Source              *string   `json:"source,omitempty"`
 	} `json:"routes"`
 }
 
@@ -1466,6 +1557,14 @@ type LearningRuleViewConfidence string
 // LearningRuleViewStatus defines model for LearningRuleView.Status.
 type LearningRuleViewStatus string
 
+// LoginBootstrapResult defines model for LoginBootstrapResult.
+type LoginBootstrapResult struct {
+	App    string `json:"app"`
+	Id     string `json:"id"`
+	Sha    string `json:"sha"`
+	Status string `json:"status"`
+}
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	GithubToken string `json:"githubToken"`
@@ -1499,7 +1598,13 @@ type OnboardingJobStatus struct {
 		Status    OnboardingJobStatusIndexProgressStatus `json:"status"`
 	} `json:"indexProgress,omitempty"`
 	LastResolvedScore *float32 `json:"lastResolvedScore,omitempty"`
-	MappingProgress   *struct {
+	LoginProgress     *struct {
+		RunId   *string                                 `json:"runId,omitempty"`
+		Status  *OnboardingJobStatusLoginProgressStatus `json:"status,omitempty"`
+		Step    *string                                 `json:"step,omitempty"`
+		Verdict *string                                 `json:"verdict,omitempty"`
+	} `json:"loginProgress,omitempty"`
+	MappingProgress *struct {
 		RunId   *string `json:"runId,omitempty"`
 		Step    *string `json:"step,omitempty"`
 		Verdict *string `json:"verdict,omitempty"`
@@ -1524,6 +1629,9 @@ type OnboardingJobStatus struct {
 
 // OnboardingJobStatusIndexProgressStatus defines model for OnboardingJobStatus.IndexProgress.Status.
 type OnboardingJobStatusIndexProgressStatus string
+
+// OnboardingJobStatusLoginProgressStatus defines model for OnboardingJobStatus.LoginProgress.Status.
+type OnboardingJobStatusLoginProgressStatus string
 
 // OnboardingJobStatusOutcome defines model for OnboardingJobStatus.Outcome.
 type OnboardingJobStatusOutcome string

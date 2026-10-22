@@ -48,7 +48,7 @@ function renderCoupledBlock(coupled: readonly CoupledFile[]): string[] {
 
 /* What a model reads first. A block that names symbols is the structural exploration of the change. */
 const SYMBOLS_INTRO: readonly string[] = [
-  "## Structural blast radius (deterministic — from the code graph, advisory)",
+  `## ${PROMPT_HEADINGS.structuralBlastRadius} (deterministic — from the code graph, advisory)`,
   "Derived from the indexed call graph at confidence >= 0.55. Advisory guidance, not a gate. Absent edges (e.g. Lombok accessors) do NOT imply no dependency.",
 ];
 

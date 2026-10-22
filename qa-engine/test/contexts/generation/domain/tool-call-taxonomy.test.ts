@@ -22,10 +22,35 @@ test("kindForTool defaults every other raw tool name to analyzing", () => {
   assert.equal(kindForTool("mem_search"), "analyzing");
 });
 
-test("bucketForTool maps writing/command/subagent one-to-one (reconciles with kindForTool)", () => {
+test("bucketForTool maps writing and subagent one-to-one (reconciles with kindForTool)", () => {
   assert.equal(bucketForTool("write"), CALL_BUCKETS.WRITE);
-  assert.equal(bucketForTool("bash"), CALL_BUCKETS.VALIDATE_RUN);
   assert.equal(bucketForTool("task"), CALL_BUCKETS.SUBAGENT);
+});
+
+test("a shell call is bucketed by the command it runs", () => {
+  assert.equal(bucketForTool("bash", { command: "grep -rn login src | head" }), CALL_BUCKETS.CODE_READ);
+  assert.equal(bucketForTool("bash", { command: "npx playwright test --list" }), CALL_BUCKETS.VALIDATE_RUN);
+  assert.equal(bucketForTool("bash", { command: "node /tmp/probe.mjs" }), CALL_BUCKETS.SCRIPT_RUN);
+  assert.equal(bucketForTool("bash", { command: "mkdir -p e2e/flows" }), CALL_BUCKETS.OTHER);
+});
+
+test("a shell call whose command cannot be read is other, never a validation", () => {
+  assert.equal(bucketForTool("bash"), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("bash", {}), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("bash", { command: 7 }), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("bash", null), CALL_BUCKETS.OTHER);
+});
+
+test("every tool that runs a command is bucketed by its command, whatever it is called", () => {
+  for (const tool of ["bash", "shell", "run", "exec", "execute_shell_command", "serena_execute_shell_command"]) {
+    assert.equal(bucketForTool(tool, { command: "ls src" }), CALL_BUCKETS.CODE_READ, tool);
+    assert.equal(bucketForTool(tool, { command: "python3 /tmp/x.py" }), CALL_BUCKETS.SCRIPT_RUN, tool);
+  }
+});
+
+test("a command that is not a shell tool's is never classified by its input", () => {
+  assert.equal(bucketForTool("read", { command: "node /tmp/x.mjs" }), CALL_BUCKETS.CODE_READ);
+  assert.equal(bucketForTool("write", { command: "ls" }), CALL_BUCKETS.WRITE);
 });
 
 test("bucketForTool refines analyzing into browser for playwright MCP tools", () => {
@@ -93,7 +118,7 @@ test("serena's editing tools are writes, bare or with a server prefix", () => {
 test("serena's shell tool is a command, bare or with a server prefix", () => {
   for (const name of ["execute_shell_command", "serena_execute_shell_command"]) {
     assert.equal(kindForTool(name), "command", name);
-    assert.equal(bucketForTool(name), CALL_BUCKETS.VALIDATE_RUN, name);
+    assert.equal(bucketForTool(name, { command: "npx tsc --noEmit" }), CALL_BUCKETS.VALIDATE_RUN, name);
   }
 });
 

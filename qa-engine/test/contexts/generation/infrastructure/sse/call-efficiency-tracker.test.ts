@@ -4,11 +4,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   CallEfficiencyTracker,
+  NAV_OUTPUT_MAX_KEPT,
   OBSERVATION_READY_TIMEOUT_MS,
   type StreamToken,
   type TrackerTimer,
 } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
+import { TRACE_MAX_ENTRIES } from "@contexts/generation/domain/turn-trace.ts";
 import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper.ts";
+import { TOOL_SEQUENCE_MAX_ENTRIES, TOOL_TARGET_MAX_CHARS } from "@contexts/generation/domain/tool-sequence.ts";
 
 const CWD = "/mirrors/org__app";
 
@@ -285,6 +288,39 @@ test("calls before the first write, write count and buckets describe the turn", 
   assert.equal(metrics?.buckets.browser, 1);
   assert.equal(metrics?.buckets.write, 1);
   assert.equal(metrics?.buckets.validate_run, 1);
+});
+
+test("shell calls are counted by the command they run, so exploration through the shell is not validation", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "bash", { command: "grep -rn login src" });
+  runCall(tracker, "s1", "c2", "bash", { command: "find . -name '*.spec.ts'" });
+  runCall(tracker, "s1", "c3", "bash", { command: "node /tmp/probe.mjs" });
+  runCall(tracker, "s1", "c4", "bash", { command: "npx playwright test --list" });
+  runCall(tracker, "s1", "c5", "bash", { command: "mkdir -p e2e/flows" });
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.totalCalls, 5);
+  assert.equal(metrics?.buckets.code_read, 2);
+  assert.equal(metrics?.buckets.script_run, 1);
+  assert.equal(metrics?.buckets.validate_run, 1);
+  assert.equal(metrics?.buckets.other, 1);
+  assert.equal(metrics?.commandCount, 5, "every one of them is a command, whatever it was doing");
+});
+
+test("a call that is not a shell call is no command", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts" });
+  runCall(tracker, "s1", "c2", "write", { filePath: "/mirrors/org__app/e2e/a.spec.ts", content: "x" });
+  assert.equal(tracker.take("s1", "")?.commandCount, 0);
+});
+
+test("a shell call is bucketed by the command of its latest sighting", () => {
+  const tracker = tracked();
+  tracker.record(toolEvent("s1", "c1", "bash", "running", {}));
+  tracker.record(toolEvent("s1", "c1", "bash", "completed", { command: "node /tmp/probe.mjs" }, "ok"));
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.totalCalls, 1);
+  assert.equal(metrics?.buckets.script_run, 1);
+  assert.equal(metrics?.buckets.other, 0);
 });
 
 test("each take reports only the delta since the session's previous flush", () => {
@@ -786,4 +822,520 @@ test("preparing an attempt keeps the calls of an abandoned attempt in the next t
   await tracker.prepareAttempt("s1", 0);
   runCall(tracker, "s1", "c2", "read", { filePath: "/mirrors/org__app/b.ts" });
   assert.equal(tracker.take("s1", "")?.totalCalls, 2);
+});
+
+/** A tracker with a live stream, a manual clock and one attached session. */
+function timed(): { tracker: CallEfficiencyTracker; advance: (ms: number) => void } {
+  let clock = 1_000;
+  const tracker = new CallEfficiencyTracker({ now: () => clock });
+  liveStream(tracker);
+  tracker.attach("s1", CWD);
+  return { tracker, advance: (ms) => { clock += ms; } };
+}
+
+test("a turn reports the time to its first call and to its first write, counted from when its first attempt was prepared", async () => {
+  const { tracker, advance } = timed();
+  await tracker.prepareAttempt("s1", 0);
+  advance(4_000);
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  advance(3_000);
+  runCall(tracker, "s1", "c2", "grep", { pattern: "foo" });
+  advance(5_000);
+  runCall(tracker, "s1", "c3", "write", { filePath: `${CWD}/e2e/a.spec.ts`, content: "x" });
+  advance(1_000);
+  runCall(tracker, "s1", "c4", "write", { filePath: `${CWD}/e2e/b.spec.ts`, content: "x" });
+
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.timeToFirstCallMs, 4_000);
+  assert.equal(metrics?.timeToFirstWriteMs, 12_000);
+});
+
+test("a turn that wrote nothing has an unknown time to first write, and one that called nothing an unknown time to first call", async () => {
+  const { tracker, advance } = timed();
+  await tracker.prepareAttempt("s1", 0);
+  advance(1_000);
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  const readOnly = tracker.take("s1", "");
+  assert.equal(readOnly?.timeToFirstCallMs, 1_000);
+  assert.equal(readOnly?.timeToFirstWriteMs, null);
+
+  await tracker.prepareAttempt("s1", 0);
+  recordSteps(tracker, "s1", stepIds("a"));
+  const noCalls = tracker.take("s1", "");
+  assert.equal(noCalls?.timeToFirstCallMs, null);
+  assert.equal(noCalls?.timeToFirstWriteMs, null);
+});
+
+test("times are unknown when no attempt was prepared, never measured from an invented start", () => {
+  const { tracker, advance } = timed();
+  advance(2_000);
+  runCall(tracker, "s1", "c1", "write", { filePath: `${CWD}/a.spec.ts`, content: "x" });
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.timeToFirstCallMs, null);
+  assert.equal(metrics?.timeToFirstWriteMs, null);
+});
+
+test("each turn is timed from its own start, and a call of an abandoned attempt belongs to the turn that follows", async () => {
+  const { tracker, advance } = timed();
+  await tracker.prepareAttempt("s1", 0);
+  advance(2_000);
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  assert.equal(tracker.take("s1", "")?.timeToFirstCallMs, 2_000);
+
+  advance(10_000);
+  await tracker.prepareAttempt("s1", 0);
+  advance(500);
+  runCall(tracker, "s1", "c2", "read", { filePath: `${CWD}/b.ts` });
+  /* the prompt was abandoned: its calls stay in the next turn, timed from the first start */
+  advance(500);
+  await tracker.prepareAttempt("s1", 0);
+  advance(500);
+  runCall(tracker, "s1", "c3", "write", { filePath: `${CWD}/a.spec.ts`, content: "x" });
+  const next = tracker.take("s1", "");
+  assert.equal(next?.timeToFirstCallMs, 500);
+  assert.equal(next?.timeToFirstWriteMs, 1_500);
+});
+
+test("the tool sequence lists the turn's calls in order with the file, pattern, url or command each one targeted", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/src/app/a.ts`, offset: 10, limit: 50 });
+  runCall(tracker, "s1", "c2", "grep", { pattern: "createUser", path: `${CWD}/src` });
+  runCall(tracker, "s1", "c3", "glob", { pattern: "**/*.spec.ts" });
+  runCall(tracker, "s1", "c4", "playwright_browser_navigate", { url: "https://dev.example.test/login" });
+  runCall(tracker, "s1", "c5", "bash", { command: "npx playwright test --list", description: "list" });
+  runCall(tracker, "s1", "c6", "write", { filePath: `${CWD}/e2e/a.spec.ts`, content: "SECRET BODY" });
+  runCall(tracker, "s1", "c7", "read", { filePath: "/etc/hosts" });
+
+  assert.deepEqual(tracker.take("s1", "")?.toolSequence, [
+    { tool: "read", target: "src/app/a.ts" },
+    { tool: "grep", target: "createUser", scope: "src" },
+    { tool: "glob", target: "**/*.spec.ts" },
+    { tool: "playwright_browser_navigate", target: "https://dev.example.test/login" },
+    { tool: "bash", target: "npx playwright test --list" },
+    { tool: "write", target: "e2e/a.spec.ts" },
+    { tool: "read", target: "/etc/hosts" },
+  ]);
+});
+
+test("the tool sequence never carries what an agent typed or wrote, only what it pointed at", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "playwright_browser_type", { element: "Password field", ref: "e12", text: "hunter2-very-secret" });
+  runCall(tracker, "s1", "c2", "edit", { filePath: `${CWD}/a.ts`, oldString: "TOP-SECRET-OLD", newString: "TOP-SECRET-NEW" });
+  runCall(tracker, "s1", "c3", "mem_save", { title: "t", content: "TOP-SECRET-MEMORY" });
+
+  const sequence = tracker.take("s1", "")?.toolSequence ?? [];
+  assert.equal(JSON.stringify(sequence).includes("hunter2"), false);
+  assert.equal(JSON.stringify(sequence).includes("TOP-SECRET"), false);
+  assert.deepEqual(sequence, [
+    { tool: "playwright_browser_type", target: "Password field" },
+    { tool: "edit", target: "a.ts" },
+    { tool: "mem_save", target: null },
+  ]);
+});
+
+test("a target is redacted like every other text that leaves the system, then capped", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "bash", { command: "DEV_TEST_PASS=Sup3rSecret! npx playwright test" });
+  runCall(tracker, "s1", "c2", "playwright_browser_navigate", { url: `https://dev.example.test/${Array.from({ length: 100 }, (_, i) => `seg-${i}`).join("/")}` });
+  runCall(tracker, "s1", "c3", "bash", { command: "curl -H 'Authorization: Bearer abc.def.ghi-123456' https://dev.example.test/api" });
+
+  const [secretCommand, longUrl, bearer] = tracker.take("s1", "")?.toolSequence ?? [];
+  assert.equal(secretCommand?.target?.includes("Sup3rSecret"), false);
+  assert.equal(longUrl?.target?.length, TOOL_TARGET_MAX_CHARS);
+  assert.equal(bearer?.target?.includes("abc.def.ghi"), false);
+});
+
+test("the tool sequence is capped at its entry limit and each turn lists only its own calls", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "first", "read", { filePath: `${CWD}/first.ts` });
+  assert.deepEqual(tracker.take("s1", "")?.toolSequence, [{ tool: "read", target: "first.ts" }]);
+
+  for (let i = 0; i < TOOL_SEQUENCE_MAX_ENTRIES + 25; i++) runCall(tracker, "s1", `c${i}`, "read", { filePath: `${CWD}/f${i}.ts` });
+  const second = tracker.take("s1", "");
+  assert.equal(second?.totalCalls, TOOL_SEQUENCE_MAX_ENTRIES + 25, "the count stays exact");
+  assert.equal(second?.toolSequence.length, TOOL_SEQUENCE_MAX_ENTRIES);
+  assert.equal(second?.toolSequence[0]?.target, "f0.ts", "the sequence keeps the start of the turn");
+});
+
+const DENIAL =
+  'The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules [{"permission":"bash","pattern":"*","action":"deny"}]';
+
+/** The event the runtime emits when a tool call fails with `error` (the denial's own message, or any other). */
+function errorEvent(sessionID: string, callID: string, tool: string, input: Record<string, unknown>, error: string): RawOpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: { part: { id: `prt_${sessionID}_${callID}_err`, sessionID, messageID: "msg_1", type: "tool", callID, tool, state: { status: "error", input, error } } },
+  };
+}
+
+test("a call the runtime denied is counted once, whether or not it ever ran, and is marked in the sequence when it did", () => {
+  const tracker = tracked();
+  /* ran, then denied */
+  tracker.record(toolEvent("s1", "d1", "bash", "running", { command: "rm -rf /" }));
+  tracker.record(errorEvent("s1", "d1", "bash", { command: "rm -rf /" }, DENIAL));
+  tracker.record(errorEvent("s1", "d1", "bash", { command: "rm -rf /" }, DENIAL));
+  /* denied before it ever ran */
+  tracker.record(errorEvent("s1", "d2", "webfetch", { url: "https://x.test" }, DENIAL));
+  /* ordinary failure */
+  tracker.record(toolEvent("s1", "e1", "read", "running", { filePath: `${CWD}/nope.ts` }));
+  tracker.record(errorEvent("s1", "e1", "read", { filePath: `${CWD}/nope.ts` }, "File not found"));
+
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.deniedCallCount, 2);
+  assert.equal(metrics?.totalCalls, 2, "a denial that never ran is not a call, as before");
+  assert.deepEqual(metrics?.toolSequence, [
+    { tool: "bash", target: "rm -rf /", denied: true },
+    { tool: "read", target: "nope.ts" },
+  ]);
+});
+
+test("denied calls are counted per turn and a turn with no event has no metrics at all", () => {
+  const tracker = tracked();
+  tracker.record(errorEvent("s1", "d1", "bash", {}, DENIAL));
+  assert.equal(tracker.take("s1", "")?.deniedCallCount, 1);
+  assert.equal(tracker.take("s1", ""), null);
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  assert.equal(tracker.take("s1", "")?.deniedCallCount, 0);
+});
+
+function stepFinish(sessionID: string, id: string, tokens: { input: number; output: number; reasoning?: number; read?: number; write?: number }, cost: number): RawOpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id, sessionID, messageID: "msg_1", type: "step-finish", reason: "tool-calls",
+        tokens: { total: 0, input: tokens.input, output: tokens.output, reasoning: tokens.reasoning ?? 0, cache: { read: tokens.read ?? 0, write: tokens.write ?? 0 } },
+        cost,
+      },
+    },
+  };
+}
+
+test("a turn's usage is the sum over every step it finished, not the last step alone", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(stepFinish("s1", "fa", { input: 1_000, output: 50, read: 9_000 }, 0.01));
+  tracker.record(stepStart("s1", "b"));
+  tracker.record(stepFinish("s1", "fb", { input: 200, output: 70, reasoning: 30, read: 11_000, write: 5 }, 0.02));
+
+  assert.deepEqual(tracker.take("s1", "")?.usage, { input: 1_200, output: 120, reasoning: 30, cacheRead: 20_000, cacheWrite: 5, cost: 0.03, steps: 2 });
+});
+
+test("a step-finish seen twice is counted once, the later sighting winning, and the next turn starts from zero", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(stepFinish("s1", "fa", { input: 10, output: 1 }, 0.5));
+  tracker.record(stepFinish("s1", "fa", { input: 10, output: 2 }, 0.5));
+  assert.deepEqual(tracker.take("s1", "")?.usage, { input: 10, output: 2, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.5, steps: 1 });
+
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "b"));
+  tracker.record(stepFinish("s1", "fb", { input: 7, output: 3 }, 0.25));
+  assert.deepEqual(tracker.take("s1", "")?.usage, { input: 7, output: 3, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.25, steps: 1 });
+});
+
+test("a turn with no finished step, or whose steps were not all observed, has unknown usage, never zero", async () => {
+  const none = tracked();
+  await none.prepareAttempt("s1", 0);
+  runCall(none, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  assert.equal(none.take("s1", "")?.usage, null);
+
+  const gap = new CallEfficiencyTracker();
+  gap.attach("s1", CWD);
+  await gap.prepareAttempt("s1", 0);
+  gap.record(stepStart("s1", "a"));
+  gap.record(stepFinish("s1", "fa", { input: 10, output: 1 }, 0.5));
+  assert.equal(gap.take("s1", "")?.usage, null, "no stream was live, so the sum may be short");
+});
+
+test("a step-finish with malformed numbers poisons nothing and adds nothing", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record({ type: "message.part.updated", properties: { part: { id: "fa", sessionID: "s1", type: "step-finish", tokens: { input: "lots" }, cost: "free" } } });
+  tracker.record(stepFinish("s1", "fb", { input: 5, output: 1 }, 0.1));
+  assert.deepEqual(tracker.take("s1", "")?.usage, { input: 5, output: 1, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.1, steps: 1 });
+});
+
+/* --- the turn trace: per-step and per-call records the span builder reads --- */
+
+function timedTool(sessionID: string, callID: string, tool: string, status: "running" | "completed" | "error", time: { start: number; end?: number }, input: Record<string, unknown> = {}, output?: string, error?: string): RawOpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: `prt_${callID}`, sessionID, messageID: "msg_1", type: "tool", callID, tool,
+        state: { status, input, time, ...(output !== undefined ? { output } : {}), ...(error !== undefined ? { error } : {}) },
+      },
+    },
+  };
+}
+
+function finishWithReason(sessionID: string, id: string, reason: string, tokens: { input: number; output: number; reasoning?: number; read?: number; write?: number }, cost: number): RawOpencodeEvent {
+  return {
+    type: "message.part.updated",
+    properties: { part: { id, sessionID, messageID: "msg_1", type: "step-finish", reason, tokens: { total: 0, input: tokens.input, output: tokens.output, reasoning: tokens.reasoning ?? 0, cache: { read: tokens.read ?? 0, write: tokens.write ?? 0 } }, cost } },
+  };
+}
+
+test("each step keeps the receive times of its start and finish, its usage and its finish reason, and the calls made in it", async () => {
+  let now = 1_000;
+  const tracker = new CallEfficiencyTracker({ now: () => now });
+  liveStream(tracker);
+  tracker.attach("s1", CWD);
+  await tracker.prepareAttempt("s1", 0);
+
+  now = 1_100;
+  tracker.record(stepStart("s1", "a"));
+  now = 1_150;
+  tracker.record(timedTool("s1", "c1", "read", "running", { start: 5_000 }, { filePath: `${CWD}/src/a.ts` }));
+  tracker.record(timedTool("s1", "c1", "read", "completed", { start: 5_000, end: 5_040 }, { filePath: `${CWD}/src/a.ts` }, "const a = 1"));
+  now = 1_400;
+  tracker.record(finishWithReason("s1", "fa", "tool-calls", { input: 100, output: 10, reasoning: 4, read: 50, write: 2 }, 0.01));
+  now = 1_450;
+  tracker.record(stepStart("s1", "b"));
+  now = 1_900;
+  tracker.record(finishWithReason("s1", "fb", "stop", { input: 20, output: 5 }, 0.02));
+
+  const trace = tracker.take("s1", "")?.trace;
+  assert.ok(trace);
+  assert.equal(trace.steps.length, 2);
+  assert.deepEqual(
+    trace.steps.map((s) => ({ index: s.index, startedAt: s.startedAt, finishedAt: s.finishedAt, reason: s.reason, calls: s.callIds })),
+    [
+      { index: 1, startedAt: 1_100, finishedAt: 1_400, reason: "tool-calls", calls: ["c1"] },
+      { index: 2, startedAt: 1_450, finishedAt: 1_900, reason: "stop", calls: [] },
+    ],
+  );
+  assert.deepEqual(trace.steps[0]!.usage, { input: 100, output: 10, reasoning: 4, cacheRead: 50, cacheWrite: 2, cost: 0.01 });
+  assert.equal(trace.firstStepAt, 1_100);
+});
+
+test("a call keeps the runtime's own start and end times, its status, its step and a sanitized target", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(timedTool("s1", "c1", "read", "running", { start: 7_000 }, { filePath: `${CWD}/src/a.ts` }));
+  tracker.record(timedTool("s1", "c1", "read", "completed", { start: 7_000, end: 7_250 }, { filePath: `${CWD}/src/a.ts` }, "x"));
+  tracker.record(timedTool("s1", "c2", "bash", "running", { start: 7_300 }, { command: "npm test" }));
+  tracker.record(timedTool("s1", "c2", "bash", "error", { start: 7_300, end: 7_900 }, { command: "npm test" }, undefined, "exit 1"));
+
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.deepEqual(
+    calls.map((c) => ({ id: c.callId, tool: c.tool, status: c.status, startedAt: c.startedAt, endedAt: c.endedAt, step: c.step, target: c.target, kind: c.targetKind, rel: c.relPath })),
+    [
+      { id: "c1", tool: "read", status: "completed", startedAt: 7_000, endedAt: 7_250, step: 1, target: "src/a.ts", kind: "path", rel: "src/a.ts" },
+      { id: "c2", tool: "bash", status: "error", startedAt: 7_300, endedAt: 7_900, step: 1, target: "npm test", kind: "command", rel: undefined },
+    ],
+  );
+});
+
+test("a call keeps the id of the assistant message it belongs to", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(timedTool("s1", "c1", "run_spec", "running", { start: 1 }, { path: "e2e/a.spec.ts" }));
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.equal(calls[0]!.messageId, "msg_1");
+});
+
+test("a navigation keeps a bounded prefix of its answer for the outcome classifier and no other call does", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(timedTool("s1", "n1", "playwright_browser_navigate", "completed", { start: 1, end: 2 }, { url: "https://app.example/x" }, `### Page state\n- Page URL: https://app.example/x\n${"y".repeat(100_000)}`));
+  tracker.record(timedTool("s1", "r1", "read", "completed", { start: 3, end: 4 }, { filePath: `${CWD}/a.ts` }, "const secret = 1"));
+
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  const nav = calls.find((c) => c.callId === "n1")!;
+  assert.match(nav.navOutput ?? "", /Page URL: https:\/\/app\.example\/x/);
+  assert.ok((nav.navOutput ?? "").length <= 8_000);
+  assert.equal(calls.find((c) => c.callId === "r1")!.navOutput, undefined);
+});
+
+test("a step-finish that arrives with no open step is still a step, with no start time", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(finishWithReason("s1", "fa", "stop", { input: 1, output: 1 }, 0.1));
+  const steps = tracker.take("s1", "")!.trace!.steps;
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0]!.startedAt, null);
+  assert.equal(steps[0]!.reason, "stop");
+});
+
+test("the trace of one turn does not carry the previous turn's steps or calls", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  tracker.record(finishWithReason("s1", "fa", "stop", { input: 1, output: 1 }, 0.1));
+  assert.equal(tracker.take("s1", "")!.trace!.steps.length, 1);
+
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "b"));
+  runCall(tracker, "s1", "c2", "grep", { pattern: "x" });
+  const second = tracker.take("s1", "")!.trace!;
+  assert.deepEqual(second.steps.map((s) => s.index), [1]);
+  assert.deepEqual(second.calls.map((c) => c.callId), ["c2"]);
+  assert.equal(second.calls[0]!.step, 1);
+});
+
+test("the trace is bounded: past the cap entries are counted, not kept", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES + 25; i++) {
+    tracker.record(stepStart("s1", `s${i}`));
+    runCall(tracker, "s1", `c${i}`, "read", { filePath: `${CWD}/f${i}.ts` });
+  }
+  const trace = tracker.take("s1", "")!.trace!;
+  assert.equal(trace.steps.length, TRACE_MAX_ENTRIES);
+  assert.equal(trace.calls.length, TRACE_MAX_ENTRIES);
+  assert.equal(trace.truncated, true);
+});
+
+test("recording the trace does not change any figure the tracker already reported", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/a.ts` });
+  runCall(tracker, "s1", "c2", "write", { filePath: `${CWD}/e2e/a.spec.ts` });
+  tracker.record(stepFinish("s1", "fa", { input: 10, output: 2 }, 0.1));
+  const { trace, ...metrics } = tracker.take("s1", "")!;
+  assert.ok(trace);
+  assert.equal(metrics.totalCalls, 2);
+  assert.equal(metrics.stepsUsed, 1);
+  assert.equal(metrics.writeCount, 1);
+  assert.deepEqual(metrics.usage, { input: 10, output: 2, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.1, steps: 1 });
+});
+
+test("navigation answers are kept for a bounded number of calls per turn, and a later turn starts afresh", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  for (let i = 0; i < 160; i++) tracker.record(timedTool("s1", `n${i}`, "playwright_browser_navigate", "completed", { start: i, end: i + 1 }, { url: `https://app.example/${i}` }, `Page URL: https://app.example/${i}`));
+  const kept = tracker.take("s1", "")!.trace!.calls.filter((c) => c.navOutput !== undefined).length;
+  assert.ok(kept > 0 && kept < 160, "some answers are kept, not all");
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "b"));
+  tracker.record(timedTool("s1", "again", "playwright_browser_navigate", "completed", { start: 1, end: 2 }, { url: "https://app.example/x" }, "Page URL: https://app.example/x"));
+  assert.ok(tracker.take("s1", "")!.trace!.calls.find((c) => c.callId === "again")!.navOutput);
+});
+
+test("steps past the cap are counted and not kept, and the calls made in them carry no step", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES + 3; i++) tracker.record(stepStart("s1", `s${i}`));
+  runCall(tracker, "s1", "late", "read", { filePath: `${CWD}/a.ts` });
+  const trace = tracker.take("s1", "")!.trace!;
+  assert.equal(trace.steps.length, TRACE_MAX_ENTRIES);
+  assert.equal(trace.truncated, true);
+  assert.equal(trace.calls.find((c) => c.callId === "late")!.step, null);
+});
+
+test("the trace is truncated only when more than the cap happened, and a later turn starts untruncated", async () => {
+  const exact = tracked();
+  await exact.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES; i++) {
+    exact.record(stepStart("s1", `s${i}`));
+    runCall(exact, "s1", `c${i}`, "read", { filePath: `${CWD}/f${i}.ts` });
+  }
+  assert.equal(exact.take("s1", "")!.trace!.truncated, false, "exactly the cap is not truncation");
+
+  const callsOnly = tracked();
+  await callsOnly.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES + 1; i++) runCall(callsOnly, "s1", `c${i}`, "read", { filePath: `${CWD}/f${i}.ts` });
+  assert.equal(callsOnly.take("s1", "")!.trace!.truncated, true, "one call past the cap is");
+
+  const steps = tracked();
+  await steps.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES + 1; i++) steps.record(stepStart("s1", `s${i}`));
+  assert.equal(steps.take("s1", "")!.trace!.truncated, true);
+  await steps.prepareAttempt("s1", 0);
+  steps.record(stepStart("s1", "next"));
+  assert.equal(steps.take("s1", "")!.trace!.truncated, false);
+});
+
+test("a call in the last kept step has that step, and one in the first step past the cap has none", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  for (let i = 0; i < TRACE_MAX_ENTRIES; i++) tracker.record(stepStart("s1", `s${i}`));
+  runCall(tracker, "s1", "last-kept", "read", { filePath: `${CWD}/a.ts` });
+  tracker.record(stepStart("s1", "first-dropped"));
+  runCall(tracker, "s1", "dropped", "read", { filePath: `${CWD}/b.ts` });
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.equal(calls.find((c) => c.callId === "last-kept")!.step, TRACE_MAX_ENTRIES);
+  assert.equal(calls.find((c) => c.callId === "dropped")!.step, null);
+});
+
+test("exactly the navigation cap of answers is kept, and the next one is not", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  for (let i = 0; i <= NAV_OUTPUT_MAX_KEPT; i++) tracker.record(timedTool("s1", `n${i}`, "playwright_browser_navigate", "completed", { start: i, end: i + 1 }, { url: "https://app.example/" }, "Page URL: https://app.example/"));
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.equal(calls.filter((c) => c.navOutput !== undefined).length, NAV_OUTPUT_MAX_KEPT);
+  assert.equal(calls.find((c) => c.callId === `n${NAV_OUTPUT_MAX_KEPT}`)!.navOutput, undefined);
+});
+
+test("a step finish seen again does not close the step that opened after it, and a call outside any step has none", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  tracker.record(finishWithReason("s1", "fa", "tool-calls", { input: 1, output: 1 }, 0.1));
+  runCall(tracker, "s1", "outside", "read", { filePath: `${CWD}/a.ts` });
+  tracker.record(stepStart("s1", "b"));
+  tracker.record(finishWithReason("s1", "fa", "tool-calls", { input: 1, output: 2 }, 0.1));
+  runCall(tracker, "s1", "inside-b", "read", { filePath: `${CWD}/b.ts` });
+  const trace = tracker.take("s1", "")!.trace!;
+  assert.equal(trace.calls.find((c) => c.callId === "outside")!.step, null);
+  assert.equal(trace.calls.find((c) => c.callId === "inside-b")!.step, 2);
+  assert.deepEqual(trace.steps.map((s) => s.index), [1, 2]);
+  assert.equal(trace.steps[0]!.usage!.output, 2, "the later sighting of the finish wins");
+});
+
+test("a call keeps the target kind and the path inside the working copy only when it names one", async () => {
+  const tracker = tracked();
+  await tracker.prepareAttempt("s1", 0);
+  tracker.record(stepStart("s1", "a"));
+  runCall(tracker, "s1", "inside", "read", { filePath: `${CWD}/src/a.ts` });
+  runCall(tracker, "s1", "outside", "read", { filePath: "/etc/hosts" });
+  runCall(tracker, "s1", "none", "todowrite", {});
+  const calls = tracker.take("s1", "")!.trace!.calls;
+  assert.deepEqual(calls.map((c) => [c.callId, c.relPath, c.targetKind]), [["inside", "src/a.ts", "path"], ["outside", undefined, "path"], ["none", undefined, null]]);
+});
+
+/* --- a session observed without being watched: its calls are tracked and nothing waits for it --- */
+
+test("a session attached unwatched is not delayed by a stream that is still opening, and says its steps were not observed completely", async () => {
+  const timer = new ManualTimer();
+  const tracker = new CallEfficiencyTracker({ timer });
+  const token: StreamToken = Symbol("stream");
+  tracker.streamOpening(CWD, token);
+  tracker.attachUnwatched("s1", CWD);
+  const prepared = tracker.prepareAttempt("s1", 0);
+  assert.equal(await settled(prepared), true, "the attempt does not wait for the stream");
+  assert.equal(timer.scheduled, 0, "and no readiness timer is armed");
+  recordSteps(tracker, "s1", stepIds("a"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null, "a stream that was not live for the attempt is a gap");
+});
+
+test("a session attached unwatched to a live stream is observed completely, like any other", async () => {
+  const tracker = new CallEfficiencyTracker();
+  liveStream(tracker);
+  tracker.attachUnwatched("s1", CWD);
+  await tracker.prepareAttempt("s1", 0);
+  recordSteps(tracker, "s1", stepIds("a", "b"));
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.stepsUsed, 2);
+  assert.equal(metrics?.observationComplete, true);
+});
+
+test("a session attached to a stream that is still opening waits for it, as before", async () => {
+  const timer = new ManualTimer();
+  const tracker = new CallEfficiencyTracker({ timer });
+  tracker.streamOpening(CWD, Symbol("stream"));
+  tracker.attach("s1", CWD);
+  assert.equal(await settled(tracker.prepareAttempt("s1", 0)), false);
 });

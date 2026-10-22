@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -416,4 +417,43 @@ test("an empty test-id attribute or action timeout is not passed to the setup sp
   const env = await setupSpawnEnv({ testIdAttribute: "", actionTimeoutMs: "" });
   assert.equal(AUTH_SETUP_ENV.testIdAttribute in env, false);
   assert.equal(AUTH_SETUP_ENV.actionTimeoutMs in env, false);
+});
+
+/* ── the login that signed in is named by its hash: only such a login is worth keeping ── */
+
+function sessionAdapter(spawnExit = 0): AuthSessionAdapter {
+  return new AuthSessionAdapter({
+    env: { QA_USER: "u", QA_PASS: "p" },
+    authDir: authDirFixture(),
+    spawnSetup: async (_specDir, env) => {
+      if (spawnExit === 0) writeFileSync(env.PW_STORAGE_STATE!, "{\"cookies\":[]}");
+      return { exitCode: spawnExit, logs: "" };
+    },
+  });
+}
+const FORM = { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } as const;
+
+test("an app-owned login that signed in reports the hash of the file that did", async () => {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  const login = "/* app-owned login */\n";
+  writeFileSync(join(specDir, "auth.setup.ts"), login);
+  const session = await sessionAdapter().prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-execute", auth: FORM });
+  assert.equal(session.setupSha256, createHash("sha256").update(login).digest("hex"));
+});
+
+test("the stock seed that signed in reports no hash: it is the engine's file, not the app's login", async () => {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  writeFileSync(join(specDir, "auth.setup.ts"), SEED);
+  const session = await sessionAdapter().prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-execute", auth: FORM });
+  assert.equal(session.unauthored, false);
+  assert.equal(session.setupSha256, undefined);
+});
+
+test("a login that did not sign in reports no hash, and neither does an app without a login file", async () => {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login */\n");
+  await assert.rejects(() => sessionAdapter(1).prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-execute", auth: FORM }), /auth setup failed/);
+  const bare = mkdtempSync(join(tmpdir(), "auth-"));
+  const session = await sessionAdapter().prepare({ specDir: bare, baseUrl: "https://dev.example", phase: "pre-execute", auth: FORM });
+  assert.equal(session.setupSha256, undefined);
 });

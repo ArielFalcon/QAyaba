@@ -35,4 +35,11 @@ if (!process.env.HISTORY_DB_PATH || !process.env.QAYABA_LOG_DIR) {
   });
 }
 
+// The execution sandbox fails closed by default (root on Linux means QA_EXEC_SANDBOX=required, and QA_EGRESS_MODE defaults to
+// enforce, which refuses to run a child with no sandbox uid to filter). The tests run on a developer's host or a CI container with
+// no sandbox uid and use real stand-in binaries at the process boundary, so they say so; the tests of the defaults pass their
+// own environment explicitly.
+process.env.QA_EXEC_SANDBOX ??= "best-effort";
+process.env.QA_EGRESS_MODE ??= "warn";
+
 installTrackedTreeWriteGuard(import.meta.dirname);

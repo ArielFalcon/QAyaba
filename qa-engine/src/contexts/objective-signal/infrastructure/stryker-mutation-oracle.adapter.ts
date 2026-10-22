@@ -126,13 +126,9 @@ interface CodeProjectLike {
 }
 
 export interface MutationOracleDeps {
-  spawn(
-    cmd: string,
-    args: string[],
-    opts: { cwd: string; env: Record<string, string>; detached: boolean },
-  ): ChildProcess;
+  /* Starts Stryker, which runs the watched repo's own test command: the shell passes the execution launcher's `install` profile (the child's environment is that profile's). */
+  spawn(cmd: string, args: string[], opts: { cwd: string }): ChildProcess;
   detectCodeProject(repoDir: string): CodeProjectLike;
-  scrubEnv(): Record<string, string>;
   /* The consolidated killTree seam (shared-kernel ProcessKillPort) — required, not optional: every caller (production via rewritten-engine-factory.ts, tests via the adapter test's `deps()` builder) supplies a real implementation, matching sandboxed-binary-runner.adapter.ts's pattern. */
   processKill: ProcessKillPort;
   timeoutMs?: number;
@@ -191,11 +187,7 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
 
     return new Promise((resolve) => {
       const { cmd, args } = resolveStrykerCommand();
-      const child = this.deps.spawn(cmd, args, {
-        cwd: input.repoDir,
-        env: this.deps.scrubEnv(),
-        detached: true,
-      });
+      const child = this.deps.spawn(cmd, args, { cwd: input.repoDir });
 
       const stdout = new BoundedOutputTail(MUTATION_OUTPUT_KEEP_CHARS);
       const stderr = new BoundedOutputTail(MUTATION_OUTPUT_KEEP_CHARS);

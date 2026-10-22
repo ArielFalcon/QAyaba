@@ -1,6 +1,7 @@
 /* Route catalog: the single grounding artifact the agent transcribes from and the pre-execution gate verifies against. Pure construction — no browser. */
 
 import type { RouteSnapshot } from "./dom-snapshot.ts";
+import { loggableRoute, loggableRoutes } from "./loggable-route.ts";
 
 /** Single source of truth for the route capture status values. A const object keeps runtime values alongside the type and avoids string-literal / type divergence. */
 export const ROUTE_STATUS = {
@@ -79,12 +80,19 @@ function redirectTarget(route: string, finalUrl: string | undefined): string | u
   return reached === normalize(requestedPath) ? undefined : reached.slice(0, REDIRECT_PATH_MAX_CHARS);
 }
 
-/** Pure adapter from RouteSnapshot to RouteCatalog. Capture error → degraded (never trusted). Unconfirmed settle → settled:false. The fail-closed path may trust ONLY a captured && settled route; unknown defaults to advisory, never a false block. Also degraded (safe direction: removes trust, never blocks) when nodes[] is empty or finalUrl redirected away from the requested route; a degraded route says why, and a redirect says where it led. */
+/** Whether a captured page's declared data state could not be confirmed at capture time: a declared data state whose result was expected but stayed empty, or whose readiness selector never appeared. A page with no data state is never unconfirmed. */
+export function dataStateUnconfirmed(snapshot: Pick<RouteSnapshot, "dataState" | "resultExpected" | "resultCount" | "ready">): boolean {
+  if (snapshot.dataState !== true) return false;
+  if (snapshot.resultExpected === true) return snapshot.resultCount === undefined || snapshot.resultCount === 0;
+  return snapshot.ready === false;
+}
+
+/** Pure adapter from RouteSnapshot to RouteCatalog. Capture error → degraded (never trusted). Unconfirmed settle or an unconfirmed data state → settled:false. The fail-closed path may trust ONLY a captured && settled route; unknown defaults to advisory, never a false block. Also degraded (safe direction: removes trust, never blocks) when nodes[] is empty or finalUrl redirected away from the requested route; a degraded route says why, and a redirect says where it led. */
 export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
   const captureFailed = snapshot.error !== undefined;
   const emptyRender = !captureFailed && (snapshot.nodes?.length ?? 0) === 0;
   const redirectedTo = captureFailed ? undefined : redirectTarget(snapshot.route, snapshot.finalUrl);
-  /* Grounding trust is structural render (captureFailed / emptyRender / redirect), not whether the app logged a runtime error. Runtime errors are adjudication evidence, not a catalog degrade. */
+  /* Grounding trust is structural render (captureFailed / emptyRender / redirect), not whether the app logged a runtime error. Runtime errors are adjudication evidence, not a catalog degrade. An unconfirmed data state is also not trustworthy: the empty tree may be a page that has not loaded. */
   const degradeReason = captureFailed
     ? DEGRADE_REASON.CAPTURE_FAILED
     : redirectedTo !== undefined
@@ -96,7 +104,7 @@ export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
   return {
     route: snapshot.route,
     status: degraded ? ROUTE_STATUS.DEGRADED : ROUTE_STATUS.CAPTURED,
-    settled: !degraded && snapshot.settled === true,
+    settled: !degraded && snapshot.settled === true && !dataStateUnconfirmed(snapshot),
     testIds: degraded ? new Map() : (snapshot.testIds ?? new Map()),
     ...(degraded ? { degradeReason } : {}),
     ...(redirectedTo === undefined ? {} : { redirectedTo, reachedPasswordField: snapshot.attrs?.some((attr) => attr.inputType === "password") ?? false }),
@@ -107,7 +115,7 @@ export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
 export function degradedRouteWarning(catalogs: readonly RouteCatalog[]): string | undefined {
   const degraded = catalogs.filter((c) => c.status === ROUTE_STATUS.DEGRADED);
   if (degraded.length === 0) return undefined;
-  const named = degraded.map((c) => `${c.route} (${[c.degradeReason, c.redirectedTo].filter(Boolean).join(" ")})`);
+  const named = degraded.map((c) => `${loggableRoute(c.route)} (${[c.degradeReason, c.redirectedTo === undefined ? undefined : loggableRoute(c.redirectedTo)].filter(Boolean).join(" ")})`);
   return `[qa] WARNING: DOM capture DEGRADED for ${degraded.length} route(s) [${named.join(", ")}] — these routes are NOT grounded; the selector gate treats them as advisory (no fail-closed).`;
 }
 
@@ -123,6 +131,6 @@ export function gatedAppAdvisory(catalogs: readonly RouteCatalog[]): string | un
   }
   const gated = [...reached].filter(([, page]) => page.routes.length > 1 || page.hasPasswordField);
   if (gated.length === 0) return undefined;
-  const named = gated.map(([path, page]) => `${path} (reached from ${page.routes.join(", ")})`);
+  const named = gated.map(([path, page]) => `${loggableRoute(path)} (reached from ${loggableRoutes(page.routes)})`);
   return `[qa] NOTE: the app may be gated: ${named.join("; ")}. If it needs a login, declare auth: in its config.`;
 }

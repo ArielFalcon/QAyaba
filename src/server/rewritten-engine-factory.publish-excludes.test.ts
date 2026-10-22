@@ -675,3 +675,24 @@ test("the confinement pass as production wires it removes a repository left unde
     rmSync(repo, { recursive: true, force: true });
   }
 });
+
+test("e2e target: the run_spec probe directory and the fault-injection counters are never published, even when the sweep left them", async () => {
+  const repo = initRepo();
+  try {
+    writeFile(repo, "e2e/checkout.spec.ts", "test('x', () => {});\n");
+    writeFile(repo, "e2e/.qa-probe/try.spec.ts", "test('probe', () => {});\n");
+    writeFile(repo, "e2e/.qa-probe/deep/more.spec.ts", "test('probe', () => {});\n");
+    writeFile(repo, "e2e/.qa/fault-injection/run-1/injected-1.json", "{\"corrupted\":1}\n");
+
+    const { git } = realGitNoPush(repo);
+    const vcsWrite = buildVcsPublish(false, "diff", git);
+    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/probetest1", sha: "probetest1" });
+
+    assert.equal(result.changed, true);
+    const paths = committedPaths(repo);
+    assert.ok(paths.includes("e2e/checkout.spec.ts"));
+    assert.deepEqual(paths.filter((p) => p.includes(".qa-probe") || p.includes("fault-injection")), []);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});

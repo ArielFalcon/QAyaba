@@ -1,7 +1,7 @@
 /* The one reader of a path an agent reported. The agent writes the suite's spec files and names them in its verdict, so a reported name is untrusted input: it can be absolute, climb out with `..`, or be a symlink or a named pipe the agent planted. Every orchestrator read or probe of such a reported name goes through here (the generation port's spec sources and the specs it hands a regeneration, the reviewer's inlining, the review DOM grounding, the manifest's file hashes, the sidekick's claimed files and the pre-exec capture), anchored on the real location of the mirror, and none of them follows a link out of the spec directory or reads anything but the regular file it validated. A file is judged by lstat before it is opened, so a named pipe or a device is not opened on purpose.
    The path can still be swapped between that check and the open by a process the agent left running, and O_NOFOLLOW covers only the last component, so the descriptor is judged as well. Where the platform can name the file a descriptor really is (Linux, through procfs), that kernel path must lie inside the spec directory: it does not depend on any path being walked again, and it closes the window for every file the agent cannot move into the spec directory, which is every file outside the volume it shares with the orchestrator. Where the platform cannot (macOS), the descriptor's device and inode must equal those of the file validated before the open and again after it: that narrows the window to a process flipping the path at exactly the right instants, and does not close it. Hard links stay out of scope. A file is read whole or not at all.
-   The orchestrator also reads, lists and keeps files in that directory that no verdict names, where the agent can plant a link at the file or at the directory above it, a named pipe, or a file or a directory of any size. Those are read, listed, made and written strictly, by `readOwnedSpecFile`, `listOwnedSpecDir`, `ensureOwnedSpecDir` and `writeOwnedSpecFile` (and what keeps one of them from being read for good, because it survives from one run to the next, is removed without being opened or followed by `purgeRefusedPath`, and a directory of the orchestrator's own that is not an ordinary one by `purgeRefusedDirectory`): no symlink anywhere below the spec directory, a regular file at the end of a path (an ordinary directory, listed entry by entry up to a cap, for a directory), a read under a cap, and a write that goes through an exclusively created temporary file renamed over the target, never through a link. A directory is judged by its path before it is opened and is not looked at again, since only its names are taken: a swap in that window can show the names of another directory, never what an entry holds, because every entry is then read through the strict read of its own.
-   Exactly what goes through here. The reported names above. The manifest and the context map, in `.qa`. What setup reads and replaces in the project directory: the fixtures file, the ignore file, the login setup, the Playwright config, the lock file and the install marker (which `git clean -fd -e node_modules` leaves in place from one run to the next), and the entries of `.qa` that the project's .gitignore keeps git from cleaning (the coverage and fault-injection directories and the measured file: what is not an ordinary directory or file there is removed, so a plant cannot refuse every later read of what a run leaves in them). The login's stock check of `auth.setup.ts`. What a run of the tests leaves for the orchestrator to read: the coverage dumps under `.qa/coverage`, the native coverage reports of a code run (lcov, Istanbul, JaCoCo), the fault-injection counters under `.qa/fault-injection`, the Playwright report and the failure-capture dumps that the e2e runner reads back from the temporary directories it makes for a run of the tests, and the report of the mutation oracle. What a code run reads of the working copy (the manifest that names its test command) and writes into it (the oracle's config). The specs that the read gate scans and the grounding lists, which are listed without following a link and looking at no more than a cap of entries (`scanSpecTree`, `listSpecFiles`) and read like a reported name; what the walk could not walk (a link to a directory, a directory it could not list, a directory it was cut in) is named, and the read gate refuses it. The files of a repository's mirror that the topology resolvers read (`walkRepoFiles`, then the strict read of each) and that the staging of a service's context lists, reads and stages, into the front's working copy, which is written through the strict calls too. There is no analysis map to read: the agent writes `.qa/analysis.json` and no orchestrator code opens it. Not read through here: the fixtures file read for harness facts, which has an open of its own that neither follows a link nor waits on a pipe.
+   The orchestrator also reads, lists and keeps files in that directory that no verdict names, where the agent can plant a link at the file or at the directory above it, a named pipe, or a file or a directory of any size. Those are read, listed, made and written strictly, by `readOwnedSpecFile`, `listOwnedSpecDir`, `ensureOwnedSpecDir` and `writeOwnedSpecFile` (and what keeps one of them from being read for good, because it survives from one run to the next, is removed without being opened or followed by `purgeRefusedPath`, and a directory of the orchestrator's own that is not an ordinary one by `purgeRefusedDirectory`, and a spec file a rejected regeneration's turn created by `removeOwnedSpecFile`): no symlink anywhere below the spec directory, a regular file at the end of a path (an ordinary directory, listed entry by entry up to a cap, for a directory), a read under a cap, and a write that goes through an exclusively created temporary file renamed over the target, never through a link. A directory is judged by its path before it is opened and is not looked at again, since only its names are taken: a swap in that window can show the names of another directory, never what an entry holds, because every entry is then read through the strict read of its own.
+   Exactly what goes through here. The reported names above. The manifest and the context map, in `.qa`. What setup reads and replaces in the project directory: the fixtures file, the ignore file, the login setup, the Playwright config, the lock file and the install marker (which `git clean -fd -e node_modules` leaves in place from one run to the next), and the entries of `.qa` that the project's .gitignore keeps git from cleaning (the coverage and fault-injection directories and the measured file: what is not an ordinary directory or file there is removed, so a plant cannot refuse every later read of what a run leaves in them). The login's stock check of `auth.setup.ts`. What a run of the tests leaves for the orchestrator to read: the coverage dumps under `.qa/coverage`, the native coverage reports of a code run (lcov, Istanbul, JaCoCo), the fault-injection counters under `.qa/fault-injection`, the Playwright report and the failure-capture dumps that the e2e runner reads back from the temporary directories it makes for a run of the tests, and the report of the mutation oracle. What a code run reads of the working copy (the manifest that names its test command) and writes into it (the oracle's config). The specs that the read gate scans and the grounding lists, which are listed without following a link and looking at no more than a cap of entries (`scanSpecTree`, `listSpecFiles`) and read like a reported name; what the walk could not walk (a link to a directory, a directory it could not list, a directory it was cut in) is named, and the read gate refuses it. The files of a repository's mirror that the topology resolvers read (`walkRepoFiles`, then the strict read of each) and that the staging of a service's context lists, reads and stages, into the front's working copy, which is written through the strict calls too. The files a route's implementation files declare by relative path (a page's template and style sheets), which are read and probed from the working copy strictly (`readOwnedSpecFile`, `probeOwnedSpecFile`) with the working copy as both roots. The files a diff changed, which the grounding reads from the working copy to count the unchanged lines that already hold each label the diff added or removed, one file at a time up to a cap on how many are read and under the cap on a source's size (`readOwnedSpecFile`, with the working copy as both roots): a file that is a link, is not there or is too large gives no count, and no line of one is ever quoted. There is no analysis map to read: the agent writes `.qa/analysis.json` and no orchestrator code opens it. Not read through here: the fixtures file read for harness facts, which has an open of its own that neither follows a link nor waits on a pipe.
    Known limits, recorded and not closed. A removal names its entry by a path joined from the real spec directory and the names found by lstat, so a process that swaps a directory on the way for a link between the look and the removal can have a like-named entry in another directory removed or set aside (the window the reads have, here for a removal). The orchestrator also removes trees the agent wrote with a recursive `rmSync` where it owns the directory (the staging directory of a service's context, the temporary directories of a run, what the mutation oracle leaves): `rmSync` does not follow a link, and it is not bounded in time or in depth. A document the agent writes is parsed in the orchestrator's one thread under a cap on its size (the Playwright report, the coverage dumps, the oracle's report), which bounds what it costs by the cap and not by what it holds: a document of nothing but empty arrays takes a second and a quarter of a gigabyte for every 16 MiB. And the report and the dumps are written by code the agent wrote, so what they say can be forged: only the reading of them is bounded.
    Synchronous, and it lives in shared-infrastructure because the kernel holds no fs code and several contexts need it. */
 
@@ -229,6 +229,44 @@ export function listSpecFiles(dir: string): string[] {
   return scanSpecTree(dir).specs;
 }
 
+/*
+ * Every regular file below `dir`, specs and the support files they import (fixtures, helpers, the login
+ * setup) alike, relative to it: what a turn may change and what a proof has to account for. The same walk
+ * discipline as the specs: installed packages and dot-directories are skipped, a link is never taken (a
+ * link to a file is not offered as a regular file), and no more entries are looked at than the budget
+ * allows. A directory that cannot be listed contributes nothing.
+ */
+export interface SuiteFiles {
+  /** The regular files the walk took, relative to the directory and "/"-separated as the platform joins them. */
+  files: string[];
+  /** The walk looked at fewer entries than the directory holds, so the list is not the whole suite. */
+  cut: boolean;
+}
+
+export function listSuiteFiles(dir: string, maxEntries: number = MAX_SPEC_WALK_ENTRIES): SuiteFiles {
+  const walk = { files: [] as string[], cut: false };
+  walkSuiteFiles(dir, "", walk, { left: maxEntries, cap: maxEntries });
+  return walk;
+}
+
+function walkSuiteFiles(dir: string, rel: string, walk: SuiteFiles, budget: WalkBudget): void {
+  const read = readWalkEntries(dir, budget);
+  if (read === undefined) return;
+  if (read.cut) {
+    walk.cut = true;
+    return;
+  }
+  for (const entry of read.entries) {
+    const entryRel = join(rel, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      walkSuiteFiles(join(dir, entry.name), entryRel, walk, budget);
+    } else if (entry.isFile()) {
+      walk.files.push(entryRel);
+    }
+  }
+}
+
 /* How many entries a walk may still look at, and how many it was given. */
 interface WalkBudget {
   left: number;
@@ -453,6 +491,13 @@ export function readOwnedSpecFile(root: SpecRoot, rel: string, maxBytes: number,
   }
 }
 
+/* Whether a regular file is at `rel` below the spec directory, judged like a strict read but without opening it: no symlink anywhere on the way, whatever it points at. Absent when the file or a directory above it is not there; a refusal (a link, a pipe, a directory in the file's place) is a reason. For a caller that needs to know a declared file exists and has no use for its bytes. */
+export function probeOwnedSpecFile(root: SpecRoot, rel: string): "file" | "absent" | { reason: string } {
+  const owned = walkOwned(root, rel, false);
+  if ("reason" in owned) return owned;
+  return "absent" in owned || !owned.present ? "absent" : "file";
+}
+
 /* Best-effort removal of a file this write made: the failure being thrown is the one that matters. */
 function discard(path: string): void {
   try {
@@ -593,6 +638,32 @@ function purgeFirstRefused(root: SpecRoot, rel: string, deps: SpecPurgeDeps, lea
     }
     ignoreGone(() => deps.unlink(entry));
     return { removed, how: "unlinked" };
+  }
+  return { nothing: true };
+}
+
+/* Removes the entry at `rel` below the spec directory — a regular file, a symbolic link or a named pipe, unlinked without being opened or followed — walking the path like the purges, one lstat at a time: every directory above must be an ordinary one (a symbolic link there is refused, never removed), and a directory in the place of the entry itself is refused, never set aside or descended into. A path that is not there has nothing to remove. Throws ConfinedPathError for a refused path, and any failure of a call as it is. */
+export function removeOwnedSpecFile(root: SpecRoot, rel: string, deps: SpecPurgeDeps = defaultSpecPurgeDeps): PurgeResult {
+  const normalized = rel.replaceAll("\\", "/");
+  const refused = lexicalRefusal(normalized);
+  if (refused !== undefined) throw new ConfinedPathError(rel, refused);
+  const spec = confineSpecDir(root);
+  if ("reason" in spec) throw new ConfinedPathError(rel, spec.reason);
+
+  const segments = normalized.split("/").filter((segment) => segment !== "" && segment !== ".");
+  let dir = spec.dir;
+  for (const [index, segment] of segments.entries()) {
+    const entry = join(dir, segment);
+    const stats = deps.lstat(entry);
+    if (stats === undefined) return { nothing: true };
+    if (index === segments.length - 1) {
+      if (stats.isDirectory()) throw new ConfinedPathError(rel, "a directory is never removed");
+      const removed = relative(spec.dir, entry).split(sep).join("/");
+      ignoreGone(() => deps.unlink(entry));
+      return { removed, how: "unlinked" };
+    }
+    if (!stats.isDirectory()) throw new ConfinedPathError(rel, "a directory on the way is a symbolic link or is not a directory");
+    dir = entry;
   }
   return { nothing: true };
 }

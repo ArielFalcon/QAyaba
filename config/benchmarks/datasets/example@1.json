@@ -1,0 +1,24 @@
+{
+  "name": "example",
+  "version": "1",
+  "description": "A template: replace the app and shas with commits of a watched app. Copy it to <name>@<version>.json; a new version is a new file.",
+  "items": [
+    {
+      "app": "my-app",
+      "sha": "0123456789abcdef0123456789abcdef01234567",
+      "description": "A coupon field was added to the checkout form (metadata for people; never sent to a run)."
+    },
+    {
+      "app": "my-app",
+      "sha": "89abcdef0123456789abcdef0123456789abcdef",
+      "description": "A copy tweak with no behavior change: the right outcome is a declared no-op."
+    },
+    {
+      "app": "my-app",
+      "sha": "fedcba9876543210fedcba9876543210fedcba98",
+      "description": "An item that needs focused guidance declares it explicitly and runs in manual mode.",
+      "guidance": "Test the contact form: a valid message is accepted and an empty one shows the refusal.",
+      "mode": "manual"
+    }
+  ]
+}

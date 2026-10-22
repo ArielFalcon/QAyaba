@@ -46,6 +46,11 @@ export interface AuthSession {
   clientCertPath?: string;
   unauthored: boolean;
   resolution?: AuthResolution;
+  /**
+   * The sha256 of the `auth.setup.ts` that actually signed in, when the app's own login script did (not the stock seed, and not
+   * the structural discovery, which signs in without it). It is what makes a login worth keeping: only a file that signed in is.
+   */
+  setupSha256?: string;
 }
 
 export interface AuthSessionContext {

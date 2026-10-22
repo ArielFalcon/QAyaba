@@ -260,7 +260,7 @@ test("ensureFailureCapture: first injection appends the block; existing lines un
     assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename");
     assert.match(after, /createHash\("sha1"\)\.update\(`\$\{file\}\/\$\{title\}`\)/, "the filename hash must fold in the file AND the full title (no 80-char truncation)");
     assert.match(after, /\$\{safeProject\}__\$\{hash\}__\$\{testInfo\.retry\}\.json/, "the filename must be project__hash__retry");
-    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors");
+    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors, networkErrors");
     /* ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
     assert.doesNotMatch(after, /require\(/, "the injected block must not use require() (ReferenceError in ESM — dead capture)");
     assert.match(after, /await import\("node:fs"\)/, "the injected block must pull node:fs via dynamic import()");
@@ -598,6 +598,141 @@ test("the afterEach body, run as a real ES module, writes a dump (no ReferenceEr
   }
 });
 
+/* ── The write counter: how many mutating requests a spec sent to DEV (run_spec's cap) ───────────────── */
+
+async function loadCaptureModule(dir: string, name: string): Promise<{ beforeEachFn: (args: unknown) => Promise<void>; afterEachFn: (args: unknown, info: unknown) => Promise<void> }> {
+  const moduleSrc =
+    `const test = { beforeEach(fn) { globalThis.__qa_${name}_before = fn; }, afterEach(fn) { globalThis.__qa_${name}_after = fn; } };\n` +
+    FAILURE_CAPTURE_BLOCK +
+    `\nexport const beforeEachFn = globalThis.__qa_${name}_before;\nexport const afterEachFn = globalThis.__qa_${name}_after;\n`;
+  const modPath = join(dir, `${name}.mts`);
+  writeFileSync(modPath, moduleSrc);
+  return import(pathToFileURL(modPath).href);
+}
+
+function pageWithContext(requests: { handlers: Array<(r: unknown) => void> }, context: object = {}) {
+  const ctx = context as { on?: (event: string, cb: (r: unknown) => void) => void };
+  ctx.on ??= (event, cb) => { if (event === "request") requests.handlers.push(cb); };
+  return { on() {}, url: () => "http://localhost/", context: () => ctx, locator: () => ({ ariaSnapshot: async () => "" }) };
+}
+
+const passingInfo = { status: "passed", expectedStatus: "passed", titlePath: ["chromium", "orders", "creates one"], project: { name: "desktop" }, file: "/repo/e2e/orders.spec.ts", retry: 0, workerIndex: 0, testId: "abc-123" };
+
+test("with the counter asked for, a test's mutating requests are written to its ledger file, pass or fail", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "count");
+    const requests = { handlers: [] as Array<(r: unknown) => void> };
+    const page = pageWithContext(requests);
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page });
+    assert.equal(requests.handlers.length, 1, "one request listener on the test's context");
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) requests.handlers[0]!({ method: () => method });
+    await mod.afterEachFn({ page }, passingInfo);
+    const files = readdirSync(captureDir);
+    assert.equal(files.length, 1, `a passing test leaves only its ledger, got ${JSON.stringify(files)}`);
+    assert.match(files[0]!, /^ledger-[A-Za-z0-9_-]+\.json$/);
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, files[0]!), "utf8")), { writes: 4 });
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the counter starts from zero for every test and counts a shared context once", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-shared-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "shared");
+    const requests = { handlers: [] as Array<(r: unknown) => void> };
+    const sharedContext = {};
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page: pageWithContext(requests, sharedContext) });
+    requests.handlers[0]!({ method: () => "POST" });
+    await mod.afterEachFn({ page: pageWithContext(requests, sharedContext) }, { ...passingInfo, testId: "t1" });
+    await mod.beforeEachFn({ page: pageWithContext(requests, sharedContext) });
+    assert.equal(requests.handlers.length, 1, "the second test on the same context adds no second listener");
+    await mod.afterEachFn({ page: pageWithContext(requests, sharedContext) }, { ...passingInfo, testId: "t2" });
+    const counts = readdirSync(captureDir).sort().map((f) => JSON.parse(readFileSync(join(captureDir, f), "utf8")).writes);
+    assert.deepEqual(counts, [1, 0]);
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writes sent through the API clients (the request fixture, page.request, context.request) are counted by what they fetch, once each however often they are seen", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-api-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "api");
+    const sent: string[] = [];
+    const client = () => ({ fetch: async (target: unknown, options?: { method?: string }) => { sent.push(options?.method ?? "request-object"); return target; } });
+    const request = client();
+    const contextRequest = client();
+    const context = { on() {}, request: contextRequest };
+    const page = { on() {}, url: () => "http://localhost/", context: () => context, locator: () => ({ ariaSnapshot: async () => "" }) };
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page, request });
+    await request.fetch("/a", { method: "POST" });
+    await request.fetch("/b", { method: "GET" });
+    await contextRequest.fetch("/c", { method: "delete" });
+    await contextRequest.fetch({ method: () => "PATCH" });
+    await request.fetch({ method: () => "HEAD" });
+    await mod.afterEachFn({ page, request }, passingInfo);
+    await mod.beforeEachFn({ page, request });
+    await request.fetch("/d", { method: "PUT" });
+    await mod.afterEachFn({ page, request }, { ...passingInfo, testId: "second" });
+    assert.equal(sent.length, 6, "every fetch still reaches the real client");
+    const counts = readdirSync(captureDir).sort().map((f) => JSON.parse(readFileSync(join(captureDir, f), "utf8")).writes);
+    assert.deepEqual(counts.sort(), [1, 3], "the first test sent POST, DELETE and PATCH; the second PUT; the clients are wrapped once");
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("without the counter asked for, a passing test leaves nothing and a page with no context does not break the block", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-off-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "off");
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    delete process.env.PW_COUNT_DEV_WRITES;
+    const bare = { on() {}, url: () => "http://localhost/", locator: () => ({ ariaSnapshot: async () => "" }) };
+    await mod.beforeEachFn({ page: bare });
+    await mod.afterEachFn({ page: bare }, passingInfo);
+    assert.deepEqual(readdirSync(captureDir), []);
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page: bare });
+    await mod.afterEachFn({ page: bare }, passingInfo);
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, readdirSync(captureDir)[0]!), "utf8")), { writes: 0 });
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("httpStatus is absent when no ≥500 response was observed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-no5xx-"));
   try {
@@ -889,6 +1024,48 @@ test("config/e2e/fixtures.ts qa-failure-capture block contains runtimeErrors", (
   assert.ok(block.includes("runtimeErrors"), "fixtures.ts qa-failure-capture block must contain runtimeErrors");
 });
 
+test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('requestfailed'", () => {
+  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
+  const content = readFileSync(fixturesPath, "utf8");
+  const start = content.indexOf(">>> qa-failure-capture");
+  const end = content.indexOf("<<< qa-failure-capture");
+  const block = content.slice(start, end);
+  assert.ok(block.includes("page.on('requestfailed'"), "fixtures.ts qa-failure-capture block must contain page.on('requestfailed'");
+});
+
+test("config/e2e/fixtures.ts qa-failure-capture block contains networkErrors", () => {
+  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
+  const content = readFileSync(fixturesPath, "utf8");
+  const start = content.indexOf(">>> qa-failure-capture");
+  const end = content.indexOf("<<< qa-failure-capture");
+  const block = content.slice(start, end);
+  assert.ok(block.includes("networkErrors"), "fixtures.ts qa-failure-capture block must contain networkErrors");
+});
+
+test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('requestfailed' and carries networkErrors in the dump body (twin sync)", () => {
+  assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('requestfailed'"), "FAILURE_CAPTURE_BLOCK must register a requestfailed listener");
+  assert.ok(FAILURE_CAPTURE_BLOCK.includes("networkErrors"), "FAILURE_CAPTURE_BLOCK must carry networkErrors");
+  assert.match(
+    FAILURE_CAPTURE_BLOCK,
+    /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors \}\)/,
+    "FAILURE_CAPTURE_BLOCK's dump body must carry networkErrors alongside runtimeErrors",
+  );
+});
+
+test("the seed's capture block is byte-identical to FAILURE_CAPTURE_BLOCK", () => {
+  const content = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const start = content.indexOf(`\n// ${FAILURE_CAPTURE_MARKER}`);
+  assert.notEqual(start, -1, "the seed must carry the capture block marker");
+  const closing = "// <<< qa-failure-capture <<<\n";
+  const endMarker = content.indexOf(closing, start);
+  assert.notEqual(endMarker, -1, "the seed must carry the closing marker");
+  assert.equal(
+    content.slice(start, endMarker + closing.length),
+    FAILURE_CAPTURE_BLOCK,
+    "the seed block and FAILURE_CAPTURE_BLOCK drifted: update both twins and record the outgoing revision",
+  );
+});
+
 test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('console'/'pageerror' and runtimeErrors (twin sync)", () => {
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('console'"), "FAILURE_CAPTURE_BLOCK must register a console listener");
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('pageerror'"), "FAILURE_CAPTURE_BLOCK must register a pageerror listener");
@@ -1115,4 +1292,119 @@ test("the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, e
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/* ── Network failures: a passing test with evidence still dumps ─────────
+   The block records requestfailed events (sanitized URL, capped error text, resource type) and
+   writes a dump for a PASSING test that showed evidence, without an aria snapshot.
+ */
+
+test("a passing test with a failed request dumps a stripped networkErrors URL and no aria snapshot", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-netpass-"));
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "netpass");
+    const handlers: Record<string, ((arg: unknown) => void) | undefined> = {};
+    const fakePage = {
+      on(event: string, cb: (arg: unknown) => void) {
+        handlers[event] = cb;
+      },
+      url: () => "https://dev.example/orders",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const passing = { status: "passed", expectedStatus: "passed", titlePath: ["p", "orders", "list"], project: { name: "desktop" }, file: "/repo/e2e/orders.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      assert.ok(handlers.requestfailed, "beforeEach must register a requestfailed listener via page.on('requestfailed', ...)");
+      handlers.requestfailed!({ url: () => "https://dev.example/api/x?token=secret", failure: () => ({ errorText: "net::ERR_FAILED" }), resourceType: () => "fetch" });
+      await mod.afterEachFn({ page: fakePage }, passing);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    assert.equal(dumps.length, 1, "a passing test with a failed request must write a dump");
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.equal(body.networkErrors[0].url, "https://dev.example/api/x", "the query string must not reach the dump");
+    assert.equal(body.yaml, "", "a passing test with evidence needs no aria snapshot");
+    assert.equal(body.httpStatus, undefined, "a failed request is not an attributed httpStatus");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failed request records its failure().errorText verbatim (net::ERR_NAME_NOT_RESOLVED)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-c1-neterr-"));
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "neterr");
+    const handlers: Record<string, ((arg: unknown) => void) | undefined> = {};
+    const fakePage = {
+      on(event: string, cb: (arg: unknown) => void) {
+        handlers[event] = cb;
+      },
+      url: () => "https://dev.example/orders",
+      locator: () => ({ ariaSnapshot: async () => '- button "X"' }),
+    };
+    const failing = { status: "failed", expectedStatus: "passed", titlePath: ["p", "orders", "list"], project: { name: "desktop" }, file: "/repo/e2e/orders.spec.ts", retry: 0 };
+
+    const prev = process.env.QA_FAILURE_CAPTURE_DIR;
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    try {
+      await mod.beforeEachFn({ page: fakePage });
+      handlers.requestfailed!({ url: () => "https://dev.example/api/x", failure: () => ({ errorText: "net::ERR_NAME_NOT_RESOLVED" }), resourceType: () => "fetch" });
+      await mod.afterEachFn({ page: fakePage }, failing);
+    } finally {
+      if (prev === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR;
+      else process.env.QA_FAILURE_CAPTURE_DIR = prev;
+    }
+
+    const dumps = readdirSync(captureDir);
+    assert.equal(dumps.length, 1);
+    const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
+    assert.equal(body.networkErrors[0].errorText, "net::ERR_NAME_NOT_RESOLVED", "the request's failure errorText must be recorded verbatim");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The install runs agent-editable lifecycle scripts as the sandbox uid: the tree is handed over for it and is the orchestrator's again afterwards, whatever the install did. */
+test("the install tree is opened before the install and sealed after it", async () => {
+  const seq: string[] = [];
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async () => {
+    seq.push("install");
+    return okResult();
+  });
+  const installGuard = { open: (dir: string) => seq.push(`open ${dir}`), seal: (dir: string) => seq.push(`seal ${dir}`) };
+  await new SetupAdapter({ fs, runner, seedDir: "/seed", installGuard }).setup("/mirror/e2e");
+  assert.deepEqual(seq, ["open /mirror/e2e", "install", "seal /mirror/e2e"]);
+});
+
+test("the install tree is sealed when the install fails or is killed", async () => {
+  for (const result of [() => okResult({ exitCode: 1 }), () => Promise.reject(new Error("boom"))] as const) {
+    const sealed: string[] = [];
+    const fs = orchestrationFs({ hasPackageJson: true });
+    const runner = fakeRunner(async () => result());
+    const installGuard = { open: () => {}, seal: (dir: string) => sealed.push(dir) };
+    await assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: "/seed", installGuard }).setup("/mirror/e2e"));
+    assert.deepEqual(sealed, ["/mirror/e2e"]);
+  }
+});
+
+test("the install child is handed no variables of its own: the launcher's install profile decides its environment", async () => {
+  let seen: SandboxedRunRequest | undefined;
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async (req) => {
+    seen = req;
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.deepEqual(seen?.env, {});
 });

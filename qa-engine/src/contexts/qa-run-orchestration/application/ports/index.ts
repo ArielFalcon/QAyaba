@@ -7,9 +7,10 @@
  */
 
 import type { Sha } from "@kernel/sha.ts";
-import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
+import type { RunMode, RunPurpose, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunStep } from "@kernel/run-step.ts";
+import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
@@ -18,6 +19,10 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunEventBody } from "@kernel/run-event.ts";
 import type { GenerationEndKind } from "@kernel/generation-end.ts";
 import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
+import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import type { CoordinationMode, PlanningLimits } from "@kernel/coordination.ts";
+import type { AgentBrowserGateSignal, AgentBrowserLimits } from "@kernel/agent-browser.ts";
+import type { GeoLocation, GeolocationFacts } from "@kernel/geolocation.ts";
 
 /**
  * Port-local CommitIntent. Generation's type is structurally assignable;
@@ -37,7 +42,7 @@ export interface CommitIntent {
 /** Port-local ArchitectureContext. Same no-cross-context-import rule as CommitIntent. */
 export interface ArchitectureContext {
   builtAtSha: string;
-  routes: Array<{ path: string; name?: string; component?: string; source?: string }>;
+  routes: Array<{ path: string; name?: string; component?: string; source?: string; implementationFiles?: string[] }>;
   api: Array<{ operationId: string; method: string; path: string; service?: string; spec?: string }>;
   feBe: Array<{ route: string; operationId: string; via?: string }>;
   flows?: Array<{ id: string; routes: string[]; operations?: string[] }>;
@@ -60,6 +65,13 @@ export interface HarnessFacts {
   /** Only when the app declares one: no default is invented. */
   testIdAttribute?: string;
   fixtures?: { file: string; exports: readonly string[] };
+}
+
+/** Port-local mirror of the generation Omission shape (this barrel does not import across contexts). */
+export interface GroundingOmission {
+  class: "selection" | "truncation";
+  reason: string;
+  count: number;
 }
 
 /** Single input → RunOutcome. Production implementation is RewrittenOrchestratorAdapter. */
@@ -92,6 +104,14 @@ export interface RunInput {
    * fabricated. Intra-run regenerations reuse this same input object.
    */
   parentRunId?: string;
+  /** Why the run was started, when it is not a change to test (see RUN_PURPOSE). Recorded on the persisted note; never read by a verdict. */
+  purpose?: RunPurpose;
+  /** The run's own choice about the run_spec loop (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
+  closedLoop?: boolean;
+  /** The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
+  agentBrowser?: boolean;
+  /** The run's own choice of coordination mode (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
+  coordinationMode?: CoordinationMode;
 }
 export interface RunPipelinePort {
   /**
@@ -122,6 +142,18 @@ export interface GenerationEnrichment {
   domSnapshot?: string;
   /** Changed lines a green run failed to exercise (enforce-mode coverage regen). */
   coverageGap?: string;
+  /**
+   * The intent lock's violations of the turn before this one (A-2b): what the contract held before and
+   * after, handed back as facts so the generator can repair the weakening it introduced. Structural
+   * mirror of the domain's ContractFeedback: this barrel carries no cross-context type.
+   */
+  contractFeedback?: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[];
+  /** Present only when the run granted the generator the run_spec tool: the limits its prompt states. */
+  closedLoop?: ClosedLoopLimits;
+  /** Present only when the run granted the authoring agents the authenticated browser: the limits its prompt states. */
+  agentBrowser?: AgentBrowserLimits;
+  /** Present only when the app declares a location: the default, the places and where this authoring scope is. */
+  geolocation?: GeolocationFacts;
   /**
    * Every spec this run has delivered so far, refreshed for each regeneration turn: the lead's
    * declared flow and objective where it declared them, a sidekick's specs by path alone.
@@ -164,6 +196,9 @@ export interface GenerationEnrichment {
    * exploration — never fabricated.
    */
   contextPack?: string;
+  /** The pack's delivered grounding ids and omissions (packDeliveredItemIds), threaded with the pack text. */
+  contextPackItemIds?: readonly string[];
+  contextPackOmissions?: readonly GroundingOmission[];
   /**
    * App login is declared but the suite's auth.setup.ts is still the stock seed and did not
    * sign in, so the generator must author the login first. Set only when true.
@@ -220,6 +255,8 @@ export interface GenerationEnrichment {
    * means no key. Advisory only.
    */
   crossRepoImpact?: { impactedLinks: readonly ImpactedLink[] };
+  /** Present only on the planning turn of a coordinated run: the limits the plan will be held to. Absent on every other turn. */
+  planning?: PlanningLimits;
 }
 /**
  * What one generation hands the run. `end` says how it ended: with specs the run continues;
@@ -238,6 +275,8 @@ export interface GenerationOutput {
   specs: string[];
   declaredSpecs?: DeliveredSpec[];
   end: GenerationEndKind;
+  /** For a declared no-op, the reason its verdict named (`unspecified` when it named none). Absent for every other end. Observe-only. */
+  noopKind?: NoopKind;
   reviewed: boolean;
   approved: boolean;
   note?: string;
@@ -245,11 +284,155 @@ export interface GenerationOutput {
   parsed?: boolean;
   specMetas?: { flow?: string; objective?: string }[];
   turn?: AgentTurnStats;
+  /* The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
+  testCorrect?: { cause: "env" | "app"; reason: string };
+  /* The findings the generator disputes instead of correcting, each with the basis the run must check. Absent unless the verdict carried one. */
+  rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[];
 }
 
 /** The reviewer's verdict on a generation, or undefined when no reviewer looked at it: the one way the run reads `approved`. */
 export function reviewerApprovalOf(generation: Pick<GenerationOutput, "reviewed" | "approved">): boolean | undefined {
   return generation.reviewed ? generation.approved : undefined;
+}
+
+/**
+ * The run_spec loop of one run, as the use case sees it: the right to execute a spec while authoring, granted to the
+ * generator's own sessions. The run opens it after the login and closes it when it ends, however it ends.
+ */
+export interface ClosedLoopOpenInput {
+  runId: string;
+  app: string;
+  mode: RunMode;
+  purpose?: RunPurpose;
+  mirrorDir: string;
+  specDir: string;
+  /** The run's own choice, when it makes one (an A/B arm): overrides the app's setting. Absent: the app's setting decides. */
+  enabled?: boolean;
+  /** The run's cancellation: a call in flight when it fires is stopped. */
+  signal?: AbortSignal;
+}
+export interface ClosedLoopSignals {
+  /** run_spec calls that started. */
+  calls: number;
+  /** Mutating requests the executed specs sent to DEV. */
+  devWrites: number;
+}
+/** What a flow's loop is opened with: its own share of the run's calls and writes, the sidekick's workspace its spec is read from, and the one spec it may run. */
+export interface FlowLoopOpenInput {
+  delegationId: string;
+  /** The flow's slug: it names the namespace of the flow's calls. */
+  flowId: string;
+  limits: { maxCalls: number; maxDevWrites: number };
+  /** The sidekick's workspace: where its spec is written and read. */
+  workspace: { dir: string; specDir: string };
+  /** The one spec the flow may run, relative to the spec directory. */
+  specFile: string;
+  /** Puts the spec in the working copy where the suite runs it, and says where (relative to the spec directory), or undefined when the workspace has no such spec. Called inside the lease of each call. */
+  stage(): Promise<string | undefined>;
+}
+/** One call of a flow's loop that ran: the bytes of the spec it ran (their sha256), and how it ended. */
+export interface FlowLedgerEntry {
+  path: string;
+  sha256: string;
+  status: string;
+  devWrites: number;
+}
+export interface FlowLoopHandle {
+  /** What the flow's prompt states about the tool: its own share. */
+  limits: ClosedLoopLimits;
+  signals(): ClosedLoopSignals;
+  /** What the orchestrator saw the flow's calls do, oldest first. */
+  ledger(): readonly FlowLedgerEntry[];
+  /** Whether the spec the sidekick holds now is the one whose last call passed. */
+  isClosed(): Promise<boolean>;
+  /** Revokes the flow's right and cleans the data of a call that was in flight. Never throws. */
+  close(): Promise<void>;
+}
+export interface ClosedLoopHandle {
+  /** What the generator's prompt states about the tool. */
+  limits: ClosedLoopLimits;
+  /** Opens the loop of one flow of a plan, for the sidekick that authors it; undefined once the run's loop is closed. Throws when the flow is already open. */
+  openFlow(input: FlowLoopOpenInput): FlowLoopHandle | undefined;
+  /** Removes the probe specs a generator session left in the spec directory. Idempotent. */
+  sweepProbes(): Promise<void>;
+  /** Whether every one of these delivered specs holds the bytes whose last call passed. */
+  isClosed(deliveredSpecs: readonly string[]): Promise<boolean>;
+  signals(): ClosedLoopSignals;
+  /** Revokes the right, removes the probes and the data the calls left. Never throws. */
+  close(): Promise<void>;
+}
+export interface ClosedLoopPort {
+  /** Resolves undefined when this run is not granted the loop (disabled, another runtime, nothing to run it with). */
+  open(input: ClosedLoopOpenInput): Promise<ClosedLoopHandle | undefined>;
+}
+
+/**
+ * The authenticated browser of one run, as the use case sees it: the right of the authoring agents to read DEV through the
+ * session the run signed in with, without ever holding it. The run opens it after the login and closes it when it ends,
+ * however it ends.
+ */
+export interface AgentBrowserOpenInput {
+  runId: string;
+  app: string;
+  mode: RunMode;
+  purpose?: RunPurpose;
+  /** The suite directory of the run's working copy: where a renewed login is prepared for. */
+  specDir: string;
+  /** The run's own choice, when it makes one (an A/B arm): overrides the app's setting. */
+  enabled?: boolean;
+  /** The run's cancellation: a call in flight when it fires is stopped. */
+  signal?: AbortSignal;
+  /** The app's declared location, when it declares one: the browser opens at it, and each session's own scope may move it. Absent: the browser is not given a location. */
+  geolocation?: { default: GeoLocation; forSession(sessionId: string): GeoLocation | undefined };
+}
+export interface AgentBrowserHandle {
+  /** What the generator's prompt states about the tools. */
+  limits: AgentBrowserLimits;
+  /** Gives a flow of a plan the calls its sidekick may make out of the run's, before the sidekick's session opens. */
+  grantShare(delegationId: string, calls: number): void;
+  signals(): AgentBrowserGateSignal;
+  /** Revokes the right, stops the browser. Never throws. */
+  close(): Promise<void>;
+}
+export interface AgentBrowserPort {
+  /** Resolves undefined when this run is not granted the browser (disabled, another runtime, no saved session to use). */
+  open(input: AgentBrowserOpenInput): Promise<AgentBrowserHandle | undefined>;
+}
+
+/**
+ * The device location of one run, as the use case sees it: the app's declared default and places, the lead's own value,
+ * and one value per flow of a plan. The run opens it after the login and closes it when it ends, however it ends. It is
+ * authoring context: the authenticated browser uses it, and a delivered spec pins its own location with setLocation().
+ */
+export interface GeolocationOpenInput {
+  runId: string;
+  app: string;
+  mode: RunMode;
+  /** The run's cancellation: no change is accepted once it fires. */
+  signal?: AbortSignal;
+}
+export interface FlowGeolocationHandle {
+  facts(): GeolocationFacts;
+  current(): GeoLocation;
+  /** Forgets the flow's value; a change from one of its sessions is refused afterwards. */
+  close(): void;
+}
+export interface GeolocationHandle {
+  /** The app's declared default: what the suite runs with when a spec sets none. */
+  readonly default: GeoLocation;
+  /** The lead's scope: the app default until the lead moves it. */
+  facts(): GeolocationFacts;
+  placeNames(): readonly string[];
+  /** Where a session's own scope is now (its flow, or the run's lead), or undefined when the session is not bound to this run. */
+  forSession(sessionId: string): GeoLocation | undefined;
+  /** Opens a flow's own value, starting where the plan says or where the lead is. Undefined once the run's location is closed. */
+  openFlow(delegationId: string, initial?: GeoLocation): FlowGeolocationHandle | undefined;
+  /** Revokes every scope and forgets the flows. Never throws. */
+  close(): void;
+}
+export interface GeolocationPort {
+  /** Resolves undefined when the app declares no location: no tool, no section and no value to inject. */
+  open(input: GeolocationOpenInput): Promise<GeolocationHandle | undefined>;
 }
 
 export interface GenerationPort {
@@ -259,6 +442,23 @@ export interface GenerationPort {
    * static per-run value. `enrichment` is independently absent-safe.
    */
   generate(objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput>;
+  /**
+   * The one turn a coordinated run asks the lead for a plan instead of specs. `enrichment.planning` carries the limits the plan
+   * will be held to and is required. Absent: this port cannot plan, and a coordinated run authors the change as one piece of work.
+   */
+  plan?(specDir: string, signal: AbortSignal | undefined, diff: string | undefined, enrichment: GenerationEnrichment): Promise<PlanOutput>;
+}
+/**
+ * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: only the orchestrator's admission reads
+ * it. `noopReason` is the reason the lead gave for writing nothing when it declared that instead of planning. A turn that gives
+ * neither is `parsed` when its verdict could be read at all; `timedOut` is a turn that ran out of its planning time.
+ */
+export interface PlanOutput {
+  plan?: Record<string, unknown>;
+  noopReason?: string;
+  parsed: boolean;
+  timedOut: boolean;
+  turn?: AgentTurnStats;
 }
 /**
  * `priorCorrections` lets the next review judge convergence on previously
@@ -266,6 +466,10 @@ export interface GenerationPort {
  */
 export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
+  /* The spec lines that changed since the prior rejection, already bounded and rendered. */
+  specChanges?: string;
+  /* Paths of the suite's existing specs: context only, never a target and never a reason to reject. */
+  existingSpecFiles?: readonly string[];
   /**
    * Same retrieved rules the generator saw. The adapter renders only active
    * rules; candidates are for the generator to explore, never for the judge to
@@ -277,9 +481,29 @@ export interface ReviewEnrichment {
    * on unverifiable UI facts.
    */
   domSnapshot?: string;
+  /**
+   * The run's own execution of the specs under review (verdict and cases). The adapter renders it as
+   * the reviewer's execution evidence, so an app defect (a 5xx, a redirect, a runtime error) is
+   * distinguishable from a test defect without asking the generator. Absent: the prompt carries none.
+   */
+  executionEvidence?: { verdict: string; cases: readonly QaCase[] };
   /** Per-run id for the reviewer SSE session (separate from the generator's). */
   runId?: string;
 }
+/**
+ * Starts the run-level wall-clock deadline that holds every agent turn of the run. Armed once, after
+ * classification, because a diff run's budget follows the size of its change. Until it is armed nothing
+ * bounds the run; once it is, a turn the deadline refuses or stops ends the run as a persisted
+ * infra-error (E-TIME-BUDGET).
+ */
+export interface RunDeadlinePort {
+  arm(scope: { mode: RunMode; diff?: string; changedFiles?: readonly string[] }): void;
+  /** What was armed (the named budget and its length), for the run's trace. Absent or undefined: nothing to say. */
+  describe?(): { label: string; budgetMs: number } | undefined;
+  /** Milliseconds left; undefined while no deadline is armed. Zero or less: spent. A deterministic phase that may still start is checked against it before it does. */
+  remainingMs?(): number | undefined;
+}
+
 /**
  * Adapter catch produces `${REVIEWER_UNAVAILABLE_MARKER}: <reason>`; the
  * use-case matches on it. One constant so producer and matcher cannot drift.
@@ -292,6 +516,21 @@ export const REVIEWER_UNAVAILABLE_MARKER = "reviewer unavailable";
  * a real rejection — so FixLoop re-prompts once instead of burning a fix round.
  * Fail-closed: a missing parse is never treated as approval.
  */
+/**
+ * What one reviewer turn cost, as its own runtime reported it. Every figure is optional and absent
+ * when the runtime did not report it: never a fabricated zero. `durationMs` is always measured by the
+ * bridge. Persisted on the run's reviewer signal, never read back into the verdict.
+ */
+export interface ReviewStats {
+  durationMs: number;
+  promptBytes: number;
+  outputChars: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+  steps?: number;
+}
+
 export interface ReviewPort {
   /**
    * `diff` is the real per-run commit diff; absent falls back to the adapter's
@@ -303,7 +542,23 @@ export interface ReviewPort {
     rationale?: string;
     blockingCount?: number;
     parsed?: boolean;
+    /* The reviewer's own severity per correction, and the evidence it cites, in the same order. */
+    severities?: ("blocking" | "advisory")[];
+    citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
+    /**
+     * True when no judgment was possible because the reviewer's runtime failed or returned nothing: an
+     * integration fault, which is neither an approval nor a rejection. Absent on every review that
+     * reached a reviewer's answer, including an unreadable one (a parse miss).
+     */
+    unavailable?: boolean;
+    /** What the turn cost. Absent when the port never opened a reviewer session. */
+    stats?: ReviewStats;
   }>;
+}
+/** What the run knows that a validation may report on. */
+export interface ValidationRunInfo {
+  /** The specs (relative to the suite directory) this run has delivered so far: written by its generator or a sidekick, as reported by them. */
+  deliveredSpecs?: readonly string[];
 }
 export interface ValidationPort {
   /**
@@ -311,7 +566,7 @@ export interface ValidationPort {
    * static gate. Present so the same call site can pass it for either target.
    * `infra` is optional: a validation failure may be infrastructure, not a code defect.
    */
-  validate(specDir: string, changedFiles?: string[]): Promise<{ ok: boolean; errors: string[]; infra?: boolean }>;
+  validate(specDir: string, changedFiles?: string[], run?: ValidationRunInfo): Promise<{ ok: boolean; errors: string[]; infra?: boolean }>;
 }
 /**
  * Optional execute bag. Also accepts a bare AbortSignal (normalized to
@@ -322,6 +577,12 @@ export interface ExecutionOpts {
   faultInject?: boolean;
   /** Scope re-execution to only the specs that failed. */
   specFiles?: string[];
+  /** Attempts after a failure; 0 is a single attempt. Absent: the suite's own config decides. */
+  retries?: number;
+  /** A title filter, already escaped as a literal. */
+  grep?: string;
+  /** Have the fixtures count the writes the specs send to DEV; the total comes back as `devWrites`. */
+  countWrites?: boolean;
   project?: string;
   timeoutMs?: number;
   /**
@@ -340,7 +601,7 @@ export interface ExecutionOpts {
 }
 export interface ExecutionPort {
   /** Bare AbortSignal or richer opts bag; absent is specDir only. */
-  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string }>;
+  execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number }>;
 }
 export interface ObjectiveSignalPort {
   /**
@@ -456,6 +717,9 @@ export interface LearningPort {
 }
 /** Cross-cutting infra port, kernel-resident so neither context imports it from the other. */
 export type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
+/** The durable copy of an app's accepted e2e suite (see the port). */
+export type { SuiteStorePort, SuiteRoot, SuiteRestoreResult, SuiteCaptureInput, SuiteCaptureResult } from "@kernel/ports/suite-store.port.ts";
+export type { SpecSnapshot, SpecSnapshotPort } from "./spec-snapshot.port.ts";
 export interface WorkspacePort {
   /**
    * `mirrorDir` is the working-copy root before specRelDir is joined. The "pr"
@@ -520,6 +784,9 @@ export interface PreExecGroundingPort {
 export interface GroundingResult {
   /** Assembled context-pack text. Absent when the pack build failed or produced nothing. */
   contextPack?: string;
+  /** The pack's delivered grounding ids and omissions, computed from the kept lines (packDeliveredItemIds). Threaded with the pack text so the prompt's delivered span is read from the assembly. */
+  contextPackItemIds?: readonly string[];
+  contextPackOmissions?: readonly GroundingOmission[];
   /**
    * On-disk spec paths enumerated before the first generate(). Absent/empty when
    * the e2e dir does not exist yet or enumeration failed (fail-open).
@@ -531,6 +798,8 @@ export interface GroundingResult {
   contextBrief?: ExplorationBrief;
   /** Facts about the suite's harness (the configured test-id attribute, what the fixtures file exports). Absent when nothing was configured or scannable (fail-open). */
   harnessFacts?: HarnessFacts;
+  /** The added labels whose changed-value line in the pack said more nodes than unchanged lines of the file. Absent when none did, or when no pack carries such lines. */
+  changedValuesWithMoreNodes?: string[];
 }
 /**
  * Pre-generate first-write grounding (DOM/route/context pack), run once after

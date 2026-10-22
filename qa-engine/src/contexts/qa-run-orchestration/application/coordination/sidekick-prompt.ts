@@ -1,4 +1,4 @@
-/* Sidekick prompt assembly lives here so generation does not import DelegationBrief. Injected into SidekickExecutor; PromptRenderingPort.renderWorker stays intact for the unused ParallelWorker path.
+/* Sidekick prompt assembly lives here so generation does not import DelegationBrief. Injected into SidekickExecutor.
 Free-form brief fields are scrubbed with sanitizeText at this egress — the same twin the lead/worker prompt builders use — so secrets never reach the provider. */
 import { scrub } from "./scrub.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";

@@ -21,7 +21,7 @@ import { classifyGenerationEnd } from "@contexts/generation/domain/generation-en
 import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking";
 import type { MilestoneOutcome } from "@contexts/generation/domain/step-limit";
-import { ANTI_WEAKENING_RULE, ASSEMBLED_ARTIFACT_NAMES, MILESTONE_OUTCOME_PHRASES, OBJECTIVE_QUESTION, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { ANTI_WEAKENING_RULE, ASSEMBLED_ARTIFACT_NAMES, EFFORT_NO_OP_CLAUSE, MILESTONE_OUTCOME_PHRASES, OBJECTIVE_QUESTION, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { checkGeneratorVerdict } from "../integrations/verdict-validate";
@@ -66,13 +66,6 @@ const SKILL_FILE_PAIRS: Array<[string, string]> = [
     "agent/skills/architecture-mapping/SKILL.md",
   ],
 ];
-
-/* Must-match sections for the worker role (by canonical H2 header text).
-   The guard compares H2 bodies between the OpenCode mirror (agents/agent/qa-worker.md)
-   and the Codex mirror (agent/roles/qa-worker.md). The H1 is a model-free title in both; scripts/
-   model-agnostic-prompts.test.ts guards that.
- */
-const WORKER_MUST_MATCH_SECTIONS = ["How to write a valuable spec"];
 
 function readFile(rel: string): string {
   const p = join(REPO_ROOT, rel);
@@ -197,38 +190,6 @@ describe("prompt-sync drift guard", () => {
       assert.ok(
         /engram/i.test(content),
         `${rel} anti-pattern catalog must reference engram by name so the reviewer recognizes the bypass pattern.`,
-      );
-    }
-  });
-
-  it("both AGENTS.md mirrors scope engram to operational context and forbid test-authoring rules", () => {
-    for (const rel of ["agent/AGENTS.md", "agents/AGENTS.md"]) {
-      const content = readFile(rel);
-      assert.ok(
-        /operational context/i.test(content),
-        `${rel} must scope engram to operational context.`,
-      );
-      assert.ok(
-        /never.{0,20}test-authoring rules|test-authoring rules.{0,20}never/is.test(content) || /NEVER for test-authoring rules/i.test(content),
-        `${rel} must explicitly forbid test-authoring rules in engram.`,
-      );
-      assert.ok(
-        /governed learning ledger/i.test(content),
-        `${rel} must point test-authoring rules at the governed learning ledger instead.`,
-      );
-    }
-  });
-
-  it("both qa-generator.md mirrors' engram section forbids test-authoring rules and names the governed ledger as their owner", () => {
-    for (const rel of ["agent/roles/qa-generator.md", "agents/agent/qa-generator.md"]) {
-      const content = readFile(rel);
-      assert.ok(
-        /Never save a test-authoring rule/i.test(content),
-        `${rel} must forbid saving test-authoring rules to engram.`,
-      );
-      assert.ok(
-        /governed learning ledger/i.test(content),
-        `${rel} must point to the governed learning ledger as the exclusive owner of test-authoring rules.`,
       );
     }
   });
@@ -369,6 +330,7 @@ describe("prompt-sync drift guard", () => {
       parsed: verdict.parsed,
       noopReason: verdict.noopReason,
       exhausted: false,
+      timedOut: false,
     });
   };
 
@@ -482,8 +444,8 @@ describe("prompt-sync drift guard", () => {
       ...GENERATOR_PROMPTS,
       "agents/skill/playwright-authoring/SKILL.md",
       "agent/skills/playwright-authoring/SKILL.md",
-      "agents/agent/qa-worker.md",
-      "agent/roles/qa-worker.md",
+      "agents/agent/qa-sidekick.md",
+      "agent/roles/qa-sidekick.md",
     ]) {
       assert.equal(restatementsIn(readFile(rel)), 0, rel);
     }
@@ -526,7 +488,9 @@ describe("prompt-sync drift guard", () => {
     withLimit?: { exactly: number } | { atLeast: number };
   }
   const LAST_ACTION_RULE = phrasePattern("verdict is your LAST action");
-  const DECIDED_NO_OP_RULE = phrasePattern("decided nothing here is worth a test");
+  const DECLARED_NO_OP_RULE = phrasePattern("you have declared a no-op");
+  /* The second reason of the no-op, in the words the generator role states it and the effort of a diff's first pass quotes. */
+  const UNOBSERVABLE_NOOP_REASON = phrasePattern("cannot be observed on DEV in its current state");
   /* Supplied context is used at the confidence the prompt states for each part, and what the prompt marks as unverified or stale is looked up when a test depends on it. */
   const CONFIDENCE_RULE = phrasePattern("at the confidence the prompt states", "at the confidence it states");
   const UNVERIFIED_LOOKUP_RULE = phrasePattern("marks as unverified or stale");
@@ -543,15 +507,17 @@ describe("prompt-sync drift guard", () => {
   const HANDFUL_OF_SPECS = phrasePattern("A handful of focused specs is the right output here");
   /* Only a broad diff states that its effort is not a suite rewrite: a smaller one is already bounded by its own ceiling. Every tier's effort is a ceiling that admits doing nothing. */
   const SUITE_REWRITE_BOUND = phrasePattern("not a suite rewrite");
-  const EFFORT_NO_OP = phrasePattern("or none if nothing here is worth a test");
+  const EFFORT_NO_OP = phrasePattern(EFFORT_NO_OP_CLAUSE);
   const EFFORT_CEILING = /Expected effort \((?:tiny|focused|broad) change\): at most\b/g;
   /* The listing of the existing suite carries paths, a flow and an objective, never a spec's content, so the one spec a run updates is read first. The shared layer's reuse protocol owns that read; no assembled prompt repeats it. */
   const READ_BEFORE_UPDATE = phrasePattern("read it, and update it");
-  /* A code run reads existing test files for the repo's conventions once, on its first pass; a regeneration works from the failing tests and the code under test, and keeps the compile check. */
+  /* A code run reads existing test files for the repo's conventions once, on its first pass; a regeneration works from the failing tests and the code under test, and keeps the statement that the orchestrator compiles and runs what it writes. */
   const CONVENTIONS_READ = phrasePattern("existing test files for conventions");
   const CONVENTIONS_MATCH = phrasePattern("Match them exactly");
   const FRAMEWORK_DETECTION = phrasePattern("Detect the test framework from the repo's dependencies");
-  const COMPILE_CHECK = /cargo check --tests/gi;
+  /* The generator has no shell, so a code run says who compiles and runs its tests, and names no compile command for it to run. */
+  const ORCHESTRATOR_COMPILES = phrasePattern("the orchestrator compiles and runs the tests");
+  const COMPILE_COMMAND = /cargo check --tests|mvn -B test-compile/gi;
   /* Engram's tool for ending a session. The runtime denies it to the generator and the explorer, so no prompt either reads names it. */
   const SESSION_SUMMARY_TOOL = /\bmem_session_summary\b/g;
   /* Memory is scoped to the run's mode by a topic-key prefix, and to its app by the project parameter. */
@@ -586,8 +552,10 @@ describe("prompt-sync drift guard", () => {
       inAssembled: { exactly: shape === "code" ? 0 : 1 },
     })),
     ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule: "asking for the outcome the tests assert (a turn that writes none)", pattern: OBJECTIVE_QUESTION_STATEMENT, shape, inStatic: 0, inAssembled: { exactly: 0 } })),
-    { rule: "the compile check of a code run", pattern: COMPILE_CHECK, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
-    { rule: "the compile check of a code regeneration", pattern: COMPILE_CHECK, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "who compiles and runs a code run's tests", pattern: ORCHESTRATOR_COMPILES, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "who compiles and runs a code regeneration's tests", pattern: ORCHESTRATOR_COMPILES, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "a compile command for a code run to run", pattern: COMPILE_COMMAND, shape: "code", inStatic: 0, inAssembled: { exactly: 0 } },
+    { rule: "a compile command for a code regeneration to run", pattern: COMPILE_COMMAND, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 0 } },
     /* The conventions of the repo's tests are read once, on the first pass; the framework is detected on every pass. */
     { rule: "reading existing test files for conventions (code first pass)", pattern: CONVENTIONS_READ, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "reading existing test files for conventions (code regeneration)", pattern: CONVENTIONS_READ, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 0 } },
@@ -602,8 +570,8 @@ describe("prompt-sync drift guard", () => {
     /* The verdict ends the turn: the static stop rule is the only owner, whether the specs are written or the no-op is decided. */
     { rule: "the verdict being the last action (e2e)", pattern: LAST_ACTION_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the verdict being the last action (code)", pattern: LAST_ACTION_RULE, shape: "code", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "the verdict following a decided no-op (e2e)", pattern: DECIDED_NO_OP_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "the verdict following a decided no-op (code)", pattern: DECIDED_NO_OP_RULE, shape: "code", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the verdict following a declared no-op (e2e)", pattern: DECLARED_NO_OP_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the verdict following a declared no-op (code)", pattern: DECLARED_NO_OP_RULE, shape: "code", inStatic: 1, inAssembled: { exactly: 0 } },
     /* What the prompt carries comes first, and only what it lacks is looked up: orientation and memory follow that one rule. */
     { rule: "using what the prompt supplies and looking up only what it lacks", pattern: phrasePattern("What the prompt supplies comes first"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     /* The shared layer and the generator's first step each say so once; the assembled prompt carries the framing itself. */
@@ -613,6 +581,22 @@ describe("prompt-sync drift guard", () => {
     { rule: "consulting memory only for an operational fact the prompt lacks", pattern: phrasePattern("Consult it only for an operational fact the prompt lacks"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "saving an operational lesson only when this run learned a new one", pattern: phrasePattern("only when this run learned a new one"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the project parameter on every engram call", pattern: phrasePattern("Always include the `project` parameter"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* What engram may hold has one owner, the shared layer's memory protocol: operational lessons only, a test-authoring rule being the governed learning ledger's. No role prompt restates it, and the generator role's closing step only points at it. */
+    { rule: "keeping engram to operational context, never test-authoring rules", pattern: phrasePattern("OPERATIONAL context only"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "forbidding a test-authoring rule in engram", pattern: phrasePattern("Do NOT save a test-authoring rule"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "naming the governed learning ledger the owner of test-authoring rules", pattern: phrasePattern("governed learning ledger"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "an engram write of a test-authoring habit being a bypass of a ledger veto", pattern: phrasePattern("a governance bypass"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* Code is read through serena only where the prompt does not provide it, and serena is no one's primary way to read. */
+    { rule: "reading code the prompt does not provide at symbol level through serena", pattern: phrasePattern("When you must read code the prompt does not provide"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "serena being the primary way to read code, whatever the prompt carries", pattern: phrasePattern("PRIMARY way to read code"), shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
+    /* The outcome contract: source code grounds no selector, a same-label stand-in is never asserted, and the no-op has its second reason. Each is stated by the generator role alone. */
+    { rule: "source code grounding no selector and no asserted value", pattern: phrasePattern("grounds no selector and no asserted value"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "never asserting a pre-existing element with the changed label", pattern: phrasePattern("Never assert a pre-existing element"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* The generator role owns the sentence that names the second reason of the no-op; the one place an assembled prompt offers the no-op (the effort of a diff's first pass) quotes it, and no other turn does. */
+    ...(["tree", "pack", "openapi", "broad"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (a diff's first pass, ${shape})`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 1 } })),
+    ...(["code", "code-regen", "regen", "complete", "complete-regen", "context"] as const).map((shape): OwnedRule => ({ rule: `the no-op for a change DEV cannot show (${shape}, which offers no effort)`, pattern: UNOBSERVABLE_NOOP_REASON, shape, inStatic: 1, inAssembled: { exactly: 0 } })),
+    { rule: "the generator naming the kind of its no-op in the verdict", pattern: phrasePattern("`noop.kind` names the one that holds"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "an unobservable no-op naming the element and the evidence it relied on", pattern: phrasePattern("names the element and the evidence it relied on"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "reading the existing spec of a flow before updating it", pattern: READ_BEFORE_UPDATE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     /* An OpenAPI contract is read for a contract fact the prompt lacks: the static layers hold the rule, and the assembled prompt of an app that declares a contract does not repeat it. */
     { rule: "reading a contract fact from the matching operation of the repo's OpenAPI spec", pattern: CONTRACT_READ_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
@@ -803,7 +787,8 @@ describe("prompt-sync drift guard", () => {
       for (const [signal, extra] of REGEN_SIGNALS) {
         const regeneration = generatorPromptFor({ mode, target: "code" }, extra);
         assert.equal(countOf(regeneration, CONVENTIONS_READ), 0, `${mode} regeneration (${signal}): reads no conventions`);
-        assert.equal(countOf(regeneration, COMPILE_CHECK), 1, `${mode} regeneration (${signal}): keeps the compile check`);
+        assert.equal(countOf(regeneration, ORCHESTRATOR_COMPILES), 1, `${mode} regeneration (${signal}): keeps the statement of who compiles`);
+        assert.equal(countOf(regeneration, COMPILE_COMMAND), 0, `${mode} regeneration (${signal}): names no compile command`);
       }
     }
   });
@@ -846,17 +831,17 @@ describe("prompt-sync drift guard", () => {
     { shared: "agents/AGENTS.md", generator: "agents/agent/qa-generator.md", pointers: ["agents/agent/qa-explorer.md", "agents/agent/qa-proposer.md"] },
     { shared: "agent/AGENTS.md", generator: "agent/roles/qa-generator.md", pointers: ["agent/roles/qa-explorer.md", "agent/roles/qa-proposer.md"] },
   ] as const;
-  const STOP_RULE_SECTION = "Stop when the spec is written — then emit the verdict";
+  const STOP_RULE_SECTION = "Stop when the spec is written or the no-op is declared — then emit the verdict";
   const PROTOCOLS_SECTION = "Protocols (to keep quality from degrading over time)";
   /* The text of the generator procedure's step 1, up to the heading of step 2. */
   const stepOneOf = (procedure: string): string => /### 1\. Understand the change\n([\s\S]*?)\n### 2\./.exec(procedure)?.[1] ?? "";
 
-  it("in both generator mirrors the stop rule's own section holds the last-action rule and the decided no-op clause", () => {
+  it("in both generator mirrors the stop rule's own section holds the last-action rule and the declared no-op clause", () => {
     for (const { generator } of MIRRORS) {
       const stopRule = parseSections(readFile(generator)).get(STOP_RULE_SECTION) ?? "";
       assert.ok(stopRule.length > 0, `${generator}: has the section "${STOP_RULE_SECTION}"`);
       assert.equal(countOf(stopRule, LAST_ACTION_RULE), 1, `${generator}: the stop rule section states that the verdict is the last action once`);
-      assert.equal(countOf(stopRule, DECIDED_NO_OP_RULE), 1, `${generator}: the stop rule section covers a decided no-op once`);
+      assert.equal(countOf(stopRule, DECLARED_NO_OP_RULE), 1, `${generator}: the stop rule section covers a declared no-op once`);
     }
   });
 
@@ -973,7 +958,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     }
   });
 
-  /* The authoring skill is loaded by more than one role (the generator and the worker), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */
+  /* The authoring skill is loaded by more than one role (the generator and the sidekick), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */
   const ROLE_PROMPT_REFERENCE = /\b(?:generator|reviewer|worker|explorer|proposer|sidekick|maintainer)\s+role\b|\brole prompt\b|\bProcedure \(step \d+\)/i;
 
   it("no file of the playwright-authoring skill refers to a role's prompt or to a step of it, in either tree", () => {
@@ -997,39 +982,8 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     }
   });
 
-  /* ---------------------------------------------------------------------------
-     The worker H1 is a model-free title in both mirrors — the guard compares H2 bodies only.
-     ---------------------------------------------------------------------------
-   */
-  it("qa-worker.md 'How to write a valuable spec' section matches across both mirrors", () => {
-    const opencodeWorker = parseSections(readFile("agents/agent/qa-worker.md"));
-    const codexWorker = parseSections(readFile("agent/roles/qa-worker.md"));
-
-    for (const sectionHeader of WORKER_MUST_MATCH_SECTIONS) {
-      const opencodeBody = opencodeWorker.get(sectionHeader);
-      const codexBody = codexWorker.get(sectionHeader);
-
-      if (opencodeBody === undefined) continue; /* section only in codex mirror is allowed */
-
-      assert.ok(
-        codexBody !== undefined,
-        `prompt-sync DIVERGENCE: section "## ${sectionHeader}" is present in agents/agent/qa-worker.md ` +
-          `but missing from agent/roles/qa-worker.md. Port it.`,
-      );
-
-      assert.equal(
-        normalize(codexBody),
-        normalize(opencodeBody),
-        `prompt-sync DIVERGENCE in worker section "## ${sectionHeader}": ` +
-          `agent/roles/qa-worker.md and agents/agent/qa-worker.md differ. ` +
-          `The codex mirror must match the canonical OpenCode version.`,
-      );
-    }
-  });
-
   /* Inverse proofs — confirm the guard actually catches divergence.
      (a) Skill-file parity: appending a comment to the in-memory content must trigger AssertionError.
-     (b) Worker section parity: appending a comment to the in-memory section body must trigger AssertionError.
    */
   it("inverse: skill-file parity guard catches one-tree drift (skill file)", () => {
     const [opencodeRel] = SKILL_FILE_PAIRS[0]!;
@@ -1046,27 +1000,6 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
       },
       (err: unknown) => err instanceof assert.AssertionError,
       "The skill-file parity guard must throw an AssertionError when the codex mirror diverges.",
-    );
-  });
-
-  it("inverse: worker section parity guard catches one-tree drift (worker section)", () => {
-    const opencodeWorker = parseSections(readFile("agents/agent/qa-worker.md"));
-    const sectionHeader = WORKER_MUST_MATCH_SECTIONS[0]!;
-    const opencodeBody = opencodeWorker.get(sectionHeader);
-    if (!opencodeBody) return; /* section unexpectedly absent — skip inverse check */
-
-    const divergedBody = opencodeBody + "\n\n<!-- drift -->";
-
-    assert.throws(
-      () => {
-        assert.equal(
-          normalize(divergedBody),
-          normalize(opencodeBody),
-          `prompt-sync DIVERGENCE in worker section "## ${sectionHeader}"`,
-        );
-      },
-      (err: unknown) => err instanceof assert.AssertionError,
-      "The worker section-parity guard must throw an AssertionError when the codex mirror diverges.",
     );
   });
 });

@@ -3,13 +3,35 @@ buildShadow always uses this engine with shadow-log publication and in-memory hi
 
 import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort } from "../application/ports/index.ts";
+import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort, ValidationPort, LearningPort } from "../application/ports/index.ts";
+import type { RunDeadlineView } from "@kernel/run-deadline.ts";
+import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
+import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import type { CoordinationSettings } from "@kernel/coordination.ts";
+import type { ToolAttemptDirectory } from "@contexts/generation/domain/tool-link.ts";
+import { ClosedLoopPortAdapter } from "../infrastructure/bridges/closed-loop-port.adapter.ts";
+import type { ClosedLoopRegistry } from "../infrastructure/closed-loop-registry.ts";
+import type { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
+import { AgentBrowserPortAdapter } from "../infrastructure/bridges/agent-browser-port.adapter.ts";
+import { GeolocationPortAdapter } from "../infrastructure/bridges/geolocation-port.adapter.ts";
+import type { GeolocationRegistry } from "../infrastructure/geolocation-registry.ts";
+import type { GeoLocation } from "@kernel/geolocation.ts";
+import { readAgentBrowserSession } from "../infrastructure/bridges/agent-browser-session-material.ts";
+import type { AgentBrowserRegistry } from "../infrastructure/agent-browser-registry.ts";
+import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
-import { createCoordinationPort } from "../application/coordination/create-coordination-port.ts";
 import { SidekickExecutor } from "../application/coordination/sidekick-executor.ts";
+import { LeadSidekicks } from "../application/coordination/lead-sidekicks.ts";
+import { systemTimers } from "../application/coordination/fan-out-dispatcher.ts";
+import { FsDelegationWorkspaceAdapter } from "../infrastructure/delegation-workspace.adapter.ts";
+import { specFileForFlow } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { getSharedCoordinationTelemetry } from "../infrastructure/bridges/coordination-telemetry-port.adapter.ts";
+import { SpecSnapshotValidationPort } from "../infrastructure/bridges/spec-snapshot-validation.adapter.ts";
+import { TracedCrossRepoImpactPort, TracedCurriculumPort, TracedLearningPort, TracedServiceLinksPort, TracedStructuralSignalPort, telemetryGroundingTrace } from "../infrastructure/bridges/context-trace.ts";
+import { TracedSuiteStore } from "../infrastructure/bridges/suite-store-trace.ts";
+import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/bridges/generation-port.adapter.ts";
@@ -37,11 +59,13 @@ import { MirrorRegistryAdapter } from "@contexts/service-topology/infrastructure
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/ports/index.ts";
 import { CrossRepoImpactPortAdapter } from "../infrastructure/bridges/cross-repo-impact-port.adapter.ts";
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
+import type { ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
 import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ContextProvenance } from "@kernel/telemetry/context-provenance.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generation/application/ports/index.ts";
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
@@ -56,6 +80,64 @@ import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/d
 import type { VcsReadPort } from "@contexts/change-analysis/application/ports/index.ts";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts";
+import { extractSpecContract } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor.ts";
+
+/* What the shell hands the root to let a run grant its generator the run_spec tool. Absent: the run never does. */
+export interface ClosedLoopWiring {
+  /* Where the generator's session finds the run's loop (shared with the tools endpoint and the session transport). */
+  registry: ClosedLoopRegistry;
+  /* The app's own setting, with the limits already defaulted. */
+  setting: { enabled: boolean; limits: ClosedLoopLimits };
+  /* Whether the generator role is assigned to a runtime that can call the tool (OpenCode). */
+  generatorRuntimeCanCall: () => boolean;
+  /* The key two users of the test account contend on, and the process-wide lock they contend through. */
+  account: string;
+  lock: AccountLock;
+  /* The run's deadline, as the calls read it. */
+  deadline?: RunDeadlineView;
+  /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
+  redact: (text: string) => string;
+}
+
+/* What the shell hands the root to let a run author its flows with sidekicks. */
+export interface DelegationWiring {
+  /* The absolute directory the sidekicks' workspaces are made under (on the mirrors volume, so the agents' runtime can open a session in it). */
+  workspaceRoot: string;
+  /* The runtime the sidekick role is assigned to now (it is switchable): only OpenCode can call run_spec and the authenticated browser. */
+  sidekickProvider: () => "opencode" | "codex" | undefined;
+  /* The runtime the lead (the primary role) plans on now: only OpenCode can hold the planning turn to read-only. */
+  plannerProvider: () => "opencode" | "codex" | undefined;
+  /* The run's deadline, as the agents' turns read it. */
+  deadline?: RunDeadlineView;
+}
+
+/* What the shell hands the root to let a run grant its authoring agents the authenticated browser. Absent: the run never does. */
+export interface AgentBrowserWiring {
+  /* Where the authoring agents' sessions find the run's browser (shared with the tools endpoint and the session transport). */
+  registry: AgentBrowserRegistry;
+  /* The app's own setting (qa.agentBrowser). */
+  setting: { enabled: boolean; denyRoutes: readonly string[]; allowMutating: readonly string[] };
+  /* Whether the generator role is assigned to a runtime that can call a custom tool (OpenCode). */
+  generatorRuntimeCanCall: () => boolean;
+  /* Starts the browser in the execution sandbox. */
+  launcher: BrowserLauncherPort;
+  /* The key two users of the test account contend on, and the process-wide lock they contend through. */
+  account: string;
+  lock: AccountLock;
+  /* The app's login path (auth.loginPath), when it declares one. */
+  loginPath?: string;
+  deadline?: RunDeadlineView;
+  /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
+  redact: (text: string) => string;
+}
+
+/* What the shell hands the root to let a run carry its authoring location. Absent: the app declares no location and no run has one. */
+export interface GeolocationWiring {
+  /* Where the authoring agents' sessions find the run's location (shared with the tools endpoint and the session transport). */
+  registry: GeolocationRegistry;
+  /* The app's declared position and the places it names (dev.geolocation). */
+  setting: { default: GeoLocation; places: Readonly<Record<string, GeoLocation>> };
+}
 
 export interface CompositionConfig {
   /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */
@@ -71,17 +153,41 @@ export interface CompositionConfig {
   onFailure: string;
   maxRetries: number;
   isCode: boolean;
+  /* The review-loop integrity master switch (failure triage, intent lock, findings filter). Absent: off. */
+  integrity?: { reviewLoop: boolean };
   coveragePolicyMode: "off" | "signal" | "enforce";
+  /* The change-coverage threshold of the same policy; recorded with the run's coverage decision. */
+  coverageMinRatio?: number;
+  /* The test-intent lock (off | signal | enforce) plus the opacity ratio it flags. Absent: signal, 0.5. */
+  intentLock?: { mode: "off" | "signal" | "enforce"; opacityFlagRatio: number };
   /* Per-mode agent session budget (ms). Factory maps agentTimeout(mode). Optional: omitted fakes keep the use-case default (0 = derived but not enforced). */
   agentTimeoutMs?: number;
   wallClockBudgetMs?: number;
   iterationBudget?: number;
+  /* The run-level wall-clock deadline the shell built (the same object its bounded agent runtime reads). Optional, no stub: absent omits RunQaUseCaseDeps.runDeadline and nothing arms. */
+  runDeadline?: RunDeadlinePort;
+  /* The telemetry port the shell built. Absent: nothing is traced. It never changes a verdict. */
+  telemetry?: TelemetryPort;
+  /* Where the text of the specs a run holds at validation is kept for after-the-fact grading (docs/observability-design.md §11.1). Absent: none is kept. Never blocks a run. */
+  specSnapshots?: SpecSnapshotPort;
+  /* The one wall clock of the run's record: the phase cursor times phases on it and the phase spans start and end on its readings. Absent: the system clock. */
+  clock?: TelemetryClock;
+  /* Which attempt of an agent turn a run_spec or browser call hangs under (the registry the turn decorator fills). Absent: such a call hangs under the phase that is open. Needs `telemetry`. */
+  toolAttempts?: ToolAttemptDirectory;
   guidance?: string;
   diff?: string;
   baseUrl?: string;
   openapi?: string | string[];
   /** Wired for e2e apps that have a DEV url. Absent in code mode. */
   authSession?: AuthSessionPort;
+  /** The run_spec loop. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.closedLoop and no run grants the tool. */
+  closedLoop?: ClosedLoopWiring;
+  /** The authenticated agent browser. Optional, no stub: absent (or a code target, or an app with no DEV url) omits RunQaUseCaseDeps.agentBrowser and no run grants the tools. */
+  agentBrowser?: AgentBrowserWiring;
+  /** The authoring location. Optional, no stub: absent (or a code target, or an app that declares none) omits RunQaUseCaseDeps.geolocation and no run carries one. */
+  geolocation?: GeolocationWiring;
+  /** The sandbox scope each run runs agent-influenced code in; absent: none is opened (tests). */
+  execScope?: ExecScopePort;
   auth?: AuthDeclaration;
   testIdAttribute?: string;
 
@@ -147,8 +253,15 @@ export interface CompositionConfig {
   services?: Array<{ repo: string; mirrorDir: string; openapi?: string | string[] }>;
   /* FE↔BE architecture map (context.json). Absent → the pack degrades to blast-radius + DOM only. */
   contextMap?: ArchitectureContext;
+  /* Where the map was effectively read from and how fresh it was. Absent: the map span carries no provenance. */
+  contextMapProvenance?: () => ContextProvenance | undefined;
   /* Union of changed files across the PR's full commit range — further filters contracts to operations the PR actually touched. Absent -> contracts are filtered by contextMap/brief alone. */
   prChangedFiles?: string[];
+
+  /* Pre-generation context pack carries no live-DOM capture when false (an A/B arm; default true). Independent of review/pre-exec DOM grounding. */
+  domPack?: boolean;
+  /* false → the run builds no context pack at all (context mode discards it); the map/brief/harness still load. Default true. */
+  contextPack?: boolean;
 
   /* ObjectiveSignalPort collaborators — the keystone. assembleChangeCoverage is OPTIONAL (absent, or no per-run diff at measure() call time -> decide() receives null -> "unknown" -> NEVER blocks, the keystone's own architecturally-safe default). */
   objectiveSignal: {
@@ -193,6 +306,9 @@ export interface CompositionConfig {
      constructs ContextMapCapturePortAdapter backed by history.ts's saveContextMap. */
   contextMapCapture?: ContextMapCapturePort;
 
+  /* The durable copy of the app's accepted e2e suite (the qa-data volume). Optional, no stub: absent omits RunQaUseCaseDeps.suiteStore and every run starts from what the checkout holds. The shell factory constructs SuiteStoreAdapter (it owns the data directory and the git runner). */
+  suiteStore?: SuiteStorePort;
+
   /* Resolves a Sha to its working-copy mirrorDir. Cross-repo routing stays opaque inside this fn. */
   checkout: CheckoutFn;
 
@@ -214,23 +330,14 @@ export interface CompositionConfig {
   sidekickEscalatedModel?: string;
   /* Durable JSONL sink for coordination telemetry: events appended here survive process restarts so routing/cost signals can be analyzed offline. Absent -> memory-only. */
   coordinationTelemetryPath?: string;
-  /* Per-delegation wall-clock cap in ms (compose/environment tunable). Absent -> 420_000. */
-  sidekickTimeoutMs?: number;
+  /* How the app's runs are coordinated (qa.coordination, limits defaulted). Absent: the single mode, the lead authors alone. */
+  coordinationSettings?: CoordinationSettings;
+  /* What the lead/sidekick mode needs from the shell. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.leadSidekicks and a run in that mode is authored by its lead alone. */
+  delegation?: DelegationWiring;
 }
 
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
 const DEFAULT_DEPLOY_GATE_TIMEOUT_MS = 60000;
-
-/* Default per-delegation wall-clock cap (ms) when cfg.sidekickTimeoutMs is absent. Documented as
-   COORDINATION_SIDEKICK_TIMEOUT_MS in README.md — the shell (rewritten-engine-factory.ts) is the
-   ONLY place that reads that env var; qa-engine never reads process.env (CLAUDE.md invariant). */
-const DEFAULT_SIDEKICK_TIMEOUT_MS = 420_000;
-
-/* Pure — deliberately takes no env/process access, so a stray process.env read can never sneak
-   back in here. cfg.sidekickTimeoutMs is populated by the shell from COORDINATION_SIDEKICK_TIMEOUT_MS. */
-export function resolveSidekickTimeoutMs(cfg: Pick<CompositionConfig, "sidekickTimeoutMs">): number {
-  return cfg.sidekickTimeoutMs ?? DEFAULT_SIDEKICK_TIMEOUT_MS;
-}
 
 /* Where a map may name the staged snapshot of the triggering service: from the working copy and from the e2e dir, each only when the snapshot lies inside it. The shell stages it under the e2e dir; which of the two a context run records is not settled, so both are offered. An empty list says no directory holds the snapshot, and the run is still a cross-repo run. */
 function stagedRootsOf(workingCopyDir: string, e2eDir: string, stagedDir: string): string[] {
@@ -281,13 +388,17 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}),
   }, { stepLimitFor: cfg.stepLimitFor });
 
-  const validation = new ValidationPortAdapter(
+  const staticValidation = new ValidationPortAdapter(
     {
       e2e: cfg.validationStrategies.e2e as StaticGateAdapter,
       code: cfg.validationStrategies.code as CodeValidationStrategy,
     },
     { target: cfg.target },
   );
+  /* The specs a run holds are kept as they stand at each validation (e2e only: a code run's spec directory is the whole repo). Requires the outbound sanitizer, which wireBridges demands below anyway. */
+  const validation: ValidationPort = cfg.specSnapshots && !cfg.isCode && cfg.sanitize
+    ? new SpecSnapshotValidationPort(staticValidation, { port: cfg.specSnapshots, sanitize: cfg.sanitize })
+    : staticValidation;
 
   const execution = new ExecutionPortAdapter(
     { e2e: cfg.executionStrategies.e2e as E2eExecutionStrategy, code: cfg.executionStrategies.code as CodeExecutionStrategy },
@@ -306,17 +417,48 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ? new CleanupPortAdapter(cfg.cleanupCollaborators, { baseUrl: cfg.baseUrl, testIdAttribute: cfg.testIdAttribute })
     : undefined;
 
+  /* The loop executes through the run's own execution and cleanup ports, so a spec it runs is run exactly as the suite's are. */
+  const toolTrace = cfg.telemetry ? { telemetry: cfg.telemetry, clock: cfg.clock ?? { now: () => Date.now() }, ...(cfg.toolAttempts ? { attempts: cfg.toolAttempts } : {}) } : undefined;
+  const closedLoop = cfg.closedLoop && !cfg.isCode
+    ? new ClosedLoopPortAdapter({
+        ...cfg.closedLoop,
+        ...(toolTrace ? { trace: toolTrace } : {}),
+        execution,
+        ...(cleanup ? { cleanup } : {}),
+        ...(cfg.authSession && cfg.baseUrl ? { authSession: cfg.authSession, authContext: { baseUrl: cfg.baseUrl, ...(cfg.auth ? { auth: cfg.auth } : {}) } } : {}),
+        specRelDir: cfg.e2eRelDir,
+      })
+    : undefined;
+
+  /* The browser reads DEV through the run's own session and origins; a spec is never run by it. */
+  const agentBrowser = cfg.agentBrowser && !cfg.isCode && cfg.baseUrl
+    ? new AgentBrowserPortAdapter({
+        ...cfg.agentBrowser,
+        ...(toolTrace ? { trace: toolTrace } : {}),
+        baseUrl: cfg.baseUrl,
+        material: () => readAgentBrowserSession(cfg.baseUrl!),
+        ...(cfg.authSession ? { authSession: cfg.authSession, authContext: { baseUrl: cfg.baseUrl, ...(cfg.auth ? { auth: cfg.auth } : {}) } } : {}),
+      })
+    : undefined;
+
+  /* The app's declared position, the lead's value and one per flow: authoring context, never an input to the delivered suite. */
+  const geolocation = cfg.geolocation && !cfg.isCode ? new GeolocationPortAdapter(cfg.geolocation) : undefined;
+
   const preGenerationGrounding = !cfg.isCode
     ? new PreGenerationGroundingPortAdapter(
         {
           e2eDir: join(cfg.mirrorDir, cfg.e2eRelDir),
+          mirrorDir: cfg.mirrorDir,
           baseUrl: cfg.baseUrl,
           testIdAttribute: cfg.testIdAttribute,
           contextMap: cfg.contextMap,
+          ...(cfg.contextMapProvenance ? { contextMapProvenance: cfg.contextMapProvenance } : {}),
           prChangedFiles: cfg.prChangedFiles,
+          domPack: cfg.domPack,
+          contextPack: cfg.contextPack,
           ...(cfg.triggerService ? { stagedRoots: stagedRootsOf(cfg.mirrorDir, join(cfg.mirrorDir, cfg.e2eRelDir), cfg.triggerService.mirrorDir) } : {}),
         },
-        cfg.groundingCollaborators ?? {},
+        cfg.telemetry ? { ...cfg.groundingCollaborators, trace: telemetryGroundingTrace(cfg.telemetry, cfg.contextMapProvenance) } : (cfg.groundingCollaborators ?? {}),
       )
     : undefined;
   const reviewDomGrounding = !cfg.isCode
@@ -347,15 +489,16 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
   const codeGraphPort = cfg.codebaseMemory
     ? new LazyProjectCodeGraphAdapter(cfg.codebaseMemory, new ProjectNameResolver(cfg.codebaseMemory))
     : undefined;
-  const structuralSignal = codeGraphPort
+  const plainStructuralSignal = codeGraphPort
     ? new StructuralSignalPortAdapter(
         codeGraphPort,
         /* Classify-source repo root (SERVICE on a webhook, PRIMARY otherwise) — not the e2e subfolder and not always the primary suite mirror (see StructuralSignalPortAdapter). */
         cfg.codeGraphRepoDir ?? cfg.mirrorDir,
       )
     : undefined;
+  const structuralSignal = plainStructuralSignal && cfg.telemetry ? new TracedStructuralSignalPort(plainStructuralSignal, cfg.telemetry) : plainStructuralSignal;
 
-  const serviceLinks = cfg.serviceTopology
+  const plainServiceLinks = cfg.serviceTopology
     ? new ServiceLinksPortAdapter(
         cfg.serviceTopology.boundaryProfiles,
         new MirrorRegistryAdapter(cfg.serviceTopology.mirrorRoot), /* DI: real port impl, not a static call */
@@ -366,8 +509,9 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
         },
       )
     : undefined;
+  const serviceLinks = plainServiceLinks && cfg.telemetry ? new TracedServiceLinksPort(plainServiceLinks, cfg.telemetry) : plainServiceLinks;
 
-  const crossRepoImpact = cfg.crossRepoImpact
+  const plainCrossRepoImpact = cfg.crossRepoImpact
     ? new CrossRepoImpactPortAdapter({
         mirrors: new MirrorRegistryAdapter(cfg.crossRepoImpact.mirrorRoot),
         makeVcs: (repoDir) => new GitMirrorReadAdapter(repoDir, cfg.crossRepoImpact!.runner),
@@ -375,6 +519,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
         runner: cfg.crossRepoImpact.runner, /* same runner — no extra spawn surface */
       })
     : undefined;
+  const crossRepoImpact = plainCrossRepoImpact && cfg.telemetry ? new TracedCrossRepoImpactPort(plainCrossRepoImpact, cfg.telemetry) : plainCrossRepoImpact;
 
   const objectiveSignal = new ObjectiveSignalPortAdapter(
     {
@@ -392,7 +537,8 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     },
   );
 
-  const learning = new LearningPortAdapter(cfg.learningRepo ?? new StubLearningRepository(), cfg.appName);
+  const plainLearning = new LearningPortAdapter(cfg.learningRepo ?? new StubLearningRepository(), cfg.appName);
+  const learning: LearningPort = cfg.telemetry ? new TracedLearningPort(plainLearning, cfg.telemetry) : plainLearning;
 
   const workspace = new WorkspacePortAdapter(cfg.checkout, { specRelDir: cfg.isCode ? "" : cfg.e2eRelDir });
 
@@ -452,6 +598,12 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     workspace,
     deployGate,
     runHistory,
+    /* The intent lock's parser: pure, no I/O, so one instance serves every run. */
+    intentContract: { extract: extractSpecContract },
+    ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
+    ...(closedLoop ? { closedLoop } : {}),
+    ...(agentBrowser ? { agentBrowser } : {}),
+    ...(geolocation ? { geolocation } : {}),
     ...(setup ? { setup } : {}),
     ...(cfg.authSession && cfg.baseUrl
       ? {
@@ -480,40 +632,54 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.mirrorGc ? { mirrorGc: cfg.mirrorGc } : {}),
     /* Absent processAudit is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
+    /* Absent runDeadline is omitted entirely — never a fabricated deadline that bounds nothing. */
+    ...(cfg.runDeadline ? { runDeadline: cfg.runDeadline } : {}),
+    ...(cfg.telemetry ? { telemetry: cfg.telemetry } : {}),
+    ...(cfg.clock ? { phaseClock: cfg.clock } : {}),
     /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
-    ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
+    ...(cfg.curriculumPort ? { curriculum: cfg.telemetry ? new TracedCurriculumPort(cfg.curriculumPort, cfg.telemetry) : cfg.curriculumPort } : {}),
     /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
-    /* Coordination is always wired (no kill-switch). Governing points are listed independently below; the sidekick shares the reviewer's runtime with its own session lifecycle. */
+    /* Absent suiteStore is omitted entirely — never a fabricated no-op stub (a stub that restores nothing would hide that no suite persists). */
+    ...(cfg.suiteStore ? { suiteStore: cfg.telemetry ? new TracedSuiteStore(cfg.suiteStore, cfg.telemetry) : cfg.suiteStore } : {}),
+    /* Absent coordination settings are omitted entirely: the run is in the single mode. */
+    ...(cfg.coordinationSettings ? { coordinationSettings: cfg.coordinationSettings } : {}),
+    /* The lead/sidekick mode: wired for an e2e run whose shell gave it a place for the sidekicks' workspaces; whether a run uses it is the app's coordination mode or the run's own choice. The sidekicks share the reviewer's runtime, each with a session of its own. A run in the single mode (the default) asks it for nothing. */
     ...(() => {
-      /* Process-lifetime store so adaptive thresholds see prior runs (not a fresh empty bag per composition). */
+      /* Process-lifetime store so the ledger of decisions outlives a run (not a fresh empty bag per composition). */
       const coordinationTelemetry = cfg.coordinationTelemetryPath
         ? getSharedCoordinationTelemetry(cfg.coordinationTelemetryPath)
         : getSharedCoordinationTelemetry();
       return {
-        coordination: createCoordinationPort({
-          telemetry: coordinationTelemetry,
-          app: cfg.appName,
-        }),
         coordinationTelemetry,
         ...(cfg.baseUrl ? { sidekickDevBaseUrl: cfg.baseUrl } : {}),
-        /* Bounded delegation wall-clock: hung/slow sidekick sessions fire fail-open instead of eating the run's full agentTimeout. Env-tunable; 420s default covers sensible Playwright MCP bootstrap + navigation. */
-        sidekickTimeoutMs: resolveSidekickTimeoutMs(cfg),
-        ...(cfg.sidekickEscalatedModel
-          ? { sidekickEscalatedModel: cfg.sidekickEscalatedModel }
+        ...(cfg.delegation && !cfg.isCode
+          ? {
+              sidekickProvider: cfg.delegation.sidekickProvider,
+              plannerProvider: cfg.delegation.plannerProvider,
+              leadSidekicks: new LeadSidekicks({
+                sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
+                workspaces: new FsDelegationWorkspaceAdapter({ root: cfg.delegation.workspaceRoot }),
+                timers: systemTimers,
+                telemetry: coordinationTelemetry,
+                specFileFor: specFileForFlow,
+                ...(cfg.sidekickEscalatedModel ? { escalatedModel: cfg.sidekickEscalatedModel } : {}),
+                ...(cfg.delegation.deadline ? { deadline: cfg.delegation.deadline } : {}),
+              }),
+            }
           : {}),
-        /* Points listed independently — enabling one does not imply the other. */
-        coordinationEnabledPoints: ["pre-generate", "fix-loop-regen"] as const,
-        sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
       };
     })(),
     config: {
       needsReview: cfg.needsReview,
       shadow: cfg.shadow,
+      reviewLoopIntegrity: cfg.integrity?.reviewLoop ?? true,
       onFailure: cfg.onFailure,
       maxRetries: cfg.maxRetries,
       isCode: cfg.isCode,
       coveragePolicyMode: cfg.coveragePolicyMode,
+      ...(cfg.coverageMinRatio !== undefined ? { coverageMinRatio: cfg.coverageMinRatio } : {}),
+      ...(cfg.intentLock !== undefined ? { intentLock: cfg.intentLock } : {}),
       ...(cfg.agentTimeoutMs !== undefined ? { agentTimeoutMs: cfg.agentTimeoutMs } : {}),
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
       ...(cfg.iterationBudget !== undefined ? { iterationBudget: cfg.iterationBudget } : {}),

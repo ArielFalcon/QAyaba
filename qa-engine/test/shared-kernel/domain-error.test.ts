@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { InfraError, AgentUnavailableError, StalledAgentError, UntrustedGitTreeError, isInfraError, isUntrustedGitTreeError, rethrowIfUntrusted } from "@kernel/domain-error.ts";
+import { InfraError, AgentTimeoutError, AgentUnavailableError, StalledAgentError, UntrustedGitTreeError, isAgentTimeoutError, isInfraError, isUntrustedGitTreeError, rethrowIfUntrusted } from "@kernel/domain-error.ts";
 
 test("the taxonomy is a sealed hierarchy: agent errors are InfraErrors", () => {
   assert.ok(new AgentUnavailableError("x") instanceof InfraError);
@@ -42,4 +42,15 @@ test("rethrowIfUntrusted throws an untrusted git tree error on, by type or by na
 test("an untrusted git tree is not an infrastructure error: it is a refusal of its own", () => {
   assert.equal(isInfraError(new UntrustedGitTreeError("refusing")), false);
   assert.equal(isUntrustedGitTreeError(new InfraError("git could not run")), false);
+});
+
+test("isAgentTimeoutError recognizes a deadline by type or by name across realms, and nothing else", () => {
+  assert.equal(isAgentTimeoutError(new AgentTimeoutError("OpenCode prompt: timed out after 5ms")), true);
+  const crossRealm = new Error("timed out");
+  crossRealm.name = "AgentTimeoutError";
+  assert.equal(isAgentTimeoutError(crossRealm), true);
+  assert.equal(isAgentTimeoutError(new AgentUnavailableError("provider rejected")), false);
+  assert.equal(isAgentTimeoutError(new StalledAgentError("no activity")), false);
+  assert.equal(isAgentTimeoutError(new Error("timed out after 5ms")), false);
+  assert.equal(isAgentTimeoutError({ name: "AgentTimeoutError" }), false);
 });

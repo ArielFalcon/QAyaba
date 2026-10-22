@@ -161,3 +161,29 @@ func TestDiscoverTokenNone(t *testing.T) {
 		t.Fatalf("with no env and no repo in scope, token should be empty; got %q", tok)
 	}
 }
+
+/* The server keeps its token in data/.api_token (an earlier version wrote config/.api_token):
+   the console reads the current file first and the old one only when there is no current one. */
+func TestDiscoverTokenPrefersTheDataDirectory(t *testing.T) {
+	t.Setenv("QA_API_TOKEN", "")
+	t.Setenv("QAYABA_ROOT", "")
+	repo := t.TempDir()
+	mkRepo(t, repo, "legacytok")
+	t.Chdir(repo)
+	if tok, src := DiscoverToken(); tok != "legacytok" || src != "config/.api_token" {
+		t.Fatalf("without a data token the old file is read; got %q from %q", tok, src)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "data"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "data", ".api_token"), []byte("datatok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if tok, src := DiscoverToken(); tok != "datatok" || src != "data/.api_token" {
+		t.Fatalf("the data token wins; got %q from %q", tok, src)
+	}
+	t.Setenv("QAYABA_ROOT", repo)
+	if tok, src := DiscoverToken(); tok != "datatok" || src != "data/.api_token" {
+		t.Fatalf("under QAYABA_ROOT the data token wins too; got %q from %q", tok, src)
+	}
+}

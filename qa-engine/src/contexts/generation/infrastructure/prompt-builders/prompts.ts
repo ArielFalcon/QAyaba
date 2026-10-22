@@ -5,11 +5,11 @@ import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastr
 import { sanitizeText, assertNoSecretLeak, type SanitizeMode } from "../sanitize-text.ts";
 import { capText, capDiff, extractDiffFilePath } from "../prompt-cap.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { stripAnsi } from "@kernel/ansi.ts";
 import type {
   ArchitectureContext,
   CommitIntent,
   OpencodeRunInput,
-  ParallelWorkerInput,
   ReviewInput,
   ExplorationBrief,
 } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -19,15 +19,26 @@ import { diffStat, diffTier, type DiffStat, type DiffTier } from "@contexts/gene
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
-import { claim, APP_LOGIN_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
+import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
+import type { GeolocationFacts } from "@kernel/geolocation.ts";
+import { LEAD_PLAN_KIND, type PlanningLimits } from "@kernel/coordination.ts";
+import { claim, AGENT_BROWSER_SECTION_ID, APP_LOGIN_SECTION_ID, CLOSED_LOOP_SECTION_ID, GEOLOCATION_SECTION_ID, HARNESS_FACTS_SECTION_ID, LEAD_PLAN_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import { buildSuiteListing } from "@contexts/generation/domain/suite-listing.ts";
 import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domain/suite-listing-render.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
-import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
-import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
+import { renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
+import { advisoryLineIds, briefItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
+import type { Omission } from "@kernel/telemetry/section-meta.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
+import {
+  REVIEWER_PROMPT_VERSION,
+  REVIEW_CORRECTIONS_MAX,
+  REVIEW_CORRECTION_MAX_CHARS,
+  REVIEW_RATIONALE_MAX_CHARS,
+} from "@contexts/generation/domain/review-output.ts";
 
 export type { AssembledPrompt };
 export { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES };
@@ -57,6 +68,50 @@ function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
     lines.push(`fixtures: ${s(`${e2eRelDir}/${facts.fixtures.file}`)} exports ${facts.fixtures.exports.map(s).join(", ")}`);
   }
   return lines.length > 0 ? [`## ${PROMPT_HEADINGS.harnessFacts}`, ...lines, ``].join("\n") : "";
+}
+
+export { AGENT_BROWSER_SECTION_ID, CLOSED_LOOP_SECTION_ID, GEOLOCATION_SECTION_ID, LEAD_PLAN_SECTION_ID };
+
+/* The authenticated browser a run granted the authoring agents, as facts: how many calls and how long each may take, and what its answers report. Numbers and a description only; how to use the tools is the role prompt's. */
+function renderAgentBrowser(limits: AgentBrowserLimits): string {
+  const seconds = Math.round(limits.perCallMs / 1000);
+  return [
+    `## ${PROMPT_HEADINGS.agentBrowser}`,
+    `authbrowser_navigate, authbrowser_snapshot, authbrowser_click and authbrowser_type: at most ${limits.maxCalls} calls this run, ${seconds} seconds each. They read DEV as the test account; a request that writes to DEV, a route this app closes and an address outside its origins are blocked and listed in the answer.`,
+    ``,
+  ].join("\n");
+}
+
+/* The run_spec tool a run granted the generator, as facts: how many calls, how long each may run, how many requests that write to DEV the executed specs may send in all. Numbers only; how to use the tool is the role prompt's. */
+function renderClosedLoop(limits: ClosedLoopLimits): string {
+  const seconds = Math.round(limits.perCallMs / 1000);
+  return [`## ${PROMPT_HEADINGS.closedLoop}`, `run_spec: at most ${limits.maxCalls} calls this run, ${seconds} seconds each, ${limits.maxDevWrites} requests that write to DEV (POST, PUT, PATCH, DELETE) in all.`, ``].join("\n");
+}
+
+/* The plan a lead is asked for on a coordinated run's planning turn: the shapes it may take and the limits the orchestrator holds it to. The orchestrator decides what each flow may write, how long it takes and what it may run, so the plan carries none of that. */
+function renderLeadPlan(limits: PlanningLimits): string {
+  const locationField = limits.locations?.length ? `,"location":"<one of: ${limits.locations.join(", ")}>"` : "";
+  return [
+    `## ${PROMPT_HEADINGS.leadPlan}`,
+    `This turn asks for a plan, not for specs: write no file. Close with ONLY a JSON object {"plan": ...} of one of these shapes.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing here is worth a test, or the element and the evidence showing the change cannot be observed on DEV in its current state>"}}`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.SINGLE}"}} when the change is one piece of work that you will author yourself.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]${locationField}}]}} when the change is several independent flows, each of which can be written and run without the others.`,
+    `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
+    ...(limits.locations?.length ? [`A flow may name one of the app's locations; a flow without one inherits the run's.`] : []),
+    ``,
+  ].join("\n");
+}
+
+/* The app's declared location and the location this authoring scope works at, as facts, with the one rule a delivered spec follows. Present only when the app declares geolocation. */
+function renderGeolocation(facts: GeolocationFacts): string {
+  const places = Object.entries(facts.places).map(([name, location]) => `${name} (${location.latitude}, ${location.longitude})`);
+  return [
+    `## ${PROMPT_HEADINGS.geolocation}`,
+    `The app's default location: ${facts.default.latitude}, ${facts.default.longitude}. The suite runs at this location unless a spec sets another.`,
+    ...(places.length > 0 ? [`Places the app declares: ${places.join("; ")}.`] : []),
+    `This authoring scope is at: ${facts.current.latitude}, ${facts.current.longitude} (${facts.scope === "run" ? "the run" : "this flow"}). The authenticated browser, when this run grants it, opens pages at it; the plain Playwright MCP is a separate browser and does not take this value. run_spec and the suite run at the app's default, not at the authoring location: a spec whose expected result depends on a location pins it with setLocation(context, latitude, longitude) from the suite's fixtures.`,    ``,
+  ].join("\n");
 }
 
 /* The files whose content the surviving sections render compactly: reading one of them re-fetches what the prompt already carries. A section that was shed contributes nothing. */
@@ -139,6 +194,9 @@ function diffSectionMode(filePath: string): SanitizeMode {
 
 const DIFF_HEADER_RE = /^diff --git /;
 
+/* The heading of the diff section of a prompt. The judges read the diff back out of a stored prompt by it (src/server/judge-evidence.ts), so the heading is one constant. */
+export const COMMIT_DIFF_HEADING = "## Commit diff";
+
 function cappedDiffText(diff: string): string {
   const capped = capDiff(diff);
   const sections = capped.split(/^(?=diff --git )/m);
@@ -162,137 +220,34 @@ export function specFileForFlow(flow: string): string {
   const safe = flow.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "flow";
   return `flows/${safe}.spec.ts`;
 }
-export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPrompt {
-  const rules = w.needsUi
-    ? [
-        w.domSnapshot
-          ? `- You have NO browser. The injected a11y tree section in this prompt is your ONLY source of DOM truth — transcribe it directly into selectors; do NOT navigate or snapshot.`
-          : `- You have NO browser. No a11y tree was injected — derive selectors from the brief and mark them unverified in a comment (e.g. // selector unverified — no snapshot available).`,
-        `- Selector priority: (1) when a tree line's \`-> [attr]\` hint STARTS WITH the configured testIdAttribute name (e.g. \`data-testid=value\`) — not an \`id=\`/\`name=\`/href hint — use \`getByTestId('value')\`; (2) fall back to \`getByRole\`/\`getByLabel\` when no test-id hint is present; (3) no CSS/XPath.`,
-        `- Dynamic-DOM: the injected tree is a STATIC snapshot of initial load. Post-interaction elements (modals, dynamic lists) are NOT in this tree — assert them with auto-waiting (\`await expect(locator).toBeVisible()\`, \`waitForURL\`), never \`waitForTimeout\`.`,
-        `- getByRole matches the ACCESSIBILITY TREE, not the HTML tag: a <th> is often NOT a "columnheader", a <table> may lose its "table"/"row"/"cell" roles (Bootstrap/CSS strips them). Use ONLY roles + names you LITERALLY SEE in the injected tree; if the role isn't there, use getByText or a scoped locator. A getByRole that matches 0 elements passes review but TIMES OUT on execution.`,
-        `- Framework authoring attributes are NOT runtime DOM attributes — never assert them. Examples: Angular's \`routerLink\` is transformed to a rendered \`href\` (assert the \`href\`); \`*ngIf\`, \`ng-reflect-*\`, and \`formControlName\` do not appear in the live DOM (use \`getByLabel\`, \`getByTestId\`, or \`getByRole\` targeting the rendered element instead). The same principle applies to Vue directive attrs and React prop-only attrs. Asserting them always fails at runtime.`,
-        `- At least ONE real assertion on the observable OUTCOME (not just a click). Clean up created data via cleanup().`,
-      ]
-    : [
-        `- This is a CODE-ONLY objective (no UI). Read the affected symbols with serena, write unit/integration tests using the repo's test framework.`,
-        `- Assert on BEHAVIOR (the correct output for given inputs), not implementation details. Include edge cases from the objective.`,
-        `- Do NOT attempt to navigate or use browser tools — you have no Playwright MCP.`,
-      ];
 
-  /* STABLE prefix: procedural rules for this worker role (stable across turns/runs for same role). The JSON output contract is kept in its own critical-recap section (canonical order places it after volatile content such as learned-rules, so the "lessons precede the JSON contract" invariant is preserved while also reinforcing the contract at the very end of the prompt). */
-  const rulesBlock = [
+/* The most route paths of the map the explorer is shown, and the longest one it is shown whole: the map is data read from a file, so each path is cleaned and bounded where it is rendered. */
+export const MAX_EXPLORER_MAP_ROUTES = 80;
+const MAX_EXPLORER_MAP_ROUTE_CHARS = 160;
+
+/* The route paths the context map declares, so the explorer names a page it maps by the path the rest of the run already uses for it (the context pack ranks, matches and opens the map's routes by exactly that text). One path per line; none, no block. */
+function explorerMapRouteLines(input: OpencodeRunInput): string[] {
+  const declared: unknown = input.contextMap?.routes;
+  if (!Array.isArray(declared)) return [];
+  const seen = new Set<string>();
+  for (const entry of declared) {
+    const path: unknown = (entry as { path?: unknown } | null)?.path;
+    if (typeof path !== "string") continue;
+    const clean = sanitizeText(path).text.replace(/\s+/g, " ").trim().slice(0, MAX_EXPLORER_MAP_ROUTE_CHARS);
+    /* A path is shown whole in inline code: one with a backtick could end it early and write text of its own, and shown any other way it would no longer be the path the map declares. */
+    if (clean !== "" && !clean.includes("`")) seen.add(clean);
+  }
+  const paths = [...seen];
+  if (paths.length === 0) return [];
+  const listed = paths.slice(0, MAX_EXPLORER_MAP_ROUTES);
+  const rest = paths.length - listed.length;
+  return [
     ``,
-    `## Rules`,
-    ...(w.brief
-      ? [`- The Exploration brief already distilled the code — do NOT re-explore it with serena.`]
-      : []),
-    ...rules,
-    `- Do NOT write to the manifest — the orchestrator records metadata. Do NOT read or edit other workers' files.`,
-  ].join("\n");
-
-  const outputContract = `- End your reply with ONLY this JSON: {"spec":"${w.specFile}"}`;
-
-  const taskHeader = [
-    `Write ONE test for this objective. Write ONLY your assigned file.`,
-    ``,
-    `## ⚠ The ONE required outcome: the file exists on disk`,
-    `Your step budget is LIMITED. Writing ${w.e2eRelDir}/${w.specFile} with the \`write\` tool is the only`,
-    `result that counts — a perfect spec you never wrote is a TOTAL FAILURE (it counts as a phantom and`,
-    `the whole flow is dropped). So: WRITE the file EARLY with selectors from the injected tree,`,
-    `and only then refine if budget remains. Never end your turn without having written the file.`,
-    ``,
-    `## Objective`,
-    sanitizeText(w.objective).text,
-  ].join("\n");
-
-  const contextLines = [
-    `## Context`,
-    `- Flow: ${w.flow}`,
-    w.brief
-      ? `- The blast radius is distilled in the Exploration brief below — use it; do NOT re-read the code.`
-      : `- Affected code symbols (read them with serena): ${w.symbols.join(", ") || "(none specified)"}`,
-    `- Namespace prefix for any data you create: ${w.namespace}`,
-    `- Write EXACTLY this file: ${w.e2eRelDir}/${w.specFile}  — do not create or edit any other file.`,
-    ...(w.needsUi ? [`- Import the shared harness: import { test, expect } from "../fixtures"`] : []),
-    ...(w.brief ? [``, renderBrief(w.brief)] : []),
-  ].join("\n");
-
-  const domContent = w.needsUi && w.domSnapshot
-    ? [
-        `## Injected a11y tree (GROUND TRUTH — your ONLY source of DOM truth)`,
-        `These are the roles + accessible names the browser ACTUALLY exposes for this flow's route(s).`,
-        `You have NO browser MCP. You do NOT need to navigate or snapshot — the tree is below.`,
-        `Author selectors ONLY from what appears here (transcribe, do NOT guess).`,
-        `ONLY the route(s) printed below are grounded. If your objective also touches a route that is NOT`,
-        `shown here, mark that route's selectors unverified (e.g. // selector unverified — route not captured).`,
-        `If a role you expected (e.g. \`columnheader\`) is NOT listed, it is NOT in the tree:`,
-        `use \`getByText\` or a scoped locator instead. If a name appears MORE THAN ONCE,`,
-        `scope it to a unique parent (a bare getByRole/getByText would match multiple → strict-mode error).`,
-        `Lines tagged [CHANGED: …] are what THIS change introduced — your objective targets these.`,
-        w.domSnapshot,
-      ].join("\n")
-    : "";
-
-  const learnedRulesContent = w.learnedRules
-    ? [`## Lessons learned from past runs (avoid repeating these)`, w.learnedRules].join("\n")
-    : "";
-
-  const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
-  const MAX_LINKS = 40;
-  const MAX_DRIFT = 20;
-  const hasLinks = Boolean(w.serviceLinks?.length);
-  const hasDrift = Boolean(w.contractDrift?.length);
-  const linkKey = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string =>
-    `${l.from.repo}/${l.from.file}#${l.from.symbol}->${l.to.repo}`;
-  const impactedTierByKey = new Map(
-    (w.crossRepoImpact?.impactedLinks ?? []).map(({ link, tier }) => [linkKey(link), tier] as const),
-  );
-  const tierFor = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string | undefined =>
-    impactedTierByKey.get(linkKey(l));
-  const orderedLinks =
-    impactedTierByKey.size > 0 && hasLinks
-      ? [
-          ...w.serviceLinks!.filter((l) => tierFor(l) !== undefined),
-          ...w.serviceLinks!.filter((l) => tierFor(l) === undefined),
-        ]
-      : w.serviceLinks ?? [];
-  const workerOmittedLinkCount = hasLinks ? Math.max(0, orderedLinks.length - MAX_LINKS) : 0;
-  const workerServiceLinksContent =
-    hasLinks || hasDrift
-      ? [
-          "## Cross-service links (deterministic — from the stitcher, advisory)",
-          "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
-          "",
-          ...(hasLinks
-            ? orderedLinks.slice(0, MAX_LINKS).map((l) => {
-                const tier = tierFor(l);
-                return renderServiceLinkLine(l, s, tier);
-              })
-            : []),
-          ...(workerOmittedLinkCount > 0 ? [`...and ${workerOmittedLinkCount} more link${workerOmittedLinkCount === 1 ? "" : "s"} (truncated at MAX_LINKS=${MAX_LINKS})`] : []),
-          ...(hasDrift
-            ? ["", "### Contract drift (WARNINGS — front calls an endpoint the backend contract does not declare):",
-               ...w.contractDrift!.slice(0, MAX_DRIFT).map((d) =>
-                 `- WARNING: \`${s(d.from.repo)}/${s(d.from.file)}#${s(d.from.symbol)}\` calls ${s(d.verb)} ${s(d.path)} — not in the contract`)]
-            : []),
-        ].join("\n")
-      : "";
-
-  return assemble([
-    section("worker-rules", "stable-prefix", rulesBlock, { priority: 1, cacheable: true }),
-    section("worker-context", "semi-stable", contextLines, { priority: 1 }),
-    ...(w.staticSignal ? [section("static-signal", "semi-stable", w.staticSignal, { priority: 3 })] : []),
-    ...(workerServiceLinksContent ? [section("worker-service-links", "semi-stable", workerServiceLinksContent, { priority: 3 })] : []),
-    ...(domContent ? [section("worker-dom", "volatile", domContent, { priority: 1 })] : []),
-    ...(learnedRulesContent ? [section("worker-learned-rules", "volatile", learnedRulesContent, { priority: 2 })] : []),
-    section("worker-task", "task", taskHeader, { priority: 1 }),
-    section("worker-output-contract", "critical-recap", outputContract, { priority: 1 }),
-  ], { budgetBytes: roleWindowBytes(w.needsUi ? "qa-worker" : "qa-worker-code") });
-}
-
-export function buildWorkerPrompt(w: ParallelWorkerInput): string {
-  return buildWorkerPromptAssembled(w).text;
+    `## Routes of the app (from the context map)`,
+    `When a page you map is one of these routes, set \`routes[].path\` to its listed path verbatim; name any other page by its path in the app's router.`,
+    ...listed.map((path) => `- \`${path}\``),
+    ...(rest > 0 ? [`(+${rest} more not shown)`] : []),
+  ];
 }
 
 export function buildExplorerPrompt(input: OpencodeRunInput): string {
@@ -312,6 +267,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
       ...(input.service
         ? [``, `## Cross-repo (microservice)`, `Related service: ${input.service.repo} (a READ-ONLY staged snapshot — contracts + this commit's changed files, not the full source — is at ${input.service.mirrorDir}). Map the FRONTEND flows that exercise it.`]
         : []),
+      ...explorerMapRouteLines(input),
       ``,
       ...explorerStepLimitLines(input),
       `## Output — set builtForSha to ${input.sha}; end with ONLY the ExplorationBrief JSON (schema in your role prompt).`,
@@ -328,7 +284,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
     `## Commit message (the author's intent — subject + body)`,
     renderCommitMessage(input.intent, true),
     ``,
-    `## Commit diff`,
+    COMMIT_DIFF_HEADING,
     "```diff",
     cappedDiffText(input.diff),
     "```",
@@ -336,6 +292,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
     ...(input.service
       ? [``, `## Cross-repo change (microservice)`, `The change is in ${input.service.repo} (a READ-ONLY staged snapshot — contracts + this commit's changed files, not the full source — is at ${input.service.mirrorDir}). Map the FRONTEND flows that exercise it.`]
       : []),
+    ...explorerMapRouteLines(input),
     ``,
     ...explorerStepLimitLines(input),
     `## Output — set builtForSha to ${input.sha}; end with ONLY the ExplorationBrief JSON (schema in your role prompt).`,
@@ -377,14 +334,23 @@ function renderServiceLinkLine(
 
 function renderFixCaseEvidenceLines(c: QaCase): string[] {
   const lines: string[] = [];
-  if (c.httpStatus !== undefined || c.finalUrl !== undefined) {
-    const statusPart = c.httpStatus !== undefined ? `HTTP ${c.httpStatus}` : "HTTP (unknown)";
+  const hasNetworkErrors = c.networkErrors !== undefined && c.networkErrors.length > 0;
+  if (c.httpStatus !== undefined) {
     const urlPart = c.finalUrl !== undefined ? ` at ${redactForModel(c.finalUrl)}` : "";
-    lines.push(`  ${statusPart}${urlPart}`);
+    lines.push(`  HTTP ${c.httpStatus}${urlPart}`);
+  } else if (!hasNetworkErrors && c.finalUrl !== undefined) {
+    /* The unknown HTTP line was misleading next to real network evidence, so it is only printed when there is none. */
+    lines.push(`  HTTP (unknown) at ${redactForModel(c.finalUrl)}`);
+  }
+  if (c.networkErrors?.length) {
+    for (const e of c.networkErrors.slice(0, 3)) {
+      const label = e.status !== undefined ? String(e.status) : e.errorText ?? "failed";
+      lines.push(stripAnsi(`  NET ${label} ${redactForModel(e.url)}`).slice(0, 400));
+    }
   }
   if (c.runtimeErrors?.length) {
     for (const e of c.runtimeErrors.slice(0, 3)) {
-      lines.push(`  [${e.type}] ${redactForModel(e.text).slice(0, 200)}`);
+      lines.push(`  [${e.type}] ${stripAnsi(redactForModel(e.text)).slice(0, 200)}`);
     }
   }
   return lines;
@@ -392,7 +358,7 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
 
 /* A failing case as a prompt lists it: its name, the start of its error and what the run saw of the page. The case comes out of the test run, so each text is redacted before it is cut, and no secret is left in part by the cut. */
 function renderFixCase(c: QaCase): string[] {
-  const error = c.detail === undefined ? "(no detail)" : redactForModel(c.detail).slice(0, 500);
+  const error = c.detail === undefined ? "(no detail)" : stripAnsi(redactForModel(c.detail)).slice(0, 500);
   return [`- ${redactForModel(c.name)}\n  Error: ${error}`, ...renderFixCaseEvidenceLines(c)];
 }
 
@@ -448,7 +414,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `- This is a CODE mode run: you are testing source-code logic, not a deployed web app.`,
           /* The conventions of the repo's tests are read once, on the first pass: a regeneration works from the failing tests and the code under test. */
           `- Detect the test framework from the repo's dependencies.${isReGen ? "" : " Read 2-3 existing test files for conventions. Match them exactly."}`,
-          `- Place generated tests alongside existing ones. Use the repo's existing test command. Do not install new dependencies.`,
+          `- Place generated tests alongside existing ones. Do not install new dependencies. Run no command: the orchestrator compiles and runs the tests after you finish and returns any compile or test failure to you.`,
           `- In your closing verdict JSON, include specMetas with {file, flow, objective, targets} for each spec so the orchestrator can write the manifest deterministically.`,
           `- Classify each affected symbol:`,
           `  * Pure function → unit test: call with inputs, assert outputs`,
@@ -458,7 +424,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `- Assert on BEHAVIOR, not implementation. Include edge cases.`,
           `- One objective per test. Use realistic test data.`,
           `- Never write a test whose only assertion is "does not throw".`,
-          `- COMPILE-CHECK before finishing: after writing/fixing the tests, compile them with the project's build tool (mvn -B test-compile · gradle testClasses · go vet ./... · cargo check --tests · npx tsc --noEmit) and FIX any errors BEFORE emitting your verdict. The orchestrator runs the suite only AFTER you finish — a compile failure costs a full regeneration round, so a clean compile is cheaper than a fix loop.`,
         ]
       : [
           `- Work in the repo's tests folder: ${input.e2eRelDir}/ (source of truth in git). Reuse and improve existing fixtures/specs; do not duplicate.`,
@@ -708,13 +673,14 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const fixContentClaims: PromptClaim[] = fixContent && hasFailureTree ? [claim.directs("consult", "dom-failure")] : [];
 
-  /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent must resolve every flagged item before finishing. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
+  /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent addresses every flagged item, correcting it or rebutting it with evidence. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
   const reviewContent = input.reviewCorrections?.length && isGenerationMode
     ? [
         `## Apply reviewer corrections (HIGHEST priority)`,
         ``,
-        `An independent reviewer REJECTED the previous specs. Fix EACH item below precisely;`,
-        `do NOT rewrite specs that were not flagged.`,
+        `An independent reviewer REJECTED the previous specs. Address each finding below: fix the spec`,
+        `when the finding holds, or rebut it with the evidence the correction turn accepts when you can show`,
+        `it is wrong. Do NOT rewrite specs that were not flagged.`,
         treeInPrompt
           ? `Re-verify against the injected grounding above (the DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
           : isCode
@@ -746,6 +712,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ``,
       ].join("\n")
     : "";
+
+  /* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Capped, sanitized, and never an order: the generator decides how to restore what its bytes weakened. */
+  const contractFeedbackContent = input.contractFeedback?.length && isGenerationMode ? renderContractViolations(input.contractFeedback) : "";
 
   const learnedRulesContent = input.learnedRules && isGenerationMode
     ? [input.learnedRules, ``].join("\n")
@@ -840,32 +809,19 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const harnessFactsContent = isGenerationMode && input.harnessFacts ? renderHarnessFacts(input.harnessFacts, input.e2eRelDir) : "";
 
-  const diffArchetypesContent =
-    input.diffArchetypes?.length && isGenerationMode
-      ? `Change shape (deterministic): ${input.diffArchetypes.join(", ")} — prioritise tests that exercise these`
-      : "";
-
-  /* CHANGE-COVERAGE OBSERVATION marker: no deterministic oracle exists for "did the rich exemplar template change generation quality" — flagging here (+ engram) so a future audit can measure rich-exemplar vs one-line-diffArchetypes-hint defect-catch rate. No live caller populates input.structuralPatterns, so without a local derivation the "archetype-matched templates re-enter the generation prompt" scenario went unmet for a real run. Derived HERE instead, at the layer that already holds the diff (this function already reads input.diff for cappedDiffText above), rather than adding new qa-engine plumbing: an explicitly-supplied input.structuralPatterns still wins; only a genuinely absent/empty one falls back to a local derivation from the diff already in scope. */
+  /* The templates the curriculum selected for the structural patterns of this change, in its order, with the marker of each pattern that has caught a defect. The fold credits exactly these, so a template the curriculum did not select is never rendered. */
   const skillExemplarsContent = (() => {
-    if (!isGenerationMode) return "";
-    if (input.skillExemplars?.length) {
-      const proven: Record<string, number> = {};
-      for (const e of input.skillExemplars) if (e.proven && e.promotionCount > 0) proven[e.archetype] = e.promotionCount;
-      return renderExemplarsForPrompt(input.skillExemplars, { proven });
-    }
-    const patterns = input.structuralPatterns?.length
-      ? input.structuralPatterns
-      : detectStructuralPatterns(input.diff, input.intent?.changedFiles ?? []);
-    const matched = patterns.flatMap((p) => matchExemplars(p));
-    const seenNames = new Set<string>();
-    const deduped = matched.filter((e) => {
-      if (seenNames.has(e.name)) return false;
-      seenNames.add(e.name);
-      return true;
-    });
-    return renderExemplarsForPrompt(deduped);
+    if (!isGenerationMode || !input.skillExemplars?.length) return "";
+    const proven: Record<string, number> = {};
+    for (const e of input.skillExemplars) if (e.proven && e.promotionCount > 0) proven[e.archetype] = e.promotionCount;
+    return renderExemplarsForPrompt(input.skillExemplars, { proven });
   })();
 
+  const closedLoopContent = isGenerationMode && input.target === "e2e" && input.closedLoop ? renderClosedLoop(input.closedLoop) : "";
+  const agentBrowserContent = isGenerationMode && input.target === "e2e" && input.agentBrowser ? renderAgentBrowser(input.agentBrowser) : "";
+  const geolocationContent = isGenerationMode && input.target === "e2e" && input.geolocation ? renderGeolocation(input.geolocation) : "";
+  /* Only the first pass is planned: a regeneration repairs specs that exist. */
+  const leadPlanContent = isGenerationMode && input.target === "e2e" && input.planning && !isReGenTurn(input) ? renderLeadPlan(input.planning) : "";
   const stepLimitContent = input.stepLimit !== undefined ? renderStepLimit(input.stepLimit) : "";
   const milestone = input.stepLimit !== undefined ? stepMilestone(input, input.stepLimit) : undefined;
   const stepMilestoneContent = milestone ? renderStepMilestone(milestone) : "";
@@ -878,27 +834,31 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     return assemble([
       section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
       ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
-      ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
-      ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
+      ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims, ...(archMap ? { itemIds: archMap.itemIds, omissions: archMap.omissions } : {}) })] : []),
+      ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims, ...(input.contextBrief ? { itemIds: briefItemIds(input.contextBrief) } : {}) })] : []),
       ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
+      ...(closedLoopContent ? [section(CLOSED_LOOP_SECTION_ID, "semi-stable", closedLoopContent, { priority: 0, claims: [claim.provides("closed-loop")] })] : []),
+      ...(agentBrowserContent ? [section(AGENT_BROWSER_SECTION_ID, "semi-stable", agentBrowserContent, { priority: 0, claims: [claim.provides("agent-browser")] })] : []),
+      ...(geolocationContent ? [section(GEOLOCATION_SECTION_ID, "semi-stable", geolocationContent, { priority: 0, claims: [claim.provides("geolocation")] })] : []),
       ...(suiteIsListed ? [section(SUITE_LISTING_SECTION_ID, "semi-stable", listingContent, { priority: 2, claims: [claim.provides("existing-suite")], ...(editableListed ? { overflow: "summarize" as const } : {}) })] : []),
-      ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
-      ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
-      ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
+      ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims, itemIds: advisoryLineIds(staticSignalContent) })] : []),
+      ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims, ...(hasServiceLinks ? { itemIds: orderedLinks.slice(0, MAX_LINKS).map((l) => itemId.svcLink(l)), ...(omittedLinkCount > 0 ? { omissions: [{ class: "selection", reason: "link-selection", count: omittedLinkCount }] } : {}) } : {}) })] : []),
       ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536, claims: [claim.provides("exemplars")] })] : []),
       ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
-      ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims })] : []),
+      ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims, ...(input.contextPackItemIds ? { itemIds: input.contextPackItemIds } : {}), ...(input.contextPackOmissions ? { omissions: input.contextPackOmissions } : {}) })] : []),
       /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
       ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1, claims: domClaims })] : []),
       ...(selectorContradictionsContent ? [section("selector-contradictions", "volatile", selectorContradictionsContent, { priority: 2, claims: selectorContradictionsClaims })] : []),
       ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3, claims: fixContentClaims })] : []),
       /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
       ...(reviewContent ? [section("reviewer-corrections", "volatile", reviewContent, { priority: 4, maxBytes: 20_000, overflow: "drop" })] : []),
+      ...(contractFeedbackContent ? [section(CONTRACT_FEEDBACK_SECTION_ID, "volatile", contractFeedbackContent, { priority: 4, maxBytes: 6_000, overflow: "drop" })] : []),
       ...(coverageContent ? [section("coverage-gap", "volatile", coverageContent, { priority: 5, shedAs: "critical-recap" })] : []),
       ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2, claims: [claim.provides("learned-rules")] })] : []),
       section("task", "task", task.text, { priority: 1, claims: task.claims }),
       ...(diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable", claims: [claim.provides("diff")] })] : []),
       /* The cap the runtime enforces for this turn, when the host resolved one: a fact of its own, then, on a turn that writes tests, the step by which it should have written something. Both close the prompt. */
+      ...(leadPlanContent ? [section(LEAD_PLAN_SECTION_ID, "critical-recap", leadPlanContent, { priority: 0, claims: [claim.provides("lead-plan")] })] : []),
       ...(stepLimitContent ? [section(STEP_LIMIT_SECTION_ID, "critical-recap", stepLimitContent, { priority: 1, claims: [claim.provides("step-limit")] })] : []),
       ...(stepMilestoneContent ? [section(STEP_MILESTONE_SECTION_ID, "critical-recap", stepMilestoneContent, { priority: 2 })] : []),
     ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
@@ -960,7 +920,7 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
   if (input.reviewCorrections?.length) {
     parts.push(
       `## Apply reviewer corrections (HIGHEST priority)`,
-      `An independent reviewer REJECTED the previous specs. Fix EACH item; do NOT rewrite specs not flagged.`,
+      `An independent reviewer REJECTED the previous specs. Address each finding: fix the spec when it holds, rebut it with evidence when it does not. Do NOT rewrite specs not flagged.`,
       ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
       ``,
     );
@@ -976,7 +936,6 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
   return parts.join("\n");
 }
 
-
 /** context.json is read from the WATCHED repo (and committed by this system's own PRs), so it is attacker-influenceable. Every field is sanitized before it reaches the test-writing agent (prompt-injection / secret-exfil defense), and the map is BOUNDED so a huge file cannot blow the token budget. `s()` redacts; MAX_ITEMS caps each section. */
 export function renderArchitectureContext(
   ctx: ArchitectureContext,
@@ -986,25 +945,25 @@ export function renderArchitectureContext(
   return renderArchitectureContextParts(ctx, changedFiles, opts)?.text ?? null;
 }
 
-/** The rendered map plus the claims its content makes: the map itself, its API operations and its FE↔BE links when they were rendered. */
+/** The rendered map plus the claims its content makes: the map itself, its API operations and its FE↔BE links when they were rendered, and the grounding ids the delivered span records. */
 export function renderArchitectureContextParts(
   ctx: ArchitectureContext,
   changedFiles?: string[],
   opts: { suppressFeBeLinks?: boolean; suppressApiOperations?: boolean } = {},
-): { text: string; claims: PromptClaim[] } | null {
+): { text: string; claims: PromptClaim[]; itemIds: string[]; omissions: Omission[] } | null {
   if (!ctx.routes?.length && !ctx.api?.length) return null;
 
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
   const MAX_ITEMS = 200;
   const MAX_LEN = 20_000;
 
-  const relevantLinks = (changedFiles?.length
+  const fullFeBe = changedFiles?.length
     ? ctx.feBe?.filter((link) => {
         const terms = [link.route, link.via ?? "", link.operationId].filter((t) => t && t.length >= 3);
         return changedFiles.some((f) => terms.some((t) => f.includes(t)));
       }) ?? ctx.feBe ?? []
-    : ctx.feBe ?? []
-  ).slice(0, MAX_ITEMS);
+    : ctx.feBe ?? [];
+  const relevantLinks = fullFeBe.slice(0, MAX_ITEMS);
 
   const lines: string[] = [];
   lines.push(`## ${PROMPT_HEADINGS.architectureContext} (from e2e/.qa/context.json)`);
@@ -1051,7 +1010,25 @@ export function renderArchitectureContextParts(
   const claims: PromptClaim[] = [claim.provides("arch-map"), claim.frames("arch-map", "unverified")];
   if (listsApiOperations) claims.push(claim.provides("api-operations"));
   if (relevantLinks.length && !opts.suppressFeBeLinks) claims.push(claim.provides("fe-be-links"));
-  return { text: out.length > MAX_LEN ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims };
+  /* The ids of what the rendered map supplies, in the map's own order. A map truncated past MAX_LEN delivers none of them (conservative). */
+  const truncated = out.length > MAX_LEN;
+  const itemIds = truncated
+    ? []
+    : [
+        ...ctx.routes.slice(0, MAX_ITEMS).map((r) => itemId.route(r.path)),
+        ...(listsApiOperations ? ctx.api.slice(0, MAX_ITEMS).map((o) => itemId.op(o.operationId)) : []),
+        ...(!opts.suppressFeBeLinks ? relevantLinks.map((l) => itemId.link(l.route, l.operationId)) : []),
+        ...(ctx.flows?.length ? ctx.flows.slice(0, MAX_ITEMS).map((f) => itemId.flow(f.id)) : []),
+      ];
+  /* The entries each rendered list left out to MAX_ITEMS, and only those: a list the caller suppressed (API operations, FE↔BE
+   * links) was never rendered, so its cap is not an omission, and a list under the cap omits nothing. */
+  const mapCapOmitted =
+    Math.max(0, ctx.routes.length - MAX_ITEMS)
+    + (listsApiOperations ? Math.max(0, ctx.api.length - MAX_ITEMS) : 0)
+    + (!opts.suppressFeBeLinks && fullFeBe.length > 0 ? Math.max(0, fullFeBe.length - MAX_ITEMS) : 0)
+    + (ctx.flows?.length ? Math.max(0, ctx.flows.length - MAX_ITEMS) : 0);
+  const omissions: Omission[] = mapCapOmitted > 0 ? [{ class: "truncation", reason: "map-cap", count: mapCapOmitted }] : [];
+  return { text: truncated ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims, itemIds, omissions };
 }
 
 /* What a rendered brief provides and how it frames it: the blast radius, risks and contracts it distilled are established, its landmark hints (kept only when no DOM tree exists) are not. */
@@ -1107,6 +1084,7 @@ export function buildContextTask(input: OpencodeRunInput): string {
     `1. **routes** — every frontend entry URL (the unit an E2E targets) + the component it renders.`,
     `   Extract FROM the Angular routing files (e.g. app.routes.ts, *.routes.ts).`,
     `   Required per entry: path (e.g. "/checkout"). Optional: name, component, source.`,
+    `   Also give implementationFiles: the repo-relative files that implement the route's page (the files a change to that page would touch, with its template and style files when separate).`,
     ``,
     `2. **api** — every backend operation the app calls.`,
     `   Extract FROM the OpenAPI specs${openapiHint ? ` (hint: ${openapiHint})` : " (search with serena/glob for openapi or swagger files)"}.`,
@@ -1240,7 +1218,7 @@ function buildCodeTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     `Cross-check against the diff: if the code does more than the message claims, test what the code`,
     `actually changes, not just what the message promises.`,
     ``,
-    `## Commit diff`,
+    COMMIT_DIFF_HEADING,
     "```diff",
     cappedDiffText(input.diff),
     "```",
@@ -1330,7 +1308,7 @@ interface TaskGuards {
   reaskObjective: boolean;
 }
 
-/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and deciding that nothing here is worth a test is within every bound. `upperBound` counts focused specs for the whole change, or for each affected flow. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
+/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and declaring the no-op, for either of its reasons, is within every bound. `upperBound` counts focused specs for the whole change, or for each affected flow. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
 export interface EffortTier {
   upperBound: { specs: number; per: "change" | "flow" };
   admitsNoOp: true;
@@ -1338,7 +1316,7 @@ export interface EffortTier {
 }
 
 /* The clause every tier ends with, so that what the data declares (the no-op is admitted) is what the text says. */
-export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test";
+export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test or the change cannot be observed on DEV in its current state";
 const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_NO_OP_CLAUSE}.`;
 
 export const EFFORT_BY_TIER: Record<DiffTier, EffortTier> = {
@@ -1407,8 +1385,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
     `## Commit message (the author's intent — derive each test's objective from this)`,
     renderCommitMessage(intent, true),
     ``,
-    `Cross-check against the diff: if the code does more than the message claims, cover what`,
-    `the code actually changes, not just what the message promises.`,
+    `Cross-check against the diff: cover what the code actually changes, not only what the message promises.`,
     ``,
     ...classifierNoteLines(input),
     objective.text,
@@ -1424,8 +1401,8 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
           `limitation explicitly in your verdict note.`,
           ``,
         ]),
-    `## Scope budget (diff mode — do NOT over-work)`,
-    `The blast radius IS your budget. ${sizeSentence(stat)} so keep generation fast and focused:`,
+    `## Scope budget (diff mode)`,
+    `The blast radius IS your budget. ${sizeSentence(stat)} so keep it focused:`,
     ...(guards.blastRadiusGrounded ? [] : [`- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`]),
     `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
     /* The listing supplies the suite; the read of it is declared only where nothing lists it. */
@@ -1449,7 +1426,7 @@ function buildDiffSection(input: OpencodeRunInput): string {
   if (isReGenTurn(input)) return "";
   /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
   return [
-    `## Commit diff`,
+    COMMIT_DIFF_HEADING,
     "```diff",
     cappedDiffText(input.diff),
     "```",
@@ -1481,7 +1458,7 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
   }
   const commitDiffObjective = () => ({
     subject: "this commit",
-    heading: `## Commit diff`,
+    heading: COMMIT_DIFF_HEADING,
     /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
     body: ["```diff", cappedDiffText(input.diff), "```"],
     targetNoun: "the change",
@@ -1523,7 +1500,7 @@ export function renderReviewSpecs(input: ReviewInput): string {
   return `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}`;
 }
 
-/** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is authoritative evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — injected by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Output is bounded at 4000 chars total; per-case detail is capped at 500 chars. finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
+/** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — captured by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Output is bounded at 4000 chars total; per-case detail is capped at 500 chars. finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
 export interface ExecutionResultCase {
   name: string;
   httpStatus?: number;
@@ -1541,7 +1518,7 @@ export function renderExecutionResult(evidence: {
   const CAP_DETAIL_INTERNAL = CAP_DETAIL - 130;
 
   const lines: string[] = [
-    `## RUNTIME EXECUTION RESULT (authoritative — captured by the orchestrator, not inferred)`,
+    `## RUNTIME EXECUTION RESULT (captured by the orchestrator, not inferred)`,
     ``,
     `Verdict: ${evidence.verdict}`,
     ``,
@@ -1567,6 +1544,35 @@ export function renderExecutionResult(evidence: {
   return capText(raw, CAP_TOTAL_INTERNAL);
 }
 
+/* At most this many violations reach one prompt; the rest are counted so the agent knows the list is abridged. */
+const CONTRACT_FEEDBACK_MAX = 6;
+
+export const CONTRACT_FEEDBACK_SECTION_ID = "contract-feedback";
+
+/**
+ * The intent lock's violations as a facts section: each line names the rule, the clause and what the
+ * contract held before and after. Every text is redacted and cut, so a literal that carries a secret
+ * never reaches the model, and the section states counts rather than demanding anything.
+ */
+export function renderContractViolations(
+  violations: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[],
+): string {
+  const shown = violations.slice(0, CONTRACT_FEEDBACK_MAX);
+  const lines = [
+    `## Contract violations (the intent contract this run fixed on these specs)`,
+    ``,
+    `The intent contract was derived from the primary pass's own bytes. Each line is a delta the orchestrator found between that contract and the bytes of the last turn:`,
+    ``,
+    ...shown.map(
+      (violation) =>
+        `- ${sanitizeText(violation.rule).text} ${sanitizeText(violation.file).text}#${sanitizeText(violation.clauseId).text}: ${capText(sanitizeText(violation.before).text, 200)} → ${capText(sanitizeText(violation.after).text, 200)}`,
+    ),
+    ...(violations.length > shown.length ? [``, `(${violations.length - shown.length} more not shown.)`] : []),
+    ``,
+  ];
+  return lines.join("\n");
+}
+
 export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPrompt {
   const changeType = input.intent?.type ?? input.mode;
   const specBlock = renderReviewSpecs(input);
@@ -1574,6 +1580,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
   const obj = reviewObjective(input);
 
   const roleFramingContent = [
+    `<!-- reviewer-prompt-version: ${REVIEWER_PROMPT_VERSION} -->`,
     `## Independent review — judge these ${kind} WITHOUT the generator's reasoning`,
     ``,
     `You are reviewing tests written for ${obj.subject}, but you have NO access to the`,
@@ -1586,7 +1593,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
   ].join("\n");
 
   const rulesInstruction = input.learnedRules
-    ? [`6. Also REJECT if any spec violates an app-specific reject-on-sight rule provided in this prompt.`]
+    ? [`7. Also REJECT if any spec violates an app-specific reject-on-sight rule provided in this prompt.`]
     : [];
   const instructionsContent = [
     `## Instructions`,
@@ -1600,13 +1607,19 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
       + ` assert a UI fact from memory: an unconfirmed guess that a label/route "should be" something is`
       + ` NOT a valid correction — omit it. Reject on what you can SEE (no assertions, fragile selectors,`
       + ` wrong objective, missing cleanup), not on guessed app specifics.`,
+    `6. The "Specs under review" are the specs this run delivered. The "Existing suite" section is`
+      + ` context only: never reject a spec because an existing suite file does not cover this change.`,
     ...rulesInstruction,
   ].join("\n");
 
   const outputContractContent = [
-    `Output your verdict as JSON with no text before or after. Always include a one or two`,
-    `sentence "rationale" explaining the verdict — on APPROVAL too (why these tests genuinely`,
-    `defend ${obj.targetNoun}), not only on rejection.`,
+    `## Output — one JSON object, nothing else`,
+    `Your ENTIRE reply is the JSON object below: no prose before or after it, no markdown fence, no`,
+    `restatement of the specs, no analysis of your process. Text outside the object is discarded.`,
+    `- "rationale": 1-2 sentences, ${REVIEW_RATIONALE_MAX_CHARS} characters at most, on APPROVAL too —`,
+    `  name ${obj.targetNoun} and what these tests do or fail to do about it.`,
+    `- "corrections": at most ${REVIEW_CORRECTIONS_MAX} entries, each "text" at most ${REVIEW_CORRECTION_MAX_CHARS}`,
+    `  characters (what file, what to change, why), blocking entries first.`,
     `Prefix EVERY correction with exactly one class tag from this closed list so the failure`,
     `is machine-classifiable: [false-positive] (asserts nothing / passes when the feature is`,
     `broken), [wrong-objective] (does not test ${obj.targetNoun}), [fragile-selector] (ambiguous or`,
@@ -1615,7 +1628,13 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     `- "blocking": this issue makes the test worthless (false-positive, wrong-objective, missing cleanup) — fails the gate.`,
     `- "advisory": style/robustness nit that does not make the test worthless alone — recorded but does not fail the gate.`,
     `An unconfirmable UI selector (no DOM evidence in this prompt) MUST be advisory, never blocking.`,
-    `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking"},{"text":"[other] file.spec.ts: minor style nit","severity":"advisory"}]}`,
+    `Every correction MUST also carry "citation", the evidence it rests on, as {"kind":...,"ref":...}:`,
+    `- "contract": the spec's contract clause it violates; ref is "<spec path>#<clause>".`,
+    `- "execution": an execution of this run that shows it; ref is the "<spec path>" that ran.`,
+    `- "dom": a fact from the DOM section above; ref is the "<spec path>" it concerns (always advisory).`,
+    `A correction with no citation cannot block: the orchestrator treats it as advisory at most.`,
+    `An empty "corrections" list beside "approved": true is a complete answer — never invent a finding to look thorough.`,
+    `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking","citation":{"kind":"execution","ref":"file.spec.ts"}}]}`,
   ].join("\n");
 
   const objectiveContent = [obj.heading, ...obj.body].join("\n");
@@ -1633,6 +1652,15 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     : "";
 
   const specContent = specBlock;
+  /* The existing suite is context, never a review target: the reviewer sees what already exists so
+   * it does not mistake a pre-existing file for a missing part of this change. */
+  const existingSpecsContent = input.existingSpecFiles?.length
+    ? [
+        `## Existing suite — context only`,
+        `These files already exist in the suite. Do NOT judge them and do NOT raise corrections against them; judge only the specs in the "Specs under review" section.`,
+        ...input.existingSpecFiles.map((file) => `- ${sanitizeText(file).text}`),
+      ].join("\n")
+    : "";
 
   const learnedRulesContent = input.learnedRules ? [``, input.learnedRules].join("\n") : "";
 
@@ -1643,10 +1671,11 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     const raw = [
       `## Prior-round corrections (from YOUR previous verdict on these specs)`,
       ``,
-      `The generator has addressed these corrections. Your task for this round:`,
-      `- APPROVE if the previously-raised BLOCKING issues are now resolved (do not re-raise them as new blocking corrections).`,
-      `- NEW blocking issues on UNCHANGED specs: only if the prior-round fix introduced a new anti-pattern.`,
-      `- Advisory nits on specs that are functionally identical to the prior round: omit.`,
+      `Only the specs listed as materially changed in the next section are new to you; the spec`,
+      `change is excerpted there. Judge that change, not the whole suite again.`,
+      `- APPROVE if the previously-raised BLOCKING issues are resolved (do not re-raise them).`,
+      `- Raise a NEW blocking correction only if the change introduced a new anti-pattern.`,
+      `- Omit advisory nits; they are not worth a round.`,
       ``,
       lines,
     ].join("\n");
@@ -1655,6 +1684,24 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
       return truncated + "\n… (truncated — see spec contents for the full picture)";
     }
     return raw;
+  })();
+
+  /* Second-round focus: the spec lines that changed since the reviewer's own rejection, bounded and
+   * sanitized like every other agent-authored text that becomes prompt text. */
+  const SPEC_CHANGE_MAX_BYTES = 4_000;
+  const specChangeContent = (() => {
+    if (!input.specChanges || input.specChanges.trim() === "") return "";
+    const raw = [
+      `## Spec change since your last rejection (material change only)`,
+      ``,
+      `This is the change the generator made in response to your corrections. Anything not shown here`,
+      `is unchanged since the specs you already judged.`,
+      ``,
+      sanitizeText(input.specChanges, "model").text,
+    ].join("\n");
+    return Buffer.byteLength(raw, "utf8") > SPEC_CHANGE_MAX_BYTES
+      ? `${raw.slice(0, SPEC_CHANGE_MAX_BYTES)}\n… (change truncated)`
+      : raw;
   })();
 
   /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
@@ -1668,9 +1715,13 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     ...(domContent ? [section("reviewer-dom", "volatile", domContent, { priority: 1, maxBytes: 20_000, overflow: "summarize" })] : []),
     ...(executionResultContent ? [section("reviewer-execution-result", "volatile", executionResultContent, { priority: 1.5 })] : []),
     section("reviewer-specs", "volatile", specContent, { priority: 2, maxBytes: 44_000, overflow: "summarize" }),
+    ...(existingSpecsContent ? [section("reviewer-existing-suite", "volatile", existingSpecsContent, { priority: 3, maxBytes: 8_000, overflow: "summarize" })] : []),
     ...(learnedRulesContent ? [section("reviewer-learned-rules", "volatile", learnedRulesContent, { priority: 3 })] : []),
     /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
     ...(priorCorrectionsContent ? [section("reviewer-prior-corrections", "volatile", priorCorrectionsContent, { priority: 4 })] : []),
+    /* What the generator changed since the rejection this round answers: the smallest section in the
+     * prompt, and the one the round is about. Shed first when the window is tight. */
+    ...(specChangeContent ? [section("reviewer-spec-change", "volatile", specChangeContent, { priority: 5 })] : []),
     /* The cap the reviewer's session runs under, when the host resolved one: a fact of its own, placed before the verdict contract so that the contract still ends the prompt. */
     ...(input.stepLimit !== undefined ? [section(REVIEWER_STEP_LIMIT_SECTION_ID, "critical-recap", renderStepLimit(input.stepLimit), { priority: 0, claims: [claim.provides("step-limit")] })] : []),
     section("reviewer-output-contract", "critical-recap", outputContractContent, { priority: 1 }),

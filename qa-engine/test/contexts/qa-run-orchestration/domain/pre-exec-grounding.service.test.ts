@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  checkPersistingAmbiguity,
   checkPreExecGrounding,
   type RouteTree,
 } from "@contexts/qa-run-orchestration/domain/pre-exec-grounding.service.ts";
@@ -9,8 +8,9 @@ import {
 /* checkPreExecGrounding composes unscopedMultipleContradictions with the catalog gate
    (confidentWindowEnd / extractTestIdSelectorsWithIndex):
    - PER-SPEC ROUTE PAIRING — a spec is checked only against trees of routes IT targets.
-   - SAFE DIRECTION: catalog corrections feed ONLY the one-shot repair, NEVER a deterministic
-   block; degraded/unsettled routes are advisory; only a PERSISTING ambiguity may escalate.
+   - SAFE DIRECTION: only catalog corrections feed the one-shot repair; an ambiguity is ADVISORY
+   telemetry (the regex check has false positives that real execution does not), never a correction,
+   an origin or a block; degraded/unsettled routes are advisory.
    Input shape: RouteTree[] (route + nodes[] + optional catalog fields) — a domain-local, minimal
    mirror of generation/infrastructure's RouteSnapshot/RouteCatalog SHAPE (not imported — domain
    never imports another context; the use-case adapts the real capture into this shape).
@@ -19,13 +19,14 @@ import {
 test("checkPreExecGrounding: no routes captured -> zero corrections, zero counters", () => {
   const result = checkPreExecGrounding({ specSources: [`await page.goto("/owners");`], routes: [] });
   assert.deepEqual(result.corrections, []);
+  assert.deepEqual(result.ambiguities, []);
   assert.equal(result.preExecAmbiguityCatches, 0);
   assert.equal(result.catalogGateInWindow, 0);
   assert.equal(result.catalogGateAdvisory, 0);
   assert.equal(result.catalogGateFailClosed, 0);
 });
 
-test("checkPreExecGrounding: a page-rooted MULTIPLE ambiguity on the spec's OWN route is caught", () => {
+test("checkPreExecGrounding: a page-rooted MULTIPLE ambiguity on the spec's OWN route is counted and told, as an advisory and not as a correction", () => {
   const specSources = [
     `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click();`,
   ];
@@ -34,7 +35,8 @@ test("checkPreExecGrounding: a page-rooted MULTIPLE ambiguity on the spec's OWN 
   ];
   const result = checkPreExecGrounding({ specSources, routes });
   assert.equal(result.preExecAmbiguityCatches, 1);
-  assert.match(result.corrections[0]!, /MULTIPLE/);
+  assert.match(result.ambiguities[0]!, /MULTIPLE/);
+  assert.deepEqual(result.corrections, []);
 });
 
 /* Per-spec route pairing.
@@ -138,11 +140,8 @@ test("catalog gate corrections NEVER escalate preExecAmbiguityCatches — the tw
   assert.equal(result.preExecAmbiguityCatches, 0); /* catalog corrections are NOT ambiguity catches */
 });
 
-test("SAFE DIRECTION: corrections combine ambiguity + catalog for the one-shot repair channel", () => {
-  /* Both selectors sit BEFORE the first click, inside the confident window — an ambiguous
-     page-rooted role selector AND a fabricated test-id, on the SAME spec/route, must both surface
-     as corrections (they are independent sub-gates, composed, never one suppressing the other).
-   */
+test("SAFE DIRECTION: an ambiguity and a catalog correction on the SAME spec stay on their own channels", () => {
+  /* The ambiguous role selector sits before the first click and the fabricated test-id after it: the ambiguity is told as an advisory, and the test-id (outside the confident window) stays an advisory of the catalog gate. Neither is a correction. */
   const specSources = [
     `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click(); await page.getByTestId("ghost-id").fill("x"); await page.getByRole("button", { name: "Save" }).click();`,
   ];
@@ -151,9 +150,10 @@ test("SAFE DIRECTION: corrections combine ambiguity + catalog for the one-shot r
   ];
   const result = checkPreExecGrounding({ specSources, routes });
   assert.equal(result.preExecAmbiguityCatches, 1);
+  assert.equal(result.ambiguities.length, 1);
   assert.equal(result.catalogGateFailClosed, 0, "the ghost-id selector sits AFTER the first click — outside the confident window, so it stays advisory (not a correction)");
   assert.equal(result.catalogGateAdvisory, 1);
-  assert.equal(result.corrections.length, 1);
+  assert.deepEqual(result.corrections, []);
 });
 
 /* ── Which spec raised each correction ─────────────────────────────────────── */
@@ -162,26 +162,20 @@ const PAGE_ROOTED = `${OWNERS_PAGE} await page.getByRole("heading", { name: "Own
 const DISAMBIGUATED = `${OWNERS_PAGE} await page.getByRole("heading", { name: "Owners" }).first().click();`;
 const SCOPED = `${OWNERS_PAGE} await page.locator("main").getByRole("heading", { name: "Owners" }).click();`;
 const UNRELATED = `${OWNERS_PAGE} await page.getByRole("link", { name: "Home" }).click();`;
+const GHOST = `${OWNERS_PAGE} await page.getByTestId("ghost-id").click();`;
 const TWO_OWNERS: RouteTree[] = [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners", "link: Home"] }];
+const OWNERS_WITHOUT_GHOST: RouteTree[] = [{ route: "/owners", nodes: [], status: "captured", settled: true, testIds: new Map() }];
 
-test("the origin of an ambiguity is the spec that raised it, by its index among the sources", () => {
-  const result = checkPreExecGrounding({ specSources: [UNRELATED, PAGE_ROOTED], routes: TWO_OWNERS });
-  assert.equal(result.corrections.length, 1);
-  assert.deepEqual(result.origins, [{ contradiction: result.corrections[0], specIndex: 1 }]);
-});
-
-test("a spec that holds the same selector disambiguated or scoped raised nothing: it is no origin", () => {
-  const result = checkPreExecGrounding({ specSources: [DISAMBIGUATED, PAGE_ROOTED, SCOPED], routes: TWO_OWNERS });
-  assert.equal(result.corrections.length, 1);
-  assert.deepEqual(result.origins.map((origin) => origin.specIndex), [1]);
-});
-
-test("an ambiguity that two specs raise is one correction with two origins", () => {
+test("an ambiguity is told once, however many specs raise it, and it has no origin: nothing is regenerated for it", () => {
   const result = checkPreExecGrounding({ specSources: [PAGE_ROOTED, UNRELATED, PAGE_ROOTED], routes: TWO_OWNERS });
-  assert.equal(result.corrections.length, 1, "the correction is told once");
+  assert.equal(result.ambiguities.length, 1, "told once");
   assert.equal(result.preExecAmbiguityCatches, 1);
-  assert.deepEqual(result.origins.map((origin) => origin.specIndex), [0, 2]);
-  assert.ok(result.origins.every((origin) => origin.contradiction === result.corrections[0]));
+  assert.deepEqual(result.corrections, []);
+  assert.deepEqual(result.origins, []);
+});
+
+test("a spec that holds the same selector disambiguated or scoped raised no ambiguity", () => {
+  assert.deepEqual(checkPreExecGrounding({ specSources: [DISAMBIGUATED, SCOPED, UNRELATED], routes: TWO_OWNERS }).ambiguities, []);
 });
 
 test("a spec is blamed only for the routes it targets: the same selector on a route that is fine raised nothing", () => {
@@ -191,11 +185,11 @@ test("a spec is blamed only for the routes it targets: the same selector on a ro
     { route: "/list", nodes: Array(5).fill("button: Edit") },
     { route: "/detail", nodes: ["button: Edit"] },
   ];
-  const result = checkPreExecGrounding({ specSources: [detailSpec, listSpec], routes });
-  assert.deepEqual(result.origins.map((origin) => origin.specIndex), [1]);
+  assert.deepEqual(checkPreExecGrounding({ specSources: [detailSpec], routes }).ambiguities, []);
+  assert.equal(checkPreExecGrounding({ specSources: [detailSpec, listSpec], routes }).ambiguities.length, 1);
 });
 
-test("a test-id the page of one spec does not have is not blamed on the spec whose page has it", () => {
+test("a test-id the page of one spec does not have is blamed on the spec whose page lacks it", () => {
   const onPets = `await page.goto("/pets"); await page.getByTestId("owner-list").click();`;
   const onOwners = `await page.goto("/owners"); await page.getByTestId("owner-list").click();`;
   const routes: RouteTree[] = [
@@ -207,56 +201,34 @@ test("a test-id the page of one spec does not have is not blamed on the spec who
   assert.deepEqual(result.origins, [{ contradiction: result.corrections[0], specIndex: 1 }]);
 });
 
-test("a test-id correction that two specs raise is two corrections, as before, and two origins", () => {
-  const ghost = `await page.goto("/owners"); await page.getByTestId("ghost-id").click();`;
-  const routes: RouteTree[] = [{ route: "/owners", nodes: [], status: "captured", settled: true, testIds: new Map() }];
-  const result = checkPreExecGrounding({ specSources: [ghost, UNRELATED, ghost], routes });
+test("a test-id correction that two specs raise is two corrections and two origins", () => {
+  const result = checkPreExecGrounding({ specSources: [GHOST, UNRELATED, GHOST], routes: OWNERS_WITHOUT_GHOST });
   assert.equal(result.corrections.length, 2);
   assert.equal(result.catalogGateFailClosed, 2);
   assert.deepEqual(result.origins.map((origin) => origin.specIndex), [0, 2]);
 });
 
 test("the origins are the corrections: every correction has one, and every origin names a correction", () => {
-  const ambiguousSpec = `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click();`;
-  const fabricatedIdSpec = `await page.goto("/pets"); await page.getByTestId("ghost-id").click();`;
-  const routes: RouteTree[] = [
-    { route: "/owners", nodes: ["heading: Owners", "heading: Owners"], status: "captured", settled: true, testIds: new Map() },
-    { route: "/pets", nodes: [], status: "captured", settled: true, testIds: new Map() },
-  ];
-  const result = checkPreExecGrounding({ specSources: [ambiguousSpec, fabricatedIdSpec], routes });
-  assert.equal(result.corrections.length, 2);
+  const result = checkPreExecGrounding({ specSources: [GHOST, UNRELATED, GHOST], routes: OWNERS_WITHOUT_GHOST });
   assert.deepEqual(result.origins.map((origin) => origin.contradiction), result.corrections);
-  assert.deepEqual(result.origins.map((origin) => origin.specIndex), [0, 1]);
 });
 
 test("nothing captured, or nothing wrong, gives no origin", () => {
-  assert.deepEqual(checkPreExecGrounding({ specSources: [PAGE_ROOTED], routes: [] }).origins, []);
+  assert.deepEqual(checkPreExecGrounding({ specSources: [GHOST], routes: [] }).origins, []);
   assert.deepEqual(checkPreExecGrounding({ specSources: [UNRELATED], routes: TWO_OWNERS }).origins, []);
 });
 
-/* The ambiguity half alone, which decides whether an ambiguity persists after the corrective regeneration. */
-test("a persisting ambiguity is told once, however many specs raise it, and only an ambiguity is told", () => {
-  const ghost = `await page.goto("/owners"); await page.getByTestId("ghost-id").click();`;
-  const routes: RouteTree[] = [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"], status: "captured", settled: true, testIds: new Map() }];
-  const persisting = checkPersistingAmbiguity({ specSources: [PAGE_ROOTED, ghost, PAGE_ROOTED], routes });
-  assert.equal(persisting.length, 1);
-  assert.deepEqual(persisting, checkPreExecGrounding({ specSources: [PAGE_ROOTED], routes }).corrections);
-});
-
-test("no ambiguity persists when no spec raises one", () => {
-  assert.deepEqual(checkPersistingAmbiguity({ specSources: [UNRELATED, DISAMBIGUATED, SCOPED], routes: TWO_OWNERS }), []);
-  assert.deepEqual(checkPersistingAmbiguity({ specSources: [PAGE_ROOTED], routes: [] }), []);
-});
-
-test("SAFE DIRECTION: an ambiguity correction and a catalog correction on DIFFERENT specs both surface (independent sub-gates)", () => {
-  const ambiguousSpec = `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click();`;
+test("SAFE DIRECTION: an ambiguity on one spec and a catalog correction on another are told on their own channels", () => {
   const fabricatedIdSpec = `await page.goto("/pets"); await page.getByTestId("ghost-id").click();`;
   const routes: RouteTree[] = [
     { route: "/owners", nodes: ["heading: Owners", "heading: Owners"], status: "captured", settled: true, testIds: new Map() },
     { route: "/pets", nodes: [], status: "captured", settled: true, testIds: new Map() },
   ];
-  const result = checkPreExecGrounding({ specSources: [ambiguousSpec, fabricatedIdSpec], routes });
+  const result = checkPreExecGrounding({ specSources: [PAGE_ROOTED, fabricatedIdSpec], routes });
   assert.equal(result.preExecAmbiguityCatches, 1);
   assert.equal(result.catalogGateFailClosed, 1);
-  assert.equal(result.corrections.length, 2);
+  assert.equal(result.ambiguities.length, 1);
+  assert.equal(result.corrections.length, 1);
+  assert.match(result.corrections[0]!, /ghost-id/);
+  assert.deepEqual(result.origins.map((origin) => origin.specIndex), [1]);
 });

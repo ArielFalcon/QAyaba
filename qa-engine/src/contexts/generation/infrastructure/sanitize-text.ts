@@ -1,6 +1,7 @@
-/* Prompt-side secret redaction. Twin of src/orchestrator/sanitizer.ts — qa-engine must not import src/; the regex set is duplicated here and sanitize-text-parity.test.ts keeps both in lockstep. Post-redaction fail-loud: if a secret is still detectable, throw SecretLeakError rather than sending it. */
+/* Prompt-side secret redaction. Twin of src/orchestrator/sanitizer.ts — qa-engine must not import src/; the regex set is duplicated here and sanitize-text-parity.test.ts keeps both in lockstep. Post-redaction fail-loud: if a secret is still detectable, throw SecretLeakError rather than sending it. Before the patterns, the secrets of the run this call is part of (its test account, its session) are replaced by value (run-secret-redaction.ts): that pass has no twin in src/ and does nothing outside a run. */
 
 import { REDACTED, SecretLeakError } from "@kernel/ports/redaction.port.ts";
+import { redactByValueCounted } from "../../../shared-infrastructure/run-secret-redaction.ts";
 
 export interface SecretDetection {
   redacted: boolean;
@@ -101,12 +102,17 @@ const INTERNAL_HOST_PATTERNS: RegExp[] = [
 /* PII: email only. Broader patterns (phone numbers) would wreck diffs/code with false positives; an email is distinctive enough to redact safely. */
 const PII_PATTERNS: RegExp[] = [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g];
 
+/* The name the by-value pass reports under in a detection. */
+const RUN_SECRET_PATTERN = "run-secret";
+
 export function sanitizeText(input: string, mode: SanitizeMode = "issue"): { text: string; detection: SecretDetection } {
   if (!input) return { text: input, detection: { redacted: false, patterns: [], count: 0 } };
 
-  let out = input;
-  const matchedPatterns: string[] = [];
-  let totalRedactions = 0;
+  /* The run's own secrets go first, by value: no pattern would find a plain password or a cookie. Outside a run's scope this changes nothing. */
+  const byValue = redactByValueCounted(input);
+  let out = byValue.text;
+  const matchedPatterns: string[] = byValue.count > 0 ? [RUN_SECRET_PATTERN] : [];
+  let totalRedactions = byValue.count;
 
   const DATA_URI_RE = /data:[^;]+;base64,[A-Za-z0-9+/=]+/gi;
   const dataUris: string[] = [];

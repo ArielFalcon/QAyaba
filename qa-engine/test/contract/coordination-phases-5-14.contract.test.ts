@@ -1,97 +1,21 @@
-/* Coordination contracts: proposal, pushback, router, escalation, lead context,
-   FixLoop capability selection, telemetry, adaptive policy.
- */
+/* Coordination contracts: pushback, router and telemetry. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
-import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
 import {
   applyPushback,
-  validateDelegationAuthority,
   buildProgressSnapshot,
-  capabilityForFixLoopRound,
   createDelegationBrief,
-  createLeadContext,
-  appendLeadDecision,
-  createCoordinationPort,
-  DEFAULT_ADAPTIVE_POLICY,
-  evidenceFromChangeAnalysis,
   evidenceFromValidation,
   CoordinationTelemetryRecorder,
-  nextEscalation,
-  canRetrySameCapability,
-  advanceAfterNeedsLead,
-  raiseCapabilityFloor,
-  deriveAdaptiveSignals,
-  proposeFromDecision,
   routeOrchestration,
   sameProgress,
-  ESCALATION_LADDER,
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
-
-function budgets() {
-  const cycle = CycleBudget.derive({ maxRetries: 2 });
-  return { cycle, wallClock: WallClockBudget.derive({ cycleBudget: cycle, agentTimeoutMs: 1000 }) };
-}
 
 const scope = {
   readablePaths: ["e2e/"],
   writablePaths: ["e2e/specs/"],
   allowedCommands: [],
 };
-
-test("proposal wraps the decision verbatim with a recordedAt stamp", () => {
-  const decision = {
-    action: "delegate" as const,
-    reason: "hard",
-    evidence: [],
-    nextCapability: "sidekick-standard" as const,
-  };
-  const proposal = proposeFromDecision(decision, 1234);
-  assert.equal(proposal.decision, decision);
-  assert.equal(proposal.recordedAt, 1234);
-});
-
-test("proposer delegates large/contradictory changes and keeps simple ones direct", async () => {
-  const port = createCoordinationPort();
-  const direct = await port.decide({
-    runId: "r1",
-    objective: "o",
-    acceptanceCriteria: [],
-    evidence: [evidenceFromChangeAnalysis({ action: "generate", reason: "feat", fileCount: 1 })],
-    budgets: budgets(),
-  });
-  assert.equal(direct.action, "direct");
-  const delegated = await port.decide({
-    runId: "r1",
-    objective: "o",
-    acceptanceCriteria: [],
-    evidence: [
-      evidenceFromChangeAnalysis({ action: "generate", reason: "feat", fileCount: 12, contradiction: true }),
-    ],
-    budgets: budgets(),
-  });
-  assert.equal(delegated.action, "delegate");
-  assert.equal(delegated.nextCapability, "sidekick-standard");
-});
-
-/* Intentional policy (not a missing-field accident): non-diff modes (manual/complete/exhaustive/
-   context) never emit change-analysis evidence — RunQaUseCase only classifies in mode==="diff".
-   Without that evidence the deterministic proposer stays on the direct/lead path. Documented so a
-   future "delegate in complete" decision is explicit, not inferred from absent files=N.
- */
-test("proposer stays direct when change-analysis evidence is absent (manual/complete shape)", async () => {
-  const port = createCoordinationPort();
-  const decision = await port.decide({
-    runId: "r-manual",
-    objective: "toggle dark mode",
-    acceptanceCriteria: [],
-    evidence: [evidenceFromValidation({ ok: true, errors: 0 })],
-    budgets: budgets(),
-  });
-  assert.equal(decision.action, "direct");
-  assert.match(decision.reason, /simple\/direct/);
-});
 
 test("pushback blocks writes outside scope and foreign briefs", () => {
   const brief = createDelegationBrief({
@@ -166,44 +90,6 @@ test("router order: infra and budget beat retry; no-progress escalates; FixLoop 
   );
 });
 
-test("escalation ladder and FixLoop capability selection", () => {
-  assert.deepEqual([...ESCALATION_LADDER], ["sidekick-standard", "sidekick-escalated", "lead"]);
-  assert.equal(nextEscalation("sidekick-standard"), "sidekick-escalated");
-  assert.equal(nextEscalation("lead"), "human");
-  assert.equal(canRetrySameCapability({ capability: "sidekick-standard", sameFingerprint: true, needsLead: false }), false);
-  assert.equal(advanceAfterNeedsLead("sidekick-standard"), "sidekick-escalated");
-  assert.equal(advanceAfterNeedsLead("sidekick-escalated"), "lead");
-  assert.equal(advanceAfterNeedsLead("lead"), "lead");
-  assert.equal(raiseCapabilityFloor("sidekick-standard", "sidekick-escalated"), "sidekick-escalated");
-  assert.equal(raiseCapabilityFloor("lead", "sidekick-escalated"), "lead");
-  assert.equal(
-    capabilityForFixLoopRound({
-      orchestration: { action: "lead-takeover", reason: "x", evidence: [], nextCapability: "lead" },
-      fallback: "sidekick-standard",
-    }),
-    "lead",
-  );
-  assert.equal(
-    capabilityForFixLoopRound({
-      orchestration: { action: "continue-fix-loop", reason: "x", evidence: [] },
-      fallback: "lead",
-    }),
-    "lead",
-  );
-});
-
-test("LeadContext accumulates decisions without OpencodeRunInput fields", () => {
-  let lead = createLeadContext({ runId: "r1", objective: "cover form" });
-  lead = appendLeadDecision(lead, {
-    action: "direct",
-    reason: "simple",
-    evidence: [evidenceFromChangeAnalysis({ action: "generate", reason: "feat", fileCount: 1 })],
-  });
-  assert.equal(lead.decisions.length, 1);
-  assert.equal(Object.hasOwn(lead, "diff"), false);
-  assert.equal(Object.hasOwn(lead, "learnedRules"), false);
-});
-
 test("coordination telemetry records proposals", () => {
   const tel = new CoordinationTelemetryRecorder();
   tel.record({
@@ -214,112 +100,4 @@ test("coordination telemetry records proposals", () => {
     at: 1,
   });
   assert.equal(tel.events.length, 1);
-});
-
-test("deriveAdaptiveSignals needs min samples; then raises escalate rate", () => {
-  assert.equal(deriveAdaptiveSignals([], 5), undefined);
-  const tel = new CoordinationTelemetryRecorder();
-  for (let i = 0; i < 5; i++) {
-    tel.record({
-      runId: `r${i}`,
-      kind: "delegation",
-      reason: "x",
-      durationMs: 100,
-      at: i,
-    });
-    tel.record({
-      runId: `r${i}`,
-      kind: "escalation",
-      reason: "no progress at sidekick-standard",
-      at: i,
-    });
-  }
-  const signals = deriveAdaptiveSignals(tel.events, 5);
-  assert.ok(signals);
-  assert.ok(signals!.recentEscalateRate >= 0.9);
-  assert.equal(DEFAULT_ADAPTIVE_POLICY.delegationFileThreshold(signals!), 12);
-});
-
-test("deriveAdaptiveSignals scopes to one app's own events — another app's escalation trend never leaks in", () => {
-  const tel = new CoordinationTelemetryRecorder();
-  /* app "noisy": 5 delegations, all escalated (should raise ITS OWN threshold). */
-  for (let i = 0; i < 5; i++) {
-    tel.record({ runId: `noisy-${i}`, app: "noisy", kind: "delegation", reason: "x", durationMs: 100, at: i });
-    tel.record({ runId: `noisy-${i}`, app: "noisy", kind: "escalation", reason: "no progress", at: i });
-  }
-  /* app "calm": 5 delegations, zero escalations. */
-  for (let i = 0; i < 5; i++) {
-    tel.record({ runId: `calm-${i}`, app: "calm", kind: "delegation", reason: "x", durationMs: 100, at: i });
-  }
-  const noisySignals = deriveAdaptiveSignals(tel.events, 5, { app: "noisy" });
-  const calmSignals = deriveAdaptiveSignals(tel.events, 5, { app: "calm" });
-  assert.ok(noisySignals);
-  assert.ok(calmSignals);
-  assert.ok(noisySignals!.recentEscalateRate >= 0.9, "the noisy app's own escalations must dominate its own rate");
-  assert.equal(calmSignals!.recentEscalateRate, 0, "the calm app must not inherit the noisy app's escalation rate");
-});
-
-test("deriveAdaptiveSignals bounds derivation to a recent window — an old escalation burst ages out", () => {
-  const tel = new CoordinationTelemetryRecorder();
-  /* An old burst of escalated delegations, followed by many recent clean ones. Once the window
-     (windowSize) is smaller than the total event count, the old burst must no longer dominate the
-     "recent*" rates — proving these fields are windowed, not all-time. */
-  for (let i = 0; i < 5; i++) {
-    tel.record({ runId: `old-${i}`, kind: "delegation", reason: "x", durationMs: 100, at: i });
-    tel.record({ runId: `old-${i}`, kind: "escalation", reason: "no progress", at: i });
-  }
-  for (let i = 0; i < 50; i++) {
-    tel.record({ runId: `recent-${i}`, kind: "delegation", reason: "x", durationMs: 100, at: 1000 + i });
-  }
-  const allTime = deriveAdaptiveSignals(tel.events, 5, { windowSize: 10_000 });
-  const windowed = deriveAdaptiveSignals(tel.events, 5, { windowSize: 20 });
-  assert.ok(allTime);
-  assert.ok(windowed);
-  assert.ok(allTime!.recentEscalateRate > 0, "sanity: the old burst is visible without a window");
-  assert.equal(windowed!.recentEscalateRate, 0, "a small recent window must exclude the aged-out escalation burst");
-});
-
-test("adaptive proposer raises file threshold when escalate rate is high", async () => {
-  const tel = new CoordinationTelemetryRecorder();
-  for (let i = 0; i < 5; i++) {
-    tel.record({
-      runId: `r${i}`,
-      kind: "delegation",
-      reason: "x",
-      durationMs: 50,
-      at: i,
-    });
-    tel.record({
-      runId: `r${i}`,
-      kind: "escalation",
-      reason: "no progress",
-      at: i,
-    });
-  }
-  const port = createCoordinationPort({ telemetry: tel, adaptiveMinSamples: 5 });
-  /* 10 files: default threshold 8 would delegate; adaptive escalate rate → threshold 12 → direct.
-     Use a non-generate action so the half-threshold generate branch does not force delegate.
-   */
-  const decision = await port.decide({
-    runId: "r-adapt",
-    objective: "o",
-    acceptanceCriteria: [],
-    evidence: [evidenceFromChangeAnalysis({ action: "feat", reason: "feat", fileCount: 10 })],
-    budgets: budgets(),
-  });
-  assert.equal(decision.action, "direct");
-  assert.match(decision.reason, /fileThreshold=12/);
-});
-
-test("adaptive policy raises delegation threshold when escalate rate is high", () => {
-  assert.equal(DEFAULT_ADAPTIVE_POLICY.delegationFileThreshold({
-    recentEscalateRate: 0.5,
-    recentNoProgressRate: 0,
-    avgDelegationMs: 1000,
-  }), 12);
-  assert.equal(DEFAULT_ADAPTIVE_POLICY.delegationFileThreshold({
-    recentEscalateRate: 0,
-    recentNoProgressRate: 0,
-    avgDelegationMs: 1000,
-  }), 8);
 });

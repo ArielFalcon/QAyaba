@@ -80,11 +80,97 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** A run with its trace, phase timings, usage, spec counts, decision and budget outcome */
         get: operations["getRun"];
         put?: never;
         post?: never;
         /** Cancel a run */
         delete: operations["cancelRun"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{id}/evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The run's scores: the latest grader version per name by default, every stored version with ?versions=all */
+        get: operations["getRunEvaluation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/campaigns/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The runs of a campaign with their variant labels, replicate, status and grading state; variant.<key>=<value> query parameters narrow them to the runs carrying every label named */
+        get: operations["getCampaignRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluations/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The canonical phase order and every score a grader can emit, with type, range, categories, polarity and suffix families */
+        get: operations["getEvaluationCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluations/regrade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-grade finished runs with the current graders, as a background job */
+        post: operations["regrade"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evaluations/regrade/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Progress of a regrade job */
+        get: operations["getRegradeJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -250,6 +336,23 @@ export interface paths {
         put?: never;
         /** Confirm a winning boundary profile — the ONLY write step (splices config/apps/<name>.yaml) */
         post: operations["confirmBoundaries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps/{name}/login-bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enqueue the run that establishes and proves the app's login (a manual run for the login purpose); the login is kept once the run is accepted */
+        post: operations["bootstrapLogin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -456,6 +559,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/telemetry/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Telemetry stack health: mode, span ledger, OTLP export status and dropped-attribute count (Bearer-protected; counts and flags only) */
+        get: operations["telemetryHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent/restart": {
         parameters: {
             query?: never;
@@ -614,6 +734,14 @@ export interface components {
             objective?: string;
             reason?: string;
             durationMs?: number;
+            networkErrors?: {
+                url: string;
+                status?: number;
+                errorText?: string;
+                resourceType?: string;
+            }[];
+            /** @enum {string} */
+            networkClass?: "egress" | "backend" | "dns" | "other";
         };
         SpecRecord: {
             name: string;
@@ -686,8 +814,30 @@ export interface components {
             guidance?: string;
             shadow?: boolean;
             commits?: number;
+            closedLoop?: boolean;
+            agentBrowser?: boolean;
+            /** @enum {string} */
+            coordinationMode?: "single" | "lead-sidekicks";
+            campaign?: {
+                id: string;
+                variant: {
+                    [key: string]: string;
+                };
+                replicate: number;
+            };
+            /** @enum {string} */
+            captureMode?: "off" | "metadata" | "full";
+            grounding?: {
+                explorer?: boolean;
+                stitcher?: boolean;
+                structuralSignal?: boolean;
+                curriculum?: boolean;
+                domPack?: boolean;
+            };
         };
         CreateRunResult: {
+            /** @enum {number} */
+            schemaVersion: 1;
             id: string;
             app: string;
             sha: string;
@@ -792,7 +942,7 @@ export interface components {
         };
         OnboardingJobStatus: {
             /** @enum {string} */
-            state: "idle" | "resolvingMirrors" | "proposing" | "scoring" | "indexing" | "mapping" | "done" | "failed";
+            state: "idle" | "resolvingMirrors" | "proposing" | "scoring" | "indexing" | "mapping" | "login" | "done" | "failed";
             app?: string;
             round: number;
             ceiling: number;
@@ -849,6 +999,13 @@ export interface components {
                 step?: string;
                 verdict?: string;
             };
+            loginProgress?: {
+                runId?: string;
+                step?: string;
+                verdict?: string;
+                /** @enum {string} */
+                status?: "verified" | "unauthored" | "failed";
+            };
             resolution?: {
                 edges: {
                     fromRepo: string;
@@ -869,6 +1026,12 @@ export interface components {
         ConfirmBoundariesInput: {
             /** @enum {boolean} */
             confirm: true;
+        };
+        LoginBootstrapResult: {
+            id: string;
+            app: string;
+            sha: string;
+            status: string;
         };
         PublicAgentConfig: {
             /** @enum {string} */
@@ -1137,6 +1300,7 @@ export interface components {
                 name?: string;
                 component?: string;
                 source?: string;
+                implementationFiles?: string[];
             }[];
             api: {
                 operationId: string;
@@ -1192,6 +1356,28 @@ export interface components {
             callBuckets: {
                 [key: string]: number;
             } | null;
+            /** @enum {string|null} */
+            ended: "completed" | "exhausted" | "timeout" | "aborted" | null;
+            durationMs: number | null;
+            timeToFirstCallMs: number | null;
+            timeToFirstWriteMs: number | null;
+            deniedCallCount: number | null;
+            toolSequence: {
+                tool: string;
+                target: string | null;
+                scope?: string;
+                /** @enum {boolean} */
+                denied?: true;
+            }[] | null;
+            usageTotal: {
+                input: number;
+                output: number;
+                reasoning: number;
+                cacheRead: number;
+                cacheWrite: number;
+                cost: number;
+                steps: number;
+            } | null;
         };
         AppTelemetryView: {
             app: string;
@@ -1222,6 +1408,236 @@ export interface components {
                 redundantReadRatio: number | null;
                 duplicateRatio: number | null;
             };
+        };
+        TelemetryHealth: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            /** @enum {string} */
+            mode: "off" | "local";
+            campaignFreeze: boolean;
+            otlp: {
+                configured: boolean;
+                lastExportAt?: string;
+                lastError?: string;
+                dropped: number;
+            };
+            ledger: {
+                ok: boolean;
+                spans: number;
+                writeErrors: number;
+            };
+            scoreSink: {
+                configured: boolean;
+                faults?: number;
+                lastExportAt?: string;
+                lastError?: string;
+            };
+            droppedAttributes: number;
+            host?: {
+                suspends: number;
+                lastSuspendAt?: string;
+                lastSuspendMs?: number;
+                blockedLoops: number;
+                eventLoopP99Ms?: number;
+                zombies?: number;
+            };
+        };
+        ApiError: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            error: string;
+        };
+        Score: {
+            name: string;
+            value: number | boolean | string;
+            /** @enum {string} */
+            dataType: "NUMERIC" | "BOOLEAN" | "CATEGORICAL";
+            /** @enum {string} */
+            polarity: "higher_better" | "lower_better" | "none";
+            /** @enum {string} */
+            source: "deterministic" | "llm_judge" | "human";
+            graderVersion: string;
+            comment?: string;
+            observationId?: string;
+            judgeModel?: string;
+        };
+        RunEvaluation: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            runId: string;
+            traceId: string | null;
+            /** @enum {string} */
+            status: "pending" | "complete" | "failed";
+            scores: components["schemas"]["Score"][];
+        };
+        EvaluationCatalog: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            phases: string[];
+            scores: {
+                name: string;
+                /** @enum {string} */
+                dataType: "NUMERIC" | "BOOLEAN" | "CATEGORICAL";
+                /** @enum {string} */
+                polarity: "higher_better" | "lower_better" | "none";
+                range?: {
+                    min: number;
+                    max?: number;
+                };
+                categories?: string[];
+                suffixes?: string[];
+                graderVersion: string;
+                /** @enum {string} */
+                status?: "experimental" | "calibrated";
+            }[];
+        };
+        RegradeRequest: {
+            runIds?: string[];
+            campaignId?: string;
+            since?: string;
+            graders?: string[];
+        };
+        RegradeStarted: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            jobId: string;
+            runs: number;
+        };
+        RegradeJob: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            jobId: string;
+            /** @enum {string} */
+            status: "pending" | "running" | "complete" | "failed";
+            runs: number;
+            graded: number;
+            failed: {
+                runId: string;
+                error: string;
+            }[];
+            startedAt: string;
+            finishedAt?: string;
+        };
+        RunDetail: {
+            id: string;
+            app: string;
+            sha: string;
+            ref?: string;
+            /** @enum {string} */
+            target: "e2e" | "code";
+            /** @enum {string} */
+            mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
+            /** @enum {string} */
+            status: "enqueued" | "running" | "done";
+            step?: string;
+            stepDetail?: string;
+            /** @enum {string} */
+            verdict?: "pass" | "fail" | "flaky" | "invalid" | "infra-error" | "skipped";
+            /** @enum {string} */
+            engineStatus?: "success" | "error";
+            passed?: number;
+            failed?: number;
+            note?: string;
+            retrying?: boolean;
+            parentRunId?: string;
+            triggerRepo?: string;
+            cases: components["schemas"]["QaCase"][];
+            specs?: components["schemas"]["SpecRecord"][];
+            logs: string[];
+            activity?: components["schemas"]["AgentActivity"][];
+            stepStartedAt?: string;
+            at: string;
+            /** @enum {number} */
+            schemaVersion: 1;
+            telemetry: {
+                traceId: string;
+                traceUrl?: string;
+            } | null;
+            phases: {
+                name: string;
+                durationMs: number;
+            }[];
+            furthestPhase: string | null;
+            usage: {
+                inputTokens: number;
+                outputTokens: number;
+                reasoningTokens: number;
+                cacheReadTokens: number;
+                cacheWriteTokens: number;
+                costUsd: number;
+            };
+            specCounts: {
+                generated: number;
+                valid: number | null;
+                passed: number | null;
+            };
+            decision: string | null;
+            budgets: {
+                exhausted: boolean;
+                limit?: string;
+                role?: string;
+            };
+            campaign?: {
+                id: string;
+                variant: {
+                    [key: string]: string;
+                };
+                replicate: number;
+            };
+            effectiveConfig: {
+                levers: {
+                    closedLoop: boolean | null;
+                    agentBrowser: boolean | null;
+                    /** @enum {string|null} */
+                    coordinationMode: "single" | "lead-sidekicks" | null;
+                    /** @enum {string|null} */
+                    captureMode: "off" | "metadata" | "full" | null;
+                };
+                campaignFreeze: boolean | null;
+                runtime: string | null;
+                agents: {
+                    [key: string]: {
+                        provider: string | null;
+                        model: string | null;
+                        reasoningEffort: string | null;
+                        stepLimit: number | null;
+                    };
+                };
+                prompt: {
+                    staticHash: string | null;
+                };
+                grounding: {
+                    explorer: boolean | null;
+                    stitcher: string | null;
+                    structuralSignal: string | null;
+                    curriculum: string | null;
+                    domPack: boolean | null;
+                };
+                coverage: {
+                    mode: string | null;
+                    minRatio: number | null;
+                };
+                reflector: boolean | null;
+            };
+        };
+        CampaignRuns: {
+            /** @enum {number} */
+            schemaVersion: 1;
+            campaignId: string;
+            runs: {
+                id: string;
+                variant: {
+                    [key: string]: string;
+                };
+                replicate: number;
+                /** @enum {string} */
+                status: "enqueued" | "running" | "done";
+                /** @enum {string} */
+                verdict?: "pass" | "fail" | "flaky" | "invalid" | "infra-error" | "skipped";
+                /** @enum {string} */
+                evaluationStatus: "pending" | "complete" | "failed";
+            }[];
+            complete: boolean;
         };
     };
     responses: never;
@@ -1371,6 +1787,24 @@ export interface operations {
                     "application/json": components["schemas"]["CreateRunResult"];
                 };
             };
+            /** @description invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description app not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     getRun: {
@@ -1390,7 +1824,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunRecord"];
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description no such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
@@ -1412,6 +1855,199 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    getRunEvaluation: {
+        parameters: {
+            query?: {
+                versions?: "all";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description the run's evaluation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunEvaluation"];
+                };
+            };
+            /** @description no such run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description evaluation is not wired in this process */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getCampaignRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description the campaign's runs; complete is true when every one of them is done and graded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignRuns"];
+                };
+            };
+            /** @description a query parameter that is not a variant filter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description evaluation is not wired in this process */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getEvaluationCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description the catalog */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationCatalog"];
+                };
+            };
+            /** @description evaluation is not wired in this process */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    regrade: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegradeRequest"];
+            };
+        };
+        responses: {
+            /** @description job accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegradeStarted"];
+                };
+            };
+            /** @description invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description evaluation is not wired in this process */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getRegradeJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description the job */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegradeJob"];
+                };
+            };
+            /** @description no such job */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description evaluation is not wired in this process */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
             };
         };
     };
@@ -1767,6 +2403,49 @@ export interface operations {
             };
         };
     };
+    bootstrapLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description login-bootstrap run enqueued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginBootstrapResult"];
+                };
+            };
+            /** @description app not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the app has no form login to bootstrap, or an onboarding job is running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description service shutting down */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getAppIntelligence: {
         parameters: {
             query?: never;
@@ -2084,6 +2763,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AgentModelsResponse"];
                 };
+            };
+        };
+    };
+    telemetryHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description telemetry health */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelemetryHealth"];
+                };
+            };
+            /** @description telemetry is not wired in this process */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

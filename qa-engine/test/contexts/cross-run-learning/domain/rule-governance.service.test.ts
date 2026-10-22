@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RuleGovernanceService } from "@contexts/cross-run-learning/domain/rule-governance.service.ts";
+import { DETERMINISTIC_RULE_SOURCE_PREFIX, RuleGovernanceService } from "@contexts/cross-run-learning/domain/rule-governance.service.ts";
 import type { LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
 
 /* `at` is required: LearningRule includes it (history.ts ORDER BY ... at DESC). */
@@ -237,4 +237,82 @@ test("rank: among rules tied on status and success rate, the newer one outranks 
     rule("active", 0.5, "z-newer", "2026-06-01T00:00:00.000Z"),
   ]);
   assert.deepEqual(ranked.map((r) => r.trigger), ["z-newer", "a-older"]);
+});
+
+/* ── Quarantine and the injection policy ────────────────────────────────────────────────────────── */
+
+const quarantined = (r: LearningRule): LearningRule => ({ ...r, quarantinedAt: "2026-10-01T00:00:00.000Z" });
+const withConfidence = (r: LearningRule, confidence: LearningRule["confidence"]): LearningRule => ({ ...r, confidence });
+
+test("topRules: a quarantined rule is never retrieved, active or candidate, and holds no place a live rule could take", () => {
+  const picked = svc.topRules([quarantined(rule("active", 0.99, "q-active")), quarantined(rule("candidate", 0.9, "q-cand")), rule("candidate", 0.1, "live")], 5);
+  assert.deepEqual(picked.map((r) => r.trigger), ["live"]);
+});
+
+test("topRules: a rule whose quarantine was lifted (null) is retrievable again", () => {
+  const picked = svc.topRules([{ ...rule("active", 0.5, "released"), quarantinedAt: null }], 5);
+  assert.deepEqual(picked.map((r) => r.trigger), ["released"]);
+});
+
+test("topRules with unproven rules held back: only an active rule above low confidence is retrieved", () => {
+  const picked = svc.topRules(
+    [
+      rule("active", 0.9, "proven"),
+      withConfidence(rule("active", 0.4, "active-but-low"), "low"),
+      withConfidence(rule("candidate", 0.9, "candidate-high"), "high"),
+      rule("candidate", 0.2, "candidate"),
+    ],
+    10,
+    undefined,
+    { reflectorUnproven: false },
+  );
+  assert.deepEqual(picked.map((r) => r.trigger), ["proven"]);
+});
+
+test("topRules with unproven rules held back reserves no exploration slot for a candidate", () => {
+  const actives = Array.from({ length: 6 }, (_, i) => rule("active", 0.9 - i * 0.01, `a${i}`));
+  const picked = svc.topRules([...actives, rule("candidate", 0.1, "fresh", "2026-12-01T00:00:00.000Z")], 4, undefined, { reflectorUnproven: false });
+  assert.deepEqual(picked.map((r) => r.trigger), ["a0", "a1", "a2", "a3"]);
+});
+
+test("topRules lets unproven rules in by default: the policy is an opt-out, not a change of the ranking", () => {
+  const withDefault = svc.topRules([rule("active", 0.9, "a"), rule("candidate", 0.5, "c")], 5);
+  assert.deepEqual(withDefault.map((r) => r.trigger), ["a", "c"]);
+  assert.deepEqual(svc.topRules([rule("active", 0.9, "a"), rule("candidate", 0.5, "c")], 5, undefined, { reflectorUnproven: true }).map((r) => r.trigger), ["a", "c"]);
+});
+
+const fromDistiller = (r: LearningRule): LearningRule => ({ ...r, source: `${DETERMINISTIC_RULE_SOURCE_PREFIX}run-1` });
+
+test("with the reflector's unproven rules held back, a deterministic distiller's candidate keeps its normal governance", () => {
+  const picked = svc.topRules(
+    [
+      rule("active", 0.9, "proven"),
+      rule("candidate", 0.9, "reflector-candidate"),
+      withConfidence(rule("active", 0.4, "reflector-active-but-low"), "low"),
+      fromDistiller(rule("candidate", 0.2, "distiller-candidate")),
+      withConfidence(fromDistiller(rule("active", 0.3, "distiller-active-but-low")), "low"),
+    ],
+    10,
+    undefined,
+    { reflectorUnproven: false },
+  );
+  assert.deepEqual(picked.map((r) => r.trigger).sort(), ["distiller-active-but-low", "distiller-candidate", "proven"]);
+});
+
+test("with the reflector's unproven rules held back, a distiller's candidate still gets an exploration slot, and the reflector's gets none", () => {
+  const actives = Array.from({ length: 6 }, (_, i) => rule("active", 0.9 - i * 0.01, `a${i}`));
+  const picked = svc.topRules(
+    [...actives, rule("candidate", 0.1, "reflector-fresh", "2026-12-02T00:00:00.000Z"), fromDistiller(rule("candidate", 0.1, "distiller-fresh", "2026-12-01T00:00:00.000Z"))],
+    4,
+    undefined,
+    { reflectorUnproven: false },
+  );
+  assert.equal(picked.some((r) => r.trigger === "distiller-fresh"), true);
+  assert.equal(picked.some((r) => r.trigger === "reflector-fresh"), false);
+  assert.equal(picked.length, 4);
+});
+
+test("a rule stored before authorship was recorded counts as the reflector's, since the reflector was its only author", () => {
+  const legacy: LearningRule = { ...rule("candidate", 0.5, "legacy"), source: "qa-bot-abc1234-run1" };
+  assert.deepEqual(svc.topRules([legacy], 5, undefined, { reflectorUnproven: false }), []);
 });

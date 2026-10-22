@@ -304,3 +304,190 @@ test("resolveValueOraclePolicy: omitted valueOracle is off while shadowing, sign
   assert.equal(resolveValueOraclePolicy({ shadow: false }), "signal");
   assert.equal(resolveValueOraclePolicy({}), "signal");
 });
+
+test("dev.allowedOrigins and egress.installOrigins accept origins and wildcard origins", () => {
+  const cfg = AppConfigSchema.parse({
+    ...base,
+    dev: { baseUrl: "https://dev.shop.io", allowedOrigins: ["https://idp.shop.io", "https://*.cdn.shop.io", "http://host.docker.internal:8080"] },
+    egress: { installOrigins: ["https://npm.internal.shop.io"] },
+  });
+  assert.deepEqual(cfg.dev?.allowedOrigins, ["https://idp.shop.io", "https://*.cdn.shop.io", "http://host.docker.internal:8080"]);
+  assert.deepEqual(cfg.egress?.installOrigins, ["https://npm.internal.shop.io"]);
+});
+
+test("an origin the egress filter would refuse is refused when the config is loaded, naming the origin", () => {
+  for (const bad of ["idp.shop.io", "https://idp.shop.io/path", "https://*.io", "https://user@idp.shop.io"]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", allowedOrigins: [bad] } }), (err: unknown) => String(err).includes(bad), `dev.allowedOrigins ${bad}`);
+    assert.throws(() => AppConfigSchema.parse({ ...base, egress: { installOrigins: [bad] } }), (err: unknown) => String(err).includes(bad), `egress.installOrigins ${bad}`);
+  }
+});
+
+test("dev.blockedOrigins accepts origins and wildcard origins, and a bad one is refused naming it", () => {
+  const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", blockedOrigins: ["https://*.ingest.sentry.io", "https://stats.shop.io"] } });
+  assert.deepEqual(cfg.dev?.blockedOrigins, ["https://*.ingest.sentry.io", "https://stats.shop.io"]);
+  for (const bad of ["stats.shop.io", "https://stats.shop.io/path", "https://*.io"]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", blockedOrigins: [bad] } }), (err: unknown) => String(err).includes(bad), `dev.blockedOrigins ${bad}`);
+  }
+});
+
+test("dev.geolocation accepts a browser position and refuses one out of range", () => {
+  const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+  const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation } });
+  assert.deepEqual(cfg.dev?.geolocation, geolocation);
+  for (const bad of [
+    { latitude: 90.1, longitude: 0 },
+    { latitude: -90.1, longitude: 0 },
+    { latitude: 0, longitude: 180.1 },
+    { latitude: 0, longitude: -180.1 },
+    { latitude: Number.NaN, longitude: 0 },
+  ]) {
+    assert.throws(
+      () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: bad } }),
+      (err: unknown) => /geolocation|latitude|longitude/.test(String(err)),
+      JSON.stringify(bad),
+    );
+  }
+  assert.doesNotThrow(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: { latitude: -90, longitude: 180 } } }));
+});
+
+test("an origin cannot be both allowed and left blocked on purpose, the app's own included", () => {
+  const contradictions: Array<[string[], string[]]> = [
+    [["https://stats.shop.io"], ["https://stats.shop.io"]],
+    [["https://*.cdn.shop.io"], ["https://img.cdn.shop.io"]],
+    [["https://img.cdn.shop.io"], ["https://*.cdn.shop.io"]],
+  ];
+  for (const [allowedOrigins, blockedOrigins] of contradictions) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", allowedOrigins, blockedOrigins } }), /blockedOrigins/, JSON.stringify({ allowedOrigins, blockedOrigins }));
+  }
+  assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io/app", blockedOrigins: ["https://dev.shop.io"] } }), /blockedOrigins/);
+  assert.doesNotThrow(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", allowedOrigins: ["https://idp.shop.io"], blockedOrigins: ["https://stats.shop.io"] } }));
+  /* A bad allowed origin is reported as itself, not as a crash of the contradiction check. */
+  assert.throws(() => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", allowedOrigins: ["https://*.io"], blockedOrigins: ["https://stats.shop.io"] } }), (err: unknown) => String(err).includes("https://*.io"));
+});
+
+test("an app that declares no extra origins loads as before", () => {
+  const cfg = AppConfigSchema.parse(base);
+  assert.equal(cfg.dev?.allowedOrigins, undefined);
+  assert.equal(cfg.egress, undefined);
+});
+
+test("e2e.specCredentials accepts none and account, and nothing else", () => {
+  for (const specCredentials of ["none", "account"]) assert.equal(AppConfigSchema.parse({ ...base, e2e: { specCredentials } }).e2e?.specCredentials, specCredentials);
+  assert.throws(() => AppConfigSchema.parse({ ...base, e2e: { specCredentials: "all" } }));
+  assert.equal(AppConfigSchema.parse(base).e2e?.specCredentials, undefined, "default: the specs never see the account");
+});
+
+test("qa.closedLoop is off unless an app turns it on, and every limit is bounded", () => {
+  const off = AppConfigSchema.parse(base);
+  assert.equal(off.qa.closedLoop, undefined);
+
+  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, closedLoop: { enabled: true, maxCalls: 6, perCallMs: 90_000, maxDevWrites: 10 } } });
+  assert.deepEqual(on.qa.closedLoop, { enabled: true, maxCalls: 6, perCallMs: 90_000, maxDevWrites: 10 });
+
+  const partial = AppConfigSchema.parse({ ...base, qa: { ...base.qa, closedLoop: { enabled: true } } });
+  assert.deepEqual(partial.qa.closedLoop, { enabled: true });
+
+  for (const bad of [{ maxCalls: 0 }, { maxCalls: 51 }, { perCallMs: 5_000 }, { perCallMs: 700_000 }, { maxDevWrites: -1 }, { maxDevWrites: 1_001 }, { maxCalls: 1.5 }, { enabled: "yes" }]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, closedLoop: bad } }), JSON.stringify(bad));
+  }
+});
+
+test("qa.coordination is absent unless an app sets it, takes only the two modes, and every limit is bounded", () => {
+  assert.equal(AppConfigSchema.parse(base).qa.coordination, undefined);
+
+  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { mode: "lead-sidekicks", maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000, codex: 400_000 } } } });
+  assert.deepEqual(on.qa.coordination, { mode: "lead-sidekicks", maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000, codex: 400_000 } });
+
+  const partial = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { mode: "single" } } });
+  assert.deepEqual(partial.qa.coordination, { mode: "single" });
+
+  for (const bad of [{ mode: "swarm" }, { maxParallel: 0 }, { maxParallel: 7 }, { maxFlows: 1 }, { maxFlows: 13 }, { maxFlows: 2.5 }, { planBudgetMs: 1_000 }, { flowBudgetMs: { opencode: 1_000 } }]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: bad } }), JSON.stringify(bad));
+  }
+});
+
+test("qa.agentBrowser is off unless an app turns it on, and its lists hold only well-formed paths", () => {
+  const off = AppConfigSchema.parse(base);
+  assert.equal(off.qa.agentBrowser, undefined);
+
+  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, agentBrowser: { enabled: true, denyRoutes: ["/admin/**", "/billing"], allowMutating: ["POST /api/search", "/graphql"] } } });
+  assert.deepEqual(on.qa.agentBrowser, { enabled: true, denyRoutes: ["/admin/**", "/billing"], allowMutating: ["POST /api/search", "/graphql"] });
+
+  const partial = AppConfigSchema.parse({ ...base, qa: { ...base.qa, agentBrowser: { enabled: true } } });
+  assert.deepEqual(partial.qa.agentBrowser, { enabled: true });
+
+  for (const bad of [
+    { enabled: "yes" },
+    { denyRoutes: ["admin"] },
+    { denyRoutes: ["https://dev.example.com/admin"] },
+    { denyRoutes: ["/a?x=1"] },
+    { allowMutating: ["GET /api/x"] },
+    { allowMutating: ["FETCH /api/x"] },
+    { allowMutating: ["api/x"] },
+    { denyRoutes: "/admin" },
+    { denyRoutes: Array.from({ length: 101 }, (_, i) => `/r${i}`) },
+  ]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, agentBrowser: bad } }), JSON.stringify(bad).slice(0, 60));
+  }
+});
+
+test("qa.domPack accepts true and false and rejects anything else", () => {
+  assert.equal(AppConfigSchema.parse(base).qa.domPack, undefined);
+
+  assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, domPack: true } }).qa.domPack, true);
+  assert.equal(AppConfigSchema.parse({ ...base, qa: { ...base.qa, domPack: false } }).qa.domPack, false);
+
+  for (const bad of ["yes", 1, 0, "false", {}, []]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, qa: { ...base.qa, domPack: bad } }), JSON.stringify(bad));
+  }
+});
+
+test("dev.geolocation accepts named places the authoring agent may pick, and refuses a bad name, a bad point or too many", () => {
+  const places = { barcelona: { latitude: 41.3874, longitude: 2.1686 }, empty: { latitude: 0, longitude: 0 } };
+  const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: { latitude: 40.4168, longitude: -3.7038, places } } });
+  assert.deepEqual(cfg.dev?.geolocation?.places, places);
+
+  for (const bad of [
+    { "Not A Slug": { latitude: 1, longitude: 2 } },
+    { ["a".repeat(41)]: { latitude: 1, longitude: 2 } },
+    { barcelona: { latitude: 91, longitude: 2 } },
+  ]) {
+    assert.throws(
+      () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: { latitude: 1, longitude: 2, places: bad } } }),
+      (err: unknown) => /slug|characters|latitude/.test(String(err)),
+    );
+  }
+  const many = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`place-${i}`, { latitude: 1, longitude: 2 }]));
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", geolocation: { latitude: 1, longitude: 2, places: many } } }),
+    /12|places/,
+  );
+});
+
+test("dev.dataState accepts per-route readiness/result/location selectors, and refuses a bad selector, a bad timeout or too many routes", () => {
+  const dataState = {
+    routes: {
+      "/restaurants": { readySelector: "[data-testid='list']", resultTextSelector: ".count", locationSelector: ".loc", timeoutMs: 3000 },
+    },
+  };
+  const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState } });
+  assert.deepEqual(cfg.dev?.dataState, dataState);
+
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState: { routes: { "/a": { readySelector: "" } } } } }),
+    /selector/,
+  );
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState: { routes: { "/a": { timeoutMs: 0 } } } } }),
+    /timeoutMs/,
+  );
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState: { routes: { "/a": { timeoutMs: 16_000 } } } } }),
+    /timeoutMs/,
+  );
+  const tooMany = Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`/r${i}`, {}]));
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", dataState: { routes: tooMany } } }),
+    /32|routes/,
+  );
+});

@@ -11,23 +11,29 @@ import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
 import { RunMode } from "../types";
 import { parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief } from "../qa/exploration-brief";
 import { saveAgentTurnEvent } from "../server/history";
+import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/domain/tool-call-taxonomy";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
+import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
 import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { installHttpDispatcher } from "../util/net";
+import { openCodeServerAuth } from "./opencode-server-auth";
+import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/domain/agent-browser-capability";
 
 
 import {
   activityRouter,
   registerRunSession,
   unregisterRunSession,
+  observeUnwatchedSession,
+  unobserveUnwatchedSession,
   startActivitySink,
   setRawEventStreamOpener,
   type LiveActivity,
   type RawEventStreamOpener,
 } from "@contexts/generation/infrastructure/sse/event-stream";
-export { activityRouter, registerRunSession, unregisterRunSession, startActivitySink };
+export { activityRouter, registerRunSession, unregisterRunSession, observeUnwatchedSession, unobserveUnwatchedSession, startActivitySink };
 export type { LiveActivity };
 
 /* Re-export so control-plane importers keep resolving extractJsonObjects/parseVerdict here. */
@@ -36,8 +42,6 @@ export { extractJsonObjects, parseVerdict };
 
 import {
   specFileForFlow,
-  buildWorkerPrompt,
-  buildWorkerPromptAssembled,
   buildPrompt,
   buildPromptAssembled,
   buildExplorerPrompt,
@@ -50,7 +54,7 @@ import {
   renderExecutionResult,
   setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts";
-export { specFileForFlow, buildWorkerPrompt, buildWorkerPromptAssembled, buildPrompt, buildPromptAssembled, buildExplorerPrompt, buildContextTask, renderArchitectureContext, buildReviewerPrompt, buildReviewerPromptAssembled, reviewObjective, renderReviewSpecs, renderExecutionResult };
+export { specFileForFlow, buildPrompt, buildPromptAssembled, buildExplorerPrompt, buildContextTask, renderArchitectureContext, buildReviewerPrompt, buildReviewerPromptAssembled, reviewObjective, renderReviewSpecs, renderExecutionResult };
 export type { AssembledPrompt, ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 
 
@@ -84,6 +88,7 @@ import {
   type RawAgentTransport,
   type RawPromptResult,
   type RawAgentErrorPayload,
+  type AttemptAnswer,
 } from "@contexts/generation/infrastructure/agent-transport-policy";
 export {
   parseModelRef,
@@ -99,7 +104,7 @@ export {
 export type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent, UsageSnapshot };
 
 interface AgentsConfig {
-  agent?: Record<string, { steps?: unknown; maxSteps?: unknown } | undefined>;
+  agent?: Record<string, { steps?: unknown; maxSteps?: unknown; model?: unknown; options?: { reasoningEffort?: unknown } } | undefined>;
   model_fallback?: Record<string, unknown>;
 }
 
@@ -182,6 +187,21 @@ function getFallbackModel(agent: string): string | undefined {
 }
 
 /*
+ * The model and the reasoning effort opencode.json configures for `agent`, for the trace of its turns: `agent.<id>.model` (a
+ * `provider/model` name) and `agent.<id>.options.reasoningEffort`. This is the orchestrator's copy of a setting the server
+ * resolves from its own configuration, so it says what is configured, not what the server proved it used (the model that answered
+ * is read from the answer). Each is absent when the file, the agent or the setting is, or when it is not a non-empty string.
+ */
+export function agentConfigFacts(agent: string, configPath: string = DEFAULT_AGENTS_CONFIG_PATH()): { model?: string; reasoningEffort?: string } | undefined {
+  const declared = readAgentsConfigEntry(configPath)?.config?.agent?.[agent];
+  if (!declared) return undefined;
+  const text = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
+  const model = text(declared.model);
+  const reasoningEffort = text(declared.options?.reasoningEffort);
+  return model === undefined && reasoningEffort === undefined ? undefined : { ...(model !== undefined ? { model } : {}), ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) };
+}
+
+/*
  * The acting agent's step limit from opencode.json: `agent.<id>.steps`, else the legacy
  * `agent.<id>.maxSteps` — the order in which the OpenCode server maps them into the one cap it
  * enforces — so a turn's exhaustion is reported against the budget the file declares, never a
@@ -220,12 +240,11 @@ let sharedClient: Awaited<ReturnType<typeof import("@opencode-ai/sdk").createOpe
 async function getSharedClient() {
   if (sharedClient) return sharedClient;
   const { createOpencodeClient } = await import("@opencode-ai/sdk");
-  const serverPassword = process.env.OPENCODE_SERVER_PASSWORD;
+  const auth = openCodeServerAuth();
   sharedClient = createOpencodeClient({
     baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
-    ...(serverPassword
-      ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
-      : {}),
+    headers: auth.headers,
+    fetch: auth.fetch as typeof fetch,
   });
   return sharedClient;
 }
@@ -243,12 +262,11 @@ let sharedEventClient: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpe
 async function getEventClient() {
   if (sharedEventClient) return sharedEventClient;
   const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
-  const serverPassword = process.env.OPENCODE_SERVER_PASSWORD;
+  const auth = openCodeServerAuth();
   sharedEventClient = createOpencodeClient({
     baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
-    ...(serverPassword
-      ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
-      : {}),
+    headers: auth.headers,
+    fetch: auth.fetch as typeof fetch,
   });
   return sharedEventClient;
 }
@@ -464,6 +482,90 @@ export function stallMs(): number {
 
 
 /*
+ * Every tool a prompt can reach, named so a per-prompt `tools` map can switch it off: OpenCode's own tools, and the
+ * wildcard patterns for the MCP servers the roles are wired to (the same patterns agents/opencode.json denies per
+ * role). The bare "*" is the catch-all for a tool added later; the explicit names are for a build that matches
+ * names and not patterns.
+ */
+export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
+  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
+);
+
+/*
+ * Which sessions the orchestrator granted the authenticated browser: the host installs a lookup over its registry. The tools are on
+ * for the authoring roles in agents/opencode.json whether or not a run granted them, so a prompt of an authoring role whose session
+ * was not granted hides them with a per-prompt map instead of listing four tools the orchestrator would refuse. Until a lookup is
+ * installed (a test, the standalone CLI) nothing is granted.
+ */
+let browserGrant: ((sessionId: string) => boolean) | undefined;
+
+export function setAgentBrowserGrantLookup(lookup: ((sessionId: string) => boolean) | undefined): void {
+  browserGrant = lookup;
+}
+
+export function hidesBrowserTools(agent: string, sessionId: string): boolean {
+  return AGENT_BROWSER_AGENTS.has(agent) && !(browserGrant?.(sessionId) ?? false);
+}
+
+/*
+ * The same arrangement for the location tool: the authoring roles hold it in the configuration, and a prompt of a session
+ * whose run carries no authoring location hides it. Until a lookup is installed (a test, the standalone CLI) nothing is granted.
+ */
+let geolocationGrant: ((sessionId: string) => boolean) | undefined;
+
+export function setGeolocationGrantLookup(lookup: ((sessionId: string) => boolean) | undefined): void {
+  geolocationGrant = lookup;
+}
+
+export function hidesGeolocationTool(agent: string, sessionId: string): boolean {
+  return AGENT_BROWSER_AGENTS.has(agent) && !(geolocationGrant?.(sessionId) ?? false);
+}
+
+/*
+ * The tools a prompt that may not write is denied: the file tools of the runtime and every editing tool of the code-navigation server
+ * (the list the call taxonomy classifies as writes), under both the names the runtime gives a server's tools. Reading, searching and the
+ * browser stay as the agent's configuration has them.
+ */
+export const NO_WRITE_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
+  ["write", "edit", "patch", ...SERENA_WRITE_TOOL_NAMES, ...SERENA_WRITE_TOOL_NAMES.map((name) => `serena_${name}`)].map((name) => [name, false as const]),
+);
+
+/*
+ * The tools a session's run denied it, by session: what the run did not grant a sidekick (the code-navigation server, whose symbol edits
+ * write wherever it points, the unauthenticated browser, run_spec without a flow's loop). They are set when the session opens and cleared
+ * when it ends, and every prompt of the session carries them. Per-prompt, because the project configuration that could scope an
+ * instance is switched off on the server.
+ */
+const deniedToolsBySession = new Map<string, readonly string[]>();
+
+export function setSessionToolDeny(sessionId: string, tools: readonly string[] | undefined): void {
+  if (tools === undefined || tools.length === 0) deniedToolsBySession.delete(sessionId);
+  else deniedToolsBySession.set(sessionId, [...tools]);
+}
+
+export function sessionToolDeny(sessionId: string): readonly string[] | undefined {
+  return deniedToolsBySession.get(sessionId);
+}
+
+/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one that may not write is denied the file tools; one of a session the browser was not granted to hides its tools; the tools its session was denied are denied it; every other prompt leaves the tools to its agent's configuration. */
+export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; denyTools?: readonly string[] | undefined }) {
+  const tools: Record<string, false> = args.withoutTools
+    ? { ...NO_TOOLS }
+    : {
+        ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}),
+        ...(args.hideGeolocationTool ? { set_geolocation: false as const } : {}),
+        ...(args.withoutWrites ? NO_WRITE_TOOLS : {}),
+        ...Object.fromEntries((args.denyTools ?? []).map((name) => [name, false as const])),
+      };
+  return {
+    agent: args.agent,
+    parts: [{ type: "text" as const, text: args.text }],
+    ...(args.model ? { model: args.model } : {}),
+    ...(Object.keys(tools).length > 0 ? { tools } : {}),
+  };
+}
+
+/*
  * Integration boundary: real connection to `opencode serve`. Not covered by unit
  * tests (like the Playwright runner). The SDK is imported lazily so tests do not
  * require the package. OPENCODE_SERVE_URL points to the `opencode` container.
@@ -483,19 +585,19 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
   return {
     createSession: async (cwd) => {
       const created = await client.session.create({ query: { directory: cwd } });
-      if (created.error) throw new Error(`OpenCode session.create failed: ${JSON.stringify(created.error)}`);
+      if (created.error) throw new Error(`OpenCode session.create failed: ${describeFailure(created.error)}`);
       const id = created.data?.id;
       if (!id) throw new Error("OpenCode: the session returned no id");
       return { id };
     },
-    promptSession: async ({ id, cwd, agent, text, model }): Promise<RawPromptResult> => {
+    promptSession: async ({ id, cwd, agent, text, model, withoutTools, withoutWrites }): Promise<RawPromptResult> => {
       const res = await client.session.prompt({
         path: { id },
         query: { directory: cwd },
-        body: { agent, parts: [{ type: "text", text }], ...(model ? { model } : {}) },
+        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id), hideGeolocationTool: hidesGeolocationTool(agent, id), denyTools: sessionToolDeny(id) }),
       });
       if (res.error) {
-        throw new Error(`OpenCode session.prompt failed: ${JSON.stringify(res.error)}`);
+        throw new Error(`OpenCode session.prompt failed: ${describeFailure(res.error)}`);
       }
       /*
        * A provider/agent fault (out of credits, auth, rate-limit, output-length) is embedded in the
@@ -503,10 +605,19 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
        * policy layer's agentErrorToInfra.
        */
       const info = res.data?.info as
-        | { error?: RawAgentErrorPayload; tokens?: { input: number; output: number; reasoning: number; cache: { read: number; write: number } }; cost?: number }
+        | {
+            error?: RawAgentErrorPayload;
+            tokens?: { input: number; output: number; reasoning: number; cache: { read: number; write: number } };
+            cost?: number;
+            modelID?: unknown;
+            providerID?: unknown;
+            finish?: unknown;
+            time?: { created?: unknown; completed?: unknown };
+          }
         | undefined;
       return {
         agentError: info?.error,
+        ...answeredFrom(info),
         parts: (res.data?.parts ?? []) as Array<{ type: string; text?: string }>,
         tokens: info?.tokens
           ? {
@@ -529,16 +640,37 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
   };
 }
 
-export async function defaultAgentDeps(): Promise<AgentDeps> {
-  /*
-   * The undici transport timeout must exceed EVERY per-prompt withTimeout, or it aborts the
-   * request before our own deadline fires. The reviewer, the explorer and the planner each have their
-   * OWN budget (REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) independent of the
-   * generator's; if an operator sets a small OPENCODE_TIMEOUT_MS (or raises a per-role one) it must NOT
-   * drag the transport below any of them. Take the max + headroom.
-   */
+/* Which model and provider answered, how the runtime says it finished, and the times it stamped on the answer: the fields of the assistant message that were discarded here before. Each is kept only when it has the shape it should. */
+export function answeredFrom(info: { modelID?: unknown; providerID?: unknown; finish?: unknown; time?: { created?: unknown; completed?: unknown } } | undefined): { answered?: AttemptAnswer } {
+  if (!info) return {};
+  const text = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
+  const stamp = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+  const answered: AttemptAnswer = {
+    ...(text(info.modelID) !== undefined ? { modelId: text(info.modelID)! } : {}),
+    ...(text(info.providerID) !== undefined ? { providerId: text(info.providerID)! } : {}),
+    ...(text(info.finish) !== undefined ? { finish: text(info.finish)! } : {}),
+    ...(stamp(info.time?.created) !== undefined ? { createdAt: stamp(info.time?.created)! } : {}),
+    ...(stamp(info.time?.completed) !== undefined ? { completedAt: stamp(info.time?.completed)! } : {}),
+  };
+  return Object.keys(answered).length > 0 ? { answered } : {};
+}
+
+/**
+ * The longest a single prompt may run: the deadline of the agent transport, and so the ceiling for any
+ * per-turn bound a caller sets (a bound above it could never fire). The undici transport timeout must
+ * exceed EVERY per-prompt withTimeout, or it aborts the request before our own deadline fires. The
+ * reviewer, the explorer and the planner each have their OWN budget (REVIEWER_TIMEOUT_MS,
+ * EXPLORER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) independent of the generator's; if an operator sets a small
+ * OPENCODE_TIMEOUT_MS (or raises a per-role one) it must NOT drag the transport below any of them.
+ * Take the max + headroom.
+ */
+export function agentPromptCapMs(): number {
   const generatorMax = Number(process.env.OPENCODE_TIMEOUT_MS) || MAX_AGENT_TIMEOUT_MS;
-  const dispatcherTimeoutMs = Math.max(generatorMax, REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) + 30_000;
+  return Math.max(generatorMax, REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) + 30_000;
+}
+
+export async function defaultAgentDeps(): Promise<AgentDeps> {
+  const dispatcherTimeoutMs = agentPromptCapMs();
   await installHttpDispatcher(dispatcherTimeoutMs);
 
   const raw = await buildRawAgentTransport();
@@ -550,6 +682,8 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
     takeTurnCalls: (sessionId, promptText, providedPaths) => callEfficiencyTracker.take(sessionId, promptText, providedPaths),
     prepareAttempt: (sessionId, attempt) => callEfficiencyTracker.prepareAttempt(sessionId, attempt),
     maxStepsFor: maxStepsFromConfig,
+    onAttempt: (sessionId, event) => agentTurnTraces.attempt(sessionId, event),
+    outerLimit: (sessionId, prompt) => agentTurnTraces.firedBy(sessionId, prompt),
   });
 }
 

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PromptRenderingAdapter, type PromptBuilders } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
-import type { ParallelWorkerInput, ReviewInput, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ReviewInput, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
 /* Minimal fake builders — typed against the real PromptBuilders interface so a field mismatch
    is caught at compile time; the "as never" casts on the input shapes keep the stubs concise.
@@ -11,24 +11,12 @@ import type { ParallelWorkerInput, ReviewInput, OpencodeRunInput } from "@contex
 function makeBuilders(overrides: Partial<PromptBuilders>): PromptBuilders {
   return {
     buildPromptAssembled: (_i: OpencodeRunInput) => ({ text: "", sectionSizes: {} }),
-    buildWorkerPromptAssembled: (_w: ParallelWorkerInput) => ({ text: "", sectionSizes: {} }),
     buildReviewerPromptAssembled: (_i: ReviewInput) => ({ text: "", sectionSizes: {} }),
     buildExplorerPrompt: (_i: OpencodeRunInput) => "",
     specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
     ...overrides,
   };
 }
-
-test("renderWorker delegates to buildWorkerPromptAssembled and returns its assembled text", () => {
-  let seen: unknown = null;
-  const adapter = new PromptRenderingAdapter(makeBuilders({
-    buildWorkerPromptAssembled: (w) => { seen = w; return { text: "WORKER", sectionSizes: { task: 7 } }; },
-  }));
-  const out = adapter.renderWorker({ flow: "login" } as never);
-  assert.ok(seen, "the builder must be called — a gutted impl FAILS this");
-  assert.equal(out.text, "WORKER");
-  assert.deepEqual(out.sectionSizes, { task: 7 }); /* sectionSizes forwarded for telemetry (not dropped) */
-});
 
 test("renderReviewer delegates to buildReviewerPromptAssembled and returns assembled text + sectionSizes", () => {
   let seen: unknown = null;

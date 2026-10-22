@@ -29,6 +29,8 @@ export interface AgentRuntimeManager {
   restart(provider: AgentProvider): Promise<AgentProviderHealth>;
   facade(): AgentFacade;
   hasOpenSessions(): boolean;
+  /* The live role assignments, read now. */
+  current(): AgentRuntimeConfig;
 }
 
 export interface CreateAgentRuntimeManagerOptions {
@@ -146,6 +148,10 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       return config.mode === "dual"
         ? new DualAgentFacade(opts.strategies, config)
         : new SingleAgentFacade(opts.strategies[config.singleProvider], config);
+    },
+
+    current() {
+      return config;
     },
 
     hasOpenSessions() {

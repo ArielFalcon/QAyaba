@@ -206,6 +206,73 @@ test("withStallWatchdog: a normal (non-self-timed) session IS still wrapped", as
   assert.equal(watchdogCreated, true, "a normal session must still be wrapped by the watchdog");
 });
 
+/* A virtual clock for the real stall watchdog: advance() fires due timers, no real time passes. */
+function virtualClockWatchdogFactory(stallMs: number) {
+  let now = 0;
+  let pending: { at: number; cb: () => void } | undefined;
+  const timers = {
+    setTimeout: (cb: () => void, ms: number) => {
+      const entry = { at: now + ms, cb };
+      pending = entry;
+      return entry as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: (id: ReturnType<typeof setTimeout> | undefined) => {
+      if (pending && (pending as unknown) === id) pending = undefined;
+    },
+  };
+  return {
+    factory: (onStall: () => void) => createStallWatchdog({ stallMs, onStall, timers }),
+    advance: (ms: number) => {
+      now += ms;
+      if (pending && pending.at <= now) {
+        const { cb } = pending;
+        pending = undefined;
+        cb();
+      }
+    },
+  };
+}
+
+function slowPromptDeps(sessionId: string): { deps: AgentDeps; finish: (v: string) => void } {
+  let finish!: (v: string) => void;
+  const deps: AgentDeps = {
+    open: async () => ({
+      id: sessionId,
+      prompt: () => new Promise<string>((res) => { finish = res; }),
+      dispose: async () => {},
+    }),
+  };
+  return { deps, finish: (v) => finish(v) };
+}
+
+test("withStallWatchdog: a session opened without live observation is not stalled by silence it cannot observe", async () => {
+  const clock = virtualClockWatchdogFactory(180_000);
+  const { deps: base, finish } = slowPromptDeps("unobserved-session");
+  const wrapped = withStallWatchdog(base, { stallMs: 180_000, watchdogFactory: clock.factory });
+
+  const session = await wrapped.open("any-agent", "/tmp", { descriptor: { liveObservation: false } });
+  const promptPromise = session.prompt("hello");
+  clock.advance(240_000); /* longer than the stall window, no activity notification can ever arrive */
+  finish("late answer");
+
+  assert.equal(await promptPromise, "late answer");
+  await session.dispose();
+});
+
+test("withStallWatchdog: an observed session with no activity still trips the watchdog", async () => {
+  const clock = virtualClockWatchdogFactory(180_000);
+  const { deps: base, finish } = slowPromptDeps("observed-session");
+  const wrapped = withStallWatchdog(base, { stallMs: 180_000, watchdogFactory: clock.factory });
+
+  const session = await wrapped.open("any-agent", "/tmp", { descriptor: { liveObservation: true } });
+  const promptPromise = session.prompt("hello");
+  clock.advance(180_001);
+  finish("too late");
+
+  await assert.rejects(() => promptPromise, (err: unknown) => err instanceof StalledAgentError);
+  await session.dispose();
+});
+
 /* ─── withSessionRegistration ─────────────────────────────────────────────────────────────────────
    `collaborators` is REQUIRED: qa-engine cannot reach the shell registerRunSession/unregisterRunSession
    functions on its own, so the composition root (src/server/rewritten-engine-factory.ts) must inject
@@ -252,6 +319,18 @@ test("withSessionRegistration calls register with the session id, descriptor.run
 
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], { sessionId: "sess-99", runId: "run-42", directory: "/mirrors/org/app" });
+});
+
+test("withSessionRegistration tells the bind hook the flow a session was opened for and the tools its run denied it, and only when it has them", async () => {
+  const { deps: base } = fakeBaseDeps("sess-flow");
+  const bound: Array<Record<string, unknown>> = [];
+  const wrapped = withSessionRegistration(base, { register: () => {}, unregister: () => {}, bind: (session) => bound.push({ ...session }) });
+  await wrapped.open("qa-sidekick", "/work", { descriptor: { runId: "run-7", role: "qa-sidekick", delegationId: "run-7-cart", denyTools: ["serena*"] } });
+  await wrapped.open("qa-generator", "/m", { descriptor: { runId: "run-7", role: "qa-generator" } });
+  assert.deepEqual(bound, [
+    { sessionId: "sess-flow", runId: "run-7", agent: "qa-sidekick", delegationId: "run-7-cart", denyTools: ["serena*"] },
+    { sessionId: "sess-flow", runId: "run-7", agent: "qa-generator" },
+  ]);
 });
 
 test("withSessionRegistration does NOT register when descriptor.runId is absent (no fabricated run identity)", async () => {
@@ -415,6 +494,66 @@ test("createAgentDeps: open()/prompt()/dispose() delegate to the raw transport a
   const out = await session.prompt("do the thing");
   assert.equal(out, "hello world");
   await session.dispose();
+});
+
+test("createAgentDeps: a prompt's own time limit bounds that prompt, under the session's and the default", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-own-limit" }),
+    promptSession: () => new Promise(() => {}),
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  const session = await deps.open("qa-generator", "/tmp", { timeoutMs: 5000 });
+  await assert.rejects(() => session.prompt("do the thing", { timeoutMs: 5 }), /timed out after 5ms/);
+  await session.dispose();
+});
+
+test("createAgentDeps: a prompt that asks for no tools reaches the transport as such, on the primary attempt and on the fallback retry", async () => {
+  resetCircuit();
+  const seen: Array<boolean | undefined> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-no-tools" }),
+    promptSession: async (args) => {
+      seen.push(args.withoutTools);
+      if (seen.length === 1) throw new Error("ECONNRESET transient network fault");
+      return { parts: [{ type: "text", text: "restated" }] };
+    },
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => "opencode-go/fallback-model" });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("restate your verdict", { withoutTools: true });
+  assert.deepEqual(seen, [true, true]);
+});
+
+test("createAgentDeps: a prompt that does not ask for it never carries the no-tools flag", async () => {
+  resetCircuit();
+  let flag: unknown = "unset";
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-tools" }),
+    promptSession: async (args) => { flag = "withoutTools" in args ? args.withoutTools : "absent"; return { parts: [{ type: "text", text: "x" }] }; },
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("write the spec");
+  assert.equal(flag, "absent");
+});
+
+test("createAgentDeps: a prompt that may not write reaches the transport as such, on the primary attempt and on the fallback retry, and one that may does not carry the flag", async () => {
+  resetCircuit();
+  const seen: Array<boolean | undefined | "absent"> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-no-writes" }),
+    promptSession: async (args) => {
+      seen.push("withoutWrites" in args ? args.withoutWrites : "absent");
+      if (seen.length === 1) throw new Error("ECONNRESET transient network fault");
+      return { parts: [{ type: "text", text: "planned" }] };
+    },
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => "opencode-go/fallback-model" });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("plan the change", { withoutWrites: true });
+  await session.prompt("write the specs");
+  assert.deepEqual(seen, [true, true, "absent"]);
 });
 
 test("createAgentDeps: retries on the fallback model after a transient (non-infra) primary-model fault", async () => {
@@ -825,11 +964,17 @@ const SAMPLE_CALL_METRICS = {
   observationComplete: true,
   callsBeforeFirstWrite: 5,
   writeCount: 1,
+  commandCount: 1,
   redundantReadCount: 2,
   duplicateCallCount: 1,
   promptProvidedReadCount: 0,
   pathProvidedReadCount: 0,
-  buckets: { code_read: 4, browser: 2, write: 1, validate_run: 0, memory: 0, subagent: 0, other: 0 },
+  buckets: { code_read: 4, browser: 2, write: 1, validate_run: 0, script_run: 0, memory: 0, subagent: 0, other: 0 },
+  timeToFirstCallMs: 900,
+  timeToFirstWriteMs: 4_200,
+  deniedCallCount: 1,
+  toolSequence: [{ tool: "read", target: "src/a.ts" }],
+  usage: { input: 10, output: 5, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0.001, steps: 3 },
 };
 
 async function promptWithCollaborators(
@@ -1312,4 +1457,306 @@ test("createAgentDeps: a verdict repair sent with the limit of the prompt it rep
     persisted.map((turn) => [turn.isRepair, turn.stepBudget?.maxSteps, turn.stepBudget?.exhausted]),
     [[false, 40, true], [true, 40, true], [true, 50, false]],
   );
+});
+
+/* ── a turn that does not finish ── */
+
+/** A clock the test moves by hand: each `tick` is how long the prompt in flight has been running. */
+function manualClock(start = 10_000): { now: () => number; tick: (ms: number) => void } {
+  let clock = start;
+  return { now: () => clock, tick: (ms) => { clock += ms; } };
+}
+
+test("createAgentDeps: the turn event carries the wall time the prompt took, from when it was sent to when it answered", async () => {
+  resetCircuit();
+  const clock = manualClock();
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-timed" }),
+    promptSession: async () => { clock.tick(37_250); return { parts: [{ type: "text", text: "done" }] }; },
+  });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t), now: clock.now });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-timed" } });
+  await session.prompt("first");
+  clock.tick(900_000);
+  await session.prompt("second");
+  assert.deepEqual(persisted.map((t) => t.durationMs), [37_250, 37_250], "idle time between prompts is not part of a turn");
+});
+
+test("createAgentDeps: a turn that hit the prompt timeout still reports how long it ran", async () => {
+  resetCircuit();
+  const clock = manualClock();
+  const { raw } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: SHORT_TIMEOUT_MS, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t), now: clock.now });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-timeout-timed" } });
+  const prompted = session.prompt("write the specs");
+  clock.tick(360_000);
+  await assert.rejects(() => prompted, /timed out/);
+  assert.equal(persisted[0]!.ended, "timeout");
+  assert.equal(persisted[0]!.durationMs, 360_000);
+});
+
+const SHORT_TIMEOUT_MS = 15;
+
+/** A transport whose prompt never answers until the test lets it; `release` answers the hung prompt late. */
+function hangingTransport(onAbort: () => void = () => {}) {
+  let release!: (value: Awaited<ReturnType<RawAgentTransport["promptSession"]>>) => void;
+  let fail!: (err: Error) => void;
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-hung" }),
+    promptSession: () => new Promise((resolve, reject) => { release = resolve; fail = reject; }),
+    abortSession: async () => onAbort(),
+  });
+  return { raw, release: (parts = [{ type: "text", text: "late answer" }]) => release({ parts }), fail: (err: Error) => fail(err) };
+}
+
+test("createAgentDeps: a turn that hits the prompt timeout is persisted once, with the calls measured so far, empty output and the end recorded", async () => {
+  resetCircuit();
+  const { raw } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  const flushes: Array<{ sessionId: string; promptText: string }> = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: SHORT_TIMEOUT_MS,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    maxStepsFor: () => 50,
+    takeTurnCalls: (sessionId, promptText) => {
+      flushes.push({ sessionId, promptText });
+      return { ...SAMPLE_CALL_METRICS, totalCalls: 31, stepsUsed: 12 };
+    },
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-timeout", role: "qa-generator", objective: "cover checkout" } });
+
+  await assert.rejects(() => session.prompt("write the specs", { round: 2, sectionSizes: { diff: 900 } }), /timed out/);
+
+  assert.equal(persisted.length, 1);
+  const turn = persisted[0]!;
+  assert.equal(turn.ended, "timeout");
+  assert.equal(turn.runId, "run-timeout");
+  assert.equal(turn.sessionId, "sess-hung");
+  assert.equal(turn.role, "qa-generator");
+  assert.equal(turn.objective, "cover checkout");
+  assert.equal(turn.round, 2);
+  assert.equal(turn.promptText, "write the specs");
+  assert.equal(turn.promptBytes, Buffer.byteLength("write the specs", "utf8"));
+  assert.deepEqual(turn.sectionSizes, { diff: 900 });
+  assert.equal(turn.outputText, "");
+  assert.equal(turn.callMetrics?.totalCalls, 31);
+  assert.equal(turn.callMetrics?.stepsUsed, 12);
+  assert.equal(turn.stepBudget?.maxSteps, 50);
+  assert.equal(turn.tokensInput, null);
+  assert.equal(turn.cost, null);
+  assert.deepEqual(flushes, [{ sessionId: "sess-hung", promptText: "write the specs" }]);
+});
+
+test("createAgentDeps: an answer that arrives after the timeout neither persists the turn again nor flushes the tracker again", async () => {
+  resetCircuit();
+  const { raw, release } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  let flushes = 0;
+  const usages: number[] = [];
+  const stats: unknown[] = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: SHORT_TIMEOUT_MS,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => { flushes++; return SAMPLE_CALL_METRICS; },
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-late" }, onUsage: () => usages.push(1) });
+  await assert.rejects(() => session.prompt("write the specs", { onTurnStats: (s) => stats.push(s) }), /timed out/);
+
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(persisted.length, 1, "one row for the turn");
+  assert.equal(persisted[0]!.ended, "timeout");
+  assert.equal(flushes, 1, "the tracker's counters advanced once");
+  assert.deepEqual(stats, [], "the caller already got its rejection");
+});
+
+test("createAgentDeps: the turn after a timeout is measured from the timed out turn's flush, not from before it", async () => {
+  resetCircuit();
+  let calls = 0;
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-two-turns" }),
+    promptSession: () => (calls++ === 0 ? new Promise(() => {}) : Promise.resolve({ parts: [{ type: "text", text: "done" }] })),
+  });
+  const persisted: AgentTurnEvent[] = [];
+  /* The flush is destructive: each call hands out only what happened since the previous one. */
+  let flushed = 0;
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: SHORT_TIMEOUT_MS,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, totalCalls: flushed++ === 0 ? 30 : 4 }),
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-next" }, timeoutMs: 200 });
+  await assert.rejects(() => session.prompt("first", { }), /timed out/);
+
+  await session.prompt("second");
+  assert.deepEqual(persisted.map((t) => [t.ended, t.callMetrics?.totalCalls]), [["timeout", 30], ["completed", 4]]);
+});
+
+test("createAgentDeps: a timed out turn whose steps were not observed completely reports no step count", async () => {
+  resetCircuit();
+  const { raw } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: SHORT_TIMEOUT_MS,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    prepareAttempt: () => { throw new Error("stream down"); },
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 9 }),
+  });
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-unobserved" } });
+    await assert.rejects(() => session.prompt("p"), /timed out/);
+  } finally {
+    console.error = quiet;
+  }
+  assert.equal(persisted[0]!.callMetrics?.stepsUsed, null);
+  assert.equal(persisted[0]!.callMetrics?.observationComplete, false);
+});
+
+test("createAgentDeps: a timed out turn reaches the caller's turn sink as well as the default one, and a session with neither flushes the tracker and records nothing", async () => {
+  resetCircuit();
+  const sink: AgentTurnEvent[] = [];
+  let flushes = 0;
+  const collaborators = { defaultPromptTimeoutMs: SHORT_TIMEOUT_MS, getFallbackModel: () => undefined, takeTurnCalls: () => { flushes++; return SAMPLE_CALL_METRICS; } };
+
+  const withSink = await createAgentDeps(hangingTransport().raw, collaborators).open("qa-generator", "/tmp", { onTurn: (t) => sink.push(t) });
+  await assert.rejects(() => withSink.prompt("p"), /timed out/);
+  assert.deepEqual(sink.map((t) => t.ended), ["timeout"]);
+
+  const persisted: AgentTurnEvent[] = [];
+  const bare = await createAgentDeps(hangingTransport().raw, { ...collaborators, persistTurn: (t) => persisted.push(t) }).open("qa-generator", "/tmp");
+  await assert.rejects(() => bare.prompt("p"), /timed out/);
+  assert.deepEqual(persisted, [], "no run context, no sink: nothing to record");
+  assert.equal(flushes, 2, "the tracker is flushed either way, so the next turn does not inherit these calls");
+});
+
+test("createAgentDeps: a turn cut short by the caller's abort is persisted with that end", async () => {
+  resetCircuit();
+  const { raw, fail } = hangingTransport();
+  const persisted: AgentTurnEvent[] = [];
+  const controller = new AbortController();
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    takeTurnCalls: () => SAMPLE_CALL_METRICS,
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-abort" }, signal: controller.signal });
+  const pending = session.prompt("p");
+  const outcome = assert.rejects(() => pending, /aborted/);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  controller.abort();
+  fail(new Error("the agent turn was aborted"));
+  await outcome;
+
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0]!.ended, "aborted");
+  assert.equal(persisted[0]!.outputText, "");
+});
+
+test("createAgentDeps: a prompt that fails without timing out or being aborted still records no turn", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({ promptSession: async () => { throw new Error("boom"); } });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t) });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-boom" } });
+  await assert.rejects(() => session.prompt("p"), /boom/);
+  assert.deepEqual(persisted, []);
+});
+
+test("createAgentDeps: the primary model failing after the timeout does not start the fallback model's prompt", async () => {
+  resetCircuit();
+  const { raw, fail } = hangingTransport();
+  const prompted: Array<string | undefined> = [];
+  const original = raw.promptSession;
+  raw.promptSession = (args) => { prompted.push(args.model?.modelID); return original(args); };
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: SHORT_TIMEOUT_MS, getFallbackModel: () => "p/fallback-model" });
+  const session = await deps.open("qa-generator", "/tmp");
+  await assert.rejects(() => session.prompt("p"), /timed out/);
+  fail(new Error("late transient fault"));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(prompted.length, 1);
+});
+
+test("createAgentDeps: a turn ends completed, or exhausted when it hit its step limit", async () => {
+  const completed = await promptWithCollaborators("done", { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 3 }) });
+  assert.equal(completed.ended, "completed");
+  const exhausted = await promptWithCollaborators("done", { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 50 }) });
+  assert.equal(exhausted.ended, "exhausted");
+  const unknown = await promptWithCollaborators("done", {});
+  assert.equal(unknown.ended, "completed", "no step budget to say otherwise");
+});
+
+test("withSessionRegistration tells the binder which agent opened which session for which run, and unbinds it on dispose", async () => {
+  const { deps: base } = fakeBaseDeps("sess-gen");
+  const bound: Array<{ sessionId: string; runId: string; agent: string }> = [];
+  const unbound: string[] = [];
+  const wrapped = withSessionRegistration(base, {
+    register: () => {},
+    unregister: () => {},
+    bind: (session) => bound.push(session),
+    unbind: (sessionId) => unbound.push(sessionId),
+  });
+
+  const session = await wrapped.open("qa-generator", "/mirrors/org/app", { descriptor: { runId: "run-7", role: "qa-generator" } });
+  assert.deepEqual(bound, [{ sessionId: "sess-gen", runId: "run-7", agent: "qa-generator" }]);
+  assert.deepEqual(unbound, []);
+  await session.dispose();
+  assert.deepEqual(unbound, ["sess-gen"]);
+});
+
+test("withSessionRegistration binds a session even when it opts out of live observation, and none without a run", async () => {
+  const { deps: base } = fakeBaseDeps("sess-x");
+  const bound: string[] = [];
+  const wrapped = withSessionRegistration(base, { register: () => {}, unregister: () => {}, bind: (s) => bound.push(s.sessionId), unbind: () => {} });
+  await wrapped.open("qa-explorer", "/m", { descriptor: { runId: "run-7", role: "qa-explorer", liveObservation: false } });
+  await wrapped.open("qa-generator", "/m");
+  assert.deepEqual(bound, ["sess-x"]);
+});
+
+/* --- withSessionRegistration: observing a session that is not registered --- */
+
+test("a session opened without live observation but flagged for unwatched observation is observed, not registered, and forgotten on dispose", async () => {
+  const { deps: base } = fakeBaseDeps("sess-ex");
+  const calls: string[] = [];
+  const wrapped = withSessionRegistration(base, {
+    register: (id) => calls.push(`register ${id}`),
+    unregister: (id) => calls.push(`unregister ${id}`),
+    observe: (id, cwd) => calls.push(`observe ${id} ${cwd}`),
+    unobserve: (id) => calls.push(`unobserve ${id}`),
+  });
+  const session = await wrapped.open("qa-explorer", "/m/app", { descriptor: { runId: "run-1", role: "qa-explorer", liveObservation: false, observeUnwatched: true } });
+  await session.dispose();
+  assert.deepEqual(calls, ["observe sess-ex /m/app", "unobserve sess-ex"]);
+});
+
+test("a session without the flag is neither observed nor registered when it opts out of live observation, and one that is registered is never also observed", async () => {
+  const { deps: base } = fakeBaseDeps("sess-2");
+  const calls: string[] = [];
+  const wrapped = withSessionRegistration(base, {
+    register: (id) => calls.push(`register ${id}`),
+    unregister: () => {},
+    observe: (id) => calls.push(`observe ${id}`),
+    unobserve: () => {},
+  });
+  await (await wrapped.open("qa-explorer", "/m/app", { descriptor: { runId: "run-1", liveObservation: false } })).dispose();
+  await (await wrapped.open("qa-generator", "/m/app", { descriptor: { runId: "run-1", observeUnwatched: true } })).dispose();
+  assert.deepEqual(calls, ["register sess-2"]);
+});
+
+test("a host that cannot observe unwatched sessions leaves the opted-out session exactly as it was", async () => {
+  const { deps: base } = fakeBaseDeps("sess-3");
+  const calls: string[] = [];
+  const wrapped = withSessionRegistration(base, { register: (id) => calls.push(`register ${id}`), unregister: () => {} });
+  await (await wrapped.open("qa-explorer", "/m/app", { descriptor: { runId: "run-1", liveObservation: false, observeUnwatched: true } })).dispose();
+  assert.deepEqual(calls, []);
 });

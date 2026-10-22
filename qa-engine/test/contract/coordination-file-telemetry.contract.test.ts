@@ -14,7 +14,7 @@ import {
   ROTATE_TO_EVENTS,
   type CoordinationTelemetryFsDeps,
 } from "@contexts/qa-run-orchestration/infrastructure/bridges/coordination-telemetry-port.adapter.ts";
-import { deriveAdaptiveSignals, type CoordinationTelemetryEvent } from "@contexts/qa-run-orchestration/application/coordination/coordination-telemetry.ts";
+import type { CoordinationTelemetryEvent } from "@contexts/qa-run-orchestration/application/coordination/coordination-telemetry.ts";
 
 function event(overrides: Partial<CoordinationTelemetryEvent>): CoordinationTelemetryEvent {
   return {
@@ -31,7 +31,7 @@ test("with persistPath, events append to the JSONL file AND reload on a fresh in
   const path = join(dir, "coordination-events.jsonl");
   const first = new FileCoordinationTelemetryAdapter(path);
   first.record(event({}));
-  first.record(event({})); /* 2 delegations = adaptive sample reaches minSamples(2) */
+  first.record(event({}));
 
   const lines = readFileSync(path, "utf8").trim().split("\n");
   assert.equal(lines.length, 2);
@@ -39,9 +39,6 @@ test("with persistPath, events append to the JSONL file AND reload on a fresh in
 
   const second = new FileCoordinationTelemetryAdapter(path);
   assert.equal(second.events.length, 2);
-  const signals = deriveAdaptiveSignals(second.events, 2);
-  assert.ok(signals, "reloaded events must feed adaptive signals");
-  assert.equal(signals.recentEscalateRate, 0);
   second.record(event({ kind: "escalation", reason: "escalate-sidekick" }));
   const linesAfter = readFileSync(path, "utf8").trim().split("\n");
   assert.equal(linesAfter.length, 3);

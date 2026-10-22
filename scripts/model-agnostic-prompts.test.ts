@@ -1,4 +1,4 @@
-/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers of both mirrors, the skills and every prompt the harness sends to an agent (generator, context task, explorer, worker, reviewer, verdict repair, sidekick, maintainer, assistant, reflector, proposer), in three layers:
+/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers of both mirrors, the skills and every prompt the harness sends to an agent (generator, context task, explorer, reviewer, verdict repair, sidekick, maintainer, assistant, reflector, proposer), in three layers:
    - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults, the cataloged windows, the proposer's pin), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
    - fixed list: well-known vendor and family names, forbidden anywhere. The list only forbids: nothing selects a prompt, a limit or a rule by it;
    - headings: the parenthetical of a role's title holds no version-like token and no letter segment of a declared id.
@@ -16,11 +16,10 @@ import {
   buildExplorerPrompt,
   buildPromptAssembled,
   buildReviewerPromptAssembled,
-  buildWorkerPromptAssembled,
   renderExecutionResult,
   setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import type { ParallelWorkerInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
 import { SidekickExecutor } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
 import { ReflectorPortAdapter } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts";
@@ -338,7 +337,7 @@ test("a listed vendor is caught wherever it stands, as a whole word only", async
 
 test("a role title may carry acronyms and plain words in parentheses, never a version-like token or a segment of a declared id", async () => {
   const terms = await repoTerms();
-  for (const title of ["# Worker (E2E)", "# Login helper (OAuth2)", "# Assistant (lite model)", "# Explorer", "# Reviewer (E2E, read-only)"]) {
+  for (const title of ["# Login helper (OAuth2)", "# Assistant (lite model)", "# Explorer", "# Reviewer (E2E, read-only)"]) {
     assert.deepEqual(titleFindings("t.md", `${title}\n\nBody.`, terms), [], title);
   }
   assert.deepEqual(titleFindings("t.md", "# Writer (Alpha V4)\n", terms), [{ source: "t.md", layer: "heading", token: "V4" }]);
@@ -401,7 +400,7 @@ test("the generator cells scanned reach every value of every dimension", () => {
 
 /* ── what the harness sends to an agent ── */
 
-/* A kind of prompt the harness authors for an agent. `prompts(subject)` drives the real builder, or the real class that sends it, with `subject` spliced into a free-text field the prompt renders, and returns every variant of the kind. Every role the runtime opens a session for is reached by at least one kind. `buildFollowupPrompt` has no kind: no production code sends it. */
+/* A kind of prompt the harness authors for an agent. `prompts(subject)` drives the real builder, or the real class that sends it, with `subject` spliced into a free-text field the prompt renders, and returns every variant of the kind. Every role the runtime opens a session for is reached by at least one kind. */
 interface PromptKind {
   kind: string;
   roles: readonly AgentRole[];
@@ -518,49 +517,6 @@ async function contextPrompts(subject: string): Promise<PromptText[]> {
     { source: "context task", text: buildContextTask(input) },
     { source: "context task with services", text: buildContextTask({ ...input, services }) },
   ];
-}
-
-/* The parallel worker's prompt: a UI worker with nothing grounded, a UI worker with every grounding block, and a code-only worker. */
-async function workerPrompts(subject: string): Promise<PromptText[]> {
-  wireBriefRenderer();
-  const link = {
-    from: { repo: "org/web", file: "src/cart.ts", symbol: "CartClient.total" },
-    to: { repo: "org/orders", file: "src/orders.ts", symbol: "OrdersController.total" },
-    transport: "http" as const,
-    confidence: 0.9,
-    source: "stitcher",
-  };
-  const base: ParallelWorkerInput = {
-    objective: `show the ${subject} total`,
-    flow: "cart-total",
-    symbols: ["CartService.total"],
-    needsUi: true,
-    specFile: "cart-total.spec.ts",
-    repo: "org/app",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "qa-bot-abc1234",
-    appName: "shop",
-    mode: "diff",
-  };
-  const variants: Array<[string, ParallelWorkerInput]> = [
-    ["ui, nothing grounded", base],
-    [
-      "ui, fully grounded",
-      {
-        ...base,
-        domSnapshot: "route /cart:\n  button: Pay",
-        brief: { builtForSha: "abc1234", objective: "cart total", blastRadius: [{ symbol: "CartService.total", file: "src/cart.service.ts", role: "sums the lines" }] },
-        learnedRules: "- prefer role locators",
-        staticSignal: "## Structural signal\n- CartService.total is called by CartPage",
-        serviceLinks: [link],
-        contractDrift: [{ from: link.from, verb: "GET", path: "/orders/total" }],
-        crossRepoImpact: { impactedLinks: [{ link, tier: "direct" }] },
-      },
-    ],
-    ["code", { ...base, needsUi: false }],
-  ];
-  return variants.map(([name, worker]) => ({ source: `worker prompt (${name})`, text: buildWorkerPromptAssembled(worker).text }));
 }
 
 /* What the generator and the reviewer are asked when their closing verdict is unreadable, with and without the tail of their last reply. */
@@ -704,7 +660,6 @@ const PROMPT_KINDS: readonly PromptKind[] = [
   { kind: "generator", roles: ["primary"], prompts: generatorPrompts },
   { kind: "context task", roles: ["primary"], prompts: contextPrompts },
   { kind: "explorer", roles: ["explorer"], prompts: explorerPrompts },
-  { kind: "worker", roles: ["worker", "workerCode"], prompts: workerPrompts },
   { kind: "reviewer", roles: ["reviewer"], prompts: reviewerPrompts },
   { kind: "verdict repair", roles: ["primary", "reviewer"], prompts: repairPrompts },
   { kind: "sidekick", roles: ["sidekick"], prompts: sidekickPrompts },

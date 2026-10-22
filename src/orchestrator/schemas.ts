@@ -1,5 +1,32 @@
 import { z } from "zod";
 import { LoginPathSchema } from "../../qa-engine/src/shared-kernel/login-path";
+import { MAX_PLACES, MAX_PLACE_NAME_CHARS, PLACE_NAME_PATTERN } from "../../qa-engine/src/shared-kernel/geolocation";
+import { mutatingEntryError, routePatternError } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard";
+import { compileEgressPolicy, EgressPolicyError, originOf } from "../../qa-engine/src/shared-infrastructure/egress/egress-policy";
+
+/*
+ * A list of origins the execution sandbox may reach (`scheme://host[:port]`, or `scheme://*.suffix[:port]`). Each is compiled
+ * here, so an origin the egress filter would refuse is refused when the config is loaded, not when the first run starts.
+ */
+const OriginListSchema = z.array(z.string().min(1)).superRefine((origins, ctx) => {
+  origins.forEach((origin, index) => {
+    try {
+      compileEgressPolicy([origin]);
+    } catch (err) {
+      if (!(err instanceof EgressPolicyError)) throw err;
+      ctx.addIssue({ code: "custom", message: err.message, path: [index] });
+    }
+  });
+});
+
+/* A list of strings each checked by `check` (which returns what is wrong with one, or undefined): a bad entry is refused when the config is loaded. */
+const checkedList = (check: (entry: string) => string | undefined) =>
+  z.array(z.string().min(1)).max(100).superRefine((entries, ctx) => {
+    entries.forEach((entry, index) => {
+      const problem = check(entry);
+      if (problem !== undefined) ctx.addIssue({ code: "custom", message: `${JSON.stringify(entry)} ${problem}`, path: [index] });
+    });
+  });
 
 /*
  * ── boundaries[] schema (Stitcher → Generation seam) ──────────────────────────
@@ -51,6 +78,12 @@ const BoundarySchema = z.discriminatedUnion("transport", [
   HttpBackendBoundarySchema,
 ]);
 
+/* A browser position (Playwright's geolocation): the shape dev.geolocation and each of its named places share. */
+const GeoPointSchema = z.object({
+  latitude: z.number().min(-90, { error: "latitude must be between -90 and 90" }).max(90, { error: "latitude must be between -90 and 90" }),
+  longitude: z.number().min(-180, { error: "longitude must be between -180 and 180" }).max(180, { error: "longitude must be between -180 and 180" }),
+});
+
 /*
  * ── AppConfig schema ──────────────────────────────────────────────────────────
  * Validates YAML config loaded from config/apps/<name>.yaml. Replaces the unsafe
@@ -91,13 +124,91 @@ export const AppConfigSchema = z
         versionUrl: z.url().optional(),
         pollIntervalMs: z.number().int().positive().optional(),
         deployTimeoutMs: z.number().int().positive().optional(),
+        /*
+         * Origins the agent-written specs may reach besides baseUrl's own (an identity provider, an API host, a CDN the app's
+         * pages load from). Everything else is refused by the execution sandbox's egress filter and listed in the run's
+         * gate signals, so an app that loads a third-party host declares it here once.
+         */
+        allowedOrigins: OriginListSchema.optional(),
+        /*
+         * Origins the app leaves blocked on purpose (telemetry, analytics, ads): the filter refuses them like any undeclared host,
+         * and a refusal of one is never taken as the reason a login failed. Declaring one does not open it.
+         */
+        blockedOrigins: OriginListSchema.optional(),
+        /*
+         * The browser position a suite and the Context Pack are given (Playwright's geolocation), and the places the authoring
+         * agent may name when it moves that position at runtime. Optional: an app that does not depend on where the user is keeps
+         * the seed's default and no run carries an authoring location. The position is app data, never a fact the engine infers.
+         */
+        geolocation: GeoPointSchema.extend({
+          places: z
+            .record(
+              z.string().max(MAX_PLACE_NAME_CHARS, { error: `a place name is at most ${MAX_PLACE_NAME_CHARS} characters` }).regex(PLACE_NAME_PATTERN, { error: "a place name is a lowercase slug (letters, digits and dashes)" }),
+              GeoPointSchema,
+            )
+            .refine((places) => Object.keys(places).length <= MAX_PLACES, { error: `at most ${MAX_PLACES} places are allowed` })
+            .optional(),
+        }).optional(),
+        /*
+         * Capture-time data-state readiness. Per route path, selectors the DOM capture reads after the page settles so an
+         * empty tree is not mistaken for truth: `readySelector` must appear for the page to be ready; `resultSelector` /
+         * `resultTextSelector` count results (a result of 0 is unconfirmed and retried once); `locationSelector` reads the
+         * effective location the page shows. A key ending `/*` names a prefix and its root. Selectors are app data, never a
+         * fact the engine infers.
+         */
+        dataState: z
+          .object({
+            routes: z
+              .record(
+                z.string().min(1),
+                z.object({
+                  readySelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
+                  resultSelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
+                  resultTextSelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
+                  locationSelector: z.string().min(1, { error: "a data-state selector is non-empty" }).max(200, { error: "a data-state selector is at most 200 characters" }).optional(),
+                  timeoutMs: z.number().int().min(1, { error: "data-state timeoutMs is a whole number of milliseconds, at least 1" }).max(15_000, { error: "data-state timeoutMs is at most 15000" }).optional(),
+                }),
+              )
+              .refine((routes) => Object.keys(routes).length <= 32, { error: "at most 32 data-state routes are allowed" }),
+          })
+          .optional(),
+      })
+      .superRefine((dev, ctx) => {
+        if (dev.blockedOrigins === undefined) return;
+        /* An origin that is both reachable and blocked on purpose says two things at once; the app's own origin is reachable by definition. */
+        const own = originOf(dev.baseUrl);
+        let reachable;
+        try {
+          reachable = compileEgressPolicy([...(dev.allowedOrigins ?? []), ...(own ? [own] : [])]);
+        } catch {
+          return; /* OriginListSchema has said what is wrong with allowedOrigins */
+        }
+        dev.blockedOrigins.forEach((origin, index) => {
+          let blocked;
+          try {
+            blocked = compileEgressPolicy([origin]);
+          } catch {
+            return; /* OriginListSchema has said what is wrong with it */
+          }
+          const contradicts = blocked.rules.some((rule) => reachable.allowsName(rule.host)) || reachable.rules.some((rule) => blocked.allowsName(rule.host));
+          if (contradicts) ctx.addIssue({ code: "custom", message: `dev.blockedOrigins ${JSON.stringify(origin)} is also reachable (dev.allowedOrigins or the app's own origin): an origin is one or the other`, path: ["blockedOrigins", index] });
+        });
       })
       .optional(),
+    /*
+     * Extra origins for the package-manager and toolchain children (the e2e project's `npm ci`, a code-mode app's
+     * install and test command), on top of the registries in config/egress/registries.yaml: a private registry or mirror.
+     */
+    egress: z.object({ installOrigins: OriginListSchema.optional() }).optional(),
     qa: z.object({
       needsReview: z.boolean(),
       testDataPrefix: z.string().min(1, { error: "qa.testDataPrefix is required" }),
       shadow: z.boolean().optional(),
+      /* Review-loop integrity master switch (failure triage, intent lock, findings filter). On by default; the acceptance correctness fixes are always on. false restores the pre-switch flow and forces the intent lock off. */
+      reviewLoopIntegrity: z.boolean().optional(),
       explorer: z.boolean().optional(),
+      /* Pre-generation context pack: include the live-DOM capture (A/B lever; default true). */
+      domPack: z.boolean().optional(),
       /*
        * Change-coverage policy (the value keystone). off = skip; signal (default) = measure +
        * record only; enforce = also try to close the gap and block publishing if it stays low.
@@ -106,6 +217,18 @@ export const AppConfigSchema = z
         .object({
           mode: z.enum(["off", "signal", "enforce"]).optional(),
           minRatio: z.number().min(0).max(1).optional(),
+        })
+        .optional(),
+      /*
+       * Test-intent lock. off = the contract is not derived; signal (default) = derive it and record
+       * the would-be rejections; enforce = a regeneration that drops or weakens the contract is
+       * rejected (its pre-turn bytes restored). opacityFlagRatio flags a contract whose statically
+       * unreadable clauses cross it; the flag never blocks.
+       */
+      intentLock: z
+        .object({
+          mode: z.enum(["off", "signal", "enforce"]).optional(),
+          opacityFlagRatio: z.number().min(0).max(1).optional(),
         })
         .optional(),
       /*
@@ -141,6 +264,56 @@ export const AppConfigSchema = z
 
       iterationBudget: z.number().int().positive().optional(),
       /*
+       * The run_spec closed loop: lets the generator execute a spec it wrote against DEV while it is still authoring, within
+       * these caps (calls per run, the longest one call, mutating requests to DEV per run), so that it delivers specs it has
+       * seen pass. Off unless `enabled` is true; an absent limit takes the default (8 calls, 120s, 20 writes). Needs the OpenCode
+       * runtime and an app whose login the saved session covers; a run can be forced on or off for an A/B.
+       */
+      closedLoop: z
+        .object({
+          enabled: z.boolean().optional(),
+          maxCalls: z.number().int().min(1).max(50).optional(),
+          perCallMs: z.number().int().min(10_000).max(600_000).optional(),
+          maxDevWrites: z.number().int().min(0).max(1_000).optional(),
+        })
+        .optional(),
+      /*
+       * The authenticated agent browser: lets the authoring agents (qa-generator, qa-sidekick) read DEV through the session the run
+       * signed in with, by tools the orchestrator serves (the session never leaves it). Off unless `enabled` is true. Needs the
+       * OpenCode runtime and a login the saved session covers; a run can be forced on or off for an A/B. It never writes to DEV:
+       * `denyRoutes` are paths (`*` within a segment, `**` across) it never reaches, and `allowMutating` (`[POST ]/path`) names the
+       * only requests that write which it lets through (a search that is a POST, a GraphQL endpoint).
+       */
+      agentBrowser: z
+        .object({
+          enabled: z.boolean().optional(),
+          denyRoutes: checkedList(routePatternError).optional(),
+          allowMutating: checkedList(mutatingEntryError).optional(),
+        })
+        .optional(),
+      /*
+       * How a run is coordinated. `single` (default): the lead authors the whole change in one turn, as always. `lead-sidekicks`:
+       * the lead plans first, and a plan of independent flows is authored by sidekicks in parallel, each closing its own run_spec
+       * loop, with the lead taking over what they cannot finish. `maxParallel` flows run at once, a plan may name `maxFlows`, the
+       * planning turn takes at most `planBudgetMs`, and one flow at most `flowBudgetMs` for the runtime its sidekick runs on. A run
+       * can be forced into either mode for an A/B. Needs the OpenCode runtime for the sidekicks and, for an app with a login, the
+       * run_spec loop or the authenticated browser: without them the work stays with the lead.
+       */
+      coordination: z
+        .object({
+          mode: z.enum(["single", "lead-sidekicks"]).optional(),
+          maxParallel: z.number().int().min(1).max(6).optional(),
+          maxFlows: z.number().int().min(2).max(12).optional(),
+          planBudgetMs: z.number().int().min(30_000).max(900_000).optional(),
+          flowBudgetMs: z
+            .object({
+              opencode: z.number().int().min(60_000).max(3_600_000).optional(),
+              codex: z.number().int().min(60_000).max(3_600_000).optional(),
+            })
+            .optional(),
+        })
+        .optional(),
+      /*
        * Optional run-level wall-clock ceiling (ms). When the run's total elapsed time exceeds this at
        * the ENTRY of a generation, no further generation starts and the run concludes on its current
        * state — it NEVER aborts an in-flight execute/review or discards a green result. Default
@@ -155,7 +328,18 @@ export const AppConfigSchema = z
      * Flows into PW_TEST_ID_ATTRIBUTE env, threading through capture and execute spawns.
      * No app-specific names are hardcoded in src/ — the value comes from config only.
      */
-    e2e: z.object({ testIdAttribute: z.string().min(1).optional() }).optional(),
+    e2e: z
+      .object({
+        testIdAttribute: z.string().min(1).optional(),
+        /*
+         * Whether the generated specs may log in themselves. `none` (default): they get the saved session and never the
+         * test account. `account`: the account (the declared auth env, or DEV_TEST_USER/PASS) is also handed to the suite
+         * children, for an app whose flows need a login the saved session cannot give them. Opt-in, per app: a spec
+         * that holds the account can send it to any origin the app declares.
+         */
+        specCredentials: z.enum(["none", "account"]).optional(),
+      })
+      .optional(),
     /*
      * App login. Absent = public app. `form` is a Playwright setup project that
      * writes storageState; `mtls` is a software PKCS#12 presented on the TLS
@@ -272,6 +456,26 @@ export const SpecMetaSchema = z.object({
 /* A generator's decision to write nothing, with the reason it gives. */
 const NoopDecisionSchema = z.object({ reason: z.string().trim().min(1) });
 
+/* The generator's typed claim that its test is correct: a cause and a reason. A claim, never evidence — the orchestrator verifies it against the run's artifacts. */
+const TestCorrectSchema = z.object({ cause: z.enum(["env", "app"]), reason: z.string().trim().min(1) });
+
+/*
+ * The generator's typed refusal to apply one reviewer finding. `basis` names what the orchestrator may
+ * check — an execution of this run, or a contract clause — so a rebuttal with nothing checkable is not a
+ * decision at all. `reason` is prose the run records but never weighs.
+ */
+const RebuttalSchema = z.object({
+  finding: z.string().trim().min(1),
+  basis: z.enum(["execution", "contract"]),
+  ref: z.string().trim().min(1),
+  reason: z.string().trim().min(1),
+});
+
+/* What a turn may answer instead of specs, or beside them: at least one rebuttal. */
+const RebuttalsSchema = z.array(RebuttalSchema).min(1);
+
+export type GeneratorRebuttal = z.infer<typeof RebuttalSchema>;
+
 /*
  * The GENERATOR's deliverable. It does not self-report `approved` — the independent
  * reviewer is the authoritative gate — so its closing JSON is the specs it wrote plus
@@ -286,16 +490,21 @@ export const GeneratorVerdictSchema = z
     specMetas: z.array(SpecMetaSchema).optional(),
     note: z.string().optional(),
     noop: z.unknown().optional(),
+    /* The generator's typed test-correct claim; a claim, never evidence. */
+    testCorrect: z.unknown().optional(),
+    /* The findings the generator disputes instead of correcting; the orchestrator checks each basis. */
+    rebuttals: z.unknown().optional(),
+    /* The plan a lead gives when its turn asks for one; the orchestrator's admission reads it, so only its being an object is checked here. */
+    plan: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((verdict, ctx) => {
-    if (verdict.specs.length > 0 || NoopDecisionSchema.safeParse(verdict.noop).success) return;
+    if (verdict.specs.length > 0 || verdict.plan !== undefined || NoopDecisionSchema.safeParse(verdict.noop).success || TestCorrectSchema.safeParse(verdict.testCorrect).success || RebuttalsSchema.safeParse(verdict.rebuttals).success) return;
     ctx.addIssue({
       code: "custom",
       path: ["noop"],
       message:
         verdict.noop === undefined
-          ? 'an empty "specs" list is only a decision with a "noop" object: {"noop":{"reason":"why nothing was written"}}'
-          : 'a "noop" needs a non-empty text "reason"',
+          ? 'an empty "specs" list is only a decision with a "noop" object, a valid "testCorrect" claim or valid "rebuttals": {"noop":{"kind":"not-worth","reason":"why nothing was written"}}'          : 'a "noop" needs a non-empty text "reason"',
     });
   });
 
@@ -303,10 +512,15 @@ export type ValidatedGeneratorVerdict = z.infer<typeof GeneratorVerdictSchema>;
 
 
 export const CorrectionEntrySchema = z.union([
-  /* Structured entry with severity. */
+  /* Structured entry with severity, and the evidence it rests on. A malformed citation degrades to
+     "no citation" instead of failing the entry: the filter drops an uncited finding on its own. */
   z.object({
     text: z.string(),
     severity: z.enum(["blocking", "advisory"]),
+    citation: z
+      .object({ kind: z.enum(["contract", "execution", "dom"]), ref: z.string() })
+      .optional()
+      .catch(undefined),
   }),
   /* Plain-string entry: treated as blocking (fail-closed). */
   z.string(),
@@ -326,6 +540,11 @@ export function correctionText(entry: CorrectionEntry): string {
 export function correctionSeverity(entry: CorrectionEntry): "blocking" | "advisory" {
   if (typeof entry === "string") return "blocking";
   return entry.severity;
+}
+
+/* Resolve a correction entry's cited evidence, if it carries any. */
+export function correctionCitation(entry: CorrectionEntry): { kind: "contract" | "execution" | "dom"; ref: string } | undefined {
+  return typeof entry === "string" ? undefined : entry.citation;
 }
 
 export const ReviewerVerdictSchema = z.object({

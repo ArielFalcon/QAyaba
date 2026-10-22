@@ -12,7 +12,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildPromptAssembled,
-  buildWorkerPromptAssembled,
   buildReviewerPromptAssembled,
   buildExplorerPrompt,
   specFileForFlow,
@@ -37,7 +36,6 @@ test("renders → opens session → parses deliverable → reconciles manifest (
     rendering: {
       render: () => "",
       renderMain: () => { calls.push("render"); return { text: "PROMPT", sectionSizes: {} }; },
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -94,7 +92,6 @@ test("the files the rendered prompt already carries are handed to the session wi
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "PROMPT", sectionSizes: { task: 6 }, ...(providedPaths ? { providedPaths } : {}) }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -131,7 +128,6 @@ test("code target skips manifest reconciliation entirely (legacy opencode-client
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -196,7 +192,6 @@ test("fires exactly ONE bounded repair when checkGenerator returns valid:false",
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "MAIN_PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -266,7 +261,6 @@ test("reviewer contract miss fires exactly ONE bounded re-prompt (valid:false)",
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "REV_PROMPT", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -334,7 +328,7 @@ async function firstReviewerPrompt(input: Partial<OpencodeRunInput>): Promise<st
       }),
     },
     rendering: new PromptRenderingAdapter({
-      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+      buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
     }),
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/contact.spec.ts"], parsed: true }),
@@ -421,7 +415,6 @@ test("parse miss → empty specs (fail-closed, no phantom spec names)", async ()
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "P", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -475,7 +468,6 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "P", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -530,7 +522,6 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "P", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -585,7 +576,6 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "P", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -650,7 +640,6 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "P", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -714,7 +703,6 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "P", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -787,7 +775,6 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "MAIN_PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -858,7 +845,6 @@ test("follow-up #27: a malformed reviewer verdict triggers ONE bounded repair wh
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "REV_PROMPT", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -934,7 +920,6 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "P", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -999,7 +984,6 @@ async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
       rendering: {
         render: () => "",
         renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
-        renderWorker: () => ({ text: "", sectionSizes: {} }),
         renderReviewer: () => ({ text: "", sectionSizes: {} }),
         renderExplorer: () => "",
         specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -1035,7 +1019,6 @@ async function reviewInputFor(input: Partial<OpencodeRunInput>): Promise<ReviewI
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: (reviewInput) => {
         seen = reviewInput;
         return { text: "REV_PROMPT", sectionSizes: {} };
@@ -1091,7 +1074,6 @@ async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "gen
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: { task: 10 } }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "REV_PROMPT", sectionSizes: { "reviewer-specs": 10 } }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
@@ -1184,4 +1166,39 @@ test("the in-generate reviewer's verdict repair carries no limit when none was h
   assert.equal(reviewer.length, 2, "the review and its repair");
   assert.equal(reviewer[1]?.isRepair, true);
   assert.equal("stepLimit" in (reviewer[1] ?? {}), false);
+});
+
+/* A context run's product is the architecture map, not tests: no reviewer session is opened on it and no review verdict is reported, whatever the run is configured to review. */
+test("a context-mode generation opens no reviewer session and reports no review, even when review is on", async () => {
+  const opened: string[] = [];
+  const ports: GenerationPorts = {
+    runtime: {
+      openSession: async (role) => {
+        opened.push(role);
+        return { prompt: async () => ({ output: '{"specs":[]}' }), dispose: () => {} };
+      },
+    },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
+      renderReviewer: () => ({ text: "REVIEW_PROMPT", sectionSizes: {} }),
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: () => ({ specs: [], parsed: true }),
+      parseReview: () => ({ approved: false, corrections: [], valid: true, issues: [], parsed: true }),
+    },
+    manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+  };
+
+  const result = await new GenerateTestsUseCase(ports).generate({
+    repo: "r", sha: "s", diff: "", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
+    needsReview: true, target: "e2e", mode: "context", appName: "a",
+  });
+
+  assert.equal(opened.includes("reviewer"), false, "no reviewer session was opened");
+  assert.equal(result.reviewed, false);
+  assert.equal(result.approved, true, "an unreviewed generation does not carry a rejection");
 });

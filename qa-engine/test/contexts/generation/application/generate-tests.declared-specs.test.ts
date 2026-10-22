@@ -22,7 +22,6 @@ function generate(deliverable: GeneratorDeliverable, options: Options = {}): Pro
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "MAIN PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "REVIEW PROMPT", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow) => `flows/${flow}.spec.ts`,

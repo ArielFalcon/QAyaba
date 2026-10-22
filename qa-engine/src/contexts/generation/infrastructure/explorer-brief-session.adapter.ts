@@ -12,7 +12,8 @@
 import { dirname } from "node:path";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { CommitIntent, ExplorationBrief, OpencodeRunInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
+import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
+import type { ArchitectureContext, CommitIntent, ExplorationBrief, OpencodeRunInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent.ts";
 import { buildExplorerPrompt } from "./prompt-builders/prompts.ts";
 
@@ -52,6 +53,11 @@ export interface ExplorerBriefDeps {
    * slow read never holds one. Absent, or no limit for the explorer: the prompt input carries none.
    */
   stepLimitFor?: StepLimitFor;
+  /**
+   * Observe the explorer's session for its trace (its calls are tracked) without registering it for live observation, watching it
+   * or making it wait. The host decides; absent, the session is exactly as it was.
+   */
+  observeUnwatched?: boolean;
 }
 
 export interface ExploreBriefArgs {
@@ -60,6 +66,8 @@ export interface ExploreBriefArgs {
   signal?: AbortSignal;
   sha: string;
   intent?: CommitIntent;
+  /** The architecture map of the app, when one is loaded: its route paths are what the explorer names pages by. */
+  contextMap?: ArchitectureContext;
   /** Threaded from RunQaInput.runId so the explorer's own
    *  turns persist attributed to this run. Never fabricated — absent when
    *  the caller has no run context. */
@@ -77,6 +85,8 @@ export class ExplorerBriefSessionAdapter {
   ) {}
 
   async explore(args: ExploreBriefArgs): Promise<ExplorationBrief | undefined> {
+    /* No scope, no session: the explorer is only worth its steps when there is a change or a guidance to map. */
+    if (!this.hasScopeToExplore()) return undefined;
     const cwd = dirname(args.specDir);
     let session: AgentSession | undefined;
     try {
@@ -84,6 +94,7 @@ export class ExplorerBriefSessionAdapter {
       session = await this.deps.runtime.openSession("explorer", cwd, {
         ...(args.signal ? { signal: args.signal } : {}),
         timeoutMs: this.ctx.timeoutMs,
+        timeLimit: "explorer-timeout",
         /*
          * liveObservation: false — the explorer's turns persist
          * (tagged with runId below) but its session must NOT be SSE-registered:
@@ -94,6 +105,7 @@ export class ExplorerBriefSessionAdapter {
           role: EXPLORER_AGENT_NAME,
           ...(args.runId ? { runId: args.runId } : {}),
           liveObservation: false,
+          ...(this.deps.observeUnwatched === true ? { observeUnwatched: true } : {}),
         },
       });
       const build = this.deps.buildPrompt ?? buildExplorerPrompt;
@@ -113,6 +125,7 @@ export class ExplorerBriefSessionAdapter {
         ...(this.ctx.baseUrl ? { baseUrl: this.ctx.baseUrl } : {}),
         ...(this.ctx.guidance ? { guidance: this.ctx.guidance } : {}),
         ...(args.intent ? { intent: args.intent } : {}),
+        ...(args.contextMap ? { contextMap: args.contextMap } : {}),
         ...(this.ctx.triggerService && this.deps.serviceContextDir
           ? {
               service: {
@@ -127,6 +140,8 @@ export class ExplorerBriefSessionAdapter {
       const { output } = await session.prompt(prompt, { textOnly: true, ...(stepLimit !== undefined ? { stepLimit } : {}) });
       return this.deps.parseBrief(output) ?? undefined;
     } catch (err) {
+      /* The run's spent deadline ends the run; only another fault is fail-open. */
+      rethrowIfRunDeadline(err);
       console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     } finally {
@@ -136,6 +151,20 @@ export class ExplorerBriefSessionAdapter {
       } catch (disposeErr) {
         console.warn(`[qa] WARNING: explorer session dispose failed (non-blocking): ${disposeErr instanceof Error ? disposeErr.message : String(disposeErr)}`);
       }
+    }
+  }
+
+  /* A diff run explores its commit's change and a manual run its guidance. The other modes (context, complete, exhaustive) analyze the repository or the suite with no change in hand, so an explorer sent to "the blast radius of the commit" would hunt for a change that is not there until its step budget ran out. */
+  private hasScopeToExplore(): boolean {
+    switch (this.ctx.mode) {
+      case "diff":
+        return true;
+      case "manual":
+        return (this.ctx.guidance ?? "").trim().length > 0;
+      case "context":
+      case "complete":
+      case "exhaustive":
+        return false;
     }
   }
 }

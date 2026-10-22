@@ -359,7 +359,7 @@ func (m connectModel) viewLogin(w int) string {
 			b.WriteString("\n  " + renderSegs("", sg("↻ ", colInfra), sg("token: "+src, colDim)) + hintStyle.Render("  ·  ^X forget"))
 		} else {
 			b.WriteString("\n  " + hintStyle.Render("a token is for machines/CI. it lives on the server:"))
-			b.WriteString("\n  " + hintStyle.Render("config/.api_token, or $QA_API_TOKEN."))
+			b.WriteString("\n  " + hintStyle.Render("data/.api_token, or $QA_API_TOKEN."))
 		}
 		return b.String()
 	}

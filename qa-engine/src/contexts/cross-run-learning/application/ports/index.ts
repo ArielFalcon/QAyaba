@@ -22,6 +22,8 @@ export interface LearningRule {
   lastVerified: string | null;
   source: string;
   at: string;
+  /** When an operator quarantined the rule (set aside without deleting it): a quarantined rule is never retrieved and never folded onto. Absent or null: in force. */
+  quarantinedAt?: string | null;
 }
 export interface LearningRepositoryPort {
   save(rule: LearningRule): Promise<void>;
@@ -30,6 +32,12 @@ export interface LearningRepositoryPort {
   incrementUsage?(ids: readonly string[]): Promise<void>;
   /* Optional (same optionality convention as incrementUsage above) so a caller/fake/store that never distills need not implement it. A store/fake that still omits selectAllRules remains a fail-open no-op (empty existing set), never a stricter gate than before this method existed — that fallback is preserved for tests only now. */
   listAll?(app: string, limit: number): Promise<LearningRule[]>;
+}
+/** What the quarantine command needs of the learning store: every rule of the app (retired ones included) and a way to set some aside. */
+export interface LearningQuarantinePort {
+  listAll(app: string, limit: number): Promise<LearningRule[]>;
+  /** Marks the app's rules by id as quarantined at `at`; those already quarantined are left as they are. Returns how many it newly marked. */
+  quarantine(app: string, ids: readonly string[], at: string): Promise<number>;
 }
 export interface StructuredReflection {
   goal: string;

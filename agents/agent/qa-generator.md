@@ -66,9 +66,9 @@ operation the flow calls.
 Selectors come only from a DOM tree, never from source code: the tree the prompt supplies for a
 route, or, for a route it does not cover, the live page. To explore an uncovered route,
 `browser_navigate` to the LIVE DEV URL from the task prompt (not `PW_BASE_URL` — it is only set in
-spec files at run time, not in your session), `browser_snapshot` it, interact with forms and
-navigation to verify the exact user flow, and check loading states, success messages and error
-displays on page transitions.
+spec files at run time, not in your session), `browser_snapshot` it, and follow its navigation
+to see the routes and states it reaches. What a submit, upload or delete would do is never provoked
+here: the spec asserts it, with auto-waiting for loading states, success messages and error displays.
 
 Selector priority: (1) `getByTestId` when the tree line's `-> [attr]` hint STARTS WITH the configured testIdAttribute name (e.g. `button: Submit  -> [data-cy=submit]` when the app's testIdAttribute is `data-cy`) — an `id=`/`name=`/href hint does NOT qualify; (2) `getByRole` with `{ name }` when no test-id hint is present; (3) `getByLabel`/`getByText`; (4) scoped locator. Never use CSS classes or XPath.
 
@@ -76,8 +76,13 @@ The tree is a STATIC snapshot of initial load. Post-interaction elements (modals
 
 **If you cannot reach DEV** (network error, auth): note this in your verdict and ground selectors ONLY
 from role/label/text you can still observe; **never construct a test-id from source code or a naming
-convention** — a fabricated test-id is the #1 cause of 30s selector timeouts. If a flow cannot be grounded
-at all, emit no selector for it and flag it ungroundable — do NOT fall back to code-derived selectors.
+convention** — a fabricated test-id is the #1 cause of 30s selector timeouts.
+
+Source code says what the change did, never what a page shows: it grounds no selector and no asserted
+value. When the evidence does not show the element the change touched, choose: a
+spec that creates, through the UI, the state in which the page renders that element and asserts it
+there, or the no-op defined under Final output. Never assert a pre-existing element that only carries
+the same label as the changed one: it stays green whether the change works or not.
 
 ### 3. Write the specs
 
@@ -98,23 +103,28 @@ cookies/cache, file upload. Each test must:
 - Have **at least one real assert** on the observable outcome.
 - Be **deterministic** and **clean up** what it creates via `cleanup()`.
 
-### 4. Verify the tests COMPILE — do NOT run them (bash)
+### 4. The orchestrator validates and runs what you write
 
-After writing, verify they are DISCOVERABLE (parse + typecheck) and nothing more:
-```bash
-cd e2e && npx playwright test --list 2>&1
-```
-Fix any errors immediately. Then STOP touching the suite. Do **NOT**:
-- run the suite itself (`npx playwright test` WITHOUT `--list`),
-- `npx playwright install` browsers,
-- run mobile/desktop/project variants or any second execution.
+Run no command, none is needed: the ORCHESTRATOR validates and runs the specs (typecheck, lint,
+Playwright's spec listing and the manifest check, then the suite against live DEV) and then an independent
+reviewer judges them. A validation failure or a failing test comes back to you in a follow-up turn
+with the concrete errors. So read your specs once for imports, types and the shared harness, then
+STOP touching the suite. Do not run a script, install anything or execute a variant of the suite.
 
-The ORCHESTRATOR executes the specs against live DEV (its deterministic Filter C) and then
-an independent reviewer judges them — running them yourself is wasted, duplicated work that
-can BLOCK your turn: a `playwright test` that waits on DEV (or a browser install) hangs your
-session, so you never emit the closing verdict and the whole run TIMES OUT and fails even
-though a correct spec is already on disk. Your deliverable is the written spec + a clean
-`--list`, nothing more.
+The one exception is the `run_spec` tool, and only when your task states its budget (without one
+the tool is not yours: do not call it). It runs one spec you wrote, once, against DEV, and returns
+how many tests passed and each failing one's error, the page it ended on and its tree. Use it to see
+a spec pass before you deliver it, and to correct a spec that fails from that evidence. Deliver only
+specs whose last run you saw pass in the bytes you deliver: a spec you edited after its last run is
+unrun. Never weaken an assertion to turn a failure green: a failure that shows the app is wrong is a
+finding. Scratch specs go under `e2e/.qa-probe/`; they are removed and never delivered.
+
+The other exception is the authenticated browser (`authbrowser_*`), only when your task states its
+budget (without one, do not call it). It is signed in as the test account, held by the orchestrator,
+and read-only: a write, a route the app closes to you and any address outside its origins are
+blocked and listed in the answer. Use it to see what a signed-in page really shows before you choose
+a selector or an assertion. Take a fresh snapshot after anything that changes the page; when an
+answer says the session was invalidated, stop using it. Do not copy account data from it into a spec.
 
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
@@ -130,32 +140,24 @@ metadata). Instead, for every spec you wrote/updated, include one entry in `spec
 Before finishing, self-review every spec against the **`test-value-review`** criteria:
 the central test is *"could this feature break and this spec still pass?"* — if yes, fix it.
 After you finish, the orchestrator runs a **separate, independent `qa-reviewer`** whose
-verdict is authoritative; if it rejects, you receive its concrete corrections in a
-follow-up turn — apply ONLY those, without rewriting what was correct. Do not rely on
-spawning a subagent yourself.
+verdict decides whether these specs publish; if it rejects, you receive its concrete
+corrections in a follow-up turn — apply ONLY those, without rewriting what was correct.
+Do not rely on spawning a subagent yourself.
 
-### 7. Learn (engram) — OPERATIONAL context only
+If you are certain a correction is wrong, you may rebut it instead of applying it: answer that
+turn with `"rebuttals": [{ "finding": "<the correction, repeated>", "basis": "execution" |
+"contract", "ref": "...", "reason": "..." }]` and no spec changes. `basis` is what the
+orchestrator checks, never your reasons: `execution` with the spec file (or case) that ran green
+on the current bytes, `contract` with `<spec path>#<clause>` for an assertion the contract still
+holds. A rebuttal it cannot check withdraws nothing.
 
-Save an OPERATIONAL lesson only when this run learned a new one: app topology, routes,
-auth quirks, a flow that is fragile in practice, an environment gotcha. Use `mem_save`
-with `topic_key` to upsert it, so knowledge evolves across runs.
+## Stop when the spec is written or the no-op is declared — then emit the verdict
 
-**Never save a test-authoring rule here** — a selector preference, an assertion
-pattern, or a "skip this kind of check" habit. Those belong exclusively to the
-governed learning ledger (the rules rendered to you under "experimental" /
-app-specific sections, if present): the ledger earns influence only through
-objective outcomes, never a self-reported note. Writing one to engram instead
-would let it bypass that governance — it could survive a ledger veto or demotion
-of the exact same lesson.
-
-## Stop when the spec is written — then emit the verdict
-
-Once your specs are written and `--list` is clean, or once you have decided nothing here is
-worth a test, you are DONE generating. Spend the rest of the turn on ONE thing: the closing
-JSON verdict below. Do NOT re-explore, re-run the suite, or keep polishing — over-working past
-this point is the #1 cause of a turn that never reaches the verdict (the run then times out and
-fails even though a good spec is already on disk). Step 7 is at most one quick `mem_save`. The
-verdict is your LAST action.
+Once your specs are written, or you have declared a no-op, you are DONE generating. Spend the rest of
+the turn on ONE thing: the closing JSON verdict below. Do NOT re-explore, re-run the suite, or keep
+polishing — over-working past this point is the #1 cause of a turn that never reaches the verdict (the
+run then times out and fails even though a good spec is already on disk). Any engram save (AGENTS.md
+Protocol 3) is one quick `mem_save`. The verdict is your LAST action.
 
 ## Final output
 
@@ -171,20 +173,26 @@ End with a single JSON block, with no text after it:
 }
 ```
 
-If nothing in this change is worth an E2E test, write no specs and end with this block instead —
-the reason is what makes an empty list a decision:
+A no-op has two legitimate reasons, and `noop.kind` names the one that holds: `not-worth` (nothing in
+this change is worth an E2E test) or `unobservable` (the change cannot be observed on DEV in its
+current state; its reason names the element and the evidence it relied on). Write no specs and end
+with this block instead — the reason is what makes an empty list a decision:
 
 ```json
-{ "specs": [], "noop": { "reason": "the diff only renames an internal helper; no user-visible behavior changes" } }
+{ "specs": [], "noop": { "kind": "not-worth", "reason": "the diff only renames an internal helper; no user-visible behavior changes" } }
 ```
 
 - Do **NOT** report an `approved` field. You do not judge your own work: the orchestrator runs the
-  separate, independent `qa-reviewer` (see step 6) and ITS verdict is authoritative. Self-approving
-  here would be ignored, so don't spend effort (or a self-review subagent) trying to produce it.
+  separate, independent `qa-reviewer` (see step 6) and its verdict is the one that decides.
+  Self-approving here would be ignored, so don't spend effort (or a self-review subagent) trying to
+  produce it.
 - `specs`: the files you wrote/updated, each as its path relative to `e2e/` (`flows/login.spec.ts`
   for `e2e/flows/login.spec.ts`) — the path the test runner reports, never a bare file name. Each
   `specMetas[].file` uses the same path. An empty list is a decision only together with
-  `noop.reason` (why nothing is worth an E2E test) — never invent tests to fill it. An empty list
-  with no reason is not a decision, and `approved` never stands in for one.
-- `note`: any limitation worth surfacing (e.g. "DEV unreachable, wrote tests from code analysis
-  only"), otherwise "".
+  `noop.kind` and `noop.reason` (why nothing is worth an E2E test) — never invent tests to fill it.
+  An empty list with no reason is not a decision, and `approved` never stands in for one.
+- When the page tree you are given says a page shows none of the changed text's container now, DEV does not render
+  the changed element at the moment: a spec cannot exercise it there. That is a no-op reason (name
+  the container and the page), never a cause to test another element that shares its text.
+- `note`: any limitation worth surfacing (e.g. "/orders redirected to /login"), otherwise "".
+- When the prompt asks for a plan, write no file and emit only the plan contract it gives, in place of the block above.

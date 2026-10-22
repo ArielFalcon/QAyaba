@@ -133,6 +133,15 @@ test("OnboardingJobStatusSchema accepts state:'mapping' with mappingProgress", (
   }));
 });
 
+test("OnboardingJobStatusSchema accepts the login phase with its progress and each way it can end", () => {
+  const base = { state: "login", app: "shop", round: 3, ceiling: 3, candidatesScored: 6, outcome: "winner" };
+  assert.doesNotThrow(() => OnboardingJobStatusSchema.parse({ ...base, loginProgress: { runId: "run_2", step: "generate" } }));
+  for (const status of ["verified", "unauthored", "failed"]) {
+    assert.doesNotThrow(() => OnboardingJobStatusSchema.parse({ ...base, state: "done", loginProgress: { runId: "run_2", verdict: "pass", status } }), status);
+  }
+  assert.equal(OnboardingJobStatusSchema.safeParse({ ...base, loginProgress: { status: "maybe" } }).success, false);
+});
+
 test("OnboardingJobStatusSchema accepts a resolvedProfile with transport http-backend", () => {
   assert.doesNotThrow(() => OnboardingJobStatusSchema.parse({
     state: "done",

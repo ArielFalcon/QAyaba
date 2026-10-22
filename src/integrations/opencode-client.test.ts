@@ -6,12 +6,10 @@ import { join } from "node:path";
 import {
   buildPrompt,
   buildPromptAssembled,
-  buildWorkerPromptAssembled,
   buildContextTask,
   parseVerdict,
   extractJsonObjects,
   specFileForFlow,
-  buildWorkerPrompt,
   buildExplorerPrompt,
   renderArchitectureContext,
   buildReviewerPrompt,
@@ -20,12 +18,22 @@ import {
   AgentDeps,
   askAssistant,
   maxStepsFromConfig,
+  agentConfigFacts,
+  answeredFrom,
   fallbackModelFromConfig,
   createRawEventStreamOpener,
+  openCodePromptBody,
+  setSessionToolDeny,
+  sessionToolDeny,
+  setAgentBrowserGrantLookup,
+  hidesBrowserTools,
+  setGeolocationGrantLookup,
+  hidesGeolocationTool,
 } from "./opencode-client";
 import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
-import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/domain/tool-call-taxonomy";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { ANTI_WEAKENING_RULE, OBJECTIVE_QUESTION } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 
@@ -352,27 +360,6 @@ test("buildPrompt surfaces reviewer corrections as the highest-priority block", 
   assert.ok(order.indexOf("reviewer-corrections") < order.indexOf("task"), "corrections come before the task");
 });
 
-test("buildWorkerPrompt injects the exploration brief and forbids re-exploring the code", () => {
-  const brief: ExplorationBrief = {
-    builtForSha: "s",
-    objective: "pay",
-    blastRadius: [{ symbol: "CheckoutService.pay", file: "src/c.ts", role: "applies the bulk discount" }],
-  };
-  const w: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["CheckoutService.pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "diff", brief };
-  const p = buildWorkerPrompt(w);
-  assert.match(p, /Exploration brief/);
-  assert.match(p, /applies the bulk discount/);
-  assert.match(p, /do NOT re-(read|explore)/i);
-  assert.match(p, /live DOM/i, "selectors must still be verified against the live DOM");
-});
-
-test("buildWorkerPrompt without a brief is unchanged (serena symbols line, back-compat)", () => {
-  const w: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", appName: "a", mode: "complete" };
-  const p = buildWorkerPrompt(w);
-  assert.match(p, /read them with serena/);
-  assert.doesNotMatch(p, /Exploration brief/);
-});
-
 test("buildExplorerPrompt asks a read-only explorer to map the diff into an ExplorationBrief", () => {
   const p = buildExplorerPrompt(input);
   assert.match(p, /abc123/);
@@ -421,99 +408,6 @@ test("buildExplorerPrompt sanitizes attacker-influenceable changed-file names", 
 test("specFileForFlow produces a safe path under flows/", () => {
   assert.equal(specFileForFlow("Check Out / Pay!"), "flows/check-out-pay.spec.ts");
   assert.equal(specFileForFlow("   "), "flows/flow.spec.ts");
-});
-
-test("buildWorkerPrompt is surgical: exact file, write-early discipline, no manifest writes (workers do NOT navigate)", () => {
-  const w: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "complete" };
-  const p = buildWorkerPrompt(w);
-  assert.match(p, /Write EXACTLY this file: e2e\/flows\/checkout\.spec\.ts/);
-  /* Workers no longer explore (browser_navigate/browser_snapshot removed from qa-worker MCP).
-     They transcribe the injected a11y tree instead. No LIVE DEV URL line in needsUi branch.
-   */
-  assert.doesNotMatch(p, /browser_navigate/);
-  assert.doesNotMatch(p, /browser_snapshot/);
-  assert.doesNotMatch(p, /Explore EFFICIENTLY, then STOP/);
-  assert.match(p, /You have NO browser/);
-  assert.match(p, /required outcome: the file exists on disk/);
-  assert.match(p, /TOTAL FAILURE/);
-  assert.match(p, /Do NOT write to the manifest/);
-  assert.match(p, /\{"spec":"flows\/checkout\.spec\.ts"\}/);
-});
-
-test("buildWorkerPrompt injects learnedRules so fan-out workers don't repeat past mistakes", () => {
-  const base: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "complete" };
-  assert.doesNotMatch(buildWorkerPrompt(base), /Lessons learned/);
-  /* With rules: the block appears, carrying the rule text, before the closing JSON contract. */
-  const withRules = buildWorkerPrompt({ ...base, learnedRules: "- avoid waitForTimeout; assert on the visible outcome" });
-  assert.match(withRules, /Lessons learned from past runs/);
-  assert.match(withRules, /avoid waitForTimeout/);
-  assert.ok(withRules.indexOf("Lessons learned") < withRules.indexOf('{"spec"'), "lessons precede the JSON contract");
-});
-
-/* v5 grounding: when the orchestrator captures the live a11y tree for the flow's routes, the worker
-   gets it as GROUND TRUTH and TRANSCRIBES real selectors instead of guessing/exploring blind.
- */
-test("buildWorkerPrompt injects the live a11y tree as GROUND TRUTH when provided (worker transcribes, not guesses)", () => {
-  const base: ParallelWorkerInput = { objective: "list vets", flow: "vets", symbols: [], needsUi: true, specFile: "flows/vets.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "exhaustive" };
-  assert.doesNotMatch(buildWorkerPrompt(base), /GROUND TRUTH/);
-  const grounded = buildWorkerPrompt({ ...base, domSnapshot: "route /#!/vets:\n  cell: Helen Leary\n  cell: radiology" });
-  assert.match(grounded, /GROUND TRUTH/);
-  assert.match(grounded, /cell: Helen Leary/);
-  assert.match(grounded, /do NOT need to navigate/i); /* it stops the worker from burning budget exploring */
-});
-
-/* the canonical STABLE → SEMI-STABLE → VOLATILE → TASK → CRITICAL-RECAP order. These assertions
-   are the "section order contract" that must stay green whenever prompts.ts or context-assembler.ts
-   are modified.
- */
-test("buildWorkerPrompt assembled output preserves all functional sections in canonical order", () => {
-  const base: ParallelWorkerInput = {
-    objective: "verify checkout flow",
-    flow: "checkout",
-    symbols: ["CheckoutPage"],
-    needsUi: true,
-    specFile: "flows/checkout.spec.ts",
-    repo: "r",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    baseUrl: "https://dev",
-    appName: "a",
-    mode: "complete",
-    domSnapshot: "button: Place Order\nbutton: Cancel",
-    learnedRules: "- avoid waitForTimeout",
-  };
-
-  const { text, sectionSizes } = buildWorkerPromptAssembled(base);
-
-  /* All functional sections must be present (content preservation). */
-  assert.match(text, /Rules/);
-  assert.match(text, /Flow: checkout/);
-  assert.match(text, /GROUND TRUTH/);
-  assert.match(text, /Place Order/);
-  assert.match(text, /Lessons learned from past runs/);
-  assert.match(text, /avoid waitForTimeout/);
-  assert.match(text, /verify checkout flow/);
-  assert.match(text, /flows\/checkout\.spec\.ts/);
-
-  /* sectionSizes must record all non-empty sections. */
-  assert.ok("worker-rules" in sectionSizes, "worker-rules in sectionSizes");
-  assert.ok("worker-context" in sectionSizes, "worker-context in sectionSizes");
-  assert.ok("worker-dom" in sectionSizes, "worker-dom in sectionSizes");
-  assert.ok("worker-learned-rules" in sectionSizes, "worker-learned-rules in sectionSizes");
-  assert.ok("worker-task" in sectionSizes, "worker-task in sectionSizes");
-  assert.ok("worker-output-contract" in sectionSizes, "worker-output-contract in sectionSizes");
-
-  const rulesIdx = text.indexOf("## Rules");
-  const domIdx = text.indexOf("GROUND TRUTH");
-  const lessonsIdx = text.indexOf("Lessons learned from past runs");
-  const objectiveIdx = text.indexOf("## Objective");
-  const contractIdx = text.indexOf('{"spec"');
-
-  assert.ok(rulesIdx < domIdx, "stable-prefix (rules) before volatile (dom)");
-  assert.ok(domIdx < lessonsIdx, "dom (volatile p1) before lessons (volatile p2)");
-  assert.ok(lessonsIdx < objectiveIdx, "lessons (volatile) before task (objective)");
-  assert.ok(objectiveIdx < contractIdx, "task (objective) before critical-recap (output contract)");
 });
 
 test("buildPrompt renders the cross-repo service section in diff mode", () => {
@@ -572,37 +466,12 @@ test("buildContextTask without services is unchanged (no microservice section)",
   assert.doesNotMatch(text, /Microservice repos/);
 });
 
-/* This test pins the CURRENT observable behavior of buildWorkerPrompt for complete/exhaustive
-   the sibling pins for shouldFanOut/runOpencodeParallel/generateParallel/buildPlanPrompt — those
-   surfaces were dead (no production caller); this builder is still live.
- */
-
-test("buildWorkerPrompt for complete mode preserves objective + context sections", () => {
-  /* Complete mode workers receive a prompt from buildWorkerPrompt. The prompt must still contain */
-  const completeWorker: ParallelWorkerInput = {
-    objective: "Given the owners list, when the user clicks Add Owner, then a form appears",
-    flow: "add-owner",
-    symbols: ["OwnerForm", "OwnerController"],
-    needsUi: true,
-    specFile: "flows/add-owner.spec.ts",
-    repo: "org/petclinic",
-    mirrorDir: "/m/petclinic",
-    e2eRelDir: "e2e",
-    namespace: "qa-bot-abc",
-    baseUrl: "https://dev.petclinic",
-    appName: "petclinic",
-    mode: "complete",
-    domSnapshot: "button: Add Owner\ntextbox: First Name",
-    learnedRules: "- avoid waitForTimeout in complete mode",
-  };
-  const prompt = buildWorkerPrompt(completeWorker);
-  assert.match(prompt, /flows\/add-owner\.spec\.ts/, "specFile present");
-  assert.match(prompt, /Add Owner, then a form appears/, "objective present");
-  assert.match(prompt, /OwnerForm/, "symbol present in context");
-  assert.match(prompt, /GROUND TRUTH/, "dom grounding section present");
-  assert.match(prompt, /Add Owner/, "dom content (button) present");
-  assert.match(prompt, /avoid waitForTimeout/, "learnedRules present");
-  assert.match(prompt, /flows\/add-owner\.spec\.ts.*\}/, "output contract references specFile");
+test("buildContextTask asks the mapper for the files that implement each route, so a changed page file can be tied to its route", () => {
+  const text = buildContextTask({
+    repo: "org/shop-front", sha: "a1b2c3d", diff: "", mirrorDir: "/m/front", e2eRelDir: "e2e",
+    namespace: "qa-1", needsReview: false, target: "e2e", mode: "context", appName: "shop",
+  });
+  assert.match(text, /implementationFiles/);
 });
 
 test("askAssistant propagates error when deps.open throws", async () => {
@@ -644,53 +513,6 @@ test("askAssistant opens the requested agent (reflection runs tool-less as qa-re
   assert.equal(openedAgent, "qa-reflector");
   await askAssistant({ context: "c", question: "q" }, deps, "/m");
   assert.equal(openedAgent, "qa-assistant"); /* default unchanged for the TUI chat path */
-});
-
-test("3.11(a) buildWorkerPrompt with needsUi:true + non-empty domSnapshot does NOT contain browser_navigate or browser_snapshot", () => {
-  const w: ParallelWorkerInput = {
-    objective: "list owners",
-    flow: "owners",
-    symbols: [],
-    needsUi: true,
-    specFile: "flows/owners.spec.ts",
-    repo: "r",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    baseUrl: "https://dev",
-    appName: "a",
-    mode: "complete",
-    domSnapshot: "button: Add Owner\ntextbox: First Name",
-  };
-  const p = buildWorkerPrompt(w);
-  assert.doesNotMatch(p, /browser_navigate/);
-  assert.doesNotMatch(p, /browser_snapshot/);
-  /* Must say to use the injected tree (not the live DOM) */
-  assert.match(p, /GROUND TRUTH/);
-  assert.match(p, /You have NO browser/);
-  assert.match(p, /do NOT need to navigate/i);
-});
-
-test("3.11(a) buildWorkerPrompt with needsUi:true and NO domSnapshot still has no browser_navigate", () => {
-  const w: ParallelWorkerInput = {
-    objective: "list owners",
-    flow: "owners",
-    symbols: [],
-    needsUi: true,
-    specFile: "flows/owners.spec.ts",
-    repo: "r",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    baseUrl: "https://dev",
-    appName: "a",
-    mode: "complete",
-  };
-  const p = buildWorkerPrompt(w);
-  assert.doesNotMatch(p, /browser_navigate/);
-  assert.doesNotMatch(p, /browser_snapshot/);
-  /* Without a domSnapshot, the worker gets a "mark selectors unverified" instruction */
-  assert.match(p, /unverified/);
 });
 
 test("3.11(b) fix-pass prompt with failureSourced:true contains GROUND TRUTH AT FAILURE heading and source-framing", () => {
@@ -796,27 +618,6 @@ test("buildPrompt omits the contradiction section when none are provided", () =>
     fixCases: [{ name: "t", status: "fail", detail: "x" }],
   });
   assert.doesNotMatch(p, /Lever-2 selector contradictions/i);
-});
-
-test("3.11(d) all existing prompt tests remain green (worker code path unaffected)", () => {
-  const codeWorker: ParallelWorkerInput = {
-    objective: "test checkout logic",
-    flow: "checkout",
-    symbols: ["checkout"],
-    needsUi: false,
-    specFile: "flows/checkout.spec.ts",
-    repo: "r",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    appName: "a",
-    mode: "complete",
-  };
-  const p = buildWorkerPrompt(codeWorker);
-  assert.doesNotMatch(p, /browser_navigate/);
-  assert.doesNotMatch(p, /browser_snapshot/);
-  assert.match(p, /CODE-ONLY/);
-  assert.match(p, /serena/);
 });
 
 test("phase-0b: askAssistant passes role (and optional runId) in the open() descriptor", async () => {
@@ -974,8 +775,8 @@ test("buildReviewerPrompt injects learnedRules when present and adds the extra r
   try {
     const p = buildReviewerPrompt(makeReviewInput(dir, { learnedRules: "- RULE_MARKER avoid waitForTimeout" }));
     assert.match(p, /RULE_MARKER avoid waitForTimeout/);
-    assert.match(p, /6\. Also REJECT/);
-    assert.doesNotMatch(buildReviewerPrompt(makeReviewInput(dir)), /6\. Also REJECT/, "no extra instruction without rules");
+    assert.match(p, /7\. Also REJECT/);
+    assert.doesNotMatch(buildReviewerPrompt(makeReviewInput(dir)), /7\. Also REJECT/, "no extra instruction without rules");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1179,14 +980,15 @@ test("renderExecutionResult is exported from opencode-client", () => {
   assert.strictEqual(typeof renderExecutionResult, "function");
 });
 
-test("renderExecutionResult returns a non-empty string with the authoritative heading", () => {
+test("renderExecutionResult returns a non-empty string whose heading names the orchestrator as its source, not an authority", () => {
   const result = renderExecutionResult({
     verdict: "fail",
     cases: [{ name: "login test", httpStatus: 500, finalUrl: "https://app.example.com/login" }],
   });
   assert.strictEqual(typeof result, "string");
   assert.match(result, /RUNTIME EXECUTION RESULT/i, "heading must mention RUNTIME EXECUTION RESULT");
-  assert.match(result, /authoritative/i, "heading must be marked as authoritative");
+  assert.match(result, /captured by the orchestrator, not inferred/i, "the heading says where the evidence comes from");
+  assert.doesNotMatch(result, /\bauthoritative\b/i, "the engine owns acceptance: evidence is not an authority");
 });
 
 test("renderExecutionResult sanitizes finalUrl (strips token query param)", () => {
@@ -1251,7 +1053,8 @@ test("buildReviewerPrompt injects execution-result section when executionResult 
     });
     const p = buildReviewerPrompt(makeReviewInput(dir, { executionResult }));
     assert.match(p, /RUNTIME EXECUTION RESULT/i, "execution-result section must appear when field is set");
-    assert.match(p, /authoritative/i, "section heading must include the authoritative qualifier");
+    assert.match(p, /captured by the orchestrator, not inferred/i, "the section names its source");
+    assert.doesNotMatch(p, /\bauthoritative\b/i, "no prompt calls the evidence or the reviewer authoritative");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1290,6 +1093,28 @@ function writeAgentsConfig(config: unknown): { path: string; cleanup: () => void
   writeFileSync(path, typeof config === "string" ? config : JSON.stringify(config));
   return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
+
+test("agentConfigFacts reads the model and the reasoning effort an agent is configured with, and nothing it is not", (t) => {
+  const { path, cleanup } = writeAgentsConfig({
+    agent: {
+      "qa-full": { model: "prov/some-model", options: { reasoningEffort: "low" } },
+      "qa-model-only": { model: "prov/other" },
+      "qa-bad": { model: 7, options: { reasoningEffort: "" } },
+    },
+  });
+  t.after(cleanup);
+  assert.deepEqual(agentConfigFacts("qa-full", path), { model: "prov/some-model", reasoningEffort: "low" });
+  assert.deepEqual(agentConfigFacts("qa-model-only", path), { model: "prov/other" });
+  assert.equal(agentConfigFacts("qa-bad", path), undefined, "a setting that is not a non-empty string is absent");
+  assert.equal(agentConfigFacts("qa-unknown", path), undefined);
+});
+
+test("answeredFrom keeps the model, provider, finish reason and times the runtime stamped on the answer, and drops anything of another shape", () => {
+  assert.deepEqual(answeredFrom({ modelID: "m", providerID: "p", finish: "stop", time: { created: 10, completed: 20 } }), { answered: { modelId: "m", providerId: "p", finish: "stop", createdAt: 10, completedAt: 20 } });
+  assert.deepEqual(answeredFrom({ modelID: "m", providerID: "", finish: 3, time: { created: "soon" } }), { answered: { modelId: "m" } });
+  assert.deepEqual(answeredFrom({}), {});
+  assert.deepEqual(answeredFrom(undefined), {});
+});
 
 test("maxStepsFromConfig reads the configured step limit of the acting agent", (t) => {
   const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-reviewer": { maxSteps: 10 } } });
@@ -1477,4 +1302,112 @@ test("a connection reset on the real stream client reaches the stream lifecycle 
   }
   assert.deepEqual(calls.map((c) => c.kind), ["opening", "connected", "interrupted", "closed"]);
   assert.equal(new Set(calls.map((c) => c.token)).size, 1);
+});
+
+test("openCodePromptBody: a prompt that asks for no tools carries a deny map covering the built-in tools and the MCP wildcards", () => {
+  const body = openCodePromptBody({ agent: "qa-generator", text: "restate", withoutTools: true });
+  assert.equal(body.agent, "qa-generator");
+  assert.deepEqual(body.parts, [{ type: "text", text: "restate" }]);
+  const tools = (body as { tools?: Record<string, boolean> }).tools;
+  assert.ok(tools, "the deny map is sent");
+  for (const name of ["bash", "read", "write", "edit", "glob", "grep", "run_spec", "serena*", "engram*", "playwright*"]) assert.equal(tools[name], false, name);
+  assert.ok(Object.values(tools).every((allowed) => allowed === false), "nothing is switched on by this map");
+});
+
+test("openCodePromptBody: any other prompt leaves the tools to its agent's configuration and keeps a model override", () => {
+  const model = { providerID: "p", modelID: "m" };
+  const body = openCodePromptBody({ agent: "qa-reviewer", text: "judge", model });
+  assert.deepEqual(body, { agent: "qa-reviewer", parts: [{ type: "text", text: "judge" }], model });
+  assert.equal("tools" in openCodePromptBody({ agent: "a", text: "t", withoutTools: false }), false);
+});
+
+test("openCodePromptBody: a prompt that may not write is denied the file tools and the symbol edits, and keeps every other tool", () => {
+  const body = openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: true }) as { tools?: Record<string, boolean> };
+  for (const tool of ["write", "edit", "patch", "replace_symbol_body", "insert_after_symbol", "insert_before_symbol"]) assert.equal(body.tools?.[tool], false, tool);
+  for (const tool of ["read", "grep", "glob", "serena*", "playwright*", "*"]) assert.equal(tool in (body.tools ?? {}), false, `${tool} stays as configured`);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: false }), false);
+});
+
+test("openCodePromptBody: a prompt that may not write is denied every editing tool of the code-navigation server, bare and prefixed", () => {
+  const tools = (openCodePromptBody({ agent: "qa-generator", text: "plan", withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  for (const name of SERENA_WRITE_TOOL_NAMES) {
+    assert.equal(tools[name], false, name);
+    assert.equal(tools[`serena_${name}`], false, `serena_${name}`);
+  }
+});
+
+test("openCodePromptBody: a prompt may be denied its writes and the browser at once, and a prompt without tools stays without all of them", () => {
+  const both = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutWrites: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal(both["authbrowser*"], false);
+  assert.equal(both.write, false);
+  const none = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutTools: true, withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal(none["*"], false);
+});
+
+test("openCodePromptBody: the tools a session was denied are denied its prompts, beside the other denials, and a prompt without tools stays without all of them", () => {
+  const denied = (openCodePromptBody({ agent: "qa-sidekick", text: "x", denyTools: ["serena*", "run_spec"], withoutWrites: true }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal(denied["serena*"], false);
+  assert.equal(denied.run_spec, false);
+  assert.equal(denied.write, false);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-sidekick", text: "x", denyTools: [] }), false);
+  const none = (openCodePromptBody({ agent: "qa-sidekick", text: "x", withoutTools: true, denyTools: ["serena*"] }) as { tools?: Record<string, boolean> }).tools ?? {};
+  assert.equal(none["*"], false);
+});
+
+test("a session's denied tools are kept per session, replaced by a later set, and forgotten when cleared", () => {
+  setSessionToolDeny("ses-deny-1", ["serena*"]);
+  assert.deepEqual(sessionToolDeny("ses-deny-1"), ["serena*"]);
+  assert.equal(sessionToolDeny("ses-deny-2"), undefined);
+  setSessionToolDeny("ses-deny-1", ["playwright*"]);
+  assert.deepEqual(sessionToolDeny("ses-deny-1"), ["playwright*"]);
+  setSessionToolDeny("ses-deny-1", undefined);
+  assert.equal(sessionToolDeny("ses-deny-1"), undefined);
+});
+
+test("openCodePromptBody: a prompt of a session the run did not grant the browser hides its tools and changes nothing else", () => {
+  const model = { providerID: "p", modelID: "m" };
+  const hidden = openCodePromptBody({ agent: "qa-generator", text: "write", model, hideBrowserTools: true });
+  assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { "authbrowser*": false });
+  assert.equal(hidden.agent, "qa-generator");
+  assert.deepEqual(hidden.model, model);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "write", hideBrowserTools: false }), false);
+  const none = (openCodePromptBody({ agent: "qa-generator", text: "x", withoutTools: true, hideBrowserTools: true }) as { tools?: Record<string, boolean> }).tools;
+  assert.equal(none?.["authbrowser*"], false, "a prompt that asks for no tools still denies them, once");
+});
+
+test("a session is shown the browser's tools only when the orchestrator granted it, and only an authoring role is ever asked about", () => {
+  try {
+    assert.equal(hidesBrowserTools("qa-generator", "ses-1"), true, "until a host installs the lookup nothing is granted");
+    const granted = new Set(["ses-1"]);
+    setAgentBrowserGrantLookup((id) => granted.has(id));
+    assert.equal(hidesBrowserTools("qa-generator", "ses-1"), false);
+    assert.equal(hidesBrowserTools("qa-generator", "ses-2"), true);
+    assert.equal(hidesBrowserTools("qa-sidekick", "ses-2"), true);
+    assert.equal(hidesBrowserTools("qa-reviewer", "ses-2"), false, "a role that does not author has the tools off by its config and is left alone");
+  } finally {
+    setAgentBrowserGrantLookup(undefined);
+  }
+});
+
+test("openCodePromptBody: a prompt of a session the run gave no authoring location hides the location tool and changes nothing else", () => {
+  const model = { providerID: "p", modelID: "m" };
+  const hidden = openCodePromptBody({ agent: "qa-generator", text: "write", model, hideGeolocationTool: true });
+  assert.deepEqual((hidden as { tools?: Record<string, boolean> }).tools, { set_geolocation: false });
+  assert.equal(hidden.agent, "qa-generator");
+  assert.deepEqual(hidden.model, model);
+  assert.equal("tools" in openCodePromptBody({ agent: "qa-generator", text: "write", hideGeolocationTool: false }), false);
+});
+
+test("a session is shown the location tool only when its run carries an authoring location, and only an authoring role is ever asked about", () => {
+  try {
+    assert.equal(hidesGeolocationTool("qa-generator", "ses-1"), true, "until a host installs the lookup nothing is granted");
+    const granted = new Set(["ses-1"]);
+    setGeolocationGrantLookup((id) => granted.has(id));
+    assert.equal(hidesGeolocationTool("qa-generator", "ses-1"), false);
+    assert.equal(hidesGeolocationTool("qa-generator", "ses-2"), true);
+    assert.equal(hidesGeolocationTool("qa-sidekick", "ses-2"), true);
+    assert.equal(hidesGeolocationTool("qa-reviewer", "ses-2"), false, "a role that does not author has the tool off by its config and is left alone");
+  } finally {
+    setGeolocationGrantLookup(undefined);
+  }
 });

@@ -321,6 +321,64 @@ test("isProtectedPath flags the bounded runners and the git call sites an untrus
   }
 });
 
+test("isProtectedPath flags the file boundary's probing child: the plain script the sandbox uid runs to try what it must not do", () => {
+  /* An autonomous edit that made the child report everything refused, or run through a loader again, would blind the boot check. */
+  const file = "src/server/file-boundary-probe.mjs";
+  assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+  assert.equal(isProtectedPath(file), true, file);
+});
+
+test("isProtectedPath flags the authenticated agent browser: its guard, host, launcher, endpoint and the tools the agents call it through", () => {
+  /* The guard decides every request the browser makes and the host holds the session in memory only; loosening either, or the endpoint and tools that reach them, lets an agent write to DEV or drive the browser around the guard. */
+  const files = [
+    "qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts",
+    "qa-engine/src/contexts/test-execution/domain/agent-browser-session-invalidation.ts",
+    "qa-engine/src/contexts/test-execution/domain/agent-browser-capability.ts",
+    "qa-engine/src/contexts/test-execution/application/agent-browser.use-case.ts",
+    "qa-engine/src/contexts/test-execution/application/ports/agent-browser.ports.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/cdp-pipe-bridge.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core.loader.ts",
+    "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
+    "qa-engine/src/shared-kernel/agent-browser.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-session-material.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/trusted-session-renewal.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts",
+    "src/integrations/opencode-client.ts",
+    "src/server/tools-endpoint.ts",
+    "agents/tool/authbrowser.ts",
+    "agents/lib/authbrowser-client.mjs",
+  ];
+  for (const file of files) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, file);
+  }
+});
+
+test("isProtectedPath flags what a sidekick may do against DEV and in the working copy: the DEV lease, run_spec's capability and use case, the loop registry and adapter, the workspace and its tool", () => {
+  const files = [
+    "qa-engine/src/contexts/test-execution/domain/dev-lease.ts",
+    "qa-engine/src/contexts/test-execution/domain/account-lock.ts",
+    "qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts",
+    "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
+    "agents/tool/run_spec.ts",
+    "agents/lib/run-spec-client.mjs",
+    "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-plan.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts",
+  ];
+  for (const file of files) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, file);
+  }
+});
+
 test("every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {
   const unclassified = unclassifiedUnder(repoRoot, SECURITY_SENSITIVE_SURFACE_ROOTS);
   assert.deepEqual(unclassified, [], `unclassified security-sensitive file(s) — add each to PROTECTED_PATHS or NOT_SECURITY_SENSITIVE: ${JSON.stringify(unclassified)}`);
@@ -783,5 +841,16 @@ test("the real ledger store persists deploys on disk across reads, creating its 
     assert.deepEqual(readDeployHistory(path), [100, 200]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isProtectedPath flags the tool-call trace modules, the supervisor that mirrors Codex's env allowlist, and the telemetry compose file", () => {
+  for (const file of [
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-trace.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-outcome.ts",
+    "agents/agent-supervisor.mjs",
+    "docker-compose.telemetry.yml",
+  ]) {
+    assert.equal(isProtectedPath(file), true, file);
   }
 });

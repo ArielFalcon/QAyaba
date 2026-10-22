@@ -1,5 +1,5 @@
 /* StrykerMutationOracleAdapter: helpers as plain exports, orchestration in measure(). Ctor takes
-   one {spawn, detectCodeProject, scrubEnv} bundle — no injected "runner closure".
+   one {spawn, detectCodeProject} bundle — no injected "runner closure".
  */
 import { describe, it, test } from "node:test";
 import assert from "node:assert/strict";
@@ -27,7 +27,7 @@ function mockSpawn(result: {
   error?: Error;
   createReport?: boolean;
 }) {
-  return (_cmd: string, _args: string[], opts: { cwd: string; env: Record<string, string>; detached: boolean }): ChildProcess => {
+  return (_cmd: string, _args: string[], opts: { cwd: string }): ChildProcess => {
     const listeners: Record<string, Array<(...args: unknown[]) => void>> = { error: [], close: [] };
     const stdoutListeners: Array<(d: Buffer) => void> = [];
     const stderrListeners: Array<(d: Buffer) => void> = [];
@@ -74,7 +74,6 @@ function deps(overrides: Partial<MutationOracleDeps> = {}): MutationOracleDeps {
   return {
     spawn: mockSpawn({}),
     detectCodeProject: () => ({ ecosystem: "node", test: { cmd: "node", args: ["--test"] } }),
-    scrubEnv: () => ({}),
     processKill: { killTree: () => {} },
     ...overrides,
   };

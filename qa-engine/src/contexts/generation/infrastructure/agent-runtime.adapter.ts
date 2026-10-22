@@ -1,9 +1,10 @@
 import type { AgentRuntimePort, AgentSession, OpenSessionOpts, AgentPromptOpts,
   UsageSnapshot, AgentTurnEvent, AgentOpenDescriptor } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
+import type { TimeLimitSource } from "@kernel/turn-limit.ts";
 
 interface LegacyAgentDeps {
-  open(agent: string, cwd: string, opts?: { signal?: AbortSignal; timeoutMs?: number; model?: string;
+  open(agent: string, cwd: string, opts?: { signal?: AbortSignal; timeoutMs?: number; timeLimit?: TimeLimitSource; model?: string;
     onUsage?: (u: UsageSnapshot) => void; onTurn?: (t: AgentTurnEvent) => void; descriptor?: AgentOpenDescriptor }): Promise<{
       id: string; prompt(text: string, o?: AgentPromptOpts): Promise<string>; dispose(): Promise<void>;
     }>;
@@ -15,6 +16,7 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     const s = await this.deps.open(this.roleToAgentName(role), cwd, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+      ...(opts?.timeLimit ? { timeLimit: opts.timeLimit } : {}),
       ...(opts?.model ? { model: opts.model } : {}),
       ...(opts?.onUsage ? { onUsage: opts.onUsage } : {}),
       ...(opts?.onTurn ? { onTurn: opts.onTurn } : {}),

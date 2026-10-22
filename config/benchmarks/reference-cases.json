@@ -1,0 +1,46 @@
+{
+  "app": "name-webapp",
+  "cases": [
+    {
+      "id": "R1-noop-test-helper",
+      "kind": "diff",
+      "sha": "86c7350b0e1a968cb21b426980e03152c5f9ccca",
+      "expected": {
+        "outcome": "noop",
+        "mustVerify": "Nothing: the change touches only a unit-test helper (src/app/shared/testing/settle.ts) with no user-visible behavior; the correct outcome is a reasoned no-op / skip."
+      }
+    },
+    {
+      "id": "R2-ios-input-zoom",
+      "kind": "diff",
+      "sha": "3db667a76583bef4fffab64220ae34dc29ba89cf",
+      "expected": {
+        "outcome": "either",
+        "mustVerify": "On a coarse-pointer (touch) device, text fields render with a font size of at least 16px (max(--text-base, 1em)) so iOS does not auto-zoom on focus; on a fine pointer the size is unchanged. A spec on any page with a text field (search bar, address form) that asserts the computed font size under touch emulation; a reasoned no-op (CSS-only, platform-specific) is admissible. Independent of restaurant data."
+      }
+    },
+    {
+      "id": "R3-duplicate-address-409",
+      "kind": "cross-repo",
+      "sha": "d842b71a619e5a6a84d1a7966d74c670285cdaa8",
+      "serviceRepo": "joomeco/ms-name-users",
+      "groundTruth": "config/benchmarks/ground-truth/name-webapp-address-duplicate-409.json",
+      "expected": {
+        "outcome": "spec",
+        "mustVerify": "Creating a delivery address at /user/address/new and then submitting the same postal address again is rejected: the list keeps a single entry and the user sees an error (FE maps DUPLICATE_USER_ADDRESS to 'Ya tienes esta dirección guardada' in users-api.errors.ts). Test data is created under the namespace and removed."
+      },
+      "cleanup": {
+        "spec": "cleanup.spec.ts"
+      }
+    },
+    {
+      "id": "R4-end-action-label-incoherent",
+      "kind": "diff",
+      "sha": "ec03222b621e995f7fabb96006c16ae6bce37fee",
+      "expected": {
+        "outcome": "either",
+        "mustVerify": "Evidence-coherence case. While DEV lists 0 restaurants the end-of-list button cannot render, so the correct outcome is a reasoned no-op naming that the changed element is not observable on DEV now (not exhaustion, not a spec asserting a pre-existing same-label button). When DEV has restaurants: the end-of-list button reads 'Cambiar filtros' and navigates to /search keeping province/city. Record the DEV data state before each run."
+      }
+    }
+  ]
+}

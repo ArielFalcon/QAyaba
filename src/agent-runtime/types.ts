@@ -6,7 +6,7 @@ import type { RunEventBody } from "../contract/events";
 
 export type AgentProvider = "opencode" | "codex";
 export type AgentMode = "single" | "dual";
-export type AgentRole = "primary" | "reviewer" | "chat" | "worker" | "workerCode" | "sidekick" | "maintainer" | "reflector" | "explorer" | "proposer";
+export type AgentRole = "primary" | "reviewer" | "chat" | "sidekick" | "maintainer" | "reflector" | "explorer" | "proposer";
 
 /*
  * What a role is allowed to do, independent of provider. Trust capability, not prompt behavior.
@@ -115,8 +115,6 @@ export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
   primary: "qa-generator",
   reviewer: "qa-reviewer",
   chat: "qa-assistant",
-  worker: "qa-worker",
-  workerCode: "qa-worker-code",
   sidekick: "qa-sidekick",
   maintainer: "qa-maintainer",
   reflector: "qa-reflector",

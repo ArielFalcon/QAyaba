@@ -92,6 +92,20 @@ dev:
   versionUrl: "https://dev.example.internal/version"
   pollIntervalMs: 10000        # how often the gate polls
   deployTimeoutMs: 600000      # 10 min for DEV to stabilize on the new SHA
+  # geolocation:                # optional: the browser position the suite, the Context Pack and the authoring browser use
+  #   latitude: 40.4818         # Alcalá de Henares' historic centre, for example
+  #   longitude: -3.3643
+  #   places:                   # optional: names the agent may pick with set_geolocation, and a plan may name per flow
+  #     barcelona: { latitude: 41.3874, longitude: 2.1686 }
+  #     empty: { latitude: 0, longitude: 0 }
+  # dataState:                  # optional: capture-time data-state readiness — tells the Context Pack when a page's data has
+  #   routes:                   # settled so an empty tree is not read as truth. Selectors are app data, never engine facts.
+  #     "/restaurants":         # a route path; a key ending "/*" names a prefix and its root (e.g. "/restaurants/*")
+  #       readySelector: "[data-testid='restaurant-list']"   # must appear for the page to be ready
+  #       resultSelector: "[data-testid='restaurant-card']"  # count results (0 is unconfirmed → captured once more)
+  #       # resultTextSelector: "[data-testid='result-count']"  # alternative: first integer in the text is the count
+  #       locationSelector: "[data-testid='location-label']"    # the effective location the page shows
+  #       timeoutMs: 8000       # how long to wait for readiness/result before deeming the state unconfirmed (1..15000)
 
 # e2e:
 #   # The app's test-id convention. Drives Playwright getByTestId, the DOM capture
@@ -102,6 +116,10 @@ dev:
 qa:
   needsReview: true            # the strict reviewer validates the generated E2E tests
   shadow: false                # true = run everything but do NOT publish PRs or open Issues (initial rollout)
+  # Review-loop integrity master switch: failure triage (a target absent from DEV is not a test
+  # defect), the intent lock and the findings filter. On by default; the acceptance correctness
+  # fixes are always on. Off restores the pre-switch flow and forces the intent lock off.
+  # reviewLoopIntegrity: false
   testDataPrefix: "qa-bot"     # test entities namespaced per SHA
   # explorer: true             # single-agent runs first do a read-only "explorer" pass that
                                # distills the blast radius into a brief, so the generator gets a
@@ -112,6 +130,13 @@ qa:
   changeCoverage:
     mode: signal               # off | signal (measure+record only) | enforce (close the gap, block if still low)
     minRatio: 0.7              # fraction of changed lines that must be exercised to "pass"
+  # Test-intent lock: what a delivered test is FOR, derived by the orchestrator from the change
+  # itself (string literals on added diff lines). A regeneration that drops an assertion, weakens a
+  # matcher, flips a negation, replaces scope with a positional step, loses the anchor or changes an
+  # in-scope expected value is rejected (enforce) or recorded (signal). Opacity is telemetry only.
+  # intentLock:
+  #   mode: signal             # off | signal (record would-be rejections) | enforce (reject, restore bytes)
+  #   opacityFlagRatio: 0.5    # flag a contract whose unreadable clauses cross this ratio; never blocks
   # Value oracle — the ground-truth that lets the learning flywheel PROMOTE rules (not just
   # accumulate them). code apps: mutation testing via Stryker (bundled in the orchestrator — no
   # repo setup needed; JS/TS only). e2e apps: response fault-injection, which RE-RUNS the suite

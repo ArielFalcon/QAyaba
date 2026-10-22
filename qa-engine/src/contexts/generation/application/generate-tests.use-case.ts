@@ -12,8 +12,16 @@ import type {
   GeneratorDeliverable,
 } from "./ports/index.ts";
 import type { OpencodeRunInput, ReviewInput } from "./ports/generation-ports.ts";
+import { isAgentTimeoutError } from "@kernel/domain-error.ts";
 import { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
 import { declareSpecs } from "../domain/declared-specs.ts";
+import { diffStat } from "../domain/diff-stat.ts";
+import { generationRunsReviewer } from "../domain/generation-review.ts";
+import { generatorTimeBudgetMs, type DiffTimeBudgets } from "../domain/generator-time-budget.ts";
+import { isReGenTurn } from "../domain/regen-turn.ts";
+import { promptFactsOpts } from "../domain/prompt-facts.ts";
+import { REPAIR_TURN_TIMEOUT_MS, renderRepairTimeoutNote, repairTurnLimit } from "../domain/repair-turn.ts";
+import type { NoopKind } from "@kernel/noop-kind.ts";
 
 export interface RepairPort {
   checkGenerator(text: string): { valid: boolean; issues: string[] };
@@ -28,6 +36,14 @@ export interface GenerationPorts {
 
   budget: PromptBudgetPort;
   repair?: RepairPort;
+  /** The longest a single prompt may run on this host: the deadline of its transport. A tier's time at or above it could never fire before that deadline, so no budget is set and a timeout there stays the host's. Absent: the host states none, and the budget is applied as the effort tier gives it. */
+  promptCapMs?: number;
+  /** The time each effort tier allows the first pass, as the composition root resolved it (operator overrides applied). Absent: the defaults. Still clamped by `promptCapMs`. */
+  timeBudgets?: DiffTimeBudgets;
+  /** The clock the first pass's deadline is read from, in milliseconds. Absent: the system clock. */
+  now?: () => number;
+  /** The longest one contract-repair prompt may run, whatever time is left. Absent: `REPAIR_TURN_TIMEOUT_MS`. */
+  repairTimeoutMs?: number;
 }
 
 export interface GenerationResult {
@@ -43,8 +59,14 @@ export interface GenerationResult {
   parsed?: boolean;
   /** How the generation ended. Only a declared no-op is a decision to write nothing; a generation that ran out of steps or decided nothing never reads as one. */
   end: GenerationEndKind;
+  /** For a declared no-op, the reason the verdict named (`noop.kind`), `unspecified` when it named none. Absent for every other end. */
+  noopKind?: NoopKind;
   /** What the generation's MAIN turn measured, when its runtime can measure a turn (Codex cannot). */
   turn?: AgentTurnStats;
+  /** The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
+  testCorrect?: { cause: "env" | "app"; reason: string };
+  /** The findings the generator disputes instead of correcting, each with the basis the run checks. Absent unless the verdict carried one. */
+  rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[];
 }
 
 export interface GenerateOpts {
@@ -52,44 +74,157 @@ export interface GenerateOpts {
   onRepair?: () => void;
 }
 
+/**
+ * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: the orchestrator's admission is its
+ * only reader. `noopReason` is the reason the lead gave for writing nothing when it declared that instead of planning. A turn
+ * that gives neither is `parsed` when its verdict could be read at all. `timedOut` is a turn that ran out of its planning time.
+ */
+export interface PlanResult {
+  plan?: Record<string, unknown>;
+  noopReason?: string;
+  parsed: boolean;
+  timedOut: boolean;
+  /** What the turn measured, when its runtime can measure a turn. */
+  turn?: AgentTurnStats;
+}
+
 export class GenerateTestsUseCase {
   constructor(private readonly ports: GenerationPorts) {}
 
-  /* Generate E2E tests for a single input. Orchestrates the deterministic shell: 1. Build the generation prompt (via PromptRenderingPort). 2. Open a session and fire the prompt (via AgentRuntimePort). 3. Check generator contract; if invalid, fire ONE bounded repair re-prompt. 4. Parse the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). 6. If needsReview: open a reviewer session, parse the reviewer verdict, fire ONE bounded repair re-prompt on valid:false, apply the fail-closed gate. */
+  /**
+   * The one turn a coordinated run asks its lead for a plan instead of specs. One prompt in one generator session, bounded by the
+   * planning time, in which the agent may read and look things up but not write; no reviewer, no repair, no manifest. A turn that
+   * runs out of its time is reported, not thrown (the run then goes on as one piece of work); any other fault is thrown.
+   */
+  async plan(input: OpencodeRunInput, opts?: GenerateOpts): Promise<PlanResult> {
+    const planning = input.planning;
+    if (!planning) throw new Error("GenerateTestsUseCase.plan needs input.planning: the limits the plan will be held to");
+    const assembled = this.ports.rendering.renderMain(input);
+    const session = await this.ports.runtime.openSession("primary", input.mirrorDir, {
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+      timeoutMs: planning.budgetMs,
+      timeLimit: "prompt-budget",
+      descriptor: { runId: input.runId, role: "qa-generator" },
+    });
+    let output = "";
+    let turn: AgentTurnStats | undefined;
+    let timedOut = false;
+    try {
+      const result = await session.prompt(assembled.text, {
+        sectionSizes: assembled.sectionSizes,
+        ...promptFactsOpts(assembled),
+        ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
+        ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
+        finalStepOnly: true,
+        withoutWrites: true,
+        timeoutMs: planning.budgetMs,
+        timeLimit: "prompt-budget",
+        onTurnStats: (stats) => { turn = stats; },
+      });
+      output = result.output;
+    } catch (err) {
+      if (!isAgentTimeoutError(err)) throw err;
+      timedOut = true;
+    } finally {
+      await session.dispose();
+    }
+    if (timedOut) return { parsed: false, timedOut: true, ...(turn ? { turn } : {}) };
+    const deliverable = this.ports.verdicts.parseGenerator(output, `${input.mirrorDir}/${input.e2eRelDir}`);
+    return {
+      ...(deliverable.plan ? { plan: deliverable.plan } : {}),
+      ...(deliverable.noopReason ? { noopReason: deliverable.noopReason } : {}),
+      parsed: deliverable.parsed !== false,
+      timedOut: false,
+      ...(turn ? { turn } : {}),
+    };
+  }
+
+  /* Generate E2E tests for a single input. Orchestrates the deterministic shell: 1. Build the generation prompt (via PromptRenderingPort). 2. Open a session and fire the prompt (via AgentRuntimePort). 3. Check generator contract; if invalid, fire ONE bounded repair re-prompt. 4. Parse the deliverable (via VerdictParserPort). 5. Reconcile the manifest (via ManifestRepositoryPort). 6. If the run reviews (needsReview, never in context mode): open a reviewer session, parse the reviewer verdict, fire ONE bounded repair re-prompt on valid:false, apply the fail-closed gate. */
   async generate(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult> {
     const { runtime, rendering, verdicts, manifest, repair } = this.ports;
 
     const assembled = rendering.renderMain(input);
 
+    /* The wall time this first pass may take, from the change's size, which the step cap never bounds because a step can be arbitrarily long. A regeneration keeps the host's default: its callers read a turn without specs as "no fixes", and an expired budget must not hide there. */
+    const timeBudgetMs = isReGenTurn(input)
+      ? undefined
+      : generatorTimeBudgetMs({
+          mode: input.mode,
+          stat: diffStat({ diff: input.diff, changedFiles: input.intent?.changedFiles }),
+          ...(this.ports.promptCapMs !== undefined ? { capMs: this.ports.promptCapMs } : {}),
+          ...(this.ports.timeBudgets ? { budgets: this.ports.timeBudgets } : {}),
+        });
+
+    /* The budget bounds the whole first pass, the repair included: every prompt is given only what is left of it, and a prompt that finds none left is not sent. */
+    const now = this.ports.now ?? Date.now;
+    const deadline = timeBudgetMs !== undefined ? now() + timeBudgetMs : undefined;
+    const remainingMs = (): number | undefined => (deadline !== undefined ? deadline - now() : undefined);
+    const promptTime = (): { timeoutMs?: number; timeLimit?: "tier-budget" } => {
+      const left = remainingMs();
+      return left !== undefined ? { timeoutMs: left, timeLimit: "tier-budget" } : {};
+    };
+
     const generatorRole: AgentRole = "primary";
     const session = await runtime.openSession(generatorRole, input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
+      ...(timeBudgetMs !== undefined ? { timeoutMs: timeBudgetMs, timeLimit: "tier-budget" as const } : {}),
       descriptor: { runId: input.runId, role: "qa-generator" },
     });
-    let generatorOutput: string;
+    let generatorOutput = "";
     let mainTurn: AgentTurnStats | undefined;
     let repairTurn: AgentTurnStats | undefined;
+    /* The budget and the turn it cut off, when one did. Only a deadline the generator was given a budget for is this; any other timeout, a prompt that merely mentions one included, is the integration error it always was. */
+    let timeCut: { budgetMs: number; repair: boolean } | undefined;
+    /* The repair prompt ran past its own cap, with the first-pass budget (if any) to spare: the first turn's output stands and says nothing readable. */
+    let repairTimedOutMs: number | undefined;
+    const repairCapMs = this.ports.repairTimeoutMs ?? REPAIR_TURN_TIMEOUT_MS;
+    const cutByBudget = (err: unknown, repair: boolean): { budgetMs: number; repair: boolean } | undefined =>
+      timeBudgetMs !== undefined && isAgentTimeoutError(err) ? { budgetMs: timeBudgetMs, repair } : undefined;
     try {
       /* The verdict is read from the final step's text alone: what the agent recalled or quoted on the way is not its conclusion. */
-      const result = await session.prompt(assembled.text, {
-        sectionSizes: assembled.sectionSizes,
-        ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
-        ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
-        finalStepOnly: true,
-        onTurnStats: (stats) => { mainTurn = stats; },
-      });
-      generatorOutput = result.output;
+      try {
+        const result = await session.prompt(assembled.text, {
+          sectionSizes: assembled.sectionSizes,
+          ...promptFactsOpts(assembled),
+          ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
+          ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
+          finalStepOnly: true,
+          ...promptTime(),
+          onTurnStats: (stats) => { mainTurn = stats; },
+        });
+        generatorOutput = result.output;
+      } catch (err) {
+        timeCut = cutByBudget(err, false);
+        if (!timeCut) throw err;
+      }
 
-      /* A session that ran out of steps is never asked to re-emit its verdict: it cannot act on the request. The repair runs in the same session under the same limit, so it is sent the number the prompt it repairs stated. */
-      if (repair && mainTurn?.exhausted !== true) {
+      /* A session that ran out of steps is never asked to re-emit its verdict: it cannot act on the request, and one that ran out of time has no time left to spend on it. The repair runs in the same session under the same limit, so it is sent the number the prompt it repairs stated. */
+      if (repair && !timeCut && mainTurn?.exhausted !== true) {
         const genCheck = repair.checkGenerator(generatorOutput);
         if (!genCheck.valid) {
-          opts?.onRepair?.();
-          const repairResult = await session.prompt(
-            repair.instruction("generator", genCheck.issues, { priorResponseTail: generatorOutput }),
-            { isRepair: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, onTurnStats: (stats) => { repairTurn = stats; } },
-          );
-          generatorOutput = repairResult.output;
+          const left = remainingMs();
+          if (timeBudgetMs !== undefined && left !== undefined && left <= 0) {
+            /* The main turn spent the whole budget: its output stands and there is no time to ask for more. */
+            timeCut = { budgetMs: timeBudgetMs, repair: true };
+          } else {
+            opts?.onRepair?.();
+            const limit = repairTurnLimit({ capMs: repairCapMs, ...(left !== undefined ? { leftMs: left } : {}) });
+            try {
+              const repairResult = await session.prompt(
+                repair.instruction("generator", genCheck.issues, { priorResponseTail: generatorOutput }),
+                { isRepair: true, withoutTools: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, timeoutMs: limit.timeoutMs, timeLimit: limit.boundByCaller ? "tier-budget" : "repair-cap", onTurnStats: (stats) => { repairTurn = stats; } },
+              );
+              generatorOutput = repairResult.output;
+            } catch (err) {
+              /* The first turn's output stands: a repair that did not finish changes nothing it said. */
+              timeCut = limit.boundByCaller ? cutByBudget(err, true) : undefined;
+              if (!timeCut) {
+                if (!(isAgentTimeoutError(err) && !limit.boundByCaller)) throw err;
+                repairTimedOutMs = limit.timeoutMs;
+                console.error(`[qa] the generator's contract-repair turn timed out after ${limit.timeoutMs}ms (tools disabled); its first answer stands`);
+              }
+            }
+          }
         }
       }
     } finally {
@@ -121,20 +256,36 @@ export class GenerateTestsUseCase {
       parsed: deliverable.parsed !== false,
       noopReason: deliverable.noopReason,
       exhausted: mainExhausted || repairExhausted,
+      timedOut: timeCut !== undefined,
     });
-    const note = noteFor(end, deliverable, mainTurn, mainExhausted ? false : repairExhausted);
-    const outcome = { end, note, ...(mainTurn ? { turn: mainTurn } : {}) };
+    const endNote = timeCut && end === GENERATION_END.TIME_BUDGET
+      ? renderGenerationNote({ end, ...timeCut })
+      : noteFor(end, deliverable, mainTurn, mainExhausted ? false : repairExhausted);
+    /* A repair that timed out explains an end that has no specs to show for it; with specs delivered, or a no-op declared, it changed nothing. */
+    const note = repairTimedOutMs !== undefined && (end === GENERATION_END.NO_VERDICT || end === GENERATION_END.UNDECIDED_EMPTY)
+      ? [endNote, renderRepairTimeoutNote(repairTimedOutMs)].filter(Boolean).join(" ")
+      : endNote;
+    const outcome = {
+      end,
+      note,
+      /* The kind the declared no-op names (`unspecified` when its verdict names none): recorded with the run, read by nothing that decides it. */
+      ...(end === GENERATION_END.DECLARED_NOOP && deliverable.noopKind ? { noopKind: deliverable.noopKind } : {}),
+      ...(mainTurn ? { turn: mainTurn } : {}),
+    };
     /* The verdict's own declarations, read before the manifest drops anything: a spec the reviewer rejects, or one the manifest cannot hash, is still a spec the run delivered. */
     const declaredSpecs = declareSpecs(deliverable.specs, deliverable.specMetas);
     const declared = declaredSpecs.length > 0 ? { declaredSpecs } : {};
 
-    if (!input.needsReview) {
+    /* A generation that ran out of time, or that declared a no-op, has no specs to review: the reviewer's session would be spent on nothing, and opening it after the run's time is spent would end a valid no-op as a time-budget error. */
+    if (!generationRunsReviewer(input) || end === GENERATION_END.TIME_BUDGET || end === GENERATION_END.DECLARED_NOOP) {
       return {
         specs: deliverable.specs,
         ...declared,
         reviewed: false,
         approved: true,
         parsed: deliverable.parsed,
+        ...(deliverable.testCorrect ? { testCorrect: deliverable.testCorrect } : {}),
+        ...(deliverable.rebuttals?.length ? { rebuttals: deliverable.rebuttals } : {}),
         ...outcome,
       };
     }
@@ -171,6 +322,7 @@ export class GenerateTestsUseCase {
     try {
       const reviewOut = await reviewerSession.prompt(reviewerAssembled.text, {
         sectionSizes: reviewerAssembled.sectionSizes,
+        ...promptFactsOpts(reviewerAssembled),
         ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}),
       });
       let reviewText = reviewOut.output;
@@ -178,12 +330,18 @@ export class GenerateTestsUseCase {
       let v = verdicts.parseReview(reviewText);
       if (!v.valid && repair) {
         opts?.onRepair?.();
-        const repaired = await reviewerSession.prompt(
-          repair.instruction("reviewer", v.issues, { priorResponseTail: reviewText }),
-          { isRepair: true, ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}) },
-        );
-        reviewText = repaired.output;
-        v = verdicts.parseReview(reviewText);
+        try {
+          const repaired = await reviewerSession.prompt(
+            repair.instruction("reviewer", v.issues, { priorResponseTail: reviewText }),
+            { isRepair: true, withoutTools: true, timeoutMs: repairCapMs, timeLimit: "repair-cap", ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}) },
+          );
+          reviewText = repaired.output;
+          v = verdicts.parseReview(reviewText);
+        } catch (err) {
+          /* The reviewer's first answer stands, unreadable: the gate below fails closed on it. Any other fault is an integration error and surfaces. */
+          if (!isAgentTimeoutError(err)) throw err;
+          console.error(`[qa] the reviewer's contract-repair turn timed out after ${repairCapMs}ms (tools disabled); its first answer stands`);
+        }
       }
 
       reviewJudgment = v;
@@ -205,6 +363,8 @@ export class GenerateTestsUseCase {
       reviewed: true,
       approved,
       parsed: deliverable.parsed,
+      ...(deliverable.testCorrect ? { testCorrect: deliverable.testCorrect } : {}),
+      ...(deliverable.rebuttals?.length ? { rebuttals: deliverable.rebuttals } : {}),
       ...outcome,
       note: approved ? outcome.note : (reviewJudgment.rationale ?? "the reviewer did not approve the E2E tests"),
     };
@@ -221,6 +381,8 @@ function noteFor(end: GenerationEndKind, deliverable: GeneratorDeliverable, turn
       return renderGenerationNote({ end, ...(turn ? { turn } : {}), outputTail: deliverable.outputTail ?? "", repairExhausted });
     case GENERATION_END.DELIVERED:
     case GENERATION_END.NO_VERDICT:
+    /* A time-budget end is worded by the caller, which holds the budget; it never reaches here. */
+    case GENERATION_END.TIME_BUDGET:
       return deliverable.note;
   }
 }

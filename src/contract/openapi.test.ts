@@ -69,6 +69,15 @@ test("the OpenAPI document exposes the boundary-onboarding endpoints and their s
   }
 });
 
+test("the OpenAPI document exposes the login-bootstrap endpoint, its result and the login progress of the onboarding status", () => {
+  const doc = buildOpenApiDocument() as Doc;
+  const path = doc.paths["/api/v1/apps/{name}/login-bootstrap"] as Record<string, unknown> | undefined;
+  assert.ok(path?.post, "missing POST .../login-bootstrap");
+  assert.ok(doc.components.schemas.LoginBootstrapResult, "missing component LoginBootstrapResult");
+  const status = doc.components.schemas.OnboardingJobStatus?.properties as Record<string, unknown> | undefined;
+  assert.ok(status?.loginProgress, "OnboardingJobStatus must carry loginProgress");
+});
+
 test("nested entities are $ref'd, not inlined (codegen-friendly)", () => {
   const doc = buildOpenApiDocument() as Doc;
   const cases = doc.components.schemas.RunRecord?.properties?.cases;
@@ -127,4 +136,14 @@ test("contract/openapi.json is committed and up to date", () => {
   assert.ok(existsSync(ARTIFACT_PATH), "contract/openapi.json missing — run `npm run contract:gen`");
   const committed = JSON.parse(readFileSync(ARTIFACT_PATH, "utf8"));
   assert.deepEqual(committed, buildOpenApiDocument(), "openapi.json is stale — run `npm run contract:gen`");
+});
+
+test("the OpenAPI document documents GET /api/v1/telemetry/health with a named response schema", () => {
+  const doc = buildOpenApiDocument() as Doc;
+  const health = doc.paths["/api/v1/telemetry/health"] as { get?: { responses: Record<string, unknown> } };
+  assert.ok(health?.get, "missing GET /api/v1/telemetry/health");
+  assert.match(JSON.stringify(health.get.responses["200"]), /#\/components\/schemas\/TelemetryHealth/);
+  const schema = doc.components.schemas.TelemetryHealth as { required?: string[]; properties?: Record<string, { enum?: unknown[] }> };
+  assert.ok(schema, "missing component TelemetryHealth");
+  assert.ok(schema.required?.includes("schemaVersion"));
 });

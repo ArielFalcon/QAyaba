@@ -51,3 +51,10 @@ export function diffTier(stat: DiffStat): DiffTier {
   if (fits(stat, DIFF_TIERS.tiny)) return "tiny";
   return fits(stat, DIFF_TIERS.focused) ? "focused" : "broad";
 }
+
+/* The wall time the generator's first pass may take for a change of each tier, in milliseconds; null = no bound beyond the host's own default. These bound wall time and not work, because a step can be arbitrarily long (an ad-hoc browser script runs for tens of seconds): the step cap alone never ends a turn that spends its minutes on a few slow steps. Declared with the tiers so a limit moves with the class of change it describes. */
+export const DIFF_TIME_BUDGET_MS: Record<DiffTier, number | null> = {
+  tiny: 6 * 60_000,
+  focused: 12 * 60_000,
+  broad: null,
+};

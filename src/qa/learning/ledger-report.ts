@@ -35,6 +35,10 @@ const ERROR_CLASS_LABEL: Record<string, string> = {
   "E-STEP-BUDGET": "agent ran out of steps",
   "E-NO-DECISION": "agent made no decision",
   "E-PRECONDITION": "app login could not be completed",
+  "E-TIME-BUDGET": "agent ran out of time",
+  "E-REVIEWER-UNAVAILABLE": "reviewer unavailable",
+  "E-REVIEW-DISPUTED": "review dispute",
+  "E-SANDBOX": "execution sandbox unavailable",
 };
 
 function classLabel(errorClass: string): string {
@@ -69,10 +73,11 @@ function evidence(r: LearningRule): string {
 
 function renderRule(r: LearningRule): string {
   const flag = isWellFormedTrigger(r.trigger) ? "" : "   ⚠ trigger needs rephrasing";
+  const setAside = r.quarantinedAt ? ` · quarantined ${r.quarantinedAt}` : "";
   return [
     `• ${r.trigger}${flag}`,
     `    → ${r.action}`,
-    `    ${provenance(r.confidence, r.status)} · ${evidence(r)} · ${classLabel(r.errorClass)}`,
+    `    ${provenance(r.confidence, r.status)} · ${evidence(r)} · ${classLabel(r.errorClass)}${setAside}`,
   ].join("\n");
 }
 
@@ -89,6 +94,10 @@ export function renderLedgerReport(rules: LearningRule[], opts: { app?: string }
     return `${header}\n\nNo learned rules yet.\n`;
   }
 
+  /* A quarantined rule is set aside whatever its status says: it is never injected or credited, so no status section may claim it is. */
+  const quarantined = rules.filter((r) => r.quarantinedAt);
+  rules = rules.filter((r) => !r.quarantinedAt);
+
   const out: string[] = [header, ""];
   for (const section of SECTIONS) {
     const inSection = rules
@@ -101,6 +110,11 @@ export function renderLedgerReport(rules: LearningRule[], opts: { app?: string }
     if (inSection.length === 0) continue;
     out.push(`## ${section.title} (${inSection.length}) — ${section.blurb}`, "");
     for (const r of inSection) out.push(renderRule(r), "");
+  }
+
+  if (quarantined.length > 0) {
+    out.push(`## QUARANTINED (${quarantined.length}) — set aside by an operator; kept, never injected or credited (ledger-cli release <ruleId> lifts it)`, "");
+    for (const r of quarantined.sort((a, b) => b.at.localeCompare(a.at))) out.push(renderRule(r), "");
   }
 
   /*

@@ -41,9 +41,8 @@ interface OpenCodeRuntimeStrategyOptions {
 
 /* Used only when opencode.json is missing; keep aligned with agents/opencode.json. */
 const FALLBACK_MODELS: AgentModelInfo[] = [
-  { id: "opencode-go/glm-5.3-flash", label: "GLM 5.3 Flash" },
-  { id: "opencode-go/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
-  { id: "opencode-go/kimi-k2.7-code", label: "Kimi K2.7 Code" },
+  { id: "opencode-go/minimax-m3.1-flash-free", label: "MiniMax M3.1 Flash Free" },
+  { id: "opencode/deepseek-v4.1-flash-free", label: "DeepSeek V4.1 Flash Free" },
 ];
 
 export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {

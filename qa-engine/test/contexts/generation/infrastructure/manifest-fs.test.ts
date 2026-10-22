@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync, readdirSync, lstatSync, mkdirSync, writeFileSync, existsSync, symlinkSync, linkSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, readdirSync, lstatSync, mkdirSync, writeFileSync, existsSync, symlinkSync, linkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { readManifest, reconcileManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
@@ -536,7 +536,7 @@ test("readManifest takes a manifest reached through a symlink, at the file or at
 
     symlinkSync(join(tmp, "outside", "qa"), join(specDir, ".qa"));
     assert.deepEqual(await readManifest(specDir), [], "the directory is a symlink");
-    rmSync(join(specDir, ".qa"));
+    unlinkSync(join(specDir, ".qa"));
     mkdirSync(join(specDir, ".qa"));
     symlinkSync(join(tmp, "outside", "entries.json"), manifestPath(specDir));
     assert.deepEqual(await readManifest(specDir), [], "the file is a symlink");

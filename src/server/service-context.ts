@@ -18,7 +18,7 @@
  */
 
 import { dirname, join, relative, sep } from "node:path";
-import { lstatSync, rmSync } from "node:fs";
+import { lstatSync, rmSync, unlinkSync } from "node:fs";
 import type { Git } from "../integrations/repo-mirror";
 import { realGit } from "../integrations/repo-mirror";
 import { rethrowIfUntrusted } from "@kernel/domain-error";
@@ -264,7 +264,9 @@ export const defaultStageDeps: StageDeps = {
   rm: (path, root) => {
     /* The path to what is removed must be ordinary directories of the working copy: a removal through a link the agent planted above it would remove what the link points at. What is at the path itself is removed as it is, a link as a link. */
     ensureOwnedSpecDir(strictRoot(root), below(root, dirname(path)));
-    rmSync(path, { recursive: true, force: true });
+    /* A link is unlinked by name: `rmSync` resolves the path it is given, so on some runtimes it leaves a link to nothing standing and refuses a link to a directory. */
+    if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(path);
+    else rmSync(path, { recursive: true, force: true });
   },
   listFiles: (dir) => {
     const reader = new RepoReader(dir);

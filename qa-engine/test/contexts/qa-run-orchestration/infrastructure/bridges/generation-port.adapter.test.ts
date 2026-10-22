@@ -29,7 +29,6 @@ import type { TestTarget } from "@kernel/run-mode.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import {
   buildPromptAssembled,
-  buildWorkerPromptAssembled,
   buildReviewerPromptAssembled,
   buildExplorerPrompt,
   specFileForFlow,
@@ -49,7 +48,6 @@ function fakeGenerationPorts(overrides: {
     rendering: {
       render: () => "",
       renderMain: () => ({ text: "prompt", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (flow: string) => `flows/${flow}.spec.ts`,
@@ -1047,7 +1045,7 @@ async function runFirstReviewPass(rules: readonly RetrievedRule[]): Promise<{ ge
       }),
     },
     rendering: new PromptRenderingAdapter({
-      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+      buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
     }),
     verdicts: {
       parseGenerator: () => ({ specs: ["flows/search.spec.ts"], parsed: true }),
@@ -1107,7 +1105,7 @@ async function generatorPromptFor(
       }),
     },
     rendering: new PromptRenderingAdapter({
-      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+      buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
     }),
     verdicts: {
       parseGenerator: () => ({ specs: [], parsed: true }),
@@ -1192,6 +1190,17 @@ test("generate() carries the in-generate reviewer's own limit when that reviewer
   assert.equal(inputs[0]?.stepLimit, 41);
   assert.equal(inputs[0]?.reviewerStepLimit, 17);
   assert.deepEqual([...asked].sort(), ["generator", "reviewer"]);
+});
+
+test("generate() never asks for the reviewer's limit in a context run, whose generation runs no reviewer", async () => {
+  const inputs: OpencodeRunInput[] = [];
+  const asked: StepLimitRole[] = [];
+  const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true, mode: "context" }, { stepLimitFor: resolverAsking(asked) });
+
+  await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+
+  assert.deepEqual(asked, ["generator"]);
+  assert.equal("reviewerStepLimit" in (inputs[0] ?? {}), false);
 });
 
 test("generate() carries no limit key when there is no resolver, or when the resolver has none for the role", async () => {
@@ -1438,3 +1447,67 @@ test("the prompt of a first pass lists the suite exactly as the grounding folded
     assert.ok(bare.includes(SUITE_A) && bare.includes(SUITE_B), "both folded lines are in the prompt, with nothing on disk");
     assert.equal(present, bare);
   }));
+
+test("generate() hands the authenticated browser's limits to the prompt input when the run granted it, and nothing otherwise", async () => {
+  const ports = fakeGenerationPorts();
+  const captured: Array<OpencodeRunInput | undefined> = [];
+  const originalGenerate = GenerateTestsUseCase.prototype.generate;
+  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+    captured.push(input);
+    return originalGenerate.call(this, input, opts);
+  };
+  try {
+    const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(ports), {
+      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+    });
+    const limits = { maxCalls: 12, perCallMs: 20_000, leaseWaitMs: 5_000 };
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { agentBrowser: limits });
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {});
+    assert.deepEqual(captured[0]?.agentBrowser, limits);
+    assert.equal("agentBrowser" in (captured[1] ?? {}), false);
+  } finally {
+    GenerateTestsUseCase.prototype.generate = originalGenerate;
+  }
+});
+
+test("plan() hands the use case the input a first pass has, with the limits of the plan, and maps its answer onto the port shape", async () => {
+  const seen: OpencodeRunInput[] = [];
+  const useCase = Object.assign(new GenerateTestsUseCase(fakeGenerationPorts()), {
+    plan: async (input: OpencodeRunInput) => {
+      seen.push(input);
+      return { plan: { kind: "single" }, parsed: true, timedOut: false };
+    },
+  });
+  const adapter = new GenerationPortAdapter(useCase, { ...STATIC_CONTEXT, needsReview: true, guidance: "cover the cart" });
+  const planning = { maxFlows: 4, maxParallel: 2, budgetMs: 120_000 };
+  const result = await adapter.plan("/mirrors/org/app/e2e", undefined, "the diff", { sha: "abc1234", runId: "run-9", planning });
+  assert.deepEqual(result.plan, { kind: "single" });
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0]!.planning, planning);
+  assert.equal(seen[0]!.diff, "the diff");
+  assert.equal(seen[0]!.runId, "run-9");
+  assert.equal(seen[0]!.sha, "abc1234");
+  assert.equal(seen[0]!.guidance, "cover the cart");
+});
+
+test("plan() refuses a call that carries no limits for the plan, before any session is opened", async () => {
+  let opened = false;
+  const ports = fakeGenerationPorts();
+  const guarded: GenerationPorts = { ...ports, runtime: { openSession: async () => { opened = true; throw new Error("no"); } } as unknown as GenerationPorts["runtime"] };
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(guarded), { ...STATIC_CONTEXT, needsReview: false });
+  await assert.rejects(adapter.plan("/mirrors/org/app/e2e", undefined, "diff", { sha: "abc1234" }), /planning/);
+  assert.equal(opened, false);
+});
+
+test("plan() forwards a plan turn that ran out of time and one that gave a no-op", async () => {
+  const outcomes = [{ parsed: false, timedOut: true }, { noopReason: "docs only", parsed: true, timedOut: false }] as const;
+  for (const outcome of outcomes) {
+    const useCase = Object.assign(new GenerateTestsUseCase(fakeGenerationPorts()), { plan: async () => outcome });
+    const adapter = new GenerationPortAdapter(useCase, { ...STATIC_CONTEXT, needsReview: false });
+    const result = await adapter.plan("/mirrors/org/app/e2e", undefined, "diff", { sha: "abc1234", planning: { maxFlows: 3, maxParallel: 2, budgetMs: 60_000 } });
+    assert.equal(result.timedOut, outcome.timedOut);
+    assert.equal(result.noopReason, "noopReason" in outcome ? outcome.noopReason : undefined);
+  }
+});
+

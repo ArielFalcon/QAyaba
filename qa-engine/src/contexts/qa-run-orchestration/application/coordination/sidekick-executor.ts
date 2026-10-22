@@ -40,6 +40,10 @@ export interface SidekickExecuteOpts {
   signal?: AbortSignal;
   timeoutMs?: number;
   feedback?: string;
+  /** The flow of a plan the session is opened for: the run_spec loop and the browser share the flow's own are found by it. */
+  delegationId?: string;
+  /** Tools the session's prompts are denied, whatever the sidekick's configuration allows. */
+  denyTools?: readonly string[];
 }
 
 /* Brace-balanced first-object scan (string/escape aware). lastIndexOf("{") false-fails on valid DelegationResults with nested objects followed by a trailing fence. */
@@ -162,24 +166,28 @@ export class SidekickExecutor {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
       model: opts.model,
-      descriptor: { runId: brief.runId, role, objective: scrub(brief.objective) },
+      descriptor: {
+        runId: brief.runId,
+        role,
+        objective: scrub(brief.objective),
+        ...(opts.delegationId !== undefined ? { delegationId: opts.delegationId } : {}),
+        ...(opts.denyTools?.length ? { denyTools: opts.denyTools } : {}),
+      },
     });
     try {
       const assembled = this.render(brief);
-      const first = await session.prompt(assembled.text, { sectionSizes: assembled.sectionSizes });
-      let output = first.output;
-      if (opts.feedback) {
-        const second = await session.prompt(
-          [
+      /* A retry's session is a fresh one that has seen nothing, so its one prompt carries the brief and the feedback together: answering the brief on its own first would spend the flow's budget on work that is then thrown away. */
+      const text = opts.feedback
+        ? [
+            assembled.text,
+            ``,
             `## Feedback from lead`,
             scrub(opts.feedback),
             ``,
             `Respond with the SAME JSON output contract for delegationId=${brief.delegationId} runId=${brief.runId}.`,
-          ].join("\n"),
-          { isRepair: true },
-        );
-        output = second.output;
-      }
+          ].join("\n")
+        : assembled.text;
+      const { output } = await session.prompt(text, { sectionSizes: assembled.sectionSizes });
       const parsed = parseDelegationResult(extractJsonObject(output), brief);
       if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult");
       if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {

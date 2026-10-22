@@ -44,7 +44,7 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 | Capability | What it means |
 |---|---|
 | **Commit-aware testing** | Reads the diff and commit message to understand what changed. Skips style-only commits, writes targeted tests for features and fixes, runs regression-only for refactors. |
-| **Multi-agent coordination** | A deterministic router decides who does the work: the lead agent for simple changes, a bounded sidekick agent for larger blast radii — both subject to the same quality gates. Escalates instead of retrying blindly. |
+| **Multi-agent coordination** | By default the lead agent authors the change alone. Opt in (`qa.coordination.mode: lead-sidekicks`, or per run) and the lead plans the independent flows while bounded sidekick agents author them in parallel, each in a workspace of its own and each closing its own run loop — all subject to the same quality gates. |
 | **Provider-agnostic runtime** | Runs on OpenCode, Codex, or dual mode through one facade. Primary, reviewer, and chat models are configurable from the CLI or Dashboard. |
 | **Two-model review** | A different AI model reviews every generated test for value. Tests that click without asserting, use fragile selectors, or miss the actual change are rejected before they reach the suite. |
 | **Self-improving suite** | When tests pass and the reviewer approves, they are committed to the app's repository via PR with auto-merge. The suite grows with every deploy and never degrades into "green noise." |
@@ -70,11 +70,11 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 ```mermaid
 flowchart LR
     GH["GitHub push to DEV"] -->|webhook| O[Orchestrator]
-    O -->|"evidence-based route"| CO[Coordination Router]
-    CO -->|"simple / direct"| LEAD[Lead Agent]
-    CO -->|"delegable blast radius"| SK[Sidekick Agent]
+    O -->|"mode: single (default)"| LEAD[Lead Agent]
+    O -->|"mode: lead-sidekicks"| PL[Lead plans flows]
+    PL -->|"one workspace per flow"| SK[Sidekick Agents in parallel]
     LEAD -->|specs| V{{"Same deterministic gates\nstatic · execution · coverage"}}
-    SK --> V
+    SK -->|"only the files each brief names"| V
     V -->|green| RV[Independent Reviewer]
     RV --> DEC[PR with auto-merge / Issue]
     DEC -->|outcomes + rules| LD[(Learning Ledger)]
@@ -89,7 +89,7 @@ flowchart LR
 ### Orchestrator
 **Node.js** deterministic infrastructure.
 
-Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. A deterministic router inspects the change's evidence and decides whether the lead generates directly or the sidekick executes a bounded delegation. Runs mutation testing to measure test quality (valueScore), maintains the learning ledger, and appends every coordination decision to a durable telemetry ledger. Every side-effecting step is dependency-injected and unit-tested with stubs.
+Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. In the lead/sidekick mode it admits the lead's plan, runs the flows through a bounded pool and takes back only what each brief names. Runs mutation testing to measure test quality (valueScore), maintains the learning ledger, and appends every coordination decision to a durable telemetry ledger. Every side-effecting step is dependency-injected and unit-tested with stubs.
 
 </td>
 <td width="50%" valign="top">
@@ -97,7 +97,7 @@ Receives webhooks, manages the sequential queue, clones repos, runs Playwright a
 ### Agent Runtime
 **OpenCode, Codex, or dual mode** behind one provider-neutral facade.
 
-The primary (lead) agent reads code via Serena and writes Playwright specs. For larger changes the coordination router delegates to a dedicated sidekick agent with a bounded scope — it may only write inside `e2e/`, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. Engram provides persistent episodic memory across runs. `qayaba agent` or the Dashboard's Agent Runtime screen selects provider, role assignments, models, and API keys.
+The primary (lead) agent reads code via Serena and writes Playwright specs. In the lead/sidekick mode the lead plans and a dedicated sidekick agent authors each flow in a workspace of its own — it may only write the one file its brief names, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. Engram provides persistent episodic memory across runs. `qayaba agent` or the Dashboard's Agent Runtime screen selects provider, role assignments, models, and API keys.
 
 </td>
 </tr>
@@ -114,10 +114,10 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 | **1. Deploy gate** | Waits until DEV reports the right commit SHA and is healthy. Skipped if no health endpoint is configured, or in code mode. |
 | **2. Classification** | Reads the commit message and diff. Conventional Commits like `style:` with no logic changes are skipped before spending a single token. |
 | **3. Retrieval** | Loads learned rules, structural patterns, and proven scenario archetypes from past runs — injects them into the agent prompt. |
-| **4. Coordination** | A deterministic router weighs the change's evidence (file count, contradiction signals, remaining budgets) and decides: direct generation by the lead, or a bounded sidekick delegation. Large blast radii and contradictory signals get delegated; the sidekick writes its specs, the orchestrator verifies them on disk against a validation plan, and anything unclear is escalated back to the lead. |
-| **5. Generation** | Whoever the router picked (lead or sidekick) reads the blast radius using semantic code navigation and writes tests into the repo. A failed or unclear delegation always falls back to the lead — a coordination hiccup can never void a run. |
+| **4. Coordination** | `single` (default): nothing happens here. `lead-sidekicks`: the lead is asked for a plan of independent flows, the orchestrator admits it (or downgrades to `single` with a recorded reason), and each flow is handed to a sidekick. |
+| **5. Generation** | The lead (or, in the lead/sidekick mode, one sidekick per flow, in parallel) reads the blast radius using semantic code navigation and writes tests into the repo. A flow that cannot be finished is handed back to the lead — a coordination hiccup can never void a run. |
 | **6. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
-| **7. Execution** | Runs tests against the live DEV URL (e2e) or the repo's own test runner (code mode). Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop: the router picks whether the sidekick or the lead performs the regeneration, while the fix loop keeps owning retries, adjudication, and regression checks. |
+| **7. Execution** | Runs tests against the live DEV URL (e2e) or the repo's own test runner (code mode). Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop, which owns retries, adjudication, and regression checks. |
 | **8. Oracle** | For code mode green runs: mutation testing via Stryker measures how many injected bugs the tests actually catch (valueScore). |
 | **9. Reflection** | On failed runs, an LLM reflects on the error and produces a preventive rule. The rule is distilled and stored for future runs. |
 | **10. Decision** | Green and approved: PR with auto-merge. Failures: GitHub Issue. Flaky: quarantined. DEV down: infrastructure error. Every coordination decision made along the way is appended to the telemetry ledger. |
@@ -127,20 +127,19 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 
 ### Multi-agent coordination
 
-Coordination is always on — there is no mode to enable. Who executes a unit of QA work is decided by evidence, not by configuration:
+Off unless an app asks for it (`qa.coordination.mode: lead-sidekicks`) or a run does (`--coordination lead-sidekicks`, `coordinationMode` on `POST /api/v1/runs`). The default, `single`, is the lead authoring the change alone, as every run did before. Details: [docs/lead-sidekicks.md](docs/lead-sidekicks.md).
 
 | Piece | Role |
 |---|---|
-| **Router (deterministic, zero LLM)** | Reads pipeline signals — diff size, contradiction signals, remaining budgets — and returns `delegate` (with a capability tier) or `direct`. When recent telemetry shows an escalation trend, it raises the delegation threshold automatically. |
-| **Sidekick agent (bounded executor)** | Writes or repairs specs strictly inside the app's `e2e/` scope, using the same harness, fixtures, and selector discipline as the lead. It may only answer with a structured result: what it did, which files it touched, what validation it ran, and whether it can finish the task at all. |
-| **Delegation brief** | The self-contained work order: objective, acceptance criteria, scope, known facts (confidence-ranked), artifacts (including the app's DEV base URL), validation plan and escalation policy. The sidekick never needs the lead's transcript. |
-| **External validation** | Authority is enforced in code, not in the prompt: files claimed by the sidekick must actually exist on disk within the permitted scope, else the result is `blocked`. Acceptance criteria cannot be modified by the agent. |
-| **Escalation ladder** | `sidekick-standard → sidekick-escalated → lead takeover`. Repeating the same observable failure state with the same capability is rejected as an unproductive retry. |
+| **Lead plan** | The lead returns a plan of independent flows instead of specs. The plan is untrusted input: the orchestrator keeps only what its shape and the run's limits allow (`maxFlows`, a deterministic spec path per flow) and otherwise hands the change back to the lead, with the reason recorded. |
+| **Sidekick agent (bounded executor)** | Authors one flow in a copy of what the run may read, using the same harness, fixtures, and selector discipline as the lead; it runs its own spec through `run_spec` until it passes. Only the file its brief names is taken back; any other change is listed as a proposal and never applied. |
+| **Fan-out** | A bounded pool (`maxParallel`) with a signal and a time budget per flow. DEV access is serialized per test account by the orchestrator's lease. |
+| **Escalation ladder** | A flow gets a second attempt, then the lead takes it back, decided on what the orchestrator saw of the flow's `run_spec` calls, never on the sidekick's word. |
 | **Independent reviewer** | Never merged with, influenced by, or executed from the coordinator — whoever wrote the specs, the reviewer judges the same way. |
 
-Every delegation result must be earned: a claimed success that doesn't produce verifiable files on disk is scored as a failure, and generation falls back to the lead. Coordination is therefore a latency/cost optimization with gates, not an alternative path around them.
+Every flow's result must be earned: a claimed file the brief did not name is not taken back, and the run's gates (validation, execution, change-coverage, review) are the same ones the lead's specs meet.
 
-**Coordination telemetry** — every proposal, delegation, escalation, and final outcome is appended to `data/coordination-events.jsonl` (one JSON object per line, survives restarts). Inspect it at any time:
+**Coordination telemetry** — every delegation, escalation, and final outcome of a coordinated run is appended to `data/coordination-events.jsonl` (one JSON object per line, survives restarts). Inspect it at any time:
 
 ```bash
 tail -n 5 data/coordination-events.jsonl
@@ -151,7 +150,6 @@ Optional environment tuning (defaults are production-safe, no configuration requ
 | Env var | Default | Purpose |
 |---|---|---|
 | `COORDINATION_TELEMETRY_PATH` | `data/coordination-events.jsonl` | Durable sink for coordination events (e.g. point to a mounted volume). |
-| `COORDINATION_SIDEKICK_TIMEOUT_MS` | `420000` | Wall-clock cap per delegation; exceeded delegations fall back to the lead. |
 | `COORDINATION_ESCALATED_MODEL` | same model as the standard sidekick | Optional stronger model for escalated sidekick sessions; it must be a model of the provider the primary role is assigned to. |
 
 ### What happens at the end
@@ -256,9 +254,11 @@ The project uses provider-neutral role assignments. Configure them from the Dash
 
 | Role | Default provider/model | Purpose |
 |---|---|---|
-| `primary` (lead) | `opencode-go/glm-5.3-flash` | Reads code, writes Playwright tests, coordinates delegations |
-| `reviewer` | `opencode-go/muse-spark-1.3-contributor` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
-| `chat` | `opencode-go/glm-5.3-flash` | Read-only operator assistant |
+| `primary` (lead) | `opencode-go/minimax-m3.1-flash-free` | Reads code, writes Playwright tests, coordinates delegations |
+| `reviewer` | `opencode/deepseek-v4.1-flash-free` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
+| `chat` | `opencode/deepseek-v4.1-flash-free` | Read-only operator assistant |
+
+Every role defaults to a free model, so a run keeps working after the paid Go usage limit is exhausted. The lead, the sidekick and the explorer take `minimax-m3.1-flash-free` (1M context, 512K output — the only free model that holds the grounding and writes several specs in one turn); the smaller-prompt roles take `deepseek-v4.1-flash-free` (200K context, 32K output). All are limited-time offers: check `opencode models` and the catalog in `qa-engine/src/contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts` when they retire.
 
 The coordination sidekick runs on its own role (`sidekick`) with the same base model as the lead tier; assign it a stronger model via `COORDINATION_ESCALATED_MODEL` when you want escalated sidekick sessions to use a different capacity.
 
@@ -285,9 +285,9 @@ The coordination sidekick runs on its own role (`sidekick`) with the same base m
 | Playwright authoring skills | `agent/skills/playwright-authoring/` | Login, geolocation, mobile, uploads |
 | Quality review criteria | `agent/skills/test-value-review/` | False-positive pattern catalog |
 | MCP servers (Serena, Engram, Playwright) | `agents/opencode.json` and agent container | Code navigation + persistent memory |
-| Multi-agent coordination | wired by default | Always-on router + sidekick agent (`qa-sidekick`), durable telemetry at `data/coordination-events.jsonl`, bounded delegation wall-clock. No configuration required. |
+| Multi-agent coordination | `qa.coordination` in the app YAML (default `single`) | The lead/sidekick mode (`qa-sidekick`), durable telemetry at `data/coordination-events.jsonl`, per-flow time budgets. Opt in per app or per run. |
 | Docker images | `Dockerfile`, `agents/Dockerfile` | Both services build from these |
-| Control-plane API token | `config/.api_token` (auto-generated on first boot) | The machine credential — protects the API (`Bearer` auth on every non-public route). On the same machine the `qayaba` console auto-loads it from `$QA_API_TOKEN` or this file; people sign in with GitHub instead (see below). Set `QA_API_TOKEN` to pin your own. |
+| Control-plane API token | `data/.api_token` (auto-generated on first boot; in the container, `/app/data/.api_token` in the `qa-data` volume, never in the host's `config/`, which the sandboxed agent code must not reach) | The machine credential — protects the API (`Bearer` auth on every non-public route). On the same machine the `qayaba` console auto-loads it from `$QA_API_TOKEN`, or from this file when the service runs on the host; people sign in with GitHub instead (see below). Set `QA_API_TOKEN` to pin your own. An earlier version's `config/.api_token` is removed at the next start and a new token is generated (its value may have been readable by agent code), so clients must discover the token again. |
 
 </details>
 
@@ -296,7 +296,7 @@ The coordination sidekick runs on its own role (`sidekick`) with the same base m
 The `qayaba` console reaches the orchestrator over its HTTP control plane, which is `Bearer`-authenticated. There are two ways to authenticate, for two different callers:
 
 - **People → "Log in with GitHub" (default).** On the connect screen, press <kbd>enter</kbd>. The console runs GitHub's OAuth **device flow**: it shows a short code, opens `github.com/login/device`, and you approve *this terminal* with your own GitHub account — nothing to copy or paste. The orchestrator checks that you are a **collaborator with push access on a watched repo**, then issues a short-lived session. No shared secret ever touches a person's machine.
-- **Machines / CI → a static token.** Press <kbd>^T</kbd> on the connect screen to paste the control-plane token, or export `QA_API_TOKEN`. On the orchestrator's own host the console auto-discovers `config/.api_token`, so a local operator never types anything.
+- **Machines / CI → a static token.** Press <kbd>^T</kbd> on the connect screen to paste the control-plane token, or export `QA_API_TOKEN`. On the orchestrator's own host the console auto-discovers `data/.api_token` when the service runs on the host; against the container it uses the token it saved after the first connect, or `$QA_API_TOKEN` (`docker compose exec orchestrator cat /app/data/.api_token` prints it).
 
 <details>
 <summary>Enabling GitHub login (one-time, on the server)</summary>
@@ -356,6 +356,52 @@ report:
   onFailure: "github-issue"
 ```
 
+**Optional: let the generator run its specs while it writes them** (`run_spec`, OpenCode only; off by default):
+
+```yaml
+qa:
+  closedLoop:
+    enabled: true
+    maxCalls: 8            # run_spec calls per run
+    perCallMs: 120000      # the longest one call may run
+    maxDevWrites: 20       # POST/PUT/PATCH/DELETE requests the executed specs may send to DEV in all
+```
+
+The agents and orchestrator services need the same `QA_TOOLS_TOKEN` (and `QA_TOOLS_PORT`, default 459, which compose does not publish). A run can choose for itself with `npm run qa -- ... --closed-loop on|off`. How it works and what bounds it: [docs/execution-sandbox.md](docs/execution-sandbox.md#the-run_spec-tool).
+
+**Optional: let the authoring agents look at the signed-in app while they write** (the authenticated browser, OpenCode only; off by default):
+
+```yaml
+qa:
+  agentBrowser:
+    enabled: true
+    denyRoutes: ["/admin/**", "/settings/billing"]   # paths the browser never reaches
+    allowMutating: ["POST /api/search"]              # the only requests that write which it lets through
+```
+
+The browser is the orchestrator's: it holds the saved session and the agents only ask it to open, read, click and type. It never writes to DEV
+unless an `allowMutating` entry says so, and it reaches only the origins the app declares. Same `QA_TOOLS_TOKEN` as above. A run can choose for
+itself with `npm run qa -- ... --agent-browser on|off`. How it works and what bounds it: [docs/execution-sandbox.md](docs/execution-sandbox.md#the-authenticated-agent-browser).
+
+**Declare every origin the app's pages load from.** The agent-written specs run in an execution sandbox whose network is closed by default: they can reach `dev.baseUrl`'s own origin and nothing else. An app whose pages load an identity provider, an API host or a CDN lists them (an origin is `scheme://host[:port]`, or `scheme://*.suffix` for every subdomain of a suffix of at least two labels; no path, no credentials):
+
+```yaml
+dev:
+  baseUrl: "https://dev.my-app.internal"
+  allowedOrigins:
+    - "https://login.my-idp.example"
+    - "https://*.cdn.my-app.example"
+  blockedOrigins:                 # optional: hosts left blocked on purpose (telemetry, analytics); never taken as why a login failed
+    - "https://*.ingest.sentry.io"
+egress:
+  installOrigins:                 # optional: a private registry or mirror, on top of config/egress/registries.yaml
+    - "https://npm.internal.example"
+```
+
+A run that tries a host it did not declare is not failed for it: the host is listed in the run's `gateSignals.sandbox.denied`, so the first run of an app shows exactly what to add. A stylesheet or script a page loads from another host (a web-font import, for one) that is refused can stop that page from rendering at all, so a login that stalls names the hosts refused to it. See [docs/execution-sandbox.md](docs/execution-sandbox.md).
+
+**The login is a verified onboarding step.** An app that declares a form login (`auth.kind: form` in the YAML) is not onboarded until its login signs in: after the architecture map, onboarding enqueues a manual run for the login purpose that authors `e2e/auth.setup.ts` and one smoke spec of a route that needs the session. When that run is accepted (green, reviewed, not held back by coverage) the login and the spec are kept in the **suite store** (`data/suites/<app>/` in the qa-data volume), so later runs, including shadow runs that publish nothing, start from a working login instead of authoring it again. Purging an app removes its store. The onboarding status reports `loginProgress.status` as `verified`, `unauthored` or `failed`; the same run can be started on its own with `POST /api/v1/apps/{name}/login-bootstrap`.
+
 ### Trigger a manual run
 
 ```bash
@@ -390,6 +436,20 @@ doppler run -- docker compose up --build
 # Without Doppler (secrets in .env)
 docker compose up --build
 ```
+
+<details>
+<summary>The execution sandbox (<code>QA_EXEC_SANDBOX</code>, <code>QA_EGRESS_MODE</code>)</summary>
+
+Everything that runs code an agent influenced (the generated specs, the e2e project's own `tsc`/`eslint`/`npm ci`, a login script, a code-mode app's install and test command) runs as the unprivileged `sandbox` user, with an environment built from an allowlist, in a per-run work directory, and with its network held to the origins the app declares. `docker-compose.yml` sets the two switches to their strict values; the container needs `NET_ADMIN` for the egress filter.
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `QA_EXEC_SANDBOX` | `required` when unset and running as root on Linux (every container), `best-effort` elsewhere | `required`: a run that cannot drop to the sandbox user refuses to execute agent code and ends `infra-error E-SANDBOX`. `best-effort`: it runs as the current user with a loud warning (a laptop without the user). |
+| `QA_EGRESS_MODE` | `enforce` | `enforce`: a run whose egress filter is not active ends `E-SANDBOX`. `warn`: it runs with the container's full network and records `gateSignals.sandbox.egress = "unenforced"`. With no sandbox uid (a laptop) there is no filter, so `enforce` refuses to run agent code: set `QA_EGRESS_MODE=warn` there. |
+
+`GET /api/health` reports a degraded sandbox (still HTTP 200). After a deploy, `docker compose exec orchestrator npm run sandbox:smoke` proves the boundary in the running container. Details: [docs/execution-sandbox.md](docs/execution-sandbox.md).
+
+</details>
 
 <details>
 <summary>The control-plane port (<code>PORT</code>, default 458)</summary>

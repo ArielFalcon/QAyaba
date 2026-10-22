@@ -1,4 +1,4 @@
-/* Zero-LLM error taxonomy derived on every persisted RunOutcome. Hardcoding errorClass:null breaks the learning/governance flywheel (rule retrieval keys on this field). E-INFRA is recorded but excluded from learning — infrastructure failures teach nothing. E-STEP-BUDGET (the agent ran out of steps with no spec reported) is an engine-side infrastructure class that DOES feed learning; E-NO-DECISION (a verdict with no specs and no no-op) is recorded but never learned from. E-PRECONDITION (the app's login was positively evidenced to fail before generation) is recorded but never learned from: it says nothing about the tests or the engine. E-REVIEWER-REJECTED is not produced here; it is the corrections-distillation fallback in distill-rule.ts. */
+/* Zero-LLM error taxonomy derived on every persisted RunOutcome. Hardcoding errorClass:null breaks the learning/governance flywheel (rule retrieval keys on this field). E-INFRA is recorded but excluded from learning — infrastructure failures teach nothing. E-STEP-BUDGET (the agent ran out of steps with no spec reported) is an engine-side infrastructure class that DOES feed learning; E-NO-DECISION (a verdict with no specs and no no-op) is recorded but never learned from. E-PRECONDITION (the app's login was positively evidenced to fail before generation) is recorded but never learned from: it says nothing about the tests or the engine. E-TIME-BUDGET (the generator's turn was cut off by the wall-clock budget its change allowed, or any agent turn by the run's own deadline, with no verdict reached) is the time counterpart of E-STEP-BUDGET but is never learned from: how long a turn takes is confounded by DEV latency, so it says nothing about the tests or the engine. E-REVIEWER-UNAVAILABLE (the reviewer's session failed or returned nothing, so the tests that passed were never judged) is recorded, never learned from, and is not a rejection: it opens no Issue and no PR. E-REVIEWER-REJECTED is not produced here; it is the corrections-distillation fallback in distill-rule.ts. E-REVIEW-DISPUTED (a verified blocking finding survived every round while the generator's rebuttal stayed unverified) is recorded, never learned from, and is neither a PR nor an Issue: the engine could not decide. */
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 
 export const ERROR_CLASSES = [
@@ -16,6 +16,14 @@ export const ERROR_CLASSES = [
   "E-STEP-BUDGET",
   "E-NO-DECISION",
   "E-PRECONDITION",
+  "E-TIME-BUDGET",
+  "E-REVIEWER-UNAVAILABLE",
+  "E-REVIEW-DISPUTED",
+  "E-SANDBOX",
+  /* The shell's own classes: a run it ended itself, not one the engine classified. They are here so the two copies of the
+     taxonomy stay identical; the learning gates decide they teach nothing. */
+  "internal-error",
+  "security-refusal",
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
@@ -27,6 +35,10 @@ export const ERROR_CLASS = {
   STEP_BUDGET: "E-STEP-BUDGET",
   NO_DECISION: "E-NO-DECISION",
   PRECONDITION: "E-PRECONDITION",
+  TIME_BUDGET: "E-TIME-BUDGET",
+  REVIEWER_UNAVAILABLE: "E-REVIEWER-UNAVAILABLE",
+  REVIEW_DISPUTED: "E-REVIEW-DISPUTED",
+  SANDBOX: "E-SANDBOX",
 } as const satisfies Record<string, ErrorClass>;
 
 /* Reviewer anti-pattern keywords. */
@@ -102,13 +114,23 @@ export interface ResolveErrorClassInput {
   generationEnd?: GenerationEndKind;
   /** The run ended on a positively evidenced setup failure (the app's login), before generation had anything to test. */
   preconditionFailed?: boolean;
+  /** The run ended because its reviewer could not be reached or returned nothing: the tests were never judged, which is not a rejection. */
+  reviewerUnavailable?: boolean;
+  /** The run ended on a finding the reviewer verified and the generator disputed without evidence the orchestrator could check: a judgment it could not settle. */
+  reviewDisputed?: boolean;
+  /** The run ended because agent-influenced code could not be run safely (no sandbox uid, or the egress filter is down under enforce): nothing about the app or the tests. */
+  sandboxUnavailable?: boolean;
 }
 
 /* A generation end that ended the run names its class before anything the verdict implies, and a failed precondition follows it; then verdict-derived structural classes short-circuit, then reviewer corrections, then E-COVERAGE-GAP, then E-VALUE-SURVIVED (green + good coverage but mutants survive). */
 export function resolveErrorClass(input: ResolveErrorClassInput): ErrorClass | null {
   if (input.generationEnd === GENERATION_END.EXHAUSTED) return ERROR_CLASS.STEP_BUDGET;
+  if (input.generationEnd === GENERATION_END.TIME_BUDGET) return ERROR_CLASS.TIME_BUDGET;
   if (input.generationEnd === GENERATION_END.UNDECIDED_EMPTY) return ERROR_CLASS.NO_DECISION;
   if (input.preconditionFailed) return ERROR_CLASS.PRECONDITION;
+  if (input.reviewerUnavailable) return ERROR_CLASS.REVIEWER_UNAVAILABLE;
+  if (input.reviewDisputed) return ERROR_CLASS.REVIEW_DISPUTED;
+  if (input.sandboxUnavailable) return ERROR_CLASS.SANDBOX;
 
   const fromVerdict = errorClassFromVerdict(input.verdict, input.coverageRatio, input.minCoverageRatio);
 

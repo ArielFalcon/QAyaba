@@ -1,10 +1,13 @@
 # LOCAL DEV override — auto-loaded by plain `docker compose up`.
 #
-# It bind-mounts the host source into the orchestrator so your edits are live without a rebuild.
-# Trade-off: a bind-mounted src/ is a mountpoint and the package files are bind-files, which the
-# maintainer hot-swap canNOT rewrite (rmSync/cpSync → EBUSY). So with this override the self-update
-# hot-swap is a deliberate no-op (it fails safe: no swap, no restart) — which is fine for dev,
-# where you edit code on the host directly.
+# It bind-mounts the host source into the orchestrator so your edits are live without a rebuild. Every code mount is
+# READ-ONLY: the orchestrator never writes its own code at runtime, and the sandbox uid (which runs agent code) must not
+# either. Docker Desktop's file sharing does not enforce file permissions on a bind mount (any uid could write the host's
+# src/), while a read-only mount is refused by the kernel for every uid. The boot check (src/server/file-boundary-check.ts)
+# refuses agent code if a mount under /app is writable by that uid, so a rw code mount added here makes runs end E-SANDBOX.
+# Trade-off: a read-only src/ and package files are what the maintainer hot-swap canNOT rewrite (EROFS, before
+# anything is removed). So with this override the self-update hot-swap is a deliberate no-op (it fails safe: no
+# swap, no restart) — which is fine for dev, where you edit code on the host directly.
 #
 # For PRODUCTION (hot-swap working, code from the baked image) run WITHOUT this file:
 #   docker compose -f docker-compose.yml up --build
@@ -48,14 +51,39 @@ services:
       # is what keeps a published port from being an open control plane. Override here for local
       # `docker compose up`. Set false to force login.
       QA_WEB_AUTO_LOGIN: ${QA_WEB_AUTO_LOGIN:-true}
+      # Per-tier wall-time budget overrides for a diff run's generator first pass (ms or `none`);
+      # empty keeps the defaults (docs/efficiency-benchmark.md). Set per probe in the host env.
+      QA_DIFF_TIME_BUDGET_MS_TINY: ${QA_DIFF_TIME_BUDGET_MS_TINY:-}
+      QA_DIFF_TIME_BUDGET_MS_FOCUSED: ${QA_DIFF_TIME_BUDGET_MS_FOCUSED:-}
+      QA_DIFF_TIME_BUDGET_MS_BROAD: ${QA_DIFF_TIME_BUDGET_MS_BROAD:-}
+      # Wall-time bound of a WHOLE run, per kind of run (positive whole milliseconds; empty keeps the default,
+      # there is no way to remove it): the first pass's tier budget above applies inside it
+      # (docs/efficiency-benchmark.md, "Run deadline").
+      QA_RUN_TIME_BUDGET_MS_DIFF_TINY: ${QA_RUN_TIME_BUDGET_MS_DIFF_TINY:-}
+      QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED: ${QA_RUN_TIME_BUDGET_MS_DIFF_FOCUSED:-}
+      QA_RUN_TIME_BUDGET_MS_DIFF_BROAD: ${QA_RUN_TIME_BUDGET_MS_DIFF_BROAD:-}
+      QA_RUN_TIME_BUDGET_MS_MANUAL: ${QA_RUN_TIME_BUDGET_MS_MANUAL:-}
+      QA_RUN_TIME_BUDGET_MS_COMPLETE: ${QA_RUN_TIME_BUDGET_MS_COMPLETE:-}
+      QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE: ${QA_RUN_TIME_BUDGET_MS_EXHAUSTIVE:-}
+      QA_RUN_TIME_BUDGET_MS_CONTEXT: ${QA_RUN_TIME_BUDGET_MS_CONTEXT:-}
+      # Stops a run from reading or writing cross-run learning state (rule fold and retrieval, curriculum,
+      # reflector, process audit with its incidents and context-stale flag), so the replicates of an A/B
+      # campaign start from the same ground. Empty is off (docs/efficiency-benchmark.md, "Campaigns").
+      QA_CAMPAIGN_FREEZE: ${QA_CAMPAIGN_FREEZE:-}
+      # Re-enables the reflector pass and the injection of unproven (candidate / low-confidence) learned
+      # rules into prompts. Empty is off, which is the default (CLAUDE.md, "Cross-run learning").
+      QA_REFLECTOR_ENABLED: ${QA_REFLECTOR_ENABLED:-}
     volumes:
-      - ./src:/app/src
+      - ./src:/app/src:ro
       # Live src imports qa-engine via tsconfig paths. The image copy goes stale
       # the moment src/ changes, and a recreate then fails to resolve @contexts/*.
-      - ./qa-engine:/app/qa-engine
-      - ./tsconfig.json:/app/tsconfig.json
-      - ./package.json:/app/package.json
-      - ./package-lock.json:/app/package-lock.json
+      - ./qa-engine:/app/qa-engine:ro
+      # The operator scripts (efficiency-benchmark, probe-report, baseline-agent) run inside this
+      # container against its run history; the image copy goes stale like the others.
+      - ./scripts:/app/scripts:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./package.json:/app/package.json:ro
+      - ./package-lock.json:/app/package-lock.json:ro
       # Local test target (config/apps/<app>.yaml): uncomment and set <app> to the app you're
       # probing to bind-mount its sibling clone read-only into the in-container path. Only the
       # orchestrator clones — the agents read the working copy from the shared `mirrors` volume,
@@ -66,7 +94,7 @@ services:
       # - ../<app>:/app/local-repos/<app>.git:ro
       # Live-serve the vanilla console from web/public (served as-is at /app, no build step), so
       # edits show on reload. Without this mount, only the image's COPY of web/ is served.
-      - ./web:/app/web
+      - ./web:/app/web:ro
 
   # The agent navigates the DEV site through its Playwright MCP during generation, so it ALSO
   # needs to reach a host-local DEV target.

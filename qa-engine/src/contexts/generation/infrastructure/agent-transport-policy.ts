@@ -4,8 +4,13 @@ import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watc
 import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
 import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { sanitizeText } from "./sanitize-text.ts";
+import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
+import { sha256Hex } from "../../../shared-infrastructure/content-hash.ts";
+import { carryAgentErrorType, classifyAgentFault, classifyProviderError, type AgentErrorType } from "../domain/agent-error-class.ts";
+import type { TimeLimitSource, TurnLimit } from "@kernel/turn-limit.ts";
 import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";
 import { finalStepText } from "../domain/step-exhaustion.ts";
+import type { TurnEnd } from "@kernel/turn-end.ts";
 
 /* Types declared locally — qa-engine never imports src/. */
 
@@ -17,6 +22,9 @@ export interface UsageSnapshot {
   cacheWrite: number;
   cost: number;
 }
+
+/** What an attempt spent, as its runtime reports it. The cost is absent when the runtime reports none (Codex): it is never made up. */
+export type AttemptUsage = Omit<UsageSnapshot, "cost"> & { cost?: number };
 
 /** A single agent prompt/response turn captured at the transport funnel. outputText is sanitized BEFORE emitting (sanitizeText, the qa-engine twin of src/orchestrator/sanitizer.ts). runId is null when the session was opened without a descriptor. */
 export interface AgentTurnEvent {
@@ -41,7 +49,53 @@ export interface AgentTurnEvent {
   stepBudget: TurnStepBudget | null;
   /** What the agent did this turn, measured from its tool calls. Null when unsupported, unobserved, or the measurement failed. */
   callMetrics: TurnCallMetrics | null;
+  /** How the turn ended; absent when the transport does not say (Codex). A turn that did not answer carries empty output, no usage and the calls measured up to its end. */
+  ended?: TurnEnd;
+  /** Wall time from when the prompt was sent to when the turn ended (answered, timed out or aborted); null when the runtime did not measure it. */
+  durationMs: number | null;
+  /*
+   * What the turn did, for its trace and its record; each is absent or null where the runtime cannot say (Codex). The model
+   * asked for is the one the prompt named (null: the agent's configured model); the one that answered is what the runtime
+   * reported back.
+   */
+  modelRequested?: string | null;
+  modelAnswered?: string | null;
+  provider?: string | null;
+  /** The attempt that ended the turn: 1 the primary model, 2 the fallback. */
+  attempt?: number | null;
+  fallbackUsed?: boolean;
+  /** The class of the last failure an attempt of the turn met (the primary's, when the fallback answered); null when none. */
+  errorType?: AgentErrorType | null;
+  /** sha256 of each section of the prompt as the assembler built it, by section id, and of the bytes actually sent. */
+  sectionHashes?: Record<string, string> | null;
+  promptHash?: string | null;
+  /** The time limit that bound the prompt, and the limit that ended the turn (null when none did). */
+  limitApplied?: TimeLimitSource | null;
+  limitFired?: TurnLimit | null;
 }
+
+/** What the runtime reported of the assistant message that answered a prompt. */
+export interface AttemptAnswer {
+  modelId?: string;
+  providerId?: string;
+  finish?: string;
+  /** Epoch milliseconds the runtime stamped on the message. */
+  createdAt?: number;
+  completedAt?: number;
+}
+
+/**
+ * What the transport tells a trace about a prompt, in order: each attempt starts and ends, a fallback is chosen between two
+ * attempts, and the turn is recorded last; `prompt` numbers the session's prompts so a late event is told apart from the current
+ * prompt's. Told to `AgentDepsCollaborators.onAttempt`, which can neither fail the prompt nor
+ * slow it.
+ */
+export type AttemptEvent = { prompt: number } & (
+  | { kind: "start"; attempt: number; requestedModel: string | undefined; at: number; limitApplied: { source: TimeLimitSource; ms: number } }
+  | { kind: "end"; attempt: number; at: number; answered?: AttemptAnswer; usage?: AttemptUsage; errorType?: AgentErrorType; error?: unknown; abandoned?: boolean }
+  | { kind: "fallback"; model: string; at: number }
+  | { kind: "turn"; turn: AgentTurnEvent; at: number }
+);
 
 export interface AgentSession {
   id: string;
@@ -56,6 +110,11 @@ export interface AgentOpenDescriptor {
   objective?: string;
   /** `false` keeps the session out of SSE/stall-watchdog registration while its turns still persist under `runId` (mirrors the kernel port's AgentOpenDescriptor). */
   liveObservation?: boolean;
+  /** With `liveObservation: false`: observe the session's calls for its trace without registering, watching or waiting for it (mirrors the kernel port's AgentOpenDescriptor). */
+  observeUnwatched?: boolean;
+  /** The flow of a plan the session is opened for, and the tools its run denied it (mirrors the kernel port's AgentOpenDescriptor). */
+  delegationId?: string;
+  denyTools?: readonly string[];
 }
 
 export interface AgentDeps {
@@ -65,6 +124,8 @@ export interface AgentDeps {
     opts?: {
       signal?: AbortSignal;
       timeoutMs?: number;
+      /** Which limit `timeoutMs` is; only a name for the trace. */
+      timeLimit?: TimeLimitSource;
       model?: string;
       onUsage?: (u: UsageSnapshot) => void;
       onTurn?: (t: AgentTurnEvent) => void;
@@ -85,6 +146,8 @@ export interface RawPromptResult {
   parts: Array<{ type: string; text?: string }>;
   tokens?: { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number };
   cost?: number;
+  /** Which model and provider answered, and how the runtime says it finished. */
+  answered?: AttemptAnswer;
 }
 
 export interface RawAgentTransport {
@@ -95,6 +158,10 @@ export interface RawAgentTransport {
     agent: string;
     text: string;
     model?: { providerID: string; modelID: string };
+    /** The prompt may use no tool at all: the transport states that to the runtime in whatever form it takes. */
+    withoutTools?: boolean;
+    /** The prompt may not write or edit a file: the transport states that to the runtime in whatever form it takes. */
+    withoutWrites?: boolean;
   }): Promise<RawPromptResult>;
   abortSession(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
@@ -208,7 +275,26 @@ export interface AgentDepsCollaborators {
   prepareAttempt?(sessionId: string, attempt: number): Promise<void> | void;
   /** The step limit the orchestrator's own copy of agents/opencode.json declares for the agent (`steps ?? maxSteps`), or undefined when it declares none. It only classifies the exhaustion of a prompt that stated no number (a stated one wins) and is never a source for a prompt. Shell-injected like getFallbackModel. */
   maxStepsFor?(agent: string): number | undefined;
+  /** The wall clock a turn's duration is measured by, in epoch milliseconds. Defaults to `Date.now`; injected by tests. */
+  now?(): number;
+  /** Told what happens to each prompt of the session, in order, for its trace (see `AttemptEvent`). A fault in it is logged and never reaches the prompt. */
+  onAttempt?(sessionId: string, event: AttemptEvent): void;
+  /** The limit a layer above this one fired on the session's turn in flight (the stall watchdog), when one did. It names the cause when this layer's own timeout closes the turn afterwards. */
+  outerLimit?(sessionId: string, prompt: number): TurnLimit | undefined;
 }
+
+/* Classification is for the trace: whatever it does, it never changes the error a prompt fails with and never comes before the breaker's count. */
+function safeClassify(classify: () => AgentErrorType): AgentErrorType {
+  let type: AgentErrorType;
+  try {
+    type = classify();
+  } catch {
+    type = "unknown";
+  }
+  return type;
+}
+
+type EndInfo = Omit<Extract<AttemptEvent, { kind: "end" }>, "kind" | "attempt" | "at" | "prompt">;
 
 /* Measurement is best-effort and must never disturb the prompt path: a fault is logged loudly and yields null. */
 function measureOrNull<T>(label: string, measure: () => T): T | null {
@@ -262,7 +348,8 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
       };
       opts?.signal?.addEventListener("abort", onAbort, { once: true });
 
-      const promptTimeoutMs = opts?.timeoutMs ?? collab.defaultPromptTimeoutMs;
+      /* The session's limit, else the transport's default: what a prompt that states no limit of its own is held to. */
+      const sessionTimeoutMs = opts?.timeoutMs ?? collab.defaultPromptTimeoutMs;
 
       const abortRun = () => raw.abortSession(id).catch(() => {});
 
@@ -297,119 +384,217 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
           );
       };
 
+      /* Tells the trace what happens; a fault in it never reaches the prompt. */
+      const notify = (event: AttemptEvent): void => {
+        if (!collab.onAttempt) return;
+        try {
+          collab.onAttempt(id, event);
+        } catch (err) {
+          console.error(`[qa] attempt telemetry failed and was dropped: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      };
+
       return {
         id,
-        prompt: (text, promptOpts) =>
-          withTimeout(
-            (() => {
-              checkCircuit(TRANSPORT_BREAKER_KEY);
-              checkCircuit(breakerRole);
-              const thisRound = _round++;
-              const runPrompt = (attempt: number, modelOverride?: string) => {
-                const overrideModel = modelOverride ? parseModelRef(modelOverride) : undefined;
-                return prepareAttempt(id, attempt)
-                  .then((observed) =>
-                    countingTransportFailure(() =>
-                      raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}) }),
-                    ).then((res) => ({ res, observed })),
-                  )
-                  .then(({ res, observed }) => {
-                    recordCircuitSuccess(TRANSPORT_BREAKER_KEY);
-                    if (res.agentError) {
-                      throw agentErrorToInfra(res.agentError);
+        prompt: (unredacted, promptOpts) => {
+          /* The last seam before the model: the run's own secrets are taken out by value from whatever text got here, and the turn recorded below holds the text that was sent. */
+          const text = redactByValue(unredacted);
+          checkCircuit(TRANSPORT_BREAKER_KEY);
+          checkCircuit(breakerRole);
+          const thisRound = _round++;
+          const clock = collab.now ?? Date.now;
+          const startedAt = clock();
+          /* Set once the prompt has ended without an answer (timeout, abort): the turn is recorded then, so an answer that arrives later must record nothing more and must not start a fallback. */
+          let closed = false;
+          /* Whether the attempt in flight could be observed completely; unobserved until its preparation says otherwise. */
+          let observed = false;
+          /* What the trace is told: the limit that binds the prompt (the prompt's own, else the session's, else the host's), the attempt in flight, the model that answered and the last failure an attempt met. */
+          const limitApplied: { source: TimeLimitSource; ms: number } =
+            promptOpts?.timeoutMs !== undefined
+              ? { source: promptOpts.timeLimit ?? "prompt-budget", ms: promptOpts.timeoutMs }
+              : opts?.timeoutMs !== undefined
+                ? { source: opts.timeLimit ?? "session-timeout", ms: opts.timeoutMs }
+                : { source: "host-cap", ms: collab.defaultPromptTimeoutMs };
+          let liveAttempt: { number: number; requested: string | undefined; end(info: EndInfo): void } | undefined;
+          let answeredBy: AttemptAnswer | undefined;
+          let lastErrorType: AgentErrorType | undefined;
+
+          /* The tracker is flushed once per prompt, whether or not a turn sink is listening, and every consumer of the turn (the persisted row, the caller's stats) reads that flush. An attempt that could not be prepared was not observed completely, whatever the tracker says. */
+          const flushCalls = (): TurnCallMetrics | null => {
+            const flushed = collab.takeTurnCalls
+              ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text, promptOpts?.providedPaths))
+              : null;
+            return flushed && !observed ? { ...flushed, stepsUsed: null, observationComplete: false } : flushed;
+          };
+          /* A prompt that states its limit is judged by the number it stated; one that states none, by the agent's configured limit when there is a way to read one. */
+          const budgetOf = (callMetrics: TurnCallMetrics | null, finalText: string): TurnStepBudget | null =>
+            promptOpts?.stepLimit !== undefined || collab.maxStepsFor
+              ? measureOrNull("step budget", () =>
+                  buildTurnStepBudget({
+                    maxSteps: promptOpts?.stepLimit ?? collab.maxStepsFor?.(agent) ?? null,
+                    stepsUsed: callMetrics?.stepsUsed ?? null,
+                    finalStepText: finalText,
+                  }),
+                )
+              : null;
+          /* Emit a per-turn event alongside onUsage. Sanitize output_text before emitting so any DEV-environment data in the agent reply is redacted at the earliest point (before storage or logging by callers). */
+          const emitTurn = (turn: {
+            outputRaw: string;
+            tokens?: RawPromptResult["tokens"];
+            cost?: number;
+            stepBudget: TurnStepBudget | null;
+            callMetrics: TurnCallMetrics | null;
+            ended: TurnEnd;
+          }): void => {
+            if (!effectiveOnTurn && !collab.onAttempt) return;
+            const limitFired: TurnLimit | null =
+              collab.outerLimit?.(id, thisRound) ?? (turn.ended === "timeout" ? limitApplied.source : turn.ended === "aborted" ? "cancel" : turn.ended === "exhausted" ? "step-cap" : null);
+            const turnEvent: AgentTurnEvent = {
+              runId: opts?.descriptor?.runId ?? null,
+              sessionId: id,
+              role: opts?.descriptor?.role ?? agent,
+              objective: opts?.descriptor?.objective,
+              round: promptOpts?.round ?? thisRound,
+              isRepair: promptOpts?.isRepair ?? false,
+              promptText: text,
+              promptBytes: Buffer.byteLength(text, "utf8"),
+              outputText: sanitizeText(turn.outputRaw).text,
+              tokensInput: turn.tokens?.input ?? null,
+              tokensOutput: turn.tokens?.output ?? null,
+              tokensReasoning: turn.tokens?.reasoning ?? null,
+              tokensCacheRead: turn.tokens?.cacheRead ?? null,
+              tokensCacheWrite: turn.tokens?.cacheWrite ?? null,
+              cost: turn.cost ?? null,
+              ts: new Date().toISOString(),
+              sectionSizes: promptOpts?.sectionSizes ?? null,
+              stepBudget: turn.stepBudget,
+              callMetrics: turn.callMetrics,
+              ended: turn.ended,
+              durationMs: Math.max(0, clock() - startedAt),
+              modelRequested: liveAttempt?.requested ?? null,
+              modelAnswered: answeredBy?.modelId ?? null,
+              provider: answeredBy?.providerId ?? null,
+              attempt: liveAttempt?.number ?? null,
+              fallbackUsed: liveAttempt?.number === FALLBACK_ATTEMPT + 1,
+              errorType: lastErrorType ?? (turn.ended === "timeout" ? "timeout" : turn.ended === "aborted" ? "aborted" : null),
+              sectionHashes: promptOpts?.sectionHashes ?? null,
+              promptHash: sha256Hex(text),
+              limitApplied: limitApplied.source,
+              limitFired,
+            };
+            effectiveOnTurn?.(turnEvent);
+            notify({ kind: "turn", prompt: thisRound, turn: turnEvent, at: clock() });
+          };
+          /* A prompt that ended without an answer still leaves its turn: the calls it made before it ended are the evidence of how it spent its time. */
+          const recordUnansweredTurn = (ended: "timeout" | "aborted", errorType?: AgentErrorType): void => {
+            closed = true;
+            /* The attempt may never settle (the transport can hang): it ends with the turn, and is told apart as abandoned. */
+            liveAttempt?.end({ abandoned: true, errorType: errorType ?? (ended === "timeout" ? "timeout" : "aborted") });
+            const callMetrics = flushCalls();
+            emitTurn({ outputRaw: "", stepBudget: budgetOf(callMetrics, ""), callMetrics, ended });
+          };
+
+          const runPrompt = (attempt: number, modelOverride?: string) => {
+            const overrideModel = modelOverride ? parseModelRef(modelOverride) : undefined;
+            let attemptEnded = false;
+            const endAttempt = (info: EndInfo): void => {
+              if (attemptEnded) return;
+              attemptEnded = true;
+              if (info.errorType) lastErrorType = info.errorType;
+              notify({ kind: "end", prompt: thisRound, attempt: attempt + 1, at: clock(), ...info });
+            };
+            liveAttempt = { number: attempt + 1, requested: modelOverride, end: endAttempt };
+            notify({ kind: "start", prompt: thisRound, attempt: attempt + 1, requestedModel: modelOverride, at: clock(), limitApplied });
+            return prepareAttempt(id, attempt)
+              .then((prepared) => {
+                observed = prepared;
+                return countingTransportFailure(() =>
+                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}), ...(promptOpts?.withoutTools ? { withoutTools: true } : {}), ...(promptOpts?.withoutWrites ? { withoutWrites: true } : {}) }),
+                );
+              })
+              .then((res) => {
+                recordCircuitSuccess(TRANSPORT_BREAKER_KEY);
+                answeredBy = res.answered;
+                const snapshot: UsageSnapshot | undefined = res.tokens
+                  ? {
+                      input: res.tokens.input ?? 0,
+                      output: res.tokens.output ?? 0,
+                      reasoning: res.tokens.reasoning ?? 0,
+                      cacheRead: res.tokens.cacheRead ?? 0,
+                      cacheWrite: res.tokens.cacheWrite ?? 0,
+                      cost: res.cost ?? 0,
                     }
-                    recordCircuitSuccess(breakerRole);
-                    if (res.tokens) {
-                      const snapshot: UsageSnapshot = {
-                        input: res.tokens.input ?? 0,
-                        output: res.tokens.output ?? 0,
-                        reasoning: res.tokens.reasoning ?? 0,
-                        cacheRead: res.tokens.cacheRead ?? 0,
-                        cacheWrite: res.tokens.cacheWrite ?? 0,
-                        cost: res.cost ?? 0,
-                      };
-                      opts?.onUsage?.(snapshot);
-                    }
-                    const outputRaw = extractText(res.parts, promptOpts);
-                    const finalText = finalStepText(res.parts);
-                    /* The tracker is flushed once per resolved prompt, whether or not a turn sink is listening, and the exhaustion state is decided once from that flush and the final step's text: every consumer (the persisted turn and the caller's stats) reads these same values. An attempt that could not be prepared was not observed completely, whatever the tracker says. */
-                    const flushed = collab.takeTurnCalls
-                      ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text, promptOpts?.providedPaths))
-                      : null;
-                    const callMetrics = flushed && !observed ? { ...flushed, stepsUsed: null, observationComplete: false } : flushed;
-                    /* A prompt that states its limit is judged by the number it stated; one that states none, by the agent's configured limit when there is a way to read one. */
-                    const stepBudget = promptOpts?.stepLimit !== undefined || collab.maxStepsFor
-                      ? measureOrNull("step budget", () =>
-                          buildTurnStepBudget({
-                            maxSteps: promptOpts?.stepLimit ?? collab.maxStepsFor?.(agent) ?? null,
-                            stepsUsed: callMetrics?.stepsUsed ?? null,
-                            finalStepText: finalText,
-                          }),
-                        )
-                      : null;
-                    /* Emit a per-turn event alongside onUsage. Sanitize output_text before emitting so any DEV-environment data in the agent reply is redacted at the earliest point (before storage or logging by callers). */
-                    if (effectiveOnTurn) {
-                      const sanitizedOutput = sanitizeText(outputRaw).text;
-                      const turnEvent: AgentTurnEvent = {
-                        runId: opts?.descriptor?.runId ?? null,
-                        sessionId: id,
-                        role: opts?.descriptor?.role ?? agent,
-                        objective: opts?.descriptor?.objective,
-                        round: promptOpts?.round ?? thisRound,
-                        isRepair: promptOpts?.isRepair ?? false,
-                        promptText: text,
-                        promptBytes: Buffer.byteLength(text, "utf8"),
-                        outputText: sanitizedOutput,
-                        tokensInput: res.tokens?.input ?? null,
-                        tokensOutput: res.tokens?.output ?? null,
-                        tokensReasoning: res.tokens?.reasoning ?? null,
-                        tokensCacheRead: res.tokens?.cacheRead ?? null,
-                        tokensCacheWrite: res.tokens?.cacheWrite ?? null,
-                        cost: res.cost ?? null,
-                        ts: new Date().toISOString(),
-                        sectionSizes: promptOpts?.sectionSizes ?? null,
-                        stepBudget,
-                        callMetrics,
-                      };
-                      effectiveOnTurn(turnEvent);
-                    }
-                    if (stepBudget && promptOpts?.onTurnStats) {
-                      const stats: AgentTurnStats = {
-                        maxSteps: stepBudget.maxSteps,
-                        stepsUsed: callMetrics?.stepsUsed ?? null,
-                        exhausted: stepBudget.exhausted,
-                        writeCount: callMetrics?.writeCount ?? null,
-                        observationComplete: callMetrics?.observationComplete ?? false,
-                      };
-                      try {
-                        promptOpts.onTurnStats(stats);
-                      } catch (err) {
-                        console.error(`[qa] turn stats callback failed: ${err instanceof Error ? err.message : String(err)}`);
-                      }
-                    }
-                    return promptOpts?.finalStepOnly ? finalText : outputRaw;
-                  })
-                  .catch((err) => {
-                    recordCircuitFailure(breakerRole);
-                    throw err;
-                  });
-              };
-              return runPrompt(PRIMARY_ATTEMPT, opts?.model).catch((err) => {
-                if (opts?.signal?.aborted || isInfraError(err)) throw err;
-                const fallback = collab.getFallbackModel(agent);
-                if (fallback) {
-                  console.warn(`[qa] primary model failed for ${agent}, retrying with fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`);
-                  return runPrompt(FALLBACK_ATTEMPT, fallback);
+                  : undefined;
+                const providerFault = res.agentError ? safeClassify(() => classifyProviderError(res.agentError!)) : undefined;
+                endAttempt({
+                  ...(res.answered ? { answered: res.answered } : {}),
+                  ...(snapshot ? { usage: snapshot } : {}),
+                  ...(providerFault ? { errorType: providerFault } : {}),
+                });
+                if (res.agentError) {
+                  throw carryAgentErrorType(agentErrorToInfra(res.agentError), providerFault);
                 }
+                recordCircuitSuccess(breakerRole);
+                if (snapshot) opts?.onUsage?.(snapshot);
+                const outputRaw = extractText(res.parts, promptOpts);
+                /* The turn was recorded when the prompt ended without this answer; the usage above is all an answer that comes late adds. */
+                if (closed) return outputRaw;
+                const finalText = finalStepText(res.parts);
+                /* The exhaustion state is decided once from the flush and the final step's text: every consumer (the persisted turn and the caller's stats) reads these same values. */
+                const callMetrics = flushCalls();
+                const stepBudget = budgetOf(callMetrics, finalText);
+                emitTurn({ outputRaw, tokens: res.tokens, cost: res.cost, stepBudget, callMetrics, ended: stepBudget?.exhausted === true ? "exhausted" : "completed" });
+                if (stepBudget && promptOpts?.onTurnStats) {
+                  const stats: AgentTurnStats = {
+                    maxSteps: stepBudget.maxSteps,
+                    stepsUsed: callMetrics?.stepsUsed ?? null,
+                    exhausted: stepBudget.exhausted,
+                    writeCount: callMetrics?.writeCount ?? null,
+                    observationComplete: callMetrics?.observationComplete ?? false,
+                  };
+                  try {
+                    promptOpts.onTurnStats(stats);
+                  } catch (err) {
+                    console.error(`[qa] turn stats callback failed: ${err instanceof Error ? err.message : String(err)}`);
+                  }
+                }
+                return promptOpts?.finalStepOnly ? finalText : outputRaw;
+              })
+              .catch((err) => {
+                recordCircuitFailure(breakerRole);
+                endAttempt({ error: err, errorType: opts?.signal?.aborted ? "aborted" : safeClassify(() => classifyAgentFault(err)) });
                 throw err;
               });
-            })(),
-            promptTimeoutMs,
-            "OpenCode prompt",
-          ).catch((err: unknown) => {
-            abortRun();
+          };
+          const attempts = runPrompt(PRIMARY_ATTEMPT, opts?.model).catch((err) => {
+            if (closed || opts?.signal?.aborted || isInfraError(err)) throw err;
+            const fallback = collab.getFallbackModel(agent);
+            if (fallback) {
+              console.warn(`[qa] primary model failed for ${agent}, retrying with fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`);
+              notify({ kind: "fallback", prompt: thisRound, model: fallback, at: clock() });
+              return runPrompt(FALLBACK_ATTEMPT, fallback);
+            }
             throw err;
-          }),
+          });
+          /* A fault the runtime only retries until its own reset (a spent quota) ends the prompt now: waiting would only burn the turn's deadline. */
+          const providerFault = new Promise<never>((_, reject) => {
+            sessionRetryListeners.set(id, (message) => {
+              const type = terminalRetryFault(message);
+              if (!type || closed) return;
+              recordUnansweredTurn("aborted", type);
+              reject(carryAgentErrorType(new AgentUnavailableError(`OpenCode provider fault the runtime was retrying: ${message}. INCONCLUSIVE (infrastructure), not a test failure.`), type));
+            });
+          });
+          return withTimeout(Promise.race([attempts, providerFault]), promptOpts?.timeoutMs ?? sessionTimeoutMs, "OpenCode prompt")
+            .catch((err: unknown) => {
+              abortRun();
+              /* An error the prompt itself raised was thrown before any turn was emitted; only a prompt that was cut short from outside (the deadline, the caller's abort) has a turn still to record. */
+              if (!closed && err instanceof AgentTimeoutError) recordUnansweredTurn("timeout");
+              else if (!closed && opts?.signal?.aborted) recordUnansweredTurn("aborted");
+              throw err;
+            })
+            .finally(() => sessionRetryListeners.delete(id));
+        },
         dispose: async () => {
           try {
             await raw.deleteSession(id);
@@ -442,6 +627,19 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
 }
 
 
+const sessionRetryListeners = new Map<string, (message: string) => void>();
+
+/* Only a fault no retry within the run can cure is terminal; a rate limit is left to the runtime's own backoff. */
+function terminalRetryFault(message: string): AgentErrorType | undefined {
+  const type = safeClassify(() => classifyProviderError({ name: "APIError", data: { message } }));
+  return type === "quota_exceeded" ? type : undefined;
+}
+
+/** Called from the SSE event loop when the runtime reports it is retrying a session's turn (`session.status` of type `retry`). A no-op for a session with no prompt in flight. */
+export function notifySessionRetry(sessionId: string, message: string): void {
+  sessionRetryListeners.get(sessionId)?.(message);
+}
+
 const sessionWatchdogNotifiers = new Map<string, () => void>();
 
 /** Called by withStallWatchdog when a session opens. Not part of the public API surface. */
@@ -467,6 +665,8 @@ export function withStallWatchdog(
   opts: {
     stallMs: number;
     watchdogFactory?: WatchdogFactory;
+    /** Told, before the turn in flight is rejected, that the watchdog fired on this session: the limit is recorded where it fires. A fault in it is logged and never reaches the watchdog. */
+    onStall?: (sessionId: string, stallMs: number) => void;
   },
 ): AgentDeps {
   const threshold = opts.stallMs;
@@ -477,7 +677,10 @@ export function withStallWatchdog(
     open: async (agent, cwd, openOpts) => {
       const inner = await baseDeps.open(agent, cwd, openOpts);
 
-      if (inner.selfTimed) return inner;
+      /* A liveness watchdog is armed only for a session whose activity it can observe: a self-timed one
+         keeps its own clock, and one opened without live observation is never fed by the event stream, so
+         an armed timer would trip on silence nobody can see. It stays bounded by its own turn timeout. */
+      if (inner.selfTimed || openOpts?.descriptor?.liveObservation === false) return inner;
 
       let rejectInFlight: ((err: unknown) => void) | undefined;
 
@@ -485,6 +688,11 @@ export function withStallWatchdog(
         const err = new StalledAgentError(
           `Agent session stalled: no activity for ${threshold}ms. Aborting session to free resources.`,
         );
+        try {
+          opts.onStall?.(inner.id, threshold);
+        } catch (fault) {
+          console.error(`[qa] stall telemetry failed and was dropped: ${fault instanceof Error ? fault.message : String(fault)}`);
+        }
         rejectInFlight?.(err);
         unregisterSessionWatchdogNotify(inner.id);
         inner.dispose().catch(() => {});
@@ -545,9 +753,15 @@ export function withSessionRegistration(
   collaborators: {
     register: (sessionId: string, runId: string, cwd: string) => void;
     unregister: (sessionId: string) => void;
+    /* Told which agent opened which session for which run, whatever its live-observation choice: the run_spec loop gives its right to the generator's sessions through this. Absent: nothing is told. */
+    bind?: (session: { sessionId: string; runId: string; agent: string; delegationId?: string; denyTools?: readonly string[] }) => void;
+    unbind?: (sessionId: string) => void;
+    /* A session that opted out of live observation but asks to be observed anyway (`observeUnwatched`): its calls are tracked and nothing else is done for it. Absent: such a session is left exactly as an opted-out one. */
+    observe?: (sessionId: string, cwd: string) => void;
+    unobserve?: (sessionId: string) => void;
   },
 ): AgentDeps {
-  const { register, unregister } = collaborators;
+  const { register, unregister, bind, unbind, observe, unobserve } = collaborators;
 
   return {
     ...baseDeps,
@@ -558,11 +772,20 @@ export function withSessionRegistration(
          start feeding the stall watchdog and change its liveness window. */
       const runId = opts?.descriptor?.liveObservation === false ? undefined : opts?.descriptor?.runId;
       if (runId) register(inner.id, runId, cwd);
+      const observed = observe !== undefined && opts?.descriptor?.liveObservation === false && opts.descriptor.observeUnwatched === true && opts.descriptor.runId !== undefined;
+      if (observed) observe(inner.id, cwd);
+      const boundRunId = opts?.descriptor?.runId;
+      if (boundRunId) {
+        const { delegationId, denyTools } = opts?.descriptor ?? {};
+        bind?.({ sessionId: inner.id, runId: boundRunId, agent, ...(delegationId !== undefined ? { delegationId } : {}), ...(denyTools?.length ? { denyTools } : {}) });
+      }
 
       return {
         ...inner,
         dispose: async () => {
           if (runId) unregister(inner.id);
+          if (observed) unobserve?.(inner.id);
+          if (boundRunId) unbind?.(inner.id);
           await inner.dispose();
         },
       };

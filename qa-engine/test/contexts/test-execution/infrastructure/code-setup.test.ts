@@ -1,6 +1,7 @@
 /* qa-engine/test/contexts/test-execution/infrastructure/code-setup.test.ts
    Behavioral tests for the code-mode install step.
  */
+import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
@@ -64,7 +65,7 @@ test("a timeout near the timer limit never makes the install backstop ask the cl
 test("an install with a timeout beyond what a timer can hold never asks the clock for more than it can hold", async () => {
   const project: CodeProject = { ecosystem: "node", install: { cmd: process.execPath, args: ["-e", "process.exitCode = 0;"] }, test: { cmd: "npm", args: ["test"] } };
   const { timers, delays } = recordingTimers();
-  await createDefaultCodeSetupDeps(null, undefined, timers).install(project, tmpdir(), { timeoutMs: MAX_TIMER_DELAY_MS + 1_000 });
+  await createDefaultCodeSetupDeps(null, sharedTestExec(), undefined, timers).install(project, tmpdir(), { timeoutMs: MAX_TIMER_DELAY_MS + 1_000 });
   assert.ok(delays.length > 0, "the install armed the clock");
   assert.ok(withinTimerLimit(delays), `a delay above the limit would fire the install's timeout at once (asked for ${JSON.stringify(delays)})`);
 });
@@ -85,7 +86,7 @@ test("the install's own timer is always armed for strictly less time than its ba
   const project: CodeProject = { ecosystem: "node", install: { cmd: process.execPath, args: ["-e", "process.exitCode = 0;"] }, test: { cmd: "npm", args: ["test"] } };
   for (const requested of [MAX_TIMER_DELAY_MS - 500, MAX_TIMER_DELAY_MS, MAX_TIMER_DELAY_MS + 5_000]) {
     const { timers, delays } = recordingTimers();
-    const deps: CodeSetupDeps = { ...createDefaultCodeSetupDeps(null, undefined, timers), detect: () => project };
+    const deps: CodeSetupDeps = { ...createDefaultCodeSetupDeps(null, sharedTestExec(), undefined, timers), detect: () => project };
     await setupCodeProject(tmpdir(), deps, { timeoutMs: requested });
     const [backstop, own] = delays;
     assert.equal(delays.length, 2, "the backstop and the install's own timer both armed the clock");
@@ -134,7 +135,7 @@ test("setupCodeProject prepares the sandbox workdir even for a null-install ecos
    a full, unread pipe.
  */
 test("a failed install surfaces a sanitized, bounded tail of the child's output instead of only the exit code", async () => {
-  const deps = createDefaultCodeSetupDeps(null);
+  const deps = createDefaultCodeSetupDeps(null, sharedTestExec());
   /* The plaintext failure reason and the fake secret are base64-encoded INSIDE the child script
      and decoded only at runtime, so they never appear as literal argv text — the error message's
      `cmd ${args.join(" ")}` echo in the error message cannot accidentally satisfy
@@ -168,7 +169,7 @@ test("a failed install surfaces a sanitized, bounded tail of the child's output 
 });
 
 test("install captures the tail of a large, multi-chunk child output without losing it — the pipes are actively drained, not left unread", async () => {
-  const deps = createDefaultCodeSetupDeps(null);
+  const deps = createDefaultCodeSetupDeps(null, sharedTestExec());
   const marker = "END-OF-LARGE-OUTPUT-MARKER";
   /* base64-encoded so `marker` never appears as literal argv text (see the comment on the first
      test above — the error's `${cmd} ${args.join(" ")}` echo would otherwise satisfy this
@@ -221,7 +222,7 @@ function nodeInstall(script: string): CodeProject {
 
 test("an install that floods output until the timeout still fails as a timeout and reports its newest output", { timeout: 30_000 }, async () => {
   const project = nodeInstall(FLOOD_UNTIL_KILLED);
-  const deps: CodeSetupDeps = { ...createDefaultCodeSetupDeps(null), detect: () => project };
+  const deps: CodeSetupDeps = { ...createDefaultCodeSetupDeps(null, sharedTestExec()), detect: () => project };
   await assert.rejects(
     () => setupCodeProject(tmpdir(), deps, { timeoutMs: 2500 }),
     (err: Error) => {
@@ -235,7 +236,7 @@ test("an install that floods output until the timeout still fails as a timeout a
 });
 
 test("a failed install that wrote megabytes reports only its last lines", { timeout: 30_000 }, async () => {
-  const deps = createDefaultCodeSetupDeps(null);
+  const deps = createDefaultCodeSetupDeps(null, sharedTestExec());
   const script =
     "process.stdout.write('first-' + 'output-marker\\n');" +
     `const chunk = '${FLOOD_LINE}'.repeat(1000);` +
@@ -256,7 +257,7 @@ test("a failed install that wrote megabytes reports only its last lines", { time
 });
 
 test("a secret straddling the cut of the reported tail is redacted, not leaked as a fragment", async () => {
-  const deps = createDefaultCodeSetupDeps(null);
+  const deps = createDefaultCodeSetupDeps(null, sharedTestExec());
   /* A 20-char access-key shape whose first 12 chars fall before the cut of the reported tail and last 8 after it.
      Base64 keeps the key out of argv, so only real output capture can put it in the message. */
   const keyB64 = "QUtJQUFCQ0RFRkdISUpLTE1OT1A=";
@@ -280,7 +281,7 @@ test("a secret straddling the cut of the reported tail is redacted, not leaked a
    start is the back half of a secret the bound cut through, it must not be shown. The output is mostly secret lines, so
    redacting it leaves far less than the reported tail. */
 test("a secret cut through by the kept-output bound is not shown when redaction leaves the whole kept output in the report", async () => {
-  const deps = createDefaultCodeSetupDeps(null);
+  const deps = createDefaultCodeSetupDeps(null, sharedTestExec());
   const secret = "ghp_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"; /* 40 chars */
   const leakedHalf = secret.slice(-20);
   const script = [

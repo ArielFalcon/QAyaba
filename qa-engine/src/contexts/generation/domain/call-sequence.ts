@@ -15,6 +15,12 @@ export interface CallRecord {
   status: CallStatus;
   bucket: CallBucket;
   /**
+   * Whether the call was made through a shell tool, whatever its command line does. Both classifiers
+   * know it (the tool's kind), unlike the bucket of a shell call, which the coarse side cannot refine:
+   * so a command count taken from it means the same on either side.
+   */
+  shellCall: boolean;
+  /**
    * Identity used for exact-duplicate detection ("the same
    * tool with the same stable-stringified input"). The fine tracker passes
    * `tool + stable-stringified input`; the coarse classifier passes a
@@ -75,8 +81,8 @@ export function summarizeCallSequence(sightings: readonly CallRecord[]): CallSeq
     }
 
     if (call.bucket === CALL_BUCKETS.WRITE) writeCount++;
-    else if (call.bucket === CALL_BUCKETS.VALIDATE_RUN) commandCount++;
     else if (call.bucket === CALL_BUCKETS.SUBAGENT) subagentCount++;
+    if (call.shellCall) commandCount++;
   }
 
   return {

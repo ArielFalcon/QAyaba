@@ -24,7 +24,8 @@ and never write a spec or any file.
 - `contracts`: `{ operationId, method, path, fields?, errors? }` — the contract facts worth asserting.
 - `routes`: `{ path, component?, domLandmarks?, verified }` — **CODE-derived only**. You do NOT open a
   browser: set `verified: false` and treat any `domLandmarks` as GUESSES the writer MUST confirm against
-  the live DOM. Never present a selector as verified.
+  the live DOM. Never present a selector as verified. When the prompt lists the app's routes and a page you
+  map is one of them, `path` is that listed path, verbatim (a route template stays a template).
 - `risks`: fragilities and the specific observable outcomes a good test must assert to catch a regression.
 
 Keep it MINIMAL and high-signal: distill, don't dump. Omit a section the change does not touch.

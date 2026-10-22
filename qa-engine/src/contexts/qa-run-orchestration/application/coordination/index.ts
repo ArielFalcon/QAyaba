@@ -5,11 +5,9 @@ export {
   type CoordinationAction,
   type CoordinationDecision,
 } from "./coordination-decision.ts";
-export { createCoordinationPort, type CreateCoordinationPortOpts } from "./create-coordination-port.ts";
 export type { CoordinationBudget } from "./coordination-budget.ts";
 export type { AcceptanceCriterion, CoordinationContext } from "./coordination-context.ts";
 export type { EvidenceConfidence, EvidenceKind, EvidenceRef } from "./evidence-ref.ts";
-export type { CoordinationPort } from "../ports/coordination.port.ts";
 
 export {
   evidenceFromBudget,
@@ -73,17 +71,6 @@ export {
 } from "./sidekick-executor.ts";
 
 export {
-  proposeFromDecision,
-  type ProposedOrchestrationDecision,
-} from "./proposed-orchestration-decision.ts";
-export {
-  COORDINATION_ACTIVE_POINTS,
-  shouldHonorActiveDelegation,
-  shouldHonorFixLoopSidekick,
-  type CoordinationActivePoint,
-} from "./active-gate.ts";
-export { ProposingCoordinationAdapter, type ProposingCoordinationAdapterOpts } from "./proposing-coordination.adapter.ts";
-export {
   applyPushback,
   PUSHBACK_REASONS,
   validateDelegationAuthority,
@@ -91,11 +78,6 @@ export {
   type PushbackReason,
 } from "./pushback.ts";
 export { isPathWithinWritableRoots } from "./path-scope.ts";
-export {
-  existingWritableFiles,
-  defaultExistingWritableFilesDeps,
-  type ExistingWritableFilesDeps,
-} from "./existing-writable-files.ts";
 export { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 export {
   buildProgressSnapshot,
@@ -109,32 +91,8 @@ export {
   type RouterInput,
 } from "./orchestration-router.ts";
 export {
-  canRetrySameCapability,
-  ESCALATION_LADDER,
-  nextEscalation,
-  raiseCapabilityFloor,
-  advanceAfterNeedsLead,
-} from "./escalation-ladder.ts";
-export {
-  appendLeadDecision,
-  appendLeadDelegation,
-  appendLeadQuestions,
-  createLeadContext,
-  type DelegationSummary,
-  type LeadContext,
-} from "./lead-context.ts";
-export {
   CoordinationTelemetryRecorder,
-  deriveAdaptiveSignals,
-  DEFAULT_ADAPTIVE_WINDOW_SIZE,
   type CoordinationTelemetryEvent,
   type CoordinationTelemetryKind,
   type CoordinationTelemetryPort,
-  type DeriveAdaptiveSignalsOptions,
 } from "./coordination-telemetry.ts";
-export { capabilityForFixLoopRound } from "./fix-loop-capability.ts";
-export {
-  DEFAULT_ADAPTIVE_POLICY,
-  type AdaptiveRoutingPolicy,
-  type AdaptiveRoutingSignals,
-} from "./adaptive-routing.ts";

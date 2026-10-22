@@ -7,22 +7,27 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { AgentUnavailableError } from "../errors";
+import { AgentTimeoutError, AgentUnavailableError, InfraError } from "../errors";
 import { getAgentTurns } from "../server/history";
 import {
   codexErrorToInfra,
   extractCodexLastMessage,
+  extractCodexTokenUsage,
   rolePromptName,
   codexPreambleParts,
   CodexRuntimeStrategy,
   CodexExecTransport,
+  SupervisorExecTransport,
   CODEX_USAGE_AVAILABLE,
+  CODEX_RUN_USAGE_FED,
+  codexExecEnv,
   type SpawnFn,
   type CodexHeadlessTransport,
   type CodexTransportSession,
   type CodexTransportStartInput,
 } from "./codex-strategy";
 import type { AgentModelInfo, AgentProviderHealth } from "./types";
+import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 
 /* Builds a fake child process that:
    - never exits on its own (simulates a hung process)
@@ -118,15 +123,23 @@ describe("codexErrorToInfra", () => {
     }
   });
 
-  it("timeout / SIGTERM → AgentUnavailableError INCONCLUSIVE", () => {
+  it("timeout / SIGTERM → AgentTimeoutError (an infra error, never a provider rejection) INCONCLUSIVE", () => {
     const cases: string[] = [
       "Codex prompt: timed out after 30000ms",
-      "timed out after 60000ms",
+      "codex exec timed out after 60000ms",
     ];
     for (const msg of cases) {
       const err = codexErrorToInfra(new Error(msg));
-      assert.ok(err instanceof AgentUnavailableError, `Expected AgentUnavailableError for timeout: ${msg}`);
+      assert.ok(err instanceof AgentTimeoutError, `Expected AgentTimeoutError for timeout: ${msg}`);
+      assert.ok(err instanceof InfraError);
+      assert.ok(!(err instanceof AgentUnavailableError), "a deadline is not the provider refusing");
       assert.ok(err.message.includes("INCONCLUSIVE (infrastructure)"));
+    }
+  });
+
+  it("a timeout the provider reports inside the exec's own stderr is not the transport's deadline", () => {
+    for (const stderr of ["upstream request timed out after 30000ms", "mcp server timed out after 5000ms while starting"]) {
+      assert.equal(codexErrorToInfra(new Error(`codex exec exited 1: ${stderr}`)), null, stderr);
     }
   });
 
@@ -250,6 +263,30 @@ describe("CodexRuntimeStrategy.openSession textOnly forwarding", () => {
   });
 });
 
+describe("CodexRuntimeStrategy.openSession run secrets", () => {
+  it("a prompt sent inside a run reaches codex without the run's secrets, and one sent outside a run is sent as it is", async () => {
+    const sent: string[] = [];
+    const transport: CodexHeadlessTransport = {
+      async start(): Promise<CodexTransportSession> {
+        return { id: "s", prompt: async (text: string) => { sent.push(text); return "ok"; }, dispose: async () => {} };
+      },
+      async health(): Promise<AgentProviderHealth> { return { provider: "codex", status: "healthy", configured: true }; },
+      async listModels(): Promise<AgentModelInfo[]> { return []; },
+    };
+    const strategy = new CodexRuntimeStrategy({ transport, promptRoot: "/nonexistent/prompts", env: { CODEX_API_KEY: "test-key" } });
+    const session = await strategy.openSession("primary", "/tmp", {});
+    const scope = createRunSecretScope();
+    scope.addAccountSecrets(["plain-pass-9981"]);
+
+    await withRunSecretScope(scope, () => session.prompt("the DOM said plain-pass-9981"));
+    await session.prompt("the DOM said plain-pass-9981");
+
+    assert.ok(!sent[0]!.includes("plain-pass-9981") && sent[0]!.includes("[REDACTED]"));
+    assert.ok(sent[1]!.includes("plain-pass-9981"));
+    await session.dispose();
+  });
+});
+
 describe("CodexRuntimeStrategy.startEventStream", () => {
   it("startEventStream is defined on CodexRuntimeStrategy", () => {
     const strategy = new CodexRuntimeStrategy({
@@ -304,12 +341,13 @@ describe("CodexExecTransport timeout/SIGTERM path", () => {
      */
     const errMsg = (caughtErr as Error).message;
     assert.match(errMsg, /timed out after \d+ms/i, `timeout error message must match the pattern. Got: ${errMsg}`);
+    assert.ok(caughtErr instanceof AgentTimeoutError, "the deadline is rejected as the typed timeout, so a caller never has to read its message");
 
-    /* codexErrorToInfra must classify this as AgentUnavailableError (infra). */
+    /* codexErrorToInfra must classify this as an infra timeout. */
     const infraErr = codexErrorToInfra(caughtErr as Error);
     assert.ok(
-      infraErr instanceof AgentUnavailableError,
-      `timeout error must be classifiable as infra (AgentUnavailableError). Got: ${infraErr}`,
+      infraErr instanceof AgentTimeoutError,
+      `timeout error must be classifiable as infra (AgentTimeoutError). Got: ${infraErr}`,
     );
     assert.ok(
       infraErr.message.includes("INCONCLUSIVE (infrastructure)"),
@@ -647,29 +685,45 @@ describe("extractCodexLastMessage", () => {
   });
 });
 
-/* onUsage honesty: tokens are null and onUsage is not emitted because `codex exec` does not
-   expose usage in the current JSONL schema. The exported CODEX_USAGE_AVAILABLE flag, the
-   AgentTurnEvent token fields (asserted via the onTurn callback), and a structural assertion
-   that the flag is false pin that contract. When a captured fixture proves usage is in the
-   JSONL: set CODEX_USAGE_AVAILABLE = true, wire onUsage in openSession + parse token fields,
-   and update this test to assert the real usage fields. The false assertion going red is
-   intentional — it forces the wiring, not just flipping the flag.
- */
-describe("onUsage honesty", () => {
-  it("CODEX_USAGE_AVAILABLE is false — pending hook is NOT yet activated", () => {
-    /* Honest assertion: codex exec does not yet expose token usage. When a captured fixture
-       proves usage is available, this test goes red until onUsage is wired.
-     */
-    assert.equal(
-      CODEX_USAGE_AVAILABLE,
-      false,
-      "CODEX_USAGE_AVAILABLE must be false until an image-gated fixture confirms " +
-        "codex exec --json exposes token usage fields. Do NOT set this to true without wiring " +
-        "the actual usage parsing and onUsage callback in openSession.",
-    );
+/* Usage honesty. PER-TURN usage is wired: what `turn.completed` reports reaches the turn's row, and an exec that reports none leaves
+   the row's fields null. RUN-LEVEL usage (openSession's onUsage, summed into gateSignals.usage) is still NOT fed by Codex.
+   Both facts are pinned here; the CODEX_RUN_USAGE_FED assertion going red is intentional, it forces the run-level wiring and the
+   decision that goes with it (it changes what a run reports), not just a flag flip.
+   ASSUMPTION TO VERIFY LIVE: a `turn.completed` usage is the spend of that turn alone (a delta), not a running total of the
+   session. One exec is one turn, so summing the events of an exec is right either way; across execs nothing is carried. */
+describe("usage honesty", () => {
+  it("per-turn usage is wired and run-level usage is not", () => {
+    assert.equal(CODEX_USAGE_AVAILABLE, true);
+    assert.equal(CODEX_RUN_USAGE_FED, false);
   });
 
-  it("AgentTurnEvent token fields are null — no fabricated data emitted", async () => {
+  it("a prompt whose exec reported usage never calls the run-level onUsage, while its turn row carries the tokens", async () => {
+    const runLevel: unknown[] = [];
+    const rows: Array<{ tokensInput: unknown; tokensCacheRead: unknown }> = [];
+    const fakeTransport: CodexHeadlessTransport = {
+      start: async () => ({
+        id: "usage-session",
+        prompt: async (_text, opts) => {
+          opts?.onUsage?.({ inputTokens: 100, cachedInputTokens: 40, outputTokens: 7, reasoningOutputTokens: 2 });
+          return "ok";
+        },
+        dispose: async () => {},
+      }),
+      health: async () => ({ provider: "codex" as const, status: "healthy" as const, configured: true }),
+      listModels: async () => [],
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "k" }, transport: fakeTransport, onAttempt: () => {} });
+    const session = await strategy.openSession("primary", "/tmp", {
+      descriptor: { runId: "run-usage", role: "primary" as const },
+      onUsage: (usage: unknown) => runLevel.push(usage),
+      onTurn: (t) => rows.push({ tokensInput: t.tokensInput, tokensCacheRead: t.tokensCacheRead }),
+    } as Parameters<CodexRuntimeStrategy["openSession"]>[2]);
+    await session.prompt("go");
+    assert.deepEqual(runLevel, []);
+    assert.deepEqual(rows, [{ tokensInput: 60, tokensCacheRead: 40 }]);
+  });
+
+  it("AgentTurnEvent token fields are null when the exec reported no usage — no fabricated data emitted", async () => {
     /* Assert that token fields in the turn event are null (not fabricated) when using the codex path. */
     const capturedTurns: Array<{ tokensInput: unknown; tokensOutput: unknown; cost: unknown }> = [];
 
@@ -700,17 +754,17 @@ describe("onUsage honesty", () => {
     assert.equal(
       turn.tokensInput,
       null,
-      "tokensInput must be null for codex (usage not available in JSONL). See CODEX_USAGE_AVAILABLE.",
+      "tokensInput must be null when the exec reported no usage",
     );
     assert.equal(
       turn.tokensOutput,
       null,
-      "tokensOutput must be null for codex (usage not available in JSONL). See CODEX_USAGE_AVAILABLE.",
+      "tokensOutput must be null when the exec reported no usage",
     );
     assert.equal(
       turn.cost,
       null,
-      "cost must be null for codex (usage not available in JSONL). See CODEX_USAGE_AVAILABLE.",
+      "cost is never reported by codex exec",
     );
   });
 
@@ -730,6 +784,30 @@ describe("onUsage honesty", () => {
     await session.prompt("a prompt");
 
     assert.deepEqual(capturedTurns, [{ stepBudget: null, callMetrics: null }]);
+  });
+
+  it("a Codex turn reports the wall time its prompt took, the one measurement its runtime can give", async () => {
+    const durations: Array<number | null> = [];
+    const fakeTransport: CodexHeadlessTransport = {
+      start: async () => ({
+        id: "t-duration-session",
+        prompt: async () => { await new Promise((r) => setTimeout(r, 20)); return "codex output"; },
+        dispose: async () => {},
+      }),
+      health: async () => ({ provider: "codex" as const, status: "healthy" as const, configured: true }),
+      listModels: async () => [],
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "test-key" }, transport: fakeTransport });
+    const session = await strategy.openSession("primary", "/tmp", {
+      descriptor: { runId: "run-codex-duration", role: "primary" as const },
+      onTurn: (t) => { durations.push(t.durationMs); },
+    });
+
+    await session.prompt("a prompt");
+
+    assert.equal(durations.length, 1);
+    const [duration] = durations;
+    assert.ok(duration !== null && duration !== undefined && duration >= 15, `expected a measured duration, got ${String(duration)}`);
   });
 
   it("the default turn sink persists a Codex turn with its efficiency columns NULL", async () => {
@@ -820,7 +898,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
     return { transport, captures };
   }
 
-  it("worker role preamble inlines the playwright-authoring skill it references", async () => {
+  it("sidekick role preamble inlines the playwright-authoring skill it references", async () => {
     const { transport, captures } = makeCapturingTransport();
     const strategy = new CodexRuntimeStrategy({
       transport,
@@ -828,7 +906,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
       env: { CODEX_API_KEY: "test-key" },
     });
 
-    const session = await strategy.openSession("worker", "/tmp", {});
+    const session = await strategy.openSession("sidekick", "/tmp", {});
     await session.prompt("write a spec");
     await session.dispose();
 
@@ -836,7 +914,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
     const preamble = captures[0]!.text;
     assert.ok(
       preamble.includes("Craft knowledge for writing specs"),
-      "the worker preamble must inline playwright-authoring's SKILL.md content, not just reference its name",
+      "the sidekick preamble must inline playwright-authoring's SKILL.md content, not just reference its name",
     );
   });
 
@@ -918,7 +996,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
       warnings.push(args.map(String).join(" "));
     });
     try {
-      const session = await strategy.openSession("worker", "/tmp", {});
+      const session = await strategy.openSession("sidekick", "/tmp", {});
       const result = await session.prompt("write a spec");
       await session.dispose();
 
@@ -946,7 +1024,7 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
       warnings.push(args.map(String).join(" "));
     });
     try {
-      const session = await strategy.openSession("worker", "/tmp", {});
+      const session = await strategy.openSession("sidekick", "/tmp", {});
       await session.prompt("write a spec");
       await session.dispose();
 
@@ -1016,5 +1094,179 @@ describe("codexPreambleParts — the static layer a Codex turn ships with", () =
   it("parts that do not resolve are omitted", () => {
     const parts = codexPreambleParts("primary", "/nonexistent/prompts");
     assert.deepEqual(parts, { shared: "", rolePrompt: "", skills: [] });
+  });
+});
+
+/* A caller bounding several prompts by one budget hands each prompt only what is left of it. */
+describe("CodexRuntimeStrategy — per-prompt deadline", () => {
+  it("a prompt's own timeoutMs reaches the transport's prompt, and a prompt that states none sends none", async () => {
+    const seenOpts: Array<{ timeoutMs?: number } | undefined> = [];
+    const transport: CodexHeadlessTransport = {
+      async start(): Promise<CodexTransportSession> {
+        return { id: "s", prompt: async (_text, opts) => { seenOpts.push(opts); return "{}"; }, dispose: async () => {} };
+      },
+      async health(): Promise<AgentProviderHealth> { return { provider: "codex", status: "healthy", configured: true }; },
+      async listModels(): Promise<AgentModelInfo[]> { return []; },
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "k" }, transport, promptRoot: "/nonexistent/prompts" });
+    const session = await strategy.openSession("primary", "/tmp", { timeoutMs: 600_000 });
+
+    await session.prompt("first", { timeoutMs: 1_234 });
+    await session.prompt("second");
+
+    assert.equal(seenOpts[0]?.timeoutMs, 1_234);
+    assert.equal(seenOpts[1]?.timeoutMs, undefined);
+  });
+
+  it("CodexExecTransport holds a prompt to its own limit instead of the session's, and stops it with SIGTERM", { timeout: 10_000 }, async () => {
+    const { spawnFn, killSpy } = makeHangingSpawnFn();
+    const transport = new CodexExecTransport({ CODEX_API_KEY: "test" }, "codex", spawnFn);
+    const session = await transport.start({ role: "primary", cwd: "/tmp", timeoutMs: 600_000, killSignal: "SIGKILL" });
+
+    await assert.rejects(() => session.prompt("run", { timeoutMs: 20 }), (err: unknown) => err instanceof AgentTimeoutError && /timed out after 20ms/.test(err.message));
+    assert.equal(killSpy.signal, "SIGTERM", "a limit the caller chose is not the strategy's own default, which kills hard");
+  });
+
+  it("SupervisorExecTransport asks the supervisor for the prompt's own limit", async () => {
+    const bodies: string[] = [];
+    const transport = new SupervisorExecTransport({
+      baseUrl: "http://agents:4097",
+      env: { CODEX_API_KEY: "k" },
+      fetchImpl: async (_url, init) => { bodies.push(init?.body ?? ""); return { ok: true, status: 200, json: async () => ({ message: "ok" }) }; },
+    });
+    const session = await transport.start({ role: "primary", cwd: "/repo", timeoutMs: 600_000 });
+    await session.prompt("write", { timeoutMs: 4_321 });
+    assert.equal((JSON.parse(bodies[0]!) as { timeoutMs?: number }).timeoutMs, 4_321);
+  });
+});
+
+/* Only a deadline the transport itself fired is the time budget: a timeout the exec reports from the provider is not. */
+describe("SupervisorExecTransport — which failures are a deadline", () => {
+  const failing = (error: string) => new SupervisorExecTransport({
+    baseUrl: "http://agents:4097",
+    env: { CODEX_API_KEY: "k" },
+    fetchImpl: async () => ({ ok: false, status: 400, json: async () => ({ error }) }),
+  });
+
+  it("the supervisor's own deadline is the typed timeout", async () => {
+    const session = await failing("codex exec timed out after 360000ms").start({ role: "primary", cwd: "/repo" });
+    await assert.rejects(session.prompt("x"), (err: unknown) => err instanceof AgentTimeoutError);
+  });
+
+  it("a timeout the exec's stderr mentions is not the typed timeout", async () => {
+    const session = await failing("codex exec exited 1: upstream request timed out after 30000ms").start({ role: "primary", cwd: "/repo" });
+    await assert.rejects(session.prompt("x"), (err: unknown) => err instanceof Error && !(err instanceof AgentTimeoutError));
+  });
+});
+
+describe("what an exec reports it spent", () => {
+  const turnCompleted = (usage: unknown) => JSON.stringify({ type: "turn.completed", usage });
+  const answer = JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "done" } });
+
+  it("a local exec's turn.completed usage reaches the prompt's onUsage, and the answer is unchanged", async () => {
+    const jsonl = [answer, turnCompleted({ input_tokens: 500, cached_input_tokens: 400, output_tokens: 20, reasoning_output_tokens: 6 })].join("\n");
+    const transport = new CodexExecTransport({ CODEX_API_KEY: "test" }, "codex", makeSuccessSpawnFn(jsonl));
+    const session = await transport.start({ role: "primary", cwd: "/tmp" });
+    const seen: unknown[] = [];
+    assert.equal(await session.prompt("go", { onUsage: (usage) => seen.push(usage) }), "done");
+    assert.deepEqual(seen, [{ inputTokens: 500, cachedInputTokens: 400, outputTokens: 20, reasoningOutputTokens: 6 }]);
+  });
+
+  it("an exec that reported no usage never calls onUsage", async () => {
+    const transport = new CodexExecTransport({ CODEX_API_KEY: "test" }, "codex", makeSuccessSpawnFn(answer));
+    const session = await transport.start({ role: "primary", cwd: "/tmp" });
+    let called = false;
+    await session.prompt("go", { onUsage: () => { called = true; } });
+    assert.equal(called, false);
+  });
+
+  it("the supervisor's relayed usage reaches onUsage, and a body without one does not", async () => {
+    const respond = (body: unknown) => new SupervisorExecTransport({ baseUrl: "http://agents:4097", env: { CODEX_API_KEY: "k" }, fetchImpl: async () => ({ ok: true, status: 200, json: async () => body }) });
+    const seen: unknown[] = [];
+    const withUsage = await respond({ message: "ok", usage: { input_tokens: 9, cached_input_tokens: 3, output_tokens: 2, reasoning_output_tokens: 1 } }).start({ role: "primary", cwd: "/repo" });
+    assert.equal(await withUsage.prompt("go", { onUsage: (usage) => seen.push(usage) }), "ok");
+    const without = await respond({ message: "ok" }).start({ role: "primary", cwd: "/repo" });
+    await without.prompt("go", { onUsage: (usage) => seen.push(usage) });
+    assert.deepEqual(seen, [{ inputTokens: 9, cachedInputTokens: 3, outputTokens: 2, reasoningOutputTokens: 1 }]);
+  });
+
+  it("a relayed usage whose fields are not plain counts reports those fields as none", async () => {
+    const transport = new SupervisorExecTransport({ baseUrl: "http://agents:4097", env: { CODEX_API_KEY: "k" }, fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ message: "ok", usage: { input_tokens: "9", cached_input_tokens: -1, output_tokens: 2.5, reasoning_output_tokens: 4 } }) }) });
+    const session = await transport.start({ role: "primary", cwd: "/repo" });
+    const seen: unknown[] = [];
+    await session.prompt("go", { onUsage: (usage) => seen.push(usage) });
+    assert.deepEqual(seen, [{ inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 4 }]);
+  });
+});
+
+describe("extractCodexTokenUsage", () => {
+  it("adds up the completed turns of an exec and reads nothing from any other event", () => {
+    const jsonl = [
+      JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 4, output_tokens: 2, reasoning_output_tokens: 1 } }),
+      "stray stderr-like line",
+      JSON.stringify({ type: "item.completed", usage: { input_tokens: 999 } }),
+      JSON.stringify({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 5, output_tokens: 3, reasoning_output_tokens: 0 } }),
+    ].join("\n");
+    assert.deepEqual(extractCodexTokenUsage(jsonl), { inputTokens: 30, cachedInputTokens: 9, outputTokens: 5, reasoningOutputTokens: 1 });
+    assert.equal(extractCodexTokenUsage(JSON.stringify({ type: "turn.completed" })), undefined);
+    assert.equal(extractCodexTokenUsage(""), undefined);
+  });
+});
+
+describe("the trace context of a Codex exec", () => {
+  const TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+
+  it("the supervised transport sends the traceparent as a header and sends none when the prompt has none", async () => {
+    const headers: Array<Record<string, string> | undefined> = [];
+    const transport = new SupervisorExecTransport({ baseUrl: "http://agents:4097", env: { CODEX_API_KEY: "k" }, fetchImpl: async (_url, init) => (headers.push(init?.headers), { ok: true, status: 200, json: async () => ({ message: "ok" }) }) });
+    const session = await transport.start({ role: "primary", cwd: "/repo" });
+    await session.prompt("go", { traceparent: TRACEPARENT });
+    await session.prompt("go");
+    assert.equal(headers[0]!.traceparent, TRACEPARENT);
+    assert.equal(headers[1]!.traceparent, undefined);
+    assert.equal(headers[1]!["content-type"], "application/json");
+  });
+
+  it("the local transport puts the traceparent in the child's environment, and an ambient one never reaches the child", async () => {
+    const envs: Array<Record<string, string | undefined>> = [];
+    const spawnFn = ((_cmd: string, _args: string[], options: { env?: Record<string, string | undefined> }) => (envs.push(options.env ?? {}), makeSuccessChild(JSON.stringify({ msg: "ok" })))) as unknown as SpawnFn;
+    const previous = process.env.TRACEPARENT;
+    process.env.TRACEPARENT = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01";
+    try {
+      const session = await new CodexExecTransport({ CODEX_API_KEY: "k" }, "codex", spawnFn).start({ role: "primary", cwd: "/repo" });
+      await session.prompt("go", { traceparent: TRACEPARENT });
+      await session.prompt("go");
+    } finally {
+      if (previous === undefined) delete process.env.TRACEPARENT;
+      else process.env.TRACEPARENT = previous;
+    }
+    assert.equal(envs[0]!.TRACEPARENT, TRACEPARENT);
+    assert.equal(envs[1]!.TRACEPARENT, undefined);
+  });
+
+  it("the exec environment forwards the two trace names and still nothing else it did not already forward", () => {
+    const env = codexExecEnv({ PATH: "/bin", TRACEPARENT, TRACESTATE: "vendor=1", OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318", GITHUB_TOKEN: "ghp_x", QA_TOOLS_TOKEN: "t" });
+    assert.deepEqual(Object.keys(env).sort(), ["PATH", "TRACEPARENT", "TRACESTATE"]);
+  });
+});
+
+describe("usage that says nothing", () => {
+  it("a usage object with no valid count is no usage at all, not zeros", async () => {
+    const seen: unknown[] = [];
+    for (const usage of [{}, { input_tokens: "9" }, { input_tokens: -1, output_tokens: 1.5 }, "none", null, []]) {
+      const transport = new SupervisorExecTransport({ baseUrl: "http://agents:4097", env: { CODEX_API_KEY: "k" }, fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ message: "ok", usage }) }) });
+      const session = await transport.start({ role: "primary", cwd: "/repo" });
+      await session.prompt("go", { onUsage: (u) => seen.push(u) });
+    }
+    assert.deepEqual(seen, []);
+  });
+
+  it("a local exec whose turn.completed carries no valid count reports none", () => {
+    assert.equal(extractCodexTokenUsage(JSON.stringify({ type: "turn.completed", usage: {} })), undefined);
+    assert.equal(extractCodexTokenUsage(JSON.stringify({ type: "turn.completed", usage: { unknown_field: 5 } })), undefined);
+  });
+
+  it("a usage with one valid count keeps it and reads the others as none", () => {
+    assert.deepEqual(extractCodexTokenUsage(JSON.stringify({ type: "turn.completed", usage: { output_tokens: 4 } })), { inputTokens: 0, cachedInputTokens: 0, outputTokens: 4, reasoningOutputTokens: 0 });
   });
 });

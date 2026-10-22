@@ -1,7 +1,7 @@
 import { mock, test } from "node:test";
 import { inspect } from "node:util";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
@@ -13,7 +13,12 @@ import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orche
 import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { createCoordinationPort, CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+import { NOOP_KIND } from "@kernel/noop-kind.ts";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
+import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
+import { CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type {
@@ -45,6 +50,8 @@ import type {
   RelevanceBias,
   ContextMapCapturePort,
   GenerationEnrichment,
+  RunDeadlinePort,
+  SuiteStorePort,
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 /* reflector-rewire (design ADR-1/ADR-4/ADR-5): ReflectorPort/ReflectionInput are declared in
    cross-run-learning (co-located with StructuredReflection/LearningRepositoryPort), NOT in this
@@ -62,6 +69,8 @@ import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { extractSpecContract } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor.ts";
+import { reassignableGeneration, runWorkspace } from "../../../support/run-workspace.ts";
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
    the verdict path (LearningPort.fold is off-path). Drives the SAME stub shapes scenarios.ts
@@ -101,15 +110,16 @@ function stubPorts(overrides: Partial<{
   /* Port-shaped, like curriculum above — the write side of the FE<->BE architecture map. */
   contextMapCapture: ContextMapCapturePort;
 }> = {}) {
+  const ws = runWorkspace("qa-golden-");
   const savedOutcomes: RunOutcome[] = [];
   const foldedOutcomes: RunOutcome[] = [];
 
   const changeAnalysis: ChangeAnalysisPort = {
     classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })),
   };
-  const generation: GenerationPort = {
-    generate: overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true }))),
-  };
+  const generation: GenerationPort = reassignableGeneration(
+    overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true }))),
+  );
   const review: ReviewPort = {
     review: overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })),
   };
@@ -134,7 +144,7 @@ function stubPorts(overrides: Partial<{
     retrieve: overrides.retrieve ?? (async () => []),
   };
   const workspace: WorkspacePort = {
-    prepare: overrides.prepare ?? (async () => ({ specDir: "/tmp/qa-golden/e2e", mirrorDir: "/tmp/qa-golden" })),
+    prepare: overrides.prepare ?? (async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir })),
   };
   const deployGate: DeployGatePort = {
     waitUntilServing: overrides.waitUntilServing ?? (async () => ok(true)),
@@ -157,10 +167,12 @@ function stubPorts(overrides: Partial<{
   const reviewDomGrounding: ReviewDomGroundingPort | undefined = overrides.captureReviewDom
     ? { capture: overrides.captureReviewDom }
     : undefined;
+  /* The store the composition puts behind a run: it reads and restores the bytes the harness's generator really wrote. */
+  const suiteStore: SuiteStorePort = ws.suiteStore;
 
   return {
     ports: {
-      changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, deployGate, runHistory, setup, cleanup,
+      changeAnalysis, generation, review, validation, execution, objectiveSignal, publication, learning, workspace, deployGate, runHistory, setup, cleanup, suiteStore,
       ...(preExecGrounding ? { preExecGrounding } : {}),
       ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
       ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
@@ -169,6 +181,7 @@ function stubPorts(overrides: Partial<{
     },
     savedOutcomes,
     foldedOutcomes,
+    ws,
   };
 }
 
@@ -180,6 +193,27 @@ const baseInput = {
   target: "e2e" as const,
   runId: "golden-green-pr",
 };
+
+/*
+ * A real spec directory for the coverage-regeneration tests: the generator writes the spec it delivers, so the turn's bytes are
+ * on disk and acceptance can judge them (a scripted generation alone writes nothing). Each call rewrites the bytes, which is what
+ * a regeneration does.
+ */
+function realCoverageWorkspace(): { prepare: WorkspacePort["prepare"]; generate: GenerationPort["generate"]; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "qa-coverage-"));
+  const specDir = join(dir, "e2e");
+  let calls = 0;
+  return {
+    prepare: async () => ({ specDir, mirrorDir: dir }),
+    generate: async () => {
+      calls += 1;
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "a.spec.ts"), `// generation ${calls}\n`);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
 
 test("RunQaUseCase: green-pr — fully stubbed ports, reaches decide, returns pass/pr RunDecision", async () => {
   const { ports } = stubPorts();
@@ -203,22 +237,22 @@ test("RunQaUseCase: emits preExecAmbiguityCatches:0 + deterministicSelectorBlock
   assert.equal(out.gateSignals.deterministicSelectorBlocks, 0);
 });
 
-/* PreExecGroundingPort wired — real counters, corrective regen, deterministic block.
+/* PreExecGroundingPort wired — real counters, the ambiguity check as a signal, the catalog gate's corrective regen.
    A page-rooted, page.goto("/owners")-targeting spec source drives the ambiguity check (matches the
    captured route by name, per the domain service's per-spec route pairing); a getByTestId-only spec
-   drives the catalog gate independently.
+   drives the catalog gate independently. The ambiguity check is a regex over the spec text: it has
+   false positives that real execution does not, so its findings are advisory telemetry only and
+   execution decides.
  */
 const AMBIGUOUS_SPEC_SOURCE = `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click();`;
 const FABRICATED_TESTID_SPEC_SOURCE = `await page.goto("/owners"); await page.getByTestId("ghost-id").click();`;
 const CLEAN_SPEC_SOURCE = `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click();`;
+const AMBIGUOUS_ROUTES = [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }];
+const ROUTE_WITHOUT_GHOST_ID = [{ route: "/owners", nodes: [], status: "captured" as const, settled: true, testIds: new Map<string, number>() }];
 
 test("RunQaUseCase: PreExecGroundingPort wired — a captured ambiguity is counted in preExecAmbiguityCatches", async () => {
   const { ports } = stubPorts({
-    capture: async () => ({
-      specFiles: ["a.spec.ts"],
-      specSources: [AMBIGUOUS_SPEC_SOURCE],
-      routes: [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }],
-    }),
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
     generate: async () => (scriptedGeneration({
       specs: ["a.spec.ts"],
       approved: true,
@@ -231,14 +265,63 @@ test("RunQaUseCase: PreExecGroundingPort wired — a captured ambiguity is count
   assert.equal(out.gateSignals.preExecAmbiguityCatches, 1);
 });
 
-test("RunQaUseCase: PreExecGroundingPort wired — corrections feed the ONE-SHOT corrective regen via selectorContradictions", async () => {
+test("RunQaUseCase: PreExecGroundingPort wired — a captured ambiguity asks for no corrective regeneration: the spec goes on to be executed", async () => {
+  const generateCalls: Array<{ enrichment?: { selectorContradictions?: readonly string[]; attributedSpecFiles?: readonly string[] } }> = [];
+  let executions = 0;
+  const { ports } = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      generateCalls.push({ enrichment });
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    execute: async () => { executions++; return { verdict: "pass", cases: [{ name: "owners", status: "pass" }], logs: "" }; },
+  });
+  const useCase = new RunQaUseCase(ports);
+
+  await useCase.run(baseInput);
+
+  assert.equal(generateCalls.length, 1, "only the initial generation: the ambiguity requested no regeneration");
+  assert.equal(generateCalls.some((c) => (c.enrichment?.selectorContradictions?.length ?? 0) > 0), false);
+  assert.equal(generateCalls.some((c) => (c.enrichment?.attributedSpecFiles?.length ?? 0) > 0), false);
+  assert.equal(executions, 1, "the spec was executed against DEV");
+});
+
+test("RunQaUseCase: PreExecGroundingPort wired — an ambiguity that persists never holds the run invalid: the execution decides the verdict", async () => {
+  /* capture() reports the SAME duplicate-node tree on every call: the ambiguity is always there. */
+  const passing = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+    execute: async () => ({ verdict: "pass", cases: [{ name: "owners", status: "pass" }], logs: "" }),
+  });
+  const failing = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+    execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" }),
+  });
+
+  const green = await new RunQaUseCase(passing.ports).run(baseInput);
+  const red = await new RunQaUseCase(failing.ports).run(baseInput);
+
+  assert.equal(green.decision.verdict, "pass");
+  assert.equal(green.gateSignals.preExecAmbiguityCatches, 1, "the signal is still recorded");
+  assert.equal(green.gateSignals.deterministicSelectorBlocks, 0, "nothing was blocked");
+  assert.equal(red.decision.verdict, "fail", "a failure comes from the execution, not from the static check");
+});
+
+test("RunQaUseCase: PreExecGroundingPort wired — a captured ambiguity is surfaced as a warning in the run's log", async () => {
+  const { ports } = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+  });
+  const { observer, events } = fakeObserver();
+
+  await new RunQaUseCase({ ...ports, config: baseConfig, observer }).run(baseInput);
+
+  const warning = events.find((e) => e.type === "log.line" && e.level === "warn" && /MULTIPLE/.test(e.text));
+  assert.ok(warning, "the ambiguity is logged at warn level, with what it found");
+});
+
+test("RunQaUseCase: PreExecGroundingPort wired — a catalog correction feeds the ONE-SHOT corrective regen via selectorContradictions", async () => {
   const generateCalls: Array<{ enrichment?: { selectorContradictions?: readonly string[] } }> = [];
   const { ports } = stubPorts({
-    capture: async () => ({
-      specFiles: ["a.spec.ts"],
-      specSources: [AMBIGUOUS_SPEC_SOURCE],
-      routes: [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }],
-    }),
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [FABRICATED_TESTID_SPEC_SOURCE], routes: ROUTE_WITHOUT_GHOST_ID }),
     generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
       generateCalls.push({ enrichment });
       return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
@@ -249,46 +332,19 @@ test("RunQaUseCase: PreExecGroundingPort wired — corrections feed the ONE-SHOT
   await useCase.run(baseInput);
 
   /* The FIRST generate() call is the initial pass (no corrections yet — nothing captured before it).
-     The pre-exec gate runs AFTER it, catches the ambiguity, and feeds it into exactly ONE corrective
+     The pre-exec gate runs AFTER it, catches the fabricated test-id, and feeds it into exactly ONE corrective regen.
    */
-  const correctiveCall = generateCalls.find((c) => (c.enrichment?.selectorContradictions?.length ?? 0) > 0);
-  assert.ok(correctiveCall, "expected one generate() call carrying selectorContradictions");
-  assert.match(correctiveCall!.enrichment!.selectorContradictions![0]!, /MULTIPLE/);
+  const correctiveCalls = generateCalls.filter((c) => (c.enrichment?.selectorContradictions?.length ?? 0) > 0);
+  assert.equal(correctiveCalls.length, 1, "exactly one generate() call carrying selectorContradictions");
+  assert.match(correctiveCalls[0]!.enrichment!.selectorContradictions![0]!, /ghost-id/);
 });
 
-test("RunQaUseCase: PreExecGroundingPort wired — a PERSISTING ambiguity after the corrective regen holds the run invalid", async () => {
-  const { ports } = stubPorts({
-    /* The stub generation port never actually rewrites specs to resolve the ambiguity (the corrective
-       regen is a no-op from the gate's point of view) — capture() keeps reporting the SAME
-       duplicate-node tree every call, so the ambiguity PERSISTS after the one-shot repair.
-     */
-    capture: async () => ({
-      specFiles: ["a.spec.ts"],
-      specSources: [AMBIGUOUS_SPEC_SOURCE],
-      routes: [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }],
-    }),
-    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
-  });
-  const useCase = new RunQaUseCase(ports);
-
-  const out = await useCase.run(baseInput);
-
-  assert.equal(out.decision.verdict, "invalid");
-  assert.equal(out.decision.sideEffect, "issue");
-  assert.ok(out.gateSignals.deterministicSelectorBlocks > 0);
-});
-
-test("RunQaUseCase: PreExecGroundingPort wired — catalog-gate fail-closed corrections NEVER trigger the deterministic block (safe direction)", async () => {
-  /* A fabricated test-id (catalog gate) with ZERO role-based ambiguity — the block must stay
-     ambiguity-only; a catalog correction alone can never hold the run invalid, only feed the
-     one-shot repair (the established safe-direction split — catalogGate* is telemetry, not a gate).
+test("RunQaUseCase: PreExecGroundingPort wired — catalog-gate fail-closed corrections NEVER hold the run invalid (safe direction)", async () => {
+  /* A fabricated test-id (catalog gate) with ZERO role-based ambiguity: a catalog correction alone
+     can never hold the run invalid, only feed the one-shot repair (catalogGate* is telemetry, not a gate).
    */
   const { ports } = stubPorts({
-    capture: async () => ({
-      specFiles: ["a.spec.ts"],
-      specSources: [FABRICATED_TESTID_SPEC_SOURCE],
-      routes: [{ route: "/owners", nodes: [], status: "captured", settled: true, testIds: new Map() }],
-    }),
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [FABRICATED_TESTID_SPEC_SOURCE], routes: ROUTE_WITHOUT_GHOST_ID }),
     generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
   });
   const useCase = new RunQaUseCase(ports);
@@ -317,31 +373,26 @@ test("RunQaUseCase: PreExecGroundingPort wired — a clean capture (no ambiguity
   assert.equal(out.gateSignals.deterministicSelectorBlocks, 0);
 });
 
-test("RunQaUseCase: PreExecGroundingPort wired — a FixLoop regen (post-execution-failure) also receives pre-exec corrections via selectorContradictions", async () => {
+test("RunQaUseCase: PreExecGroundingPort wired — a FixLoop regen (post-execution-failure) also receives the catalog corrections via selectorContradictions", async () => {
   let executeCalls = 0;
-  let captureCalls = 0;
   const generateCalls: Array<{ enrichment?: { selectorContradictions?: readonly string[]; fixCases?: readonly unknown[] } }> = [];
   const { ports } = stubPorts({
-    /* First capture call sees the ambiguity -> triggers the one-shot corrective regen and sets
-       pendingSelectorContradictions. The re-check (2nd capture call, post-static-fix-loop) sees a
-       CLEAN tree (the corrective regen "fixed" it from the gate's point of view) -> validation.ok
-       stays true -> the run proceeds to execute() with pendingSelectorContradictions STILL holding
-       the first capture's corrections (nothing clears it until a FixLoop regen actually consumes it).
-     */
-    capture: async () => {
-      captureCalls++;
-      const nodes = captureCalls === 1 ? ["heading: Owners", "heading: Owners"] : ["heading: Owners"];
-      return { specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: [{ route: "/owners", nodes }] };
-    },
+    /* The capture sees the fabricated test-id once and then a clean page (the corrective regen "fixed" it from the gate's point of view): the run proceeds to execute() with the pending corrections STILL held (nothing clears them until a FixLoop regen consumes them). */
+    capture: (() => {
+      let captureCalls = 0;
+      return async () => ({
+        specFiles: ["a.spec.ts"],
+        specSources: [++captureCalls === 1 ? FABRICATED_TESTID_SPEC_SOURCE : CLEAN_SPEC_SOURCE],
+        routes: ROUTE_WITHOUT_GHOST_ID,
+      });
+    })(),
     generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
       generateCalls.push({ enrichment });
       return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;
-      /* First execute (post static-gate) fails -> engages the FixLoop; subsequent retries pass so
-         the loop terminates promptly.
-       */
+      /* First execute fails -> engages the FixLoop; subsequent retries pass so the loop terminates promptly. */
       if (executeCalls === 1) {
         return { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" };
       }
@@ -351,17 +402,37 @@ test("RunQaUseCase: PreExecGroundingPort wired — a FixLoop regen (post-executi
   const useCase = new RunQaUseCase(ports);
 
   const out = await useCase.run(baseInput);
-  assert.notEqual(out.decision.verdict, "invalid", "sanity: the run must reach execute()/FixLoop, not hold invalid at the pre-exec re-check");
+  assert.notEqual(out.decision.verdict, "invalid");
 
-  /* At least one generate() call during/after the FixLoop's own engagement carries BOTH fixCases
-     (the FixLoop's own regen context) AND selectorContradictions (leftover pre-exec corrections)
-     — proving the gate's corrections reach the FixLoop's regen channel too, not just the
-     pre-execution corrective regen.
-   */
+  /* A generate() call during the FixLoop's engagement carries BOTH fixCases (the FixLoop's own regen context) AND selectorContradictions (the pending catalog corrections). */
   const fixLoopCallWithCorrections = generateCalls.find(
     (c) => (c.enrichment?.fixCases?.length ?? 0) > 0 && (c.enrichment?.selectorContradictions?.length ?? 0) > 0,
   );
   assert.ok(fixLoopCallWithCorrections, "expected a FixLoop regen call carrying both fixCases and selectorContradictions");
+});
+
+test("RunQaUseCase: PreExecGroundingPort wired — a FixLoop regen is not handed a pre-exec ambiguity: it fed nothing", async () => {
+  let executeCalls = 0;
+  const generateCalls: Array<{ enrichment?: { selectorContradictions?: readonly string[]; fixCases?: readonly unknown[] } }> = [];
+  const { ports } = stubPorts({
+    capture: async () => ({ specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: AMBIGUOUS_ROUTES }),
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      generateCalls.push({ enrichment });
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    execute: async () => {
+      executeCalls++;
+      return executeCalls === 1
+        ? { verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" }
+        : { verdict: "pass", cases: [{ name: "owners", status: "pass" }], logs: "" };
+    },
+  });
+
+  await new RunQaUseCase(ports).run(baseInput);
+
+  const fixLoopCalls = generateCalls.filter((c) => (c.enrichment?.fixCases?.length ?? 0) > 0);
+  assert.ok(fixLoopCalls.length > 0, "sanity: the FixLoop regenerated");
+  assert.equal(fixLoopCalls.some((c) => (c.enrichment?.selectorContradictions ?? []).some((line) => /MULTIPLE/.test(line))), false);
 });
 
 /* The pre-generate grounding phase — contextPack/existingSpecFiles thread into GenerationEnrichment
@@ -1301,68 +1372,89 @@ test("coveragePolicyMode:\"signal\" (the default) NEVER blocks publish even when
 
 test("enforce mode — first measure fails, regen fires, second measure ALSO fails — blocksPublish stays true (issue)", async () => {
   let measureCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-    measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }; },
-    blocks: (status) => status === "fail",
-  });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }; },
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
 
-  const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-still-fails" });
+    const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-still-fails" });
 
-  assert.equal(out.decision.verdict, "pass");
-  assert.equal(out.decision.sideEffect, "issue", "enforce mode must hold the PR (route to issue) when the SECOND measure also fails");
-  assert.equal(measureCallCount, 2, "enforce+fail must regenerate exactly once, re-measuring exactly twice total (never a third)");
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "issue", "enforce mode must hold the PR (route to issue) when the SECOND measure also fails");
+    assert.equal(measureCallCount, 2, "enforce+fail must regenerate exactly once, re-measuring exactly twice total (never a third)");
+  } finally {
+    real.cleanup();
+  }
 });
 
 test("enforce mode — first measure fails, regen fires, second measure PASSES — blocksPublish unblocks (pr)", async () => {
   let measureCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-    measure: async () => {
-      measureCallCount++;
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
-        : { status: "pass" as const, ratio: 0.95 };
-    },
-    blocks: (status) => status === "fail",
-  });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCallCount++;
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
+          : { status: "pass" as const, ratio: 0.95 };
+      },
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
 
-  const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-unblocks" });
+    const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-unblocks" });
 
-  assert.equal(out.decision.verdict, "pass");
-  assert.equal(out.decision.sideEffect, "pr", "a regen whose second measure PASSES must unblock publish");
-  assert.equal(measureCallCount, 2);
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "pr", "a regen whose second measure PASSES must unblock publish");
+    assert.equal(measureCallCount, 2);
+  } finally {
+    real.cleanup();
+  }
 });
 
 test("enforce mode — regen's second measure resolves unknown — blocksPublish stays false (the keystone invariant survives regen)", async () => {
   let measureCallCount = 0;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-    measure: async () => {
-      measureCallCount++;
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
-        : { status: "unknown" as const, ratio: null };
-    },
-    blocks: (status) => status === "fail",
-  });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCallCount++;
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
+          : { status: "unknown" as const, ratio: null };
+      },
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
 
-  const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-unknown-never-blocks" });
+    const out = await useCase.run({ ...baseInput, runId: "p2c-enforce-regen-unknown-never-blocks" });
 
-  assert.equal(out.decision.sideEffect, "pr", "unknown NEVER blocks, even after a prior fail — the coverage keystone invariant survives the regen");
-  assert.equal(measureCallCount, 2);
+    assert.equal(out.decision.sideEffect, "pr", "unknown NEVER blocks, even after a prior fail — the coverage keystone invariant survives the regen");
+    assert.equal(measureCallCount, 2);
+  } finally {
+    real.cleanup();
+  }
 });
 
 test("enforce mode — the regen's generate() throws — KEEPS the first measurement's blocksPublish (never fabricated)", async () => {
@@ -1388,6 +1480,28 @@ test("enforce mode — the regen's generate() throws — KEEPS the first measure
     /agent runtime crashed mid-regen/,
     "CLAUDE.md invariant: surface integration errors loudly — a regen throw must propagate, never be silently swallowed into a fabricated result",
   );
+});
+
+test("enforce mode — the run deadline is spent during the coverage regeneration — the first measurement stands: no time-budget end, the PR stays held", async () => {
+  let measureCallCount = 0;
+  const { ports } = stubPorts({
+    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+    measure: async () => { measureCallCount++; return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }; },
+    blocks: (status) => status === "fail",
+  });
+  let genCallCount = 0;
+  ports.generation.generate = async () => {
+    genCallCount++;
+    if (genCallCount === 1) return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    throw new RunDeadlineExceededError(600_000, "diff", "primary", "before-turn");
+  };
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" } });
+
+  const out = await useCase.run({ ...baseInput, runId: "enforce-regen-deadline" });
+
+  assert.equal(out.decision.verdict, "pass", "the green run is not turned into a time-budget infra-error");
+  assert.equal(out.decision.sideEffect, "issue", "the first measurement's block holds");
+  assert.equal(measureCallCount, 1);
 });
 
 test("enforce mode — the regen produces ZERO specs — KEEPS the first measurement's blocksPublish, only ONE measure() call", async () => {
@@ -1436,49 +1550,149 @@ test("signal mode — first measure fails, NO regen fires, NO second measure() c
   assert.equal(genCallCount, 1, "signal mode's regen branch must not call generate() a second time");
 });
 
-test("the regen's execute() AND its re-measure() both use the ${runId}-coverage-regen namespace (GATE FIX: measure-side dump attribution)", async () => {
+test("a coverage regen's acceptance execution and the final re-measure each carry their own namespace (dump attribution stays per execution)", async () => {
   const capturedExecuteNamespaces: (string | undefined)[] = [];
   const capturedMeasureNamespaces: (string | undefined)[] = [];
   let measureCallCount = 0;
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      blocks: (status) => status === "fail",
+    });
+    /* The measured run of an accepted regeneration happens once, after the review loop (nothing regenerates after it); every
+       measure reads the dumps its own execution wrote: the acceptance execution under `${runId}-acc<n>`, the final one under
+       `${runId}-coverage-final`. A measure reading the composition-time namespace would see the first run's stale dumps.
+     */
+    ports.objectiveSignal.measure = async (_br, _specDir, _diff, _baselineCases, opts) => {
+      measureCallCount++;
+      capturedMeasureNamespaces.push(opts?.namespace);
+      return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+    };
+    ports.execution.execute = async (_specDir, opts) => {
+      capturedExecuteNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
+      return { verdict: "pass" as const, cases: [], logs: "" };
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
+
+    await useCase.run({ ...baseInput, runId: "p2c-regen-namespace-attribution" });
+
+    assert.equal(measureCallCount, 2, "the regen must have re-measured once");
+    const regenExecuteCall = capturedExecuteNamespaces.find((ns) => ns?.endsWith("-acc0"));
+    assert.equal(regenExecuteCall, "p2c-regen-namespace-attribution-acc0", "the regen's changed specs execute under their acceptance namespace, so collect/read hit the regen's own dumps");
+    const finalExecuteCalls = capturedExecuteNamespaces.filter((ns) => ns?.endsWith("-coverage-final"));
+    assert.equal(finalExecuteCalls.length, 1, "the final re-measure runs once, under its own namespace");
+
+    /* First measure() call: no override (reads the composition-time namespace, unchanged). */
+    assert.equal(capturedMeasureNamespaces[0], undefined, "the FIRST measurement must NOT carry a namespace override — unchanged behavior");
+    assert.equal(capturedMeasureNamespaces[1], "p2c-regen-namespace-attribution-coverage-final", "the re-measure() must override the namespace to the measured run's, never the composition-time one");
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("a reviewer correction whose execution runs red is rejected: the prior bytes and verdict stand (A4)", async () => {
+  let executions = 0;
   const { ports } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }),
+    review: async () => ({ approved: false, corrections: ["assert the total"], blockingCount: 1, parsed: true }),
+    execute: async () => {
+      executions++;
+      return executions === 1
+        ? { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" }
+        : { verdict: "fail" as const, cases: [{ name: "a", status: "fail" as const, file: "a.spec.ts", detail: "expected 42" }], logs: "" };
+    },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+  const out = await useCase.run({ ...baseInput, runId: "red-corrected-suite" });
+
+  assert.equal(out.decision.verdict, "pass", "the reviewed bytes still pass: the red correction never became the run's");
+  assert.equal(out.decision.sideEffect, "issue", "the reviewer's rejection stands, so the run publishes nothing");
+  assert.equal(executions, 2, "the acceptance executed the corrected spec before judging it");
+  assert.equal(out.cases[0]?.status, "pass", "A4: the rejected regeneration leaves the prior verdict and bytes in place");
+});
+
+test("coverage measures the reviewer-corrected revision: bytes that stop covering block the publish", async () => {
+  let reviewRounds = 0;
+  let executions = 0;
+  let measures = 0;
+  const { ports } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }),
+    review: async () => {
+      reviewRounds++;
+      return reviewRounds === 1
+        ? { approved: false, corrections: ["cover the total"], blockingCount: 1, parsed: true }
+        : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+    },
+    execute: async () => {
+      executions++;
+      return { verdict: "pass" as const, cases: [{ name: executions === 1 ? "round-0" : "corrected", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
+    },
+    measure: async () => {
+      measures++;
+      return measures === 1
+        ? { status: "pass" as const, ratio: 0.95 }
+        : { status: "fail" as const, ratio: 0.1, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+    },
     blocks: (status) => status === "fail",
   });
-  /* GATE FIX: the coordinator's review found the ORIGINAL version of this test only observed
-     execute()'s opts.namespace — nothing asserted what the SECOND measure() call actually reads
-     from. ObjectiveSignalPort.measure() previously had NO per-call namespace override at all (its
-     adapter's dump namespace is fixed at composition time, this.ctx.namespace) — so the regen's
-     re-measure silently re-read the FIRST run's dumps under the composition-time namespace, never
-     the regen's own `${runId}-coverage-regen` dumps, whenever the regen produced genuinely new
-     specs. This override captures the namespace threaded into EACH measure() call (via the widened
-     opts param, mirroring unit 2's ExecutionOpts.namespace? idiom) so the fix is provably observed
-     at the measure side, not just the execute side.
-   */
-  ports.objectiveSignal.measure = async (_br, _specDir, _diff, _baselineCases, opts) => {
-    measureCallCount++;
-    capturedMeasureNamespaces.push(opts?.namespace);
-    return { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] };
-  };
-  ports.execution.execute = async (_specDir, opts) => {
-    capturedExecuteNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
-    return { verdict: "pass" as const, cases: [], logs: "" };
-  };
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, coveragePolicyMode: "enforce" } });
+  const out = await useCase.run({ ...baseInput, runId: "coverage-measures-corrected-revision" });
+
+  /* The initial run, the accepted correction, and the one whole-suite measured run enforce spends before decide (B-4a). */
+  assert.equal(executions, 3, "the correction was accepted and then measured once as a whole suite");
+  assert.equal(measures, 2, "coverage was re-measured on the corrected revision, not left on round-0");
+  assert.deepEqual(out.cases.map((c) => c.name), ["corrected"], "the recorded cases are the corrected execution's");
+  assert.equal(out.decision.sideEffect, "issue", "the corrected suite no longer covers the change, so it must not publish");
+});
+
+test("a run deadline during the correction re-admit ends the run E-TIME-BUDGET (nothing published or learned)", async () => {
+  let executions = 0;
+  const { ports } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }),
+    review: async () => ({ approved: false, corrections: ["fix it"], blockingCount: 1, parsed: true }),
+    execute: async () => {
+      executions++;
+      if (executions === 1) return { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
+      throw new RunDeadlineExceededError(600_000, "diff", "qa-generator", "before-turn");
+    },
   });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+  const out = await useCase.run({ ...baseInput, runId: "correction-deadline" });
 
-  await useCase.run({ ...baseInput, runId: "p2c-regen-namespace-attribution" });
+  assert.equal(out.decision.verdict, "infra-error", "the deadline ends the run as an infra-error, not a fail or a pass");
+  assert.equal(out.errorClass, ERROR_CLASS.TIME_BUDGET);
+});
 
-  assert.equal(measureCallCount, 2, "the regen must have re-measured once");
-  const regenExecuteCall = capturedExecuteNamespaces.find((ns) => ns?.endsWith("-coverage-regen"));
-  assert.equal(regenExecuteCall, "p2c-regen-namespace-attribution-coverage-regen", "the regen's execute() must use the ${runId}-coverage-regen namespace so collect/read hit the regen's own dumps, never the first run's");
+test("enforce mode — the coverage regen is re-admitted: the final cases come from the regen's execution, not round-0", async () => {
+  let measureCallCount = 0;
+  let executeCallCount = 0;
+  const { ports } = stubPorts({
+    execute: async () => {
+      executeCallCount++;
+      return executeCallCount === 1
+        ? { verdict: "pass" as const, cases: [{ name: "round-0", status: "pass" as const, file: "a.spec.ts" }], logs: "" }
+        : { verdict: "pass" as const, cases: [{ name: "regen", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
+    },
+    measure: async () => {
+      measureCallCount++;
+      return measureCallCount === 1
+        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+        : { status: "pass" as const, ratio: 0.95 };
+    },
+    blocks: (status) => status === "fail",
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" } });
+  const out = await useCase.run({ ...baseInput, runId: "coverage-regen-final-revision" });
 
-  /* First measure() call: no override (reads the composition-time namespace, unchanged). */
-  assert.equal(capturedMeasureNamespaces[0], undefined, "the FIRST measurement must NOT carry a namespace override — unchanged behavior");
-  /* Second measure() call: MUST carry the regen's own namespace override, or it silently re-reads
-     the first run's stale dumps.
-   */
-  assert.equal(capturedMeasureNamespaces[1], "p2c-regen-namespace-attribution-coverage-regen", "the regen's re-measure() must override the namespace to the SAME ${runId}-coverage-regen namespace its own execute() wrote dumps under — otherwise signal2/blocksPublish are measured against STALE (first-run) coverage data");
+  assert.equal(out.decision.sideEffect, "pr", "the regen's second measure passes and unblocks");
+  /* The initial run, the coverage regen's acceptance (its changed spec), and the one whole-suite measured run (B-4a). */
+  assert.equal(executeCallCount, 3, "the regen was accepted and then measured once as a whole suite");
+  assert.deepEqual(out.cases.map((c) => c.name), ["regen"], "the recorded cases are the final revision's, not round-0's");
 });
 
 test("context mode NEVER calls execute() (context.json is not a Playwright spec)", async () => {
@@ -1653,7 +1867,6 @@ test("mainline fold — generated_test_defect (the default fallthrough) still fo
       logs: "x",
     }),
   });
-  ports.runHistory.save = async (outcome) => { savedAdjudicationClass = outcome.adjudication?.class; };
   ports.learning.fold = async (outcome) => { foldCallCount++; savedAdjudicationClass = outcome.adjudication?.class; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -1662,6 +1875,41 @@ test("mainline fold — generated_test_defect (the default fallthrough) still fo
   assert.equal(out.decision.verdict, "fail");
   assert.equal(savedAdjudicationClass, "generated_test_defect", "the persisted RunOutcome must carry the adjudicator's generated_test_defect classification");
   assert.equal(foldCallCount, 1, "learning.fold() must still be called when adjudication.class is generated_test_defect (only app_defect suppresses)");
+});
+
+test("a failing diff run hands the change's own files to the adjudicator, so an objective gap can be named", async () => {
+  let calls = 0;
+  const { ports, savedOutcomes } = stubPorts({
+    classify: async () => ({
+      action: "generate" as const,
+      reason: "diff touches src/checkout.ts",
+      diff: "diff --git a/src/checkout.ts b/src/checkout.ts",
+      intent: { type: "feat", breaking: false, message: "add checkout", changedFiles: ["src/checkout.ts"] },
+    }),
+    /* The first round fails on a plain value mismatch (no 5xx, no locator error) in a spec that shares
+       no file basename with the change; the retry passes, so the loop ends with the first round's
+       objective_gap adjudication as its last one. */
+    execute: async () => {
+      calls += 1;
+      if (calls > 1) return { verdict: "pass" as const, cases: [], logs: "" };
+      return {
+        verdict: "fail" as const,
+        cases: [{ name: "login", status: "fail" as const, detail: "expected 'Total: 10' to contain 'Total: 20'", file: "e2e/login.spec.ts" }],
+        logs: "x",
+      };
+    },
+  });
+  /* One round: the retry that follows the objective_gap verdict is the last execution. */
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, maxRetries: 1 } });
+
+  const out = await useCase.run({ ...baseInput, runId: "objective-source-diff" });
+
+  assert.equal(out.decision.verdict, "fail");
+  assert.equal(
+    savedOutcomes.at(-1)?.adjudication?.class,
+    "objective_gap",
+    "the run must pass the change's changed files as the objective source; without them the adjudicator cannot see the gap",
+  );
 });
 
 test("a run whose FixLoop never invoked the adjudicator (passed first try) persists adjudication:undefined and still folds", async () => {
@@ -1742,37 +1990,99 @@ test("a run without a FixLoop adjudicator verdict (clean first-try pass) publish
   assert.equal(publishedDecision?.adjudication, undefined, "a clean pass never engages the FixLoop, so adjudication must be omitted — never fabricated");
 });
 
-/* map ANY session failure (env misconfig, provider down, timeout) to {approved:false, parsed:false,
-   rationale:"reviewer unavailable: <reason>"}, but the review loop only ever reads
-   approved/parsed/corrections/blockingCount — rationale was dropped silently, so a fleet-wide
-   reviewer outage degraded every green run to Issue-instead-of-PR with NO trace beyond a
-   ONLY when the review loop's fail-closed exit is the reviewer-unavailable one (rationale carries
-   the adapter's own "reviewer unavailable" marker), never for a genuine parse-miss with unrelated
-   rationale text, and never for a genuine rejection (corrections already signal that). ────────────
+/* The reviewer-unavailable rationale rides only on a run that ended because its reviewer was unavailable,
+   never on a genuine rejection (corrections already signal that) and never on a normal approval. ──────────
  */
 
-test("follow-up #28: a review() throw (reviewer unavailable) publishes an Issue whose payload carries the reviewerNote", async () => {
-  let publishedNote: string | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    review: async () => ({
-      approved: false,
-      corrections: [],
-      rationale: "reviewer unavailable: timed out after 360000ms",
-      parsed: false,
-    }),
+/* A reviewer that could not be reached judged nothing: that is an infra-error under its own class, never an Issue. */
+
+const REVIEWER_DOWN_REASON = "HTTP 400: the model is not supported by the provider";
+const reviewerDown = async () => ({
+  approved: false,
+  corrections: [],
+  rationale: `reviewer unavailable: ${REVIEWER_DOWN_REASON}`,
+  parsed: false,
+  unavailable: true,
+});
+
+test("a green run whose reviewer is unavailable ends as a persisted infra-error under its own class, not as an Issue", async () => {
+  let published = 0;
+  const { ports, savedOutcomes } = stubPorts({
+    execute: async () => ({ verdict: "pass", cases: [{ name: "owners", status: "pass" }], logs: "" }),
+    review: reviewerDown,
+    publish: async () => { published++; return { outcome: "issue" }; },
   });
-  ports.publication.publish = async (decision) => {
-    publishedNote = (decision as { reviewerNote?: string }).reviewerNote;
-    return { outcome: "issue: https://github.com/org/app/issues/28" };
-  };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+  const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "reviewer-down" });
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.decision.sideEffect, "none", "fail-closed: no PR and no Issue");
+  assert.equal(published, 0);
+  assert.equal(out.errorClass, ERROR_CLASS.REVIEWER_UNAVAILABLE);
+  assert.equal(savedOutcomes.length, 1, "the run is persisted, so the outage is visible in the record");
+  assert.equal(savedOutcomes[0]!.verdict, "infra-error");
+  assert.equal(savedOutcomes[0]!.errorClass, ERROR_CLASS.REVIEWER_UNAVAILABLE);
+});
 
-  const out = await useCase.run({ ...baseInput, runId: "follow-up-28-reviewer-unavailable" });
+test("the run record of an unavailable reviewer says why: the reviewer's own reason, durably, and the note that nothing was judged", async () => {
+  const { ports, savedOutcomes } = stubPorts({ review: reviewerDown });
+  const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "reviewer-down-record" });
+  assert.equal(savedOutcomes[0]!.gateSignals.reviewerRationale, `reviewer unavailable: ${REVIEWER_DOWN_REASON}`);
+  assert.equal(savedOutcomes[0]!.gateSignals.reviewerApproved, undefined, "no reviewer looked at the tests: neither approved nor rejected");
+  assert.match(savedOutcomes[0]!.note ?? "", new RegExp(`reviewer was unavailable \\(reviewer unavailable: ${REVIEWER_DOWN_REASON}\\)`));
+  assert.match(savedOutcomes[0]!.note ?? "", /no PR, and no Issue/);
+  assert.equal(out.note, savedOutcomes[0]!.note);
+});
 
+test("an unavailable reviewer is logged loudly on every run it happens in", async () => {
+  const { ports } = stubPorts({ review: reviewerDown });
+  const { observer, events } = fakeObserver();
+  await new RunQaUseCase({ ...ports, observer, config: baseConfig }).run({ ...baseInput, runId: "reviewer-down-log" });
+  assert.ok(events.some((e) => e.type === "agent.error" && /reviewer was unavailable/.test(e.detail)));
+  assert.ok(events.some((e) => e.type === "log.line" && e.level === "error" && e.text.includes(ERROR_CLASS.REVIEWER_UNAVAILABLE)));
+});
+
+test("an unavailable reviewer ends the run at once: no regeneration round is burned and the working copy is pruned", async () => {
+  let generated = 0;
+  let reviews = 0;
+  const pruned: string[] = [];
+  const { ports, ws } = stubPorts({
+    generate: async () => { generated++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+    review: async () => { reviews++; return reviewerDown(); },
+  });
+  await new RunQaUseCase({ ...ports, config: baseConfig, mirrorGc: { prune: async (d: string) => { pruned.push(d); } } }).run({ ...baseInput, runId: "reviewer-down-no-regen" });
+  assert.deepEqual([generated, reviews, pruned], [1, 1, [ws.mirrorDir]]);
+});
+
+test("an unavailable reviewer teaches nothing but is audited as an operating signal", async () => {
+  const learned: { folded: RunOutcome[]; reflected: ReflectionInput[]; audited: RunOutcome[] } = { folded: [], reflected: [], audited: [] };
+  const { ports } = stubPorts({ review: reviewerDown });
+  ports.learning.fold = async (o) => { learned.folded.push(o); };
+  await new RunQaUseCase({
+    ...ports,
+    reflector: makeFakeReflector((i) => { learned.reflected.push(i); }),
+    processAudit: makeFakeProcessAudit((o) => { learned.audited.push(o); }),
+    config: baseConfig,
+  }).run({ ...baseInput, runId: "reviewer-down-learning" });
+  assert.deepEqual([learned.folded.length, learned.reflected.length, learned.audited.length], [0, 0, 1]);
+  assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.REVIEWER_UNAVAILABLE);
+});
+
+test("a reviewer unavailable on a context run does not apply: a context run has no test reviewer to be unavailable", async () => {
+  let reviews = 0;
+  const { ports } = stubPorts({ review: async () => { reviews++; return reviewerDown(); } });
+  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, mode: "context" });
+  assert.equal(reviews, 0);
+});
+
+test("a reviewer that answered but could not be read (a parse miss) is still the fail-closed Issue it was: it was reached, only its verdict is missing", async () => {
+  let publishedSideEffect: string | undefined;
+  const { ports } = stubPorts({
+    review: async () => ({ approved: false, corrections: [], rationale: "the model produced garbage, not JSON", parsed: false }),
+    publish: async () => { publishedSideEffect = "issue"; return { outcome: "issue" }; },
+  });
+  const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "reviewer-parse-miss" });
   assert.equal(out.decision.verdict, "pass");
-  assert.equal(out.decision.sideEffect, "issue", "a reviewer outage must fail CLOSED (issue), not silently approve (pr)");
-  assert.equal(publishedNote, "reviewer unavailable: timed out after 360000ms", "the publish payload must carry the reviewer-unavailable rationale verbatim");
+  assert.equal(out.decision.sideEffect, "issue");
+  assert.equal(publishedSideEffect, "issue");
 });
 
 test("follow-up #28: a NORMAL reviewer rejection (parsed:true) does NOT carry a reviewerNote", async () => {
@@ -1800,30 +2110,6 @@ test("follow-up #28: a NORMAL reviewer rejection (parsed:true) does NOT carry a 
   assert.equal(publishedDecision?.reviewerNote, undefined, "a genuine reviewer rejection must NOT thread a reviewerNote — corrections are already the signal for that case");
 });
 
-test("follow-up #28: a genuine parse-miss whose rationale is unrelated text does NOT carry a reviewerNote (marker-scoped, not parsed:false alone)", async () => {
-  let publishedDecision: { reviewerNote?: string } | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    review: async () => ({
-      approved: true,
-      corrections: [],
-      rationale: "the model produced garbage, not JSON",
-      parsed: false,
-    }),
-  });
-  ports.publication.publish = async (decision) => {
-    publishedDecision = decision;
-    return { outcome: "issue: https://github.com/org/app/issues/30" };
-  };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  const out = await useCase.run({ ...baseInput, runId: "follow-up-28-generic-parse-miss-no-note" });
-
-  assert.equal(out.decision.sideEffect, "issue", "a parse miss still fails closed");
-  assert.ok(publishedDecision, "publish() must have been called");
-  assert.equal(publishedDecision?.reviewerNote, undefined, "only the reviewer-unavailable marker threads a note — a generic parse-miss rationale is NOT the same signal");
-});
-
 test("follow-up #28: a normal reviewer APPROVAL is unaffected — no reviewerNote, still routes to pr", async () => {
   let publishedDecision: { reviewerNote?: string } | undefined;
   const { ports } = stubPorts({
@@ -1841,30 +2127,6 @@ test("follow-up #28: a normal reviewer APPROVAL is unaffected — no reviewerNot
   assert.equal(out.decision.sideEffect, "pr");
   assert.ok(publishedDecision, "publish() must have been called");
   assert.equal(publishedDecision?.reviewerNote, undefined, "a normal approval must never carry a reviewerNote");
-});
-
-test("follow-up #28: the reviewer-unavailable rationale is also persisted durably onto RunOutcome.gateSignals.reviewerRationale", async () => {
-  let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
-    review: async () => ({
-      approved: false,
-      corrections: [],
-      rationale: "reviewer unavailable: reviewer session failed (provider down)",
-      parsed: false,
-    }),
-  });
-  ports.runHistory.save = async (outcome) => { saved = outcome; };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  await useCase.run({ ...baseInput, runId: "follow-up-28-persisted-rationale" });
-
-  assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(
-    saved!.gateSignals.reviewerRationale,
-    "reviewer unavailable: reviewer session failed (provider down)",
-    "the reviewer-unavailable rationale must persist durably so it is diagnosable from the run record alone",
-  );
 });
 
 test("follow-up #28: a normal rejection does NOT populate gateSignals.reviewerRationale either", async () => {
@@ -2390,6 +2652,142 @@ test("reviewerApproved reflects a reviewer REJECTION (false), not silently omitt
   assert.equal(saved!.gateSignals.reviewerApproved, false, "a reviewer rejection must persist reviewerApproved:false, not true or undefined");
 });
 
+test("signal mode — an accepted regeneration after the measurement reuses it and marks it stale, never re-measuring", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let measureCalls = 0;
+    let generation = 0;
+    let reviews = 0;
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCalls++;
+        return { status: "fail" as const, ratio: 0.2, valueScore: 0.25, uncovered: [{ file: "src/a.ts", lines: [1] }] };
+      },
+      blocks: () => false,
+      review: async () => {
+        reviews++;
+        return reviews === 1
+          ? { approved: false, corrections: ["assert the list"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    });
+    ports.generation.generate = async () => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? "// first\n" : "// second\n");
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, coveragePolicyMode: "signal" },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "coverage-stale-signal", mode: "diff" });
+
+    assert.equal(measureCalls, 1, "signal mode reuses the measurement it has; it never spends a second one");
+    assert.equal(out.gateSignals.coverage?.stale, true, "the recorded coverage predates the accepted bytes and is marked so");
+    assert.equal(out.gateSignals.value?.stale, true, "the value score describes the same superseded bytes and is marked stale");
+    assert.equal(out.gateSignals.valueScore, 0.25, "the measured score is kept for the record, never re-measured in signal mode");
+    assert.equal(out.decision.sideEffect, "pr", "a stale signal is a recorded caveat, never a block");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("enforce mode — a review regeneration after the measurement gets ONE final whole-suite measured run", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let generation = 0;
+    let reviews = 0;
+    let measureCalls = 0;
+    const executeNamespaces: (string | undefined)[] = [];
+    const measureNamespaces: (string | undefined)[] = [];
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async (_specDir, opts) => {
+        executeNamespaces.push((opts as { namespace?: string } | undefined)?.namespace);
+        return { verdict: "pass" as const, cases: [], logs: "" };
+      },
+      measure: async (_br, _specDir, _diff, _baseline, opts) => {
+        measureCalls++;
+        measureNamespaces.push(opts?.namespace);
+        return measureCalls === 1
+          ? { status: "fail" as const, ratio: 0.2, valueScore: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9, valueScore: 0.9 };
+      },
+      blocks: (status) => status === "fail",
+      review: async () => {
+        reviews++;
+        return reviews === 1
+          ? { approved: false, corrections: ["assert the amount"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    });
+    ports.generation.generate = async () => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", `// generation ${generation}\n`);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, coveragePolicyMode: "enforce" },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "coverage-final-after-review", mode: "diff" });
+
+    assert.equal(measureCalls, 2, "the first measurement plus exactly one final re-measure");
+    assert.deepEqual(measureNamespaces, [undefined, "coverage-final-after-review-coverage-final"]);
+    assert.equal(executeNamespaces.filter((ns) => ns?.endsWith("-coverage-final")).length, 1);
+    assert.equal(out.decision.sideEffect, "pr", "the final measurement, not the superseded first one, decides");
+    assert.equal(out.gateSignals.integrity?.acceptances, 2, "the coverage and the review regeneration each went through acceptance");
+    assert.equal(out.gateSignals.valueScore, 0.9, "the final re-measure's value score describes the bytes now on disk");
+    assert.equal(out.gateSignals.value?.stale, undefined, "a refreshed measurement is not stale");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the final guard restores the proven bytes when a spec changes after its green execution", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      /* The measurement tampers with the spec after the green run: the guard must put the proven bytes back. */
+      measure: async () => {
+        fixtures.write("flows/restaurants.spec.ts", "// tampered after the run\n");
+        return { status: "unknown" as const, ratio: null };
+      },
+    });
+    ports.generation.generate = async () => {
+      fixtures.write("flows/restaurants.spec.ts", "// proven\n");
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "off" },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "guard-restores-proven-bytes" });
+
+    assert.equal(out.decision.sideEffect, "pr", "the run publishes, as the proven bytes were put back");
+    assert.equal(readFileSync(join(fixtures.specDir, "flows/restaurants.spec.ts"), "utf8"), "// proven\n");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the final guard fails closed when no suite store can prove the delivered bytes", async () => {
+  const { ports } = stubPorts();
+  const { suiteStore: _store, ...withoutStore } = ports;
+
+  const out = await new RunQaUseCase(withoutStore).run({ ...baseInput, runId: "guard-no-store" });
+
+  assert.equal(out.decision.verdict, "infra-error", "no proof means no publication");
+  assert.equal(out.decision.sideEffect, "none");
+});
+
 test("a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 convention — context mode never calls saveOutcome on a clean pass)", async () => {
   let saveCallCount = 0;
   const { ports } = stubPorts({
@@ -2408,7 +2806,7 @@ test("a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 co
 test("a clean context-mode pass captures the architecture map with the run's specDir, app and sha, in shadow and non-shadow runs", async () => {
   for (const shadow of [true, false]) {
     const captured: Array<{ specDir: string; app: string; sha: string }> = [];
-    const { ports } = stubPorts({
+    const { ports, ws } = stubPorts({
       generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" })),
       contextMapCapture: { capture: async (specDir, app, sha) => { captured.push({ specDir, app, sha }); } },
     });
@@ -2417,7 +2815,7 @@ test("a clean context-mode pass captures the architecture map with the run's spe
     const out = await useCase.run({ ...baseInput, runId: `context-clean-capture-${shadow ? "shadow" : "live"}`, mode: "context" });
 
     assert.equal(out.decision.verdict, "pass", `shadow=${shadow}`);
-    assert.deepEqual(captured, [{ specDir: "/tmp/qa-golden/e2e", app: "demo", sha: "abc1234" }], `shadow=${shadow}: captured once, at the run's own specDir, app and sha`);
+    assert.deepEqual(captured, [{ specDir: ws.specDir, app: "demo", sha: "abc1234" }], `shadow=${shadow}: captured once, at the run's own specDir, app and sha`);
   }
 });
 
@@ -2461,6 +2859,48 @@ test("contextMapCapture is absent by default — no-op, no behavior change on a 
   const out = await useCase.run({ ...baseInput, runId: "context-capture-absent", mode: "context" });
 
   assert.equal(out.decision.verdict, "pass");
+});
+
+/* A context run's product is the architecture map: it generates no test, so there is nothing for a test reviewer to judge, and a verdict it cannot give must never turn a clean pass into an Issue. */
+const REJECTING_REVIEWERS: Array<{ name: string; review: ReviewPort["review"] }> = [
+  { name: "a rejecting reviewer", review: async () => ({ approved: false, corrections: ["[blocking] no test to review"], blockingCount: 1, parsed: true }) },
+  { name: "a reviewer parse-miss", review: async () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false }) },
+  { name: "an unavailable reviewer", review: async () => ({ approved: false, corrections: [], blockingCount: 0, parsed: false, rationale: "reviewer unavailable: timed out after 360000ms" }) },
+];
+
+for (const { name, review } of REJECTING_REVIEWERS) {
+  for (const shadow of [false, true]) {
+    test(`a clean context-mode pass never goes through test review, so ${name} cannot turn it into an Issue (shadow=${shadow})`, async () => {
+      let reviewCalls = 0;
+      const published: Array<{ reviewerApproved?: boolean }> = [];
+      const { ports } = stubPorts({
+        generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" })),
+        review: async (...args) => { reviewCalls += 1; return review(...args); },
+        publish: async (decision) => { published.push({ reviewerApproved: decision.reviewerApproved }); return { outcome: "pr" }; },
+      });
+      const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, shadow } });
+
+      const out = await useCase.run({ ...baseInput, runId: `context-no-review-${shadow ? "shadow" : "live"}`, mode: "context" });
+
+      assert.equal(out.decision.verdict, "pass");
+      assert.equal(reviewCalls, 0, "a context run has no test to review");
+      assert.notEqual(out.decision.sideEffect, "issue");
+      assert.deepEqual(published.map((p) => p.reviewerApproved), [true], "publication is handed a run nobody rejected");
+    });
+  }
+}
+
+test("a context-mode run executes nothing, so it measures no coverage or value", async () => {
+  let measureCalls = 0;
+  const { ports } = stubPorts({
+    generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" })),
+    measure: async () => { measureCalls += 1; return { status: "unknown", ratio: null }; },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  await useCase.run({ ...baseInput, runId: "context-no-measure", mode: "context" });
+
+  assert.equal(measureCalls, 0);
 });
 
 test("contextMapCapture is NOT invoked on a non-context mode's clean pass — capture is mode-gated to context only", async () => {
@@ -2749,10 +3189,9 @@ test("publish() is called with the coverageBlocks field threaded (not dropped) u
 
 test("publish() is called with mirrorDir threaded from WorkspacePort.prepare()'s own return value on the 'pr' side effect", async () => {
   let publishedDecision: { verdict: string; mirrorDir?: string; sha?: string } | undefined;
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
-    prepare: async () => ({ specDir: "/mirrors/org/app/e2e", mirrorDir: "/mirrors/org/app" }),
   });
   ports.publication.publish = async (decision) => { publishedDecision = decision; return { outcome: "pr" }; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -2761,7 +3200,7 @@ test("publish() is called with mirrorDir threaded from WorkspacePort.prepare()'s
 
   assert.equal(out.decision.sideEffect, "pr");
   assert.ok(publishedDecision, "publication.publish() must have been called for the 'pr' side effect");
-  assert.equal(publishedDecision!.mirrorDir, "/mirrors/org/app", "publish() must receive the REAL per-run mirrorDir from WorkspacePort.prepare(), not a dropped/undefined value");
+  assert.equal(publishedDecision!.mirrorDir, ws.mirrorDir, "publish() must receive the REAL per-run mirrorDir from WorkspacePort.prepare(), not a dropped/undefined value");
 });
 
 test("publish() is called with sha threaded from input.sha on the 'pr' side effect", async () => {
@@ -3133,31 +3572,37 @@ test("KEYSTONE: measure() receives the run's REAL BlastRadius (changedFiles from
 test("KEYSTONE: the enforce-mode coverage-regen re-measure ALSO receives the run's REAL BlastRadius", async () => {
   const seenChangedFilesPerCall: (readonly string[] | undefined)[] = [];
   let measureCallCount = 0;
-  const { ports } = stubPorts({
-    classify: async () => ({
-      action: "generate",
-      reason: "diff touches src/orders.ts",
-      diff: "diff --git a/src/orders.ts b/src/orders.ts",
-      intent: { type: "fix", breaking: false, message: "fix: correct order total calculation", changedFiles: ["src/orders.ts"] },
-    }),
-    measure: async (br) => {
-      measureCallCount++;
-      seenChangedFilesPerCall.push(br.changedFiles);
-      /* First call blocks (fail); the regen fires; the SECOND call (re-measure) is what this test pins. */
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/orders.ts", lines: [1] }] }
-        : { status: "pass" as const, ratio: 0.9 };
-    },
-    blocks: (status) => status === "fail",
-    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, coveragePolicyMode: "enforce" } });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      classify: async () => ({
+        action: "generate",
+        reason: "diff touches src/orders.ts",
+        diff: "diff --git a/src/orders.ts b/src/orders.ts",
+        intent: { type: "fix", breaking: false, message: "fix: correct order total calculation", changedFiles: ["src/orders.ts"] },
+      }),
+      measure: async (br) => {
+        measureCallCount++;
+        seenChangedFilesPerCall.push(br.changedFiles);
+        /* First call blocks (fail); the regen fires; the SECOND call (re-measure) is what this test pins. */
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/orders.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9 };
+      },
+      blocks: (status) => status === "fail",
+      generate: real.generate,
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, coveragePolicyMode: "enforce" } });
 
-  await useCase.run({ ...baseInput, mode: "diff", runId: "regen-real-blast-radius" });
+    await useCase.run({ ...baseInput, mode: "diff", runId: "regen-real-blast-radius" });
 
-  assert.equal(measureCallCount, 2, "expected the enforce-mode one-shot regen to trigger a second measure() call");
-  assert.deepEqual(seenChangedFilesPerCall[0], ["src/orders.ts"], "the FIRST measure() call must carry the real changed files");
-  assert.deepEqual(seenChangedFilesPerCall[1], ["src/orders.ts"], "the regen's re-measure() call must ALSO carry the real changed files, not an empty placeholder");
+    assert.equal(measureCallCount, 2, "expected the enforce-mode one-shot regen to trigger a second measure() call");
+    assert.deepEqual(seenChangedFilesPerCall[0], ["src/orders.ts"], "the FIRST measure() call must carry the real changed files");
+    assert.deepEqual(seenChangedFilesPerCall[1], ["src/orders.ts"], "the regen's re-measure() call must ALSO carry the real changed files, not an empty placeholder");
+  } finally {
+    real.cleanup();
+  }
 });
 
 /* ObserverPort wiring: these tests pin (1) the phase-boundary emission order on a representative
@@ -3489,14 +3934,16 @@ test("a filtered retry reaches the execution port scoped to the failing spec fil
   assert.deepEqual(capturedSpecFiles[1], ["login.spec.ts"], "the filtered retry must thread ONLY the failed spec file(s) into ExecutionOpts.specFiles");
 });
 
-test("FixLoop filtered-retry: coverageWillMeasure:true (diff mode + coveragePolicyMode!=='off') disables filtering — the retry re-runs the FULL suite (no specFiles)", async () => {
+test("a fix-loop round executes only its changed specs under the round's own namespace, even when change-coverage will measure the run", async () => {
   let executeCallCount = 0;
   const capturedSpecFiles: (string[] | undefined)[] = [];
+  const capturedNamespaces: (string | undefined)[] = [];
   const { ports } = stubPorts({
     execute: async (_specDir, opts) => {
       executeCallCount++;
       const o = opts && !(opts instanceof AbortSignal) ? opts : {};
       capturedSpecFiles.push(o.specFiles);
+      capturedNamespaces.push(o.namespace);
       if (executeCallCount === 1) {
         return {
           verdict: "fail" as const,
@@ -3504,20 +3951,23 @@ test("FixLoop filtered-retry: coverageWillMeasure:true (diff mode + coveragePoli
           logs: "",
         };
       }
-      return { verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" };
+      return { verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "login.spec.ts" }], logs: "" };
     },
     generate: async () => (scriptedGeneration({ specs: ["login.spec.ts"], approved: true })),
   });
-  /* coveragePolicyMode defaults to "signal" in baseConfig -> coverageWillMeasure:true in diff mode
-     -> FixLoop's own canFilter guard (!coverageWillMeasure) must block filtering.
+  /* coveragePolicyMode defaults to "signal" in baseConfig -> coverageWillMeasure:true in diff mode.
+     Acceptance still executes only the specs the round changed; the final coverage measurement, not
+     a widened retry, is what keeps the unchanged cases observable.
    */
   const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
 
-  const out = await useCase.run({ ...baseInput, runId: "filtered-retry-coverage-blocks-filter", mode: "diff" });
+  const out = await useCase.run({ ...baseInput, runId: "fixloop-acceptance-scope", mode: "diff" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.ok(executeCallCount >= 2, "sanity: the FixLoop must have retried at least once");
-  assert.equal(capturedSpecFiles[1], undefined, "when change-coverage WILL measure this run, the retry must NOT be filtered — every prior case's lines must stay observable");
+  assert.ok(executeCallCount >= 2, "sanity: the FixLoop must have accepted at least once");
+  assert.equal(capturedSpecFiles[0], undefined, "the first execution runs the whole suite");
+  assert.deepEqual(capturedSpecFiles[1], ["login.spec.ts"], "the accepted round executes exactly the spec it changed");
+  assert.equal(capturedNamespaces[1], "fixloop-acceptance-scope-r1", "the round's execution carries its own namespace");
 });
 
 /* publish() dispatches for EVERY side-effect-bearing decision ("pr" | "issue" | "quarantine" |
@@ -5261,7 +5711,6 @@ function fakeGenerationPortsForAntiInert(capture: { input?: OpencodeRunInput }):
     rendering: {
       render: () => "",
       renderMain: (input) => { capture.input = input; return { text: "", sectionSizes: {} }; },
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
       renderReviewer: () => ({ text: "", sectionSizes: {} }),
       renderExplorer: () => "",
       specFileForFlow: (f: string) => `${f}.spec.ts`,
@@ -5540,7 +5989,7 @@ test("the fix-loop generation closure's returned specSources re-arms the NEXT ro
        */
       return {
         verdict: "fail" as const,
-        cases: [{ name: `checkout-${executeCallCount}`, status: "fail" as const, detail: "boom", failureDom: "heading: Owners\nbutton: Cancel" }],
+        cases: [{ name: `checkout-${executeCallCount}`, status: "fail" as const, file: "a.spec.ts", detail: "boom", failureDom: "heading: Owners\nbutton: Cancel" }],
         logs: "x",
       };
     },
@@ -5556,6 +6005,65 @@ test("the fix-loop generation closure's returned specSources re-arms the NEXT ro
     "expected a LATER FixLoop regen call to carry a selectorContradictions entry sourced from the PRIOR round's own regen specSources — proving the closure's returned specSources feeds the next round's Lever-2 check",
   );
   assert.match(roundWithContradiction!.selectorContradictions![0]!, /button.*Submit.*NOT in the captured failure-point tree/);
+});
+
+test("a fix-loop round accepts real bytes, and a later worse round puts the best round's bytes back on disk", async () => {
+  let generationCalls = 0;
+  const executeNamespaces: (string | undefined)[] = [];
+  const { ports, ws } = stubPorts({
+    generate: async () => {
+      const call = generationCalls + 1;
+      generationCalls += 1;
+      if (call === 1) {
+        ws.write("a.spec.ts", "// a v0\n");
+        ws.write("b.spec.ts", "// b v0\n");
+        return scriptedGeneration({ specs: ["a.spec.ts", "b.spec.ts"], approved: true });
+      }
+      ws.write("a.spec.ts", `// a v${call - 1}\n`);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    execute: async (_specDir, opts) => {
+      const o = opts && !(opts instanceof AbortSignal) ? opts : undefined;
+      executeNamespaces.push(o?.namespace);
+      if (o?.specFiles) {
+        /* The acceptance execution: only the changed spec runs, and the bytes on disk decide its result. */
+        const bytes = readFileSync(join(ws.specDir, "a.spec.ts"), "utf8");
+        if (bytes.includes("v1")) {
+          return { verdict: "pass" as const, cases: [{ name: "a", status: "pass" as const, file: "a.spec.ts" }], logs: "" };
+        }
+        return {
+          verdict: "fail" as const,
+          cases: [{ name: "a", status: "fail" as const, file: "a.spec.ts", detail: "getByRole resolved to 0 elements" }],
+          logs: "",
+        };
+      }
+      return {
+        verdict: "fail" as const,
+        cases: [
+          { name: "a", status: "fail" as const, file: "a.spec.ts", detail: "getByRole resolved to 0 elements" },
+          { name: "b", status: "fail" as const, file: "b.spec.ts", detail: "getByRole resolved to 0 elements" },
+        ],
+        logs: "",
+      };
+    },
+  });
+  try {
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, maxRetries: 2 } });
+
+    const out = await useCase.run({ ...baseInput, runId: "fixloop-best-bytes", mode: "diff" });
+
+    assert.equal(
+      readFileSync(join(ws.specDir, "a.spec.ts"), "utf8"),
+      "// a v1\n",
+      "the best round's accepted bytes must be back on disk, not the later worse round's",
+    );
+    assert.equal(out.decision.verdict, "fail");
+    assert.equal(out.outcome?.cases?.filter((c) => c.status === "fail").length, 1, "the run keeps the best round's cases");
+    assert.equal(out.outcome?.cases?.find((c) => c.name === "a")?.status, "pass", "the best round fixed a.spec.ts");
+    assert.deepEqual(executeNamespaces.slice(1), ["fixloop-best-bytes-r1", "fixloop-best-bytes-r2"], "each acceptance execution carries its round's namespace");
+  } finally {
+    ws.cleanup();
+  }
 });
 
 test("failureDomSnapshot threads the initial run's failure-point DOM into the FixLoop's regen prompt", async () => {
@@ -5744,7 +6252,7 @@ function makeFakeConfinement(
 
 test("confinement wiring: green-pr — enforce() is called at least twice (after the initial generate() AND once more immediately before publish), not just once", async () => {
   const calls: Array<{ mirrorDir: string; isCode: boolean }> = [];
-  const { ports } = stubPorts();
+  const { ports, ws } = stubPorts();
   const confinement = makeFakeConfinement((mirrorDir, isCode) => {
     calls.push({ mirrorDir, isCode });
     return { strays: 0, dangerous: 0, reverted: [] };
@@ -5756,7 +6264,7 @@ test("confinement wiring: green-pr — enforce() is called at least twice (after
   assert.equal(out.decision.verdict, "pass");
   assert.ok(calls.length >= 2, `expected at least 2 enforce() calls (after generate + before publish), got ${calls.length}`);
   for (const call of calls) {
-    assert.equal(call.mirrorDir, "/tmp/qa-golden", "enforce() must receive this run's REAL mirrorDir");
+    assert.equal(call.mirrorDir, ws.mirrorDir, "enforce() must receive this run's REAL mirrorDir");
     assert.equal(call.isCode, false, "enforce() must receive this run's REAL isCode target");
   }
 });
@@ -6102,7 +6610,7 @@ function makeFakeMirrorGc(onPrune: (mirrorDir: string) => void | Error): MirrorG
 
 test("mirrorGc wiring: successful run triggers prune() exactly once, against the run's real mirrorDir, AFTER publish() resolves", async () => {
   const order: string[] = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     publish: async () => { order.push("publish"); return { outcome: "pr" }; },
   });
   const mirrorGc = makeFakeMirrorGc((mirrorDir) => {
@@ -6113,7 +6621,7 @@ test("mirrorGc wiring: successful run triggers prune() exactly once, against the
   const out = await useCase.run({ ...baseInput, runId: "mirror-gc-green-pr" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.deepEqual(order, ["publish", "prune:/tmp/qa-golden"], "prune() must fire exactly once, strictly after publish() resolves, against the run's real mirrorDir");
+  assert.deepEqual(order, ["publish", `prune:${ws.mirrorDir}`], "prune() must fire exactly once, strictly after publish() resolves, against the run's real mirrorDir");
 });
 
 test("mirrorGc wiring: [SWAP] absent — no collaborator wired means zero prune() calls (backward compatible)", async () => {
@@ -6149,7 +6657,7 @@ test("mirrorGc wiring: an untrusted git dir found by prune() fails the run inste
 
 test("mirrorGc wiring: a non-pr verdict (fail/issue) also triggers prune() once, after publish() resolves", async () => {
   const order: string[] = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" }),
     publish: async () => { order.push("publish"); return { outcome: "issue: https://example.test/issues/1" }; },
   });
@@ -6161,7 +6669,7 @@ test("mirrorGc wiring: a non-pr verdict (fail/issue) also triggers prune() once,
   const out = await useCase.run({ ...baseInput, runId: "mirror-gc-fail-issue" });
 
   assert.equal(out.decision.verdict, "fail");
-  assert.deepEqual(order, ["publish", "prune:/tmp/qa-golden"], "prune() must fire once for a fail/issue-routed run too, strictly after publish()");
+  assert.deepEqual(order, ["publish", `prune:${ws.mirrorDir}`], "prune() must fire once for a fail/issue-routed run too, strictly after publish()");
 });
 
 /* ── mirrorGc coverage extends beyond the mainline exit to every OTHER
@@ -6174,7 +6682,7 @@ test("mirrorGc wiring: a non-pr verdict (fail/issue) also triggers prune() once,
 
 test("mirrorGc wiring: a static-gate invalid verdict (terminalResult exit) also triggers prune() once, after that exit's own publish() resolves", async () => {
   const order: string[] = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
     publish: async () => { order.push("publish"); return { outcome: "issue: https://example.test/issues/2" }; },
   });
@@ -6186,12 +6694,12 @@ test("mirrorGc wiring: a static-gate invalid verdict (terminalResult exit) also 
   const out = await useCase.run({ ...baseInput, runId: "mirror-gc-invalid" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.deepEqual(order, ["publish", "prune:/tmp/qa-golden"], "prune() must fire once for the static-gate invalid terminal exit, strictly after its own publish()");
+  assert.deepEqual(order, ["publish", `prune:${ws.mirrorDir}`], "prune() must fire once for the static-gate invalid terminal exit, strictly after its own publish()");
 });
 
 test("mirrorGc wiring: a mid-run health-preflight infra-error verdict (terminalResult exit, sideEffect none) also triggers prune() once", async () => {
   let waitUntilServingCall = 0;
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     waitUntilServing: async () => {
       waitUntilServingCall++;
       return waitUntilServingCall === 1 ? ok(true) : { ok: false as const, error: new Error("DEV went down mid-run") };
@@ -6209,13 +6717,13 @@ test("mirrorGc wiring: a mid-run health-preflight infra-error verdict (terminalR
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(pruneCallCount, 1, "prune() must fire once for the health-preflight infra-error terminal exit even though sideEffect is none (no publish() call on this path)");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 test("mirrorGc wiring: a classify-skip verdict (bare-return skip, no persistence) also triggers prune() once — the mirror was touched by checkout before classify runs", async () => {
   let pruneCallCount = 0;
   let prunedMirrorDir: string | undefined;
-  const { ports } = stubPorts({ classify: async () => ({ action: "skip", reason: "docs-only commit", diff: "" }) });
+  const { ports, ws } = stubPorts({ classify: async () => ({ action: "skip", reason: "docs-only commit", diff: "" }) });
   const mirrorGc = makeFakeMirrorGc((mirrorDir) => {
     pruneCallCount++;
     prunedMirrorDir = mirrorDir;
@@ -6226,12 +6734,12 @@ test("mirrorGc wiring: a classify-skip verdict (bare-return skip, no persistence
 
   assert.equal(out.decision.verdict, "skipped");
   assert.equal(pruneCallCount, 1, "prune() must fire once for the classify-skip bare-return exit");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 test("mirrorGc wiring: an agent-no-op skip verdict (approved + zero specs) also triggers prune() once, after this exit's own runHistory.save()", async () => {
   const order: string[] = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })),
     save: async () => { order.push("save"); },
   });
@@ -6243,7 +6751,7 @@ test("mirrorGc wiring: an agent-no-op skip verdict (approved + zero specs) also 
   const out = await useCase.run({ ...baseInput, runId: "mirror-gc-agent-no-op-skip" });
 
   assert.equal(out.decision.verdict, "skipped");
-  assert.deepEqual(order, ["save", "prune:/tmp/qa-golden"], "prune() must fire once for the agent-no-op skip exit, after its own runHistory.save()");
+  assert.deepEqual(order, ["save", `prune:${ws.mirrorDir}`], "prune() must fire once for the agent-no-op skip exit, after its own runHistory.save()");
 });
 
 test("mirrorGc wiring: a thrown prune() on the invalid terminal exit is fault-isolated — never alters the verdict or blocks publish", async () => {
@@ -6281,7 +6789,7 @@ test("mirrorGc wiring: a thrown prune() on the classify-skip exit is fault-isola
 
 test("mirrorGc wiring: a post-prepare signal-aborted exit (mid-run, between validate and execute) triggers exactly one prune() with the run's mirrorDir", async () => {
   const controller = new AbortController();
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     validate: async () => { controller.abort(); return { ok: true, errors: [] }; },
   });
   let pruneCallCount = 0;
@@ -6296,7 +6804,7 @@ test("mirrorGc wiring: a post-prepare signal-aborted exit (mid-run, between vali
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(pruneCallCount, 1, "a post-prepare aborted exit must prune its mirror exactly once");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 test("mirrorGc wiring: a pre-prepare already-aborted signal does NOT prune — the mirror was never touched", async () => {
@@ -6314,7 +6822,7 @@ test("mirrorGc wiring: a pre-prepare already-aborted signal does NOT prune — t
 });
 
 test("mirrorGc wiring: a setup() failure infra-error exit triggers prune() once", async () => {
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     setup: async () => { throw new Error("npm ci in e2e failed (code 1)"); },
   });
   let pruneCallCount = 0;
@@ -6329,11 +6837,11 @@ test("mirrorGc wiring: a setup() failure infra-error exit triggers prune() once"
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(pruneCallCount, 1, "a setup() failure fires after workspace.prepare() already checked out the mirror — it must be pruned");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 test("mirrorGc wiring: an empty/unparseable generation infra-error exit triggers prune() once", async () => {
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: [], approved: true, parsed: false })),
   });
   let pruneCallCount = 0;
@@ -6348,7 +6856,7 @@ test("mirrorGc wiring: an empty/unparseable generation infra-error exit triggers
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(pruneCallCount, 1, "an empty/unparseable generation fires after workspace.prepare() already checked out the mirror — it must be pruned");
-  assert.equal(prunedMirrorDir, "/tmp/qa-golden");
+  assert.equal(prunedMirrorDir, ws.mirrorDir);
 });
 
 /* ONLY from the /continue API flow's RunRequest.parentRunId (src/server/runner.ts's own
@@ -6395,30 +6903,37 @@ test("parentRunId: an ordinary run omits parentRunId from publish()'s decision e
 test("parentRunId: an enforce-mode coverage-regen never fabricates its own parentRunId — the final publish() still reflects only the ORIGINAL run's input.parentRunId", async () => {
   let measureCallCount = 0;
   let publishedParentRunId: string | undefined;
-  const { ports } = stubPorts({
-    execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
-    measure: async () => {
-      measureCallCount++;
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
-        : { status: "pass" as const, ratio: 0.95 };
-    },
-    blocks: (status) => status === "fail",
-    publish: async (decision) => {
-      publishedParentRunId = decision.parentRunId;
-      return { outcome: "pr" };
-    },
-  });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
-  });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCallCount++;
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1, 2] }] }
+          : { status: "pass" as const, ratio: 0.95 };
+      },
+      blocks: (status) => status === "fail",
+      publish: async (decision) => {
+        publishedParentRunId = decision.parentRunId;
+        return { outcome: "pr" };
+      },
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce" },
+    });
 
-  const out = await useCase.run({ ...baseInput, runId: "parent-run-id-coverage-regen", parentRunId: "prior-run-xyz789" });
+    const out = await useCase.run({ ...baseInput, runId: "parent-run-id-coverage-regen", parentRunId: "prior-run-xyz789" });
 
-  assert.equal(out.decision.verdict, "pass");
-  assert.equal(measureCallCount, 2, "the regen genuinely fired");
-  assert.equal(publishedParentRunId, "prior-run-xyz789", "the regen must never invent its own parentRunId — only the original run's input carries one");
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(measureCallCount, 2, "the regen genuinely fired");
+    assert.equal(publishedParentRunId, "prior-run-xyz789", "the regen must never invent its own parentRunId — only the original run's input carries one");
+  } finally {
+    real.cleanup();
+  }
 });
 
 /* FixLoop computes retryNs = `${namespace}-r${n}` and the ExecutionPort
@@ -6652,39 +7167,45 @@ test("curriculum: the fold reads the enforce-mode regeneration's SECOND coverage
   /* Same fixture shape the KEYSTONE regen test uses: an enforce-mode policy, a first measurement
      that blocks, and a regen whose generate/validate/execute all succeed so the re-measure runs.
    */
-  const { ports } = stubPorts({
-    classify: async () => ({
-      action: "generate",
-      reason: "diff touches src/orders.ts",
-      diff: "diff --git a/src/orders.ts b/src/orders.ts",
-      intent: { type: "fix", breaking: false, message: "fix: correct order total calculation", changedFiles: ["src/orders.ts"] },
-    }),
-    measure: async () => {
-      measureCallCount++;
-      return measureCallCount === 1
-        ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/orders.ts", lines: [1] }] }
-        : { status: "pass" as const, ratio: 0.9 };
-    },
-    blocks: (status) => status === "fail",
-    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
-    curriculum: {
-      select: async () => [
-        { id: "ex-form-happy-path", name: "n", template: "t", archetype: "happy-path", proven: false, promotionCount: 0 },
-      ],
-      fold: async (i) => { folds.push(i); },
-    },
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, coveragePolicyMode: "enforce" } });
+  const real = realCoverageWorkspace();
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      classify: async () => ({
+        action: "generate",
+        reason: "diff touches src/orders.ts",
+        diff: "diff --git a/src/orders.ts b/src/orders.ts",
+        intent: { type: "fix", breaking: false, message: "fix: correct order total calculation", changedFiles: ["src/orders.ts"] },
+      }),
+      measure: async () => {
+        measureCallCount++;
+        return measureCallCount === 1
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/orders.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.9 };
+      },
+      blocks: (status) => status === "fail",
+      generate: real.generate,
+      curriculum: {
+        select: async () => [
+          { id: "ex-form-happy-path", name: "n", template: "t", archetype: "happy-path", proven: false, promotionCount: 0 },
+        ],
+        fold: async (i) => { folds.push(i); },
+      },
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, coveragePolicyMode: "enforce" } });
 
-  await useCase.run({ ...baseInput, mode: "diff", runId: "curriculum-fold-coverage-regen" });
+    await useCase.run({ ...baseInput, mode: "diff", runId: "curriculum-fold-coverage-regen" });
 
-  assert.equal(measureCallCount, 2, "sanity: the enforce-mode one-shot regen must have re-measured");
-  assert.equal(folds.length, 1);
-  assert.equal(
-    folds[0]!.coverageStatus,
-    "pass",
-    "the regen's own second measurement is already the ONLY input to blocksPublish, so the fold must read that same final status and never the superseded first one",
-  );
+    assert.equal(measureCallCount, 2, "sanity: the enforce-mode one-shot regen must have re-measured");
+    assert.equal(folds.length, 1);
+    assert.equal(
+      folds[0]!.coverageStatus,
+      "pass",
+      "the regen's own second measurement is already the ONLY input to blocksPublish, so the fold must read that same final status and never the superseded first one",
+    );
+  } finally {
+    real.cleanup();
+  }
 });
 
 test('curriculum: the fold threads a measured "unknown" verbatim — the evidence ladder, not this use-case, decides it earns no credit', async () => {
@@ -6745,7 +7266,7 @@ function memoryIndexStatus(
 
 test("mirror index: SHA changed → syncTo called once with workspace.mirrorDir and classification.intent.changedFiles", async () => {
   const syncToCalls: Array<{ repoDir: string; changedFiles: string[] }> = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     classify: async () => ({
       action: "generate",
       reason: "type=feat",
@@ -6763,7 +7284,7 @@ test("mirror index: SHA changed → syncTo called once with workspace.mirrorDir 
   const out = await useCase.run({ ...baseInput, runId: "mirror-index-sha-changed" });
 
   assert.equal(syncToCalls.length, 1, "syncTo must run once when lastIndexedSha differs from the run SHA");
-  assert.equal(syncToCalls[0]!.repoDir, "/tmp/qa-golden");
+  assert.equal(syncToCalls[0]!.repoDir, ws.mirrorDir);
   assert.deepEqual(syncToCalls[0]!.changedFiles, ["src/a.ts"]);
   assert.equal(indexStatus.writes.length, 1);
   assert.equal(indexStatus.writes[0]!.sha, "abc1234");
@@ -6803,8 +7324,8 @@ test("mirror index: codeGraphRepoDir is indexed and stamped instead of workspace
 
 test("mirror index: same SHA already recorded → syncTo NOT called", async () => {
   const syncToCalls: unknown[] = [];
-  const { ports } = stubPorts();
-  const indexStatus = memoryIndexStatus({ "/tmp/qa-golden": "abc1234" });
+  const { ports, ws } = stubPorts();
+  const indexStatus = memoryIndexStatus({ [ws.mirrorDir]: "abc1234" });
   const codeGraph = fakeCodeGraph(async (repoDir, changedFiles) => {
     syncToCalls.push({ repoDir, changedFiles });
     return { ok: true, value: { nodeCount: 1 } };
@@ -6909,7 +7430,7 @@ test("mirror index: classify skip → syncTo NOT called (skip returns before pha
 
 test("mirror index: non-diff mode (mode: manual) → syncTo called with [] when SHA new", async () => {
   const syncToCalls: Array<{ repoDir: string; changedFiles: string[] }> = [];
-  const { ports } = stubPorts({
+  const { ports, ws } = stubPorts({
     classify: async () => {
       throw new Error("classify() must never be called outside diff mode");
     },
@@ -6924,7 +7445,7 @@ test("mirror index: non-diff mode (mode: manual) → syncTo called with [] when 
   const out = await useCase.run({ ...baseInput, runId: "mirror-index-manual-empty-files", mode: "manual" });
 
   assert.equal(syncToCalls.length, 1);
-  assert.equal(syncToCalls[0]!.repoDir, "/tmp/qa-golden");
+  assert.equal(syncToCalls[0]!.repoDir, ws.mirrorDir);
   assert.deepEqual(syncToCalls[0]!.changedFiles, []);
   assert.equal(indexStatus.writes.length, 1);
   assert.equal(indexStatus.writes[0]!.sha, "abc1234");
@@ -7389,6 +7910,7 @@ interface EndRun {
   validated: number;
   executed: number;
   pruned: string[];
+  mirrorDir: string;
 }
 
 async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, config = baseConfig): Promise<EndRun> {
@@ -7396,7 +7918,7 @@ async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, 
   let validated = 0;
   let executed = 0;
   const pruned: string[] = [];
-  const { ports, savedOutcomes } = stubPorts({
+  const { ports, savedOutcomes, ws } = stubPorts({
     generate: async () => generation,
     publish: async () => { published++; return { outcome: "issue" }; },
     validate: async () => { validated++; return { ok: true, errors: [] }; },
@@ -7404,7 +7926,7 @@ async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, 
   });
   const { observer, events } = fakeObserver();
   const out = await new RunQaUseCase({ ...ports, observer, config, mirrorGc: { prune: async (dir: string) => { pruned.push(dir); } } }).run(baseInput);
-  return { out, savedOutcomes, events, published, validated, executed, pruned };
+  return { out, savedOutcomes, events, published, validated, executed, pruned, mirrorDir: ws.mirrorDir };
 }
 
 test("a generation that ran out of steps with no specs ends the run as a persisted infra-error with the step-budget class and its note", async () => {
@@ -7417,13 +7939,38 @@ test("a generation that ran out of steps with no specs ends the run as a persist
   assert.ok((run.out.note ?? "").includes(EXHAUSTED_NOTE));
 });
 
+/* Opaque on purpose: the run carries whatever note the generation ended with. */
+const TIME_BUDGET_NOTE = "the note the time-budget generation carried";
+
+test("a generation cut off by its time budget ends the run as a persisted infra-error with the time-budget class and its note", async () => {
+  const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }));
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.equal(run.savedOutcomes.length, 1, "the run is persisted, unlike a run with no readable verdict");
+  assert.equal(run.savedOutcomes[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.ok((run.savedOutcomes[0]!.note ?? "").includes(TIME_BUDGET_NOTE));
+  assert.ok((run.out.note ?? "").includes(TIME_BUDGET_NOTE));
+});
+
+test("a time-budget end opens no Issue, runs no validation or execution, and logs the engine-side cause as time and not as steps", async () => {
+  const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }));
+  assert.equal(run.out.decision.sideEffect, "none");
+  assert.equal(run.published, 0);
+  assert.equal(run.validated, 0);
+  assert.equal(run.executed, 0);
+  const engineSide = run.events.filter((e) => e.type === "log.line" && e.text.includes(ERROR_CLASS.TIME_BUDGET));
+  assert.equal(engineSide.length, 1);
+  assert.match(engineSide[0]!.type === "log.line" ? engineSide[0]!.text : "", /time-budget/);
+  assert.doesNotMatch(engineSide[0]!.type === "log.line" ? engineSide[0]!.text : "", /step-budget|missing decision/);
+});
+
 test("an exhausted generation opens no Issue, runs no validation or execution, and prunes its working copy", async () => {
   const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE, turn: EXHAUSTED_TURN }));
   assert.equal(run.out.decision.sideEffect, "none");
   assert.equal(run.published, 0);
   assert.equal(run.validated, 0);
   assert.equal(run.executed, 0);
-  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+  assert.deepEqual(run.pruned, [run.mirrorDir]);
 });
 
 test("an exhausted generation reports itself as an agent error carrying its note, and as a log line", async () => {
@@ -7445,7 +7992,7 @@ test("a generation that decided nothing ends the run as a persisted infra-error 
   assert.ok((run.savedOutcomes[0]!.note ?? "").includes(note));
   assert.ok(run.events.some((e) => e.type === "agent.error" && e.detail.includes(note)));
   assert.equal(run.published, 0);
-  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+  assert.deepEqual(run.pruned, [run.mirrorDir]);
 });
 
 test("a generation with no readable verdict keeps its unpersisted infra-error", async () => {
@@ -7464,7 +8011,7 @@ test("a declared no-op skips the run with the agent's reason as its persisted no
   assert.equal(run.savedOutcomes.length, 1);
   assert.equal(run.savedOutcomes[0]!.note, reason);
   assert.equal(run.savedOutcomes[0]!.verdict, "skipped");
-  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+  assert.deepEqual(run.pruned, [run.mirrorDir]);
   assert.equal(run.published, 0);
 });
 
@@ -7519,6 +8066,38 @@ test("a generation that ran out of steps feeds the fold, the reflector and the p
   assert.equal(learned.reflected[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
   assert.equal(learned.audited.length, 1);
   assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
+});
+
+test("a generation cut off by its time budget teaches nothing: wall-clock exhaustion is confounded by DEV latency", async () => {
+  const learned = await learnFrom(scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }));
+  assert.deepEqual([learned.folded.length, learned.reflected.length], [0, 0]);
+});
+
+test("a time-budget end reaches the process audit alone, so a recurring one is visible, under its own class", async () => {
+  const learned = await learnFrom(scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }));
+  assert.equal(learned.audited.length, 1);
+  assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
+});
+
+test("a run ended by the run-level deadline is audited as a time-budget end too, and still folds and reflects nothing", async () => {
+  const learned: { folded: RunOutcome[]; reflected: ReflectionInput[]; audited: RunOutcome[] } = { folded: [], reflected: [], audited: [] };
+  const { ports } = stubPorts({ generate: async () => { throw deadlineExceeded("primary"); } });
+  ports.learning.fold = async (o) => { learned.folded.push(o); };
+  await new RunQaUseCase({
+    ...ports,
+    reflector: makeFakeReflector((i) => { learned.reflected.push(i); }),
+    processAudit: makeFakeProcessAudit((o) => { learned.audited.push(o); }),
+    config: baseConfig,
+  }).run(baseInput);
+  assert.deepEqual([learned.folded.length, learned.reflected.length, learned.audited.length], [0, 0, 1]);
+  assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
+});
+
+test("a context run that ended on its time budget is not audited either", async () => {
+  const audited: RunOutcome[] = [];
+  const { ports } = stubPorts({ generate: async () => scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.TIME_BUDGET, note: TIME_BUDGET_NOTE }) });
+  await new RunQaUseCase({ ...ports, processAudit: makeFakeProcessAudit((o) => { audited.push(o); }), config: baseConfig }).run({ ...baseInput, mode: "context" });
+  assert.equal(audited.length, 0);
 });
 
 test("a context-mode generation that ran out of steps teaches nothing, like every other context-mode terminal", async () => {
@@ -7621,7 +8200,15 @@ async function coordinationReviewOutcome(opts: {
     ...(opts.review ? { review: opts.review } : {}),
   });
   const telemetry = new CoordinationTelemetryRecorder();
-  await new RunQaUseCase({ ...ports, coordination: createCoordinationPort(), coordinationTelemetry: telemetry, config: { ...baseConfig, needsReview: opts.needsReview } }).run(baseInput);
+  /* A coordinated run is the one that reports an outcome: the lead hands the change back to be authored in one piece. */
+  const leadSidekicks = { coordinate: async () => ({ action: "single" as const, signal: { mode: COORDINATION_MODE.LEAD_SIDEKICKS, plan: "single", flows: 1, delivered: 0, incomplete: 0, takeover: false } }) };
+  await new RunQaUseCase({
+    ...ports,
+    coordinationSettings: { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS },
+    leadSidekicks,
+    coordinationTelemetry: telemetry,
+    config: { ...baseConfig, needsReview: opts.needsReview },
+  }).run(baseInput);
   return telemetry.events.find((event) => event.kind === "outcome")?.reviewOutcome;
 }
 
@@ -7682,4 +8269,1073 @@ test("an exhausted or undecided end reports no reviewer outcome when none ran", 
   assert.equal(exhausted.savedOutcomes[0]!.gateSignals.reviewerApproved, undefined);
   const undecided = await runEndingWith(scriptedGeneration({ specs: [], approved: true, reviewed: false, end: GENERATION_END.UNDECIDED_EMPTY, note: "no decision" }));
   assert.equal(undecided.savedOutcomes[0]!.gateSignals.reviewerApproved, undefined);
+});
+
+/* ── The run-level wall-clock deadline ──────────────────────────────────────────────────────────── */
+
+const DEADLINE_BUDGET_MS = 25 * 60_000;
+const deadlineExceeded = (role: string, stop: "before-turn" | "mid-turn" = "mid-turn") => new RunDeadlineExceededError(DEADLINE_BUDGET_MS, "diff-tiny", role, stop);
+
+interface ArmedScope { mode: string; diff?: string; changedFiles?: readonly string[] }
+
+/** A deadline port that records when and with what it was armed, against the other phases of the run. */
+function recordingDeadline(trace: string[]): { port: RunDeadlinePort; armed: ArmedScope[] } {
+  const armed: ArmedScope[] = [];
+  return { armed, port: { arm: (scope) => { trace.push("arm"); armed.push(scope); } } };
+}
+
+test("the run arms its deadline once, after the deploy gate and the classification, with the change it classified", async () => {
+  const trace: string[] = [];
+  const { ports } = stubPorts({
+    waitUntilServing: async () => { trace.push("gate"); return ok(true); },
+    classify: async () => { trace.push("classify"); return { action: "generate", reason: "r", diff: "diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n", intent: { type: "feat", breaking: false, message: "m", changedFiles: ["x"] } }; },
+    generate: async () => { trace.push("generate"); return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+  });
+  const { port, armed } = recordingDeadline(trace);
+  await new RunQaUseCase({ ...ports, runDeadline: port, config: baseConfig }).run(baseInput);
+  assert.deepEqual(trace.slice(0, 4), ["gate", "classify", "arm", "generate"]);
+  assert.equal(armed.length, 1);
+  assert.equal(armed[0]!.mode, "diff");
+  assert.match(armed[0]!.diff ?? "", /diff --git a\/x/);
+  assert.deepEqual(armed[0]!.changedFiles, ["x"]);
+});
+
+test("a mode that does not classify arms its deadline for its own mode, with no diff", async () => {
+  const trace: string[] = [];
+  const { ports } = stubPorts();
+  const { port, armed } = recordingDeadline(trace);
+  await new RunQaUseCase({ ...ports, runDeadline: port, config: baseConfig }).run({ ...baseInput, mode: "manual" });
+  assert.deepEqual(armed, [{ mode: "manual" }]);
+});
+
+test("a commit the classifier skips never arms the deadline: it spends no agent time", async () => {
+  const trace: string[] = [];
+  const { ports } = stubPorts({ classify: async () => ({ action: "skip", reason: "docs only", diff: "" }) });
+  const { port, armed } = recordingDeadline(trace);
+  await new RunQaUseCase({ ...ports, runDeadline: port, config: baseConfig }).run(baseInput);
+  assert.equal(armed.length, 0);
+});
+
+/** Runs a run whose agent boundary raises the run's deadline error and reports what the run did about it. */
+async function runEndedByDeadline(over: Parameters<typeof stubPorts>[0], config: Record<string, unknown> = baseConfig) {
+  let published = 0;
+  const pruned: string[] = [];
+  const learned = { folded: [] as RunOutcome[], reflected: [] as ReflectionInput[] };
+  const { ports, savedOutcomes, ws } = stubPorts({
+    publish: async () => { published++; return { outcome: "issue" }; },
+    fold: async (o) => { learned.folded.push(o); },
+    ...over,
+  });
+  const { observer, events } = fakeObserver();
+  const reflector = makeFakeReflector((i) => { learned.reflected.push(i); });
+  const out = await new RunQaUseCase({ ...ports, observer, reflector, config, mirrorGc: { prune: async (d: string) => { pruned.push(d); } } }).run(baseInput);
+  return { out, savedOutcomes, events, published: () => published, pruned, learned, mirrorDir: ws.mirrorDir };
+}
+
+test("a first generation stopped by the run's deadline ends the run as a persisted infra-error under the time-budget class, with a note that says so", async () => {
+  const run = await runEndedByDeadline({ generate: async () => { throw deadlineExceeded("primary"); } });
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.equal(run.savedOutcomes.length, 1, "the run is persisted: it never ends as a silent empty result");
+  assert.equal(run.savedOutcomes[0]!.errorClass, ERROR_CLASS.TIME_BUDGET);
+  const note = run.savedOutcomes[0]!.note ?? "";
+  assert.match(note, /Run time budget of 25 min \(diff-tiny\) exhausted/);
+  assert.match(note, /primary turn in progress was stopped/);
+  assert.match(note, /not a finding about the app/);
+  assert.ok((run.out.note ?? "").includes("Run time budget of 25 min"));
+});
+
+test("a run ended by its deadline publishes nothing, teaches nothing, prunes its working copy and says loudly that the cause is engine-side time", async () => {
+  const run = await runEndedByDeadline({ generate: async () => { throw deadlineExceeded("primary", "before-turn"); } });
+  assert.equal(run.out.decision.sideEffect, "none");
+  assert.equal(run.published(), 0, "no Issue and no PR");
+  assert.deepEqual([run.learned.folded.length, run.learned.reflected.length], [0, 0]);
+  assert.deepEqual(run.pruned, [run.mirrorDir]);
+  assert.ok(run.events.some((e) => e.type === "agent.error" && /next primary turn was not started/.test(e.detail)));
+  const engineSide = run.events.filter((e) => e.type === "log.line" && e.text.includes(ERROR_CLASS.TIME_BUDGET));
+  assert.equal(engineSide.length, 1);
+});
+
+test("the deadline stops a regeneration inside the fix loop the same way: infra-error E-TIME-BUDGET, not an empty regeneration the loop reads as 'no fixes'", async () => {
+  let generated = 0;
+  const run = await runEndedByDeadline({
+    generate: async () => { generated++; if (generated > 1) throw deadlineExceeded("primary"); return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+    execute: async () => ({ verdict: "fail", cases: [{ name: "owners", status: "fail", detail: "boom" }], logs: "" }),
+  });
+  assert.equal(generated, 2, "the first pass and the one regeneration the deadline refused");
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.equal(run.published(), 0, "a red run whose regeneration the deadline stopped opens no Issue: nothing was concluded about the app");
+});
+
+test("the deadline stopping the static-fix regeneration ends the run the same way", async () => {
+  let generated = 0;
+  const run = await runEndedByDeadline({
+    generate: async () => { generated++; if (generated > 1) throw deadlineExceeded("primary"); return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+    validate: async () => ({ ok: false, errors: ["TS2304: cannot find name"] }),
+  });
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.equal(run.out.decision.verdict, "infra-error");
+});
+
+test("the deadline stopping the reviewer ends the run as a time-budget infra-error, not as a reviewer that was unavailable", async () => {
+  const run = await runEndedByDeadline({ review: async () => { throw deadlineExceeded("reviewer"); } });
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+  assert.match(run.savedOutcomes[0]!.note ?? "", /reviewer turn in progress was stopped/);
+  assert.equal(run.published(), 0);
+});
+
+test("the deadline reaching the pre-generation grounding (the explorer's turn) ends the run: it is not ungrounded generation", async () => {
+  let generated = 0;
+  const run = await runEndedByDeadline({
+    ground: async () => { throw deadlineExceeded("explorer", "before-turn"); },
+    generate: async () => { generated++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+  });
+  assert.equal(generated, 0, "no generation runs on a run whose time is gone");
+  assert.equal(run.out.errorClass, ERROR_CLASS.TIME_BUDGET);
+});
+
+test("an agent failure that is not the deadline is still the integration error it was: it propagates and is not recorded as a time-budget end", async () => {
+  const { ports, savedOutcomes } = stubPorts({ generate: async () => { throw new Error("provider returned 500"); } });
+  await assert.rejects(new RunQaUseCase({ ...ports, config: baseConfig }).run(baseInput), /provider returned 500/);
+  assert.equal(savedOutcomes.length, 0);
+});
+
+/* Reviewer optimization: the deterministic DOM pre-check, the unchanged-spec rule and the bounded
+ * second round. These are the live run's R4 shapes: a spec that asserts "0 resultados" while the
+ * captured page shows 11 restaurants (the reviewer rejected it, correctly), and a legitimate spec
+ * that must still be approved. */
+
+const R4_DOM = [
+  "route /restaurants:",
+  "  heading: Restaurantes",
+  "  text: 11 restaurantes",
+  "  textbox: Buscar",
+  "  button: Buscar",
+  "  button: Fin de la lista",
+  "  test-ids on this route: restaurant-card, end-of-list",
+].join("\n");
+
+const R4_SPEC = `import { test, expect } from "../fixtures";
+
+test("the empty state is shown", async ({ page }) => {
+  await page.goto("/restaurants");
+  await expect(page.getByText("0 resultados")).toBeVisible();
+});
+`;
+
+const R4_LEGIT_SPEC = `import { test, expect } from "../fixtures";
+
+test("the list is shown", async ({ page }) => {
+  await page.goto("/restaurants");
+  await expect(page.getByText("11 restaurantes")).toBeVisible();
+});
+`;
+
+function reviewFixtures(): { specDir: string; mirrorDir: string; write: (file: string, text: string) => void; cleanup: () => void } {
+  const mirrorDir = mkdtempSync(join(tmpdir(), "qa-review-opt-"));
+  const specDir = join(mirrorDir, "e2e");
+  mkdirSync(specDir, { recursive: true });
+  return {
+    specDir,
+    mirrorDir,
+    write: (file, text) => {
+      mkdirSync(join(specDir, file, ".."), { recursive: true });
+      writeFileSync(join(specDir, file), text);
+    },
+    cleanup: () => rmSync(mirrorDir, { recursive: true, force: true }),
+  };
+}
+
+test("reviewer pre-check (R4): a spec asserting an empty state the captured DOM contradicts is rejected before any model round", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let modelReviews = 0;
+    const regenCorrections: (readonly string[] | undefined)[] = [];
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async () => { modelReviews++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; },
+    });
+    ports.generation.generate = async (_objectives, specDir, _signal, _diff, enrichment) => {
+      regenCorrections.push(enrichment?.reviewCorrections);
+      fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-precheck-r4" });
+
+    assert.equal(modelReviews, 0, "the deterministic contradiction needs no model round");
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "issue", "the pre-check rejection is a real rejection, never a pass");
+    const saved = savedOutcomes[0]!;
+    assert.equal(saved.gateSignals.reviewerApproved, false);
+    assert.match(saved.gateSignals.reviewerCorrections[0] ?? "", /^\[false-positive\]/);
+    assert.match(saved.gateSignals.reviewerCorrections[0] ?? "", /0 resultados/);
+    assert.deepEqual(regenCorrections.filter((c) => c?.length)[0], saved.gateSignals.reviewerCorrections, "the pre-check's corrections are the regeneration signal");
+    assert.equal(saved.gateSignals.reviewer?.preCheckRejects, 1);
+    assert.equal(saved.gateSignals.reviewer?.modelRounds, 0);
+    assert.equal(saved.gateSignals.reviewer?.rounds, 2, "round 1 exists but is resolved without a model");
+    assert.equal(saved.gateSignals.reviewer?.skippedRounds, 1, "the unchanged spec is not re-reviewed");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("reviewer pre-check: a legitimate spec whose assertions the captured DOM confirms reaches the model reviewer and is approved", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let modelReviews = 0;
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async () => {
+        modelReviews++;
+        return { approved: true, corrections: [], blockingCount: 0, rationale: "the list is asserted against the captured page", parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-precheck-legit" });
+
+    assert.equal(modelReviews, 1, "no contradiction found: the model reviewer decides");
+    assert.equal(out.decision.sideEffect, "pr");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewerApproved, true);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.preCheckRejects, 0);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.modelRounds, 1);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a generator that changes nothing after a rejection is not reviewed twice: the previous verdict stands", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let modelReviews = 0;
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async () => {
+        modelReviews++;
+        return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-unchanged-no-recheck" });
+
+    assert.equal(modelReviews, 1, "round 1 sees the same bytes and is not sent to the model");
+    assert.equal(out.decision.sideEffect, "issue");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.skippedRounds, 1);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.modelRounds, 1);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a regeneration that only adds comments does not buy a second review: the rejection stands", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let modelReviews = 0;
+    let generation = 0;
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async () => {
+        modelReviews++;
+        return { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? R4_LEGIT_SPEC : `// regenerated: addressed the reviewer\n${R4_LEGIT_SPEC}`);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-comment-only" });
+
+    assert.equal(modelReviews, 1, "a comment-only change is not a material change");
+    assert.equal(out.decision.sideEffect, "issue");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a materially changed spec is re-reviewed with the prior corrections and the spec change it must focus on", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const seen: Array<{ priorCorrections?: readonly string[]; specChanges?: string }> = [];
+    let generation = 0;
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+      review: async (_specDir, _cases, _diff, enrichment) => {
+        seen.push({ ...(enrichment?.priorCorrections ? { priorCorrections: enrichment.priorCorrections } : {}), ...(enrichment?.specChanges ? { specChanges: enrichment.specChanges } : {}) });
+        return seen.length === 1
+          ? { approved: false, corrections: ["[false-positive] the list is never asserted"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      generation++;
+      fixtures.write("flows/restaurants.spec.ts", generation === 1 ? R4_SPEC : R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-material-change" });
+
+    assert.equal(seen.length, 2);
+    assert.deepEqual(seen[1]!.priorCorrections, ["[false-positive] the list is never asserted"]);
+    assert.match(seen[1]!.specChanges ?? "", /- .*0 resultados/);
+    assert.match(seen[1]!.specChanges ?? "", /\+ .*11 restaurantes/);
+    assert.equal(out.decision.sideEffect, "pr");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+
+/* A telemetry port that keeps the counters a test asserts; every other method is the null object. */
+class RecordingTelemetry extends NoopTelemetry {
+  readonly counters: Array<{ name: string; attrs: Record<string, unknown> }> = [];
+  readonly spans: Array<{ name: string; attrs: Record<string, unknown> }> = [];
+  override counter(name?: string): RecordMeasurement {
+    return (_value, attrs) => { this.counters.push({ name: name ?? "", attrs: { ...(attrs ?? {}) } }); };
+  }
+  override startSpan(name: string, opts?: StartSpanOptions): SpanHandle {
+    const record = { name, attrs: { ...(opts?.attrs ?? {}) } };
+    this.spans.push(record);
+    return {
+      setAttrs: (attrs) => { Object.assign(record.attrs, attrs); },
+      addEvent: () => {},
+      recordError: () => {},
+      end: () => {},
+      context: () => ({ traceId: "0".repeat(32), spanId: "0".repeat(16) }),
+    };
+  }
+}
+
+test("each review round records a bounded qayaba.review metric: what decided it and how it read", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const telemetry = new RecordingTelemetry();
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({ verdict: "pass", cases: [{ name: "flows/restaurants.spec.ts", status: "pass" }], logs: "" }),
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, telemetry, config: baseConfig });
+
+    await useCase.run({ ...baseInput, runId: "review-metric" });
+
+    const rounds = telemetry.counters.filter((c) => c.name === "qayaba.review");
+    assert.equal(rounds.length, 2, "one measurement per review round, the pre-check and the unchanged one");
+    assert.equal(rounds[0]!.attrs["qayaba.review.decided_by"], "precheck");
+    assert.equal(rounds[0]!.attrs["qayaba.review.outcome"], "rejected");
+    assert.equal(rounds[0]!.attrs["qayaba.review.correction_class"], "false-positive");
+    assert.equal(rounds[1]!.attrs["qayaba.review.decided_by"], "unchanged");
+    assert.equal(rounds[1]!.attrs["qayaba.review.correction_class"], "false-positive");
+    assert.equal(rounds[0]!.attrs["qayaba.app"], baseInput.app);
+
+    const reviewPhase = telemetry.spans.find((s) => s.name === "qayaba.phase.review");
+    assert.ok(reviewPhase, "the review phase span is recorded");
+    assert.equal(reviewPhase.attrs["qayaba.phase.outcome"], "rejected", "the phase span carries the last review outcome");
+    assert.equal(reviewPhase.attrs["qayaba.review.rounds"], 2, "the phase span carries the review round count");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the reviewer judges only the specs this run delivered; the existing suite is context", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const seen: Array<{ cases: string[]; existing?: readonly string[] }> = [];
+    const { ports, savedOutcomes } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      captureReviewDom: async () => R4_DOM,
+      execute: async () => ({
+        verdict: "pass",
+        cases: [
+          { name: "flows/auth.spec.ts", status: "pass" },
+          { name: "flows/restaurants.spec.ts", status: "pass" },
+        ],
+        logs: "",
+      }),
+      review: async (_specDir, cases, _diff, enrichment) => {
+        seen.push({
+          cases: cases.map((c) => c.file ?? c.name),
+          ...(enrichment?.existingSpecFiles ? { existing: enrichment.existingSpecFiles } : {}),
+        });
+        return { approved: true, corrections: [], blockingCount: 0, rationale: "the delivered spec targets the rename", parsed: true };
+      },
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+    const out = await useCase.run({ ...baseInput, runId: "review-scope-delivered" });
+
+    assert.equal(out.decision.sideEffect, "pr", "the correct delivered spec is approved; the existing auth spec is not a target");
+    assert.equal(seen.length, 1);
+    assert.deepEqual(seen[0]!.cases, ["flows/restaurants.spec.ts"], "only the delivered spec is judged");
+    assert.deepEqual(seen[0]!.existing, ["flows/auth.spec.ts"], "the existing suite is context, not a review target");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewerApproved, true);
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewer?.correctionClass, "none");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the reviewer decision span carries the delivered targets, the existing suite, the correction class and the bounded corrections", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    const h = new RecordingTelemetry();
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({
+        verdict: "pass",
+        cases: [
+          { name: "flows/auth.spec.ts", status: "pass" },
+          { name: "flows/restaurants.spec.ts", status: "pass" },
+        ],
+        logs: "",
+      }),
+      review: async () => ({
+        approved: false,
+        corrections: ["[wrong-objective] flows/restaurants.spec.ts: assert the rename, not the list"],
+        blockingCount: 1,
+        rationale: "the delivered spec does not target the rename",
+        parsed: true,
+      }),
+    });
+    ports.generation.generate = async (_objectives, _specDir) => {
+      fixtures.write("flows/restaurants.spec.ts", R4_LEGIT_SPEC);
+      return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
+    };
+    const useCase = new RunQaUseCase({ ...ports, telemetry: h, config: baseConfig });
+
+    await useCase.run({ ...baseInput, runId: "review-decision-span" });
+
+    const span = h.spans.find((s) => s.name === "qayaba.review.decision" && s.attrs["qayaba.review.decided_by"] === "model");
+    assert.ok(span, "the model round is recorded");
+    assert.equal(span.attrs["qayaba.review.outcome"], "rejected");
+    assert.equal(span.attrs["qayaba.review.decided_by"], "model");
+    assert.equal(span.attrs["qayaba.review.correction_class"], "wrong-objective");
+    assert.deepEqual(span.attrs["qayaba.review.targets"], ["flows/restaurants.spec.ts"]);
+    assert.deepEqual(span.attrs["qayaba.review.existing_specs"], ["flows/auth.spec.ts"]);
+    assert.deepEqual(span.attrs["qayaba.review.corrections"], ["[wrong-objective] flows/restaurants.spec.ts: assert the rename, not the list"]);
+    assert.match(String(span.attrs["qayaba.review.rationale"]), /does not target the rename/);
+    assert.equal(span.attrs["qayaba.review.blocking"], 1);
+    const metric = h.counters.find((m) => m.name === "qayaba.review" && m.attrs["qayaba.review.decided_by"] === "model");
+    assert.equal(metric?.attrs["qayaba.review.correction_class"], "wrong-objective");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("the fix_loop phase span carries its outcome, the failing counts and the spec-set digest", async () => {
+  const mirrorDir = mkdtempSync(join(tmpdir(), "qa-fixloop-span-"));
+  const specDir = join(mirrorDir, "e2e");
+  mkdirSync(join(specDir, "flows"), { recursive: true });
+  writeFileSync(join(specDir, "flows", "checkout.spec.ts"), "import { test } from '../fixtures';\ntest('checkout', async ({ page }) => {});\n");
+  try {
+    const telemetry = new RecordingTelemetry();
+    let executeCallCount = 0;
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir, mirrorDir }),
+      execute: async () => {
+        executeCallCount++;
+        return executeCallCount === 1
+          ? { verdict: "fail" as const, cases: [{ name: "checkout", status: "fail" as const, file: "flows/checkout.spec.ts", detail: "getByRole resolved to 0 elements" }], logs: "x" }
+          : { verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const, file: "flows/checkout.spec.ts" }], logs: "" };
+      },
+    });
+    const useCase = new RunQaUseCase({ ...ports, telemetry, config: baseConfig });
+
+    await useCase.run({ ...baseInput, runId: "fixloop-span" });
+
+    const span = telemetry.spans.find((s) => s.name === "qayaba.phase.fix_loop");
+    assert.ok(span, "the fix_loop phase span is recorded");
+    assert.equal(span.attrs["qayaba.phase.outcome"], "pass", "the phase span carries the final verdict");
+    assert.equal(span.attrs["qayaba.fix_loop.rounds"], 1);
+    assert.equal(span.attrs["qayaba.fix_loop.failing_before"], 1);
+    assert.equal(span.attrs["qayaba.fix_loop.failing_after"], 0);
+    assert.equal(span.attrs["qayaba.fix_loop.absent_selectors"], 0);
+    assert.equal(typeof span.attrs["qayaba.fix_loop.spec_sha_before"], "string", "the spec-set digest is readable from the temp files");
+    assert.equal(typeof span.attrs["qayaba.fix_loop.spec_sha_after"], "string");
+    assert.equal(span.attrs["qayaba.fix_loop.specs_changed"], false, "the loop did not rewrite the failing spec");
+  } finally {
+    rmSync(mirrorDir, { recursive: true, force: true });
+  }
+});
+/* The intent lock: the primary pass fixes each spec's contract, and a later regeneration that weakens it
+   is recorded (signal) or rejected with its pre-turn bytes (enforce). The baseline never crosses runs. */
+function intentWorkspace(bodies: readonly string[]): { prepare: WorkspacePort["prepare"]; generate: GenerationPort["generate"]; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "qa-intent-"));
+  const specDir = join(dir, "e2e");
+  let calls = 0;
+  return {
+    prepare: async () => ({ specDir, mirrorDir: dir }),
+    generate: async () => {
+      const body = bodies[Math.min(calls, bodies.length - 1)]!;
+      calls += 1;
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "a.spec.ts"), body);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+const INTENT_PRIMARY = `test("checkout", async ({ page }) => {
+  await expect(page.getByText("Pay now")).toHaveText("Pay now");
+});`;
+
+const INTENT_WEAKENED = `test("checkout", async ({ page }) => {
+  await expect(page.getByText("Pay now")).toBeVisible();
+});`;
+
+test("intent lock in signal mode accepts a weakened regeneration and records the would-be rejection", async () => {
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED]);
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }),
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "signal", opacityFlagRatio: 0.5 } },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "intent-signal-records" });
+
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.gateSignals.intent?.wouldReject, 1, "a weakened matcher in signal mode is recorded, not rejected");
+    assert.equal(out.gateSignals.intent?.violations, 1);
+    assert.equal(out.decision.sideEffect, "issue", "the coverage policy still holds the PR; the intent lock did not decide it");
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("intent lock in enforce mode rejects the weakened regeneration and restores the primary bytes", async () => {
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED]);
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }),
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "intent-enforce-rejects" });
+
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.gateSignals.intent?.violations, 1);
+    assert.equal(out.gateSignals.intent?.wouldReject, 0, "enforce rejects instead of recording a would-be rejection");
+    assert.equal(
+      out.gateSignals.integrity?.rejected,
+      1,
+      "the rejected regeneration went through the one acceptance path, which restored its bytes",
+    );
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("a new run is never bound by a previous run's contract", async () => {
+  /* Run 1's primary is a strong matcher; run 2's primary is a presence matcher and its regeneration repeats
+     those same bytes. Compared against run 2's own baseline that is no delta; against run 1's it would be a
+     weakened matcher, which enforce would reject (and the coverage gate would then hold the PR). */
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED, INTENT_WEAKENED]);
+  try {
+    let measureCalls = 0;
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCalls += 1;
+        return measureCalls <= 2
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.95 };
+      },
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+    });
+
+    await useCase.run({ ...baseInput, runId: "intent-run-one" });
+    const second = await useCase.run({ ...baseInput, runId: "intent-run-two" });
+
+    assert.equal(second.decision.verdict, "pass");
+    assert.equal(second.decision.sideEffect, "pr", "run 2's regeneration is judged against run 2's own primary pass, so nothing is rejected");
+  } finally {
+    real.cleanup();
+  }
+});
+
+/*
+ * B6: the master switch grants the A slice. An app that configures the intent lock without granting the
+ * switch keeps the pre-change flow — the lock is not read at all, not even in signal mode.
+ */
+test("with the master switch off, the intent lock is off whatever the app configured", async () => {
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED]);
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }),
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: false, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "intent-switch-off" });
+
+    assert.equal(out.gateSignals.intent, undefined, "the lock is never read while the switch is off");
+    assert.equal(out.gateSignals.integrity?.rejected ?? 0, 0, "no regeneration was rejected against a contract");
+  } finally {
+    real.cleanup();
+  }
+});
+
+/*
+ * A-2b: a correction turn whose bytes the intent lock rejects is sent back once with the violations as
+ * facts, inside the same review round. The generator learns the bound the run holds it to without a
+ * second reviewer round, and the round stays bounded by its own budget.
+ */
+/* The primary's own assertion stays first, so the clause it holds keeps its id: what this turn adds is an
+   assertion the contract never held, never a weakening of one it did. */
+const INTENT_STRONGER = `test("checkout", async ({ page }) => {
+  await expect(page.getByText("Pay now")).toHaveText("Pay now");
+  await expect(page.getByText("Pay now")).toBeVisible();
+});`;
+
+test("a correction turn rejected by the contract earns one more turn carrying the violations", async () => {
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED, INTENT_STRONGER]);
+  try {
+    const enrichments: Array<readonly { rule: string }[] | undefined> = [];
+    let reviews = 0;
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      execute: async () => ({
+        verdict: "pass" as const,
+        cases: [{ name: "checkout", file: "a.spec.ts", status: "pass" as const }],
+        logs: "",
+      }),
+      review: async () => {
+        reviews += 1;
+        return reviews === 1
+          ? {
+              approved: false,
+              corrections: ["[wrong-objective] a.spec.ts: the checkout total is never asserted"],
+              severities: ["blocking" as const],
+              citations: [{ kind: "execution" as const, ref: "a.spec.ts" }],
+              blockingCount: 1,
+              parsed: true,
+            }
+          : { approved: true, corrections: [], blockingCount: 0, rationale: "the discount is now asserted", parsed: true };
+      },
+    });
+    const scripted = real.generate;
+    ports.generation.generate = async (objectives, specDir, signal, diff, enrichment) => {
+      enrichments.push(enrichment?.contractFeedback as readonly { rule: string }[] | undefined);
+      return scripted(objectives, specDir, signal, diff, enrichment);
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "intent-contract-feedback" });
+
+    assert.equal(enrichments.length, 3, "the primary pass, the rejected correction and the one turn that answers it");
+    assert.equal(enrichments[1], undefined, "the first correction turn has nothing to answer");
+    assert.deepEqual(enrichments[2]?.map((entry) => entry.rule), ["weakened-matcher"], "the retry is handed the rule the contract found");
+    assert.equal(out.gateSignals.integrity?.rejected, 1, "the weakened turn still went through acceptance and was rejected");
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "pr", "the turn that answered the contract publishes");
+  } finally {
+    real.cleanup();
+  }
+});
+
+/* The findings filter: a reviewer rejection only stands on evidence the orchestrator can verify. */
+function citedReview(citation: { kind: "contract" | "execution" | "dom"; ref: string } | undefined) {
+  return async () => ({
+    approved: false,
+    corrections: ["[wrong-objective] the stock auth spec is not part of this change"],
+    severities: ["blocking" as const],
+    citations: [citation],
+    blockingCount: 1,
+    parsed: true,
+  });
+}
+
+function findingFixtures() {
+  const fixtures = reviewFixtures();
+  let generation = 0;
+  return {
+    fixtures,
+    generate: async () => {
+      generation++;
+      fixtures.write("flows/checkout.spec.ts", `// generation ${generation}\n`);
+      return scriptedGeneration({ specs: ["flows/checkout.spec.ts"], approved: true });
+    },
+  };
+}
+
+test("with the integrity switch on, a blocking finding that cites a spec outside the run cannot block", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
+    });
+    ports.generation.generate = generate;
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "findings-out-of-scope-dropped" });
+
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "pr", "an unverifiable blocking finding is advisory, so the run still publishes");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("with the switch off, the same finding keeps its pre-change behaviour and the run does not publish", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      review: citedReview({ kind: "contract", ref: "specs/auth.spec.ts#clause-1" }),
+    });
+    ports.generation.generate = generate;
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: false },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "findings-switch-off" });
+
+    assert.notEqual(out.decision.sideEffect, "pr", "the filter is gated by the master switch");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a verified blocking finding on a spec this run delivered still rejects", async () => {
+  const { fixtures, generate } = findingFixtures();
+  try {
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      execute: async () => ({
+        verdict: "pass" as const,
+        cases: [{ name: "checkout", file: "flows/checkout.spec.ts", status: "pass" as const }],
+        logs: "",
+      }),
+      review: citedReview({ kind: "execution", ref: "flows/checkout.spec.ts" }),
+    });
+    ports.generation.generate = generate;
+    const useCase = new RunQaUseCase({
+      ...ports,
+      config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "findings-verified-blocks" });
+
+    assert.notEqual(out.decision.sideEffect, "pr", "evidence on a delivered spec keeps the rejection standing");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+/*
+ * A finding the generator refuses to correct. The orchestrator checks the basis the generator names: a
+ * case that ran green, or a clause the current bytes still hold. Verified, the finding is withdrawn and
+ * the reviewed bytes stand; unverified, the run cannot settle the judgment and says so instead of
+ * opening a PR or an Issue on a verdict nobody can defend.
+ */
+const DISPUTED_FINDING = "[wrong-objective] checkout.spec.ts: the discount is never asserted";
+
+function disputedFinding(citation: { kind: "contract" | "execution" | "dom"; ref: string }) {
+  return async () => ({
+    approved: false,
+    corrections: [DISPUTED_FINDING],
+    severities: ["blocking" as const],
+    citations: [citation],
+    blockingCount: 1,
+    parsed: true,
+  });
+}
+
+/* A primary pass that delivers the spec, then a rebuttal turn that refuses the finding it was handed. */
+function rebuttingGeneration(rebuttal: (correction: string) => object, specsAtPrimary = true) {
+  const fixtures = reviewFixtures();
+  let turn = 0;
+  return {
+    fixtures,
+    generate: async () => {
+      turn++;
+      if (turn === 1) {
+        if (specsAtPrimary) fixtures.write("flows/checkout.spec.ts", "test('checkout', async () => {});\n");
+        return scriptedGeneration({ specs: specsAtPrimary ? ["flows/checkout.spec.ts"] : [], approved: true });
+      }
+      return scriptedGeneration({ specs: [], approved: true, rebuttals: [rebuttal(DISPUTED_FINDING)] as never });
+    },
+  };
+}
+
+function disputedPorts(fixtures: ReturnType<typeof reviewFixtures>, generate: () => Promise<ReturnType<typeof scriptedGeneration>>, review: ReviewPort["review"]) {
+  const { ports, savedOutcomes, foldedOutcomes } = stubPorts({
+    prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+    execute: async () => ({
+      verdict: "pass" as const,
+      cases: [{ name: "checkout", file: "flows/checkout.spec.ts", status: "pass" as const }],
+      logs: "",
+    }),
+    review,
+  });
+  ports.generation.generate = generate as GenerationPort["generate"];
+  return { ports, savedOutcomes, foldedOutcomes };
+}
+
+test("a verified blocking finding whose rebuttal is not verified ends the run as E-REVIEW-DISPUTED — no PR, no Issue, nothing learned", async () => {
+  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/absent.spec.ts", reason: "the case passed" }));
+  try {
+    const { ports, savedOutcomes, foldedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-disputed" });
+
+    assert.equal(out.decision.verdict, "infra-error");
+    assert.equal(out.decision.sideEffect, "none", "fail-closed: no PR and no Issue");
+    assert.equal(out.errorClass, ERROR_CLASS.REVIEW_DISPUTED);
+    assert.equal(savedOutcomes.length, 1, "the dispute is recorded on the run");
+    assert.equal(savedOutcomes[0]!.errorClass, ERROR_CLASS.REVIEW_DISPUTED);
+    assert.match(savedOutcomes[0]!.note ?? "", /could not settle/);
+    assert.match(savedOutcomes[0]!.note ?? "", /the discount is never asserted/, "the record names the finding that stayed open");
+    assert.deepEqual(foldedOutcomes, [], "a dispute teaches nothing");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a rebuttal the orchestrator can verify withdraws its finding and the reviewed bytes are approved", async () => {
+  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/checkout.spec.ts", reason: "the case ran green on these bytes" }));
+  try {
+    const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-rebuttal-verified" });
+
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "pr", "nothing blocking stands: the run publishes");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewerApproved, true);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a generator that refuses a finding and offers no basis is a plain rejection, not a dispute", async () => {
+  const { fixtures, generate } = rebuttingGeneration(() => ({ finding: "", basis: "execution", ref: "", reason: "" }));
+  try {
+    const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-no-rebuttal" });
+
+    assert.notEqual(out.decision.sideEffect, "pr");
+    assert.notEqual(out.errorClass, ERROR_CLASS.REVIEW_DISPUTED, "no rebuttal arrived: the existing rejection path stands");
+    assert.equal(savedOutcomes.length, 1);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("with the integrity switch off, a rebuttal is not read: the rejection path is unchanged", async () => {
+  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/checkout.spec.ts", reason: "the case ran green" }));
+  try {
+    const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: false } }).run({ ...baseInput, runId: "review-rebuttal-switch-off" });
+
+    assert.notEqual(out.decision.sideEffect, "pr");
+    assert.notEqual(out.errorClass, ERROR_CLASS.REVIEW_DISPUTED, "the D slice is gated by the master switch");
+    assert.equal(savedOutcomes.length, 1);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+/*
+ * A correction may change a file the specs import (the project's fixtures, a helper) without touching a
+ * spec. Re-executing only the specs whose bytes changed would prove nothing about the ones that read it,
+ * so an acceptance that sees a support file change runs the whole suite; a correction that stays inside
+ * the specs keeps the cheap path.
+ */
+function supportChangeWorkspace(): { prepare: WorkspacePort["prepare"]; write: (file: string, text: string) => void; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "qa-support-"));
+  const specDir = join(dir, "e2e");
+  mkdirSync(specDir, { recursive: true });
+  return {
+    prepare: async () => ({ specDir, mirrorDir: dir }),
+    write: (file, text) => {
+      mkdirSync(join(specDir, file, ".."), { recursive: true });
+      writeFileSync(join(specDir, file), text);
+    },
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+function correctiveReview() {
+  let round = 0;
+  return async () => {
+    round += 1;
+    return round === 1
+      ? {
+          approved: false,
+          corrections: ["[wrong-objective] a.spec.ts: the total is never asserted"],
+          severities: ["blocking" as const],
+          citations: [{ kind: "execution" as const, ref: "a.spec.ts" }],
+          blockingCount: 1,
+          parsed: true,
+        }
+      : { approved: true, corrections: [], blockingCount: 0, rationale: "the total is asserted", parsed: true };
+  };
+}
+
+for (const [label, change, expected] of [
+  ["a support file the specs import", "fixtures.ts", ["a.spec.ts", "b.spec.ts"]],
+  ["the delivered spec itself", "a.spec.ts", ["a.spec.ts"]],
+] as const) {
+  test(`a correction that changes ${label} re-executes ${expected.length === 2 ? "the whole suite" : "only the changed spec"}`, async () => {
+    const ws = supportChangeWorkspace();
+    try {
+      ws.write("fixtures.ts", "export const helper = 1;\n");
+      ws.write("b.spec.ts", "test('b', async () => {});\n");
+      const executed: string[][] = [];
+      let turn = 0;
+      const { ports } = stubPorts({
+        prepare: ws.prepare,
+        execute: async (_dir, opts) => {
+          const files = (opts as { specFiles?: string[] }).specFiles;
+          if (files) executed.push(files);
+          return { verdict: "pass" as const, cases: [{ name: "a", file: "a.spec.ts", status: "pass" as const }], logs: "" };
+        },
+        review: correctiveReview(),
+      });
+      ports.generation.generate = async () => {
+        turn += 1;
+        if (turn === 1) {
+          ws.write("a.spec.ts", "test('a', async () => {});\n");
+          return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+        }
+        ws.write(change, change === "fixtures.ts" ? "export const helper = 2;\n" : "test('a', async () => { expect(1).toBe(1); });\n");
+        return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+      };
+      const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: true, reviewLoopIntegrity: true } });
+
+      await useCase.run({ ...baseInput, runId: `support-change-${change}` });
+
+      const acceptance = executed.find((files) => files.includes("a.spec.ts"));
+      assert.deepEqual([...(acceptance ?? [])].sort(), [...expected].sort(), "the acceptance executes what the change can affect");
+    } finally {
+      ws.cleanup();
+    }
+  });
+}
+
+/* The kind of a declared no-op is recorded with the run, and a no-op that calls the change unobservable while the pack's changed-value lines show more nodes than unchanged lines is logged. Observe-only: the verdict stays skipped. */
+test("a declared no-op records its kind in the gate signals of the run it skips", async () => {
+  for (const kind of [NOOP_KIND.NOT_WORTH, NOOP_KIND.UNOBSERVABLE, NOOP_KIND.UNSPECIFIED]) {
+    const { ports, savedOutcomes } = stubPorts({
+      generate: async () => ({ ...scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "no rows on DEV" }), noopKind: kind }),
+    });
+    const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: `noop-kind-${kind}` });
+    assert.equal(out.outcome?.verdict, "skipped");
+    assert.deepEqual(savedOutcomes.at(-1)?.gateSignals.noop, { kind });
+  }
+});
+
+test("a run that is no declared no-op records no no-op signal", async () => {
+  const { ports, savedOutcomes } = stubPorts({});
+  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "no-noop-signal" });
+  assert.equal("noop" in (savedOutcomes.at(-1)?.gateSignals ?? {}), false);
+});
+
+test("an unobservable no-op declared while the pack shows more nodes than unchanged lines is logged as a warning and still skips", async () => {
+  const { ports } = stubPorts({
+    ground: async () => ({ contextPack: "## Context Pack", changedValuesWithMoreNodes: ["Cambiar filtros"] }),
+    generate: async () => ({ ...scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "no rows on DEV" }), noopKind: NOOP_KIND.UNOBSERVABLE }),
+  });
+  const { observer, events } = fakeObserver();
+  const out = await new RunQaUseCase({ ...ports, observer, config: baseConfig }).run({ ...baseInput, runId: "noop-contradicted" });
+  assert.equal(out.outcome?.verdict, "skipped");
+  const warnings = events.filter((e) => e.type === "log.line" && e.level === "warn");
+  assert.equal(warnings.length, 1);
+  assert.match(String((warnings[0] as { text: string }).text), /unobservable/);
+});
+
+test("a no-op the lead declares in its plan is recorded with the kind unspecified: a plan names no kind", async () => {
+  const { ports, savedOutcomes } = stubPorts({});
+  const leadSidekicks = { coordinate: async () => ({ action: "noop" as const, reason: "nothing worth a test", signal: { mode: COORDINATION_MODE.LEAD_SIDEKICKS, plan: "noop", flows: 0, delivered: 0, incomplete: 0, takeover: false } }) };
+  const out = await new RunQaUseCase({
+    ...ports,
+    coordinationSettings: { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS },
+    leadSidekicks,
+    config: baseConfig,
+  }).run({ ...baseInput, runId: "plan-noop-kind" });
+  assert.equal(out.outcome?.verdict, "skipped");
+  assert.deepEqual(savedOutcomes.at(-1)?.gateSignals.noop, { kind: NOOP_KIND.UNSPECIFIED });
+});
+
+test("no warning is logged for an unobservable no-op when the pack showed no such line, nor for another kind", async () => {
+  for (const [kind, moreNodes] of [[NOOP_KIND.UNOBSERVABLE, []], [NOOP_KIND.NOT_WORTH, ["Cambiar filtros"]]] as const) {
+    const { ports } = stubPorts({
+      ground: async () => ({ contextPack: "## Context Pack", changedValuesWithMoreNodes: [...moreNodes] }),
+      generate: async () => ({ ...scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "reason" }), noopKind: kind }),
+    });
+    const { observer, events } = fakeObserver();
+    await new RunQaUseCase({ ...ports, observer, config: baseConfig }).run({ ...baseInput, runId: `noop-quiet-${kind}-${moreNodes.length}` });
+    assert.equal(events.filter((e) => e.type === "log.line" && e.level === "warn").length, 0, `${kind} ${moreNodes.length}`);
+  }
 });

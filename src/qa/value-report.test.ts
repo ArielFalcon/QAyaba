@@ -77,7 +77,7 @@ const baseReport: RunReportInput = {
 };
 
 test("run report: an infra-error run is worded by the class that closed it, never as a DEV outage", () => {
-  for (const errorClass of ["E-STEP-BUDGET", "E-NO-DECISION", "E-INFRA"] as const) {
+  for (const errorClass of ["E-STEP-BUDGET", "E-TIME-BUDGET", "E-NO-DECISION", "E-INFRA"] as const) {
     const out = renderRunReport({ ...baseReport, verdict: "infra-error", passed: 0, failed: 0, specCount: 0, specNames: [], errorClass });
     assert.ok(out.includes(infraErrorGloss(errorClass)), errorClass);
     assert.doesNotMatch(out, /\bDEV\b/, errorClass);

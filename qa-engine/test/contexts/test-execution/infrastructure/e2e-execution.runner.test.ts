@@ -8,10 +8,12 @@
  */
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import {
   runE2E,
   type E2eExecuteDeps,
@@ -19,6 +21,7 @@ import {
   streamStatusToCase,
   allFailuresAreRunnerInfra,
   playwrightArgs,
+  specListContent,
   e2eTimeoutMs,
   DEFAULT_E2E_TIMEOUT_MS,
   matchFailureDumps,
@@ -31,7 +34,9 @@ import {
   type StreamEvent,
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
+import { sharedTestExec } from "../../../support/exec-sandbox-harness.ts";
 import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
+import { newSandboxReport, withExecScope, type RunScope } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 test("allFailuresAreRunnerInfra: a browser-launch failure is infra (runner fault), not a test failure", () => {
@@ -392,7 +397,7 @@ async function suiteArgv(opts: { project?: string }): Promise<string[]> {
   let argv: string[] = [];
   const deps: E2eExecuteDeps = {
     runSuite: async (args) => {
-      argv = playwrightArgs("/tmp/rep.cjs", args.project, args.specFiles);
+      argv = playwrightArgs("/tmp/rep.cjs", args.project);
       return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
     },
   };
@@ -647,49 +652,31 @@ test("matchFailureDumps: single-project case name (file leads) still matches the
   assert.equal(matchFailureDumps(fileFirst, dumps)!.yaml, "- button \"Submit\"");
 });
 
-test("playwrightArgs: appends valid spec file basenames as positional args", () => {
-  const args = playwrightArgs("reporter.cjs", undefined, ["login.spec.ts", "checkout.spec.ts"]);
-  assert.ok(args.includes("login.spec.ts"), `expected login.spec.ts in args: ${args.join(" ")}`);
-  assert.ok(args.includes("checkout.spec.ts"), `expected checkout.spec.ts in args: ${args.join(" ")}`);
-  /* The core args must still be present */
-  assert.ok(args.includes("playwright"), "must include 'playwright'");
-  assert.ok(args.includes("test"), "must include 'test'");
-  assert.ok(args.some((a) => a.startsWith("--reporter=")), "must include --reporter arg");
+test("playwrightArgs: a test list is handed over as the one option that selects exact files, never as a positional pattern", () => {
+  const args = playwrightArgs("reporter.cjs", undefined, "/work/scripts/abc-spec-list.txt");
+  assert.ok(args.includes("--test-list=/work/scripts/abc-spec-list.txt"), `expected the list option in args: ${args.join(" ")}`);
+  /* Playwright reads a bare argument as an unanchored, case-insensitive regular expression over the file's whole path. */
+  assert.deepEqual(args.filter((a) => !a.startsWith("--")), ["playwright", "test"]);
 });
 
-test("playwrightArgs: empty specFiles has the same output as no specFiles (full suite)", () => {
-  const noSpec = playwrightArgs("reporter.cjs");
-  const emptySpec = playwrightArgs("reporter.cjs", undefined, []);
-  assert.deepEqual(noSpec, emptySpec, "empty specFiles must not append any extra args");
+test("playwrightArgs: no test list has the same output as a full-suite run", () => {
+  assert.deepEqual(playwrightArgs("reporter.cjs"), playwrightArgs("reporter.cjs", undefined, undefined));
+  assert.equal(playwrightArgs("reporter.cjs").some((a) => a.startsWith("--test-list")), false);
 });
 
-test("playwrightArgs: rejects a specFile with path traversal (../)", () => {
-  assert.throws(
-    () => playwrightArgs("reporter.cjs", undefined, ["../../../etc/passwd.spec.ts"]),
-    /invalid|spec file|path/i,
-    "path traversal in spec file name must throw",
-  );
+test("playwrightArgs: a test list path that could pass for an option is refused", () => {
+  assert.throws(() => playwrightArgs("reporter.cjs", undefined, "--workers=99"), /invalid test list/);
 });
 
-test("playwrightArgs: rejects a specFile with a leading dash", () => {
-  assert.throws(
-    () => playwrightArgs("reporter.cjs", undefined, ["-delete-everything.spec.ts"]),
-    /invalid|spec file/i,
-    "leading dash in spec file name must throw",
-  );
+test("specListContent: names each spec on a line of its own, whole and relative to the suite", () => {
+  assert.equal(specListContent(["flows/login.spec.ts", "a.spec.ts"]), "flows/login.spec.ts\na.spec.ts\n");
+  assert.equal(specListContent([".qa-probe/try.spec.ts"]), ".qa-probe/try.spec.ts\n");
 });
 
-test("playwrightArgs: rejects a specFile that does not end with .spec.ts", () => {
-  assert.throws(
-    () => playwrightArgs("reporter.cjs", undefined, ["login.spec.js"]),
-    /invalid|spec file/i,
-    "non-.spec.ts extension must throw",
-  );
-});
-
-test("playwrightArgs: accepts spec files with subdirectory paths (flows/login.spec.ts)", () => {
-  const args = playwrightArgs("reporter.cjs", undefined, ["flows/login.spec.ts"]);
-  assert.ok(args.includes("flows/login.spec.ts"), `subdirectory spec should be allowed: ${args.join(" ")}`);
+test("specListContent: refuses a path that is not one plain relative spec file", () => {
+  for (const bad of ["../../../etc/passwd.spec.ts", "flows/../x.spec.ts", "-delete-everything.spec.ts", "login.spec.js", "..spec.ts", ".spec.ts", "flows/..spec.ts", "./a.spec.ts", "a//b.spec.ts", "/abs/a.spec.ts", "a b.spec.ts", "a\nb.spec.ts", "a>b.spec.ts", "a:12.spec.ts", "", "flows/./a.spec.ts"]) {
+    assert.throws(() => specListContent([bad]), /invalid spec file/, JSON.stringify(bad));
+  }
 });
 
 /* ── Harvest fold — finalUrl + httpStatus onto QaCase ─────────────────
@@ -882,6 +869,93 @@ test("readFailureDumps parses runtimeErrors defensively (garbage/malformed entri
   }
 });
 
+/* ── Harvest fold — networkErrors + networkClass onto QaCase ─────────────
+   The dump's networkErrors fold onto EVERY case (pass included — a pass case's dump exists only
+   when the fixture wrote one), the URL is reduced to origin+pathname (a query can carry a secret),
+   the count is capped, and networkClass is derived from the run's egress report, never reported
+   by the browser.
+ */
+
+const netCase = { file: "owners.spec.ts", title: "owner registration › create owner" };
+
+function scopeWithDenied(denied: string[]): RunScope {
+  const report = newSandboxReport();
+  report.denied = denied;
+  return { runId: "test-run", workDir: tmpdir(), egress: { dev: [], install: [] }, report };
+}
+
+async function runWithNetworkDump(opts: { status: "pass" | "fail"; networkErrors: unknown; denied?: string[] }): Promise<{ cases: QaCase[] }> {
+  const hash = createHash("sha1").update(`${netCase.file}/${netCase.title}`).digest("hex").slice(0, 12);
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => {
+      if (args.failureCaptureDir) {
+        writeFileSync(
+          join(args.failureCaptureDir, `desktop__${hash}__0.json`),
+          JSON.stringify({ project: "desktop", file: netCase.file, title: netCase.title, retry: 0, networkErrors: opts.networkErrors }),
+        );
+      }
+      return {
+        report: {
+          suites: [{
+            title: netCase.file,
+            specs: [{
+              title: netCase.title,
+              ok: opts.status === "pass",
+              tests: [{ results: [{ status: opts.status === "pass" ? "passed" : "failed", ...(opts.status === "fail" ? { error: { message: "boom" } } : {}) }] }],
+            }],
+          }],
+        },
+        logs: opts.status,
+        ran: true,
+      };
+    },
+  };
+  const run = await withExecScope(scopeWithDenied(opts.denied ?? []), () =>
+    runE2E("/e2e", { baseUrl: "https://dev", namespace: "desktop" }, deps));
+  return { cases: run.cases as QaCase[] };
+}
+
+test("harvest folds dump.networkErrors onto a PASSING case, strips the query string, and caps the count", async () => {
+  const entries = Array.from({ length: 12 }, (_, i) => ({
+    url: i === 0 ? "https://api.example.com/orders?token=secret" : `https://api.example.com/orders/${i}`,
+    status: 404,
+  }));
+  const { cases } = await runWithNetworkDump({ status: "pass", networkErrors: entries });
+  const passed = cases.find((c) => c.status === "pass");
+  assert.ok(passed, "the passing case must be present");
+  const ne = passed.networkErrors;
+  assert.ok(ne, "networkErrors must fold onto a passing case");
+  assert.equal(ne.length, 10, "networkErrors must be capped at 10");
+  assert.ok(ne.every((e) => !e.url.includes("?") && !e.url.includes("token")), "a query string (and its secret) must never appear");
+  assert.equal(ne[0]!.url, "https://api.example.com/orders", "the URL is reduced to origin+pathname");
+  assert.equal(passed.networkClass, "other", "no denied host / 5xx / DNS shape -> other");
+});
+
+test("networkClass is egress when a network-error host is in the run's denied list", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "fail",
+    networkErrors: [{ url: "https://api.example.com/orders", status: 504 }],
+    denied: ["api.example.com"],
+  });
+  assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "egress", "a denied host classifies egress before a 5xx");
+});
+
+test("networkClass is backend for a 504 with no denied host", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "fail",
+    networkErrors: [{ url: "https://api.example.com/orders", status: 504 }],
+  });
+  assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "backend");
+});
+
+test("networkClass is dns for net::ERR_NAME_NOT_RESOLVED", async () => {
+  const { cases } = await runWithNetworkDump({
+    status: "fail",
+    networkErrors: [{ url: "https://api.example.com/orders", errorText: "net::ERR_NAME_NOT_RESOLVED" }],
+  });
+  assert.equal(cases.find((c) => c.status === "fail")?.networkClass, "dns");
+});
+
 /* ── authDir is REQUIRED in the execute/cleanup deps builders — no silent fallback to `dir` ──
    Both createDefaultE2eCleanupDeps and createDefaultE2eExecuteDeps used to accept an OPTIONAL
    authDir and fall back to `dir` (the watched-repo mirror, agent-visible) when omitted — the same
@@ -891,23 +965,23 @@ test("readFailureDumps parses runtimeErrors defensively (garbage/malformed entri
    an immediate, loud throw instead of a silent fallback to `dir`.
  */
 
-test("createDefaultE2eCleanupDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+test("createDefaultE2eCleanupDeps requires an execution launcher — omitting it throws immediately (fail-closed, no silent run of agent code as the orchestrator)", () => {
   assert.throws(
     () =>
-      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      // @ts-expect-error the launcher is required; omitting it must be a compile error for a real (TypeScript) caller too.
       createDefaultE2eCleanupDeps(),
-    /authDir/i,
-    "createDefaultE2eCleanupDeps must throw naming the missing authDir, never silently fall back to the e2e dir",
+    /execution launcher/i,
+    "createDefaultE2eCleanupDeps must throw naming the missing launcher",
   );
 });
 
-test("createDefaultE2eExecuteDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+test("createDefaultE2eExecuteDeps requires an execution launcher — omitting it throws immediately (fail-closed, no silent run of agent code as the orchestrator)", () => {
   assert.throws(
     () =>
-      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      // @ts-expect-error the launcher is required; omitting it must be a compile error for a real (TypeScript) caller too.
       createDefaultE2eExecuteDeps(),
-    /authDir/i,
-    "createDefaultE2eExecuteDeps must throw naming the missing authDir, never silently fall back to the e2e dir",
+    /execution launcher/i,
+    "createDefaultE2eExecuteDeps must throw naming the missing launcher",
   );
 });
 
@@ -932,7 +1006,7 @@ async function withStandInPlaywright<T>(script: string, body: (root: string) => 
 test("a Playwright run that writes megabytes to stderr reports only the newest of it", { timeout: 30_000 }, async () => {
   const script = "const l = 'browser log line that repeats\\n'.repeat(1000); let n = 0; (function go() { if (n++ < 300) return process.stderr.write(l, go); process.stderr.write('THE-END\\n'); })();";
   await withStandInPlaywright(script, async (root) => {
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, sharedTestExec());
     const out = await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns" });
     assert.match(out.logs, /THE-END/, "the newest stderr is kept");
     assert.ok(out.logs.length < E2E_STDERR_KEEP_CHARS + 500, `the kept stderr stays bounded (was ${out.logs.length} chars)`);
@@ -948,7 +1022,7 @@ test("a stream event line longer than any real event is skipped and the events a
   ].join("");
   await withStandInPlaywright(script, async (root) => {
     const events: StreamEvent[] = [];
-    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, join(root, "auth"));
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, sharedTestExec());
     await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns", onEvent: (ev) => events.push(ev) });
     assert.deepEqual(events.map((e) => e.phase), ["begin", "testend"]);
     const last = events[1];
@@ -961,11 +1035,279 @@ test("orphan-data cleanup whose child writes more than a pipe buffer finishes in
   await withStandInPlaywright(script, async (root) => {
     const warned = mock.method(console, "warn", () => {});
     try {
-      const deps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), join(root, "auth"));
+      const deps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), sharedTestExec());
       await deps.runCleanup({ dir: root, baseUrl: "http://localhost", namespace: "ns", timeoutMs: 4_000 });
       assert.equal(warned.mock.calls.some((c) => /timed out/.test(String(c.arguments[0]))), false, "the cleanup ended on its own, not by the timeout kill");
     } finally {
       warned.mock.restore();
     }
   });
+});
+
+test("runE2E hands the runner the cleanup-pass flag only when the caller asked for one", async () => {
+  const seen: Array<boolean | undefined> = [];
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => { seen.push(args.cleanupPass); return { report: { stats: { expected: 1, unexpected: 0 } }, logs: "ok", ran: true }; },
+  };
+
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot", cleanupPass: true }, deps);
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot" }, deps);
+
+  assert.deepEqual(seen, [true, undefined]);
+});
+
+/* What the child is given: asked of a stand-in that writes down its environment and arguments. */
+async function seenByChild(run: (deps: ReturnType<typeof createDefaultE2eExecuteDeps>, root: string) => Promise<void>): Promise<{ env: Record<string, string>; argv: string[] }> {
+  const script = "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'seen.json'), JSON.stringify({ env: process.env, argv: process.argv.slice(2) }));";
+  let seen: { env: Record<string, string>; argv: string[] } | undefined;
+  const saved: Record<string, string | undefined> = { DEV_TEST_PASS: process.env.DEV_TEST_PASS, GITHUB_TOKEN: process.env.GITHUB_TOKEN };
+  process.env.DEV_TEST_PASS = "orchestrator-account-pass";
+  process.env.GITHUB_TOKEN = "ghp_orchestrator";
+  try {
+    await withStandInPlaywright(script, async (root) => {
+      await run(createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, sharedTestExec()), root);
+      seen = JSON.parse(readFileSync(join(root, "seen.json"), "utf8"));
+    });
+  } finally {
+    for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+  return seen!;
+}
+
+test("runE2E hands the app's geolocation to the runner", async () => {
+  const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+  let seen: { latitude: number; longitude: number } | undefined;
+  const deps: E2eExecuteDeps = {
+    geolocation,
+    runSuite: async (args) => {
+      seen = args.geolocation;
+      return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
+    },
+  };
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns" }, deps);
+  assert.deepEqual(seen, geolocation);
+});
+
+test("a Playwright suite child receives the app's geolocation", async () => {
+  const geolocation = { latitude: 40.4818, longitude: -3.3643 };
+  const { env } = await seenByChild((deps, root) =>
+    deps.runSuite({ dir: root, baseUrl: "https://dev.example", namespace: "ns-1", geolocation }).then(() => undefined),
+  );
+  assert.equal(env.PW_GEO_LAT, "40.4818");
+  assert.equal(env.PW_GEO_LNG, "-3.3643");
+});
+
+test("a Playwright suite child gets neither the test account nor an orchestrator secret, and the run's data prefix", async () => {
+  const { env } = await seenByChild((deps, root) => deps.runSuite({ dir: root, baseUrl: "https://dev.example", namespace: "ns-1" }).then(() => undefined));
+  assert.equal(env.DEV_TEST_PASS, undefined);
+  assert.equal(env.GITHUB_TOKEN, undefined);
+  assert.equal(env.PW_NAMESPACE, "ns-1");
+  assert.equal(env.PW_BASE_URL, "https://dev.example");
+});
+
+test("a Playwright suite child writes its output, report and failure dumps outside the mirror it runs in", async () => {
+  const { env, argv } = await seenByChild((deps, root) => deps.runSuite({ dir: root, baseUrl: "https://dev.example", namespace: "ns-1", failureCaptureDir: join(sharedTestExec().workDir(), "failures-x") }).then(() => undefined));
+  const workDir = sharedTestExec().workDir();
+  const output = argv.find((arg) => arg.startsWith("--output="))?.slice("--output=".length);
+  assert.ok(output !== undefined && output.startsWith(workDir), `playwright output goes to ${output}, expected below ${workDir}`);
+  assert.ok(env.PLAYWRIGHT_JSON_OUTPUT_NAME?.startsWith(workDir), "the JSON report goes to the work dir");
+  assert.ok(env.QA_FAILURE_CAPTURE_DIR?.startsWith(workDir), "the failure dumps go to the work dir");
+});
+
+test("playwrightArgs: a single-attempt run, a title filter and the test list are all options", () => {
+  const args = playwrightArgs("reporter.cjs", undefined, "/work/scripts/x-spec-list.txt", "/work/results", { retries: 0, grep: "adds \\(one\\) item" });
+  assert.deepEqual(args, ["playwright", "test", "--reporter=reporter.cjs,json", "--output=/work/results", "--retries=0", "--grep=adds \\(one\\) item", "--test-list=/work/scripts/x-spec-list.txt"]);
+});
+
+test("playwrightArgs: retries must be a small non-negative integer and the grep a bounded string", () => {
+  for (const retries of [-1, 1.5, Number.NaN, 11]) {
+    assert.throws(() => playwrightArgs("r.cjs", undefined, undefined, undefined, { retries }), /invalid retries/);
+  }
+  assert.throws(() => playwrightArgs("r.cjs", undefined, undefined, undefined, { grep: "x".repeat(201) }), /invalid grep/);
+  assert.throws(() => playwrightArgs("r.cjs", undefined, undefined, undefined, { grep: "" }), /invalid grep/);
+  assert.deepEqual(playwrightArgs("r.cjs", undefined, undefined, undefined, {}), playwrightArgs("r.cjs"));
+});
+
+test("runE2E hands the retries and the grep to the runner", async () => {
+  let seen: { retries?: number; grep?: string } = {};
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => {
+      seen = { retries: args.retries, grep: args.grep };
+      return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
+    },
+  };
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", retries: 0, grep: "loads" }, deps);
+  assert.deepEqual(seen, { retries: 0, grep: "loads" });
+});
+
+function withLedgerDir(files: Record<string, string>): { deps: (report?: unknown) => E2eExecuteDeps; root: string; cleanup(): void } {
+  const root = mkdtempSync(join(tmpdir(), "qa-ledger-"));
+  const dumps = join(root, "dumps");
+  mkdirSync(dumps);
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(dumps, name), text);
+  return {
+    root,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    deps: (report: unknown = { stats: { expected: 1 } }) => ({
+      allocateFailureDir: () => ({ dir: dumps, root, dispose: () => {} }),
+      runSuite: async () => ({ report, logs: "ok", ran: true }),
+    }),
+  };
+}
+
+test("runE2E reports the writes to DEV the fixtures counted, summed over the tests that ran", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":2}', "ledger-1-1.json": '{"writes":3}', "unrelated.json": '{"writes":100}' });
+  try {
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps());
+    assert.equal(run.devWrites, 5);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E gives no count for a run that did not finish: the test that was running when it was stopped left no ledger", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":4}' });
+  try {
+    const deps = ledger.deps();
+    deps.runSuite = async () => ({ report: {}, logs: "playwright runner timed out after 10ms — killed", ran: false });
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, deps);
+    assert.equal(run.verdict, "infra-error");
+    assert.equal(run.devWrites, undefined);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E gives no count when fewer tests left a ledger than the report says ran", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":0}' });
+  try {
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps({ stats: { expected: 3 }, suites: [] }));
+    assert.equal(run.devWrites, undefined);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E counts when every test that ran left a ledger", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":1}', "ledger-0-2.json": '{"writes":0}', "ledger-1-3.json": '{"writes":2}' });
+  try {
+    const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, ledger.deps({ stats: { expected: 3 }, suites: [] }));
+    assert.equal(run.devWrites, 3);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E does not look for a count nobody asked for", async () => {
+  const ledger = withLedgerDir({ "ledger-0-1.json": '{"writes":2}' });
+  try {
+    assert.equal((await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns" }, ledger.deps())).devWrites, undefined);
+  } finally {
+    ledger.cleanup();
+  }
+});
+
+test("runE2E reports no count when the fixtures left none or left something it cannot trust", async () => {
+  const none = withLedgerDir({});
+  const forged = withLedgerDir({ "ledger-0-1.json": '{"writes":-3}' });
+  const huge = withLedgerDir({ "ledger-0-1.json": "x".repeat(100_000) });
+  try {
+    assert.equal((await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, none.deps())).devWrites, undefined);
+    assert.equal((await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, forged.deps())).devWrites, undefined);
+    assert.equal((await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns", countWrites: true }, huge.deps())).devWrites, undefined);
+  } finally {
+    none.cleanup();
+    forged.cleanup();
+    huge.cleanup();
+  }
+});
+
+test("the default runner starts the child with the narrowing options and the write counter only when asked", async () => {
+  const workRoot = mkdtempSync(join(tmpdir(), "qa-fake-exec-"));
+  const spawned: Array<{ args: readonly string[]; extraEnv: Record<string, string> | undefined }> = [];
+  const written: Array<{ name: string; content: string; path: string }> = [];
+  const exec = {
+    isolated: false,
+    workDir: () => workRoot,
+    allocDir: (prefix: string, subdirs: readonly string[] = []) => {
+      const dir = mkdtempSync(join(workRoot, `${prefix}-`));
+      for (const sub of subdirs) mkdirSync(join(dir, sub), { recursive: true });
+      return dir;
+    },
+   
+    writeScript: (name: string, content: string) => {
+      const path = join(workRoot, `written-${written.length}-${name}`);
+      writeFileSync(path, content);
+      written.push({ name, content, path });
+      return path;
+    },
+    spawn: (_cmd: string, args: readonly string[], options: { extraEnv?: Record<string, string> }) => {
+      spawned.push({ args, extraEnv: options.extraEnv });
+      const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      setImmediate(() => child.emit("close", 0, null));
+      return child;
+    },
+  };
+  try {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 5_000, exec as never);
+    await deps.runSuite({ dir: workRoot, baseUrl: "https://dev", namespace: "ns", specFiles: ["a.spec.ts"], retries: 0, grep: "x", countWrites: true });
+    await deps.runSuite({ dir: workRoot, baseUrl: "https://dev", namespace: "ns" });
+  } finally {
+    rmSync(workRoot, { recursive: true, force: true });
+  }
+  assert.ok(spawned[0]!.args.includes("--retries=0"));
+  assert.ok(spawned[0]!.args.includes("--grep=x"));
+  assert.equal(written.length, 1, "only the run that names spec files writes a list");
+  assert.equal(written[0]!.content, "a.spec.ts\n");
+  assert.ok(spawned[0]!.args.includes(`--test-list=${written[0]!.path}`), "the spec is selected by the exact list, not by a pattern");
+  assert.equal(spawned[0]!.args.includes("a.spec.ts"), false, "no bare argument: Playwright reads it as an unanchored pattern over the whole path");
+  assert.equal(spawned[1]!.args.some((a) => a.startsWith("--test-list")), false);
+  assert.equal(spawned[0]!.extraEnv?.PW_COUNT_DEV_WRITES, "1");
+  assert.equal(spawned[0]!.extraEnv?.PW_COVERAGE, "0", "a spec the generator is trying is not measured for change-coverage");
+  assert.equal(spawned[1]!.args.some((a) => a.startsWith("--retries") || a.startsWith("--grep")), false);
+  assert.equal(spawned[1]!.extraEnv?.PW_COUNT_DEV_WRITES, undefined);
+  assert.equal(spawned[1]!.extraEnv?.PW_COVERAGE, undefined);
+});
+
+test("the default runner leads the dump folders to the work dir while the child runs, and carries over only a valid dump once it has gone", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-dump-runner-"));
+  const workRoot = join(root, "work");
+  const specDir = join(root, "mirror", "e2e");
+  mkdirSync(join(specDir, ".qa"), { recursive: true });
+  mkdirSync(workRoot, { recursive: true });
+  const seen: { coverageIsLink?: boolean } = {};
+  const exec = {
+    isolated: false,
+    workDir: () => workRoot,
+    allocDir: (prefix: string, subdirs: readonly string[] = []) => {
+      const dir = mkdtempSync(join(workRoot, `${prefix}-`));
+      for (const sub of subdirs) mkdirSync(join(dir, sub), { recursive: true });
+      return dir;
+    },
+    writeScript: () => "",
+    spawn: () => {
+      const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      /* What the fixtures do: write below the suite's own .qa, plus a file the fixtures never write. */
+      const dumpDir = join(specDir, ".qa", "coverage", "ns-dump");
+      seen.coverageIsLink = lstatSync(dumpDir).isSymbolicLink();
+      writeFileSync(join(dumpDir, "w0-0.json"), JSON.stringify([{ url: "https://dev/a.js", source: "x" }]));
+      writeFileSync(join(dumpDir, "planted.txt"), "cookie=1");
+      setImmediate(() => child.emit("close", 0, null));
+      return child;
+    },
+  };
+  try {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 5_000, exec as never, undefined, () => ({ ran: true, report: { stats: { expected: 1 } } }));
+    await deps.runSuite({ dir: specDir, baseUrl: "https://dev", namespace: "ns-dump" });
+    assert.equal(seen.coverageIsLink, true, "while the child runs, the mirror path leads to the work dir");
+    const carried = join(specDir, ".qa", "coverage", "ns-dump");
+    assert.equal(lstatSync(carried).isSymbolicLink(), false);
+    assert.deepEqual(readdirSync(carried), ["w0-0.json"], "the planted file did not reach the mirror");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

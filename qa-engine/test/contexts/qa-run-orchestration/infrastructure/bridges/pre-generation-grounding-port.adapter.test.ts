@@ -3,6 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -655,6 +656,27 @@ test("ground(): a diff arg derives changedElements and forwards them to buildCon
   assert.ok(captured.changedElements?.some((e) => e.testId === "submit-order"), "the [CHANGED] signal must be derived from the diff and forwarded");
 });
 
+test("ground(): each changed element carries the containers its line sits in, read from the working copy", async () => {
+  const mirrorDir = mkdtempSync(join(tmpdir(), "grounding-scope-"));
+  try {
+    mkdirSync(join(mirrorDir, "src"), { recursive: true });
+    writeFileSync(join(mirrorDir, "src", "list.html"), ["<nm-panel>", "  <button>Submit order</button>", "</nm-panel>"].join("\n"));
+    const capturedInputs: unknown[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: join(mirrorDir, "e2e"), baseUrl: "https://dev.example.com", mirrorDir },
+      { buildContextPack: async (input) => { capturedInputs.push(input); return { text: undefined, domBytes: 0, contractBytes: 0 }; } },
+    );
+    const diff = ["diff --git a/src/list.html b/src/list.html", "--- a/src/list.html", "+++ b/src/list.html", "@@ -2,1 +2,1 @@", "-  <button>Send</button>", "+  <button>Submit order</button>"].join("\n");
+
+    await adapter.ground(join(mirrorDir, "e2e"), undefined, diff);
+
+    const captured = capturedInputs[0] as { changedElements?: Array<{ text?: string; scope?: string[] }> };
+    assert.deepEqual(captured.changedElements?.map((e) => [e.text, e.scope]), [["Submit order", ["nm-panel"]]]);
+  } finally {
+    rmSync(mirrorDir, { recursive: true, force: true });
+  }
+});
+
 test("ground(): an absent diff arg leaves changedElements absent (byte-identical regression guard)", async () => {
   const capturedInputs: unknown[] = [];
   const adapter = new PreGenerationGroundingPortAdapter(
@@ -805,6 +827,27 @@ test("exploreBrief throw is fail-open — pack still builds without a brief", as
   }
 });
 
+test("a spent run deadline in the explorer pass is not fail-open: ground() rejects with it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-deadline-"));
+  try {
+    let built = false;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        exploreBrief: async () => { throw new RunDeadlineExceededError(600_000, "diff", "explorer", "mid-turn"); },
+        buildContextPack: async () => {
+          built = true;
+          return { text: "## pack", domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+    await assert.rejects(adapter.ground(dir, undefined, undefined, { sha: "abc1234" }), RunDeadlineExceededError);
+    assert.equal(built, false, "no time is spent on the pack of a run whose time is gone");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("ground() never calls exploreBrief when opts (and therefore sha) is absent — never fabricates a sha (e.g. by falling back to a run namespace downstream)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-no-sha-"));
   try {
@@ -838,6 +881,80 @@ test("ground(): prChangedFiles is derived from the threaded diff when static ctx
     );
     await adapter.ground(dir, undefined, "diff --git a/src/app/checkout.ts b/src/app/checkout.ts\n+++ b/src/app/checkout.ts\n");
     assert.deepEqual(seen, ["src/app/checkout.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): domPack:false reaches buildContextPack as false and skips route ranking + changed-element scopes, while the suite and harness facts still come through", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-dompacks-"));
+  try {
+    writeFileSync(join(dir, "home.spec.ts"), "// spec");
+    let seen: { domPack?: boolean; changedElements?: unknown; routes?: unknown } | undefined;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, testIdAttribute: "data-cy", domPack: false },
+      {
+        buildContextPack: async (input) => {
+          seen = { domPack: input.domPack, changedElements: input.changedElements, routes: input.routes };
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+    const result = await adapter.ground(dir, undefined, "diff --git a/src/app/checkout.ts b/src/app/checkout.ts\n+++ b/src/app/checkout.ts\n");
+    assert.equal(seen?.domPack, false, "the lever reaches the pack as false");
+    assert.equal(seen?.changedElements, undefined, "changed-element scopes are only for the pack's DOM capture");
+    assert.equal(seen?.routes, undefined, "no deterministic routes are ranked for a pack that carries no DOM");
+    assert.ok(result.existingSpecFiles?.length, "the existing suite listing still comes through");
+    assert.equal(result.harnessFacts?.testIdAttribute, "data-cy", "harness facts still come through");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* contextPack:false (context mode) skips the whole pack build — no context-pack/dom-capture spans —
+   but the context map, the explorer brief and the harness facts its prompt reads still come through. */
+test("ground(): contextPack:false skips buildContextPack entirely but keeps contextMap, harness facts and the explorer brief", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-contextpack-off-"));
+  try {
+    writeFileSync(join(dir, "home.spec.ts"), "// spec");
+    const map = { builtAtSha: "abc1234", routes: [{ path: "/owners" }], api: [], feBe: [] };
+    const brief = { builtForSha: "abc1234", objective: "checkout", blastRadius: [{ symbol: "Pay", file: "pay.ts", role: "charges" }] };
+    let built = false;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, testIdAttribute: "data-cy", contextPack: false },
+      {
+        loadContextMap: () => map,
+        exploreBrief: async () => brief,
+        buildContextPack: async () => { built = true; return { text: "## pack", domBytes: 10, contractBytes: 0 }; },
+      },
+    );
+    const result = await adapter.ground(dir, undefined, "diff --git a/pay.ts b/pay.ts\n", { sha: "abc1234" });
+    assert.equal(built, false, "the context pack is never built in context mode");
+    assert.equal(result.contextPack, undefined, "no contextPack is emitted, so no delivered/discarded pack spans");
+    assert.deepEqual(result.contextMap, map, "the context map still comes through");
+    assert.deepEqual(result.contextBrief, brief, "the explorer brief still comes through");
+    assert.equal(result.harnessFacts?.testIdAttribute, "data-cy", "harness facts still come through");
+    assert.ok(result.existingSpecFiles?.length, "the existing suite listing still comes through");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): contextPack:false emits no pack spans even when a trace collaborator is wired", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-contextpack-off-trace-"));
+  try {
+    const traced: string[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, contextPack: false },
+      {
+        buildContextPack: async () => ({ text: "## pack", domBytes: 10, contractBytes: 0 }),
+        trace: { pack: () => traced.push("pack"), contextMap: () => traced.push("map") },
+        loadContextMap: () => ({ builtAtSha: "abc1234", routes: [], api: [], feBe: [] }),
+      },
+    );
+    const result = await adapter.ground(dir);
+    assert.equal(result.contextPack, undefined);
+    assert.equal(traced.includes("pack"), false, "the pack trace never fires without a pack");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -959,6 +1076,45 @@ test("ground(): with no runId in opts, exploreBrief receives no runId (never fab
     );
     await adapter.ground(dir, undefined, "the-diff", { sha: "abc1234" });
     assert.equal(sawRunId, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): the context map it loaded reaches the explorer, so the explorer names routes by the map's own paths", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-map-"));
+  try {
+    const map = { builtAtSha: "abc1234", routes: [{ path: "/shops/:province/:city" }], api: [], feBe: [] };
+    let seen: unknown;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        loadContextMap: () => map,
+        exploreBrief: async (args) => { seen = args.contextMap; return undefined; },
+        buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir, undefined, "the-diff", { sha: "abc1234" });
+    assert.deepEqual(seen, map);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): with no context map the explorer is asked without one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-nomap-"));
+  try {
+    let args: { contextMap?: unknown } | undefined;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        loadContextMap: () => undefined,
+        exploreBrief: async (received) => { args = received; return undefined; },
+        buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir, undefined, "the-diff", { sha: "abc1234" });
+    assert.ok(args !== undefined && !("contextMap" in args));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

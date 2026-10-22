@@ -6,7 +6,7 @@ import {
   type LoginEvidence,
   type LoginOutcome,
 } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
-import { PRECONDITION_KIND, type PreconditionKind } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
+import { CLASSIFIED_PRECONDITION_KIND, PRECONDITION_KIND, type PreconditionKind } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
 import { scriptedLoginEvidence } from "../../../../support/login-evidence.ts";
 
 /* What a login attempt that got in looks like, before a row bends one fact of it. */
@@ -132,7 +132,7 @@ test("classifying never changes the evidence it reads", () => {
 
 test("every failure kind is reachable from some row, so a kind is never classified nowhere", () => {
   const reached = new Set(ROWS.flatMap((row) => (row.outcome.status === "failed" ? [row.outcome.kind] : [])));
-  for (const kind of Object.values(PRECONDITION_KIND)) {
+  for (const kind of Object.values(CLASSIFIED_PRECONDITION_KIND)) {
     assert.ok(reached.has(kind), `${kind} has no row`);
   }
 });

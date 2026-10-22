@@ -12,6 +12,7 @@ import {
   ACCEPTANCE_STATUSES,
   readAcceptanceReport,
 } from "../qa-engine/src/contexts/qa-run-orchestration/application/coordination/acceptance-report.ts";
+import { REVIEWER_PROMPT_VERSION } from "../qa-engine/src/contexts/generation/domain/review-output.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -30,6 +31,33 @@ function assertBothContain(role: string, guard: string): void {
 
 test("qa-generator: both copies forbid running the suite itself", () => {
   assertBothContain("qa-generator", "STOP touching the suite");
+});
+
+/* The shared layer owns the rule that authoring against live DEV observes and never writes; it is stated
+   once there, in both runtimes' copies, and the role file that used to invite form interaction no longer does. */
+test("shared instructions: both copies say live DEV is observed while authoring and only a generated spec writes to it", () => {
+  for (const path of [join("agents", "AGENTS.md"), join("agent", "AGENTS.md")]) {
+    const text = readFileSync(join(ROOT, path), "utf8");
+    assert.ok(text.includes("Authoring-time DEV exploration observes; it never writes."), `${path} is missing the observe-only rule`);
+    assert.match(text, /ad-hoc script/, `${path} must forbid ad-hoc scripts`);
+  }
+});
+
+/* The generator has no shell (opencode.json denies bash outright), so neither copy may tell it to run a
+   command; the orchestrator's Validate and Execute phases do the checking and say so once. */
+test("qa-generator: neither copy tells the author to run a command, and both say the orchestrator validates and runs the specs", () => {
+  for (const [copy, text] of Object.entries(readBoth("qa-generator"))) {
+    assert.ok(!/npx playwright/.test(text), `${copy} copy still names a Playwright command to run`);
+    assert.ok(!/--list/.test(text), `${copy} copy still asks for the suite listing`);
+    assert.ok(!/\(bash\)/.test(text), `${copy} copy still has a bash step`);
+    assert.match(text, /orchestrator validates and runs/i, `${copy} copy must say who validates what the author writes`);
+  }
+});
+
+test("qa-generator: neither copy invites submitting forms on live DEV while authoring", () => {
+  for (const [copy, text] of Object.entries(readBoth("qa-generator"))) {
+    assert.ok(!/interact with forms/i.test(text), `${copy} copy still tells the author to interact with forms`);
+  }
 });
 
 test("qa-proposer: both copies know the http-backend (BE→BE REST) transport", () => {
@@ -82,5 +110,14 @@ test("playwright-authoring auth guide: both runtimes' copies say a rewritten log
   for (const copy of [join("agent", "skills"), join("agents", "skill")]) {
     const guide = readFileSync(join(ROOT, copy, "playwright-authoring", "auth.md"), "utf8");
     assert.match(guide, /process\.env\.PW_STORAGE_STATE/, `${copy}/playwright-authoring/auth.md`);
+  }
+});
+
+/* The reviewer's static mirrors and the assembled output contract are one versioned pair: a change
+   to either must bump REVIEWER_PROMPT_VERSION so a stored verdict names the wording that produced it. */
+test("qa-reviewer: both static mirrors carry the version the assembled contract ships", () => {
+  const marker = new RegExp(`reviewer-prompt-version: ${REVIEWER_PROMPT_VERSION}\\b`);
+  for (const [copy, text] of Object.entries(readBoth("qa-reviewer"))) {
+    assert.match(text, marker, `${copy} copy must carry the reviewer prompt version`);
   }
 });

@@ -1,9 +1,11 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { itemId } from "@contexts/generation/domain/context-item-ids.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import { MAX_ROUTES, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { MAX_ROUTES, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { ROUTE_REASON } from "@kernel/route-capturability.ts";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
@@ -47,6 +49,149 @@ test("buildContextPack returns undefined text when all components are absent", a
   assert.equal(result.text, undefined);
   assert.equal(result.domBytes, 0);
   assert.equal(result.contractBytes, 0);
+});
+
+test("packDeliveredItemIds: delivered ids come from the kept lines, with the node cap counted", () => {
+  const assembly: ContextPackAssembly = {
+    text: "pack",
+    domBytes: 10,
+    contractBytes: 0,
+    trace: {
+      rankedRoutes: ["/home"],
+      capturablePages: 1,
+      pages: [{ route: "/home", grounded: true, links: [], testIds: ["save-btn", "other"] }],
+      pageDeliveries: [{
+        route: "/home",
+        keptNodes: ["button: Save"],
+        keptTestIds: ["save-btn"],
+        testIdOfNode: new Map([["button: Save", "save-btn"]]),
+        nodeCapOmitted: 2,
+        lineCapOmitted: 0,
+      }],
+      changedTestIds: ["save-btn"],
+      contractIds: ["listOrders"],
+      omittedLines: 0,
+    },
+  };
+  const { ids, omissions } = packDeliveredItemIds(assembly);
+  assert.ok(ids.includes("dom:/home#save-btn"), "the kept test id is delivered as a dom id");
+  assert.ok(ids.includes("fact:/home#save-btn:present"), "the change fact is delivered");
+  assert.ok(ids.includes("op:listOrders"), "the contract is delivered");
+  assert.equal(ids.some((id) => id.includes("button")), false, "a node that already has a test id is not double-counted as a role id");
+  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 2, route: "/home" }]);
+});
+
+test("packDeliveredItemIds: a node the node-cap cut is neither delivered nor in the ids", () => {
+  const assembly: ContextPackAssembly = {
+    text: "pack",
+    domBytes: 1,
+    contractBytes: 0,
+    trace: {
+      rankedRoutes: ["/home"],
+      capturablePages: 1,
+      pages: [{ route: "/home", grounded: true, links: [], testIds: [] }],
+      pageDeliveries: [{
+        route: "/home",
+        /* Only the kept node is here: the cut node is already gone from keptNodes. */
+        keptNodes: ["button: Keep"],
+        keptTestIds: [],
+        testIdOfNode: new Map(),
+        nodeCapOmitted: 1,
+        lineCapOmitted: 0,
+      }],
+      changedTestIds: [],
+      contractIds: [],
+      omittedLines: 0,
+    },
+  };
+  const { ids, omissions } = packDeliveredItemIds(assembly);
+  assert.equal(ids.some((id) => id.startsWith("dom:")), true, "the kept node is a dom id");
+  assert.ok(!ids.some((id) => id.includes("Cut")), "the cut node never reaches the ids");
+  assert.deepEqual(omissions, [{ class: "truncation", reason: "node-cap", count: 1, route: "/home" }]);
+});
+
+test("packDeliveredItemIds: a page opened from a template is named by the template in its delivered ids and facts", () => {
+  const assembly: ContextPackAssembly = {
+    text: "pack",
+    domBytes: 1,
+    contractBytes: 0,
+    trace: {
+      rankedRoutes: [],
+      capturablePages: 0,
+      pages: [{ route: "/shops/madrid/madrid", template: "/shops/:province/:city", grounded: true, links: [], testIds: ["shop-row"] }],
+      pageDeliveries: [{
+        route: "/shops/:province/:city",
+        keptNodes: ["button: View shop"],
+        keptTestIds: ["shop-row"],
+        testIdOfNode: new Map([["button: View shop", "shop-row"]]),
+        nodeCapOmitted: 0,
+        lineCapOmitted: 0,
+        lineKeptNodes: ["button: View shop"],
+        lineKeptTestIds: ["shop-row"],
+      }],
+      changedTestIds: ["shop-row"],
+      contractIds: [],
+      omittedLines: 0,
+    },
+  };
+  const { ids } = packDeliveredItemIds(assembly);
+  assert.ok(ids.includes("dom:/shops/:province/:city#shop-row"), "the delivered dom id carries the template name");
+  assert.ok(ids.includes("fact:/shops/:province/:city#shop-row:present"), "the delivered fact carries the template name");
+});
+
+test("packProducedItemIds vs packDeliveredItemIds: the line cap makes delivered a strict subset of produced", () => {
+  const assembly: ContextPackAssembly = {
+    text: "pack",
+    domBytes: 1,
+    contractBytes: 0,
+    trace: {
+      rankedRoutes: [],
+      capturablePages: 0,
+      pages: [],
+      pageDeliveries: [{
+        route: "/home",
+        keptNodes: ["button: A", "button: B", "button: C"],
+        keptTestIds: [],
+        testIdOfNode: new Map<string, string>(),
+        nodeCapOmitted: 0,
+        lineCapOmitted: 2,
+        lineKeptNodes: ["button: A"],
+        lineKeptTestIds: [],
+      }],
+      changedTestIds: [],
+      contractIds: [],
+      omittedLines: 2,
+    },
+  };
+  const produced = packProducedItemIds(assembly);
+  const delivered = packDeliveredItemIds(assembly);
+  assert.equal(produced.ids.length, 3, "produced holds every node-cap kept node");
+  assert.equal(delivered.ids.length, 1, "delivered holds only the line-cap kept node");
+  assert.ok(delivered.ids.every((id) => produced.ids.includes(id)), "delivered ⊆ produced");
+  assert.ok(produced.ids.length > delivered.ids.length, "the line cap separates produced from delivered");
+  assert.deepEqual(produced.omissions, [], "the produced set counts no line cap");
+  assert.deepEqual(delivered.omissions, [{ class: "truncation", reason: "line-cap", count: 2, route: "/home" }]);
+});
+
+test("buildContextPack: the global line cap trims the delivered ids to the lines the agent actually saw", async () => {
+  const nodes = Array.from({ length: 700 }, (_, i) => `button: nav-${i}`);
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (_routes, input) => {
+      input.onPages?.([{ route: "/big", grounded: true, links: [], keptNodes: nodes, keptTestIds: [], testIdOfNode: new Map(), nodeCapOmitted: 0 }]);
+      return ["route /big:", ...nodes.map((n) => `  ${n}`)].join("\n");
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const result = await buildContextPack({ routes: ["/big"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
+  const produced = packProducedItemIds(result);
+  const delivered = packDeliveredItemIds(result);
+  assert.equal(produced.ids.length, 700, "all 700 buttons are produced");
+  assert.equal(delivered.ids.length, 499, "the 500-line budget spends one line on the route header and keeps 499 buttons");
+  assert.ok(delivered.ids.every((id) => produced.ids.includes(id)), "delivered ⊆ produced");
+  const droppedId = itemId.domRole("/big", "button", "nav-699");
+  assert.ok(produced.ids.includes(droppedId), "the line-capped node was produced");
+  assert.ok(!delivered.ids.includes(droppedId), "the line-capped node is not delivered");
 });
 
 /* The brief owns the distilled blast radius, FE-BE links and risks; the pack carries only what the orchestrator captured or read itself (the live DOM and the API contracts). */
@@ -138,6 +283,26 @@ test("buildContextPack filters contracts using prChangedFiles", async () => {
     "contracts are either included (path matched) or empty (no brief to match from)");
 });
 
+test("buildContextPack with domPack:false skips the DOM capture entirely and still renders contracts", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async () => { throw new Error("captureDomForRoutes must not be called when domPack is false"); },
+    domDeps: stubDomDeps("button: Submit"),
+    log: () => {},
+  };
+  const result = await buildContextPack(
+    { domPack: false, brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
+    deps,
+  );
+  assert.ok(result.text, "a pack that holds a contract still renders");
+  assert.equal(result.text.includes(`### ${PACK_HEADINGS.liveDom}`), false, "no live DOM section when the pack is off");
+  assert.equal(result.text.includes(`### ${PACK_HEADINGS.notCapturable}`), false, "no not-capturable list when nothing was attempted");
+  assert.equal(result.text.includes(`### ${PACK_HEADINGS.redirected}`), false, "no redirect advisory when the capture is skipped");
+  assert.ok(result.text.includes("POST /orders"), "the contract line is present");
+  assert.equal(result.domBytes, 0, "domBytes is zero when nothing was captured");
+  assert.deepEqual(result.trace?.pages, []);
+  assert.deepEqual(result.trace?.rankedRoutes, []);
+});
+
 /* buildContextPack's candidateRoutes came ONLY from a brief (briefRoutePaths, contextMapRoutes gated
    on brief.feBe) — with no brief-less route path at all, the pack was structurally empty whenever
    the explorer pass never ran (which is EVERY production run today — the explorer stays unwired by
@@ -188,7 +353,8 @@ test("buildContextPack: candidates are cut to the number of routes the capture i
 /* A route that names no single page (a template, free text, another host) is not a candidate: it is dropped before the cut, so it never takes the place of a route behind it. */
 function capturingDeps(captured: string[][], log: (message: string) => void = () => {}): ContextPackDeps {
   return {
-    captureDomForRoutes: async (routes) => { captured.push(routes); return "button: Submit"; },
+    /* Like the real capture: with no route to report there is no text, whatever it was asked to render for its links. */
+    captureDomForRoutes: async (routes) => { captured.push(routes); return routes.length === 0 ? undefined : "button: Submit"; },
     domDeps: stubDomDeps("button: Submit"),
     log,
   };
@@ -196,17 +362,38 @@ function capturingDeps(captured: string[][], log: (message: string) => void = ()
 const PACK_INPUT = { baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" };
 const plainRoutes = (count: number): string[] => Array.from({ length: count }, (_, i) => `/r${i}`);
 
-test("buildContextPack: a route template does not take a capture slot from the routes behind it", async () => {
+test("buildContextPack: a route template no page opens to does not take a slot from the routes behind it", async () => {
   const captured: string[][] = [];
   await buildContextPack({ routes: ["/product/:id/view", ...plainRoutes(MAX_ROUTES + 1)], ...PACK_INPUT }, capturingDeps(captured));
   assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
 });
 
-test("buildContextPack: several templates in front still leave every slot to the plain routes", async () => {
+test("buildContextPack: templates the site shows no page of leave every slot to the plain routes, whatever their number", async () => {
+  const calls: Call[] = [];
+  const templates = Array.from({ length: MAX_ROUTES + 2 }, (_, i) => `/t${i}/:id`);
+  await buildContextPack({ routes: [...templates, ...plainRoutes(MAX_ROUTES)], ...PACK_INPUT }, siteWithLinks({ "/r0": ["/about"] }, calls));
+  assert.deepEqual(calls[0]!.routes, plainRoutes(MAX_ROUTES));
+  assert.equal(calls.length, 1, "no page was found, so no second capture");
+});
+
+test("buildContextPack: the cut falls on the pages found for the templates, in rank order, not on the templates", async () => {
+  const calls: Call[] = [];
+  const templates = Array.from({ length: MAX_ROUTES + 2 }, (_, i) => `/t${i}/:id`);
+  const links = templates.map((_, i) => `/t${i}/1`);
+  /* Only every other template has a page: the pages are what take the slots. */
+  const shown = links.filter((_, i) => i % 2 === 0);
+  const result = await buildContextPack({ routes: [...templates, ...plainRoutes(1)], ...PACK_INPUT }, siteWithLinks({ "/": shown }, calls));
+  const found = shown.slice(0, MAX_ROUTES);
+  assert.deepEqual(calls[1]!.routes, found);
+  const listed = sectionOf(result.text, PACK_HEADINGS.notCapturable);
+  assert.ok(listed.includes("/t1/:id"), "a template with no page is listed");
+});
+
+test("buildContextPack: what names no page and no template of one does not take a slot from the routes behind it", async () => {
   const captured: string[][] = [];
-  const templates = ["/a/:x", "/b/{y}", "/c/[z]", "/files/*", "the cart page", "//evil.example/x"];
-  await buildContextPack({ routes: [...templates, ...plainRoutes(MAX_ROUTES)], ...PACK_INPUT }, capturingDeps(captured));
-  assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
+  const unusable = ["/files/*", "/docs/[...rest]", "/users/:id?", "the cart page", "//evil.example/x"];
+  await buildContextPack({ routes: [...unusable, ...plainRoutes(MAX_ROUTES)], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured, [plainRoutes(MAX_ROUTES)]);
 });
 
 test("buildContextPack: a route that the brief and the routes input both name takes one slot, not two", async () => {
@@ -241,7 +428,7 @@ test("buildContextPack: with every candidate uncapturable nothing is captured, n
   const captured: string[][] = [];
   const logs: string[] = [];
   const result = await buildContextPack({ routes: ["/product/:id", "/users/{id}"], ...PACK_INPUT }, capturingDeps(captured, (message) => logs.push(message)));
-  assert.equal(captured.length, 0);
+  assert.deepEqual(captured.flat(), [], "no route is rendered for the report");
   assert.equal(result.text, undefined);
   for (const route of ["/product/:id", "/users/{id}"]) assert.ok(logs.some((message) => message.includes(route)), `the log names ${route}`);
 });
@@ -255,7 +442,7 @@ test("buildContextPack: nothing is logged as not capturable when every candidate
 test("buildContextPack: the list of routes not captured stops at its bound and says how many more there are", async () => {
   const extra = 3;
   const templates = Array.from({ length: MAX_LISTED_UNCAPTURABLE + extra }, (_, i) => `/t${i}/:id`);
-  const result = await buildContextPack({ routes: [...templates, "/a"], ...PACK_INPUT }, capturingDeps([]));
+  const result = await buildContextPack({ routes: ["/a", ...templates], ...PACK_INPUT }, capturingDeps([]));
   const section = sectionOf(result.text, PACK_HEADINGS.notCapturable);
   const lines = section.trimEnd().split("\n");
   assert.equal(lines.length, 1 + MAX_LISTED_UNCAPTURABLE + 1, "the heading, one line per listed route, and the count of the rest");
@@ -265,7 +452,7 @@ test("buildContextPack: the list of routes not captured stops at its bound and s
 
 test("buildContextPack: a list of exactly its bound is the heading and one line per route, nothing more", async () => {
   const templates = Array.from({ length: MAX_LISTED_UNCAPTURABLE }, (_, i) => `/t${i}/:id`);
-  const result = await buildContextPack({ routes: [...templates, "/a"], ...PACK_INPUT }, capturingDeps([]));
+  const result = await buildContextPack({ routes: ["/a", ...templates], ...PACK_INPUT }, capturingDeps([]));
   assert.equal(sectionOf(result.text, PACK_HEADINGS.notCapturable).trimEnd().split("\n").length, 1 + MAX_LISTED_UNCAPTURABLE);
 });
 
@@ -372,14 +559,25 @@ test("buildContextPack: a route the brief names is captured where the brief name
   assert.deepEqual(captured[0], ["/b", "/c", "/a"]);
 });
 
-test("buildContextPack: ranking leaves the filter before the cut as it was: a linked route that names no page takes no slot and is listed apart", async () => {
-  const captured: string[][] = [];
+test("buildContextPack: a template of the map linked to a changed file ranks first, and the page a link shows for it is captured", async () => {
+  const calls: Call[] = [];
   const template = "/product/:id/view";
   const routes = [...plainRoutes(MAX_ROUTES + 1), template];
   const contextMap = mapWith(entriesOf(routes, { [template]: { [SOURCE_FIELD]: CHANGED_FILE } }));
+  const result = await buildContextPack({ contextMap, routes, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, siteWithLinks({ "/r0": ["/product/7/view"] }, calls));
+  assert.deepEqual(calls[0]!.routes, plainRoutes(MAX_ROUTES), "the first capture is of the pages the routes name, which also shows the links");
+  assert.deepEqual(calls[1]!.routes, ["/product/7/view"], "the page found for the template ranks first and is not captured twice");
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("/product/7/view"));
+});
+
+test("buildContextPack: a route that names no page and no template of one stays out of the cut, whatever its rank, and is listed apart", async () => {
+  const captured: string[][] = [];
+  const notAPage = "the product page";
+  const routes = [...plainRoutes(MAX_ROUTES + 1), notAPage];
+  const contextMap = mapWith(entriesOf(routes, { [notAPage]: { [SOURCE_FIELD]: CHANGED_FILE } }));
   const result = await buildContextPack({ contextMap, routes, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
   assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
-  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes(template), "the template is listed under its own heading");
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes(notAPage), "listed under its own heading");
 });
 
 test("buildContextPack: a malformed link field in the map keeps the pack, and the valid links still rank", async () => {
@@ -667,6 +865,67 @@ test("testIdAttribute on ContextPackInput is forwarded to captureDomForRoutes in
   assert.equal(receivedTestIdAttribute, "data-cy", "testIdAttribute must be forwarded to captureDomForRoutes' input arg");
 });
 
+/* ── Capture-state lines for a page whose dev.dataState route matched ── */
+
+test("a page whose data state is unconfirmed gets an explicit capture-state line, and no absent fact is emitted", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (_routes, input) => {
+      input.onPages?.([{
+        route: "/home",
+        grounded: true,
+        links: [],
+        dataState: true,
+        resultExpected: true,
+        resultCount: 0,
+        dataStateUnconfirmed: true,
+        keptNodes: ["button: Save"],
+        keptTestIds: [],
+        testIdOfNode: new Map(),
+        nodeCapOmitted: 0,
+      }]);
+      return "route /home:\n  button: Save";
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const result = await buildContextPack(
+    { routes: ["/home"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e", changedElements: [{ file: "f.html", line: 1, testId: "register-btn", raw: "raw" }] },
+    deps,
+  );
+  assert.ok(result.text?.includes("data state not confirmed"), "the unobservable warning is present");
+  assert.ok(result.text?.includes("0 result(s)"), "the result count is stated");
+  assert.ok(result.text?.includes("button: Save"), "the existing DOM text still works");
+  const { ids } = packDeliveredItemIds(result);
+  assert.ok(!ids.some((id) => id.startsWith("fact:*#register-btn:absent")), "no absent fact when a page is unconfirmed");
+});
+
+test("a page with a confirmed data state reports its result count and effective location", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (_routes, input) => {
+      input.onPages?.([{
+        route: "/home",
+        grounded: true,
+        links: [],
+        dataState: true,
+        resultExpected: true,
+        resultCount: 11,
+        effectiveLocation: "Madrid",
+        dataStateUnconfirmed: false,
+        keptNodes: ["text: hi"],
+        keptTestIds: [],
+        testIdOfNode: new Map(),
+        nodeCapOmitted: 0,
+      }]);
+      return "route /home:\n  text: hi";
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const result = await buildContextPack({ routes: ["/home"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, deps);
+  assert.ok(result.text?.includes("11 result(s)"), "the result count is stated");
+  assert.ok(result.text?.includes('location "Madrid"'), "the effective location is quoted");
+});
+
 /* The pack is assembled elsewhere and reaches the prompt as a string, so its claims are derived from what it actually rendered. */
 const providedFacts = (claims: readonly PromptClaim[]): FactId[] =>
   claims.flatMap((c) => (c.kind === "provides" ? [c.fact] : [])).sort();
@@ -769,4 +1028,269 @@ test("the pack's header names only the sections it holds", async () => {
   );
   assert.match(packHeader(both.text), new RegExp(PACK_HEADINGS.liveDom, "i"));
   assert.match(packHeader(both.text), /contracts/i);
+});
+
+
+/* ── Route templates: opened through the real links the site shows ── */
+
+interface Call {
+  routes: string[];
+  linkSeeds: readonly string[];
+  instanceOf: ReadonlyMap<string, string>;
+}
+
+/* A site that shows `linksOf[route]` on each page and renders every route it is asked for. */
+function siteWithLinks(
+  linksOf: Record<string, string[]>,
+  calls: Call[],
+  options: { failSecond?: boolean; redirectAdvisory?: string; ungrounded?: readonly string[]; silentFrom?: number } = {},
+): ContextPackDeps {
+  return {
+    captureDomForRoutes: async (routes, input) => {
+      const { linkSeeds = [], instanceOf = new Map<string, string>(), onPages } = input;
+      calls.push({ routes, linkSeeds, instanceOf });
+      if (options.failSecond && calls.length > 1) throw new Error("browser gone");
+      /* A capture that renders nothing (a timed-out or unreadable run) answers no text and tells nobody of any page. */
+      if (options.silentFrom !== undefined && calls.length >= options.silentFrom) return undefined;
+      onPages?.([...routes, ...linkSeeds].map((route) => ({ route, grounded: !(options.ungrounded ?? []).includes(route), links: linksOf[route] ?? [] })));
+      if (routes.length === 0) return undefined;
+      const blocks = routes.map((route) => `route ${route}${instanceOf.has(route) ? ` (instance of ${instanceOf.get(route)})` : ""}:\n  button: on ${route}`);
+      return [...blocks, ...(options.redirectAdvisory && calls.length === 1 ? [`### ${PACK_HEADINGS.redirected} (ADVISORY)\nintro\n${options.redirectAdvisory}`] : [])].join("\n\n");
+    },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+}
+
+const LIST_TEMPLATE = "/shops/:province/:city";
+
+test("buildContextPack: a template is captured through a link the site showed on a page captured first, and the report names both", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, siteWithLinks({ "/a": ["/shops/madrid/madrid"] }, calls));
+  assert.deepEqual(calls[0]!.routes, ["/a"]);
+  assert.deepEqual(calls[1]!.routes, ["/shops/madrid/madrid"]);
+  assert.equal(calls[1]!.instanceOf.get("/shops/madrid/madrid"), LIST_TEMPLATE);
+  const live = sectionOf(result.text, PACK_HEADINGS.liveDom);
+  assert.ok(live.includes("button: on /a") && live.includes("button: on /shops/madrid/madrid"), "both captures are in the live DOM section");
+  assert.ok(live.includes(LIST_TEMPLATE), "the report says which template the page is an instance of");
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.notCapturable), "", "a template with a page is not listed as left out");
+});
+
+test("buildContextPack: the root is rendered for its links when a template is among the routes and the root is not", async () => {
+  const calls: Call[] = [];
+  await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, siteWithLinks({ "/": ["/shops/madrid/madrid"] }, calls));
+  assert.deepEqual(calls[0]!.linkSeeds, ["/"]);
+  assert.deepEqual(calls[1]!.routes, ["/shops/madrid/madrid"], "a link only the root showed is enough");
+});
+
+test("buildContextPack: a template alone is captured from the links of the root alone", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE], ...PACK_INPUT }, siteWithLinks({ "/": ["/shops/madrid/madrid"] }, calls));
+  assert.deepEqual(calls[0]!.routes, []);
+  assert.deepEqual(calls[1]!.routes, ["/shops/madrid/madrid"]);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("button: on /shops/madrid/madrid"));
+});
+
+test("buildContextPack: the root is not a seed when it is among the routes captured anyway", async () => {
+  const calls: Call[] = [];
+  await buildContextPack({ routes: ["/", LIST_TEMPLATE], ...PACK_INPUT }, siteWithLinks({ "/": ["/shops/a/b"] }, calls));
+  assert.deepEqual(calls[0]!.linkSeeds, []);
+  assert.deepEqual(calls[1]!.routes, ["/shops/a/b"]);
+});
+
+test("buildContextPack: with no template among the routes there is one capture and no seed", async () => {
+  const calls: Call[] = [];
+  await buildContextPack({ routes: ["/a", "/b"], ...PACK_INPUT }, siteWithLinks({ "/a": ["/shops/a/b"] }, calls));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0]!.linkSeeds, []);
+});
+
+test("buildContextPack: a template no link of the site fits is listed as left out, with why, and the rest of the pack stays", async () => {
+  const calls: Call[] = [];
+  const logs: string[] = [];
+  const deps = { ...siteWithLinks({ "/a": ["/about", "/shops/madrid"] }, calls), log: (message: string) => logs.push(message) };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.equal(calls.length, 1, "nothing to open, so no second capture");
+  const listed = sectionOf(result.text, PACK_HEADINGS.notCapturable);
+  assert.ok(listed.includes(LIST_TEMPLATE) && /no link/i.test(listed), listed);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("button: on /a"));
+  assert.ok(logs.some((message) => message.includes(LIST_TEMPLATE)));
+});
+
+test("buildContextPack: a template behind the cut is not opened and stays in the list of routes left out", async () => {
+  const calls: Call[] = [];
+  const behind = "/behind/:id";
+  const result = await buildContextPack({ routes: [...plainRoutes(MAX_ROUTES), behind], ...PACK_INPUT }, siteWithLinks({ "/r0": ["/behind/1"] }, calls));
+  assert.equal(calls.length, 1);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes(behind));
+});
+
+test("buildContextPack: the pages rendered stay within the bounds of the cut, one seed and one page per template", async () => {
+  const calls: Call[] = [];
+  const templates = Array.from({ length: MAX_ROUTES + 3 }, (_, i) => `/t${i}/:id`);
+  const links = templates.map((_, i) => `/t${i}/1`);
+  await buildContextPack({ routes: [...templates, ...plainRoutes(2)], ...PACK_INPUT }, siteWithLinks({ "/": links }, calls));
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0]!.routes.length + calls[0]!.linkSeeds.length <= MAX_ROUTES + 1);
+  assert.ok(calls[1]!.routes.length <= MAX_ROUTES);
+});
+
+test("buildContextPack: two templates the same link fills are captured once", async () => {
+  const calls: Call[] = [];
+  await buildContextPack({ routes: ["/a/:x", "/a/{y}"], ...PACK_INPUT }, siteWithLinks({ "/": ["/a/1"] }, calls));
+  assert.deepEqual(calls[1]!.routes, ["/a/1"]);
+});
+
+test("buildContextPack: a template filled by a page already among the routes captured is not captured again", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: ["/a/1", "/a/:x"], ...PACK_INPUT }, siteWithLinks({ "/a/1": ["/a/1"] }, calls));
+  assert.equal(calls.length, 1);
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.notCapturable), "");
+});
+
+test("buildContextPack: when the capture of the template pages fails, the pages captured first are still in the pack", async () => {
+  const calls: Call[] = [];
+  const logs: string[] = [];
+  const deps = { ...siteWithLinks({ "/a": ["/shops/a/b"] }, calls, { failSecond: true }), log: (message: string) => logs.push(message) };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("button: on /a"));
+  assert.ok(logs.some((message) => /FAILED/.test(message)));
+});
+
+test("buildContextPack: when the first capture fails nothing is opened through links and the pack is skipped", async () => {
+  const calls: Call[] = [];
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async (routes, input) => { calls.push({ routes, linkSeeds: input.linkSeeds ?? [], instanceOf: input.instanceOf ?? new Map() }); throw new Error("browser gone"); },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.equal(calls.length, 1);
+  assert.equal(result.text, undefined);
+});
+
+test("buildContextPack: the pages redirects reached in both captures are one advisory section", async () => {
+  const calls: Call[] = [];
+  const deps = siteWithLinks({ "/a": ["/shops/a/b"] }, calls);
+  const inner = deps.captureDomForRoutes;
+  deps.captureDomForRoutes = async (routes, input, domDeps, changed) => {
+    const text = (await inner(routes, input, domDeps, changed)) ?? "";
+    return `${text}\n\n### ${PACK_HEADINGS.redirected} (ADVISORY)\n${REDIRECT_ADVISORY_INTRO}\nbody of call ${calls.length}`;
+  };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.equal(result.text?.split(`### ${PACK_HEADINGS.redirected}`).length, 2, "one heading");
+  assert.ok(result.text!.includes("body of call 1") && result.text!.includes("body of call 2"));
+});
+
+/* ── What the pack says of a template once the capture has answered ── */
+
+test("buildContextPack: a page found for a template that the capture could not ground leaves the template listed as left out, with why", async () => {
+  const calls: Call[] = [];
+  const logs: string[] = [];
+  const deps = { ...siteWithLinks({ "/a": ["/shops/madrid/madrid"] }, calls, { ungrounded: ["/shops/madrid/madrid"] }), log: (message: string) => logs.push(message) };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  const listed = sectionOf(result.text, PACK_HEADINGS.notCapturable);
+  assert.ok(listed.includes(LIST_TEMPLATE) && listed.includes(TEMPLATE_LEFT_OUT.PAGE_NOT_CONFIRMED), listed);
+  assert.ok(logs.some((message) => message.includes(LIST_TEMPLATE) && message.includes(TEMPLATE_LEFT_OUT.PAGE_NOT_CONFIRMED)));
+});
+
+test("buildContextPack: a second capture that renders nothing leaves the template listed, not silently gone", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, siteWithLinks({ "/a": ["/shops/madrid/madrid"] }, calls, { silentFrom: 2 }));
+  assert.equal(calls.length, 2);
+  const listed = sectionOf(result.text, PACK_HEADINGS.notCapturable);
+  assert.ok(listed.includes(LIST_TEMPLATE) && listed.includes(TEMPLATE_LEFT_OUT.PAGE_NOT_CONFIRMED), listed);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("button: on /a"), "the pages captured first stay");
+});
+
+test("buildContextPack: when the capture of the template pages throws, the template is listed with the same reason", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, siteWithLinks({ "/a": ["/shops/a/b"] }, calls, { failSecond: true }));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes(TEMPLATE_LEFT_OUT.PAGE_NOT_CONFIRMED));
+});
+
+test("buildContextPack: a template is not reported as having no link when the pages that would show the links were not grounded", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, siteWithLinks({}, calls, { ungrounded: ["/a", "/"] }));
+  const listed = sectionOf(result.text, PACK_HEADINGS.notCapturable);
+  assert.ok(listed.includes(TEMPLATE_LEFT_OUT.NO_PAGE_TO_LOOK_AT), listed);
+  assert.equal(listed.includes(TEMPLATE_LEFT_OUT.NO_LINK), false);
+});
+
+test("buildContextPack: a template filled by a page of the first capture that did not ground is not opened", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: ["/a/1", "/a/:x"], ...PACK_INPUT }, siteWithLinks({ "/a/1": ["/a/1"] }, calls, { ungrounded: ["/a/1"] }));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes("/a/:x"));
+});
+
+test("buildContextPack: a page only implied by a longer link is accepted when the capture confirms it, and refused when it does not", async () => {
+  const implied = "/shops/madrid/madrid";
+  const links = { "/a": [`${implied}/bar-1`] };
+  const confirmed = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, siteWithLinks(links, []));
+  assert.equal(sectionOf(confirmed.text, PACK_HEADINGS.notCapturable), "");
+  assert.ok(sectionOf(confirmed.text, PACK_HEADINGS.liveDom).includes(`button: on ${implied}`));
+  const refused = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, siteWithLinks(links, [], { ungrounded: [implied] }));
+  assert.ok(sectionOf(refused.text, PACK_HEADINGS.notCapturable).includes(LIST_TEMPLATE));
+});
+
+test("buildContextPack: a template made only of parameters is not opened through any link and asks for no page to be rendered for its links", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: ["/:id", "/a"], ...PACK_INPUT }, siteWithLinks({ "/a": ["/login", "/42"] }, calls));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0]!.linkSeeds, []);
+  const listed = sectionOf(result.text, PACK_HEADINGS.notCapturable);
+  assert.ok(listed.includes("/:id"));
+  assert.equal(listed.includes(TEMPLATE_LEFT_OUT.NO_LINK), false);
+});
+
+test("buildContextPack: a template ranked behind the cut asks for no page to be rendered for its links", async () => {
+  const calls: Call[] = [];
+  await buildContextPack({ routes: [...plainRoutes(MAX_ROUTES), "/behind/:id"], ...PACK_INPUT }, siteWithLinks({ "/r0": ["/behind/1"] }, calls));
+  assert.deepEqual(calls[0]!.linkSeeds, []);
+});
+
+test("buildContextPack: the routes a log line names are cleaned and bounded", async () => {
+  const logs: string[] = [];
+  const hostile = `/reset/:token/ghp_${"A".repeat(36)}/${"x".repeat(5000)}`;
+  const deps = { ...siteWithLinks({}, []), log: (message: string) => logs.push(message) };
+  await buildContextPack({ routes: [hostile, "/a"], ...PACK_INPUT }, deps);
+  const named = logs.filter((message) => message.includes("/reset/"));
+  assert.ok(named.length > 0);
+  for (const message of named) {
+    assert.equal(message.includes("ghp_AAAA"), false, "the token is redacted");
+    assert.ok(message.length < 600, `the line is bounded (${message.length})`);
+  }
+});
+
+test("buildContextPack: when every candidate names no page and no template of one, nothing is rendered at all", async () => {
+  const captured: string[][] = [];
+  const result = await buildContextPack({ routes: ["/files/*", "the cart page", "/users/:id?"], ...PACK_INPUT }, capturingDeps(captured));
+  assert.equal(captured.length, 0, "no capture was asked for, not even to look for links");
+  assert.equal(result.text, undefined);
+});
+
+test("buildContextPack: a template that was never looked at keeps the plain reason it names no page, not one about links", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: [...plainRoutes(MAX_ROUTES), "/behind/:id"], ...PACK_INPUT }, siteWithLinks({ "/r0": ["/behind/1"] }, calls));
+  const line = sectionOf(result.text, PACK_HEADINGS.notCapturable).split("\n").find((entry) => entry.includes("/behind/:id")) ?? "";
+  assert.ok(line.endsWith(`(${ROUTE_REASON.TEMPLATE})`), line);
+});
+
+test("buildContextPack: a template is reported as having no link when some page that could show one was grounded, even if another was not", async () => {
+  const calls: Call[] = [];
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, siteWithLinks({}, calls, { ungrounded: ["/"] }));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes(TEMPLATE_LEFT_OUT.NO_LINK));
+});
+
+test("buildContextPack: when the first capture throws, every template meant to be opened through it is listed for that reason", async () => {
+  const deps: ContextPackDeps = {
+    captureDomForRoutes: async () => { throw new Error("browser gone"); },
+    domDeps: stubDomDeps(undefined),
+    log: () => {},
+  };
+  const logs: string[] = [];
+  await buildContextPack({ routes: [LIST_TEMPLATE, "/a/:x"], ...PACK_INPUT }, { ...deps, log: (message: string) => logs.push(message) });
+  for (const template of [LIST_TEMPLATE, "/a/:x"]) {
+    assert.ok(logs.some((message) => message.includes(template) && message.includes(TEMPLATE_LEFT_OUT.NO_PAGE_TO_LOOK_AT)), template);
+  }
 });

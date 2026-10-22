@@ -1221,6 +1221,15 @@ The re-run: 307 killed, no timeout, none survived, 100%.
 | prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, step-limit, suite-listing-render, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 556 / 2 / 5 — 99.11% (98.76%) | — |
 | step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits, the factory's per-run memo | 43 / 0 / 4 — 91.49% (91.49%) | 48 / 0 / 1 — 97.96% (97.96%) | — |
 | carry-forward | spec-path, delivered-spec (the fold), declared-specs, delivered-specs (the merge), contradiction-attribution, suite-entry, suite-listing, suite-listing-render, and the lines that wire them in the use case, the generation adapter, the checks that give each contradiction its origin, the FixLoop, the run and the grounding's fold of the suite | 109 / 2 / 8 — 93.28% (91.6%) | 307 / 0 / 0 — 100% (100%) | — |
+| agent-browser | agent-browser-route-guard, agent-browser-session-invalidation, agent-browser-capability, agent-browser.use-case, account-lock | 225 / 5 / 112 — 67.25% (65.79%) | 297 / 18 / 61 — 83.78% (78.99%) | — |
+
+
+The agent-browser preset (WU 4a, 2026-10-12) was run twice on the code of its commits, the first time with the tests the units were written with (67.25%), then after the survivors were read. What the first run
+showed that mattered: a `**` between two slashes (`/files/**/secret`) did not cover the path with no segment there, so a route the app meant to deny was open one segment short; the capability's renewal bookkeeping,
+the length bounds of an argument and of a pattern, and the cap on the blocks listed in an answer had no test. Each got one. The `AccountLock` was added to the preset after a test of a call that gives up its wait found it
+letting a later caller in while the holder was still running (the aborted waiter deleted the account's tail), which is fixed and pinned by two tests. What the 61 survivors left are: the prose of the messages (a string
+literal is not asserted, by the rules above), the bookkeeping that removes an idle account's entry from the lock's map (it only bounds memory, nothing observes it), the anchors of two regular expressions whose
+`.*` makes the end anchor a no-op, the second of two checks that give the same refusal (an empty pattern is also not an absolute path), and the `trim` before `new URL`, which trims on its own.
 
 Slice 13e (2026-10-09) did not finish its mutation records. v8-coverage-decode, code-run-reads and
 e2e-run-reads were run to the end on the code of its commit and their rows are those runs. spec-path-confinement,

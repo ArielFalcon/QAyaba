@@ -24,7 +24,7 @@ function rule(overrides: Partial<LearningRule> = {}): LearningRule {
 
 describe("renderLedgerReport — engine-side classes", () => {
   it("reads an engine-side class in plain words, never as its E-… code", () => {
-    for (const errorClass of ["E-STEP-BUDGET", "E-NO-DECISION"] as const) {
+    for (const errorClass of ["E-STEP-BUDGET", "E-TIME-BUDGET", "E-NO-DECISION"] as const) {
       const out = renderLedgerReport([rule({ errorClass, status: "active", confidence: "medium" })]);
       assert.doesNotMatch(out, new RegExp(errorClass), errorClass);
       assert.doesNotMatch(out, /\bE-[A-Z]/, errorClass);
@@ -98,5 +98,31 @@ describe("renderLedgerReport — human-readable audit view", () => {
     const out = renderLedgerReport([rule({ status: "active", confidence: "low", successRate: 0.5, outcomeCount: 1 })]);
     assert.match(out, /over 1 outcome\b/);
     assert.doesNotMatch(out, /1 outcomes/);
+  });
+});
+
+describe("renderLedgerReport — quarantined rules", () => {
+  const quarantinedAt = "2026-10-12T10:00:00.000Z";
+
+  it("lists a quarantined rule under its own heading and not under the active or candidate one its status would put it in", () => {
+    const out = renderLedgerReport([
+      rule({ id: "q1", trigger: "Applies when quarantined-active", status: "active", confidence: "medium", quarantinedAt }),
+      rule({ id: "q2", trigger: "Applies when quarantined-candidate", status: "candidate", quarantinedAt }),
+      rule({ id: "live", trigger: "Applies when live" }),
+    ]);
+    assert.match(out, /## QUARANTINED \(2\) — set aside by an operator/);
+    assert.match(out, /## CANDIDATE \(1\)/);
+    assert.doesNotMatch(out, /## ACTIVE/, "the quarantined active rule is not claimed to be injected into prompts");
+  });
+
+  it("says when each rule was quarantined", () => {
+    const out = renderLedgerReport([rule({ trigger: "Applies when q", quarantinedAt })]);
+    assert.match(out, /quarantined 2026-10-12T10:00:00.000Z/);
+  });
+
+  it("treats a rule whose quarantine was lifted (null) like any other", () => {
+    const out = renderLedgerReport([rule({ quarantinedAt: null })]);
+    assert.doesNotMatch(out, /QUARANTINED/);
+    assert.match(out, /## CANDIDATE \(1\)/);
   });
 });

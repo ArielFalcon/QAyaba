@@ -3,7 +3,7 @@ import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -884,7 +884,7 @@ test("package.json is the last file the seed copy writes: a copy that fails half
 
     await assert.rejects(() => adapterOver(runner, p.seed).setup(p.e2e), refusedAt(join(p.e2e, "zz-assets")));
     const left = existsSync(join(p.e2e, "package.json"));
-    rmSync(join(p.e2e, "zz-assets"));
+    unlinkSync(join(p.e2e, "zz-assets"));
     await capturing(() => adapterOver(runner, p.seed).setup(p.e2e));
 
     assert.equal(left, false, "a project with a package.json looks seeded to every later setup, which would never copy the rest");

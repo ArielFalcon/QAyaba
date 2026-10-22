@@ -1,7 +1,7 @@
 /*
  * Runs the login discovery script as a sandboxed one-shot child and turns what it printed into the
- * evidence the classifier reads. The script is written to a fresh temp directory outside the watched
- * repo and removed afterwards, the child runs in the spec dir under a hard kill, and the account
+ * evidence the classifier reads. The script is written outside the watched repo (the launcher's work dir,
+ * or a temp directory) and removed afterwards, the child runs in the spec dir under a hard kill, and the account
  * reaches it through its env alone: the JSON input it is given holds none. A child that dies is never
  * swallowed: it is logged with the account removed and reported as a crash, saying whether a submit
  * had already gone out (the stock seed must not submit again after one). This module is a protected
@@ -12,6 +12,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SandboxedBinaryRunner } from "../../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+import { redactByValue } from "../../../../shared-infrastructure/run-secret-redaction.ts";
 import { FORM_STATE, scrubSecrets, type LoginEvidence } from "../../domain/helpers/login-evidence.ts";
 import { CHILD_DEADLINE_MS, SUBMITTED_MARKER, buildLoginDiscoveryScript } from "./login-discovery.script.ts";
 
@@ -48,6 +49,8 @@ export type LoginDiscoveryResult = LoginEvidence | LoginDiscoveryCrash;
 
 export interface LoginDiscoveryRunnerDeps {
   runner: SandboxedBinaryRunner;
+  /** Writes the script where the child can read it and cannot change it (the launcher's work dir). Absent: a fresh temp directory outside the watched repo, for a runner that is not a launcher. */
+  writeScript?(name: string, content: string): string;
   /** Where a crash and the child's own complaints are reported; console.error unless a test says otherwise. */
   log?(line: string): void;
 }
@@ -100,11 +103,16 @@ export function createDiscoverLogin(deps: LoginDiscoveryRunnerDeps): (input: Log
     if (signal?.aborted) return { crashed: true, attempted: false };
     const secrets = [input.env.DEV_TEST_USER, input.env.DEV_TEST_PASS].filter((secret): secret is string => secret !== undefined && secret !== "");
     /* Everything the child says about itself is untrusted text: the account comes out by exact value before it is logged. */
-    const report = (what: string, text: string): void => log(`[qa] login discovery ${what}: ${scrubSecrets(text, secrets).slice(0, LOGGED_TEXT_MAX)}`);
-    const work = mkdtempSync(join(tmpdir(), "qa-login-"));
+    const report = (what: string, text: string): void => log(`[qa] login discovery ${what}: ${redactByValue(scrubSecrets(text, secrets)).slice(0, LOGGED_TEXT_MAX)}`);
+    const work = deps.writeScript ? undefined : mkdtempSync(join(tmpdir(), "qa-login-"));
     try {
-      const script = join(work, "login-discovery.cjs");
-      writeFileSync(script, buildLoginDiscoveryScript(join(input.specDir, "node_modules", "playwright")));
+      const source = buildLoginDiscoveryScript(join(input.specDir, "node_modules", "playwright"));
+      let script: string;
+      if (deps.writeScript) script = deps.writeScript("login-discovery.cjs", source);
+      else {
+        script = join(work!, "login-discovery.cjs");
+        writeFileSync(script, source);
+      }
       const childInput = {
         baseUrl: input.baseUrl,
         routes: input.routes,
@@ -133,7 +141,7 @@ export function createDiscoverLogin(deps: LoginDiscoveryRunnerDeps): (input: Log
       report("crashed", `no usable evidence (exit ${result.exitCode}${result.timedOut ? ", timed out or aborted" : ""})`);
       return { crashed: true, attempted: output.submitted };
     } finally {
-      rmSync(work, { recursive: true, force: true });
+      if (work) rmSync(work, { recursive: true, force: true });
     }
   };
 }
