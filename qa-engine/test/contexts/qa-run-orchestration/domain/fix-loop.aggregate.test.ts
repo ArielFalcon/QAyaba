@@ -858,12 +858,12 @@ test("the initial run's own bytes are restored when the first accepted round is 
   assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1, "the initial run stays the best run");
 });
 
-test("an accepted flaky round makes the run flaky", async () => {
+test("an accepted round never hides a flaky spec it did not re-run", async () => {
   const acceptance = fakeAcceptance(async () => ({
     kind: "accepted",
     changedSpecFiles: ["a.spec.ts"],
-    execution: { verdict: "flaky", cases: [{ name: "a", status: "flaky", file: "a.spec.ts" }] },
-    accepted: "round-a-flaky",
+    execution: { verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] },
+    accepted: "round-a-pass",
   }));
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("the accepted path must not execute directly"); } };
   const generation: FixLoopGenerationPort = { generate: async () => ({ specs: ["a.spec.ts"], approved: true }) };
@@ -876,7 +876,13 @@ test("an accepted flaky round makes the run flaky", async () => {
   });
 
   const result = await loop.run({
-    initialRun: { verdict: "fail", cases: [{ name: "a", status: "fail", file: "a.spec.ts", detail: "getByRole resolved to 0 elements" }] },
+    initialRun: {
+      verdict: "fail",
+      cases: [
+        { name: "a", status: "fail", file: "a.spec.ts", detail: "getByRole resolved to 0 elements" },
+        { name: "b", status: "flaky", file: "b.spec.ts" },
+      ],
+    },
     isCode: false,
     generating: true,
     mode: "diff",
@@ -888,7 +894,8 @@ test("an accepted flaky round makes the run flaky", async () => {
     namespace: "qa-bot-abc",
   });
 
-  assert.equal(result.run.verdict, "flaky", "a retry that only passes on the second attempt is quarantined, not passed");
+  assert.equal(result.run.verdict, "flaky", "a spec that stayed flaky is quarantined, not passed");
+  assert.equal(result.run.cases.find((c) => c.name === "b")?.status, "flaky", "the unchanged flaky case is kept");
 });
 
 test("DEV unhealthy before a round's acceptance skips it", async () => {

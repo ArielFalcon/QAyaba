@@ -636,6 +636,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     tests: [`${ORCH_TEST}/application/regeneration-acceptance.test.ts`],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "intent-contract": {
+    description: "test-intent contract: change tokens from the diff's added lines, anchoring, and the generic delta rules with their change-derived waivers",
+    mutate: [`${OS}/change-tokens.ts`, `${OS}/test-intent-contract.ts`],
+    tests: [`${OS_TEST}/test-intent-contract.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
 };
 
 /* Top-level entries never copied into the Stryker sandbox: build outputs, runtime data, the Go TUI,
