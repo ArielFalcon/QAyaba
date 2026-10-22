@@ -3,8 +3,9 @@
  * — see its own header); Rule 1 below re-checks the SAME PLAYWRIGHT_INFRA_RE pattern here only
  * because FixLoop's evidence is pre-computed strings, not QaCase[], so it cannot call that helper
  * directly. First match wins: runner_infra → dev_infra → attributed 5xx app_defect →
- * isLikelyRealBug app_defect → generated_test_defect/continue → break-needs-human → objective_gap
- * (label only) → default continue. Pure: no I/O, never throw. */
+ * runtime-error app_defect → dev_not_rendered → isLikelyRealBug app_defect →
+ * generated_test_defect/continue → break-needs-human → objective_gap (label only) → default
+ * continue. Pure: no I/O, never throw. */
 
 import type { RunMode } from "@kernel/run-mode.ts";
 import { isLikelyRealBug, classifyFailure } from "./helpers/progress-gate.ts";
@@ -17,6 +18,7 @@ export const ADJ_CLASS = {
   GENERATED_TEST_DEFECT: "generated_test_defect",
   RUNNER_INFRA: "runner_infra",
   DEV_INFRA: "dev_infra",
+  DEV_NOT_RENDERED: "dev_not_rendered",
   OBJECTIVE_GAP: "objective_gap",
 } as const;
 export type AdjudicatorClass = (typeof ADJ_CLASS)[keyof typeof ADJ_CLASS];
@@ -68,6 +70,12 @@ export interface AdjudicatorEvidence {
   httpStatuses: (number | undefined)[];
   /** Per-failed-case console/pageerror entries (`failed.map(c => c.runtimeErrors ?? [])`). Empty inner array means none captured — never undefined at the outer level. */
   runtimeErrorsByCase: { type: string; text: string }[][];
+  /**
+   * The triage's read of a dev-not-rendered candidate: `conclusive` when the target was absent from
+   * the failure DOM and a second read reproduced the same absence, `inconclusive` when it did not.
+   * Absent when no triage ran (the switch is off, or the failure is not a candidate).
+   */
+  devNotRendered?: "conclusive" | "inconclusive";
 }
 
 export interface AdjudicatorVerdict {
@@ -131,6 +139,7 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     failingFiles,
     httpStatuses,
     runtimeErrorsByCase,
+    devNotRendered,
   } = evidence;
 
   /* Rule 1: runner_infra — every failure matches the Playwright launcher infra pattern (same regex as allFailuresAreRunnerInfra). Highest priority: never burn retries on a launcher crash. */
@@ -178,6 +187,24 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
         };
       }
     }
+  }
+
+  /* Rule 2.7: dev_not_rendered — the triage's own read of a failure whose target is absent from the failure-point DOM while its bytes have a green proof. A conclusive second read means the change is not on DEV (a precondition, not a test defect); an inconclusive one is surfaced as a possible environment cause, never regenerated. Below the app-evidence rules; above test-defect. Not applicable in code mode. */
+  if (!isCode && devNotRendered === "conclusive") {
+    return {
+      class: ADJ_CLASS.DEV_NOT_RENDERED,
+      confidence: ADJ_CONFIDENCE.HIGH,
+      action: ADJ_ACTION.BREAK_ISSUE, /* caller routes to infra-error E-PRECONDITION, no repo Issue */
+      reason: "DEV did not render the change: the target is absent from the failure DOM and a second read reproduced the same absence, while these bytes have a green proof.",
+    };
+  }
+  if (!isCode && devNotRendered === "inconclusive") {
+    return {
+      class: ADJ_CLASS.DEV_NOT_RENDERED,
+      confidence: ADJ_CONFIDENCE.MEDIUM,
+      action: ADJ_ACTION.BREAK_NEEDS_HUMAN, /* caller ends fail; the Issue names the possible environment cause */
+      reason: "Possible environment cause: the target is absent from the failure DOM, but a second read did not reproduce the same absence. Not regenerating.",
+    };
   }
 
   /* Rule 3: app_defect — same predicate as isLikelyRealBug. allUnique=true + every detail a value-mismatch → real bug. Not applicable in code mode. */

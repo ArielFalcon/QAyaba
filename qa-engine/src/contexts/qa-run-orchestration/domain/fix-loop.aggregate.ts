@@ -1,11 +1,11 @@
-/* FixLoop aggregate: selector check → adjudicate → regen → re-execute, with absentKeys short-circuit and a fewest-failures regression guard. CycleBudget/WallClockBudget are forwarded unread into every generate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
+/* FixLoop aggregate: triage → selector check → adjudicate → regen → re-execute, with absentKeys short-circuit and a fewest-failures regression guard. Triage and the typed test-correct claim are capabilities the caller grants only while the review-loop integrity switch is on. CycleBudget/WallClockBudget are forwarded unread into every generate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { CycleBudget } from "./cycle-budget.ts";
 import type { WallClockBudget } from "./wall-clock-budget.ts";
-import { adjudicate, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION } from "./adjudicate.service.ts";
+import { adjudicate, classifyRuntimeErrors, type AdjFailureClass, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION, ADJ_CONFIDENCE } from "./adjudicate.service.ts";
 import { decideProgress, classifyFailure, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "./helpers/selector-check.ts";
 
@@ -33,6 +33,8 @@ export interface FixLoopGenerateResult {
   specSources?: string[];
   /* This round's flow/objective metadata. Absent/empty when unread — never fabricated. Caller prefers lastSpecMetas over the pre-loop generation once the loop has rewritten specs. */
   specMetas?: { flow?: string; objective?: string }[];
+  /* The generator's typed claim that the test is correct and the app/environment is not. A claim, never evidence: the loop verifies it against the round's own artifacts. */
+  testCorrect?: { cause: "env" | "app"; reason: string };
 }
 export interface FixLoopGenerationPort {
   generate(input: FixLoopGenerateInput): Promise<FixLoopGenerateResult>;
@@ -41,6 +43,8 @@ export interface FixLoopGenerationPort {
 export interface FixLoopExecuteInput {
   namespace: string;
   specFiles?: string[];
+  /* Attempts after a failure; 0 is a single attempt. Absent: the suite's own config decides. */
+  retries?: number;
 }
 export interface FixLoopExecutionPort {
   execute(input: FixLoopExecuteInput): Promise<FixLoopRun>;
@@ -56,6 +60,20 @@ export interface FixLoopDeps {
   generation: FixLoopGenerationPort;
   selectorCheck: FixLoopSelectorCheckPort;
   revalidate?: (specDir: string) => Promise<{ ok: boolean; errors: string[] }>;
+}
+
+/**
+ * What the caller grants the loop while the review-loop integrity switch is on: the evidence the
+ * triage needs and a cap for the one re-execution it may spend. Absent means the switch is off, and
+ * neither the triage nor a typed test-correct claim is read.
+ */
+export interface FixLoopIntegrity {
+  /** Whether the current bytes of a spec file were seen passing in this run (the run_spec closure, or a proof the ledger already holds). */
+  hasGreenProof(specFile: string): Promise<boolean>;
+  /** Claims one execution from the run's acceptance cap; false when none is left. */
+  spendExecution(): boolean;
+  /** Milliseconds left before the run's deadline; undefined when none is armed. */
+  remainingMs(): number | undefined;
 }
 
 
@@ -77,6 +95,8 @@ export interface FixLoopInput {
   coverageWillMeasure?: boolean;
   failureDomSnapshot?: string;
   specDir?: string;
+  /* Present only while the review-loop integrity switch is on: enables triage and reads a typed test-correct claim. */
+  integrity?: FixLoopIntegrity;
 }
 
 export interface FixLoopResult {
@@ -88,6 +108,10 @@ export interface FixLoopResult {
   coverageNamespace: string;
   /* Last regen round's specMetas at loop exit. undefined when the loop never regenerated — never fabricated. */
   lastSpecMetas: { flow?: string; objective?: string }[] | undefined;
+  /* The loop ended on a conclusive dev_not_rendered: the run is an infra-error of the precondition class. */
+  preconditionFailed: boolean;
+  /* Typed test-correct claims the loop rejected as unverified evidence (each asked for another repair). */
+  rejectedClaims: number;
 }
 
 const failCount = (r: FixLoopRun): number => r.cases.filter((c) => c.status === "fail").length;
@@ -104,6 +128,32 @@ function buildFailureDomLines(failureDom: string | undefined): string[] {
   return failureDom.split("\n").filter((l) => l.trim());
 }
 
+/* A typed test-correct claim is evidence only when the round's own artifacts already show the app (or the environment) at fault. Env has one witness: the conclusive triage read. */
+function verifiedTestCorrectReason(
+  claim: { cause: "env" | "app" },
+  evidence: {
+    fiveXx: number[];
+    failureClasses: AdjFailureClass[];
+    runtimeErrorsByCase: { type: string; text: string }[][];
+    devNotRendered?: "conclusive" | "inconclusive";
+  },
+): string | undefined {
+  if (claim.cause === "env") {
+    return evidence.devNotRendered === "conclusive" ? "the second read confirmed DEV did not render the target" : undefined;
+  }
+  if (evidence.fiveXx.length > 0) {
+    return `the run saw a ${evidence.fiveXx[evidence.fiveXx.length - 1]} server error`;
+  }
+  for (const errors of evidence.runtimeErrorsByCase) {
+    const runtime = classifyRuntimeErrors(errors);
+    if (runtime.appDefect) return `the run captured ${runtime.reasons[0]}`;
+  }
+  if (evidence.failureClasses.some((failure) => failure === "value-mismatch")) {
+    return "at least one assertion failed on a value mismatch";
+  }
+  return undefined;
+}
+
 export class FixLoop {
   constructor(private readonly deps: FixLoopDeps) {}
 
@@ -115,6 +165,12 @@ export class FixLoop {
     let realBugDetected = false;
     let adjVerdict: AdjudicatorVerdict | undefined;
     let coverageNs = input.namespace;
+    let preconditionFailed = false;
+    let rejectedClaims = 0;
+    /* The one triage re-execution this loop may spend. */
+    let triaged = false;
+    /* A rejected test-correct claim earns one repair even when the progress gate would stop the round. */
+    let claimRejected = false;
     /* Only what a later round reads from the previous regeneration. */
     let lastRegenResult: Pick<FixLoopGenerateResult, "specSources" | "reexploreNavigations" | "specMetas"> | undefined =
       input.initialSpecSources?.length ? { specSources: input.initialSpecSources } : undefined;
@@ -146,7 +202,10 @@ export class FixLoop {
         lever2Flips,
         reexploreNavigations: lastRegenResult?.reexploreNavigations ?? 0,
       };
-      const gate = decideProgress(prevRound, curRound);
+      const gate = claimRejected
+        ? { spend: true, reason: "a rejected test-correct claim is not evidence — asking for the repair" }
+        : decideProgress(prevRound, curRound);
+      claimRejected = false;
 
       const allUnique =
         anyVerifiedPresent &&
@@ -159,11 +218,64 @@ export class FixLoop {
       const devHealthyNow = input.isCode ? true : await input.devHealthy();
       /* A missing detail reads as "" — any placeholder text would classify the same ("other", not infra). */
       const failureDetails = failed.map((c) => c.detail ?? "");
+      const failureClasses = failureDetails.map((detail) => classifyFailure(detail));
+      const httpStatuses = failed.map((c) => c.httpStatus);
+      const runtimeErrorsByCase = failed.map((c) => c.runtimeErrors ?? []);
+      const fiveXx = httpStatuses.filter((status): status is number => status !== undefined && status >= 500 && status <= 599);
+
+      /*
+       * Triage: a failure whose target is verifiably absent while the same bytes have a green proof
+       * is either DEV not rendering the change or an environment fault — never a test defect. One
+       * re-execution (no retries) reads it a second time; a conclusive read ends the loop as a
+       * precondition, an inconclusive one as a possible environment cause. Only while the switch is on.
+       */
+      let devNotRendered: AdjudicatorEvidence["devNotRendered"];
+      if (
+        !triaged &&
+        input.integrity &&
+        !input.isCode &&
+        absentKeys.size > 0 &&
+        failureClasses.length > 0 &&
+        failureClasses.every((failure) => failure === "locator" || failure === "timeout") &&
+        failed.every((c) => !!c.file)
+      ) {
+        const failedFiles = [...new Set(failed.map((c) => c.file as string))];
+        const proofs = await Promise.all(failedFiles.map((file) => input.integrity!.hasGreenProof(file)));
+        if (proofs.every(Boolean)) {
+          triaged = true;
+          const remaining = input.integrity.remainingMs();
+          if ((remaining !== undefined && remaining <= 0) || !input.integrity.spendExecution()) {
+            devNotRendered = "inconclusive";
+          } else {
+            const triageRun = await this.deps.execution.execute({
+              namespace: `${input.namespace}-triage`,
+              specFiles: failedFiles,
+              retries: 0,
+            });
+            if (triageRun.verdict === "pass" || triageRun.verdict === "flaky") {
+              /* The same bytes passed on a second read: intermittent, as a retry that passes is today. */
+              const reportedFiles = new Set(triageRun.cases.map((c) => c.file));
+              run = {
+                verdict: "flaky",
+                cases: [...run.cases.filter((c) => !reportedFiles.has(c.file)), ...triageRun.cases],
+              };
+              break;
+            }
+            const triageFailed = triageRun.cases.filter((c) => c.status === "fail");
+            const triageTrees = triageFailed.map((c) => buildFailureDomLines(c.failureDom)).filter((tree) => tree.length > 0);
+            const triageAbsentKeys = this.deps.selectorCheck.check(specSources, triageTrees).absentKeys;
+            const stable =
+              triageRun.verdict === "fail" && [...absentKeys].every((key) => triageAbsentKeys.has(key));
+            devNotRendered = stable ? "conclusive" : "inconclusive";
+          }
+        }
+      }
+
       const evidence: AdjudicatorEvidence = {
         isCode: input.isCode,
         allUnique,
         failureDetails,
-        failureClasses: failureDetails.map((detail) => classifyFailure(detail)),
+        failureClasses,
         absentKeysCount: absentKeys.size,
         gateSpend: gate.spend,
         gateReason: gate.reason,
@@ -171,8 +283,9 @@ export class FixLoop {
         mode: input.mode,
         objectiveSource: input.objectiveSource,
         failingFiles: failed.map((c) => c.file),
-        httpStatuses: failed.map((c) => c.httpStatus),
-        runtimeErrorsByCase: failed.map((c) => c.runtimeErrors ?? []),
+        httpStatuses,
+        runtimeErrorsByCase,
+        ...(devNotRendered ? { devNotRendered } : {}),
       };
       const verdict = adjudicate(evidence);
       adjVerdict = verdict;
@@ -180,6 +293,9 @@ export class FixLoop {
       if (verdict.action === ADJ_ACTION.BREAK_ISSUE) {
         if (verdict.class === ADJ_CLASS.RUNNER_INFRA || verdict.class === ADJ_CLASS.DEV_INFRA) {
           run = { verdict: "infra-error", cases: [] };
+        } else if (verdict.class === ADJ_CLASS.DEV_NOT_RENDERED) {
+          run = { verdict: "infra-error", cases: [] };
+          preconditionFailed = true;
         } else {
           realBugDetected = true;
         }
@@ -199,6 +315,44 @@ export class FixLoop {
         cycleBudget: input.cycleBudget,
         wallClockBudget: input.wallClockBudget,
       });
+      /*
+       * A typed test-correct claim is read only on a turn that delivered no bytes. It is never
+       * evidence: the loop verifies it against this round's artifacts; unverified, it earns one
+       * repair and the claim is not counted as a fix. Bounded by the loop's retry cap.
+       */
+      const claim = result.specs.length === 0 && input.integrity ? result.testCorrect : undefined;
+      if (claim) {
+        const verified = verifiedTestCorrectReason(claim, {
+          fiveXx,
+          failureClasses,
+          runtimeErrorsByCase,
+          ...(devNotRendered ? { devNotRendered } : {}),
+        });
+        if (verified) {
+          if (claim.cause === "env") {
+            run = { verdict: "infra-error", cases: [] };
+            preconditionFailed = true;
+            adjVerdict = {
+              class: ADJ_CLASS.DEV_NOT_RENDERED,
+              confidence: ADJ_CONFIDENCE.HIGH,
+              action: ADJ_ACTION.BREAK_ISSUE,
+              reason: `Environment confirmed: the generator reported the test correct (${claim.reason}); ${verified}.`,
+            };
+          } else {
+            realBugDetected = true;
+            adjVerdict = {
+              class: ADJ_CLASS.APP_DEFECT,
+              confidence: ADJ_CONFIDENCE.HIGH,
+              action: ADJ_ACTION.BREAK_ISSUE,
+              reason: `App defect confirmed: the generator reported the test correct (${claim.reason}); ${verified}.`,
+            };
+          }
+          break;
+        }
+        rejectedClaims++;
+        claimRejected = true;
+        continue;
+      }
       lastRegenResult = result;
 
       if (result.specs.length === 0) {
@@ -305,6 +459,8 @@ export class FixLoop {
       lastAdjudicatorVerdict: adjVerdict,
       coverageNamespace: coverageNs,
       lastSpecMetas: lastRegenResult?.specMetas,
+      preconditionFailed,
+      rejectedClaims,
     };
   }
 }

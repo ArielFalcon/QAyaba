@@ -60,6 +60,8 @@ export interface GenerationResult {
   end: GenerationEndKind;
   /** What the generation's MAIN turn measured, when its runtime can measure a turn (Codex cannot). */
   turn?: AgentTurnStats;
+  /** The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
+  testCorrect?: { cause: "env" | "app"; reason: string };
 }
 
 export interface GenerateOpts {
@@ -271,6 +273,7 @@ export class GenerateTestsUseCase {
         reviewed: false,
         approved: true,
         parsed: deliverable.parsed,
+        ...(deliverable.testCorrect ? { testCorrect: deliverable.testCorrect } : {}),
         ...outcome,
       };
     }
@@ -348,6 +351,7 @@ export class GenerateTestsUseCase {
       reviewed: true,
       approved,
       parsed: deliverable.parsed,
+      ...(deliverable.testCorrect ? { testCorrect: deliverable.testCorrect } : {}),
       ...outcome,
       note: approved ? outcome.note : (reviewJudgment.rationale ?? "the reviewer did not approve the E2E tests"),
     };

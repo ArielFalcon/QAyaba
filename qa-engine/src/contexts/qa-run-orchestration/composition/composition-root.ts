@@ -152,6 +152,8 @@ export interface CompositionConfig {
   onFailure: string;
   maxRetries: number;
   isCode: boolean;
+  /* The review-loop integrity master switch (failure triage, intent lock, findings filter). Absent: off. */
+  integrity?: { reviewLoop: boolean };
   coveragePolicyMode: "off" | "signal" | "enforce";
   /* The change-coverage threshold of the same policy; recorded with the run's coverage decision. */
   coverageMinRatio?: number;
@@ -663,6 +665,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     config: {
       needsReview: cfg.needsReview,
       shadow: cfg.shadow,
+      reviewLoopIntegrity: cfg.integrity?.reviewLoop ?? false,
       onFailure: cfg.onFailure,
       maxRetries: cfg.maxRetries,
       isCode: cfg.isCode,

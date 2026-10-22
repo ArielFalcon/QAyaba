@@ -70,6 +70,16 @@ export class RegenerationAcceptance {
     return this.deps.snapshot.snapshot(specDir, specFiles);
   }
 
+  /**
+   * Claims one execution from the run's cap for an execution outside an acceptance (the one triage
+   * re-execution). False when the cap is reached; the caller then stops without executing.
+   */
+  spendExecution(): boolean {
+    if (this.executions >= MAX_ACCEPTANCE_EXECUTIONS) return false;
+    this.executions += 1;
+    return true;
+  }
+
   /** After the turn finished (the caller reports it, so no session can still write): accept or reject the changed specs. */
   async accept(input: AcceptanceInput): Promise<AcceptanceOutcome> {
     const created = input.changedSpecFiles.filter((file) => !input.snapshot.files.has(file));

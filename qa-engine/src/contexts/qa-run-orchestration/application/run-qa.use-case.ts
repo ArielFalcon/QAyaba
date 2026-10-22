@@ -219,6 +219,12 @@ export interface RunQaConfig {
   maxRetries: number;
   isCode: boolean;
   /**
+   * The master switch of the review-loop integrity work: failure triage (C), the intent lock (A) and
+   * the findings filter (D). Off (default) keeps the pre-change behavior; the acceptance correctness
+   * fixes are always on. When off, the intent-lock policy is not read.
+   */
+  reviewLoopIntegrity: boolean;
+  /**
    * "signal" (default) measures and records but never blocks publish. Only
    * "enforce" holds the PR on a "fail" status. "unknown" never blocks in any mode.
    */
@@ -496,6 +502,7 @@ const DEFAULT_CONFIG: RunQaConfig = {
   onFailure: "github-issue",
   maxRetries: 2,
   isCode: false,
+  reviewLoopIntegrity: false,
   coveragePolicyMode: "signal",
 };
 
@@ -1781,6 +1788,7 @@ export class RunQaUseCase {
     let run = input.mode === "context"
       ? { verdict: "pass" as const, cases: [] as QaCase[], logs: generated.note ?? "" }
       : await this.deps.execution.execute(workspace.specDir, liveExecutionOpts);
+    let devNotRenderedConclusive = false;
     if (signal?.aborted) {
       return this.abortedResult(workspace.mirrorDir);
     }
@@ -1800,6 +1808,7 @@ export class RunQaUseCase {
             ...liveExecutionOpts,
             ...(fixLoopInput.specFiles ? { specFiles: fixLoopInput.specFiles } : {}),
             ...(fixLoopInput.namespace ? { namespace: fixLoopInput.namespace } : {}),
+            ...(fixLoopInput.retries !== undefined ? { retries: fixLoopInput.retries } : {}),
           });
           return { verdict: r.verdict, cases: r.cases };
         },
@@ -1846,6 +1855,7 @@ export class RunQaUseCase {
             note: r.note,
             specSources: r.specSources,
             ...(r.specMetas ? { specMetas: r.specMetas } : {}),
+            ...(r.testCorrect ? { testCorrect: r.testCorrect } : {}),
           };
         },
       };
@@ -1890,6 +1900,24 @@ export class RunQaUseCase {
         ...(initialSpecSources?.length ? { initialSpecSources } : {}),
         ...(failureDomSnapshot ? { failureDomSnapshot } : {}),
         specDir: workspace.specDir,
+        ...(cfg.reviewLoopIntegrity
+          ? {
+              integrity: {
+                hasGreenProof: async (file: string) => {
+                  if (proofLedger.has(file)) return true;
+                  if (!closedLoop) return false;
+                  try {
+                    return await closedLoop.isClosed([file]);
+                  } catch (err) {
+                    console.error(`[qa] could not read the green proof of ${file} (triage treats it as unproven): ${err instanceof Error ? err.message : String(err)}`);
+                    return false;
+                  }
+                },
+                spendExecution: () => acceptance.spendExecution(),
+                remainingMs: () => runDeadlinePort.remainingMs?.(),
+              },
+            }
+          : {}),
       });
       run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, logs: run.logs };
       /* Accumulate onto shared retries (`+=`); a reassignment would drop static-fix rounds. */
@@ -1899,6 +1927,10 @@ export class RunQaUseCase {
       lastAdjudicatorVerdictClass = fixLoopResult.lastAdjudicatorVerdict?.class;
       lastAdjudicatorVerdict = fixLoopResult.lastAdjudicatorVerdict;
       fixLoopFinalSpecMetas = fixLoopResult.lastSpecMetas;
+      devNotRenderedConclusive = fixLoopResult.preconditionFailed;
+      if (fixLoopResult.rejectedClaims > 0) {
+        this.deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${fixLoopResult.rejectedClaims} test-correct claim(s) rejected as unverified; the loop kept repairing` });
+      }
     }
 
     /*
@@ -2657,7 +2689,9 @@ export class RunQaUseCase {
     const gateValueScore = valueScore;
     const loopSignal = await closedLoopSignal();
     /* Thread the review loop's real final-round corrections into errorClass derivation. */
-    const errorClass = this.deriveErrorClass(decision.verdict, coverageRatio, gateValueScore, finalReviewerCorrections);
+    const errorClass = this.deriveErrorClass(decision.verdict, coverageRatio, gateValueScore, finalReviewerCorrections, {
+      ...(devNotRenderedConclusive ? { preconditionFailed: true } : {}),
+    });
     let mainlineOutcome: RunOutcome | undefined;
     if (!isContextCleanPass) {
       mainlineOutcome = this.toRunOutcome(input, decision, run.cases, retries, coverageRatio, errorClass, {

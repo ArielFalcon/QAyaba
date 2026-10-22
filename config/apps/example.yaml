@@ -116,6 +116,10 @@ dev:
 qa:
   needsReview: true            # the strict reviewer validates the generated E2E tests
   shadow: false                # true = run everything but do NOT publish PRs or open Issues (initial rollout)
+  # Review-loop integrity master switch: failure triage (a target absent from DEV is not a test
+  # defect), the intent lock and the findings filter. Off by default; the acceptance correctness
+  # fixes are always on. Turning it on forces the intent lock to be read.
+  # reviewLoopIntegrity: true
   testDataPrefix: "qa-bot"     # test entities namespaced per SHA
   # explorer: true             # single-agent runs first do a read-only "explorer" pass that
                                # distills the blast radius into a brief, so the generator gets a

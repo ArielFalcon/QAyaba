@@ -204,6 +204,8 @@ export const AppConfigSchema = z
       needsReview: z.boolean(),
       testDataPrefix: z.string().min(1, { error: "qa.testDataPrefix is required" }),
       shadow: z.boolean().optional(),
+      /* Review-loop integrity master switch (failure triage, intent lock, findings filter). Off by default; the acceptance correctness fixes are always on. */
+      reviewLoopIntegrity: z.boolean().optional(),
       explorer: z.boolean().optional(),
       /* Pre-generation context pack: include the live-DOM capture (A/B lever; default true). */
       domPack: z.boolean().optional(),
@@ -442,6 +444,9 @@ export const SpecMetaSchema = z.object({
 /* A generator's decision to write nothing, with the reason it gives. */
 const NoopDecisionSchema = z.object({ reason: z.string().trim().min(1) });
 
+/* The generator's typed claim that its test is correct: a cause and a reason. A claim, never evidence — the orchestrator verifies it against the run's artifacts. */
+const TestCorrectSchema = z.object({ cause: z.enum(["env", "app"]), reason: z.string().trim().min(1) });
+
 /*
  * The GENERATOR's deliverable. It does not self-report `approved` — the independent
  * reviewer is the authoritative gate — so its closing JSON is the specs it wrote plus
@@ -456,17 +461,19 @@ export const GeneratorVerdictSchema = z
     specMetas: z.array(SpecMetaSchema).optional(),
     note: z.string().optional(),
     noop: z.unknown().optional(),
+    /* The generator's typed test-correct claim; a claim, never evidence. */
+    testCorrect: z.unknown().optional(),
     /* The plan a lead gives when its turn asks for one; the orchestrator's admission reads it, so only its being an object is checked here. */
     plan: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((verdict, ctx) => {
-    if (verdict.specs.length > 0 || verdict.plan !== undefined || NoopDecisionSchema.safeParse(verdict.noop).success) return;
+    if (verdict.specs.length > 0 || verdict.plan !== undefined || NoopDecisionSchema.safeParse(verdict.noop).success || TestCorrectSchema.safeParse(verdict.testCorrect).success) return;
     ctx.addIssue({
       code: "custom",
       path: ["noop"],
       message:
         verdict.noop === undefined
-          ? 'an empty "specs" list is only a decision with a "noop" object: {"noop":{"reason":"why nothing was written"}}'
+          ? 'an empty "specs" list is only a decision with a "noop" object or a valid "testCorrect" claim: {"noop":{"reason":"why nothing was written"}}'
           : 'a "noop" needs a non-empty text "reason"',
     });
   });

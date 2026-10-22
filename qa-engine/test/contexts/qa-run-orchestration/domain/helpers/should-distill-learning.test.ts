@@ -72,6 +72,10 @@ test("shouldDistillLearning: adjudicationClass=dev_infra — does NOT suppress o
   assert.equal(shouldDistillLearning(false, "fail", "dev_infra"), true);
 });
 
+test("shouldDistillLearning: adjudicationClass=dev_not_rendered — suppressed (a change DEV did not render teaches nothing about the test)", () => {
+  assert.equal(shouldDistillLearning(false, "fail", "dev_not_rendered"), false);
+});
+
 test("shouldDistillLearning: adjudicationClass=objective_gap — does NOT suppress on its own", () => {
   assert.equal(shouldDistillLearning(false, "fail", "objective_gap"), true);
 });

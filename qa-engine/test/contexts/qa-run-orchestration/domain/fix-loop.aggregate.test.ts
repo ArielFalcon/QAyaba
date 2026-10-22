@@ -8,6 +8,7 @@ import {
   type FixLoopGenerateResult,
   type FixLoopGenerationPort,
   type FixLoopInput,
+  type FixLoopIntegrity,
   type FixLoopRun,
 } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
 import type { ContradictionOrigin, SpecSelectorFindings } from "@contexts/qa-run-orchestration/domain/helpers/selector-check.ts";
@@ -867,6 +868,125 @@ function loopInput(overrides: Partial<FixLoopInput> = {}): FixLoopInput {
 }
 
 const noFix = (): FixLoopGenerateResult => ({ specs: [], approved: true });
+
+function integrity(overrides: Partial<FixLoopIntegrity> = {}): FixLoopIntegrity {
+  return {
+    hasGreenProof: async () => true,
+    spendExecution: () => true,
+    remainingMs: () => 60_000,
+    ...overrides,
+  };
+}
+
+const TRIAGE_FAULT = "locator.fill: element(s) not found\nwaiting for locator('[data-testid=discount]')";
+
+/* ── Review-loop integrity: triage and the typed test-correct claim ────────────────────────────── */
+
+test("with the review-loop integrity capability absent, an absent-target locator failure is still a test defect and a repair is asked for", async () => {
+  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
+  const { loop, rec } = recordingLoop({ check: () => findings({ absentKeys: new Set(["data-testid=discount"]) }), regen: noFix });
+
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] } }));
+
+  assert.equal(rec.executes.length, 0, "the switch is off: no triage re-execution is spent");
+  assert.equal(rec.generates.length, 1, "the loop asks for a repair as before");
+  assert.notEqual(result.lastAdjudicatorVerdict?.class, "dev_not_rendered");
+  assert.equal(result.preconditionFailed, false);
+});
+
+test("a target absent on both reads while its bytes have a green proof ends as a precondition, without a repair turn", async () => {
+  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
+  let spends = 0;
+  const { loop, rec } = recordingLoop({
+    runs: [{ verdict: "fail", cases: [failing] }],
+    check: () => findings({ absentKeys: new Set(["data-testid=discount"]) }),
+  });
+
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [failing] },
+      integrity: integrity({
+        spendExecution: () => {
+          spends++;
+          return true;
+        },
+      }),
+    }),
+  );
+
+  assert.equal(rec.generates.length, 0, "a precondition is not repaired");
+  assert.equal(spends, 1, "the one triage execution claims an acceptance execution");
+  assert.equal(rec.executes.length, 1);
+  assert.equal(rec.executes[0]!.namespace, "qa-bot-run-triage");
+  assert.deepEqual(rec.executes[0]!.specFiles, ["checkout.spec.ts"]);
+  assert.equal(rec.executes[0]!.retries, 0);
+  assert.equal(result.run.verdict, "infra-error");
+  assert.equal(result.preconditionFailed, true);
+  assert.equal(result.realBugDetected, false);
+  assert.equal(result.lastAdjudicatorVerdict?.class, "dev_not_rendered");
+});
+
+test("a target absent on the first read but not on a different second read ends fail with a possible environment cause, never a rewrite", async () => {
+  const failing = makeCase({ name: "discount", file: "checkout.spec.ts", detail: TRIAGE_FAULT, failureDom: "main: Checkout" });
+  const { loop, rec } = recordingLoop({
+    runs: [{ verdict: "fail", cases: [{ ...failing, detail: "locator.click: element(s) not found" }] }],
+    check: (round) => findings({ absentKeys: new Set([round === 1 ? "data-testid=discount" : "data-testid=other"]) }),
+  });
+
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [failing] }, integrity: integrity() }));
+
+  assert.equal(rec.generates.length, 0, "an environment candidate is not regenerated");
+  assert.equal(result.run.verdict, "fail");
+  assert.equal(result.preconditionFailed, false);
+  assert.equal(result.lastAdjudicatorVerdict?.class, "dev_not_rendered");
+  assert.equal(result.lastAdjudicatorVerdict?.action, "break-needs-human");
+  assert.match(result.lastAdjudicatorVerdict?.reason ?? "", /possible environment cause/i);
+});
+
+test("a test-correct:env claim with no conclusive environment evidence is ignored and the loop keeps repairing", async () => {
+  let round = 0;
+  const { loop, rec } = recordingLoop({
+    runs: [{ verdict: "pass", cases: [{ name: "price", status: "pass", file: "checkout.spec.ts" }] }],
+    regen: () => {
+      round++;
+      return round === 1
+        ? { specs: [], approved: true, testCorrect: { cause: "env", reason: "DEV had not rendered the discount" } }
+        : { specs: ["checkout.spec.ts"], approved: true };
+    },
+  });
+
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [makeCase({ name: "price", file: "checkout.spec.ts", detail: VALUE_MISMATCH })] },
+      integrity: integrity(),
+      maxRetries: 2,
+    }),
+  );
+
+  assert.equal(rec.generates.length, 2, "the rejected claim earned a repair turn");
+  assert.equal(result.rejectedClaims, 1);
+  assert.equal(result.run.verdict, "pass", "the repair the loop asked for was executed");
+});
+
+test("a test-correct:app claim backed by a value mismatch stops the loop as an app defect without another rewrite", async () => {
+  const { loop, rec } = recordingLoop({
+    regen: () => ({ specs: [], approved: true, testCorrect: { cause: "app", reason: "the total is wrong" } }),
+  });
+
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [makeCase({ name: "total", file: "checkout.spec.ts", detail: VALUE_MISMATCH })] },
+      integrity: integrity(),
+    }),
+  );
+
+  assert.equal(rec.generates.length, 1);
+  assert.equal(rec.executes.length, 0, "a verified claim is not a repair turn");
+  assert.equal(result.realBugDetected, true);
+  assert.equal(result.run.verdict, "fail");
+  assert.equal(result.lastAdjudicatorVerdict?.class, "app_defect");
+  assert.match(result.lastAdjudicatorVerdict?.reason ?? "", /test correct/i);
+});
 
 test("the selector check sees one tree per failing case that captured a failure DOM, without blank lines, beside the latest spec sources", async () => {
   const { loop, rec } = recordingLoop({ regen: noFix });

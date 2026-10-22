@@ -275,6 +275,8 @@ export interface GenerationOutput {
   parsed?: boolean;
   specMetas?: { flow?: string; objective?: string }[];
   turn?: AgentTurnStats;
+  /* The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
+  testCorrect?: { cause: "env" | "app"; reason: string };
 }
 
 /** The reviewer's verdict on a generation, or undefined when no reviewer looked at it: the one way the run reads `approved`. */

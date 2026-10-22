@@ -129,6 +129,7 @@ export class GenerationPortAdapter implements GenerationPort {
         ? { specMetas: generated.specMetas.map((m) => ({ flow: m.flow, objective: m.objective })) }
         : {}),
       ...(generated.declaredSpecs?.length ? { declaredSpecs: generated.declaredSpecs.map((declared) => ({ ...declared })) } : {}),
+      ...(generated.testCorrect ? { testCorrect: generated.testCorrect } : {}),
     };
 
     if (this.collaborators.readSpecSource && generated.specs.length > 0) {

@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
+import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
 import { parseVerdict } from "../../../../../src/integrations/verdict-parse.ts";
 import { parseReviewerVerdict } from "../../../../../src/integrations/verdict-validate.ts";
 
@@ -105,6 +106,39 @@ test("PARITY: parseReview on a reviewer rejection forwards blockingCount and cor
   /* blockingCount — the grave [false-positive] tag must make this >=1 per effectiveSeverity logic */
   assert.ok((got.blockingCount ?? 0) >= 1, "a grave-tagged correction must produce blockingCount >= 1");
   assert.equal(got.blockingCount, legacy.blockingCount);
+});
+
+test("PARITY: parseGenerator forwards a typed test-correct claim the legacy parser read", () => {
+  const text = JSON.stringify({ specs: [], testCorrect: { cause: "env", reason: "DEV did not render the discount" } });
+  const adapter = makeRealAdapter();
+  const got = adapter.parseGenerator(text);
+  const legacy = parseVerdict(text);
+  assert.deepEqual(got.testCorrect, { cause: "env", reason: "DEV did not render the discount" });
+  assert.deepEqual(got.testCorrect, legacy.testCorrect);
+  assert.equal(got.parsed, true, "a closing verdict carrying only a claim is a parse, not a miss");
+  assert.equal(got.parsed, legacy.parsed);
+});
+
+test("PARITY: a malformed test-correct claim is no claim, never a cause the loop could verify", () => {
+  const adapter = makeRealAdapter();
+  for (const claim of ['{"cause":"env"}', '{"cause":"env","reason":"   "}', '{"cause":"other","reason":"x"}', "true", '"app"']) {
+    const text = `{"specs":[],"testCorrect":${claim}}`;
+    assert.equal("testCorrect" in adapter.parseGenerator(text), false, claim);
+    assert.equal(parseVerdict(text).testCorrect, undefined, claim);
+  }
+});
+
+test("PARITY: a test-correct reason is redacted and bounded before it reaches the run", () => {
+  const token = `ghp_${"A".repeat(36)}`;
+  const adapter = makeRealAdapter();
+  const got = adapter.parseGenerator(JSON.stringify({ specs: [], testCorrect: { cause: "app", reason: `the server rejected ${token}` } }));
+  assert.ok(got.testCorrect);
+  assert.equal(got.testCorrect!.reason.includes(token), false, "the reason carries no secret");
+  assert.ok(got.testCorrect!.reason.length <= GENERATION_NOTE_MAX_CHARS);
+
+  const longReason = Array.from({ length: 400 }, (_, i) => `word${i}`).join(" ");
+  const long = adapter.parseGenerator(JSON.stringify({ specs: [], testCorrect: { cause: "app", reason: longReason } }));
+  assert.equal(long.testCorrect!.reason.length, GENERATION_NOTE_MAX_CHARS);
 });
 
 test("PARITY: parseReview on a parse miss is fail-closed — matches legacy parsed:false output", () => {
