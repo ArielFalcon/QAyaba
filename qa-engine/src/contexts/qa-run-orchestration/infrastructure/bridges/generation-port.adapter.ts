@@ -130,6 +130,7 @@ export class GenerationPortAdapter implements GenerationPort {
         : {}),
       ...(generated.declaredSpecs?.length ? { declaredSpecs: generated.declaredSpecs.map((declared) => ({ ...declared })) } : {}),
       ...(generated.testCorrect ? { testCorrect: generated.testCorrect } : {}),
+      ...(generated.rebuttals?.length ? { rebuttals: generated.rebuttals.map((rebuttal) => ({ ...rebuttal })) } : {}),
     };
 
     if (this.collaborators.readSpecSource && generated.specs.length > 0) {

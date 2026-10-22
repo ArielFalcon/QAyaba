@@ -277,6 +277,8 @@ export interface GenerationOutput {
   turn?: AgentTurnStats;
   /* The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
   testCorrect?: { cause: "env" | "app"; reason: string };
+  /* The findings the generator disputes instead of correcting, each with the basis the run must check. Absent unless the verdict carried one. */
+  rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[];
 }
 
 /** The reviewer's verdict on a generation, or undefined when no reviewer looked at it: the one way the run reads `approved`. */

@@ -139,6 +139,13 @@ verdict is authoritative; if it rejects, you receive its concrete corrections in
 follow-up turn — apply ONLY those, without rewriting what was correct. Do not rely on
 spawning a subagent yourself.
 
+If you are certain a correction is wrong, you may rebut it instead of applying it: answer that
+turn with `"rebuttals": [{ "finding": "<the correction, repeated>", "basis": "execution" |
+"contract", "ref": "...", "reason": "..." }]` and no spec changes. `basis` is what the
+orchestrator checks, never your reasons: `execution` with the spec file (or case) that ran green
+on the current bytes, `contract` with `<spec path>#<clause>` for an assertion the contract still
+holds. A rebuttal it cannot check withdraws nothing.
+
 ### 7. Learn (engram) — OPERATIONAL context only
 
 Save an OPERATIONAL lesson only when this run learned a new one: app topology, routes,

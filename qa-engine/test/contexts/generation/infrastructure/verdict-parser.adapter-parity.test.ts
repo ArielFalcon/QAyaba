@@ -119,6 +119,36 @@ test("PARITY: parseGenerator forwards a typed test-correct claim the legacy pars
   assert.equal(got.parsed, legacy.parsed);
 });
 
+test("PARITY: parseGenerator forwards the rebuttals the legacy parser read, bounded and redacted", () => {
+  const rebuttal = { finding: "[false-positive] a.spec.ts: asserts nothing", basis: "execution", ref: "a.spec.ts", reason: "the case ran green" };
+  const text = JSON.stringify({ specs: [], rebuttals: [rebuttal] });
+  const adapter = makeRealAdapter();
+  const got = adapter.parseGenerator(text);
+  assert.deepEqual(got.rebuttals, [rebuttal]);
+  assert.deepEqual(got.rebuttals, parseVerdict(text).rebuttals);
+  assert.equal(got.parsed, true, "a closing verdict carrying only a rebuttal is a parse, not a miss");
+
+  const token = `ghp_${"A".repeat(36)}`;
+  const secret = adapter.parseGenerator(JSON.stringify({ specs: [], rebuttals: [{ ...rebuttal, reason: `the case ran green with ${token}` }] }));
+  assert.ok(secret.rebuttals);
+  assert.equal(secret.rebuttals![0]!.reason.includes(token), false, "the reason carries no secret");
+});
+
+test("PARITY: a rebuttal without a checkable basis is no rebuttal, never a claim the run could weigh", () => {
+  const adapter = makeRealAdapter();
+  for (const entry of [
+    '{"finding":"a.spec.ts","reason":"trust me"}',
+    '{"finding":"a.spec.ts","basis":"opinion","ref":"a.spec.ts","reason":"trust me"}',
+    '{"finding":"","basis":"execution","ref":"a.spec.ts","reason":"trust me"}',
+    'true',
+    '"execution"',
+  ]) {
+    const text = `{"specs":[],"rebuttals":[${entry}]}`;
+    assert.equal("rebuttals" in adapter.parseGenerator(text), false, entry);
+    assert.equal(parseVerdict(text).rebuttals, undefined, entry);
+  }
+});
+
 test("PARITY: a malformed test-correct claim is no claim, never a cause the loop could verify", () => {
   const adapter = makeRealAdapter();
   for (const claim of ['{"cause":"env"}', '{"cause":"env","reason":"   "}', '{"cause":"other","reason":"x"}', "true", '"app"']) {

@@ -62,6 +62,8 @@ export interface GenerationResult {
   turn?: AgentTurnStats;
   /** The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
   testCorrect?: { cause: "env" | "app"; reason: string };
+  /** The findings the generator disputes instead of correcting, each with the basis the run checks. Absent unless the verdict carried one. */
+  rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[];
 }
 
 export interface GenerateOpts {
@@ -274,6 +276,7 @@ export class GenerateTestsUseCase {
         approved: true,
         parsed: deliverable.parsed,
         ...(deliverable.testCorrect ? { testCorrect: deliverable.testCorrect } : {}),
+        ...(deliverable.rebuttals?.length ? { rebuttals: deliverable.rebuttals } : {}),
         ...outcome,
       };
     }
@@ -352,6 +355,7 @@ export class GenerateTestsUseCase {
       approved,
       parsed: deliverable.parsed,
       ...(deliverable.testCorrect ? { testCorrect: deliverable.testCorrect } : {}),
+      ...(deliverable.rebuttals?.length ? { rebuttals: deliverable.rebuttals } : {}),
       ...outcome,
       note: approved ? outcome.note : (reviewJudgment.rationale ?? "the reviewer did not approve the E2E tests"),
     };
