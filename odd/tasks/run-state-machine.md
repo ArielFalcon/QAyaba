@@ -28,7 +28,8 @@ Branch: `feat/regeneration-session-continuation` (worktree `regen-session`). Del
 | T6 | S2-S4 | fix loop + suite fingerprint (F:1954-2236) | delegated | done (typecheck, arch:check, 686 pass in run-qa application tests; full 10405 tests: 10402 pass / 0 fail / 3 skipped) | this commit |
 | T7 | S2-S4 | coverage + enforce regen (F:2237-2333) | delegated | done (typecheck, arch:check, 686 pass in run-qa application tests; full 10405 tests: 10402 pass / 0 fail / 3 skipped) | 5fcd25a4 |
 | T8 | S2-S4 | review + stale-coverage re-measure (F:2334-2918) | delegated | done (typecheck, arch:check, 686 pass in run-qa application tests; full gate green, see L11) | bcd59177 |
-| T9 | S2-S4 | final proof guard, decide, coordination telemetry, publish, persist, learn, result (F:2925-3316); `execute` becomes runner-only | delegated | done (typecheck, arch:check, sdk:typecheck, contract:check; 686 pass in run-qa application tests; mutate.test.ts 34 pass; full 10405 tests: 10402 pass / 0 fail / 3 skipped; carry-forward 97.3%) | T9_SHA |
+| T9 | S2-S4 | final proof guard, decide, coordination telemetry, publish, persist, learn, result (F:2925-3316); `execute` becomes runner-only | delegated | done (typecheck, arch:check, sdk:typecheck, contract:check; 686 pass in run-qa application tests; mutate.test.ts 34 pass; full 10405 tests: 10402 pass / 0 fail / 3 skipped; carry-forward 97.3%) | dcac80b0 |
+| R3-001 | S2-S4 | test pinning the step table's phase sequence for a diff run and a manual run (qa-engine/test/.../run-flow/run-phase-sequence.test.ts); RED shown by swapping the validate and health steps | inline | done (2 tests; fail with the swap, pass reverted; full gate green) | the `test(run): pin the order of the run's phases` commit |
 | T10 | S5 | re-point mutate.ts carry-forward ranges | delegated | done (pulled into the T8 commit: the file fell below the old highest range; T9 must keep these ranges valid) | this commit |
 
 ## Log
