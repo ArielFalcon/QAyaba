@@ -32,6 +32,34 @@ export const FAILURE_CAPTURE_MARKER = ">>> qa-failure-capture (system-owned: do 
 
 const FAILURE_CAPTURE_END_MARKER = "// <<< qa-failure-capture <<<\n";
 
+export const FAILURE_CAPTURE_FIXTURE_MARKER = ">>> qa-capture-fixture (system-owned: do not edit) >>>";
+
+/*
+ * The seed's auto fixture that runs the capture block around every test, and its entry in the seed's
+ * fixture types. A hook declared in fixtures.ts binds only to the first spec file a worker loads, so a
+ * fixtures.ts from the seed gets both, each placed before or after a system-owned line of the seed's
+ * own test.extend; any other fixtures.ts keeps the block's hooks, and setup says what that costs.
+ */
+const FAILURE_CAPTURE_FIXTURE = `  // >>> qa-capture-fixture (system-owned: do not edit) >>>
+  // Runs the failure-point capture (the qa-failure-capture block at the end of this file) around every
+  // test. A fixture reaches every spec file; a hook declared in this module binds only to the first spec
+  // file a worker loads, so the block's own hooks stand in only where this fixture is absent.
+  _failureCapture: [
+    async ({ page, request }, use, testInfo) => {
+      qaFailureCaptureByFixture = true;
+      await qaFailureCaptureStart(page, request);
+      await use();
+      await qaFailureCaptureFinish(page, testInfo);
+    },
+    { auto: true },
+  ],
+  // <<< qa-capture-fixture <<<
+
+`;
+const FAILURE_CAPTURE_FIXTURE_ANCHOR = "  // system-owned: do not edit. The orchestrator's RESPONSE-ORACLE pass";
+const FAILURE_CAPTURE_FIXTURE_TYPE = "  // system-owned: do not edit — runs the failure-point capture around every test.\n  _failureCapture: void;\n";
+const FAILURE_CAPTURE_FIXTURE_TYPE_ANCHOR = "\n  _faultInject: void;\n";
+
 /*
  * sha256 of every earlier capture block a repo's fixtures.ts received — appended by setup or carried
  * by the seed's fixtures.ts (the whole block, from the newline before its opening marker through its
@@ -49,6 +77,7 @@ const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
   "846bfe41978b705a8bec9f75141445d717c14ea5273fe8437d874a3edf10b358",
   "e0bf2a9c97e3e51bb9ba8b13098a1c2d5d36f119c6529fc409d3f6ad2664a15c",
   "70c791658e6a2ac48fda2dc2c8a351f293b59f18ccaf34025a4db98da930cd88",
+  "d57ac04b566df2349291620c06b8b6464de63bc0099dc2eb52656715bae30b39",
 ]);
 
 /*
@@ -77,6 +106,40 @@ const PLAYWRIGHT_CONFIG_SEED_REVISIONS: ReadonlySet<string> = new Set([
 
 const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute", "storageState", "PW_AUTH_SETUP"] as const;
 
+/* `src` with the current capture block: appended when it has none, in place of the block appended without markers or of an earlier revision still byte-for-byte as shipped; otherwise as it is. */
+function withCaptureBlock(src: string): string {
+  const start = src.indexOf(`\n// ${FAILURE_CAPTURE_MARKER}`);
+  if (start === -1) {
+    if (src.includes(FAILURE_CAPTURE_MARKER)) return src;
+    const { firstLine, length, sha256: unmarkedHash } = UNMARKED_FAILURE_CAPTURE_BLOCK;
+    const at = src.indexOf(firstLine);
+    if (at === -1) return src + FAILURE_CAPTURE_BLOCK;
+    if (sha256(src.slice(at, at + length)) !== unmarkedHash) return src;
+    return src.slice(0, at) + FAILURE_CAPTURE_BLOCK + src.slice(at + length);
+  }
+  const endMarker = src.indexOf(FAILURE_CAPTURE_END_MARKER, start);
+  if (endMarker === -1) return src;
+  const end = endMarker + FAILURE_CAPTURE_END_MARKER.length;
+  if (!EARLIER_FAILURE_CAPTURE_BLOCKS.has(sha256(src.slice(start, end)))) return src;
+  return src.slice(0, start) + FAILURE_CAPTURE_BLOCK + src.slice(end);
+}
+
+/* `src` with the capture fixture, when it has it or is a fixtures.ts from the seed holding the current block; undefined when the fixture cannot be placed. */
+function withCaptureFixture(src: string): string | undefined {
+  if (src.includes(FAILURE_CAPTURE_FIXTURE_MARKER)) return src;
+  const typeAt = onlyIndexOf(src, FAILURE_CAPTURE_FIXTURE_TYPE_ANCHOR);
+  const fixtureAt = onlyIndexOf(src, FAILURE_CAPTURE_FIXTURE_ANCHOR);
+  if (!src.includes(FAILURE_CAPTURE_BLOCK) || typeAt === -1 || fixtureAt === -1 || typeAt > fixtureAt) return undefined;
+  const typeEnd = typeAt + FAILURE_CAPTURE_FIXTURE_TYPE_ANCHOR.length;
+  return src.slice(0, typeEnd) + FAILURE_CAPTURE_FIXTURE_TYPE + src.slice(typeEnd, fixtureAt) + FAILURE_CAPTURE_FIXTURE + src.slice(fixtureAt);
+}
+
+/* Where `needle` is in `text` when it is there exactly once; -1 otherwise. */
+function onlyIndexOf(text: string, needle: string): number {
+  const at = text.indexOf(needle);
+  return at !== -1 && text.indexOf(needle, at + 1) === -1 ? at : -1;
+}
+
 function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
@@ -99,6 +162,11 @@ export const FAILURE_CAPTURE_BLOCK = `
 // node:fs/path/crypto are pulled in via dynamic import() INSIDE the async afterEach —
 // a CommonJS-style synchronous load is not defined in this native-ESM module
 // ("type":"module") and would throw a ReferenceError that the catch would swallow.
+//
+// The capture runs from the seed's auto fixture (_failureCapture), which reaches every spec file. The
+// hooks at the end of this block stand in where that fixture is absent: a hook declared in this module
+// binds only to the first spec file a worker loads, since the module is evaluated once per worker.
+import type { APIRequestContext as QaCaptureRequest, Page as QaCapturePage, TestInfo as QaCaptureTestInfo } from "@playwright/test";
 let errorResponses: { url: string; status: number; resourceType: string }[] = [];
 // App-defect detection: browser console \`error\`-level entries and uncaught \`pageerror\`
 // exceptions observed during the current test. Reset per-test (mirrors errorResponses) so a reused
@@ -148,7 +216,7 @@ function countWrites(api: WriteCountable | undefined): void {
   };
 }
 
-test.beforeEach(async ({ page, request }) => {
+async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequest): Promise<void> {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
   runtimeErrors = [];                                 // same per-test reset discipline
@@ -203,9 +271,9 @@ test.beforeEach(async ({ page, request }) => {
       try { runtimeErrors.push({ type: 'pageerror', text: err.message ?? String(err) }); } catch {}
     });
   } catch {}
-});
+}
 
-test.afterEach(async ({ page }, testInfo) => {
+async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTestInfo): Promise<void> {
   const dir = process.env.QA_FAILURE_CAPTURE_DIR;
   if (!dir) return;                                   // degrade to no-op when the orchestrator did not ask
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
@@ -344,6 +412,17 @@ test.afterEach(async ({ page }, testInfo) => {
       JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, settle, resultCount }),
     );
   } catch { /* page may be closed on a nav-crash — best-effort, never fail the run */ }
+}
+
+// Set by the seed's _failureCapture fixture, which then runs the capture itself.
+let qaFailureCaptureByFixture = false;
+
+test.beforeEach(async ({ page, request }) => {
+  if (!qaFailureCaptureByFixture) await qaFailureCaptureStart(page, request);
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (!qaFailureCaptureByFixture) await qaFailureCaptureFinish(page, testInfo);
 });
 // <<< qa-failure-capture <<<
 `;
@@ -545,33 +624,19 @@ export class SetupAdapter {
   /**
    * Appends the failure-capture block to a repo's fixtures.ts that has none, and upgrades in place a
    * block that is still byte-for-byte an earlier appended revision. Every other line — and a block
-   * someone edited — is left as-is.
+   * someone edited — is left as-is. A fixtures.ts from the seed that holds the current block then gets
+   * the fixture that runs it around every test; any other is left with the block's hooks, and said.
    */
   ensureFailureCapture(e2eDir: string): void {
     const src = this.readProjectText(e2eDir, FIXTURES_FILE);
     if (src === undefined) return;
-    const start = src.indexOf(`\n// ${FAILURE_CAPTURE_MARKER}`);
-    if (start === -1) {
-      if (!src.includes(FAILURE_CAPTURE_MARKER)) this.addCaptureBlock(e2eDir, src);
-      return;
+    const withBlock = withCaptureBlock(src);
+    const withFixture = withCaptureFixture(withBlock);
+    if (withFixture === undefined) {
+      console.warn(`[qa] WARNING: ${join(e2eDir, FIXTURES_FILE)} has no failure-capture fixture and setup could not add one (its test.extend is not the seed's, or its capture block was edited); the capture's hooks reach only the first spec file each worker loads, so a later spec's failed attempts run without a failure capture.`);
     }
-    const endMarker = src.indexOf(FAILURE_CAPTURE_END_MARKER, start);
-    if (endMarker === -1) return;
-    const end = endMarker + FAILURE_CAPTURE_END_MARKER.length;
-    if (!EARLIER_FAILURE_CAPTURE_BLOCKS.has(sha256(src.slice(start, end)))) return;
-    this.writeProject(e2eDir, FIXTURES_FILE, src.slice(0, start) + FAILURE_CAPTURE_BLOCK + src.slice(end));
-  }
-
-  /* Appends the block to a fixtures.ts that has none, or puts it in place of the block appended without markers. */
-  private addCaptureBlock(e2eDir: string, src: string): void {
-    const { firstLine, length, sha256: unmarkedHash } = UNMARKED_FAILURE_CAPTURE_BLOCK;
-    const at = src.indexOf(firstLine);
-    if (at === -1) {
-      this.writeProject(e2eDir, FIXTURES_FILE, src + FAILURE_CAPTURE_BLOCK);
-      return;
-    }
-    if (sha256(src.slice(at, at + length)) !== unmarkedHash) return;
-    this.writeProject(e2eDir, FIXTURES_FILE, src.slice(0, at) + FAILURE_CAPTURE_BLOCK + src.slice(at + length));
+    const out = withFixture ?? withBlock;
+    if (out !== src) this.writeProject(e2eDir, FIXTURES_FILE, out);
   }
 
   /** Keeps the Playwright session directory out of the suite PR. Idempotent. */

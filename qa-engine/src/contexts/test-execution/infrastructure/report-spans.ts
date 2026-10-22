@@ -126,7 +126,7 @@ function emitCase(telemetry: TelemetryPort, fileSpan: ReturnType<TelemetryPort["
       ...(e?.networkClass !== undefined ? { "qayaba.test.network_class": e.networkClass } : {}),
     },
   });
-  for (const a of c.attempts) emitAttempt(telemetry, span, a, options, e?.failureAttempts?.find((f) => f.retry === a.index));
+  for (const a of c.attempts) emitAttempt(telemetry, span, a, options, e?.failureAttempts !== undefined, e?.failureAttempts?.find((f) => f.retry === a.index));
   const failedStatus = c.status === "failed" || c.status === "timedOut" || c.status === "interrupted" ? c.status : undefined;
   if (failedStatus !== undefined) {
     const failedAttempt = c.attempts.find((a) => a.status === "failed" || a.status === "timedOut" || a.status === "interrupted");
@@ -146,7 +146,8 @@ function emitCase(telemetry: TelemetryPort, fileSpan: ReturnType<TelemetryPort["
   span.end(c.endMs);
 }
 
-function emitAttempt(telemetry: TelemetryPort, testSpan: ReturnType<TelemetryPort["startSpan"]>, a: PlannedAttempt, options: ReturnType<typeof runChildOptions>, capture: FailureAttemptEvidence | undefined): void {
+/* `captureRan`: the execution captured failure points for this case, so an attempt that did not pass and has no capture lost it. */
+function emitAttempt(telemetry: TelemetryPort, testSpan: ReturnType<TelemetryPort["startSpan"]>, a: PlannedAttempt, options: ReturnType<typeof runChildOptions>, captureRan: boolean, capture: FailureAttemptEvidence | undefined): void {
   const span = telemetry.startSpan("qayaba.attempt", {
     kind: "internal",
     ...(options.secrets ? { secrets: options.secrets } : {}),
@@ -160,7 +161,7 @@ function emitAttempt(telemetry: TelemetryPort, testSpan: ReturnType<TelemetryPor
       ...(a.failureCategory !== undefined ? { "qayaba.test.failure_category": a.failureCategory } : {}),
       ...(a.strategy !== undefined ? { "qayaba.selector.strategy": a.strategy } : {}),
       ...(a.errorMessage !== undefined ? { "qayaba.error.message": summarizePlaywrightFailure(a.errorMessage) } : {}),
-      ...(capture !== undefined && a.status !== "passed" && a.status !== "skipped" ? captureAttrs(capture) : {}),
+      ...(captureRan && a.status !== "passed" && a.status !== "skipped" ? { "qayaba.failure.captured": capture !== undefined, ...(capture !== undefined ? captureAttrs(capture) : {}) } : {}),
     },
   });
   if (a.strictMatchCount !== undefined) {

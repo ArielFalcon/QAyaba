@@ -280,6 +280,7 @@ export const ATTRIBUTES = {
   "qayaba.test.network_class": str("egress, backend, dns or other, derived from the harvested network errors and the run's egress report."),
   "qayaba.test.attempt": int("The attempt number of a case (0 is the first run)."),
   /* An attempt's failure-point capture (the fixture's dump of that retry), on its qayaba.attempt span. */
+  "qayaba.failure.captured": bool("The attempt that did not pass left its failure-point capture; false when the execution captured failure points and this attempt's is missing."),
   "qayaba.failure.final_url": text("The address the page was on when the attempt failed."),
   "qayaba.failure.http_status": int("The HTTP status of the page the attempt failed on."),
   "qayaba.failure.result_count": int("The result count the app's declared data state showed when the attempt failed."),

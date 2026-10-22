@@ -59,6 +59,8 @@ export interface QaFixtures {
   _coverage: void;
   // system-owned: do not edit — the orchestrator's response-oracle pass (QA_FAULT_INJECT).
   _faultInject: void;
+  // system-owned: do not edit — runs the failure-point capture around every test.
+  _failureCapture: void;
 }
 
 export const test = base.extend<QaFixtures>({
@@ -158,6 +160,21 @@ export const test = base.extend<QaFixtures>({
     { auto: true },
   ],
 
+  // >>> qa-capture-fixture (system-owned: do not edit) >>>
+  // Runs the failure-point capture (the qa-failure-capture block at the end of this file) around every
+  // test. A fixture reaches every spec file; a hook declared in this module binds only to the first spec
+  // file a worker loads, so the block's own hooks stand in only where this fixture is absent.
+  _failureCapture: [
+    async ({ page, request }, use, testInfo) => {
+      qaFailureCaptureByFixture = true;
+      await qaFailureCaptureStart(page, request);
+      await use();
+      await qaFailureCaptureFinish(page, testInfo);
+    },
+    { auto: true },
+  ],
+  // <<< qa-capture-fixture <<<
+
   // system-owned: do not edit. The orchestrator's RESPONSE-ORACLE pass sets QA_FAULT_INJECT=1 and
   // re-runs the green suite with corrupted JSON response VALUES (numbers/booleans flipped; status,
   // shape, strings/ids preserved so auth and refs survive). A spec that stays green under corrupted
@@ -224,6 +241,11 @@ export { expect };
 // node:fs/path/crypto are pulled in via dynamic import() INSIDE the async afterEach —
 // a CommonJS-style synchronous load is not defined in this native-ESM module
 // ("type":"module") and would throw a ReferenceError that the catch would swallow.
+//
+// The capture runs from the seed's auto fixture (_failureCapture), which reaches every spec file. The
+// hooks at the end of this block stand in where that fixture is absent: a hook declared in this module
+// binds only to the first spec file a worker loads, since the module is evaluated once per worker.
+import type { APIRequestContext as QaCaptureRequest, Page as QaCapturePage, TestInfo as QaCaptureTestInfo } from "@playwright/test";
 let errorResponses: { url: string; status: number; resourceType: string }[] = [];
 // App-defect detection: browser console `error`-level entries and uncaught `pageerror`
 // exceptions observed during the current test. Reset per-test (mirrors errorResponses) so a reused
@@ -273,7 +295,7 @@ function countWrites(api: WriteCountable | undefined): void {
   };
 }
 
-test.beforeEach(async ({ page, request }) => {
+async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequest): Promise<void> {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
   runtimeErrors = [];                                 // same per-test reset discipline
@@ -328,9 +350,9 @@ test.beforeEach(async ({ page, request }) => {
       try { runtimeErrors.push({ type: 'pageerror', text: err.message ?? String(err) }); } catch {}
     });
   } catch {}
-});
+}
 
-test.afterEach(async ({ page }, testInfo) => {
+async function qaFailureCaptureFinish(page: QaCapturePage, testInfo: QaCaptureTestInfo): Promise<void> {
   const dir = process.env.QA_FAILURE_CAPTURE_DIR;
   if (!dir) return;                                   // degrade to no-op when the orchestrator did not ask
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
@@ -469,6 +491,17 @@ test.afterEach(async ({ page }, testInfo) => {
       JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, settle, resultCount }),
     );
   } catch { /* page may be closed on a nav-crash — best-effort, never fail the run */ }
+}
+
+// Set by the seed's _failureCapture fixture, which then runs the capture itself.
+let qaFailureCaptureByFixture = false;
+
+test.beforeEach(async ({ page, request }) => {
+  if (!qaFailureCaptureByFixture) await qaFailureCaptureStart(page, request);
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (!qaFailureCaptureByFixture) await qaFailureCaptureFinish(page, testInfo);
 });
 // <<< qa-failure-capture <<<
 
