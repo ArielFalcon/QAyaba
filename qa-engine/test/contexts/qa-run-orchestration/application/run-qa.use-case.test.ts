@@ -8785,6 +8785,7 @@ test("the fix_loop phase span carries its outcome, the failing counts and the sp
     assert.equal(typeof span.attrs["qayaba.fix_loop.spec_sha_before"], "string", "the spec-set digest is readable from the temp files");
     assert.equal(typeof span.attrs["qayaba.fix_loop.spec_sha_after"], "string");
     assert.equal(span.attrs["qayaba.fix_loop.specs_changed"], false, "the loop did not rewrite the failing spec");
+    assert.equal(span.attrs["qayaba.fix_loop.triage_trigger"], undefined, "no failure was a triage candidate");
   } finally {
     rmSync(mirrorDir, { recursive: true, force: true });
   }
@@ -9390,4 +9391,45 @@ test("the pages the Context Pack read with results reach the coordination as det
   const facts = seen[0]!.knownFacts ?? [];
   assert.deepEqual(facts.map((f) => [f.kind, f.confidence, f.dataRef]), [["grounding", "deterministic", "/owners/list"]]);
   assert.match(facts[0]!.summary, /3 results/);
+});
+
+test("the fix_loop phase span says what made the triage re-read a failure and what the re-read came to", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let executions = 0;
+    const failing = {
+      name: "owners list",
+      file: "flows/owners.spec.ts",
+      status: "fail" as const,
+      detail: "expect(locator).toBeVisible() failed\n\nLocator: locator('app-list')\nError: element(s) not found",
+      failureDom: "heading: Owners\ntext: 0 results",
+      finalUrl: "https://dev.example/owners/list",
+      failureResultCount: 0,
+    };
+    const telemetry = new RecordingTelemetry();
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      ground: async () => ({ packConfirmedDataRoutes: [{ path: "/owners/list", resultCount: 3 }] }),
+      generate: async () => {
+        fixtures.write("flows/owners.spec.ts", "test('owners list', async () => {});\n");
+        return scriptedGeneration({ specs: ["flows/owners.spec.ts"], approved: true });
+      },
+      execute: async () => {
+        executions++;
+        return executions === 1
+          ? { verdict: "fail" as const, cases: [failing], logs: "" }
+          : { verdict: "pass" as const, cases: [{ name: "owners list", status: "pass" as const, file: "flows/owners.spec.ts" }], logs: "" };
+      },
+    });
+    const out = await new RunQaUseCase({ ...ports, telemetry, config: { ...baseConfig, needsReview: false, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "pack-conflict-span" });
+
+    assert.equal(out.decision.verdict, "flaky");
+    const span = telemetry.spans.find((s) => s.name === "qayaba.phase.fix_loop");
+    assert.ok(span, "the fix_loop phase span is recorded");
+    assert.equal(span.attrs["qayaba.fix_loop.triage_trigger"], "pack-conflict");
+    assert.equal(span.attrs["qayaba.fix_loop.triage_outcome"], "passed");
+    assert.equal(span.attrs["qayaba.fix_loop.triage_files"], 1);
+  } finally {
+    fixtures.cleanup();
+  }
 });
