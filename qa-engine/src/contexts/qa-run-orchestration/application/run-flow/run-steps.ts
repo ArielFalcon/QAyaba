@@ -12,6 +12,7 @@ import { assembleEnrichment, groundRepository, readDiffShapes, resolveBlastRadiu
 import { generateFirstPass, groundBeforeExecution, settleGenerationEnd } from "./phases/generate.steps.ts";
 import { announceExecution, checkHealth, executeSpecs, prepareExecuteAuth, validateStatically } from "./phases/execute.steps.ts";
 import { fingerprintGreenSuite, runFixLoop } from "./phases/fix-loop.steps.ts";
+import { announceCoverage, announcesCoverage, measureCoverage, measuresCoverage, regenerateForCoverage, regeneratesForCoverage } from "./phases/coverage.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, stopIfAbortedBeforeGate, waitForDeploy } from "./phases/opening.steps.ts";
 
 export const BEFORE_WORKSPACE: ReadonlyArray<FlowStep<RunState, RunContext, RunQaResult>> = [
@@ -46,4 +47,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext,
   { name: "execute the specs", run: executeSpecs },
   { name: "repair a failing execution with the fix loop", phase: "fix_loop", runs: (state) => state.execution.run.verdict === "fail", run: runFixLoop },
   { name: "fingerprint the green suite for the suite store", run: fingerprintGreenSuite },
+  { name: "open the coverage phase", phase: "coverage", runs: announcesCoverage, run: announceCoverage },
+  { name: "measure the change-coverage of the green run", runs: measuresCoverage, run: measureCoverage },
+  { name: "regenerate once at the uncovered lines", runs: regeneratesForCoverage, run: regenerateForCoverage },
 ];

@@ -111,6 +111,28 @@ export interface FixLoopOutcome {
   devNotRenderedConclusive: boolean;
 }
 
+/* What the coverage phase measured; the review phase's acceptances add to the counter and the stale re-measure replaces the measurement. */
+export interface CoverageOutcome {
+  /** Unknown never blocks; only the port's own reading of the mode and status sets it. */
+  blocksPublish: boolean;
+  coverageRatio: number | null;
+  /** Undefined when the measurement never ran, distinct from a measured "unknown". */
+  coverageStatus: "pass" | "fail" | "unknown" | undefined;
+  /** Whether this run measured a real per-commit signal (a diff run on one repo): only then can its ratio go stale. */
+  coverageMeasured: boolean;
+  /** Null when the oracle is unwired, never a fabricated 0. */
+  valueScore: number | null;
+  /** Undefined means the oracle never measured this run; never fabricated as 0. */
+  mutantCount: number | undefined;
+  killedCount: number | undefined;
+  /** The changed lines the first measurement left uncovered, for the enforce-mode regeneration. */
+  uncovered: { file: string; lines: number[] }[];
+  /** Acceptances spent so far; each names its namespace by it. */
+  acceptanceCalls: number;
+  /** An accepted regeneration rewrote specs after the last measurement: the coverage ratio is then stale. */
+  acceptedRegenAfterMeasure: boolean;
+}
+
 export interface RunState {
   classification: Classification;
   setup: SetupOutcome;
@@ -118,6 +140,7 @@ export interface RunState {
   generation: GenerationOutcome;
   execution: ExecutionOutcome;
   fixLoop: FixLoopOutcome;
+  coverage: CoverageOutcome;
 }
 
 export function initialRunState(): RunState {
@@ -163,5 +186,17 @@ export function initialRunState(): RunState {
       run: { verdict: "pass", cases: [], logs: "" },
     },
     fixLoop: { coverageNamespace: undefined, lastAdjudicatorVerdict: undefined, fixLoopFinalSpecMetas: undefined, devNotRenderedConclusive: false },
+    coverage: {
+      blocksPublish: false,
+      coverageRatio: null,
+      coverageStatus: undefined,
+      coverageMeasured: false,
+      valueScore: null,
+      mutantCount: undefined,
+      killedCount: undefined,
+      uncovered: [],
+      acceptanceCalls: 0,
+      acceptedRegenAfterMeasure: false,
+    },
   };
 }
