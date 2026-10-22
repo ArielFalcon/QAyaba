@@ -1607,7 +1607,12 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     `- "blocking": this issue makes the test worthless (false-positive, wrong-objective, missing cleanup) — fails the gate.`,
     `- "advisory": style/robustness nit that does not make the test worthless alone — recorded but does not fail the gate.`,
     `An unconfirmable UI selector (no DOM evidence in this prompt) MUST be advisory, never blocking.`,
-    `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking"}]}`,
+    `Every correction MUST also carry "citation", the evidence it rests on, as {"kind":...,"ref":...}:`,
+    `- "contract": the spec's contract clause it violates; ref is "<spec path>#<clause>".`,
+    `- "execution": an execution of this run that shows it; ref is the "<spec path>" that ran.`,
+    `- "dom": a fact from the DOM section above; ref is the "<spec path>" it concerns (always advisory).`,
+    `A correction with no citation cannot block: the orchestrator treats it as advisory at most.`,
+    `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking","citation":{"kind":"execution","ref":"file.spec.ts"}}]}`,
   ].join("\n");
 
   const objectiveContent = [obj.heading, ...obj.body].join("\n");
