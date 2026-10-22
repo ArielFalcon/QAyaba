@@ -142,7 +142,12 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
 
 Verdicts: `pass | fail | flaky | invalid | infra-error | skipped`
 (`qa-engine/src/shared-kernel/run-verdict.ts`). `E-PRECONDITION` = login could not be
-completed: recorded, never learned from, no Issue.
+completed, or the fix loop's triage re-read confirmed DEV did not render the target: recorded,
+never learned from, no Issue. The triage (review-loop integrity on) re-reads a failure once, with
+no regeneration, when the evidence does not blame the test: its target is absent while the same
+bytes passed through `run_spec`, or its failure point read an empty data state (`dev.dataState`)
+on a page this run's Context Pack read with results. The failure capture states whether the page
+had settled (data requests in flight, a second read of the tree), and the regeneration prompt says so.
 
 **Modes** (`--mode`): `diff` (default, the only one that classifies), `complete`
 (analyze repo + suite, `e2e/.qa/analysis.json`, cover important gaps), `exhaustive`

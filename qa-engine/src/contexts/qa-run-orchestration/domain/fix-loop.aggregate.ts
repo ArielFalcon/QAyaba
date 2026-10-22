@@ -149,6 +149,8 @@ export interface FixLoopInput {
   /* True only when this run will be measured for change-coverage — filtering a retry would then undercount passing specs. Defaults to false (never filter). */
   coverageWillMeasure?: boolean;
   failureDomSnapshot?: string;
+  /* The pages this run's Context Pack read with results (> 0) under the app's declared data state, by pathname. A failure that reads an empty data state on one of them contradicts the pack. */
+  packConfirmedDataRoutes?: readonly { path: string; resultCount: number }[];
   specDir?: string;
   /* Present only while the review-loop integrity switch is on: enables triage and reads a typed test-correct claim. */
   integrity?: FixLoopIntegrity;
@@ -204,6 +206,22 @@ function mergeAcceptedRound(current: FixLoopRun, outcome: Extract<FixLoopAccepta
         ? "flaky"
         : "pass";
   return { verdict, cases };
+}
+
+function pathnameOf(url: string | undefined): string | undefined {
+  if (url === undefined) return undefined;
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return undefined;
+  }
+}
+
+/* A failed case whose failure point read an empty data state on a page the Context Pack read with results: two observations of the same page disagree, so the failure is no evidence against the test. */
+function contradictsPack(c: QaCase, confirmed: readonly { path: string; resultCount: number }[] | undefined): boolean {
+  if (!confirmed?.length || c.failureResultCount !== 0) return false;
+  const path = pathnameOf(c.finalUrl);
+  return path !== undefined && confirmed.some((route) => route.path === path && route.resultCount > 0);
 }
 
 function buildFailureDomLines(failureDom: string | undefined): string[] {
@@ -326,19 +344,24 @@ export class FixLoop {
        * re-execution (no retries) reads it a second time; a conclusive read ends the loop as a
        * precondition, an inconclusive one as a possible environment cause. Only while the switch is on.
        */
+      /*
+       * The second witness: every failure read an empty data state on a page the Context Pack read with
+       * results in this same run. The pack stands where a green proof would, since it saw the target's data.
+       */
       let devNotRendered: AdjudicatorEvidence["devNotRendered"];
+      const packConflict = failed.length > 0 && failed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes));
       if (
         !triaged &&
         input.integrity &&
         !input.isCode &&
-        absentKeys.size > 0 &&
+        (absentKeys.size > 0 || packConflict) &&
         failureClasses.length > 0 &&
         failureClasses.every((failure) => failure === "locator" || failure === "timeout") &&
         failed.every((c) => !!c.file)
       ) {
         const failedFiles = [...new Set(failed.map((c) => c.file as string))];
-        const proofs = await Promise.all(failedFiles.map((file) => input.integrity!.hasGreenProof(file)));
-        if (proofs.every(Boolean)) {
+        const proofs = packConflict ? [] : await Promise.all(failedFiles.map((file) => input.integrity!.hasGreenProof(file)));
+        if (packConflict || proofs.every(Boolean)) {
           triaged = true;
           const remaining = input.integrity.remainingMs();
           if ((remaining !== undefined && remaining <= 0) || !input.integrity.spendExecution()) {
@@ -362,7 +385,10 @@ export class FixLoop {
             const triageTrees = triageFailed.map((c) => buildFailureDomLines(c.failureDom)).filter((tree) => tree.length > 0);
             const triageAbsentKeys = this.deps.selectorCheck.check(specSources, triageTrees).absentKeys;
             const stable =
-              triageRun.verdict === "fail" && [...absentKeys].every((key) => triageAbsentKeys.has(key));
+              triageRun.verdict === "fail" &&
+              (packConflict
+                ? triageFailed.length > 0 && triageFailed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes))
+                : [...absentKeys].every((key) => triageAbsentKeys.has(key)));
             devNotRendered = stable ? "conclusive" : "inconclusive";
           }
         }

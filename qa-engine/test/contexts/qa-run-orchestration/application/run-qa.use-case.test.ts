@@ -9339,3 +9339,38 @@ test("no warning is logged for an unobservable no-op when the pack showed no suc
     assert.equal(events.filter((e) => e.type === "log.line" && e.level === "warn").length, 0, `${kind} ${moreNodes.length}`);
   }
 });
+
+test("a failure that reads empty, twice, a page the Context Pack read with results ends as E-PRECONDITION without rewriting the test", async () => {
+  const fixtures = reviewFixtures();
+  try {
+    let generations = 0;
+    let executions = 0;
+    const failing = {
+      name: "owners list",
+      file: "flows/owners.spec.ts",
+      status: "fail" as const,
+      detail: "expect(locator).toBeVisible() failed\n\nLocator: locator('app-list')\nError: element(s) not found",
+      failureDom: "heading: Owners\ntext: 0 results",
+      finalUrl: "https://dev.example/owners/list",
+      failureResultCount: 0,
+    };
+    const { ports } = stubPorts({
+      prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+      ground: async () => ({ packConfirmedDataRoutes: [{ path: "/owners/list", resultCount: 3 }] }),
+      generate: async () => {
+        generations++;
+        fixtures.write("flows/owners.spec.ts", "test('owners list', async () => {});\n");
+        return scriptedGeneration({ specs: ["flows/owners.spec.ts"], approved: true });
+      },
+      execute: async () => { executions++; return { verdict: "fail", cases: [failing], logs: "" }; },
+    });
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "pack-conflict" });
+
+    assert.equal(out.decision.verdict, "infra-error");
+    assert.equal(out.errorClass, ERROR_CLASS.PRECONDITION);
+    assert.equal(generations, 1, "the contradicted failure is never handed back for a rewrite");
+    assert.equal(executions, 2, "the suite run and the one triage re-read");
+  } finally {
+    fixtures.cleanup();
+  }
+});

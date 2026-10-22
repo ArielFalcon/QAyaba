@@ -1359,6 +1359,8 @@ export class RunQaUseCase {
     let groundingHarnessFacts: HarnessFacts | undefined;
     /* The added labels whose changed-value line in the pack said more nodes than unchanged lines: what an unobservable no-op is set beside. */
     let groundingMoreNodes: readonly string[] = [];
+    /* The pages the pack read with results under the declared data state: the witness a failure that reads them empty contradicts. */
+    let groundingConfirmedDataRoutes: readonly { path: string; resultCount: number }[] | undefined;
     if (this.deps.preGenerationGrounding) {
       this.deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
       try {
@@ -1376,6 +1378,7 @@ export class RunQaUseCase {
         groundingContextBrief = grounding.contextBrief;
         groundingHarnessFacts = grounding.harnessFacts;
         groundingMoreNodes = grounding.changedValuesWithMoreNodes ?? [];
+        groundingConfirmedDataRoutes = grounding.packConfirmedDataRoutes;
       } catch (err) {
         rethrowIfRunDeadline(err);
         /* Abort during grounding takes the abort route, not ungrounded continue. */
@@ -2116,6 +2119,7 @@ export class RunQaUseCase {
         coverageWillMeasure,
         ...(initialSpecSources?.length ? { initialSpecSources } : {}),
         ...(failureDomSnapshot ? { failureDomSnapshot } : {}),
+        ...(groundingConfirmedDataRoutes?.length ? { packConfirmedDataRoutes: groundingConfirmedDataRoutes } : {}),
         specDir: workspace.specDir,
         ...(cfg.reviewLoopIntegrity
           ? {

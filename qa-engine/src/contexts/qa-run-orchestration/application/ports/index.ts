@@ -800,6 +800,8 @@ export interface GroundingResult {
   harnessFacts?: HarnessFacts;
   /** The added labels whose changed-value line in the pack said more nodes than unchanged lines of the file. Absent when none did, or when no pack carries such lines. */
   changedValuesWithMoreNodes?: string[];
+  /** The pages the pack read with results (> 0) under the app's declared data state, by pathname. Absent when it read none. */
+  packConfirmedDataRoutes?: { path: string; resultCount: number }[];
 }
 /**
  * Pre-generate first-write grounding (DOM/route/context pack), run once after
