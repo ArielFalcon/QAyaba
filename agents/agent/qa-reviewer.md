@@ -157,3 +157,8 @@ complete answer: never invent a finding to look thorough.
 
 The orchestrator checks every correction's citation and only a finding it can verify can
 block. Your severity orders the list; it never decides the run on its own.
+
+If the generator's `note` says DEV was unreachable, its selectors could not be confirmed live: only
+findings that cannot be confirmed without DEV (a label, text or test-id you cannot verify) are
+`advisory`; CSS/XPath (non-role, non-test-id) locators stay `blocking` even when DEV is unreachable,
+and you stay STRICT on objective alignment, since a blind test must at least target the right behavior.
