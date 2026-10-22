@@ -160,7 +160,7 @@ function emitAttempt(telemetry: TelemetryPort, testSpan: ReturnType<TelemetryPor
       ...(a.failureCategory !== undefined ? { "qayaba.test.failure_category": a.failureCategory } : {}),
       ...(a.strategy !== undefined ? { "qayaba.selector.strategy": a.strategy } : {}),
       ...(a.errorMessage !== undefined ? { "qayaba.error.message": summarizePlaywrightFailure(a.errorMessage) } : {}),
-      ...(capture !== undefined ? captureAttrs(capture) : {}),
+      ...(capture !== undefined && a.status !== "passed" && a.status !== "skipped" ? captureAttrs(capture) : {}),
     },
   });
   if (a.strictMatchCount !== undefined) {
