@@ -204,7 +204,7 @@ export const AppConfigSchema = z
       needsReview: z.boolean(),
       testDataPrefix: z.string().min(1, { error: "qa.testDataPrefix is required" }),
       shadow: z.boolean().optional(),
-      /* Review-loop integrity master switch (failure triage, intent lock, findings filter). Off by default; the acceptance correctness fixes are always on. */
+      /* Review-loop integrity master switch (failure triage, intent lock, findings filter). On by default; the acceptance correctness fixes are always on. false restores the pre-switch flow and forces the intent lock off. */
       reviewLoopIntegrity: z.boolean().optional(),
       explorer: z.boolean().optional(),
       /* Pre-generation context pack: include the live-DOM capture (A/B lever; default true). */

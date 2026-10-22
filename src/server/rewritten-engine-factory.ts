@@ -1082,7 +1082,7 @@ export function buildRewrittenCompositionConfig(
     ...(run.guidance ? { guidance: run.guidance } : {}),
     needsReview: app.qa.needsReview,
     shadow: app.qa.shadow ?? false,
-    integrity: { reviewLoop: app.qa.reviewLoopIntegrity ?? false },
+    integrity: { reviewLoop: app.qa.reviewLoopIntegrity ?? true },
     onFailure: app.report.onFailure,
     maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
     isCode,

@@ -3872,3 +3872,13 @@ test("the factory tells the geolocation registry about the authoring sessions th
   await generator.dispose();
   assert.equal(registry.find("ses-geo"), undefined);
 });
+
+/* T20: the review-loop integrity slice is on unless the app opts out. It is the engine's default
+   acceptance behaviour (verified acceptance is always on; C, A and D are the switch), so a new app
+   gets it without knowing the knob exists, and only an explicit false turns it off. */
+test("buildRewrittenCompositionConfig grants the review-loop integrity slice unless the app sets it false", () => {
+  const base = cfg("factory-integrity-default");
+  assert.equal(buildRewrittenCompositionConfig(base, { getAgentDeps: stubAgentDeps }, "qa-bot-int0001-run1", { mode: "diff" }).integrity?.reviewLoop, true);
+  const off: AppConfig = { ...base, qa: { ...base.qa, reviewLoopIntegrity: false } };
+  assert.equal(buildRewrittenCompositionConfig(off, { getAgentDeps: stubAgentDeps }, "qa-bot-int0001-run1", { mode: "diff" }).integrity?.reviewLoop, false);
+});

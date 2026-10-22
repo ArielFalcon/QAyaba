@@ -670,7 +670,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     config: {
       needsReview: cfg.needsReview,
       shadow: cfg.shadow,
-      reviewLoopIntegrity: cfg.integrity?.reviewLoop ?? false,
+      reviewLoopIntegrity: cfg.integrity?.reviewLoop ?? true,
       onFailure: cfg.onFailure,
       maxRetries: cfg.maxRetries,
       isCode: cfg.isCode,
