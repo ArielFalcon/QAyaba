@@ -520,3 +520,43 @@ test("review() maps enrichment.specChanges onto ReviewInput.specChanges verbatim
 
   assert.equal(seenInput?.specChanges, "### a.spec.ts\n- old\n+ new");
 });
+
+/* enrichment.executionEvidence must reach the prompt as the reviewer's execution result: the run's own
+   captured statuses and URLs, rendered by the one renderer that bounds and sanitizes them. */
+test("review() renders the run's execution evidence into the reviewer prompt, bounded like every other section", async () => {
+  let seenInput: { executionResult?: string } | undefined;
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seenInput = input as { executionResult?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
+  });
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, {
+    executionEvidence: { verdict: "pass", cases: [{ name: "checkout flow", status: "pass", httpStatus: 500, finalUrl: "http://dev/checkout", detail: "the server rejected card-4242" }] },
+  });
+
+  assert.match(seenInput?.executionResult ?? "", /RUNTIME EXECUTION RESULT/);
+  assert.match(seenInput?.executionResult ?? "", /Verdict: pass/);
+  assert.match(seenInput?.executionResult ?? "", /httpStatus: 500/);
+  assert.match(seenInput?.executionResult ?? "", /finalUrl: http:\/\/dev\/checkout/);
+  assert.doesNotMatch(seenInput?.executionResult ?? "", /\bauthoritative\b/i, "execution evidence is evidence, not an authority");
+});
+
+test("review() with no execution evidence omits the section entirely (never an empty one)", async () => {
+  let seenInput: { executionResult?: string } | undefined;
+  const rendering: PromptRenderingPort = {
+    ...fakeRendering(),
+    renderReviewer: (input) => { seenInput = input as { executionResult?: string }; return { text: "reviewer-prompt", sectionSizes: {} }; },
+  };
+  const verdicts = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering, verdicts }, {
+    diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff",
+  });
+
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, {});
+
+  assert.equal(seenInput?.executionResult, undefined);
+});

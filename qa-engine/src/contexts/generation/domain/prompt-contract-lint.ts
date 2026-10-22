@@ -100,7 +100,7 @@ export interface LintOptions {
   artifactReferences?: readonly ArtifactReference[];
 }
 
-export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12" | "R13" | "R14";
+export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12" | "R13" | "R14" | "R15";
 
 export interface LintFinding {
   rule: LintRule;
@@ -178,6 +178,16 @@ export const ESTABLISHED_TRUST_LEXICON: readonly RegExp[] = [
   /\bground truth\b/i,
   /\bonly source of truth\b/i,
 ];
+
+/*
+ * Phrases that hand a decision to someone else's word or order blind compliance with a list. The
+ * orchestrator owns acceptance: a prompt may state what the evidence shows and what to do about it, and
+ * must leave the judgment where the engine can check it. The word `authoritative` is already policed in
+ * an assembled section by R14 (it is trust language that must match a declared framing); in the static
+ * layer there is no framing to match, so R15 forbids it there.
+ */
+export const BLIND_COMPLIANCE_PHRASES: readonly RegExp[] = [/\bfix +each\b/i];
+export const DELEGATED_AUTHORITY_PHRASES: readonly RegExp[] = [/(?<!not )(?<!non-)\bauthoritative\b/i];
 
 function countMatches(lexicon: readonly RegExp[], text: string): number {
   let total = 0;
@@ -391,6 +401,18 @@ function rulePolarityAgreesWithFraming(cell: LintCell): LintFinding[] {
     .map((s) => ({ rule: "R14" as const, sections: [s.id] }));
 }
 
+/* R15: no section orders compliance with every item it is handed, and the static layer — which carries unconditional rules — never hands judgment to another model's authority. Captured data is not prose. */
+function ruleNoDelegatedAuthority(cell: LintCell): LintFinding[] {
+  return cell.sections
+    .filter(
+      (s) =>
+        !s.verbatim &&
+        (BLIND_COMPLIANCE_PHRASES.some((pattern) => pattern.test(s.text)) ||
+          (s.layer === "static" && DELEGATED_AUTHORITY_PHRASES.some((pattern) => pattern.test(s.text)))),
+    )
+    .map((s) => ({ rule: "R15" as const, sections: [s.id] }));
+}
+
 /* R11: the runtime-signals directive only belongs where no DOM tree is available. */
 function ruleRuntimeSignalsOnlyWithoutTree(cell: LintCell): LintFinding[] {
   const trees = uniqueSorted([...providersOf(cell, "dom-live"), ...providersOf(cell, "dom-failure")]);
@@ -462,6 +484,7 @@ export function lintCell(cell: LintCell, options: LintOptions = {}): readonly Li
     ...ruleLoginNotPackDependent(cell),
     ...ruleReferencesNeedTheirArtifact(cell, options.artifactReferences),
     ...rulePolarityAgreesWithFraming(cell),
+    ...ruleNoDelegatedAuthority(cell),
   ];
   /* Ordered by key as text, then by fact: the same cell always yields the same list, comparable across runs. */
   return findings

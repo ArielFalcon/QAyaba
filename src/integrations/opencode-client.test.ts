@@ -980,14 +980,15 @@ test("renderExecutionResult is exported from opencode-client", () => {
   assert.strictEqual(typeof renderExecutionResult, "function");
 });
 
-test("renderExecutionResult returns a non-empty string with the authoritative heading", () => {
+test("renderExecutionResult returns a non-empty string whose heading names the orchestrator as its source, not an authority", () => {
   const result = renderExecutionResult({
     verdict: "fail",
     cases: [{ name: "login test", httpStatus: 500, finalUrl: "https://app.example.com/login" }],
   });
   assert.strictEqual(typeof result, "string");
   assert.match(result, /RUNTIME EXECUTION RESULT/i, "heading must mention RUNTIME EXECUTION RESULT");
-  assert.match(result, /authoritative/i, "heading must be marked as authoritative");
+  assert.match(result, /captured by the orchestrator, not inferred/i, "the heading says where the evidence comes from");
+  assert.doesNotMatch(result, /\bauthoritative\b/i, "the engine owns acceptance: evidence is not an authority");
 });
 
 test("renderExecutionResult sanitizes finalUrl (strips token query param)", () => {
@@ -1052,7 +1053,8 @@ test("buildReviewerPrompt injects execution-result section when executionResult 
     });
     const p = buildReviewerPrompt(makeReviewInput(dir, { executionResult }));
     assert.match(p, /RUNTIME EXECUTION RESULT/i, "execution-result section must appear when field is set");
-    assert.match(p, /authoritative/i, "section heading must include the authoritative qualifier");
+    assert.match(p, /captured by the orchestrator, not inferred/i, "the section names its source");
+    assert.doesNotMatch(p, /\bauthoritative\b/i, "no prompt calls the evidence or the reviewer authoritative");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

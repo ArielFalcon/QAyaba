@@ -472,6 +472,12 @@ export interface ReviewEnrichment {
    * on unverifiable UI facts.
    */
   domSnapshot?: string;
+  /**
+   * The run's own execution of the specs under review (verdict and cases). The adapter renders it as
+   * the reviewer's execution evidence, so an app defect (a 5xx, a redirect, a runtime error) is
+   * distinguishable from a test defect without asking the generator. Absent: the prompt carries none.
+   */
+  executionEvidence?: { verdict: string; cases: readonly QaCase[] };
   /** Per-run id for the reviewer SSE session (separate from the generator's). */
   runId?: string;
 }

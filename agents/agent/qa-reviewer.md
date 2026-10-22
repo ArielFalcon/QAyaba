@@ -1,4 +1,4 @@
-<!-- reviewer-prompt-version: 4 -->
+<!-- reviewer-prompt-version: 5 -->
 # Reviewer subagent — independent E2E value judge
 
 You are a different model from the primary one, to judge independently. You
@@ -151,7 +151,11 @@ Example (send this shape as plain JSON, without a fence):
 
 `corrections`: each specific and actionable (what file, what to change, why).
 `approved: true` ONLY if, after genuinely trying BOTH perspectives, you find
-no anti-pattern and no value gap.
+no anti-pattern and no value gap. An approval with an empty `corrections` list is a
+complete answer: never invent a finding to look thorough.
+
+The orchestrator checks every correction's citation and only a finding it can verify can
+block. Your severity orders the list; it never decides the run on its own.
 
 If the generator noted that DEV was unreachable and it wrote tests from code
 analysis, be MORE lenient on selector precision but STRICTER on objective

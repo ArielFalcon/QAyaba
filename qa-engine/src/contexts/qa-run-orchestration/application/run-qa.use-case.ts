@@ -2457,6 +2457,8 @@ export class RunQaUseCase {
               ...(specChanges ? { specChanges } : {}),
               ...(reviewDomSnapshot ? { domSnapshot: reviewDomSnapshot } : {}),
               ...(existingSpecFiles.length ? { existingSpecFiles } : {}),
+              /* The run's own execution of the specs under review: the reviewer weighs a 5xx or a redirect against the test instead of guessing. */
+              ...(reviewCases.length > 0 ? { executionEvidence: { verdict: run.verdict, cases: reviewCases } } : {}),
             });
             reviewStats.modelRounds++;
             addReviewStats(reviewResult.stats);

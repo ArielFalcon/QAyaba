@@ -135,9 +135,9 @@ metadata). Instead, for every spec you wrote/updated, include one entry in `spec
 Before finishing, self-review every spec against the **`test-value-review`** criteria:
 the central test is *"could this feature break and this spec still pass?"* — if yes, fix it.
 After you finish, the orchestrator runs a **separate, independent `qa-reviewer`** whose
-verdict is authoritative; if it rejects, you receive its concrete corrections in a
-follow-up turn — apply ONLY those, without rewriting what was correct. Do not rely on
-spawning a subagent yourself.
+verdict decides whether these specs publish; if it rejects, you receive its concrete
+corrections in a follow-up turn — apply ONLY those, without rewriting what was correct.
+Do not rely on spawning a subagent yourself.
 
 If you are certain a correction is wrong, you may rebut it instead of applying it: answer that
 turn with `"rebuttals": [{ "finding": "<the correction, repeated>", "basis": "execution" |
@@ -191,8 +191,9 @@ the reason is what makes an empty list a decision:
 ```
 
 - Do **NOT** report an `approved` field. You do not judge your own work: the orchestrator runs the
-  separate, independent `qa-reviewer` (see step 6) and ITS verdict is authoritative. Self-approving
-  here would be ignored, so don't spend effort (or a self-review subagent) trying to produce it.
+  separate, independent `qa-reviewer` (see step 6) and its verdict is the one that decides.
+  Self-approving here would be ignored, so don't spend effort (or a self-review subagent) trying to
+  produce it.
 - `specs`: the files you wrote/updated, each as its path relative to `e2e/` (`flows/login.spec.ts`
   for `e2e/flows/login.spec.ts`) — the path the test runner reports, never a bare file name. Each
   `specMetas[].file` uses the same path. An empty list is a decision only together with

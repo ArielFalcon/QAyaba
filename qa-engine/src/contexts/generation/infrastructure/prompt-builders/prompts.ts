@@ -665,13 +665,14 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const fixContentClaims: PromptClaim[] = fixContent && hasFailureTree ? [claim.directs("consult", "dom-failure")] : [];
 
-  /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent must resolve every flagged item before finishing. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
+  /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent addresses every flagged item, correcting it or rebutting it with evidence. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
   const reviewContent = input.reviewCorrections?.length && isGenerationMode
     ? [
         `## Apply reviewer corrections (HIGHEST priority)`,
         ``,
-        `An independent reviewer REJECTED the previous specs. Fix EACH item below precisely;`,
-        `do NOT rewrite specs that were not flagged.`,
+        `An independent reviewer REJECTED the previous specs. Address each finding below: fix the spec`,
+        `when the finding holds, or rebut it with the evidence the correction turn accepts when you can show`,
+        `it is wrong. Do NOT rewrite specs that were not flagged.`,
         treeInPrompt
           ? `Re-verify against the injected grounding above (the DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
           : isCode
@@ -926,7 +927,7 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
   if (input.reviewCorrections?.length) {
     parts.push(
       `## Apply reviewer corrections (HIGHEST priority)`,
-      `An independent reviewer REJECTED the previous specs. Fix EACH item; do NOT rewrite specs not flagged.`,
+      `An independent reviewer REJECTED the previous specs. Address each finding: fix the spec when it holds, rebut it with evidence when it does not. Do NOT rewrite specs not flagged.`,
       ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
       ``,
     );
@@ -1508,7 +1509,7 @@ export function renderReviewSpecs(input: ReviewInput): string {
   return `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}`;
 }
 
-/** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is authoritative evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — injected by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Output is bounded at 4000 chars total; per-case detail is capped at 500 chars. finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
+/** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — captured by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Output is bounded at 4000 chars total; per-case detail is capped at 500 chars. finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
 export interface ExecutionResultCase {
   name: string;
   httpStatus?: number;
@@ -1526,7 +1527,7 @@ export function renderExecutionResult(evidence: {
   const CAP_DETAIL_INTERNAL = CAP_DETAIL - 130;
 
   const lines: string[] = [
-    `## RUNTIME EXECUTION RESULT (authoritative — captured by the orchestrator, not inferred)`,
+    `## RUNTIME EXECUTION RESULT (captured by the orchestrator, not inferred)`,
     ``,
     `Verdict: ${evidence.verdict}`,
     ``,
@@ -1612,6 +1613,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     `- "execution": an execution of this run that shows it; ref is the "<spec path>" that ran.`,
     `- "dom": a fact from the DOM section above; ref is the "<spec path>" it concerns (always advisory).`,
     `A correction with no citation cannot block: the orchestrator treats it as advisory at most.`,
+    `An empty "corrections" list beside "approved": true is a complete answer — never invent a finding to look thorough.`,
     `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking","citation":{"kind":"execution","ref":"file.spec.ts"}}]}`,
   ].join("\n");
 
