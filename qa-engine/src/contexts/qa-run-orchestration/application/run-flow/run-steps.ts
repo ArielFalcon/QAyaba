@@ -9,6 +9,7 @@ import type { RunContext, WorkspaceRunContext } from "./run-context.ts";
 import type { RunState } from "./run-state.ts";
 import { cleanPriorRun, openAuthoringHandles, prepareLogin, restoreAcceptedSuite, setUpProject } from "./phases/setup.steps.ts";
 import { assembleEnrichment, groundRepository, readDiffShapes, resolveBlastRadius, resolveCrossRepoImpact, resolveServiceLinks, retrieveRules, selectExemplars } from "./phases/ground.steps.ts";
+import { generateFirstPass, groundBeforeExecution, settleGenerationEnd } from "./phases/generate.steps.ts";
 import { armRunDeadline, classifyChange, indexMirror, stopIfAbortedBeforeGate, waitForDeploy } from "./phases/opening.steps.ts";
 
 export const BEFORE_WORKSPACE: ReadonlyArray<FlowStep<RunState, RunContext, RunQaResult>> = [
@@ -33,4 +34,7 @@ export const IN_WORKSPACE: ReadonlyArray<FlowStep<RunState, WorkspaceRunContext,
   { name: "resolve the service links", run: resolveServiceLinks },
   { name: "resolve the cross-repo impact", run: resolveCrossRepoImpact },
   { name: "assemble the enrichment every generation starts from", run: assembleEnrichment },
+  { name: "generate the first pass", phase: "generate", run: generateFirstPass },
+  { name: "decide from how the generation ended", run: settleGenerationEnd },
+  { name: "ground the specs before they run, with one corrective regeneration", run: groundBeforeExecution },
 ];

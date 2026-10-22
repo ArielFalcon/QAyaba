@@ -5,6 +5,7 @@ import type {
   CommitIntent,
   ContractDrift,
   GenerationEnrichment,
+  GenerationOutput,
   CrossRepoImpact,
   ExplorationBrief,
   GroundingOmission,
@@ -64,10 +65,28 @@ export interface Grounding {
   baseEnrichment: GenerationEnrichment;
 }
 
+/* What stands in for a generation when none ran (a regression run): it has no end, which no generation's result can have. */
+export type RegressionStandIn = Omit<GenerationOutput, "end"> & { end: null };
+
+/* What the generate phase and the pre-exec grounding left for the later phases. */
+export interface GenerationOutcome {
+  /** The generation the run goes on with: the first pass, or the corrective regeneration that replaced it. */
+  generated: GenerationOutput | RegressionStandIn;
+  /** The pre-exec gate's counters, real once it has run; 0 when its port is unwired. */
+  preExecAmbiguityCatches: number;
+  catalogGateInWindow: number;
+  catalogGateAdvisory: number;
+  catalogGateFailClosed: number;
+  /** What the pre-exec grounding asked to correct, and the spec files it attributed those corrections to. */
+  groundingCorrections: string[];
+  groundingAttribution: string[];
+}
+
 export interface RunState {
   classification: Classification;
   setup: SetupOutcome;
   grounding: Grounding;
+  generation: GenerationOutcome;
 }
 
 export function initialRunState(): RunState {
@@ -95,6 +114,15 @@ export function initialRunState(): RunState {
       contractDrift: [],
       crossRepoImpact: null,
       baseEnrichment: {},
+    },
+    generation: {
+      generated: { specs: [], approved: true, reviewed: false, end: null },
+      preExecAmbiguityCatches: 0,
+      catalogGateInWindow: 0,
+      catalogGateAdvisory: 0,
+      catalogGateFailClosed: 0,
+      groundingCorrections: [],
+      groundingAttribution: [],
     },
   };
 }

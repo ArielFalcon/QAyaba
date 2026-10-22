@@ -10,21 +10,16 @@
 
 import { Sha } from "@kernel/sha.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
-import { relative } from "node:path";
 import { createHash } from "node:crypto";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
-import type { GeolocationFacts } from "@kernel/geolocation.ts";
-import { NOOP_KIND, type NoopKind } from "@kernel/noop-kind.ts";
-import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, effectiveCoordinationMode, type CoordinationGateSignal, type CoordinationMode, type CoordinationSettings } from "@kernel/coordination.ts";
-import type { CoordinateResult, LeadSidekicks } from "./coordination/lead-sidekicks.ts";
+import { type NoopKind } from "@kernel/noop-kind.ts";
+import { type CoordinationGateSignal, type CoordinationMode, type CoordinationSettings } from "@kernel/coordination.ts";
+import type { LeadSidekicks } from "./coordination/lead-sidekicks.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
-import { normalizeSpecPath } from "@kernel/spec-path.ts";
-import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { isSandboxUnavailable, type SandboxUnavailableError } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
@@ -70,9 +65,6 @@ import type {
   SuiteStorePort,
 } from "./ports/index.ts";
 import { reviewerApprovalOf, type RunDeadlinePort } from "./ports/index.ts";
-
-/* What stands in for a generation when none ran (a regression run): it has no end, which no generation's result can have. */
-type RegressionStandIn = Omit<GenerationOutput, "end"> & { end: null };
 
 const NO_GROUNDING_SIGNALS = { preExecAmbiguityCatches: 0, deterministicSelectorBlocks: 0, catalogGateInWindow: 0, catalogGateAdvisory: 0, catalogGateFailClosed: 0 };
 
@@ -135,6 +127,7 @@ import { initialRunState } from "./run-flow/run-state.ts";
 import { createRunServices } from "./run-flow/run-services.ts";
 import type { RunContext, RunEnds, WorkspaceRunContext } from "./run-flow/run-context.ts";
 import { BEFORE_WORKSPACE, IN_WORKSPACE } from "./run-flow/run-steps.ts";
+import { ProbeSweepError, closedLoopSignal as closedLoopSignalOf, loopClosedNow as loopClosedNowOf, regenerate as regenerateOf } from "./run-flow/phases/generation-services.ts";
 import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
@@ -146,7 +139,6 @@ import { FixLoop, type FixLoopAcceptancePort, type FixLoopExecutionPort, type Fi
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
 import { attributeContradictions } from "../domain/helpers/contradiction-attribution.ts";
-import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
 import { precheckSpecsAgainstDom } from "../domain/deterministic-review-precheck.ts";
 import { correctionClassOf } from "@contexts/generation/domain/review-output.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/domain/review-fingerprint.ts";
@@ -155,7 +147,6 @@ import { RegenerationAcceptance } from "./regeneration-acceptance.ts";
 import type { SpecSnapshot } from "./ports/spec-snapshot.port.ts";
 import { ERROR_CLASS, resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
-import { engineSideCauseOf, terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
 import { learningGates, observesOperatingSignal } from "../domain/helpers/learning-gates.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
@@ -166,12 +157,11 @@ import { verifyRebuttals, findingKey, refKey, type DisputedFinding, type Rebutta
 import type { ContractFeedback } from "../domain/contract-feedback.ts";
 import { diffContracts } from "@contexts/objective-signal/domain/test-intent-contract.ts";
 import type { IntentContractPort } from "./ports/intent-contract.port.ts";
-import { checkPreExecGrounding } from "../domain/pre-exec-grounding.service.ts";
 import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../domain/helpers/derive-cycle-backstop.ts";
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
-import { isRunDeadlineError, rethrowIfRunDeadline, type RunDeadlineExceededError } from "../../../shared-kernel/run-deadline.ts";
+import { isRunDeadlineError, type RunDeadlineExceededError } from "../../../shared-kernel/run-deadline.ts";
 import { renderRunDeadlineNote } from "../domain/run-time-budget.ts";
 
 /* Same minRatio the coverage policy uses for the E-COVERAGE-GAP band. */
@@ -210,21 +200,6 @@ function specSetDigest(specRoot: SpecRoot, files: readonly string[]): string | u
     }
   }
   return hash.digest("hex");
-}
-
-/* A probe is a throwaway spec the generator ran through run_spec: it lives under the probe directory and is never a deliverable. */
-function isProbeSpec(file: string): boolean {
-  return normalizeSpecPath(file).split("/").includes(PROBE_REL_DIR);
-}
-
-/* The generation without the probes it listed as deliverables; the same object when it listed none. */
-function withoutProbeSpecs<T extends Pick<GenerationOutput, "specs" | "declaredSpecs">>(output: T): T {
-  if (!output.specs.some(isProbeSpec) && !(output.declaredSpecs ?? []).some((d) => isProbeSpec(d.file))) return output;
-  return {
-    ...output,
-    specs: output.specs.filter((file) => !isProbeSpec(file)),
-    ...(output.declaredSpecs ? { declaredSpecs: output.declaredSpecs.filter((d) => !isProbeSpec(d.file)) } : {}),
-  };
 }
 
 /** Subset of host AppConfig the composition root passes in. The full shape is a shell concern. */
@@ -573,14 +548,6 @@ export interface RunTrail {
   geolocation?: GeolocationHandle;
 }
 
-/* The probes the generator left in the working copy could not be removed. */
-class ProbeSweepError extends Error {
-  constructor(reason: string) {
-    super(`the run_spec probes could not be removed from the working copy (${reason})`);
-    this.name = "ProbeSweepError";
-  }
-}
-
 export class RunQaUseCase {
   private readonly telemetry: TelemetryPort;
 
@@ -878,7 +845,22 @@ export class RunQaUseCase {
     const ends: RunEnds = {
       aborted: (mirrorDir) => this.abortedResult(mirrorDir),
       infraError: (note, mirrorDir) => this.infraErrorResult(note, mirrorDir),
-      skipped: () => this.skippedResult(),
+      skipped: (opts) => this.skippedResult(opts),
+      persistSkipped: async (skipped, extra) => {
+        const skippedOutcome = this.toRunOutcome(input, skipped.decision, [], 0, null, skipped.errorClass, {
+          reviewerApproved: skipped.gateSignals.reviewerApproved,
+          ...(extra.noop ? { noop: extra.noop } : {}),
+          ...(skipped.note !== undefined ? { note: skipped.note } : {}),
+          ...(extra.confinement !== undefined ? { confinement: extra.confinement } : {}),
+          ...(extra.closedLoop ? { closedLoop: extra.closedLoop } : {}),
+          ...(extra.agentBrowser ? { agentBrowser: extra.agentBrowser } : {}),
+        });
+        await this.deps.runHistory.save(skippedOutcome);
+        await this.pruneMirrorIfWired(trail.mirrorDir!);
+        return { ...skipped, outcome: skippedOutcome };
+      },
+      recordCoordination: (coordinationSignal) => void this.coordinationOf.set(input, coordinationSignal),
+      noteGroundingGates: (result) => this.noteGroundingGates(trail, result),
       pruneMirror: (mirrorDir) => this.pruneMirrorIfWired(mirrorDir),
       noteDeadlineArmed: () => this.noteDeadlineArmed(trail),
       prepareAuth: (specDir, phase, abortSignal) => this.prepareAuth(specDir, phase, abortSignal),
@@ -899,7 +881,7 @@ export class RunQaUseCase {
     const workspace = await this.deps.workspace.prepare(input.sha);
     trail.mirrorDir = workspace.mirrorDir;
     const services = createRunServices(this.deps, cfg, workspace, signal);
-    const ctx: WorkspaceRunContext = { ...baseCtx, workspace, services };
+    const ctx: WorkspaceRunContext = { ...baseCtx, workspace, services, generation: { delivered: [] } };
     const flow = await runFlow(IN_WORKSPACE, state, ctx, enter);
     if ("end" in flow) return flow.end;
 
@@ -911,108 +893,23 @@ export class RunQaUseCase {
     /* Whether an accepted regeneration rewrote specs after the last coverage measurement: the coverage ratio is then stale. */
     let acceptedRegenAfterMeasure = false;
 
-    const { suiteRestored, authSeedUnauthored } = state.setup;
-    const { geolocation, closedLoop, agentBrowser } = trail;
-    const geolocationEnrichment = (): { geolocation?: GeolocationFacts } => (geolocation ? { geolocation: geolocation.facts() } : {});
+    const { suiteRestored } = state.setup;
+    const { closedLoop, agentBrowser } = trail;
     const agentBrowserSignal = (): AgentBrowserGateSignal | undefined => agentBrowser?.signals();
     const {
-      diffArchetypes, retrievedRules, retrievedRuleIds, offeredArchetypes, existingSpecFiles: groundingExistingSpecFiles, moreNodes: groundingMoreNodes,
-      blastRadiusSignal, serviceLinks: resolvedServiceLinks, contractDrift: resolvedContractDrift, crossRepoImpact, baseEnrichment,
+      diffArchetypes, retrievedRules, retrievedRuleIds, offeredArchetypes, existingSpecFiles: groundingExistingSpecFiles,
+      blastRadiusSignal, serviceLinks: resolvedServiceLinks, contractDrift: resolvedContractDrift, crossRepoImpact,
     } = state.grounding;
     /* The same BlastRadius the ground phase queried the structural signal with; measure() scopes the code-target oracle to it. */
     const runBlastRadius = BlastRadius.of(input.sha, classificationIntent?.changedFiles ?? []);
 
-    /*
-     * The specs this run has delivered so far, merged after every generation pass: a lead pass
-     * refreshes what its verdict declared for each spec, a sidekick pass adds paths only (the
-     * objective of a delegation is never a spec's). Every regeneration is handed them.
-     */
-    let delivered: readonly DeliveredSpec[] = [];
-    /* What follows every generation by the lead: the probes it left behind are swept before anything looks at the working copy, and none is a deliverable. Without a loop, the generation is returned as it is. */
-    const afterGeneration = async <T extends Pick<GenerationOutput, "specs" | "declaredSpecs">>(output: T): Promise<T> => {
-      if (!closedLoop) return output;
-      try {
-        await closedLoop.sweepProbes();
-      } catch (err) {
-        /* Fail closed: a working copy that may still hold throwaway specs is not validated, executed or published. The run ends as an infra-error (runInScope). */
-        throw new ProbeSweepError(err instanceof Error ? err.message : String(err));
-      }
-      return withoutProbeSpecs(output);
-    };
-    /* Whether every delivered spec was seen passing in the bytes it has now: the generator has already done the work a regeneration would repeat. A fault in asking is "not closed", which keeps every regeneration. */
-    const loopClosedNow = async (): Promise<boolean> => {
-      if (!closedLoop || delivered.length === 0) return false;
-      try {
-        return await closedLoop.isClosed(delivered.map((d) => d.file));
-      } catch (err) {
-        console.error(`[qa] could not tell whether the run_spec loop is closed (regenerations stay on): ${err instanceof Error ? err.message : String(err)}`);
-        return false;
-      }
-    };
-    const closedLoopSignal = async (): Promise<ClosedLoopGateSignal | undefined> => (closedLoop ? { ...closedLoop.signals(), closed: await loopClosedNow() } : undefined);
-    /* One regeneration by the lead over what the run has delivered so far; what it delivers joins that. */
-    const regenerate = async (regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> => {
-      const regenerated = await afterGeneration(await this.deps.generation.generate([], workspace.specDir, regenerationSignal, classificationDiff, {
-        ...baseEnrichment,
-        ...geolocationEnrichment(),
-        ...enrichment,
-        ...(delivered.length > 0 ? { deliveredSpecs: delivered } : {}),
-      }));
-      delivered = mergeDeliveredSpecs(delivered, regenerated, "lead");
-      return regenerated;
-    };
-
-    /*
-     * The lead/sidekick mode: the lead is asked for a plan and its flows are authored by sidekicks, each in a workspace of its own.
-     * What comes back is a generation like any other: the specs of the flows that delivered, a declared no-op, or an end that
-     * names why nothing was finished. Undefined: the lead authors the change in one turn, as every run did before this mode.
-     * The mode is the app's setting unless the run chose; a code run, a context run and a login still to be written never use it.
-     */
-    const coordinationSettings = this.deps.coordinationSettings ?? DEFAULT_COORDINATION_SETTINGS;
-    const coordinationMode = effectiveCoordinationMode(coordinationSettings, input.coordinationMode);
-    const coordinateFirstPass = async (): Promise<GenerationOutput | undefined> => {
-      if (coordinationMode !== COORDINATION_MODE.LEAD_SIDEKICKS || !this.deps.leadSidekicks) return undefined;
-      if (!generating || cfg.isCode || input.mode === "context" || authSeedUnauthored) return undefined;
-      let result: CoordinateResult;
-      try {
-        result = await this.deps.leadSidekicks.coordinate({
-          runId: input.runId,
-          app: input.app,
-          objective: input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`,
-          mirrorDir: workspace.mirrorDir,
-          specDir: workspace.specDir,
-          specRelDir: relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e",
-          settings: { ...coordinationSettings, mode: coordinationMode },
-          facts: { hasLogin: Boolean(this.deps.authContext?.auth), provider: this.deps.sidekickProvider?.(), plannerProvider: this.deps.plannerProvider?.() },
-          ...(closedLoop ? { closedLoop } : {}),
-          ...(agentBrowser ? { agentBrowser } : {}),
-          ...(geolocation ? { geolocation } : {}),
-          ...(this.deps.sidekickDevBaseUrl ? { devBaseUrl: this.deps.sidekickDevBaseUrl } : {}),
-          ...(this.deps.generation.plan
-            ? { plan: (planning) => this.deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, ...geolocationEnrichment(), planning }) }
-            : {}),
-          ...(signal ? { signal } : {}),
-        });
-      } catch (err) {
-        rethrowIfRunDeadline(err);
-        console.error(`[qa] coordination failed (the lead authors the change alone): ${err instanceof Error ? err.message : String(err)}`);
-        this.coordinationOf.set(input, { mode: COORDINATION_MODE.LEAD_SIDEKICKS, downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
-        return undefined;
-      }
-      this.coordinationOf.set(input, result.signal);
-      if (result.action === "single") return undefined;
-      if (result.action === "noop") {
-        /* A plan names no kind of no-op. */
-        return { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason };
-      }
-      const { aggregated } = result;
-      if (aggregated.end !== GENERATION_END.DELIVERED) {
-        return { specs: [], end: aggregated.end, reviewed: false, approved: true, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) };
-      }
-      const unfinished = aggregated.incompleteFlows.map((f) => `${f.id} (${f.kind})`).join(", ");
-      if (unfinished) this.deps.observer?.onEvent({ type: "log.line", level: "warn", text: `coordination: ${aggregated.incompleteFlows.length} flow(s) did not finish: ${unfinished}` });
-      return await afterGeneration({ specs: aggregated.specs, end: GENERATION_END.DELIVERED, reviewed: false, approved: true, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) });
-    };
+    /* The generation and the pre-exec grounding the generate phase left, and the generation closures the later phases still call. */
+    let generated = state.generation.generated;
+    const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
+    const generation = ctx.generation;
+    const loopClosedNow = (): Promise<boolean> => loopClosedNowOf(ctx);
+    const closedLoopSignal = (): Promise<ClosedLoopGateSignal | undefined> => closedLoopSignalOf(ctx);
+    const regenerate = (regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> => regenerateOf(state, ctx, regenerationSignal, enrichment);
 
     /*
      * Separate from generation enrichment: ReviewEnrichment has no sha/contextPack.
@@ -1022,112 +919,6 @@ export class RunQaUseCase {
       runId: input.runId,
       ...(retrievedRules.length ? { learnedRules: retrievedRules } : {}),
     };
-
-    /*
-     * Skipped when generating is false (regression) — the synthetic empty approved
-     * result is not a GenerationPort call.
-     * In the lead/sidekick mode the flows' specs stand in for the lead's first pass (coordinateFirstPass).
-     */
-    trail.phases.enter("generate");
-    this.deps.observer?.onStep("generate", generating ? undefined : "regression: running the existing suite, not generating");
-    /* A regression run generates nothing: a stand-in with no generation end, never one a generation could return. */
-    let generated: GenerationOutput | RegressionStandIn;
-    if (!generating) {
-      generated = { specs: [], approved: true, reviewed: false, end: null };
-    } else {
-      /*
-       * A stock seed that did not sign in reaches the generator as its own fact in every mode (the
-       * prompt builders render the rewrite instruction); the Context Pack stays grounding-only.
-       * The coordination does not engage for such a run (coordinateFirstPass): sidekick output from the login wall is
-       * not the session the suite will run with.
-       */
-      const coordinatedFirstPass = await coordinateFirstPass();
-      if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
-      generated = coordinatedFirstPass
-        ?? (await afterGeneration(await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
-          ...baseEnrichment,
-          ...geolocationEnrichment(),
-          ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
-        })));
-      delivered = mergeDeliveredSpecs(delivered, generated, coordinatedFirstPass ? "sidekick" : "lead");
-    }
-    /*
-     * Confinement after a real generate() only. The regression synthetic stand-in
-     * wrote nothing. Sidekick writes are still agent writes.
-     */
-    if (generating) await enforceConfinement();
-
-    /*
-     * How the generation ended decides how the run does. With specs the run continues (a generation
-     * that also ran out of steps is only logged). Without specs only a declared no-op is a decision
-     * and skips; running out of steps, or a verdict that decides nothing, ends the run as a persisted
-     * infra-error the operator can read; an output that never parsed keeps its unpersisted one. A
-     * regression run generates nothing, so it has no end and never lands here.
-     */
-    if (generated.end !== null) {
-      trail.generationEnd = generated.end;
-      const terminal = terminalForGenerationEnd(generated.end);
-      if (terminal.action === "continue") {
-        if (generated.turn?.exhausted === true) {
-          this.deps.observer?.onEvent({
-            type: "log.line",
-            level: "warn",
-            text: `[qa] the generator ran out of steps (${generated.turn.stepsUsed ?? "?"}/${generated.turn.maxSteps ?? "?"}) but delivered ${generated.specs.length} spec(s); continuing`,
-          });
-        }
-      } else if (terminal.action === "skip") {
-        /* Observe-only: an unobservable no-op beside a pack that showed more nodes than unchanged lines is logged, never acted on. */
-        if (generated.noopKind === NOOP_KIND.UNOBSERVABLE && groundingMoreNodes.length > 0) {
-          this.deps.observer?.onEvent({
-            type: "log.line",
-            level: "warn",
-            text: `[qa] the generator declared the change unobservable on DEV, while the pack's changed-value lines show more nodes than unchanged lines for ${groundingMoreNodes.length} changed value(s)`,
-          });
-        }
-        const skipped = this.skippedResult({ note: generated.note, reviewerApproved: reviewerApprovalOf(generated) });
-        const skipLoopSignal = await closedLoopSignal();
-        const skippedOutcome = this.toRunOutcome(input, skipped.decision, [], 0, null, skipped.errorClass, {
-          reviewerApproved: skipped.gateSignals.reviewerApproved,
-          ...(generated.noopKind ? { noop: { kind: generated.noopKind } } : {}),
-          ...(skipped.note !== undefined ? { note: skipped.note } : {}),
-          ...(services.confinement.totals !== undefined ? { confinement: services.confinement.totals } : {}),
-          ...(skipLoopSignal ? { closedLoop: skipLoopSignal } : {}),
-          ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
-        });
-        await this.deps.runHistory.save(skippedOutcome);
-        await this.pruneMirrorIfWired(workspace.mirrorDir);
-        return { ...skipped, outcome: skippedOutcome };
-      } else if (terminal.persisted) {
-        const endNote = generated.note ?? `generation ended without specs (${generated.end})`;
-        console.error(`[qa] generation ended without specs (${generated.end}): ${endNote}`);
-        this.deps.observer?.onEvent({ type: "agent.error", detail: endNote });
-        this.deps.observer?.onEvent({
-          type: "log.line",
-          level: "error",
-          text: `[qa] generation ended without specs (${terminal.errorClass}): an engine-side ${engineSideCauseOf(generated.end)}, not a fault of the app under test`,
-        });
-        return await this.terminalResult(terminal.verdict, cfg, input, { generating: true, static: false }, {
-          generationEnd: generated.end,
-          note: endNote,
-          reviewerApproved: reviewerApprovalOf(generated),
-          rulesRetrieved: retrievedRuleIds,
-          diffArchetypes,
-          archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
-          confinement: services.confinement.totals,
-          mirrorDir: workspace.mirrorDir,
-          closedLoop: await closedLoopSignal(),
-          agentBrowser: agentBrowserSignal(),
-        });
-      } else {
-        const emptyNote =
-          generated.note ||
-          "generation produced no parseable output — the agent runtime returned an empty/errored session " +
-            "(provider unavailable, quota exhausted, timeout, or model refusal). Not a code defect and not a " +
-            "no-op decision; surfaced as infra-error so it is diagnosable rather than a silent skip.";
-        console.error(`[qa] generation runtime failure (empty, unparseable output): ${emptyNote}`);
-        return this.infraErrorResult(emptyNote, workspace.mirrorDir);
-      }
-    }
 
     /* Shared retries counter for the static-fix loop AND the FixLoop — accumulate, never reset. */
     let retries = 0;
@@ -1139,58 +930,10 @@ export class RunQaUseCase {
     let lastAdjudicatorVerdict: AdjudicatorVerdict | undefined;
     /* FixLoop's final specMetas. Undefined when it never regenerated. resolveTested() decides precedence. */
     let fixLoopFinalSpecMetas: { flow?: string; objective?: string }[] | undefined;
-
-    /* Absent port: counters stay 0, not undefined. Accumulated so they survive every terminal. The ambiguity check is advisory (it is a regex over the spec text, and real execution decides), so nothing is blocked on it and `deterministicSelectorBlocks` stays 0. */
-    let preExecAmbiguityCatches = 0;
     const deterministicSelectorBlocks = 0;
-    let catalogGateInWindow = 0;
-    let catalogGateAdvisory = 0;
-    let catalogGateFailClosed = 0;
-    /*
-     * Reads the on-disk specs. Only the catalog gate's corrections come back to be repaired (a
-     * correction names no spec, but the gate says which spec raised each: the files are those of the
-     * capture's specs); an ambiguity is counted and warned about, and asks for nothing.
-     */
-    const runPreExecGrounding = async (): Promise<{ corrections: string[]; attributedSpecFiles: string[] }> => {
-      if (!this.deps.preExecGrounding) return { corrections: [], attributedSpecFiles: [] };
-      const { specFiles, specSources, routes } = await this.deps.preExecGrounding.capture(workspace.specDir, signal);
-      const result = checkPreExecGrounding({ specSources, routes });
-      preExecAmbiguityCatches += result.preExecAmbiguityCatches;
-      if (result.ambiguities.length > 0) {
-        const text = `[qa] pre-exec ambiguity check (advisory, execution decides): ${result.ambiguities.join(" | ")}`;
-        console.warn(text);
-        this.deps.observer?.onEvent({ type: "log.line", level: "warn", text });
-      }
-      catalogGateInWindow += result.catalogGateInWindow;
-      catalogGateAdvisory += result.catalogGateAdvisory;
-      catalogGateFailClosed += result.catalogGateFailClosed;
-      this.noteGroundingGates(trail, result);
-      return { corrections: result.corrections, attributedSpecFiles: attributeContradictions(result.corrections, result.origins, specFiles) };
-    };
-    /*
-     * One-shot corrective regen before the static gate. Adopt the regen only if it
-     * produced specs — an empty result must not discard the original specs.
-     */
-    const { corrections: groundingCorrections, attributedSpecFiles: groundingAttribution } = await runPreExecGrounding();
-    /* A spec the generator saw pass against DEV is not rewritten for what a static look at its selectors suspects. */
-    const correctiveRegenRetired = groundingCorrections.length > 0 && (await loopClosedNow());
-    if (correctiveRegenRetired) {
-      this.deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] pre-exec grounding raised corrections, but every delivered spec was seen passing through run_spec: no corrective regeneration" });
-    }
-    if (groundingCorrections.length > 0 && !correctiveRegenRetired) {
-      this.deps.observer?.onStep("retry", "pre-exec grounding: corrective regen");
-      const corrected = await regenerate(signal, {
-        selectorContradictions: groundingCorrections,
-        ...(groundingAttribution.length > 0 ? { attributedSpecFiles: groundingAttribution } : {}),
-      });
-      await enforceConfinement();
-      if (corrected.specs.length > 0) {
-        generated = corrected;
-      }
-    }
     /* Pre-exec corrections, and the files they were attributed to, still feed later FixLoop regens until the first of them consumes them. */
-    let pendingSelectorContradictions: string[] = groundingCorrections;
-    let pendingAttributedSpecFiles: string[] = groundingAttribution;
+    let pendingSelectorContradictions: string[] = state.generation.groundingCorrections;
+    let pendingAttributedSpecFiles: string[] = state.generation.groundingAttribution;
 
     /*
      * Bounded repair of static-gate errors (MAX_STATIC_FIX_ROUNDS). Skipped when
@@ -1201,7 +944,7 @@ export class RunQaUseCase {
     const validateChangedFiles = classificationIntent?.changedFiles ?? [];
     trail.phases.enter("validate");
     this.deps.observer?.onStep("validate");
-    const deliveredNow = (): { deliveredSpecs: string[] } => ({ deliveredSpecs: delivered.map((d) => d.file) });
+    const deliveredNow = (): { deliveredSpecs: string[] } => ({ deliveredSpecs: generation.delivered.map((d) => d.file) });
     let validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
     let lastGenerated = generated;
     /*
@@ -1631,7 +1374,7 @@ export class RunQaUseCase {
          * leaves out a spec it cannot read confined, which seeds no proof (the final guard then refuses to publish it). */
         const fingerprints = await this.deps.suiteStore.fingerprint(
           { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
-          delivered.map((d) => d.file),
+          generation.delivered.map((d) => d.file),
         );
         /* The ledger holds the green bytes themselves when they can be read, so a later restore has them. */
         for (const [file, sha256] of fingerprints) {
@@ -1724,7 +1467,7 @@ export class RunQaUseCase {
         try {
           const gap = renderCoverageGap(signal.uncovered ?? []);
           const snapshot = await snapshotSuite();
-          const deliveredBefore = delivered;
+          const deliveredBefore = generation.delivered;
           const regen = await regenerate(undefined, { coverageGap: gap });
           await enforceConfinement();
           const changedFiles = await suiteChangedFiles(snapshot, regen.specs);
@@ -1734,7 +1477,7 @@ export class RunQaUseCase {
             if (changedFiles.length > 0) {
               await snapshotPort.restore(workspace.specDir, snapshot, changedFiles.filter((file) => !snapshot.files.has(file)));
             }
-            delivered = deliveredBefore;
+            generation.delivered = deliveredBefore;
           } else if (changedSpecFiles.length > 0) {
             const outcome = await acceptance.accept({
               specDir: workspace.specDir,
@@ -1756,7 +1499,7 @@ export class RunQaUseCase {
               }
             } else {
               /* Rejected or capped: the turn's specs are not the run's. */
-              delivered = deliveredBefore;
+              generation.delivered = deliveredBefore;
               if (outcome.kind === "rejected") integrityCounters.rejected += 1;
               else integrityCounters.capHit = true;
               /* The first measurement and the prior bytes stand. */
@@ -1801,7 +1544,7 @@ export class RunQaUseCase {
        * suite file that does not cover this change is context, never a wrong-objective correction.
        * The suite's paths travel separately, marked context-only in the review prompt.
        */
-      const deliveredFiles = new Set(delivered.map((d) => d.file));
+      const deliveredFiles = new Set(generation.delivered.map((d) => d.file));
       const existingSpecFiles = [...new Set([...(groundingExistingSpecFiles ?? []), ...run.cases.map((c) => c.file ?? c.name)])]
         .filter((file) => !deliveredFiles.has(file));
       let reviewCases = run.cases.filter((c) => deliveredFiles.has(c.file ?? c.name));
@@ -2159,7 +1902,7 @@ export class RunQaUseCase {
         previousRoundSpecs = reviewedSpecs;
         previousRoundCaseCount = reviewCases.length;
         const snapshot = await snapshotSuite();
-        const deliveredBefore = delivered;
+        const deliveredBefore = generation.delivered;
         let regen: GenerationOutput;
         let changedSpecFiles: string[] = [];
         let changedSupportFiles: string[] = [];
@@ -2173,7 +1916,7 @@ export class RunQaUseCase {
         let contractFeedback: readonly ContractFeedback[] | undefined;
         for (let attempt = 0; ; attempt++) {
           /* A refused attempt's files were restored, so its delivery must not survive into the next one. */
-          delivered = deliveredBefore;
+          generation.delivered = deliveredBefore;
           regen = await regenerate(signal, {
             reviewCorrections: reviewResult.corrections,
             ...(contractFeedback ? { contractFeedback } : {}),
@@ -2226,7 +1969,7 @@ export class RunQaUseCase {
           if (restored.length > 0) {
             await snapshotPort.restore(workspace.specDir, snapshot, restored.filter((file) => !snapshot.files.has(file)));
           }
-          delivered = deliveredBefore;
+          generation.delivered = deliveredBefore;
           /* Every blocking finding withdrawn with evidence, and no new bytes: the reviewed bytes stand approved. */
           if (reviewResult.corrections.length > 0 && outstanding.length === 0) {
             reviewerApproved = true;
@@ -2277,7 +2020,7 @@ export class RunQaUseCase {
           }
           /* Proof reuse executed nothing: the existing cases already describe the bytes on disk. */
         } else {
-          delivered = deliveredBefore;
+          generation.delivered = deliveredBefore;
           reviewerApproved = false;
           finalReviewerCorrections = reviewResult.corrections;
           if (outcome?.kind === "cap") integrityCounters.capHit = true;
@@ -2362,7 +2105,7 @@ export class RunQaUseCase {
      * as a loud infra-error. No proof means no publication (fails closed).
      */
     if (run.verdict === "pass" && generating && input.mode !== "context" && !cfg.isCode) {
-      const deliveredFiles = [...new Set(delivered.map((d) => d.file))].filter((file) => file.endsWith(".spec.ts"));
+      const deliveredFiles = [...new Set(generation.delivered.map((d) => d.file))].filter((file) => file.endsWith(".spec.ts"));
       if (deliveredFiles.length > 0) {
         let current: ReadonlyMap<string, string> = new Map();
         if (this.deps.suiteStore) {
