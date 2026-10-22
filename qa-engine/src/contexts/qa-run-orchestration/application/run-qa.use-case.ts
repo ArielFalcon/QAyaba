@@ -118,6 +118,8 @@ interface TerminalOptions {
   preconditionFailed?: boolean | undefined;
   /** The run ended because its reviewer was unavailable (its session failed or returned nothing): it names the run's error class. */
   reviewerUnavailable?: boolean | undefined;
+  /** The run ended on a judgment the reviewer and the generator could not settle: it names the run's error class. */
+  reviewDisputed?: boolean | undefined;
   /** What the reviewer's runtime reported when it was unavailable, persisted on the run record. */
   reviewerRationale?: string | undefined;
   /** How the run_spec loop was used up to this exit; absent when the run did not grant it. */
@@ -166,6 +168,7 @@ import { WallClockBudget } from "../domain/wall-clock-budget.ts";
 import type { CoordinationTelemetryPort } from "./coordination/coordination-telemetry.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 import { filterReviewFindings } from "../domain/review-finding-filter.service.ts";
+import { verifyRebuttals, findingKey, refKey, type DisputedFinding, type RebuttalEvidence, type ReviewRebuttal } from "../domain/review-rebuttals.service.ts";
 import { changeTokens, EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/domain/change-tokens.ts";
 import { diffContracts, type IntentViolation } from "@contexts/objective-signal/domain/test-intent-contract.ts";
 import type { IntentContractPort, SpecIntentView } from "./ports/intent-contract.port.ts";
@@ -2291,6 +2294,41 @@ export class RunQaUseCase {
       };
       let previousRoundSpecs: ReviewSpecText[] | undefined;
       let previousRoundCaseCount = 0;
+      /*
+       * What the current bytes prove, the only facts a rebuttal can rest on: the cases that ran green (a case name,
+       * or a spec file whose every case passed), and the contract clauses the bytes still hold. A basis the run
+       * cannot check stays unverified, so the finding it answers keeps standing.
+       */
+      const rebuttalEvidence = async (rebuttals: readonly ReviewRebuttal[]): Promise<RebuttalEvidence> => {
+        const failedFiles = new Set(run.cases.filter((c) => c.status !== "pass" && c.file).map((c) => c.file!));
+        const greenCaseRefs = new Set<string>();
+        for (const c of run.cases) {
+          if (c.status !== "pass") continue;
+          greenCaseRefs.add(refKey(c.name));
+          if (c.file && !failedFiles.has(c.file)) greenCaseRefs.add(refKey(c.file));
+        }
+        const intactClauses = new Set<string>();
+        const extractor = this.deps.intentContract;
+        if (extractor) {
+          for (const rebuttal of rebuttals) {
+            if (rebuttal.basis !== "contract") continue;
+            const key = refKey(rebuttal.ref);
+            const hash = key.lastIndexOf("#");
+            const file = hash > 0 ? key.slice(0, hash) : "";
+            const clause = hash > 0 ? key.slice(hash + 1) : "";
+            if (!file || !clause) continue;
+            try {
+              const extraction = extractor.extract(file, readConfinedSpecFile(specRoot, file));
+              const baseline = intentState.baselines.get(file) ?? [];
+              const violated = diffContracts(baseline, extraction.specs, intentState.tokens).some((delta) => delta.clauseId === clause);
+              if (!violated && extraction.specs.some((spec) => spec.clauses.some((c) => c.id === clause))) intactClauses.add(key);
+            } catch {
+              /* An unreadable spec or clause proves nothing: the rebuttal stays unverified. */
+            }
+          }
+        }
+        return { greenCaseRefs, intactClauses };
+      };
       const reviewStats = {
         rounds: 0,
         modelRounds: 0,
@@ -2302,6 +2340,8 @@ export class RunQaUseCase {
         costUsd: 0,
         steps: 0,
         blocking: 0,
+        rebuttals: 0,
+        rebuttalWithdrawn: 0,
         metricsKnown: { output: false, cost: false, steps: false },
       };
       const addReviewStats = (stats: ReviewStats | undefined): void => {
@@ -2565,14 +2605,66 @@ export class RunQaUseCase {
         const regen = await regenerate(signal, { reviewCorrections: reviewResult.corrections });
         await enforceConfinement();
         const changedSpecFiles = await suiteChangedFiles(snapshot, regen.specs);
+        /*
+         * A rebuttal answers a reviewer finding; the deterministic pre-check is the orchestrator's own evidence and is
+         * never rebuttable, so only a model round's findings are open to one. A verified rebuttal withdraws its finding;
+         * one the run cannot check leaves the finding standing and is remembered as what the generator refused.
+         */
+        const rebuttals = cfg.reviewLoopIntegrity && decidedBy === "model" ? (regen.rebuttals ?? []) : [];
+        const settled = rebuttals.length > 0
+          ? verifyRebuttals(rebuttals, reviewResult.corrections, await rebuttalEvidence(rebuttals))
+          : { withdrawn: [], disputed: [] };
+        const withdrawn = new Set(settled.withdrawn.map(findingKey));
+        const outstanding = reviewResult.corrections.filter((finding) => !withdrawn.has(findingKey(finding)));
+        if (rebuttals.length > 0) {
+          reviewStats.rebuttals += rebuttals.length;
+          reviewStats.rebuttalWithdrawn += settled.withdrawn.length;
+          /* Observe-only: a rebuttal is recorded with what the orchestrator made of it, and never changes a verdict by itself. */
+          try {
+            this.telemetry.counter("qayaba.review.rebuttal")(settled.withdrawn.length, { "qayaba.app": input.app, "qayaba.review.rebuttal.outcome": "withdrawn" });
+            this.telemetry.counter("qayaba.review.rebuttal")(settled.disputed.length, { "qayaba.app": input.app, "qayaba.review.rebuttal.outcome": "disputed" });
+          } catch (err) {
+            console.error(`[telemetry] the rebuttal counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
         if (regen.specs.length === 0) {
           /* A regen that produced no reviewable specs must not inherit the generator's self-approval; whatever its turn wrote is put back. */
           if (changedSpecFiles.length > 0) {
             await snapshotPort.restore(workspace.specDir, snapshot, changedSpecFiles.filter((file) => !snapshot.files.has(file)));
           }
           delivered = deliveredBefore;
+          /* Every blocking finding withdrawn with evidence, and no new bytes: the reviewed bytes stand approved. */
+          if (reviewResult.corrections.length > 0 && outstanding.length === 0) {
+            reviewerApproved = true;
+            finalReviewerCorrections = [];
+            break;
+          }
+          /*
+           * A verified finding survives while the generator's answer to it is a claim nobody can check. Correcting it
+           * was possible and the turn delivered nothing, so opening an Issue would accuse a test the reviewer never
+           * justified, and publishing would ignore the finding: the engine reports that it could not settle it.
+           */
+          if (settled.disputed.length > 0) {
+            return await this.reviewDisputedResult(cfg, input, settled.disputed, reviewCases.filter((c) => c.status === "pass").length, {
+              static: validation.ok,
+              retries,
+              rulesRetrieved: retrievedRuleIds,
+              diffArchetypes,
+              archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
+              confinement: confinementAcc,
+              tested: resolveTested(),
+              mirrorDir: workspace.mirrorDir,
+              closedLoop: await closedLoopSignal(),
+              agentBrowser: agentBrowserSignal(),
+            });
+          }
           reviewerApproved = false;
           break;
+        }
+        /* The surviving findings are the next round's convergence context: a withdrawn one is not raised again. */
+        if (withdrawn.size > 0) {
+          previousRoundCorrections = outstanding;
+          previousRoundBlocking = outstanding.length;
         }
         /*
          * The regenerated specs stand only once they execute green (or reuse a proof): they go through the same acceptance as the
@@ -2625,6 +2717,7 @@ export class RunQaUseCase {
         preCheckRejects: reviewStats.preCheckRejects,
         skippedRounds: reviewStats.skippedRounds,
         correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
+        ...(reviewStats.rebuttals > 0 ? { rebuttals: { received: reviewStats.rebuttals, withdrawn: reviewStats.rebuttalWithdrawn } } : {}),
       };
     }
 
@@ -3081,7 +3174,7 @@ export class RunQaUseCase {
     coverageRatio: number | null,
     valueScore: number | null,
     reviewerCorrections: string[] = [],
-    ends: { generationEnd?: GenerationEndKind | undefined; preconditionFailed?: boolean | undefined; reviewerUnavailable?: boolean | undefined } = {},
+    ends: { generationEnd?: GenerationEndKind | undefined; preconditionFailed?: boolean | undefined; reviewerUnavailable?: boolean | undefined; reviewDisputed?: boolean | undefined } = {},
   ): string | null {
     /* Whatever path took the run to its infra-error, a launcher that refused to start agent code in it is the reason. */
     const sandboxUnavailable = verdict === "infra-error" && sandboxRefused();
@@ -3094,6 +3187,7 @@ export class RunQaUseCase {
       ...(ends.generationEnd ? { generationEnd: ends.generationEnd } : {}),
       ...(ends.preconditionFailed ? { preconditionFailed: true } : {}),
       ...(ends.reviewerUnavailable ? { reviewerUnavailable: true } : {}),
+      ...(ends.reviewDisputed ? { reviewDisputed: true } : {}),
       ...(sandboxUnavailable ? { sandboxUnavailable: true } : {}),
     });
   }
@@ -3430,6 +3524,36 @@ export class RunQaUseCase {
     });
   }
 
+  /*
+   * The reviewer and the generator reached opposite conclusions about a finding the orchestrator verified, and the
+   * generator's refusal rests on nothing the orchestrator can check. The engine cannot settle that judgment, so it says
+   * so instead of publishing or opening an Issue on it: persisted infra-error under its own class, nothing learned,
+   * no PR and no Issue, with the finding and the rebuttal on the record.
+   */
+  private async reviewDisputedResult(
+    cfg: RunQaConfig,
+    input: RunQaInput,
+    disputed: readonly DisputedFinding[],
+    passedCases: number,
+    exit: Omit<TerminalOptions, "note" | "reviewDisputed"> & { static: boolean },
+  ): Promise<RunQaResult> {
+    const findings = disputed.map((entry) => `"${entry.finding}" (rebutted: ${entry.rebuttal.reason})`).join("; ");
+    const note = `The reviewer and the generator could not settle ${disputed.length} finding(s), so the suite (${passedCases} case(s), green) was never approved: ${findings}. The rebuttal rests on evidence the orchestrator could not verify, and the generator delivered nothing else. Nothing was published: no PR, and no Issue, since the engine could not decide.`;
+    console.error(`[qa] ${note}`);
+    this.deps.observer?.onEvent({ type: "agent.error", detail: note });
+    this.deps.observer?.onEvent({
+      type: "log.line",
+      level: "error",
+      text: `[qa] the run ended on an unresolved review dispute (${ERROR_CLASS.REVIEW_DISPUTED}): the finding stands, the rebuttal is unverified, and neither a PR nor an Issue would be honest`,
+    });
+    const { static: staticOk, ...terminalExit } = exit;
+    return await this.terminalResult("infra-error", cfg, input, { generating: true, static: staticOk }, {
+      ...terminalExit,
+      note,
+      reviewDisputed: true,
+    });
+  }
+
   /* Both terminals persist. Only "invalid" also folds; "infra-error" does not. */
   private async terminalResult(
     verdict: "invalid" | "infra-error",
@@ -3453,6 +3577,7 @@ export class RunQaUseCase {
       generationEnd,
       preconditionFailed,
       reviewerUnavailable,
+      reviewDisputed,
       reviewerRationale,
       closedLoop: loopSignal,
       agentBrowser: browserSignal,
@@ -3467,7 +3592,7 @@ export class RunQaUseCase {
       onFailure: cfg.onFailure,
     });
     /* invalid → E-STATIC, infra-error → E-INFRA, unless a generation end or a failed precondition that ended the run names its own class. */
-    const errorClass = this.deriveErrorClass(verdict, null, null, [], { generationEnd, preconditionFailed, reviewerUnavailable });
+    const errorClass = this.deriveErrorClass(verdict, null, null, [], { generationEnd, preconditionFailed, reviewerUnavailable, reviewDisputed });
     /*
      * Dispatch the same publish() as the mainline. infra-error resolves to
      * sideEffect "none" via decide() — no Issue.

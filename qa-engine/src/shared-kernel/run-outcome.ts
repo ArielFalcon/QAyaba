@@ -63,6 +63,8 @@ export interface RunOutcome {
       skippedRounds: number;
       /* The class of the final blocking correction (`none` when approved), from the closed review tags. */
       correctionClass?: string;
+      /* The findings the generator disputed instead of correcting; `withdrawn` is how many the orchestrator verified. Absent when no rebuttal arrived. */
+      rebuttals?: { received: number; withdrawn: number };
     };
     flaky: boolean;
     retries: number;

@@ -8862,3 +8862,114 @@ test("a verified blocking finding on a spec this run delivered still rejects", a
     fixtures.cleanup();
   }
 });
+
+/*
+ * A finding the generator refuses to correct. The orchestrator checks the basis the generator names: a
+ * case that ran green, or a clause the current bytes still hold. Verified, the finding is withdrawn and
+ * the reviewed bytes stand; unverified, the run cannot settle the judgment and says so instead of
+ * opening a PR or an Issue on a verdict nobody can defend.
+ */
+const DISPUTED_FINDING = "[wrong-objective] checkout.spec.ts: the discount is never asserted";
+
+function disputedFinding(citation: { kind: "contract" | "execution" | "dom"; ref: string }) {
+  return async () => ({
+    approved: false,
+    corrections: [DISPUTED_FINDING],
+    severities: ["blocking" as const],
+    citations: [citation],
+    blockingCount: 1,
+    parsed: true,
+  });
+}
+
+/* A primary pass that delivers the spec, then a rebuttal turn that refuses the finding it was handed. */
+function rebuttingGeneration(rebuttal: (correction: string) => object, specsAtPrimary = true) {
+  const fixtures = reviewFixtures();
+  let turn = 0;
+  return {
+    fixtures,
+    generate: async () => {
+      turn++;
+      if (turn === 1) {
+        if (specsAtPrimary) fixtures.write("flows/checkout.spec.ts", "test('checkout', async () => {});\n");
+        return scriptedGeneration({ specs: specsAtPrimary ? ["flows/checkout.spec.ts"] : [], approved: true });
+      }
+      return scriptedGeneration({ specs: [], approved: true, rebuttals: [rebuttal(DISPUTED_FINDING)] as never });
+    },
+  };
+}
+
+function disputedPorts(fixtures: ReturnType<typeof reviewFixtures>, generate: () => Promise<ReturnType<typeof scriptedGeneration>>, review: ReviewPort["review"]) {
+  const { ports, savedOutcomes, foldedOutcomes } = stubPorts({
+    prepare: async () => ({ specDir: fixtures.specDir, mirrorDir: fixtures.mirrorDir }),
+    execute: async () => ({
+      verdict: "pass" as const,
+      cases: [{ name: "checkout", file: "flows/checkout.spec.ts", status: "pass" as const }],
+      logs: "",
+    }),
+    review,
+  });
+  ports.generation.generate = generate as GenerationPort["generate"];
+  return { ports, savedOutcomes, foldedOutcomes };
+}
+
+test("a verified blocking finding whose rebuttal is not verified ends the run as E-REVIEW-DISPUTED — no PR, no Issue, nothing learned", async () => {
+  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/absent.spec.ts", reason: "the case passed" }));
+  try {
+    const { ports, savedOutcomes, foldedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-disputed" });
+
+    assert.equal(out.decision.verdict, "infra-error");
+    assert.equal(out.decision.sideEffect, "none", "fail-closed: no PR and no Issue");
+    assert.equal(out.errorClass, ERROR_CLASS.REVIEW_DISPUTED);
+    assert.equal(savedOutcomes.length, 1, "the dispute is recorded on the run");
+    assert.equal(savedOutcomes[0]!.errorClass, ERROR_CLASS.REVIEW_DISPUTED);
+    assert.match(savedOutcomes[0]!.note ?? "", /could not settle/);
+    assert.match(savedOutcomes[0]!.note ?? "", /the discount is never asserted/, "the record names the finding that stayed open");
+    assert.deepEqual(foldedOutcomes, [], "a dispute teaches nothing");
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a rebuttal the orchestrator can verify withdraws its finding and the reviewed bytes are approved", async () => {
+  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/checkout.spec.ts", reason: "the case ran green on these bytes" }));
+  try {
+    const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-rebuttal-verified" });
+
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.decision.sideEffect, "pr", "nothing blocking stands: the run publishes");
+    assert.equal(savedOutcomes[0]!.gateSignals.reviewerApproved, true);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("a generator that refuses a finding and offers no basis is a plain rejection, not a dispute", async () => {
+  const { fixtures, generate } = rebuttingGeneration(() => ({ finding: "", basis: "execution", ref: "", reason: "" }));
+  try {
+    const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: true } }).run({ ...baseInput, runId: "review-no-rebuttal" });
+
+    assert.notEqual(out.decision.sideEffect, "pr");
+    assert.notEqual(out.errorClass, ERROR_CLASS.REVIEW_DISPUTED, "no rebuttal arrived: the existing rejection path stands");
+    assert.equal(savedOutcomes.length, 1);
+  } finally {
+    fixtures.cleanup();
+  }
+});
+
+test("with the integrity switch off, a rebuttal is not read: the rejection path is unchanged", async () => {
+  const { fixtures, generate } = rebuttingGeneration((finding) => ({ finding, basis: "execution", ref: "flows/checkout.spec.ts", reason: "the case ran green" }));
+  try {
+    const { ports, savedOutcomes } = disputedPorts(fixtures, generate, disputedFinding({ kind: "execution", ref: "flows/checkout.spec.ts" }) as ReviewPort["review"]);
+    const out = await new RunQaUseCase({ ...ports, config: { ...baseConfig, reviewLoopIntegrity: false } }).run({ ...baseInput, runId: "review-rebuttal-switch-off" });
+
+    assert.notEqual(out.decision.sideEffect, "pr");
+    assert.notEqual(out.errorClass, ERROR_CLASS.REVIEW_DISPUTED, "the D slice is gated by the master switch");
+    assert.equal(savedOutcomes.length, 1);
+  } finally {
+    fixtures.cleanup();
+  }
+});

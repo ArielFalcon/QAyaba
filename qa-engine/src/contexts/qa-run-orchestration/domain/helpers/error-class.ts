@@ -116,6 +116,8 @@ export interface ResolveErrorClassInput {
   preconditionFailed?: boolean;
   /** The run ended because its reviewer could not be reached or returned nothing: the tests were never judged, which is not a rejection. */
   reviewerUnavailable?: boolean;
+  /** The run ended on a finding the reviewer verified and the generator disputed without evidence the orchestrator could check: a judgment it could not settle. */
+  reviewDisputed?: boolean;
   /** The run ended because agent-influenced code could not be run safely (no sandbox uid, or the egress filter is down under enforce): nothing about the app or the tests. */
   sandboxUnavailable?: boolean;
 }
@@ -127,6 +129,7 @@ export function resolveErrorClass(input: ResolveErrorClassInput): ErrorClass | n
   if (input.generationEnd === GENERATION_END.UNDECIDED_EMPTY) return ERROR_CLASS.NO_DECISION;
   if (input.preconditionFailed) return ERROR_CLASS.PRECONDITION;
   if (input.reviewerUnavailable) return ERROR_CLASS.REVIEWER_UNAVAILABLE;
+  if (input.reviewDisputed) return ERROR_CLASS.REVIEW_DISPUTED;
   if (input.sandboxUnavailable) return ERROR_CLASS.SANDBOX;
 
   const fromVerdict = errorClassFromVerdict(input.verdict, input.coverageRatio, input.minCoverageRatio);

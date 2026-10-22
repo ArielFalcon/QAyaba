@@ -92,6 +92,7 @@ export const ATTRIBUTES = {
   "qayaba.review.existing_specs": spec("string[]", "The existing suite paths shown as context only, never judged.", "high", "none", 50),
   "qayaba.review.corrections": spec("string[]", "The bounded correction texts of the review round.", "high", "redacted-text", 6),
   "qayaba.review.rationale": text("The bounded rationale of the review round."),
+  "qayaba.review.rebuttal.outcome": str("What became of a generator rebuttal: withdrawn (the orchestrator verified the basis it named) or disputed (it could not check it)."),
   "qayaba.limit.fired": str("The limit that ended the run or turn: tier-budget, run-deadline, repair-cap, explorer-timeout, session-timeout, prompt-budget, host-cap, stall, step-cap, cancel or none."),
   "qayaba.limit.applied": str("The time limit that bound the turn (the smallest that applied), named like the limit that fires."),
   "qayaba.limit.applied_ms": int("The time limit that bound the turn, in milliseconds."),
