@@ -210,7 +210,9 @@ export { expect };
 // >>> qa-failure-capture (system-owned: do not edit) >>>
 // Captures the aria snapshot of the page at the failure point, the page's final URL, the HTTP
 // status of the most-recent correlated 5xx server error, the browser network failures (requestfailed
-// events) and the runtime errors (console error + pageerror), writing them to QA_FAILURE_CAPTURE_DIR so
+// events), the runtime errors (console error + pageerror), whether the page had settled (data requests
+// in flight, time since the last data response, a second read of the tree) and the result count the
+// app's declared data state (PW_DATA_STATE) shows there, writing them to QA_FAILURE_CAPTURE_DIR so
 // the orchestrator can ground the fix-loop regeneration and surface runtime evidence to the adjudicator
 // and reviewer. A passing test still dumps when it showed network or page-error evidence (a failed request,
 // a 5xx or an uncaught page error), without an aria snapshot; a benign console log does not trigger it.
@@ -233,6 +235,20 @@ let runtimeErrors: { type: string; text: string }[] = [];
 // other evidence arrays. Each entry carries the sanitized URL (origin + pathname only — a query string or
 // fragment never reaches the dump), a truncated error text and the resource type.
 let failedRequests: { url: string; errorText: string; resourceType: string }[] = [];
+// Settle facts of the current test's page: data requests (fetch/xhr) started and not yet finished or
+// failed, and when the last one finished. Reset per-test like the other evidence.
+let dataInFlight = 0;
+let lastDataAt = 0;
+function isDataRequest(r: { resourceType(): string }): boolean { try { const t = r.resourceType(); return t === 'fetch' || t === 'xhr'; } catch { return false; } }
+// The app's declared data state for a pathname: an exact key first, then a key ending "/*" (its prefix
+// and its root) — the same matching the Context Pack's capture applies to dev.dataState.
+function matchDataState(routes: Record<string, { resultSelector?: string; resultTextSelector?: string }>, pathname: string): { resultSelector?: string; resultTextSelector?: string } | undefined {
+  if (Object.prototype.hasOwnProperty.call(routes, pathname)) return routes[pathname];
+  for (const key of Object.keys(routes)) {
+    if (key.endsWith('/*') && (pathname === key.slice(0, -2) || pathname.startsWith(key.slice(0, -1)))) return routes[key];
+  }
+  return undefined;
+}
 // Reduces a URL to origin + pathname so a query string or fragment never reaches the dump.
 function networkUrl(raw: string): string { try { const u = new URL(raw); const url = u.origin + u.pathname; return url.length > 300 ? url.slice(0, 300) : url; } catch { return ""; } }
 // DEV-write counter, on only when the orchestrator asks (PW_COUNT_DEV_WRITES=1, for a spec it executes on the
@@ -261,6 +277,8 @@ test.beforeEach(async ({ page, request }) => {
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
   runtimeErrors = [];                                 // same per-test reset discipline
   failedRequests = [];                                // same per-test reset discipline
+  dataInFlight = 0;
+  lastDataAt = 0;
   devWrites = 0;
   if (process.env.PW_COUNT_DEV_WRITES === '1') {
     try {
@@ -276,6 +294,10 @@ test.beforeEach(async ({ page, request }) => {
     } catch {}
   }
   try {
+    page.on('request', (r) => { if (isDataRequest(r)) dataInFlight++; });
+    page.on('requestfinished', (r) => { if (isDataRequest(r)) { dataInFlight = Math.max(0, dataInFlight - 1); lastDataAt = Date.now(); } });
+  } catch {}
+  try {
     page.on('response', (r) => {
       try { const s = r.status(); if (s >= 400 && errorResponses.length < 50) errorResponses.push({ url: r.url(), status: s, resourceType: r.request().resourceType() }); } catch {}
     });
@@ -283,6 +305,7 @@ test.beforeEach(async ({ page, request }) => {
   try {
     page.on('requestfailed', (r) => {
       try {
+        if (isDataRequest(r)) dataInFlight = Math.max(0, dataInFlight - 1);
         if (failedRequests.length >= 50) return;
         const url = networkUrl(r.url());
         if (!url) return;
@@ -326,6 +349,9 @@ test.afterEach(async ({ page }, testInfo) => {
     const { writeFileSync } = await import("node:fs");
     const { join, basename } = await import("node:path");
     const { createHash } = await import("node:crypto");
+    // Settle facts as of the failure point, read before anything waits.
+    const inFlight = dataInFlight;
+    const quietMs = lastDataAt > 0 ? Date.now() - lastDataAt : undefined;
     const yaml = expected ? "" : await page.locator("body").ariaSnapshot(); // a passing test with evidence needs no tree
     // title = the describe › test chain (drop the leading project element), MATCHING the stream
     // reporter's _name. The orchestrator's harvest keys off this: the JSON report's case name is
@@ -349,6 +375,30 @@ test.afterEach(async ({ page }, testInfo) => {
     // the causing 5xx is the API call (e.g. /api/orders) — different path segments — so path-family
     // would drop legitimate API 5xxs; same-origin is the correct, not-too-tight correlation.)
     const finalUrl = page.url();
+    // The result count the app's declared data state shows on this page, read at the failure point.
+    let resultCount: number | undefined;
+    if (!expected && process.env.PW_DATA_STATE) {
+      try {
+        const declared = JSON.parse(process.env.PW_DATA_STATE) as { routes?: unknown };
+        const routes = declared && typeof declared.routes === 'object' && declared.routes !== null ? declared.routes as Record<string, { resultSelector?: string; resultTextSelector?: string }> : undefined;
+        const state = routes ? matchDataState(routes, new URL(finalUrl).pathname) : undefined;
+        if (state?.resultTextSelector) {
+          const m = (await page.locator(state.resultTextSelector).first().innerText({ timeout: 1000 })).match(/\d+/);
+          if (m) resultCount = parseInt(m[0], 10);
+        } else if (state?.resultSelector) {
+          resultCount = await page.locator(state.resultSelector).count();
+        }
+      } catch { resultCount = undefined; }
+    }
+    // A second read of the tree a moment later: a tree that changed was a moment of a render, not a settled page.
+    let settle: { inFlight: number; quietMs?: number; treeStable: boolean } | undefined;
+    if (!expected) {
+      try {
+        await page.waitForTimeout(1000);
+        const again = await page.locator("body").ariaSnapshot();
+        settle = { inFlight, ...(quietMs !== undefined ? { quietMs } : {}), treeStable: again === yaml };
+      } catch { settle = undefined; }
+    }
     let httpStatus: number | undefined;
     try {
       let finalUrlOrigin = '';
@@ -413,7 +463,7 @@ test.afterEach(async ({ page }, testInfo) => {
     } catch { networkErrors = []; }
     writeFileSync(
       join(dir, `${safeProject}__${hash}__${testInfo.retry}.json`),
-      JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors }),
+      JSON.stringify({ project, file, title, retry: testInfo.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, settle, resultCount }),
     );
   } catch { /* page may be closed on a nav-crash — best-effort, never fail the run */ }
 });

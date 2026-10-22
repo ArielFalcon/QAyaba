@@ -260,7 +260,7 @@ test("ensureFailureCapture: first injection appends the block; existing lines un
     assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename");
     assert.match(after, /createHash\("sha1"\)\.update\(`\$\{file\}\/\$\{title\}`\)/, "the filename hash must fold in the file AND the full title (no 80-char truncation)");
     assert.match(after, /\$\{safeProject\}__\$\{hash\}__\$\{testInfo\.retry\}\.json/, "the filename must be project__hash__retry");
-    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors, networkErrors");
+    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, settle, resultCount \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors, networkErrors");
     /* ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
     assert.doesNotMatch(after, /require\(/, "the injected block must not use require() (ReferenceError in ESM — dead capture)");
     assert.match(after, /await import\("node:fs"\)/, "the injected block must pull node:fs via dynamic import()");
@@ -1047,7 +1047,7 @@ test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('requestfailed' an
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("networkErrors"), "FAILURE_CAPTURE_BLOCK must carry networkErrors");
   assert.match(
     FAILURE_CAPTURE_BLOCK,
-    /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors \}\)/,
+    /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors, networkErrors, settle, resultCount \}\)/,
     "FAILURE_CAPTURE_BLOCK's dump body must carry networkErrors alongside runtimeErrors",
   );
 });

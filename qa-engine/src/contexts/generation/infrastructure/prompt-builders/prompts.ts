@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { sanitizeText, assertNoSecretLeak, type SanitizeMode } from "../sanitize-text.ts";
 import { capText, capDiff, extractDiffFilePath } from "../prompt-cap.ts";
-import type { QaCase } from "@kernel/qa-case.ts";
+import { failureUnsettled, type FailureSettle, type QaCase } from "@kernel/qa-case.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type {
   ArchitectureContext,
@@ -353,7 +353,18 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
       lines.push(`  [${e.type}] ${stripAnsi(redactForModel(e.text)).slice(0, 200)}`);
     }
   }
+  if (c.failureSettle) lines.push(`  PAGE ${describeSettle(c.failureSettle)}`);
+  if (c.failureResultCount !== undefined) lines.push(`  DATA STATE result count at the failure point: ${c.failureResultCount}`);
   return lines;
+}
+
+/* The settle facts of a failure-point capture, as facts: a page still changing is a moment of a render, not DEV's data state. */
+function describeSettle(settle: FailureSettle): string {
+  const quiet = settle.quietMs !== undefined ? `, last data response ${settle.quietMs} ms before` : "";
+  const tree = settle.treeStable ? "the tree was the same 1 s later" : "the tree changed within 1 s";
+  return failureUnsettled(settle)
+    ? `NOT SETTLED at the failure point (${settle.inFlight} data request(s) in flight${quiet}; ${tree}): this tree is a moment of a render, not DEV's data state`
+    : `settled at the failure point (no data request in flight${quiet}; ${tree})`;
 }
 
 /* A failing case as a prompt lists it: its name, the start of its error and what the run saw of the page. The case comes out of the test run, so each text is redacted before it is cut, and no secret is left in part by the cut. */

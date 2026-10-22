@@ -20,6 +20,21 @@ export interface QaCase {
   networkErrors?: { url: string; status?: number; errorText?: string; resourceType?: string }[];
   /* Derived from `networkErrors` and the run's egress report, never reported by the browser. Absent when there are no network errors. */
   networkClass?: "egress" | "backend" | "dns" | "other";
+  /* Whether the page had settled when the capture read it: data requests (fetch/xhr) still in flight, ms since the last data response (absent before any), and whether the tree was the same on a second read a moment later. Absent when capture missed. */
+  failureSettle?: FailureSettle;
+  /* The result count the app's declared data state (dev.dataState) showed on the failure-point page. Absent when no data state matched that page or it could not be read. */
+  failureResultCount?: number;
+}
+
+export interface FailureSettle {
+  inFlight: number;
+  quietMs?: number;
+  treeStable: boolean;
+}
+
+/* A capture read while the page was still changing: a data request in flight, or a tree that changed on the second read. Such a tree is a moment of a render, not the page's settled state. */
+export function failureUnsettled(settle: FailureSettle | undefined): boolean {
+  return settle !== undefined && (settle.inFlight > 0 || !settle.treeStable);
 }
 
 export interface SpecMeta {

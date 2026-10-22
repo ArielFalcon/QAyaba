@@ -1311,3 +1311,74 @@ test("the default runner leads the dump folders to the work dir while the child 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+/* ── Harvest fold — settle facts and data state at the failure point ─────
+   The capture states whether the page had settled when the test failed (data requests still in
+   flight, time since the last data response, whether the tree changed on a second read) and the
+   result count the app's declared data state showed there, so a transient render is never read as
+   DEV's state. Parsed defensively at the same trust boundary as the other dump fields.
+ */
+
+test("readFailureDumps parses the settle facts and the result count, and drops what is malformed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-fail-dump-"));
+  try {
+    writeFileSync(
+      join(dir, "desktop__aaa111__0.json"),
+      JSON.stringify({ project: "desktop", file: "a.spec.ts", title: "a › b", retry: 0, settle: { inFlight: 2, quietMs: 150, treeStable: false }, resultCount: 0 }),
+    );
+    writeFileSync(
+      join(dir, "desktop__bbb222__0.json"),
+      JSON.stringify({ project: "desktop", file: "c.spec.ts", title: "c › d", retry: 0, settle: { inFlight: -1, quietMs: "soon", treeStable: "yes" }, resultCount: 1.5 }),
+    );
+    writeFileSync(
+      join(dir, "desktop__ccc333__0.json"),
+      JSON.stringify({ project: "desktop", file: "e.spec.ts", title: "e › f", retry: 0, settle: { inFlight: 0, quietMs: null, treeStable: true } }),
+    );
+    const byTitle = new Map(readFailureDumps(dir).map((d) => [d.title, d]));
+    assert.deepEqual(byTitle.get("a › b")!.settle, { inFlight: 2, quietMs: 150, treeStable: false });
+    assert.equal(byTitle.get("a › b")!.resultCount, 0);
+    assert.equal(byTitle.get("c › d")!.settle, undefined, "a settle object with no usable field is dropped whole");
+    assert.equal(byTitle.get("c › d")!.resultCount, undefined, "a result count that is not a non-negative integer is dropped");
+    assert.deepEqual(byTitle.get("e › f")!.settle, { inFlight: 0, treeStable: true }, "no data response yet: quietMs is absent, never invented");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("harvest folds the settle facts and the result count onto the failed case", async () => {
+  const hash = createHash("sha1").update(`${netCase.file}/${netCase.title}`).digest("hex").slice(0, 12);
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => {
+      if (args.failureCaptureDir) {
+        writeFileSync(
+          join(args.failureCaptureDir, `desktop__${hash}__0.json`),
+          JSON.stringify({ project: "desktop", file: netCase.file, title: netCase.title, retry: 0, yaml: "- heading \"Owners\"", finalUrl: "https://dev/owners", settle: { inFlight: 1, quietMs: 40, treeStable: false }, resultCount: 0 }),
+        );
+      }
+      return {
+        report: { suites: [{ title: netCase.file, specs: [{ title: netCase.title, ok: false, tests: [{ results: [{ status: "failed", error: { message: "timeout" } }] }] }] }] },
+        logs: "failed",
+        ran: true,
+      };
+    },
+  };
+  const run = await runE2E("/e2e", { baseUrl: "https://dev", namespace: "desktop" }, deps);
+  const failed = run.cases.find((c) => c.status === "fail") as QaCase | undefined;
+  assert.ok(failed, "the failed case must be present");
+  assert.deepEqual(failed.failureSettle, { inFlight: 1, quietMs: 40, treeStable: false });
+  assert.equal(failed.failureResultCount, 0);
+});
+
+test("runE2E hands the app's declared data state to the suite child", async () => {
+  let seen: unknown;
+  const dataState = { routes: { "/owners/*": { resultTextSelector: ".count", timeoutMs: 5000 } } };
+  const deps: E2eExecuteDeps = {
+    dataState,
+    runSuite: async (args) => {
+      seen = args.dataState;
+      return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
+    },
+  };
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns" }, deps);
+  assert.deepEqual(seen, dataState);
+});
