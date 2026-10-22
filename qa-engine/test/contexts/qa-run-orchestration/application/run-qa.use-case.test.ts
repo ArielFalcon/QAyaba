@@ -8687,7 +8687,7 @@ test("intent lock in signal mode accepts a weakened regeneration and records the
     const useCase = new RunQaUseCase({
       ...ports,
       intentContract: { extract: extractSpecContract },
-      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", intentLock: { mode: "signal", opacityFlagRatio: 0.5 } },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "signal", opacityFlagRatio: 0.5 } },
     });
 
     const out = await useCase.run({ ...baseInput, runId: "intent-signal-records" });
@@ -8714,7 +8714,7 @@ test("intent lock in enforce mode rejects the weakened regeneration and restores
     const useCase = new RunQaUseCase({
       ...ports,
       intentContract: { extract: extractSpecContract },
-      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
     });
 
     const out = await useCase.run({ ...baseInput, runId: "intent-enforce-rejects" });
@@ -8754,7 +8754,7 @@ test("a new run is never bound by a previous run's contract", async () => {
     const useCase = new RunQaUseCase({
       ...ports,
       intentContract: { extract: extractSpecContract },
-      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
     });
 
     await useCase.run({ ...baseInput, runId: "intent-run-one" });
@@ -8762,6 +8762,35 @@ test("a new run is never bound by a previous run's contract", async () => {
 
     assert.equal(second.decision.verdict, "pass");
     assert.equal(second.decision.sideEffect, "pr", "run 2's regeneration is judged against run 2's own primary pass, so nothing is rejected");
+  } finally {
+    real.cleanup();
+  }
+});
+
+/*
+ * B6: the master switch grants the A slice. An app that configures the intent lock without granting the
+ * switch keeps the pre-change flow — the lock is not read at all, not even in signal mode.
+ */
+test("with the master switch off, the intent lock is off whatever the app configured", async () => {
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED]);
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }),
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: false, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "intent-switch-off" });
+
+    assert.equal(out.gateSignals.intent, undefined, "the lock is never read while the switch is off");
+    assert.equal(out.gateSignals.integrity?.rejected ?? 0, 0, "no regeneration was rejected against a contract");
   } finally {
     real.cleanup();
   }

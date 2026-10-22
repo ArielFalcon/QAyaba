@@ -889,7 +889,9 @@ export class RunQaUseCase {
      * generic weakening is rejected under `enforce`, recorded under `signal`. Baseline and tokens live
      * for this run only: a new primary pass is never bound by a previous run's contract.
      */
-    const intentLock = cfg.intentLock ?? { mode: "signal", opacityFlagRatio: 0.5 };
+    const intentLockPolicy = cfg.intentLock ?? { mode: "signal", opacityFlagRatio: 0.5 };
+    /* The master switch grants the A slice: with it off the lock is not read at all, whatever the app configured (B6). */
+    const intentLock = cfg.reviewLoopIntegrity ? intentLockPolicy : { ...intentLockPolicy, mode: "off" as const };
     const intentState: {
       tokens: ChangeTokenSet;
       baselines: Map<string, readonly SpecIntentView[]>;
