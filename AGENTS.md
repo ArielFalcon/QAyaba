@@ -126,9 +126,18 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
    nothing, which is not a rejection: the run ends as a persisted `infra-error` `E-REVIEWER-UNAVAILABLE`
    (the reviewer's reason on the run record and in the log, no PR and no Issue, nothing learned; three in
    a row log an observe-only audit finding). A reviewer that answered unreadably is still a fail-closed
-   parse miss. `shadow: true` replaces every PR/Issue with a log line. An accepted run (`isAccepted`:
-   `pass`, generated, approved or review not required, coverage not blocking; shadow ignored) first
-   captures its suite into the suite store, before publication.
+   parse miss. The reviewer's findings are evidence-bound: a blocking correction must cite a contract
+   clause, an execution of this run or a DOM fact, the orchestrator verifies the citation
+   (`review-finding-filter.service.ts`) and only a verified blocking finding blocks — an uncited,
+   out-of-scope or DOM-only one is advisory telemetry, never sent to the generator. The generator may
+   answer a finding with a typed `rebuttals` entry instead of a correction; it withdraws the finding only
+   against evidence the run can check (a case green on the current bytes, or a contract clause still
+   intact — `review-rebuttals.service.ts`). A verified blocking finding that survives while its rebuttal
+   stays unverified, with nothing delivered to correct it, is a judgment the engine cannot settle: the run
+   ends as a persisted `infra-error` `E-REVIEW-DISPUTED` (no PR, no Issue, nothing learned, the finding and
+   the rebuttal on the record). `shadow: true` replaces every PR/Issue with a log line. An accepted run
+   (`isAccepted`: `pass`, generated, approved or review not required, coverage not blocking; shadow
+   ignored) first captures its suite into the suite store, before publication.
 
 Verdicts: `pass | fail | flaky | invalid | infra-error | skipped`
 (`qa-engine/src/shared-kernel/run-verdict.ts`). `E-PRECONDITION` = login could not be
