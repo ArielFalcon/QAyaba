@@ -949,6 +949,8 @@ export function buildRewrittenCompositionConfig(
     promptCapMs: agentPromptCapMs(),
     /* QA_DIFF_TIME_BUDGET_MS_{TINY,FOCUSED,BROAD} override a tier's time; read here once because qa-engine never reads process.env. A mistyped value throws. */
     timeBudgets: resolveDiffTimeBudgets(deps.env ?? process.env),
+    /* An OpenCode session keeps its conversation; a Codex prompt is a fresh exec that remembers nothing. */
+    continuesSessions: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
   });
 
 

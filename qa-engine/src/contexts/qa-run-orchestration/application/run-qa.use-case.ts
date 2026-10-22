@@ -642,6 +642,7 @@ export class RunQaUseCase {
       throw err;
     } finally {
       phases.close();
+      await this.releaseGeneratorSession();
       await this.closeClosedLoop(trail);
       await this.closeAgentBrowser(trail);
       this.closeGeolocation(trail);
@@ -766,6 +767,15 @@ export class RunQaUseCase {
     const text = `[qa] sandbox: egress denied ${denied.length} host(s): ${shown.join(", ")}${more}`;
     console.warn(text);
     this.deps.observer?.onEvent({ type: "log.line", level: "warn", text });
+  }
+
+  /* Ends the generator session the run kept for its regenerations. A fault is said and never changes how the run ended. */
+  private async releaseGeneratorSession(): Promise<void> {
+    try {
+      await this.deps.generation.release?.();
+    } catch (err) {
+      console.error(`[qa] releasing the generator session failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /* Revokes the browser's right and stops it. A fault is said and never changes how the run ended. */

@@ -447,6 +447,8 @@ export interface GenerationPort {
    * will be held to and is required. Absent: this port cannot plan, and a coordinated run authors the change as one piece of work.
    */
   plan?(specDir: string, signal: AbortSignal | undefined, diff: string | undefined, enrichment: GenerationEnrichment): Promise<PlanOutput>;
+  /** Ends the generator session the run kept for its regenerations. Called once when the run ends, however it ends. Absent: this port keeps no session. */
+  release?(): Promise<void>;
 }
 /**
  * What a planning turn came to. `plan` is the object the lead's verdict carried, untrusted: only the orchestrator's admission reads
