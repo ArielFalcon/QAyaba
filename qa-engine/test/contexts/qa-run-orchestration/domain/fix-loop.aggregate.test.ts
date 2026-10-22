@@ -1560,6 +1560,38 @@ test("code mode re-runs the repo's own suite under the run's namespace and keeps
   assert.equal(result.coverageNamespace, "qa-bot-run");
 });
 
+test("a code-mode retry that regresses never restores through the e2e acceptance port", async () => {
+  let began = 0;
+  const acceptance: FixLoopAcceptancePort = {
+    begin: async () => {
+      began += 1;
+      return { round: began };
+    },
+    accept: async () => {
+      throw new Error("code mode must not accept an e2e round");
+    },
+    restore: async () => {
+      throw new Error("code mode has no e2e bytes to restore");
+    },
+  };
+  const { loop } = recordingLoop({
+    regen: () => ({ specs: ["test/cart.test.ts"], approved: true }),
+    runs: [{ verdict: "fail", cases: [
+      { name: "cart", status: "fail", detail: "expected 1 to equal 2" },
+      { name: "total", status: "fail", detail: "expected 3 to equal 4" },
+    ] }],
+    acceptance,
+  });
+  const result = await loop.run(loopInput({
+    isCode: true,
+    initialRun: { verdict: "fail", cases: [makeCase({ name: "cart", detail: "AssertionError: expected 1 to equal 2" })] },
+  }));
+
+  assert.equal(began, 0);
+  assert.equal(result.run.cases.filter((c) => c.status === "fail").length, 1, "the best executed run is reported; code mode has no bytes to restore");
+  assert.equal(result.run.cases[0]?.name, "cart", "the initial run is still the best one");
+});
+
 test("DEV going down before the retry execution stops the loop without executing and keeps the failing run", async () => {
   let calls = 0;
   const { loop, rec } = recordingLoop({ runs: [{ verdict: "pass", cases: [{ name: "login", status: "pass", file: "checkout.spec.ts" }] }] });
