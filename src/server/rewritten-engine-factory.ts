@@ -71,6 +71,7 @@ import { SYSTEM_CLOCK } from "./run-trace";
 import { observeUnwatchedFromEnv, stepIntentContextFor } from "./turn-telemetry-config";
 import { resolveRunTimeBudgets } from "@contexts/qa-run-orchestration/domain/run-time-budget";
 import { RunDeadlineRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-deadline-runtime.adapter";
+import { RunRoundRuntime } from "@contexts/qa-run-orchestration/infrastructure/run-round-runtime.adapter";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter";
 import { ManifestRepositoryAdapter } from "@contexts/generation/infrastructure/manifest-repository.adapter";
@@ -763,6 +764,7 @@ export function buildRewrittenCompositionConfig(
   const codeSandbox = resolveCodeSandbox(deps.env ?? process.env);
 
   const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
+  const intentLock = { mode: app.qa.intentLock?.mode ?? "signal", opacityFlagRatio: app.qa.intentLock?.opacityFlagRatio ?? 0.5 } as const;
 
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
   /*
@@ -925,6 +927,8 @@ export function buildRewrittenCompositionConfig(
    */
   const runDeadline = new RunDeadline({ now: deps.now ?? Date.now, budgets: resolveRunTimeBudgets(deps.env ?? process.env) });
   const boundedRuntime = new RunDeadlineRuntime(runtimeAdapter, runDeadline, { hostPromptCapMs: agentPromptCapMs() });
+  /* Run-level round per role: numbers each role's generated turns across sessions, so a regeneration's turn reads round 1, not the transport's session-local 0. */
+  const roundRuntime = new RunRoundRuntime(boundedRuntime);
   const rendering = new PromptRenderingAdapter({ buildPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow });
   const verdicts = new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
 
@@ -935,7 +939,7 @@ export function buildRewrittenCompositionConfig(
   };
 
   const generationUseCase = new GenerateTestsUseCase({
-    runtime: boundedRuntime,
+    runtime: roundRuntime,
     rendering,
     verdicts,
     manifest: new ManifestRepositoryAdapter({ readManifest, reconcileManifest }),
@@ -1066,7 +1070,7 @@ export function buildRewrittenCompositionConfig(
         ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
         : {}),
     },
-    { runtime: boundedRuntime, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor, ...(observeUnwatchedFromEnv(deps.env ?? process.env) ? { observeUnwatched: true } : {}) },
+    { runtime: roundRuntime, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor, ...(observeUnwatchedFromEnv(deps.env ?? process.env) ? { observeUnwatched: true } : {}) },
   );
 
   return {
@@ -1081,6 +1085,7 @@ export function buildRewrittenCompositionConfig(
     ...(run.guidance ? { guidance: run.guidance } : {}),
     needsReview: app.qa.needsReview,
     shadow: app.qa.shadow ?? false,
+    integrity: { reviewLoop: app.qa.reviewLoopIntegrity ?? true },
     onFailure: app.report.onFailure,
     maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
     isCode,
@@ -1111,6 +1116,8 @@ export function buildRewrittenCompositionConfig(
      */
     coveragePolicyMode: coveragePolicy.mode,
     coverageMinRatio: coveragePolicy.minRatio,
+    /* The same intentLock that configures the contract check, so the derived policy has one source. */
+    intentLock,
     agentTimeoutMs: agentTimeout(run.mode),
     ...(app.qa.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: app.qa.wallClockBudgetMs } : {}),
     ...(app.qa.iterationBudget !== undefined ? { iterationBudget: app.qa.iterationBudget } : {}),
@@ -1126,7 +1133,7 @@ export function buildRewrittenCompositionConfig(
     ...(deps.telemetry ? { specSnapshots: new SqliteSpecSnapshotAdapter() } : {}),
     ...(deps.clock ? { clock: deps.clock } : {}),
     reviewRuntime: {
-      runtime: boundedRuntime,
+      runtime: roundRuntime,
       rendering,
       verdicts,
     },

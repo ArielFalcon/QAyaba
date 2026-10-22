@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Sha } from "@kernel/sha.ts";
@@ -12,14 +12,13 @@ import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.
 import type { ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { createExecSandbox, SandboxUnavailableError } from "../../../../src/shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope, type ExecScopePort } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 import { createExecScopeProvider } from "../../../../src/shared-infrastructure/process-sandbox/exec-scope-provider.ts";
 
 async function runWith(options: { execScope?: ExecScopePort; observer?: ObserverPort; execute: () => Promise<{ verdict: "pass"; cases: []; logs: string }> }): Promise<{ saved: RunOutcome[]; threw?: unknown }> {
-  const mirror = mkdtempSync(join(tmpdir(), "qa-run-exec-scope-"));
-  const specDir = join(mirror, "e2e");
-  mkdirSync(specDir, { recursive: true });
+  const ws = runWorkspace("qa-run-exec-scope-");
   const saved: RunOutcome[] = [];
   try {
     const useCase = new RunQaUseCase({
@@ -32,14 +31,15 @@ async function runWith(options: { execScope?: ExecScopePort; observer?: Observer
           contradiction: true,
         }),
       },
-      generation: { generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }], approved: true }) },
+      generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }], approved: true }) }),
       review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
       validation: { validate: async () => ({ ok: true, errors: [] }) },
       execution: { execute: options.execute },
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
-      workspace: { prepare: async () => ({ specDir, mirrorDir: mirror }) },
+      workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+      suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async (outcome: RunOutcome) => { saved.push(outcome); } },
       setup: { setup: async () => {} },
@@ -55,7 +55,7 @@ async function runWith(options: { execScope?: ExecScopePort; observer?: Observer
     }
     return { saved };
   } finally {
-    rmSync(mirror, { recursive: true, force: true });
+    ws.cleanup();
   }
 }
 

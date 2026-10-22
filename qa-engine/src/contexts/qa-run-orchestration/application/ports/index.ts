@@ -141,6 +141,12 @@ export interface GenerationEnrichment {
   domSnapshot?: string;
   /** Changed lines a green run failed to exercise (enforce-mode coverage regen). */
   coverageGap?: string;
+  /**
+   * The intent lock's violations of the turn before this one (A-2b): what the contract held before and
+   * after, handed back as facts so the generator can repair the weakening it introduced. Structural
+   * mirror of the domain's ContractFeedback: this barrel carries no cross-context type.
+   */
+  contractFeedback?: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[];
   /** Present only when the run granted the generator the run_spec tool: the limits its prompt states. */
   closedLoop?: ClosedLoopLimits;
   /** Present only when the run granted the authoring agents the authenticated browser: the limits its prompt states. */
@@ -275,6 +281,10 @@ export interface GenerationOutput {
   parsed?: boolean;
   specMetas?: { flow?: string; objective?: string }[];
   turn?: AgentTurnStats;
+  /* The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
+  testCorrect?: { cause: "env" | "app"; reason: string };
+  /* The findings the generator disputes instead of correcting, each with the basis the run must check. Absent unless the verdict carried one. */
+  rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[];
 }
 
 /** The reviewer's verdict on a generation, or undefined when no reviewer looked at it: the one way the run reads `approved`. */
@@ -468,6 +478,12 @@ export interface ReviewEnrichment {
    * on unverifiable UI facts.
    */
   domSnapshot?: string;
+  /**
+   * The run's own execution of the specs under review (verdict and cases). The adapter renders it as
+   * the reviewer's execution evidence, so an app defect (a 5xx, a redirect, a runtime error) is
+   * distinguishable from a test defect without asking the generator. Absent: the prompt carries none.
+   */
+  executionEvidence?: { verdict: string; cases: readonly QaCase[] };
   /** Per-run id for the reviewer SSE session (separate from the generator's). */
   runId?: string;
 }
@@ -481,6 +497,8 @@ export interface RunDeadlinePort {
   arm(scope: { mode: RunMode; diff?: string; changedFiles?: readonly string[] }): void;
   /** What was armed (the named budget and its length), for the run's trace. Absent or undefined: nothing to say. */
   describe?(): { label: string; budgetMs: number } | undefined;
+  /** Milliseconds left; undefined while no deadline is armed. Zero or less: spent. A deterministic phase that may still start is checked against it before it does. */
+  remainingMs?(): number | undefined;
 }
 
 /**
@@ -521,6 +539,9 @@ export interface ReviewPort {
     rationale?: string;
     blockingCount?: number;
     parsed?: boolean;
+    /* The reviewer's own severity per correction, and the evidence it cites, in the same order. */
+    severities?: ("blocking" | "advisory")[];
+    citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
     /**
      * True when no judgment was possible because the reviewer's runtime failed or returned nothing: an
      * integration fault, which is neither an approval nor a rejection. Absent on every review that
@@ -695,6 +716,7 @@ export interface LearningPort {
 export type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 /** The durable copy of an app's accepted e2e suite (see the port). */
 export type { SuiteStorePort, SuiteRoot, SuiteRestoreResult, SuiteCaptureInput, SuiteCaptureResult } from "@kernel/ports/suite-store.port.ts";
+export type { SpecSnapshot, SpecSnapshotPort } from "./spec-snapshot.port.ts";
 export interface WorkspacePort {
   /**
    * `mirrorDir` is the working-copy root before specRelDir is joined. The "pr"

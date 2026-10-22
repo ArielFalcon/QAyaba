@@ -2,22 +2,18 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 import { activeRunSecretScope, redactByValue, type RunSecretScope } from "../../../../src/shared-infrastructure/run-secret-redaction.ts";
 
 const SECRET = "account-secret-7731";
 
 async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | undefined; atExecute?: string }): Promise<void> {
-  const mirror = mkdtempSync(join(tmpdir(), "qa-run-secrets-"));
-  const specDir = join(mirror, "e2e");
-  mkdirSync(specDir, { recursive: true });
+  const ws = runWorkspace("qa-run-secrets-");
   try {
     const useCase = new RunQaUseCase({
       changeAnalysis: {
@@ -29,13 +25,13 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
           contradiction: true,
         }),
       },
-      generation: {
+      generation: generationOnDisk({
         generate: async () => {
           observe.atGenerate = activeRunSecretScope();
           activeRunSecretScope()?.addAccountSecrets([SECRET]);
           return scriptedGeneration({ specs: ["a.spec.ts"], declaredSpecs: [{ file: "a.spec.ts", flow: "f", objective: "o" }], approved: true });
         },
-      },
+      }),
       review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
       validation: { validate: async () => ({ ok: true, errors: [] }) },
       execution: {
@@ -47,7 +43,8 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
       objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
       publication: { publish: async () => ({ outcome: "pr" }) },
       learning: { fold: async () => {}, retrieve: async () => [] },
-      workspace: { prepare: async () => ({ specDir, mirrorDir: mirror }) },
+      workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+      suiteStore: ws.suiteStore,
       deployGate: { waitUntilServing: async () => ok(true) },
       runHistory: { save: async () => {} },
       setup: { setup: async () => {} },
@@ -56,7 +53,7 @@ async function runOnce(runId: string, observe: { atGenerate?: RunSecretScope | u
     });
     await useCase.run({ app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId });
   } finally {
-    rmSync(mirror, { recursive: true, force: true });
+    ws.cleanup();
   }
 }
 

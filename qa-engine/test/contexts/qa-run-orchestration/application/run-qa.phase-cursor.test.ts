@@ -7,6 +7,7 @@ import { ok } from "@kernel/result.ts";
 import { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 
 /* A clock that only moves when a port "takes time", so phase durations are exact. */
 function steppedClock() {
@@ -23,18 +24,20 @@ type Overrides = Partial<{
 }>;
 
 function harness(overrides: Overrides = {}) {
+  const ws = runWorkspace("qa-phase-");
   const clock = steppedClock();
   const saved: RunOutcome[] = [];
   const deps: RunQaUseCaseDeps = {
     changeAnalysis: { classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })) },
-    generation: { generate: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true })) },
+    generation: generationOnDisk({ generate: overrides.generate ?? (async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true })) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })) },
     execution: { execute: async () => ({ verdict: "pass", cases: [], logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: "/tmp/qa-phase/e2e", mirrorDir: "/tmp/qa-phase" }) },
+    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     /* What the store keeps is the bytes at save time: a later change to the object must not reach it. */
     runHistory: { save: async (outcome) => { saved.push(structuredClone(outcome)); } },

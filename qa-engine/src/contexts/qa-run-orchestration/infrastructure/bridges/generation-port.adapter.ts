@@ -129,6 +129,8 @@ export class GenerationPortAdapter implements GenerationPort {
         ? { specMetas: generated.specMetas.map((m) => ({ flow: m.flow, objective: m.objective })) }
         : {}),
       ...(generated.declaredSpecs?.length ? { declaredSpecs: generated.declaredSpecs.map((declared) => ({ ...declared })) } : {}),
+      ...(generated.testCorrect ? { testCorrect: generated.testCorrect } : {}),
+      ...(generated.rebuttals?.length ? { rebuttals: generated.rebuttals.map((rebuttal) => ({ ...rebuttal })) } : {}),
     };
 
     if (this.collaborators.readSpecSource && generated.specs.length > 0) {
@@ -180,6 +182,7 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(attributedSpecFiles.length ? { attributedSpecFiles } : {}),
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
       ...(enrichment?.coverageGap ? { coverageGap: enrichment.coverageGap } : {}),
+      ...(enrichment?.contractFeedback?.length ? { contractFeedback: enrichment.contractFeedback.map((violation) => ({ ...violation })) } : {}),
       ...(enrichment?.intent ? { intent: toGenerationIntent(enrichment.intent) } : {}),
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRules(enrichment.learnedRules) } : {}),
       ...(reviewerLearnedRules ? { reviewerLearnedRules } : {}),

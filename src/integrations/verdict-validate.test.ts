@@ -15,6 +15,51 @@ test("checkGeneratorVerdict accepts an empty specs list that carries a reasoned 
   assert.deepEqual(c.issues, []);
 });
 
+test("checkGeneratorVerdict accepts an empty specs list that carries a valid test-correct claim", () => {
+  const c = checkGeneratorVerdict('{"specs":[],"testCorrect":{"cause":"env","reason":"DEV did not render the discount"}}');
+  assert.equal(c.valid, true);
+  assert.deepEqual(c.issues, []);
+});
+
+test("checkGeneratorVerdict rejects a malformed test-correct claim, naming the missing decision", () => {
+  for (const claim of ['{"cause":"env"}', '{"cause":"env","reason":"   "}', '{"cause":"other","reason":"x"}', '{"cause":"app","reason":7}', "true", '"app"']) {
+    const c = checkGeneratorVerdict(`{"specs":[],"testCorrect":${claim}}`);
+    assert.equal(c.valid, false, claim);
+    assert.ok(c.issues.some((i) => i.includes("noop")), `${claim}: ${c.issues.join("; ")}`);
+  }
+});
+
+test("checkGeneratorVerdict ignores a test-correct claim that sits beside real specs, even a malformed one", () => {
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"testCorrect":{"cause":"app","reason":"the total is wrong"}}').valid, true);
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"testCorrect":true}').valid, true);
+});
+
+test("checkGeneratorVerdict accepts an empty specs list that carries a typed rebuttal", () => {
+  const c = checkGeneratorVerdict(
+    '{"specs":[],"rebuttals":[{"finding":"[false-positive] a.spec.ts: asserts nothing","basis":"execution","ref":"a.spec.ts","reason":"the case ran green on these bytes"}]}',
+  );
+  assert.equal(c.valid, true);
+  assert.deepEqual(c.issues, []);
+});
+
+test("checkGeneratorVerdict rejects a rebuttal nothing could be checked against, naming the missing decision", () => {
+  for (const entry of [
+    '{"finding":"[false-positive] a.spec.ts","reason":"trust me"}',
+    '{"finding":"[false-positive] a.spec.ts","basis":"opinion","ref":"a.spec.ts","reason":"trust me"}',
+    '{"finding":"","basis":"execution","ref":"a.spec.ts","reason":"trust me"}',
+    '{"finding":"[false-positive] a.spec.ts","basis":"execution","ref":"  ","reason":"trust me"}',
+    '{"finding":"[false-positive] a.spec.ts","basis":"execution","ref":"a.spec.ts","reason":""}',
+  ]) {
+    const c = checkGeneratorVerdict(`{"specs":[],"rebuttals":[${entry}]}`);
+    assert.equal(c.valid, false, entry);
+    assert.ok(c.issues.some((i) => i.includes("noop")), `${entry}: ${c.issues.join("; ")}`);
+  }
+});
+
+test("checkGeneratorVerdict ignores a rebuttal that sits beside real specs, even a malformed one", () => {
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"rebuttals":[{"finding":"x"}]}').valid, true);
+});
+
 test("checkGeneratorVerdict rejects an empty specs list with no no-op decision, naming the missing field", () => {
   const c = checkGeneratorVerdict('{"specs":[],"note":"nothing in this change is worth an E2E test"}');
   assert.equal(c.valid, false);

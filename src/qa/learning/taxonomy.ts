@@ -17,6 +17,7 @@ export const ERROR_CLASSES = [
   "E-PRECONDITION",
   "E-TIME-BUDGET",
   "E-REVIEWER-UNAVAILABLE",
+  "E-REVIEW-DISPUTED",
   "E-SANDBOX",
   /* The shell's own classes: a run it ended itself, not one the engine classified. */
   "internal-error",
@@ -146,6 +147,7 @@ const PRECONDITION_GLOSS: Readonly<Record<string, string>> = {
  */
 const COLLABORATOR_GLOSS: Readonly<Record<string, string>> = {
   "E-REVIEWER-UNAVAILABLE": "the reviewer could not be reached or returned nothing, so the passing tests were never judged — a reviewer-runtime problem, not a rejection and not a fault of the app",
+  "E-REVIEW-DISPUTED": "the reviewer's verified blocking finding survived every round while the generator's rebuttal stayed unverified, so the engine could not settle it — a judgment dispute, not a fault of the app",
 };
 /*
  * A run that could not execute agent-influenced code safely (no sandbox uid under QA_EXEC_SANDBOX=required, or the egress filter

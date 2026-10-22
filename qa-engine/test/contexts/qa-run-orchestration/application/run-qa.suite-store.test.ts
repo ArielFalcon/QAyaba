@@ -2,6 +2,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -12,9 +15,10 @@ import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/pro
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
 import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
-
-const WORKSPACE = { specDir: "/tmp/qa-suite/e2e", mirrorDir: "/tmp/qa-suite" };
+import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
 const INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "diff" as const, target: "e2e" as const, runId: "suite-run" };
+const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
+
 const PASSING: QaCase[] = [
   { name: "a", status: "pass", file: "flows/a.spec.ts" },
   { name: "b", status: "pass", file: "./flows/b.spec.ts" },
@@ -26,20 +30,26 @@ interface Rig {
   captured: SuiteCaptureInput[];
   demoted: string[];
   store: SuiteStorePort;
-  /** What each spec file holds right now, by path; `fingerprint` reports it, and a test rewrites it to stand for a regeneration. */
-  disk: Map<string, string>;
+  ws: RunWorkspace;
+  /** Rewrites a spec file, as a regeneration would. */
+  write(file: string, text: string): void;
   deps(over?: Partial<RunQaUseCaseDeps>): RunQaUseCaseDeps;
 }
 
 function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrows?: Error } = {}): Rig {
+  const ws = runWorkspace("qa-suite-");
+  ws.write("flows/a.spec.ts", "a v1");
+  ws.write("flows/b.spec.ts", "b v1");
   const events: string[] = [];
   const captured: SuiteCaptureInput[] = [];
   const demoted: string[] = [];
-  const disk = new Map<string, string>([["flows/a.spec.ts", "a v1"], ["flows/b.spec.ts", "b v1"]]);
   const store: SuiteStorePort = {
     fingerprint: async (_root, specs) => {
       events.push("fingerprint");
-      return new Map(specs.map((spec) => spec.replace(/^\.\//, "")).filter((spec) => disk.has(spec)).map((spec) => [spec, `sha:${disk.get(spec)}`] as const));
+      return new Map(specs
+        .map((spec) => spec.replace(/^\.\//, ""))
+        .filter((spec) => ws.has(spec))
+        .map((spec) => [spec, sha256(readFileSync(join(ws.specDir, spec), "utf8"))] as const));
     },
     restore: async () => {
       events.push("restore");
@@ -57,24 +67,27 @@ function rig(opts: { authRestored?: boolean; restoreThrows?: Error; captureThrow
       demoted.push(reason);
     },
   };
-  const deps = (over: Partial<RunQaUseCaseDeps> = {}): RunQaUseCaseDeps => ({
+  const deps = (over: Partial<RunQaUseCaseDeps> = {}): RunQaUseCaseDeps => {
+    const { generation: generationOver, ...rest } = over;
+    return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
-    generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true }) },
+    generation: generationOnDisk(generationOver ?? { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true }) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict: "pass", cases: PASSING, logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => (events.push("publish"), { outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => (events.push("prepare"), WORKSPACE) },
+    workspace: { prepare: async () => (events.push("prepare"), { specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async () => {} },
     setup: { setup: async () => void events.push("setup") },
     suiteStore: store,
     config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false },
-    ...over,
-  });
-  return { events, captured, demoted, store, disk, deps };
+    ...rest,
+    };
+  };
+  return { events, captured, demoted, store, ws, write: (file, text) => ws.write(file, text), deps };
 }
 
 const withConfig = (config: Partial<RunQaConfig>): Partial<RunQaUseCaseDeps> => ({ config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, ...config } });
@@ -107,18 +120,22 @@ test("an accepted run captures its suite before the pull request is opened, with
   assert.deepEqual(r.events.filter((e) => e === "capture" || e === "publish"), ["capture", "publish"]);
   assert.equal(r.captured.length, 1);
   assert.deepEqual({ ...r.captured[0], executedGreen: [...r.captured[0]!.executedGreen].sort() }, {
-    ...WORKSPACE, runId: "suite-run", sha: "abc1234", executedGreen: [["flows/a.spec.ts", "sha:a v1"], ["flows/b.spec.ts", "sha:b v1"]],
+    mirrorDir: r.ws.mirrorDir,
+    specDir: r.ws.specDir,
+    runId: "suite-run",
+    sha: "abc1234",
+    executedGreen: [["flows/a.spec.ts", sha256("a v1")]],
   });
 });
 
-test("a spec the reviewer's correction round rewrote is re-admitted: executed again and captured with the corrected bytes", async () => {
+test("a spec the reviewer's correction round rewrote is executed by its acceptance and captured with the bytes it now holds", async () => {
   const r = rig();
   let reviews = 0;
   let executions = 0;
   const out = await new RunQaUseCase(r.deps({
     generation: {
       generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
-        if (enrichment?.reviewCorrections !== undefined) r.disk.set("flows/a.spec.ts", "a v2, corrected");
+        if (enrichment?.reviewCorrections !== undefined) r.write("flows/a.spec.ts", "a v2, executed by acceptance");
         return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
       },
     },
@@ -127,22 +144,23 @@ test("a spec the reviewer's correction round rewrote is re-admitted: executed ag
   })).run(INPUT);
 
   assert.equal(out.decision.verdict, "pass");
-  assert.equal(executions, 2, "the correction round IS executed again (re-admitted): its bytes are now proven");
+  assert.equal(executions, 2, "the first pass and the corrected spec's acceptance");
   assert.equal(r.captured.length, 1);
   const green = r.captured[0]!.executedGreen;
-  assert.equal(green.get("flows/a.spec.ts"), "sha:a v2, corrected", "the hash is that of the corrected bytes that executed");
+  assert.equal(green.get("flows/a.spec.ts"), sha256("a v2, executed by acceptance"), "the hash is that of the bytes the acceptance executed");
 });
 
-test("a fingerprint that cannot be taken captures nothing admitted, and changes neither the verdict nor the publication", async () => {
+test("a fingerprint that cannot be taken fails the run closed: the store cannot prove the bytes it would publish", async () => {
   const r = rig();
   r.store.fingerprint = async () => {
     throw new Error("EIO");
   };
   const out = await new RunQaUseCase(r.deps()).run(INPUT);
 
-  assert.equal(out.decision.verdict, "pass");
-  assert.equal(r.events.includes("publish"), true);
-  assert.deepEqual([...(r.captured[0]?.executedGreen ?? [])], []);
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.match(out.note ?? "", /could not fingerprint/);
+  assert.equal(r.events.includes("publish"), false);
+  assert.equal(r.captured.length, 0);
 });
 
 test("a shadow run that publishes nothing still keeps the suite it proved", async () => {
@@ -173,11 +191,13 @@ test("a capture that throws changes neither the verdict nor the publication", as
   assert.equal(r.events.includes("publish"), true);
 });
 
-test("a restore that throws leaves a cold run, and a cold run captures nothing: the store holds what it could not be compared with", async () => {
+test("a restore that throws leaves a cold run, and a cold run cannot publish: no proof was seeded", async () => {
   const r = rig({ restoreThrows: new Error("manifest is not valid JSON") });
   const out = await new RunQaUseCase(r.deps()).run(INPUT);
-  assert.equal(out.decision.verdict, "pass");
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.match(out.note ?? "", /found no proof/);
   assert.equal(r.captured.length, 0);
+  assert.equal(r.events.includes("publish"), false);
 });
 
 test("a git dir that is not the orchestrator's is a security refusal, never an off-path fault", async () => {
@@ -266,10 +286,12 @@ test("a restored login that fails because the egress filter refused its hosts is
   assert.equal(folded, 0);
 });
 
-test("a run without a suite store behaves as it always did", async () => {
+test("a run without a suite store has no proof and fails closed before deciding", async () => {
   const r = rig();
   const { suiteStore: _omitted, ...without } = r.deps();
   const out = await new RunQaUseCase(without).run(INPUT);
-  assert.equal(out.decision.sideEffect, "pr");
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.match(out.note ?? "", /found no proof/);
+  assert.equal(out.decision.sideEffect, "none");
   assert.equal(r.events.includes("restore") || r.events.includes("capture") || r.events.includes("fingerprint"), false);
 });

@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAX_SPEC_WALK_ENTRIES, listOwnedSpecDir, listSpecFiles, scanSpecTree, type SpecRoot } from "../../src/shared-infrastructure/spec-path-confinement.ts";
+import { MAX_SPEC_WALK_ENTRIES, listOwnedSpecDir, listSpecFiles, listSuiteFiles, scanSpecTree, type SpecRoot } from "../../src/shared-infrastructure/spec-path-confinement.ts";
 import { withoutWaitingOnNamedPipe } from "../support/named-pipe-watch.ts";
 
 /* <tmp>/mirror/e2e is the spec directory; <tmp>/outside is what no walk may enter. */
@@ -425,5 +425,37 @@ test("listing an owned directory names a named pipe in it and never opens it", {
     const listing = await withoutWaitingOnNamedPipe(join(dir, "planted.json"), () => listOwnedSpecDir(f.root, REL, 10));
 
     assert.deepEqual(listing, { names: ["planted.json", "real.json"], truncated: false });
+  });
+});
+
+/*
+ * The listing a proof has to account for: the specs and the support files they import, with the same
+ * discipline — no link taken, no dot-directory or installed package walked, nothing invented.
+ */
+test("the suite listing takes the specs and the support files beside them, and never a link", () => {
+  withFixture(({ specDir, outside }) => {
+    writeFileSync(join(specDir, "a.spec.ts"), "// a\n");
+    writeFileSync(join(specDir, "fixtures.ts"), "// support\n");
+    mkdirSync(join(specDir, "flows"), { recursive: true });
+    writeFileSync(join(specDir, "flows", "checkout.spec.ts"), "// b\n");
+    writeFileSync(join(specDir, "flows", "helpers.ts"), "// support\n");
+    writeFileSync(join(specDir, "README.md"), "// doc\n");
+    symlinkSync(join(outside, "elsewhere.spec.ts"), join(specDir, "linked.spec.ts"));
+    mkdirSync(join(specDir, ".qa"), { recursive: true });
+    writeFileSync(join(specDir, ".qa", "manifest.json"), "{}\n");
+    mkdirSync(join(specDir, "node_modules"), { recursive: true });
+    writeFileSync(join(specDir, "node_modules", "pkg.ts"), "// installed\n");
+
+    const listing = listSuiteFiles(specDir);
+    /* Filesystem order: the listing promises the entries, not an order. */
+    assert.deepEqual([...listing.files].sort(), ["README.md", "a.spec.ts", "fixtures.ts", "flows/checkout.spec.ts", "flows/helpers.ts"]);
+    assert.equal(listing.cut, false);
+  });
+});
+
+test("the suite listing stops at the entry cap instead of promising a list it did not finish", () => {
+  withFixture(({ specDir }) => {
+    for (let i = 0; i < 10; i++) writeFileSync(join(specDir, `f${i}.spec.ts`), "// s\n");
+    assert.deepEqual(listSuiteFiles(specDir, 3), { files: [], cut: true }, "a directory it could not finish says so, and lists nothing it did not finish");
   });
 });

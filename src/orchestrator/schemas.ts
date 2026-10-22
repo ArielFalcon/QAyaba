@@ -204,6 +204,8 @@ export const AppConfigSchema = z
       needsReview: z.boolean(),
       testDataPrefix: z.string().min(1, { error: "qa.testDataPrefix is required" }),
       shadow: z.boolean().optional(),
+      /* Review-loop integrity master switch (failure triage, intent lock, findings filter). On by default; the acceptance correctness fixes are always on. false restores the pre-switch flow and forces the intent lock off. */
+      reviewLoopIntegrity: z.boolean().optional(),
       explorer: z.boolean().optional(),
       /* Pre-generation context pack: include the live-DOM capture (A/B lever; default true). */
       domPack: z.boolean().optional(),
@@ -215,6 +217,18 @@ export const AppConfigSchema = z
         .object({
           mode: z.enum(["off", "signal", "enforce"]).optional(),
           minRatio: z.number().min(0).max(1).optional(),
+        })
+        .optional(),
+      /*
+       * Test-intent lock. off = the contract is not derived; signal (default) = derive it and record
+       * the would-be rejections; enforce = a regeneration that drops or weakens the contract is
+       * rejected (its pre-turn bytes restored). opacityFlagRatio flags a contract whose statically
+       * unreadable clauses cross it; the flag never blocks.
+       */
+      intentLock: z
+        .object({
+          mode: z.enum(["off", "signal", "enforce"]).optional(),
+          opacityFlagRatio: z.number().min(0).max(1).optional(),
         })
         .optional(),
       /*
@@ -442,6 +456,26 @@ export const SpecMetaSchema = z.object({
 /* A generator's decision to write nothing, with the reason it gives. */
 const NoopDecisionSchema = z.object({ reason: z.string().trim().min(1) });
 
+/* The generator's typed claim that its test is correct: a cause and a reason. A claim, never evidence — the orchestrator verifies it against the run's artifacts. */
+const TestCorrectSchema = z.object({ cause: z.enum(["env", "app"]), reason: z.string().trim().min(1) });
+
+/*
+ * The generator's typed refusal to apply one reviewer finding. `basis` names what the orchestrator may
+ * check — an execution of this run, or a contract clause — so a rebuttal with nothing checkable is not a
+ * decision at all. `reason` is prose the run records but never weighs.
+ */
+const RebuttalSchema = z.object({
+  finding: z.string().trim().min(1),
+  basis: z.enum(["execution", "contract"]),
+  ref: z.string().trim().min(1),
+  reason: z.string().trim().min(1),
+});
+
+/* What a turn may answer instead of specs, or beside them: at least one rebuttal. */
+const RebuttalsSchema = z.array(RebuttalSchema).min(1);
+
+export type GeneratorRebuttal = z.infer<typeof RebuttalSchema>;
+
 /*
  * The GENERATOR's deliverable. It does not self-report `approved` — the independent
  * reviewer is the authoritative gate — so its closing JSON is the specs it wrote plus
@@ -456,17 +490,21 @@ export const GeneratorVerdictSchema = z
     specMetas: z.array(SpecMetaSchema).optional(),
     note: z.string().optional(),
     noop: z.unknown().optional(),
+    /* The generator's typed test-correct claim; a claim, never evidence. */
+    testCorrect: z.unknown().optional(),
+    /* The findings the generator disputes instead of correcting; the orchestrator checks each basis. */
+    rebuttals: z.unknown().optional(),
     /* The plan a lead gives when its turn asks for one; the orchestrator's admission reads it, so only its being an object is checked here. */
     plan: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((verdict, ctx) => {
-    if (verdict.specs.length > 0 || verdict.plan !== undefined || NoopDecisionSchema.safeParse(verdict.noop).success) return;
+    if (verdict.specs.length > 0 || verdict.plan !== undefined || NoopDecisionSchema.safeParse(verdict.noop).success || TestCorrectSchema.safeParse(verdict.testCorrect).success || RebuttalsSchema.safeParse(verdict.rebuttals).success) return;
     ctx.addIssue({
       code: "custom",
       path: ["noop"],
       message:
         verdict.noop === undefined
-          ? 'an empty "specs" list is only a decision with a "noop" object: {"noop":{"reason":"why nothing was written"}}'
+          ? 'an empty "specs" list is only a decision with a "noop" object, a valid "testCorrect" claim or valid "rebuttals": {"noop":{"reason":"why nothing was written"}}'
           : 'a "noop" needs a non-empty text "reason"',
     });
   });
@@ -475,10 +513,15 @@ export type ValidatedGeneratorVerdict = z.infer<typeof GeneratorVerdictSchema>;
 
 
 export const CorrectionEntrySchema = z.union([
-  /* Structured entry with severity. */
+  /* Structured entry with severity, and the evidence it rests on. A malformed citation degrades to
+     "no citation" instead of failing the entry: the filter drops an uncited finding on its own. */
   z.object({
     text: z.string(),
     severity: z.enum(["blocking", "advisory"]),
+    citation: z
+      .object({ kind: z.enum(["contract", "execution", "dom"]), ref: z.string() })
+      .optional()
+      .catch(undefined),
   }),
   /* Plain-string entry: treated as blocking (fail-closed). */
   z.string(),
@@ -498,6 +541,11 @@ export function correctionText(entry: CorrectionEntry): string {
 export function correctionSeverity(entry: CorrectionEntry): "blocking" | "advisory" {
   if (typeof entry === "string") return "blocking";
   return entry.severity;
+}
+
+/* Resolve a correction entry's cited evidence, if it carries any. */
+export function correctionCitation(entry: CorrectionEntry): { kind: "contract" | "execution" | "dom"; ref: string } | undefined {
+  return typeof entry === "string" ? undefined : entry.citation;
 }
 
 export const ReviewerVerdictSchema = z.object({

@@ -5,7 +5,7 @@ import type { VerdictParserPort, GeneratorDeliverable, ReviewJudgment } from "..
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 import { sanitizeText } from "./sanitize-text.ts";
-import { boundReviewCorrections, boundReviewRationale, reviewAnswerIsOversized, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS } from "../domain/review-output.ts";
+import { boundReviewCorrections, boundReviewRationale, boundReviewText, reviewAnswerIsOversized, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS } from "../domain/review-output.ts";
 
 /* Redacted at the earliest point, then cut to the note bound: the reason and the output tail end up persisted on the run, where no later stage redacts them. The reason keeps its start, the output keeps its end. */
 function forNote(text: string, keep: "start" | "end"): string {
@@ -36,6 +36,10 @@ interface LegacyVerdict {
   noopReason?: string;
   /* The plan the legacy parser read, forwarded untouched: it is the orchestrator's admission that judges it. */
   plan?: Record<string, unknown>;
+  /* The generator's typed test-correct claim, forwarded after sanitizing/bounding its reason. */
+  testCorrect?: { cause: "env" | "app"; reason: string };
+  /* The findings the generator disputes, forwarded so the run can check each one's basis. */
+  rebuttals?: { finding: string; basis: "execution" | "contract"; ref: string; reason: string }[];
   /* specMetas drives the deterministic disk-reconciled manifest upsert; parsed (above) is the #1 fail-closed invariant. Both REQUIRED here so parseGenerator can forward them — dropping them would make the use-case misclassify a parse miss and lose the manifest-upsert signal. */
   specMetas?: SpecMeta[];
 }
@@ -49,6 +53,8 @@ interface LegacyReviewer {
   issues: string[];
   /* The effective severity of each correction, in order, when the parser can tell them apart. */
   correctionSeverities?: ("blocking" | "advisory")[];
+  /* The evidence each correction cites, in order; a hole means that entry cited none. */
+  citations?: ({ kind: "contract" | "execution" | "dom"; ref: string } | undefined)[];
 }
 
 export interface VerdictParsers {
@@ -71,12 +77,25 @@ export class VerdictParserAdapter implements VerdictParserPort {
     /* specs ?? [] is the fail-closed default (a parse miss leaves specs undefined → never undefined out). parsed forwarded always (the #1 invariant the use-case branches on); specMetas only when present (drives the disk-reconciled manifest upsert — "disk over the agent's word"). */
     const noopReason = v.noopReason ? forNote(v.noopReason, "start") : "";
     const outputTail = forNote(text, "end");
+    const testCorrectReason = v.testCorrect ? forNote(v.testCorrect.reason, "start") : "";
+    /* A rebuttal reaches the run as evidence coordinates only: each text is redacted and bounded, and an entry that loses its coordinates on the way is dropped — it could withdraw nothing anyway. */
+    const bounded = (v.rebuttals ?? [])
+      .map((rebuttal) => ({
+        finding: boundReviewText(sanitizeText(rebuttal.finding, "issue").text, REVIEW_CORRECTION_MAX_CHARS),
+        basis: rebuttal.basis,
+        ref: boundReviewText(sanitizeText(rebuttal.ref, "issue").text, REVIEW_CORRECTION_MAX_CHARS),
+        reason: boundReviewText(sanitizeText(rebuttal.reason, "issue").text, REVIEW_CORRECTION_MAX_CHARS),
+      }))
+      .filter((rebuttal) => rebuttal.finding !== "" && rebuttal.ref !== "" && rebuttal.reason !== "")
+      .slice(0, REVIEW_CORRECTIONS_MAX);
     return {
       specs: (v.specs ?? []).map(resolve),
       ...(v.note ? { note: v.note } : {}),
       ...(noopReason ? { noopReason } : {}),
       ...(outputTail ? { outputTail } : {}),
       ...(v.plan ? { plan: v.plan } : {}),
+      ...(v.testCorrect && testCorrectReason ? { testCorrect: { cause: v.testCorrect.cause, reason: testCorrectReason } } : {}),
+      ...(bounded.length ? { rebuttals: bounded } : {}),
       ...(v.specMetas ? { specMetas: v.specMetas.map((meta) => ({ ...meta, file: resolve(meta.file) })) } : {}),
       parsed: v.parsed,
     };
@@ -95,9 +114,15 @@ export class VerdictParserAdapter implements VerdictParserPort {
       );
     }
     const rationale = boundReviewRationale(r.rationale);
+    /* The caps keep the first REVIEW_CORRECTIONS_MAX entries (blocking first), so the parallel arrays
+       are cut the same way and stay aligned with `corrections`. */
+    const severities = r.correctionSeverities?.slice(0, REVIEW_CORRECTIONS_MAX);
+    const citations = r.citations?.slice(0, REVIEW_CORRECTIONS_MAX);
     return {
       approved: r.approved,
       corrections: boundReviewCorrections(r.corrections, r.correctionSeverities),
+      ...(severities ? { severities } : {}),
+      ...(citations ? { citations } : {}),
       ...(rationale !== undefined ? { rationale } : {}),
       ...(r.blockingCount !== undefined ? { blockingCount: r.blockingCount } : {}),
       ...(r.parsed !== undefined ? { parsed: r.parsed } : {}),

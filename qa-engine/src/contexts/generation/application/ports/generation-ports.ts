@@ -125,6 +125,8 @@ export interface OpencodeRunInput {
   fixCases?: QaCase[];
   reviewCorrections?: string[];
   coverageGap?: string;
+  /* The intent lock's violations of the previous turn, as facts: rule, clause, and what the contract held before and after. Absent when the previous turn broke no contract. */
+  contractFeedback?: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[];
   selectorContradictions?: string[];
   /* Every spec the run has delivered so far whose file still exists, on a regeneration turn only: the lead's declared flow and objective where it declared them, a sidekick's spec by path alone. Absent on a first pass, and when none is left. What an agent wrote, so the suite listing of the prompt sanitizes and caps it. */
   deliveredSpecs?: readonly DeliveredSpec[];

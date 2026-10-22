@@ -24,6 +24,21 @@ export interface RunOutcome {
     /* Absent means the value-oracle never measured this run — never a fabricated 0 (indistinguishable from a genuine measured zero). */
     mutantCount?: number;
     killedCount?: number;
+    /* The value score describes bytes an accepted regeneration rewrote. Signal-only: recorded, never a gate. */
+    value?: { stale: boolean };
+    /*
+     * The test-intent lock: what this run derived and what it would have rejected. `wouldReject` counts
+     * regenerations that were accepted only because the policy is `signal`; the opacity flag is
+     * telemetry and never blocks. Absent when the lock is off or no contract was derived.
+     */
+    intent?: {
+      mode: string;
+      violations: number;
+      wouldReject: number;
+      clauses: number;
+      opaque: number;
+      opacityHigh: boolean;
+    };
     reviewerCorrections: string[];
     reviewerRationale?: string;
     reviewerApproved?: boolean;
@@ -48,6 +63,8 @@ export interface RunOutcome {
       skippedRounds: number;
       /* The class of the final blocking correction (`none` when approved), from the closed review tags. */
       correctionClass?: string;
+      /* The findings the generator disputed instead of correcting; `withdrawn` is how many the orchestrator verified. Absent when no rebuttal arrived. */
+      rebuttals?: { received: number; withdrawn: number };
     };
     flaky: boolean;
     retries: number;
@@ -76,6 +93,10 @@ export interface RunOutcome {
     serviceLinksCount?: number;
     contractDriftCount?: number;
     crossRepoImpactedCount?: number;
+    /* The coverage signal was measured before the specs an accepted regeneration rewrote: the recorded ratio no longer describes the bytes on disk. Persist-only; never read by decide/verdict/gate/publish. */
+    coverage?: { stale: boolean };
+    /* How the run's regeneration acceptance spent its proof ledger: how many regenerations were accepted (and how many of those reused a closed-loop proof instead of executing), how many were rejected, and whether the per-run execution cap was hit. Persist-only; never read by decide/verdict/gate/publish. */
+    integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
   };
   rulesRetrieved: string[];
   /* Structural pattern kinds of the run's diff (detectStructuralPatterns, "generic" included). The learning fold credits a retrieved rule only when it is attributable to them — untagged, or tagged with one of these kinds. Absent when the run had no diff to read (non-diff modes): every retrieved rule then stays attributable. Fold input only; the run_outcomes row does not store it. */

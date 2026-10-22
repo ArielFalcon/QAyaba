@@ -350,6 +350,14 @@ export interface RunOutcome {
     contractDriftCount?: number;
 
     crossRepoImpactedCount?: number;
+    /* The coverage signal was measured before the specs an accepted regeneration rewrote: the ratio no longer describes the bytes on disk. Persist-only. */
+    coverage?: { stale: boolean };
+    /* The value score has the same staleness (an accepted regeneration rewrote the suite). Persist-only, never a gate. */
+    value?: { stale: boolean };
+    /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
+    integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
+    /* The test-intent lock: derived clauses, deltas and would-be rejections, with the opacity flag. Persist-only. */
+    intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
   };
   rulesRetrieved: string[];
   reflection?: StructuredReflection;

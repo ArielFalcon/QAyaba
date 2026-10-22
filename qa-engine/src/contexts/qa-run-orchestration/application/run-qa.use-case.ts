@@ -120,6 +120,8 @@ interface TerminalOptions {
   preconditionFailed?: boolean | undefined;
   /** The run ended because its reviewer was unavailable (its session failed or returned nothing): it names the run's error class. */
   reviewerUnavailable?: boolean | undefined;
+  /** The run ended on a judgment the reviewer and the generator could not settle: it names the run's error class. */
+  reviewDisputed?: boolean | undefined;
   /** What the reviewer's runtime reported when it was unavailable, persisted on the run record. */
   reviewerRationale?: string | undefined;
   /** How the run_spec loop was used up to this exit; absent when the run did not grant it. */
@@ -136,7 +138,6 @@ interface PreconditionFailure {
 }
 import { decide, isAccepted, type RunEvidence } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
-import { suiteRevision, type SuiteRevision } from "../domain/suite-revision.ts";
 import { RunPhaseCursor, recordPhaseSnapshot, type PhaseClock } from "../domain/run-phase-cursor.ts";
 import { PhaseSpans } from "./run-phase-spans.ts";
 import { DEMOTE_REASON } from "@kernel/ports/suite-store.port.ts";
@@ -146,7 +147,7 @@ import type { TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { RedactionScope } from "@kernel/telemetry/telemetry.port.ts";
 import { attachTraceFacts, type RunTraceFacts } from "@kernel/run-trace-facts.ts";
 import { generationRunsReviewer } from "@contexts/generation/domain/generation-review.ts";
-import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
+import { FixLoop, type FixLoopAcceptancePort, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
 import { attributeContradictions } from "../domain/helpers/contradiction-attribution.ts";
@@ -154,7 +155,11 @@ import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
 import { precheckSpecsAgainstDom } from "../domain/deterministic-review-precheck.ts";
 import { correctionClassOf } from "@contexts/generation/domain/review-output.ts";
 import { renderSpecChanges, sameReviewedSpecs, type ReviewSpecText } from "@contexts/generation/domain/review-fingerprint.ts";
-import { readConfinedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { readConfinedSpecFile, listSpecFiles, listSuiteFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { sha256Hex } from "../../../shared-infrastructure/content-hash.ts";
+import { specSnapshotPort } from "../infrastructure/bridges/spec-snapshot.adapter.ts";
+import { RegenerationAcceptance } from "./regeneration-acceptance.ts";
+import type { SpecSnapshot } from "./ports/spec-snapshot.port.ts";
 import { ERROR_CLASS, resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
 import { engineSideCauseOf, terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
@@ -164,6 +169,12 @@ import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
 import type { CoordinationTelemetryPort } from "./coordination/coordination-telemetry.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { filterReviewFindings } from "../domain/review-finding-filter.service.ts";
+import { verifyRebuttals, findingKey, refKey, type DisputedFinding, type RebuttalEvidence, type ReviewRebuttal } from "../domain/review-rebuttals.service.ts";
+import type { ContractFeedback } from "../domain/contract-feedback.ts";
+import { changeTokens, EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/domain/change-tokens.ts";
+import { diffContracts, type IntentViolation } from "@contexts/objective-signal/domain/test-intent-contract.ts";
+import type { IntentContractPort, SpecIntentView } from "./ports/intent-contract.port.ts";
 import { checkPreExecGrounding } from "../domain/pre-exec-grounding.service.ts";
 import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
@@ -234,12 +245,24 @@ export interface RunQaConfig {
   maxRetries: number;
   isCode: boolean;
   /**
+   * The master switch of the review-loop integrity work: failure triage (C), the intent lock (A) and
+   * the findings filter (D). Off (default) keeps the pre-change behavior; the acceptance correctness
+   * fixes are always on. When off, the intent-lock policy is not read.
+   */
+  reviewLoopIntegrity: boolean;
+  /**
    * "signal" (default) measures and records but never blocks publish. Only
    * "enforce" holds the PR on a "fail" status. "unknown" never blocks in any mode.
    */
   coveragePolicyMode: "off" | "signal" | "enforce";
   /** The change-coverage threshold in force; recorded with the run's coverage decision. */
   coverageMinRatio?: number;
+  /**
+   * The test-intent lock: whether the contract a primary pass establishes binds later regenerations.
+   * "signal" (default) records the deltas that would have been rejected; "enforce" rejects them and
+   * restores the pre-turn bytes. The opacity ratio flags a contract, never blocks one.
+   */
+  intentLock?: { mode: "off" | "signal" | "enforce"; opacityFlagRatio: number };
   /**
    * Per-mode agent session budget (ms). 0 / omitted derives WallClockBudget but
    * MUST NOT enforce it — a zero budget would abort every retry immediately.
@@ -255,6 +278,8 @@ export interface RunQaUseCaseDeps {
   phaseClock?: PhaseClock;
   /** Absent: nothing is traced. Present: each phase of the run is a span under the run's active context (run-phase-spans.ts). Never changes a verdict. */
   telemetry?: TelemetryPort;
+  /** Extracts a spec's clause contract for the intent lock. Absent: the lock has nothing to judge and never rejects. */
+  intentContract?: IntentContractPort;
   changeAnalysis: ChangeAnalysisPort;
   generation: GenerationPort;
   review: ReviewPort;
@@ -486,6 +511,14 @@ export interface RunQaResult {
     closedLoop?: ClosedLoopGateSignal;
     /** Present only when the run granted the authenticated agent browser. */
     agentBrowser?: AgentBrowserGateSignal;
+    /** Present only when the recorded coverage predates the bytes an accepted regeneration wrote (signal mode). */
+    coverage?: { stale: boolean };
+    /** Present only when the recorded value score describes bytes an accepted regeneration rewrote. Never a gate. */
+    value?: { stale: boolean };
+    /** Present only when a regeneration went through acceptance. */
+    integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
+    /** Present only when the test-intent lock derived a contract this run. */
+    intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
   };
   cases: QaCase[];
   /** One-shot post-execution string. Absent on early exits that never reached execute(). */
@@ -501,13 +534,22 @@ export interface RunQaResult {
 
 const SYSTEM_PHASE_CLOCK: PhaseClock = { now: () => Date.now() };
 
+/*
+ * The fallback a run gets when a composition passes no config at all. The review-loop master switch's
+ * product default (on, opt-out) is resolved where `qa.reviewLoopIntegrity` lives — the app config, read by
+ * buildRewrittenCompositionConfig and the composition root, both of which default it to true. This
+ * fallback keeps the pre-switch flow for a caller that states nothing, so a missing config never grants
+ * a slice silently; every composition that runs a real app states it.
+ */
 const DEFAULT_CONFIG: RunQaConfig = {
   needsReview: false,
   shadow: false,
   onFailure: "github-issue",
   maxRetries: 2,
   isCode: false,
+  reviewLoopIntegrity: false,
   coveragePolicyMode: "signal",
+  intentLock: { mode: "signal", opacityFlagRatio: 0.5 },
 };
 
 /** What the run knows when its deadline ends it: the little a terminal outcome carries, filled in as the run learns it. */
@@ -857,6 +899,135 @@ export class RunQaUseCase {
     trail.mirrorDir = workspace.mirrorDir;
 
     /*
+     * The run's proof ledger: for every delivered spec file, the bytes that executed green — either in the first pass or in an
+     * accepted regeneration — keyed by suite-relative path with their sha256. A delivered file with no entry has no proof, and the
+     * final guard fails the run closed rather than publish its unexecuted bytes. Seeded after the first execution; every accepted
+     * regeneration adds or replaces its changed files' entries.
+     */
+    const specRoot: SpecRoot = { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir };
+    const proofLedger = new Map<string, { sha256: string; bytes?: Uint8Array }>();
+    const integrityCounters = { acceptances: 0, rejected: 0, proofReused: 0, capHit: false };
+    const snapshotPort = specSnapshotPort(specRoot);
+    /* Built once per run; the deadline, validation, execution and the closed-loop proof source are each passed per call. */
+    /*
+     * The test-intent lock. A primary pass fixes each spec's contract against the change's own tokens
+     * (the literals on added diff lines); a later regeneration is diffed against that baseline and a
+     * generic weakening is rejected under `enforce`, recorded under `signal`. Baseline and tokens live
+     * for this run only: a new primary pass is never bound by a previous run's contract.
+     */
+    const intentLockPolicy = cfg.intentLock ?? { mode: "signal", opacityFlagRatio: 0.5 };
+    /* The master switch grants the A slice: with it off the lock is not read at all, whatever the app configured (B6). */
+    const intentLock = cfg.reviewLoopIntegrity ? intentLockPolicy : { ...intentLockPolicy, mode: "off" as const };
+    const intentState: {
+      tokens: ChangeTokenSet;
+      baselines: Map<string, readonly SpecIntentView[]>;
+      violations: number;
+      wouldReject: number;
+      clauses: number;
+      opaque: number;
+      opacityHigh: boolean;
+    } = { tokens: EMPTY_TOKEN_SET, baselines: new Map(), violations: 0, wouldReject: 0, clauses: 0, opaque: 0, opacityHigh: false };
+    /** The primary pass's bytes, read once after its execution: the contract a regeneration may not weaken. */
+    const primeIntentBaseline = async (): Promise<void> => {
+      const extractor = this.deps.intentContract;
+      if (!extractor || intentLock.mode === "off") return;
+      const current = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
+      const decoder = new TextDecoder();
+      for (const [file, bytes] of current.files) {
+        if (intentState.baselines.has(file)) continue;
+        const extraction = extractor.extract(file, decoder.decode(bytes));
+        intentState.clauses += extraction.clauseCount;
+        intentState.opaque += extraction.opaqueCount;
+        if (extraction.clauseCount > 0 && extraction.opacityRatio > intentLock.opacityFlagRatio) intentState.opacityHigh = true;
+        intentState.baselines.set(file, extraction.specs);
+      }
+    };
+    const contractCheck = async (files: readonly string[]): Promise<{ ok: boolean; reason?: string; violations?: readonly ContractFeedback[] }> => {
+      const extractor = this.deps.intentContract;
+      if (!extractor || intentLock.mode === "off" || files.length === 0) return { ok: true };
+      const current = await snapshotPort.snapshot(workspace.specDir, [...files]);
+      const decoder = new TextDecoder();
+      const deltas: IntentViolation[] = [];
+      for (const file of files) {
+        const bytes = current.files.get(file);
+        /* A file the turn deleted is judged by the delta rules of its tests, not re-read here. */
+        if (bytes === undefined) continue;
+        const extraction = extractor.extract(file, decoder.decode(bytes));
+        intentState.clauses += extraction.clauseCount;
+        intentState.opaque += extraction.opaqueCount;
+        if (extraction.clauseCount > 0 && extraction.opacityRatio > intentLock.opacityFlagRatio) intentState.opacityHigh = true;
+        const previous = intentState.baselines.get(file);
+        if (previous === undefined) {
+          /* The primary pass establishes the contract; a regeneration never re-baselines (A5). */
+          intentState.baselines.set(file, extraction.specs);
+          continue;
+        }
+        deltas.push(...diffContracts(previous, extraction.specs, intentState.tokens));
+      }
+      if (deltas.length === 0) return { ok: true };
+      intentState.violations += deltas.length;
+      const reason = `contract: ${deltas.map((delta) => `${delta.rule} (${delta.clauseId})`).join(", ")}`;
+      /* The deltas travel with the refusal: the site that sent the turn hands them to the next one as facts (A-2b). */
+      if (intentLock.mode === "enforce") return { ok: false, reason, violations: deltas };
+      /* Signal: the regeneration is accepted and the would-be rejection is recorded. */
+      intentState.wouldReject += 1;
+      this.deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] intent lock would reject this regeneration — ${reason}` });
+      return { ok: true };
+    };
+    const acceptance = new RegenerationAcceptance({
+      snapshot: snapshotPort,
+      fingerprint: (bytes) => sha256Hex(Buffer.from(bytes).toString("utf8")),
+      ledger: async (entry) => {
+        proofLedger.set(entry.file, { sha256: entry.sha256, bytes: entry.bytes });
+      },
+      contractCheck,
+    });
+    const runDeadlinePort = this.deps.runDeadline ?? { arm: () => {}, describe: () => undefined, remainingMs: () => undefined };
+    let acceptanceCalls = 0;
+    /* Whether an accepted regeneration rewrote specs after the last coverage measurement: the coverage ratio is then stale. */
+    let acceptedRegenAfterMeasure = false;
+
+    /*
+     * The suite's files a turn may change — the specs and the support files they import, both read by name
+     * through the confined reader — so a spec rewritten without the turn reporting it is covered, and so is
+     * a fixture the specs now read differently.
+     */
+    const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+    const suiteChangedFiles = async (before: SpecSnapshot, regenSpecs: readonly string[]): Promise<string[]> => {
+      const listing = listSuiteFiles(workspace.specDir);
+      /* A listing the walk could not finish cannot say what changed: the caller then judges the whole suite. */
+      if (listing.cut) return [...new Set([...before.files.keys(), ...regenSpecs.map((file) => file.replaceAll("\\", "/"))])];
+      const current = listing.files;
+      const after = await snapshotPort.snapshot(workspace.specDir, current);
+      const changed = new Set<string>();
+      /* Created, rewritten and deleted alike: a file that was there before and is gone now is a change acceptance must judge. */
+      for (const file of before.files.keys()) {
+        if (!after.files.has(file)) changed.add(file);
+      }
+      for (const file of current) {
+        const beforeBytes = before.files.get(file);
+        const afterBytes = after.files.get(file);
+        if (beforeBytes === undefined || afterBytes === undefined || !sameBytes(beforeBytes, afterBytes)) changed.add(file);
+      }
+      for (const file of regenSpecs) {
+        const normalized = file.replaceAll("\\", "/");
+        if (normalized.endsWith(".spec.ts") && after.files.has(normalized)) changed.add(normalized);
+      }
+      return [...changed];
+    };
+    /*
+     * What one acceptance must execute: the specs the turn changed, and — when the turn touched anything the
+     * specs import (a fixture, a helper, the login setup), or the suite could not be listed — every spec, since
+     * a spec whose own bytes did not change can still read differently now (B-4, and the proof it rests on).
+     */
+    const snapshotSuite = (): Promise<SpecSnapshot> => snapshotPort.snapshot(workspace.specDir, listSuiteFiles(workspace.specDir).files);
+    const acceptanceScope = (changed: readonly string[]): string[] => {
+      const specs = changed.filter((file) => file.endsWith(".spec.ts"));
+      const supportChanged = specs.length !== changed.length;
+      return supportChanged ? listSpecFiles(workspace.specDir) : specs;
+    };
+
+    /*
      * confinementAcc stays undefined until the first enforce() completes, so an
      * unwired or never-called confinement never persists a fabricated {strays:0}.
      */
@@ -925,6 +1096,7 @@ export class RunQaUseCase {
     }
 
     /* Armed here because a diff run's budget follows the size of its change, known only now; a classify-skip has already returned without spending any agent time. */
+    intentState.tokens = changeTokens(classificationDiff ?? "");
     this.deps.runDeadline?.arm({ mode: input.mode, ...(classificationDiff !== undefined ? { diff: classificationDiff } : {}), ...(classificationIntent ? { changedFiles: classificationIntent.changedFiles } : {}) });
     this.noteDeadlineArmed(trail);
 
@@ -1736,39 +1908,20 @@ export class RunQaUseCase {
         this.deps.observer?.onEvent({ type: "test.discovered", name: title, ...(file ? { file } : {}) });
       },
     };
-    /*
-     * The suite store admits a spec only with the bytes that executed green: `fingerprintGreen` reads those bytes (off-path, a
-     * fault admits nothing), `buildRevision` wraps an executed outcome into the SuiteRevision decide/cases/record/capture read,
-     * and `admit` validates + executes the current spec directory into one — the sole way a revision is made. A validation
-     * failure admits nothing (the caller ends the run invalid/infra-error); an execution that runs red still admits, so the run
-     * ends fail loudly instead of publishing unproven bytes.
-     */
-    const fingerprintGreen = async (cases: readonly QaCase[]): Promise<ReadonlyMap<string, string>> => {
-      if (!this.deps.suiteStore || !suiteRestored) return new Map();
-      try {
-        return await this.deps.suiteStore.fingerprint(
-          { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
-          cases.filter((c) => c.status === "pass" && c.file !== undefined).map((c) => c.file!),
-        );
-      } catch (fingerprintErr) {
-        rethrowIfUntrusted(fingerprintErr);
-        this.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
-        return new Map();
-      }
-    };
-    const buildRevision = async (cases: readonly QaCase[], verdict: string, namespace: string): Promise<SuiteRevision | undefined> =>
-      suiteRevision({ files: verdict === "pass" ? await fingerprintGreen(cases) : new Map(), verdict, cases, namespace });
-    const admit = async (namespace: string): Promise<SuiteRevision | { invalid: string[]; infra?: boolean }> => {
-      const validation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow());
-      if (!validation.ok) return { invalid: validation.errors, ...(validation.infra ? { infra: true } : {}) };
-      const executed = await this.deps.execution.execute(workspace.specDir, { ...liveExecutionOpts, namespace });
-      const revision = await buildRevision(executed.cases, executed.verdict, namespace);
-      if (!revision) return { invalid: [`execution returned a non-executed verdict (${executed.verdict})`], infra: true };
-      return revision;
-    };
+    /* The execution and the static gate an acceptance spends: the run's live observer and signal travel with them, as on every other call. */
+    const executeAccepted: ExecutionPort["execute"] = (specDir, opts) =>
+      this.deps.execution.execute(specDir, {
+        ...liveExecutionOpts,
+        ...(opts === undefined ? {} : opts instanceof AbortSignal ? { signal: opts } : opts),
+      });
+    const validateAccepted: ValidationPort["validate"] = (specDir, changedFiles) =>
+      this.deps.validation.validate(specDir, changedFiles, deliveredNow());
     let run = input.mode === "context"
       ? { verdict: "pass" as const, cases: [] as QaCase[], logs: generated.note ?? "" }
       : await this.deps.execution.execute(workspace.specDir, liveExecutionOpts);
+    /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
+    await primeIntentBaseline();
+    let devNotRenderedConclusive = false;
     if (signal?.aborted) {
       return this.abortedResult(workspace.mirrorDir);
     }
@@ -1788,6 +1941,7 @@ export class RunQaUseCase {
             ...liveExecutionOpts,
             ...(fixLoopInput.specFiles ? { specFiles: fixLoopInput.specFiles } : {}),
             ...(fixLoopInput.namespace ? { namespace: fixLoopInput.namespace } : {}),
+            ...(fixLoopInput.retries !== undefined ? { retries: fixLoopInput.retries } : {}),
           });
           return { verdict: r.verdict, cases: r.cases };
         },
@@ -1834,18 +1988,77 @@ export class RunQaUseCase {
             note: r.note,
             specSources: r.specSources,
             ...(r.specMetas ? { specMetas: r.specMetas } : {}),
+            ...(r.testCorrect ? { testCorrect: r.testCorrect } : {}),
           };
         },
       };
       const fixLoopSelectorCheck: FixLoopSelectorCheckPort = {
         check: (specSources, trees) => ({ ...checkSpecSelectors(specSources, trees), origins: contradictionOrigins(specSources, trees) }),
       };
+      /*
+       * The run's acceptance of a fix-loop round: the snapshot the turn may change, the validation and
+       * execution of the changed specs (a failing round is adopted so the loop repairs from it), and
+       * the bytes of the round that produced the best run. Always wired: the byte restore is a
+       * correctness fix, never behind the review-loop switch.
+       */
+      const fixLoopAcceptance: FixLoopAcceptancePort = {
+        begin: () => snapshotSuite(),
+        accept: async ({ round, specs, namespace }) => {
+          const snapshot = round as SpecSnapshot;
+          /* A round that changed anything the specs import is accepted over the whole suite, never over its specs alone. */
+          const changedSpecFiles = acceptanceScope(await suiteChangedFiles(snapshot, specs));
+          if (changedSpecFiles.length === 0) {
+            /* The turn changed no bytes: nothing to accept, and the round's current bytes are its token. */
+            return { kind: "accepted", changedSpecFiles, accepted: snapshot };
+          }
+          const outcome = await acceptance.accept({
+            specDir: workspace.specDir,
+            changedSpecFiles,
+            namespace,
+            snapshot,
+            adoptFailures: true,
+            ...(closedLoop ? { closedLoop } : {}),
+            deadline: runDeadlinePort,
+            validate: validateAccepted,
+            execute: executeAccepted,
+          });
+          if (outcome.kind === "accepted") {
+            integrityCounters.acceptances += 1;
+            if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+            /* The bytes this round leaves behind are the token a later, worse round is measured against. */
+            const accepted = await snapshotSuite();
+            return {
+              kind: "accepted",
+              changedSpecFiles,
+              ...(outcome.execution ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } } : {}),
+              accepted,
+            };
+          }
+          if (outcome.kind === "cap") {
+            integrityCounters.capHit = true;
+            return { kind: "cap" };
+          }
+          integrityCounters.rejected += 1;
+          return {
+            kind: "rejected",
+            reason: outcome.reason,
+            ...(outcome.execution
+              ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } }
+              : {}),
+          };
+        },
+        restore: async (token) => {
+          const snapshot = token as SpecSnapshot;
+          /* Every file created after the best round goes, and its own bytes go back: the suite is exactly the best round's. */
+          const created = listSpecFiles(workspace.specDir).filter((file) => !snapshot.files.has(file));
+          await snapshotPort.restore(workspace.specDir, snapshot, created);
+        },
+      };
       const fixLoop = new FixLoop({
         execution: fixLoopExecution,
         generation: fixLoopGeneration,
         selectorCheck: fixLoopSelectorCheck,
-        /* Re-validate before retry execute so a compile error does not hit live DEV. */
-        revalidate: (specDir) => this.deps.validation.validate(specDir, undefined, deliveredNow()),
+        acceptance: fixLoopAcceptance,
       });
       /*
        * coverageLikelyMeasured omits the cross-repo conjunct on purpose: a false
@@ -1853,6 +2066,14 @@ export class RunQaUseCase {
        * prevents filtered-retry from undercounting change-coverage's denominator.
        */
       const coverageWillMeasure = generating && input.mode === "diff" && cfg.coveragePolicyMode !== "off";
+      /*
+       * The objective a failure is judged against: the change's own files on a diff run, the guidance
+       * a manual run was asked to cover. Feeds the adjudicator's objective_gap rule; empty when the
+       * run has neither (manual without guidance).
+       */
+      const objectiveSource = input.mode === "manual"
+        ? (input.guidance ? [input.guidance] : [])
+        : (classificationIntent?.changedFiles ?? []);
       /* Round 0 Lever-2 seed. Absent when the adapter has no readSpecSource — never fabricated. */
       const initialSpecSources = lastGenerated.specSources;
       /* Failure-point DOM from the initial failing cases, before any FixLoop re-execute. */
@@ -1871,7 +2092,7 @@ export class RunQaUseCase {
         isCode: cfg.isCode,
         generating,
         mode: input.mode,
-        objectiveSource: [],
+        objectiveSource,
         maxRetries: cfg.maxRetries,
         ...(fixLoopRetired ? { regenerate: false } : {}),
         cycleBudget,
@@ -1882,6 +2103,24 @@ export class RunQaUseCase {
         ...(initialSpecSources?.length ? { initialSpecSources } : {}),
         ...(failureDomSnapshot ? { failureDomSnapshot } : {}),
         specDir: workspace.specDir,
+        ...(cfg.reviewLoopIntegrity
+          ? {
+              integrity: {
+                hasGreenProof: async (file: string) => {
+                  if (proofLedger.has(file)) return true;
+                  if (!closedLoop) return false;
+                  try {
+                    return await closedLoop.isClosed([file]);
+                  } catch (err) {
+                    console.error(`[qa] could not read the green proof of ${file} (triage treats it as unproven): ${err instanceof Error ? err.message : String(err)}`);
+                    return false;
+                  }
+                },
+                spendExecution: () => acceptance.spendExecution(),
+                remainingMs: () => runDeadlinePort.remainingMs?.(),
+              },
+            }
+          : {}),
       });
       run = { verdict: fixLoopResult.run.verdict, cases: fixLoopResult.run.cases, logs: run.logs };
       /* Accumulate onto shared retries (`+=`); a reassignment would drop static-fix rounds. */
@@ -1912,15 +2151,35 @@ export class RunQaUseCase {
       } catch (err) {
         console.error(`[qa] the fix-loop phase outcome could not be traced (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
       }
+      devNotRenderedConclusive = fixLoopResult.preconditionFailed;
+      if (fixLoopResult.rejectedClaims > 0) {
+        this.deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] ${fixLoopResult.rejectedClaims} test-correct claim(s) rejected as unverified; the loop kept repairing` });
+      }
     }
 
     /*
-     * The last admitted revision: round 0 first, replaced by a later re-admit (coverage regen, reviewer correction). decide,
-     * cases, verdict, record and suite-store capture read only this, never the round-0 bytes.
+     * The suite store admits a spec only with the bytes that executed green, so those bytes are fingerprinted here and read into
+     * the proof ledger, before the reviewer's correction rounds or the coverage regeneration can rewrite a file that is never
+     * executed again. Off-path: a fault leaves no evidence, and a capture without evidence admits no spec.
      */
-    let lastRevision: SuiteRevision | undefined = await buildRevision(run.cases, run.verdict, input.runId);
-    /* The revision a reviewer correction admitted after coverage ran: its own bytes are measured before decide. */
-    let correctedRevision: SuiteRevision | undefined;
+    if (this.deps.suiteStore && suiteRestored && run.verdict === "pass") {
+      try {
+        /* The green run executed the whole suite: every delivered spec on disk at this instant has run in these bytes. The store
+         * leaves out a spec it cannot read confined, which seeds no proof (the final guard then refuses to publish it). */
+        const fingerprints = await this.deps.suiteStore.fingerprint(
+          { mirrorDir: workspace.mirrorDir, specDir: workspace.specDir },
+          delivered.map((d) => d.file),
+        );
+        /* The ledger holds the green bytes themselves when they can be read, so a later restore has them. */
+        for (const [file, sha256] of fingerprints) {
+          const read = readOwnedSpecFile(specRoot, file, MAX_SPEC_SOURCE_BYTES);
+          proofLedger.set(file, "bytes" in read ? { sha256, bytes: read.bytes } : { sha256 });
+        }
+      } catch (fingerprintErr) {
+        rethrowIfUntrusted(fingerprintErr);
+        this.announceSuite(`[qa] suite store fingerprint failed (off-path; no spec is admitted): ${fingerprintErr instanceof Error ? fingerprintErr.message : String(fingerprintErr)}`, "warn");
+      }
+    }
 
     /*
      * Capture executedRed before `if (run.verdict === "pass")` narrows the type;
@@ -1936,6 +2195,12 @@ export class RunQaUseCase {
      * `undefined` means measure never ran. Distinct from a measured "unknown".
      */
     let coverageStatus: "pass" | "fail" | "unknown" | undefined;
+    /* Whether this run measured a real per-commit coverage signal (a diff run on one repo): only then can its ratio go stale. */
+    let coverageMeasured = false;
+    /* The measurement predates the bytes an accepted regeneration wrote, and the mode reuses it rather than re-measuring. */
+    let coverageStale = false;
+    /* The same regenerated bytes make the value score describe a suite that is no longer on disk. The oracle stays signal-only: stale is recorded, never a gate. */
+    let valueStale = false;
     /* null when the oracle is unwired — never a fabricated 0. */
     let valueScore: number | null = null;
     /*
@@ -1974,6 +2239,7 @@ export class RunQaUseCase {
       );
       coverageRatio = signal.ratio;
       coverageStatus = signal.status;
+      coverageMeasured = input.mode === "diff" && !input.triggerRepo;
       trail.coverageStatus = signal.status;
       valueScore = signal.valueScore ?? null;
       mutantCount = signal.mutantCount ?? undefined;
@@ -1985,43 +2251,52 @@ export class RunQaUseCase {
       blocksPublish = this.deps.objectiveSignal.blocks(signal.status);
 
       /*
-       * Enforce-mode one-shot coverage regen: this block runs at most once per run (it is not
-       * inside any loop) and is independent of the FixLoop budget. A regen throw propagates.
-       * Validate-fail, non-pass rerun, or 0-spec regen keeps the first measurement's
-       * blocksPublish (never fabricated).
+       * Enforce-mode one-shot coverage regen: this block runs at most once per run (it is not inside
+       * any loop) and is independent of the FixLoop budget. A regen throw propagates. The regen's
+       * changed specs go through acceptance: they execute green (or reuse a proof) before they stand.
+       * A rejected or capped regen keeps the first measurement and restores the prior bytes. The
+       * whole-suite re-measure that decides coverage is the single final re-measure before decide.
        */
       if (blocksPublish && input.mode === "diff" && !input.triggerRepo) {
         try {
           const gap = renderCoverageGap(signal.uncovered ?? []);
-          /*
-           * The method's AbortSignal parameter is shadowed here by the measure() result
-           * `signal`. This generate() omits it rather than rename every `signal.*` read.
-           */
+          const snapshot = await snapshotSuite();
+          const deliveredBefore = delivered;
           const regen = await regenerate(undefined, { coverageGap: gap });
           await enforceConfinement();
-          if (regen.specs.length > 0) {
-            const regenNamespace = `${input.runId}-coverage-regen`;
-            const admitted = await admit(regenNamespace);
-            if (!("invalid" in admitted) && admitted.verdict === "pass") {
-              /* The regen is admitted: its executed bytes are now the last revision, and coverage is re-measured on it. */
-              run = { verdict: admitted.verdict, cases: [...admitted.cases], logs: run.logs };
-              lastRevision = admitted;
-              const regenBaselineCases = admitted.cases.filter((c) => c.status === "pass").map((c) => c.name);
-              /*
-               * Re-measure MUST read the regen's own dumps under regenNamespace — never the
-               * first run's composition-time namespace.
-               */
-              const signal2 = await this.deps.objectiveSignal.measure(
-                runBlastRadius,
-                workspace.specDir,
-                classificationDiff,
-                regenBaselineCases,
-                { namespace: regenNamespace },
-              );
-              coverageRatio = signal2.ratio;
-              coverageStatus = signal2.status;
-              trail.coverageStatus = signal2.status;
-              blocksPublish = this.deps.objectiveSignal.blocks(signal2.status);
+          const changedFiles = await suiteChangedFiles(snapshot, regen.specs);
+          const changedSpecFiles = acceptanceScope(changedFiles);
+          if (regen.specs.length === 0) {
+            /* A coverage turn that delivers no specs is not a change to accept: whatever it wrote is put back. */
+            if (changedFiles.length > 0) {
+              await snapshotPort.restore(workspace.specDir, snapshot, changedFiles.filter((file) => !snapshot.files.has(file)));
+            }
+            delivered = deliveredBefore;
+          } else if (changedSpecFiles.length > 0) {
+            const outcome = await acceptance.accept({
+              specDir: workspace.specDir,
+              changedSpecFiles,
+              namespace: `${input.runId}-acc${acceptanceCalls++}`,
+              snapshot,
+              ...(closedLoop ? { closedLoop } : {}),
+              deadline: runDeadlinePort,
+              validate: validateAccepted,
+              execute: executeAccepted,
+            });
+            if (outcome.kind === "accepted") {
+              integrityCounters.acceptances += 1;
+              if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+              acceptedRegenAfterMeasure = true;
+              if (outcome.execution?.cases.length) {
+                const changedSet = new Set(changedSpecFiles);
+                run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...outcome.execution.cases] };
+              }
+            } else {
+              /* Rejected or capped: the turn's specs are not the run's. */
+              delivered = deliveredBefore;
+              if (outcome.kind === "rejected") integrityCounters.rejected += 1;
+              else integrityCounters.capHit = true;
+              /* The first measurement and the prior bytes stand. */
             }
           }
         } catch (regenErr) {
@@ -2093,6 +2368,41 @@ export class RunQaUseCase {
       };
       let previousRoundSpecs: ReviewSpecText[] | undefined;
       let previousRoundCaseCount = 0;
+      /*
+       * What the current bytes prove, the only facts a rebuttal can rest on: the cases that ran green (a case name,
+       * or a spec file whose every case passed), and the contract clauses the bytes still hold. A basis the run
+       * cannot check stays unverified, so the finding it answers keeps standing.
+       */
+      const rebuttalEvidence = async (rebuttals: readonly ReviewRebuttal[]): Promise<RebuttalEvidence> => {
+        const failedFiles = new Set(run.cases.filter((c) => c.status !== "pass" && c.file).map((c) => c.file!));
+        const greenCaseRefs = new Set<string>();
+        for (const c of run.cases) {
+          if (c.status !== "pass") continue;
+          greenCaseRefs.add(refKey(c.name));
+          if (c.file && !failedFiles.has(c.file)) greenCaseRefs.add(refKey(c.file));
+        }
+        const intactClauses = new Set<string>();
+        const extractor = this.deps.intentContract;
+        if (extractor) {
+          for (const rebuttal of rebuttals) {
+            if (rebuttal.basis !== "contract") continue;
+            const key = refKey(rebuttal.ref);
+            const hash = key.lastIndexOf("#");
+            const file = hash > 0 ? key.slice(0, hash) : "";
+            const clause = hash > 0 ? key.slice(hash + 1) : "";
+            if (!file || !clause) continue;
+            try {
+              const extraction = extractor.extract(file, readConfinedSpecFile(specRoot, file));
+              const baseline = intentState.baselines.get(file) ?? [];
+              const violated = diffContracts(baseline, extraction.specs, intentState.tokens).some((delta) => delta.clauseId === clause);
+              if (!violated && extraction.specs.some((spec) => spec.clauses.some((c) => c.id === clause))) intactClauses.add(key);
+            } catch {
+              /* An unreadable spec or clause proves nothing: the rebuttal stays unverified. */
+            }
+          }
+        }
+        return { greenCaseRefs, intactClauses };
+      };
       const reviewStats = {
         rounds: 0,
         modelRounds: 0,
@@ -2104,6 +2414,8 @@ export class RunQaUseCase {
         costUsd: 0,
         steps: 0,
         blocking: 0,
+        rebuttals: 0,
+        rebuttalWithdrawn: 0,
         metricsKnown: { output: false, cost: false, steps: false },
       };
       const addReviewStats = (stats: ReviewStats | undefined): void => {
@@ -2235,12 +2547,52 @@ export class RunQaUseCase {
               ...(specChanges ? { specChanges } : {}),
               ...(reviewDomSnapshot ? { domSnapshot: reviewDomSnapshot } : {}),
               ...(existingSpecFiles.length ? { existingSpecFiles } : {}),
+              /* The run's own execution of the specs under review: the reviewer weighs a 5xx or a redirect against the test instead of guessing. */
+              ...(reviewCases.length > 0 ? { executionEvidence: { verdict: run.verdict, cases: reviewCases } } : {}),
             });
             reviewStats.modelRounds++;
             addReviewStats(reviewResult.stats);
           }
         }
         reviewStats.rounds++;
+        /*
+         * The findings filter (D): only a finding that cites a contract clause, an execution or a DOM
+         * fact this run can verify may block. Everything else is advisory telemetry, never sent to the
+         * generator. The pre-check is the orchestrator's own deterministic evidence, so it is not a
+         * reviewer finding and is never filtered. Gated by the master switch.
+         */
+        let filteredReviewFindings = 0;
+        let advisoryReviewFindings = 0;
+        if (cfg.reviewLoopIntegrity && decidedBy === "model" && reviewResult.corrections.length > 0) {
+          const findings = reviewResult.corrections.map((text, index) => ({
+            text,
+            severity: reviewResult.severities?.[index] ?? ("blocking" as const),
+            ...(reviewResult.citations?.[index] ? { citation: reviewResult.citations[index]! } : {}),
+          }));
+          const filtered = filterReviewFindings(findings, {
+            inScopeSpecs: new Set(reviewCases.map((c) => c.file ?? c.name)),
+            executedSpecs: new Set(run.cases.map((c) => c.file).filter((file): file is string => !!file)),
+          });
+          filteredReviewFindings = filtered.dropped.length;
+          advisoryReviewFindings = filtered.advisory.length;
+          if (filtered.dropped.length > 0 || filtered.advisory.length > 0) {
+            try {
+              this.telemetry.counter("qayaba.review.filtered")(filtered.dropped.length, { "qayaba.app": input.app });
+              this.telemetry.counter("qayaba.review.advisory")(filtered.advisory.length, { "qayaba.app": input.app });
+            } catch (err) {
+              console.error(`[telemetry] the filtered-findings counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+          reviewResult = {
+            ...reviewResult,
+            /* Only a verified finding can keep the reviewer's rejection standing. */
+            approved: filtered.blocking.length === 0,
+            corrections: filtered.blocking,
+            severities: filtered.blocking.map(() => "blocking" as const),
+            citations: filtered.blocking.map(() => undefined),
+            blockingCount: filtered.blocking.length,
+          };
+        }
         const reviewedBlocking = reviewResult.blockingCount ?? reviewResult.corrections.length;
         if (!reviewResult.unavailable) reviewStats.blocking = reviewedBlocking;
         const reviewOutcome = reviewResult.unavailable ? "unavailable" : reviewResult.parsed === false ? "parse-miss" : reviewResult.approved && reviewedBlocking === 0 ? "approved" : "rejected";
@@ -2266,6 +2618,9 @@ export class RunQaUseCase {
               "qayaba.review.targets": reviewTargets,
               ...(existingSpecFiles.length ? { "qayaba.review.existing_specs": [...existingSpecFiles] } : {}),
               ...(reviewResult.corrections.length ? { "qayaba.review.corrections": [...reviewResult.corrections] } : {}),
+              /* What the filter set aside: a dropped finding can never block, an advisory one is recorded only. */
+              ...(filteredReviewFindings > 0 ? { "qayaba.review.filtered": filteredReviewFindings } : {}),
+              ...(advisoryReviewFindings > 0 ? { "qayaba.review.advisory": advisoryReviewFindings } : {}),
               ...(reviewResult.rationale ? { "qayaba.review.rationale": reviewResult.rationale } : {}),
             },
           });
@@ -2340,44 +2695,130 @@ export class RunQaUseCase {
         previousRoundBlocking = reviewedBlocking;
         previousRoundSpecs = reviewedSpecs;
         previousRoundCaseCount = reviewCases.length;
-        const regen = await regenerate(signal, { reviewCorrections: reviewResult.corrections });
-        await enforceConfinement();
+        const snapshot = await snapshotSuite();
+        const deliveredBefore = delivered;
+        let regen: GenerationOutput;
+        let changedSpecFiles: string[] = [];
+        let changedSupportFiles: string[] = [];
+        let outcome: Awaited<ReturnType<RegenerationAcceptance["accept"]>> | undefined;
+        /*
+         * One correction round, with the turn's bytes accepted or given back. A round the contract refuses is sent back
+         * once with the violations as facts (A-2b): the generator learns the bound the run holds it to inside the run,
+         * and the retry spends no DEV time because the contract is checked before validation and execution. The bound is
+         * per round, so the review loop's own round budget still caps the whole phase.
+         */
+        let contractFeedback: readonly ContractFeedback[] | undefined;
+        for (let attempt = 0; ; attempt++) {
+          /* A refused attempt's files were restored, so its delivery must not survive into the next one. */
+          delivered = deliveredBefore;
+          regen = await regenerate(signal, {
+            reviewCorrections: reviewResult.corrections,
+            ...(contractFeedback ? { contractFeedback } : {}),
+          });
+          await enforceConfinement();
+          const changed = await suiteChangedFiles(snapshot, regen.specs);
+          changedSpecFiles = acceptanceScope(changed);
+          changedSupportFiles = changed.filter((file) => !file.endsWith(".spec.ts"));
+          if (regen.specs.length === 0) break;
+          outcome = await acceptance.accept({
+            specDir: workspace.specDir,
+            changedSpecFiles,
+            namespace: `${input.runId}-acc${acceptanceCalls++}`,
+            snapshot,
+            ...(closedLoop ? { closedLoop } : {}),
+            deadline: runDeadlinePort,
+            validate: validateAccepted,
+            execute: executeAccepted,
+          });
+          if (outcome.kind !== "rejected" || !outcome.violations?.length || attempt >= 1) break;
+          /* The refused attempt is one rejected regeneration, even though the round goes on to answer it. */
+          integrityCounters.rejected += 1;
+          contractFeedback = outcome.violations;
+        }
+        /*
+         * A rebuttal answers a reviewer finding; the deterministic pre-check is the orchestrator's own evidence and is
+         * never rebuttable, so only a model round's findings are open to one. A verified rebuttal withdraws its finding;
+         * one the run cannot check leaves the finding standing and is remembered as what the generator refused.
+         */
+        const rebuttals = cfg.reviewLoopIntegrity && decidedBy === "model" ? (regen.rebuttals ?? []) : [];
+        const settled = rebuttals.length > 0
+          ? verifyRebuttals(rebuttals, reviewResult.corrections, await rebuttalEvidence(rebuttals))
+          : { withdrawn: [], disputed: [] };
+        const withdrawn = new Set(settled.withdrawn.map(findingKey));
+        const outstanding = reviewResult.corrections.filter((finding) => !withdrawn.has(findingKey(finding)));
+        if (rebuttals.length > 0) {
+          reviewStats.rebuttals += rebuttals.length;
+          reviewStats.rebuttalWithdrawn += settled.withdrawn.length;
+          /* Observe-only: a rebuttal is recorded with what the orchestrator made of it, and never changes a verdict by itself. */
+          try {
+            this.telemetry.counter("qayaba.review.rebuttal")(settled.withdrawn.length, { "qayaba.app": input.app, "qayaba.review.rebuttal.outcome": "withdrawn" });
+            this.telemetry.counter("qayaba.review.rebuttal")(settled.disputed.length, { "qayaba.app": input.app, "qayaba.review.rebuttal.outcome": "disputed" });
+          } catch (err) {
+            console.error(`[telemetry] the rebuttal counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
         if (regen.specs.length === 0) {
-          /* A regen that produced no reviewable specs must not inherit the generator's self-approval. */
+          /* A regen that produced no reviewable specs must not inherit the generator's self-approval; whatever its turn wrote is put back. */
+          const restored = [...new Set([...changedSpecFiles, ...changedSupportFiles])];
+          if (restored.length > 0) {
+            await snapshotPort.restore(workspace.specDir, snapshot, restored.filter((file) => !snapshot.files.has(file)));
+          }
+          delivered = deliveredBefore;
+          /* Every blocking finding withdrawn with evidence, and no new bytes: the reviewed bytes stand approved. */
+          if (reviewResult.corrections.length > 0 && outstanding.length === 0) {
+            reviewerApproved = true;
+            finalReviewerCorrections = [];
+            break;
+          }
+          /*
+           * A verified finding survives while the generator's answer to it is a claim nobody can check. Correcting it
+           * was possible and the turn delivered nothing, so opening an Issue would accuse a test the reviewer never
+           * justified, and publishing would ignore the finding: the engine reports that it could not settle it.
+           */
+          if (settled.disputed.length > 0) {
+            return await this.reviewDisputedResult(cfg, input, settled.disputed, reviewCases.filter((c) => c.status === "pass").length, {
+              static: validation.ok,
+              retries,
+              rulesRetrieved: retrievedRuleIds,
+              diffArchetypes,
+              archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
+              confinement: confinementAcc,
+              tested: resolveTested(),
+              mirrorDir: workspace.mirrorDir,
+              closedLoop: await closedLoopSignal(),
+              agentBrowser: agentBrowserSignal(),
+            });
+          }
           reviewerApproved = false;
           break;
         }
-        /*
-         * The correction is re-admitted: fingerprinted, validated and executed. Its bytes, verdict and cases replace round-0, so
-         * what is published, captured and recorded is the corrected suite — never the round-0 bytes. A correction that no longer
-         * validates ends the run through the existing invalid/infra-error terminal; one whose execution runs red ends it fail.
-         */
-        const admitted = await admit(input.runId);
-        if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
-        if ("invalid" in admitted) {
-          return await this.terminalResult(admitted.infra ? "infra-error" : "invalid", cfg, input, { generating: true, static: false }, {
-            reviewerApproved: reviewerApprovedFromGeneration,
-            retries,
-            note: admitted.invalid.slice(0, 2).join("\n\n") || undefined,
-            groundingSignals: { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
-            rulesRetrieved: retrievedRuleIds,
-            diffArchetypes,
-            archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
-            confinement: confinementAcc,
-            tested: resolveTested(),
-            mirrorDir: workspace.mirrorDir,
-            closedLoop: await closedLoopSignal(),
-            agentBrowser: agentBrowserSignal(),
-          });
+        /* The surviving findings are the next round's convergence context: a withdrawn one is not raised again. */
+        if (withdrawn.size > 0) {
+          previousRoundCorrections = outstanding;
+          previousRoundBlocking = outstanding.length;
         }
-        lastRevision = admitted;
-        correctedRevision = admitted;
-        run = { verdict: admitted.verdict, cases: [...admitted.cases], logs: run.logs };
-        reviewCases = admitted.cases.filter((c) => deliveredFiles.has(c.file ?? c.name));
-        if (admitted.verdict !== "pass") {
-          /* The corrected suite ran red: the run ends fail loudly, with no PR and no acceptance. */
+        /*
+         * The regenerated specs stand only once they execute green (or reuse a proof): they went through the same
+         * acceptance as the coverage regen. Never let unaccepted bytes stand.
+         */
+        if (outcome?.kind === "accepted") {
+          integrityCounters.acceptances += 1;
+          if (outcome.executedSpecs.length === 0) integrityCounters.proofReused += 1;
+          acceptedRegenAfterMeasure = true;
+          const changedSet = new Set(changedSpecFiles);
+          const realCases = outcome.execution?.cases ?? [];
+          if (realCases.length > 0) {
+            /* Replace the changed files' cases with the acceptance execution's real cases; unchanged files keep theirs. */
+            run = { ...run, cases: [...run.cases.filter((c) => !changedSet.has(c.file ?? c.name)), ...realCases] };
+            reviewCases = [...realCases, ...reviewCases.filter((c) => !changedSet.has(c.file ?? c.name))];
+          }
+          /* Proof reuse executed nothing: the existing cases already describe the bytes on disk. */
+        } else {
+          delivered = deliveredBefore;
           reviewerApproved = false;
           finalReviewerCorrections = reviewResult.corrections;
+          if (outcome?.kind === "cap") integrityCounters.capHit = true;
+          else integrityCounters.rejected += 1;
           break;
         }
       }
@@ -2398,26 +2839,125 @@ export class RunQaUseCase {
         preCheckRejects: reviewStats.preCheckRejects,
         skippedRounds: reviewStats.skippedRounds,
         correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
+        ...(reviewStats.rebuttals > 0 ? { rebuttals: { received: reviewStats.rebuttals, withdrawn: reviewStats.rebuttalWithdrawn } } : {}),
       };
     }
 
     /*
-     * A reviewer correction is a later admitted revision than the one coverage measured. Measure its own bytes so the
-     * decision cannot publish a suite whose coverage was never measured; the enforce one-shot regen already ran (or was
-     * not needed) and is deliberately not repeated here.
+     * The coverage this run measured is stale when an accepted regeneration followed it. Under enforce, one whole-suite measured
+     * execution before decide refreshes it (the coverage regeneration's own run counts when it is the last accepted one, so this
+     * never runs twice); under signal the prior measurement is reused and marked stale. A measured execution that ends red is the
+     * run's verdict: a red suite is never published.
      */
-    if (correctedRevision && run.verdict === "pass" && input.mode !== "context" && !input.triggerRepo) {
-      const correctedCoverage = await this.deps.objectiveSignal.measure(
-        runBlastRadius,
-        workspace.specDir,
-        classificationDiff,
-        correctedRevision.cases.filter((c) => c.status === "pass").map((c) => c.name),
-        { namespace: correctedRevision.namespace },
-      );
-      coverageRatio = correctedCoverage.ratio;
-      coverageStatus = correctedCoverage.status;
-      trail.coverageStatus = correctedCoverage.status;
-      blocksPublish = this.deps.objectiveSignal.blocks(correctedCoverage.status);
+    if (run.verdict === "pass" && coverageMeasured && acceptedRegenAfterMeasure) {
+      if (cfg.coveragePolicyMode === "enforce") {
+        const finalNamespace = `${input.runId}-coverage-final`;
+        const measuredRun = await this.deps.execution.execute(workspace.specDir, { ...liveExecutionOpts, namespace: finalNamespace });
+        run = { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
+        if (measuredRun.verdict === "pass") {
+          const baselineCases = measuredRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
+          const finalSignal = await this.deps.objectiveSignal.measure(
+            runBlastRadius,
+            workspace.specDir,
+            classificationDiff,
+            baselineCases,
+            { namespace: finalNamespace },
+          );
+          coverageRatio = finalSignal.ratio;
+          coverageStatus = finalSignal.status;
+          trail.coverageStatus = finalSignal.status;
+          blocksPublish = this.deps.objectiveSignal.blocks(finalSignal.status);
+          /* The oracle measured again on the delivered bytes: its score describes what is on disk now. */
+          valueScore = finalSignal.valueScore ?? valueScore;
+          mutantCount = finalSignal.mutantCount ?? mutantCount;
+          killedCount = finalSignal.killedCount ?? killedCount;
+          valueStale = false;
+          acceptedRegenAfterMeasure = false;
+        }
+      } else if (cfg.coveragePolicyMode === "signal") {
+        coverageStale = true;
+        /* A measured value score is reused for the record and marked stale; it never blocks. */
+        if (valueScore !== null) {
+          valueStale = true;
+          try {
+            this.telemetry.counter("qayaba.value.stale")(1, { "qayaba.app": input.app });
+          } catch (err) {
+            console.error(`[telemetry] the stale-value counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        try {
+          this.telemetry.counter("qayaba.coverage.stale")(1, { "qayaba.app": input.app });
+        } catch (err) {
+          console.error(`[telemetry] the stale-coverage counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+
+    /*
+     * The bytes on disk are the proof. Before the run decides, fingerprint the delivered specs once more and put back the proven
+     * bytes of any file that changed after its acceptance; a file with no proof, or a restore that does not verify, ends the run
+     * as a loud infra-error. No proof means no publication (fails closed).
+     */
+    if (run.verdict === "pass" && generating && input.mode !== "context" && !cfg.isCode) {
+      const deliveredFiles = [...new Set(delivered.map((d) => d.file))].filter((file) => file.endsWith(".spec.ts"));
+      if (deliveredFiles.length > 0) {
+        let current: ReadonlyMap<string, string> = new Map();
+        if (this.deps.suiteStore) {
+          try {
+            current = await this.deps.suiteStore.fingerprint(specRoot, deliveredFiles);
+          } catch (err) {
+            return await this.infraErrorResult(
+              `the final proof guard could not fingerprint the delivered specs: ${err instanceof Error ? err.message : String(err)}`,
+              workspace.mirrorDir,
+            );
+          }
+        }
+        for (const file of deliveredFiles) {
+          const proof = proofLedger.get(file);
+          if (proof && current.get(file) === proof.sha256) continue;
+          if (!proof) {
+            return await this.infraErrorResult(
+              `the final proof guard found no proof for ${file}: the run cannot publish bytes that never executed green`,
+              workspace.mirrorDir,
+            );
+          }
+          if (proof.bytes === undefined) {
+            return await this.infraErrorResult(
+              `the final proof guard found ${file} changed after it executed green, but holds no proven bytes to restore`,
+              workspace.mirrorDir,
+            );
+          }
+          try {
+            await snapshotPort.restore(workspace.specDir, { files: new Map([[file, proof.bytes]]) }, []);
+          } catch (err) {
+            return await this.infraErrorResult(
+              `the final proof guard could not restore ${file}: ${err instanceof Error ? err.message : String(err)}`,
+              workspace.mirrorDir,
+            );
+          }
+          if (!this.deps.suiteStore) {
+            return await this.infraErrorResult(
+              `the final proof guard cannot verify the restored ${file}: no suite store is composed`,
+              workspace.mirrorDir,
+            );
+          }
+          let restored: ReadonlyMap<string, string>;
+          try {
+            restored = await this.deps.suiteStore.fingerprint(specRoot, [file]);
+          } catch (err) {
+            return await this.infraErrorResult(
+              `the final proof guard could not verify the restored ${file}: ${err instanceof Error ? err.message : String(err)}`,
+              workspace.mirrorDir,
+            );
+          }
+          if (restored.get(file) !== proof.sha256) {
+            return await this.infraErrorResult(
+              `the final proof guard restored ${file} but its bytes still differ from the proven ones`,
+              workspace.mirrorDir,
+            );
+          }
+        }
+      }
     }
 
     /* Publish never emits its own step; "decide" covers the decide+publish pair. */
@@ -2502,7 +3042,8 @@ export class RunQaUseCase {
           specDir: workspace.specDir,
           runId: input.runId,
           sha: input.sha.toString(),
-          executedGreen: lastRevision?.files ?? new Map(),
+          /* The ledger's own hashes: every file admitted is one whose green bytes this run holds. */
+          executedGreen: new Map([...proofLedger].map(([file, proof]) => [file, proof.sha256])),
           ...(authVerifiedSha256 !== undefined ? { authVerifiedSha256 } : {}),
         });
         this.announceSuite(`[qa] suite store: kept ${kept.entries} file(s) (${kept.admitted} new or changed, ${kept.dropped} dropped${kept.skipped.length > 0 ? `, ${kept.skipped.length} left out` : ""})`, "info");
@@ -2568,7 +3109,9 @@ export class RunQaUseCase {
     const gateValueScore = valueScore;
     const loopSignal = await closedLoopSignal();
     /* Thread the review loop's real final-round corrections into errorClass derivation. */
-    const errorClass = this.deriveErrorClass(decision.verdict, coverageRatio, gateValueScore, finalReviewerCorrections);
+    const errorClass = this.deriveErrorClass(decision.verdict, coverageRatio, gateValueScore, finalReviewerCorrections, {
+      ...(devNotRenderedConclusive ? { preconditionFailed: true } : {}),
+    });
     let mainlineOutcome: RunOutcome | undefined;
     if (!isContextCleanPass) {
       mainlineOutcome = this.toRunOutcome(input, decision, run.cases, retries, coverageRatio, errorClass, {
@@ -2611,6 +3154,23 @@ export class RunQaUseCase {
         ...(confinementAcc !== undefined ? { confinement: confinementAcc } : {}),
         ...(loopSignal ? { closedLoop: loopSignal } : {}),
         ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
+        ...(coverageStale ? { coverage: { stale: true } } : {}),
+        ...(valueStale ? { value: { stale: true } } : {}),
+        ...(integrityCounters.acceptances > 0 || integrityCounters.rejected > 0 || integrityCounters.capHit
+          ? { integrity: { ...integrityCounters } }
+          : {}),
+        ...(intentState.clauses > 0 || intentState.violations > 0
+          ? {
+              intent: {
+                mode: intentLock.mode,
+                violations: intentState.violations,
+                wouldReject: intentState.wouldReject,
+                clauses: intentState.clauses,
+                opaque: intentState.opaque,
+                opacityHigh: intentState.opacityHigh,
+              },
+            }
+          : {}),
       });
       await this.deps.runHistory.save(mainlineOutcome);
       trail.phases.enter("learn");
@@ -2704,6 +3264,23 @@ export class RunQaUseCase {
         catalogGateFailClosed,
         ...(loopSignal ? { closedLoop: loopSignal } : {}),
         ...(agentBrowserSignal() ? { agentBrowser: agentBrowserSignal() } : {}),
+        ...(coverageStale ? { coverage: { stale: true } } : {}),
+        ...(valueStale ? { value: { stale: true } } : {}),
+        ...(integrityCounters.acceptances > 0 || integrityCounters.rejected > 0 || integrityCounters.capHit
+          ? { integrity: { ...integrityCounters } }
+          : {}),
+        ...(intentState.clauses > 0 || intentState.violations > 0
+          ? {
+              intent: {
+                mode: intentLock.mode,
+                violations: intentState.violations,
+                wouldReject: intentState.wouldReject,
+                clauses: intentState.clauses,
+                opaque: intentState.opaque,
+                opacityHigh: intentState.opacityHigh,
+              },
+            }
+          : {}),
       },
       cases: run.cases,
       logs: run.logs,
@@ -2719,7 +3296,7 @@ export class RunQaUseCase {
     coverageRatio: number | null,
     valueScore: number | null,
     reviewerCorrections: string[] = [],
-    ends: { generationEnd?: GenerationEndKind | undefined; preconditionFailed?: boolean | undefined; reviewerUnavailable?: boolean | undefined } = {},
+    ends: { generationEnd?: GenerationEndKind | undefined; preconditionFailed?: boolean | undefined; reviewerUnavailable?: boolean | undefined; reviewDisputed?: boolean | undefined } = {},
   ): string | null {
     /* Whatever path took the run to its infra-error, a launcher that refused to start agent code in it is the reason. */
     const sandboxUnavailable = verdict === "infra-error" && sandboxRefused();
@@ -2732,6 +3309,7 @@ export class RunQaUseCase {
       ...(ends.generationEnd ? { generationEnd: ends.generationEnd } : {}),
       ...(ends.preconditionFailed ? { preconditionFailed: true } : {}),
       ...(ends.reviewerUnavailable ? { reviewerUnavailable: true } : {}),
+      ...(ends.reviewDisputed ? { reviewDisputed: true } : {}),
       ...(sandboxUnavailable ? { sandboxUnavailable: true } : {}),
     });
   }
@@ -2815,6 +3393,14 @@ export class RunQaUseCase {
       closedLoop?: ClosedLoopGateSignal;
       /* Absent when the run did not grant the authenticated agent browser. */
       agentBrowser?: AgentBrowserGateSignal;
+      /* The recorded coverage predates the bytes an accepted regeneration wrote (signal mode reuses it). */
+      coverage?: { stale: boolean };
+      /* The recorded value score has the same staleness; the oracle stays signal-only. */
+      value?: { stale: boolean };
+      /* What the run's regeneration acceptance did; absent when no regeneration came through it. */
+      integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
+      /* The test-intent lock's derived clauses and deltas; absent when the lock is off or nothing was derived. */
+      intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
     },
   ) {
     const gateCoverageRatio = coverageRatio;
@@ -2860,6 +3446,8 @@ export class RunQaUseCase {
         ...(extra?.confinement !== undefined ? { confinement: extra.confinement } : {}),
         ...(extra?.closedLoop !== undefined ? { closedLoop: extra.closedLoop } : {}),
         ...(extra?.agentBrowser !== undefined ? { agentBrowser: extra.agentBrowser } : {}),
+        ...(extra?.coverage !== undefined ? { coverage: extra.coverage } : {}),
+        ...(extra?.integrity !== undefined ? { integrity: extra.integrity } : {}),
         ...(this.coordinationOf.has(input) ? { coordination: this.coordinationOf.get(input)! } : {}),
       },
       rulesRetrieved: extra?.rulesRetrieved ?? [],
@@ -3058,6 +3646,36 @@ export class RunQaUseCase {
     });
   }
 
+  /*
+   * The reviewer and the generator reached opposite conclusions about a finding the orchestrator verified, and the
+   * generator's refusal rests on nothing the orchestrator can check. The engine cannot settle that judgment, so it says
+   * so instead of publishing or opening an Issue on it: persisted infra-error under its own class, nothing learned,
+   * no PR and no Issue, with the finding and the rebuttal on the record.
+   */
+  private async reviewDisputedResult(
+    cfg: RunQaConfig,
+    input: RunQaInput,
+    disputed: readonly DisputedFinding[],
+    passedCases: number,
+    exit: Omit<TerminalOptions, "note" | "reviewDisputed"> & { static: boolean },
+  ): Promise<RunQaResult> {
+    const findings = disputed.map((entry) => `"${entry.finding}" (rebutted: ${entry.rebuttal.reason})`).join("; ");
+    const note = `The reviewer and the generator could not settle ${disputed.length} finding(s), so the suite (${passedCases} case(s), green) was never approved: ${findings}. The rebuttal rests on evidence the orchestrator could not verify, and the generator delivered nothing else. Nothing was published: no PR, and no Issue, since the engine could not decide.`;
+    console.error(`[qa] ${note}`);
+    this.deps.observer?.onEvent({ type: "agent.error", detail: note });
+    this.deps.observer?.onEvent({
+      type: "log.line",
+      level: "error",
+      text: `[qa] the run ended on an unresolved review dispute (${ERROR_CLASS.REVIEW_DISPUTED}): the finding stands, the rebuttal is unverified, and neither a PR nor an Issue would be honest`,
+    });
+    const { static: staticOk, ...terminalExit } = exit;
+    return await this.terminalResult("infra-error", cfg, input, { generating: true, static: staticOk }, {
+      ...terminalExit,
+      note,
+      reviewDisputed: true,
+    });
+  }
+
   /* Both terminals persist. Only "invalid" also folds; "infra-error" does not. */
   private async terminalResult(
     verdict: "invalid" | "infra-error",
@@ -3081,6 +3699,7 @@ export class RunQaUseCase {
       generationEnd,
       preconditionFailed,
       reviewerUnavailable,
+      reviewDisputed,
       reviewerRationale,
       closedLoop: loopSignal,
       agentBrowser: browserSignal,
@@ -3095,7 +3714,7 @@ export class RunQaUseCase {
       onFailure: cfg.onFailure,
     });
     /* invalid → E-STATIC, infra-error → E-INFRA, unless a generation end or a failed precondition that ended the run names its own class. */
-    const errorClass = this.deriveErrorClass(verdict, null, null, [], { generationEnd, preconditionFailed, reviewerUnavailable });
+    const errorClass = this.deriveErrorClass(verdict, null, null, [], { generationEnd, preconditionFailed, reviewerUnavailable, reviewDisputed });
     /*
      * Dispatch the same publish() as the mainline. infra-error resolves to
      * sideEffect "none" via decide() — no Issue.

@@ -630,6 +630,24 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "regeneration-acceptance": {
+    description: "regeneration acceptance: validate → execute the changed specs (retries 0, a per-run cap) or reuse a proof, fingerprint into the ledger, else restore the snapshot and purge the files the turn created",
+    mutate: [`${ORCH}/application/regeneration-acceptance.ts`],
+    tests: [`${ORCH_TEST}/application/regeneration-acceptance.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "review-findings": {
+    description: "review findings and rebuttals: a finding may block only when the orchestrator can verify the evidence it cites, and a rebuttal withdraws it only against evidence the run can check",
+    mutate: [`${ORCH}/domain/review-finding-filter.service.ts`, `${ORCH}/domain/review-rebuttals.service.ts`],
+    tests: [`${ORCH_TEST}/domain/review-finding-filter.service.test.ts`, `${ORCH_TEST}/domain/review-rebuttals.service.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "intent-contract": {
+    description: "test-intent contract: change tokens from the diff's added lines, anchoring, and the generic delta rules with their change-derived waivers",
+    mutate: [`${OS}/change-tokens.ts`, `${OS}/test-intent-contract.ts`, `${OS_INFRA}/ts-spec-contract.extractor.ts`],
+    tests: [`${OS_TEST}/test-intent-contract.test.ts`, `${OS_INFRA_TEST}/ts-spec-contract.extractor.test.ts`],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
 };
 
 /* Top-level entries never copied into the Stryker sandbox: build outputs, runtime data, the Go TUI,

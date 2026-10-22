@@ -23,6 +23,7 @@ function outcome(over: Partial<RunOutcome> & { errorClass?: RunOutcome["errorCla
     gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0, ...over.gateSignals },
     rulesRetrieved: [],
     at: over.at ?? "2026-06-13T00:00:00Z",
+    ...(over.adjudication ? { adjudication: over.adjudication } : {}),
   };
 }
 
@@ -81,6 +82,34 @@ test("a recurring time-budget end is only observed, worded as the generator runn
   assert.match(findings[0]!.summary, /time/i);
   assert.match(findings[0]!.evidence, /E-TIME-BUDGET/);
   assert.doesNotMatch(findings[0]!.summary, /rule promotion|app-behavior/i);
+});
+
+test("a recurring dev_not_rendered triage is only observed: it never becomes an engine fix, a learned rule or a maintainer incident", () => {
+  const notRendered = (sha: string) => outcome({
+    errorClass: "E-PRECONDITION",
+    verdict: "infra-error",
+    sha,
+    adjudication: { class: "dev_not_rendered", confidence: "high", action: "break-issue", reason: "target absent from the failure DOM" },
+  });
+  const o = notRendered("a");
+  const findings = auditProcess({ outcome: o, recent: [o, notRendered("b"), notRendered("c")], rules: [] });
+  assert.equal(findings.length, 1, "one finding: the streak itself");
+  assert.equal(findings[0]!.kind, "recurring-dev-not-rendered");
+  assert.equal(findings[0]!.disposition, "observe");
+  assert.match(findings[0]!.summary, /not rendered on DEV/i);
+  assert.doesNotMatch(findings[0]!.summary, /rule promotion|engine defect/i);
+});
+
+test("two dev_not_rendered triages in a row are not yet a streak", () => {
+  const notRendered = (sha: string) => outcome({
+    errorClass: "E-PRECONDITION",
+    verdict: "infra-error",
+    sha,
+    adjudication: { class: "dev_not_rendered" },
+  });
+  const o = notRendered("a");
+  const findings = auditProcess({ outcome: o, recent: [o, notRendered("b")], rules: [] });
+  assert.equal(findings.some((f) => f.kind === "recurring-dev-not-rendered"), false);
 });
 
 test("a recurring unavailable reviewer is only observed: it never wakes the maintainer and is not read as an app-behavior gap", () => {

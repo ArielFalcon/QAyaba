@@ -675,13 +675,14 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const fixContentClaims: PromptClaim[] = fixContent && hasFailureTree ? [claim.directs("consult", "dom-failure")] : [];
 
-  /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent must resolve every flagged item before finishing. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
+  /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent addresses every flagged item, correcting it or rebutting it with evidence. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
   const reviewContent = input.reviewCorrections?.length && isGenerationMode
     ? [
         `## Apply reviewer corrections (HIGHEST priority)`,
         ``,
-        `An independent reviewer REJECTED the previous specs. Fix EACH item below precisely;`,
-        `do NOT rewrite specs that were not flagged.`,
+        `An independent reviewer REJECTED the previous specs. Address each finding below: fix the spec`,
+        `when the finding holds, or rebut it with the evidence the correction turn accepts when you can show`,
+        `it is wrong. Do NOT rewrite specs that were not flagged.`,
         treeInPrompt
           ? `Re-verify against the injected grounding above (the DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
           : isCode
@@ -713,6 +714,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ``,
       ].join("\n")
     : "";
+
+  /* A-2b: the deltas the intent lock found in the previous turn, as facts of this one. Capped, sanitized, and never an order: the generator decides how to restore what its bytes weakened. */
+  const contractFeedbackContent = input.contractFeedback?.length && isGenerationMode ? renderContractViolations(input.contractFeedback) : "";
 
   const learnedRulesContent = input.learnedRules && isGenerationMode
     ? [input.learnedRules, ``].join("\n")
@@ -869,6 +873,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3, claims: fixContentClaims })] : []),
       /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
       ...(reviewContent ? [section("reviewer-corrections", "volatile", reviewContent, { priority: 4, maxBytes: 20_000, overflow: "drop" })] : []),
+      ...(contractFeedbackContent ? [section(CONTRACT_FEEDBACK_SECTION_ID, "volatile", contractFeedbackContent, { priority: 4, maxBytes: 6_000, overflow: "drop" })] : []),
       ...(coverageContent ? [section("coverage-gap", "volatile", coverageContent, { priority: 5, shedAs: "critical-recap" })] : []),
       ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2, claims: [claim.provides("learned-rules")] })] : []),
       section("task", "task", task.text, { priority: 1, claims: task.claims }),
@@ -936,7 +941,7 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
   if (input.reviewCorrections?.length) {
     parts.push(
       `## Apply reviewer corrections (HIGHEST priority)`,
-      `An independent reviewer REJECTED the previous specs. Fix EACH item; do NOT rewrite specs not flagged.`,
+      `An independent reviewer REJECTED the previous specs. Address each finding: fix the spec when it holds, rebut it with evidence when it does not. Do NOT rewrite specs not flagged.`,
       ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
       ``,
     );
@@ -1518,7 +1523,7 @@ export function renderReviewSpecs(input: ReviewInput): string {
   return `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}`;
 }
 
-/** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is authoritative evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — injected by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Output is bounded at 4000 chars total; per-case detail is capped at 500 chars. finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
+/** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — captured by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Output is bounded at 4000 chars total; per-case detail is capped at 500 chars. finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
 export interface ExecutionResultCase {
   name: string;
   httpStatus?: number;
@@ -1536,7 +1541,7 @@ export function renderExecutionResult(evidence: {
   const CAP_DETAIL_INTERNAL = CAP_DETAIL - 130;
 
   const lines: string[] = [
-    `## RUNTIME EXECUTION RESULT (authoritative — captured by the orchestrator, not inferred)`,
+    `## RUNTIME EXECUTION RESULT (captured by the orchestrator, not inferred)`,
     ``,
     `Verdict: ${evidence.verdict}`,
     ``,
@@ -1560,6 +1565,35 @@ export function renderExecutionResult(evidence: {
   const raw = lines.join("\n");
   if (raw.length <= CAP_TOTAL) return raw;
   return capText(raw, CAP_TOTAL_INTERNAL);
+}
+
+/* At most this many violations reach one prompt; the rest are counted so the agent knows the list is abridged. */
+const CONTRACT_FEEDBACK_MAX = 6;
+
+export const CONTRACT_FEEDBACK_SECTION_ID = "contract-feedback";
+
+/**
+ * The intent lock's violations as a facts section: each line names the rule, the clause and what the
+ * contract held before and after. Every text is redacted and cut, so a literal that carries a secret
+ * never reaches the model, and the section states counts rather than demanding anything.
+ */
+export function renderContractViolations(
+  violations: readonly { rule: string; file: string; clauseId: string; before: string; after: string }[],
+): string {
+  const shown = violations.slice(0, CONTRACT_FEEDBACK_MAX);
+  const lines = [
+    `## Contract violations (the intent contract this run fixed on these specs)`,
+    ``,
+    `The intent contract was derived from the primary pass's own bytes. Each line is a delta the orchestrator found between that contract and the bytes of the last turn:`,
+    ``,
+    ...shown.map(
+      (violation) =>
+        `- ${sanitizeText(violation.rule).text} ${sanitizeText(violation.file).text}#${sanitizeText(violation.clauseId).text}: ${capText(sanitizeText(violation.before).text, 200)} → ${capText(sanitizeText(violation.after).text, 200)}`,
+    ),
+    ...(violations.length > shown.length ? [``, `(${violations.length - shown.length} more not shown.)`] : []),
+    ``,
+  ];
+  return lines.join("\n");
 }
 
 export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPrompt {
@@ -1617,7 +1651,13 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     `- "blocking": this issue makes the test worthless (false-positive, wrong-objective, missing cleanup) — fails the gate.`,
     `- "advisory": style/robustness nit that does not make the test worthless alone — recorded but does not fail the gate.`,
     `An unconfirmable UI selector (no DOM evidence in this prompt) MUST be advisory, never blocking.`,
-    `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking"}]}`,
+    `Every correction MUST also carry "citation", the evidence it rests on, as {"kind":...,"ref":...}:`,
+    `- "contract": the spec's contract clause it violates; ref is "<spec path>#<clause>".`,
+    `- "execution": an execution of this run that shows it; ref is the "<spec path>" that ran.`,
+    `- "dom": a fact from the DOM section above; ref is the "<spec path>" it concerns (always advisory).`,
+    `A correction with no citation cannot block: the orchestrator treats it as advisory at most.`,
+    `An empty "corrections" list beside "approved": true is a complete answer — never invent a finding to look thorough.`,
+    `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking","citation":{"kind":"execution","ref":"file.spec.ts"}}]}`,
   ].join("\n");
 
   const objectiveContent = [obj.heading, ...obj.body].join("\n");

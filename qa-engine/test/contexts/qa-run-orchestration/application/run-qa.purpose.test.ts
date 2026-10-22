@@ -8,20 +8,23 @@ import { RUN_PURPOSE } from "@kernel/run-mode.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { generationOnDisk, runWorkspace } from "../../../support/run-workspace.ts";
 
 const INPUT = { app: "demo", sha: Sha.of("abc1234"), source: "manual" as const, mode: "manual" as const, target: "e2e" as const, runId: "purpose-run" };
 
 function useCase(saved: RunOutcome[], opts: { verdict?: "pass" | "fail"; note?: string } = {}): RunQaUseCase {
+  const ws = runWorkspace("qa-purpose-");
   return new RunQaUseCase({
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "x", diff: "" }) },
-    generation: { generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) },
+    generation: generationOnDisk({ generate: async () => scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
     validation: { validate: async () => ({ ok: true, errors: [] }) },
     execution: { execute: async () => ({ verdict: opts.verdict ?? "pass", cases: [], logs: "" }) },
     objectiveSignal: { measure: async () => ({ status: "unknown", ratio: null }), blocks: () => false },
     publication: { publish: async () => ({ outcome: "pr" }) },
     learning: { fold: async () => {}, retrieve: async () => [] },
-    workspace: { prepare: async () => ({ specDir: "/tmp/qa-purpose/e2e", mirrorDir: "/tmp/qa-purpose" }) },
+    workspace: { prepare: async () => ({ specDir: ws.specDir, mirrorDir: ws.mirrorDir }) },
+    suiteStore: ws.suiteStore,
     deployGate: { waitUntilServing: async () => ok(true) },
     runHistory: { save: async (outcome) => { saved.push(outcome); } },
     setup: { setup: async () => {} },

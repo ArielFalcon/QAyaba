@@ -80,6 +80,7 @@ import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/d
 import type { VcsReadPort } from "@contexts/change-analysis/application/ports/index.ts";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts";
+import { extractSpecContract } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor.ts";
 
 /* What the shell hands the root to let a run grant its generator the run_spec tool. Absent: the run never does. */
 export interface ClosedLoopWiring {
@@ -152,9 +153,13 @@ export interface CompositionConfig {
   onFailure: string;
   maxRetries: number;
   isCode: boolean;
+  /* The review-loop integrity master switch (failure triage, intent lock, findings filter). Absent: off. */
+  integrity?: { reviewLoop: boolean };
   coveragePolicyMode: "off" | "signal" | "enforce";
   /* The change-coverage threshold of the same policy; recorded with the run's coverage decision. */
   coverageMinRatio?: number;
+  /* The test-intent lock (off | signal | enforce) plus the opacity ratio it flags. Absent: signal, 0.5. */
+  intentLock?: { mode: "off" | "signal" | "enforce"; opacityFlagRatio: number };
   /* Per-mode agent session budget (ms). Factory maps agentTimeout(mode). Optional: omitted fakes keep the use-case default (0 = derived but not enforced). */
   agentTimeoutMs?: number;
   wallClockBudgetMs?: number;
@@ -593,6 +598,8 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     workspace,
     deployGate,
     runHistory,
+    /* The intent lock's parser: pure, no I/O, so one instance serves every run. */
+    intentContract: { extract: extractSpecContract },
     ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
     ...(closedLoop ? { closedLoop } : {}),
     ...(agentBrowser ? { agentBrowser } : {}),
@@ -666,11 +673,13 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     config: {
       needsReview: cfg.needsReview,
       shadow: cfg.shadow,
+      reviewLoopIntegrity: cfg.integrity?.reviewLoop ?? true,
       onFailure: cfg.onFailure,
       maxRetries: cfg.maxRetries,
       isCode: cfg.isCode,
       coveragePolicyMode: cfg.coveragePolicyMode,
       ...(cfg.coverageMinRatio !== undefined ? { coverageMinRatio: cfg.coverageMinRatio } : {}),
+      ...(cfg.intentLock !== undefined ? { intentLock: cfg.intentLock } : {}),
       ...(cfg.agentTimeoutMs !== undefined ? { agentTimeoutMs: cfg.agentTimeoutMs } : {}),
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
       ...(cfg.iterationBudget !== undefined ? { iterationBudget: cfg.iterationBudget } : {}),

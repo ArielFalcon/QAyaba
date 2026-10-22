@@ -9,7 +9,18 @@ import type { ReviewInput, StepLimitFor } from "@contexts/generation/application
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { renderLearnedRulesForReviewer } from "./generation-port.adapter.ts";
 import { promptFactsOpts } from "@contexts/generation/domain/prompt-facts.ts";
+import { renderExecutionResult, type ExecutionResultCase } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { rethrowIfRunDeadline } from "@kernel/run-deadline.ts";
+
+/* One executed case as the reviewer's execution evidence: only the fields the renderer shows, and only when the run captured them. */
+function executionResultCase(c: QaCase): ExecutionResultCase {
+  return {
+    name: c.name,
+    ...(c.httpStatus !== undefined ? { httpStatus: c.httpStatus } : {}),
+    ...(c.finalUrl !== undefined ? { finalUrl: c.finalUrl } : {}),
+    ...(c.detail !== undefined ? { detail: c.detail } : {}),
+  };
+}
 
 export interface ReviewPortRuntime {
   runtime: AgentRuntimePort;
@@ -72,6 +83,7 @@ export class ReviewPortAdapter implements ReviewPort {
       ...(enrichment?.specChanges ? { specChanges: enrichment.specChanges } : {}),
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRulesForReviewer(enrichment.learnedRules) } : {}),
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
+      ...(enrichment?.executionEvidence ? { executionResult: renderExecutionResult({ verdict: enrichment.executionEvidence.verdict, cases: enrichment.executionEvidence.cases.map(executionResultCase) }) } : {}),
       ...(enrichment?.runId ? { runId: enrichment.runId } : {}),
       /* The limit the runtime enforces for the reviewer's session. Absent -> omitted, never a made-up number. */
       ...(stepLimit !== undefined ? { stepLimit } : {}),
