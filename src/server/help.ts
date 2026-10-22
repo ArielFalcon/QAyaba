@@ -104,7 +104,7 @@ Flip the switch: config/apps/<name>.yaml → qa.shadow: false.
 
 ## AI reviewer
 
-A separate AI model (minimax-m3) judges every generated test. It rejects tests that:
+A separate AI model (a different one from the generator) judges every generated test. It rejects tests that:
 - Click without asserting
 - Use fragile selectors
 - Miss the actual change

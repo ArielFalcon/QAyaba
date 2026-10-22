@@ -7,9 +7,16 @@ export const BYTES_PER_TOKEN = 4;
 
 export const INPUT_PROMPT_SAFETY_MARGIN = 0.75;
 
+/* Provider prefixes a role's model reference may carry. Both the Go subscription and the plain
+   `opencode` provider serve free models, and a reference keeps its prefix wherever it is written. */
+const PROVIDER_PREFIXES = ["opencode-go/", "opencode/"];
+
 const MODEL_WINDOW_TOKENS: Record<string, number> = {
   "qwen3.7-plus": 64_000,
   "glm-5.3-flash": 1_000_000,
+  "minimax-m3.1-flash-free": 1_000_000,
+  "deepseek-v4.1-flash-free": 200_000,
+  "beam-free": 1_048_576,
   "muse-spark-1.3-contributor": 1_048_576,
   "kimi-k2.7-code": 224_000,
   "minimax-m3": 1_000_000,
@@ -30,8 +37,8 @@ export function modelWindowBytes(modelName: string): number {
 }
 
 export function normalizeModelName(raw: string): string {
-  const prefix = "opencode-go/";
-  return raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+  const prefix = PROVIDER_PREFIXES.find((p) => raw.startsWith(p));
+  return prefix ? raw.slice(prefix.length) : raw;
 }
 
 const warnedFallbacks = new Set<string>();

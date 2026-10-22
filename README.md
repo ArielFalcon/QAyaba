@@ -254,9 +254,11 @@ The project uses provider-neutral role assignments. Configure them from the Dash
 
 | Role | Default provider/model | Purpose |
 |---|---|---|
-| `primary` (lead) | `opencode-go/glm-5.3-flash` | Reads code, writes Playwright tests, coordinates delegations |
-| `reviewer` | `opencode-go/minimax-m3` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
-| `chat` | `opencode-go/glm-5.3-flash` | Read-only operator assistant |
+| `primary` (lead) | `opencode-go/minimax-m3.1-flash-free` | Reads code, writes Playwright tests, coordinates delegations |
+| `reviewer` | `opencode/deepseek-v4.1-flash-free` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
+| `chat` | `opencode/deepseek-v4.1-flash-free` | Read-only operator assistant |
+
+Every role defaults to a free model, so a run keeps working after the paid Go usage limit is exhausted. The lead, the sidekick and the explorer take `minimax-m3.1-flash-free` (1M context, 512K output — the only free model that holds the grounding and writes several specs in one turn); the smaller-prompt roles take `deepseek-v4.1-flash-free` (200K context, 32K output). All are limited-time offers: check `opencode models` and the catalog in `qa-engine/src/contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts` when they retire.
 
 The coordination sidekick runs on its own role (`sidekick`) with the same base model as the lead tier; assign it a stronger model via `COORDINATION_ESCALATED_MODEL` when you want escalated sidekick sessions to use a different capacity.
 

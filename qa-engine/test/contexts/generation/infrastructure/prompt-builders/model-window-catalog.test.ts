@@ -77,6 +77,11 @@ test("catalog: normalizeModelName strips the 'opencode-go/' prefix", () => {
   assert.equal(normalizeModelName("opencode-go/deepseek-v4-flash"), "deepseek-v4-flash");
 });
 
+test("catalog: normalizeModelName strips the plain 'opencode/' prefix too, so a free model keeps its real window", () => {
+  assert.equal(normalizeModelName("opencode/deepseek-v4.1-flash-free"), "deepseek-v4.1-flash-free");
+  assert.equal(normalizeModelName("opencode/glm-5.3-flash-free"), "glm-5.3-flash-free");
+});
+
 test("catalog: normalizeModelName passes through names without the prefix unchanged", () => {
   assert.equal(normalizeModelName("kimi-k2.7-code"), "kimi-k2.7-code");
   assert.equal(normalizeModelName("minimax-m3"), "minimax-m3");
