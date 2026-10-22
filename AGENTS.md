@@ -61,6 +61,7 @@ npm run typecheck && npm run arch:check && npm run sdk:typecheck && npm run cont
 
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
 npm run sandbox:smoke       # IN the running orchestrator container: proves the execution sandbox holds (docs/execution-sandbox.md)
+npm run judge-calibrate -- --judge <name> [--min-n 20] # calibrate an LLM judge against human labels and persist the report (inside the orchestrator container; docs/observability-design.md §11.3)
 npm run efficiency-benchmark # agent step/call telemetry over real runs; never a gate (needs the stack up; docs/efficiency-benchmark.md)
 npm run probe-report -- <runId...> # one run's phases, turns, tool use, tokens and cost (inside the orchestrator container)
 npm run baseline-agent -- --app <app> --sha <sha> --timeout-min <n> --label <l> # experiment only: a plain agent on a throwaway copy, same metrics as probe-report
