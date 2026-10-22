@@ -1921,6 +1921,44 @@ test("an empty data state the second read does not repeat makes the run flaky, n
   assert.equal(result.run.verdict, "flaky");
 });
 
+/* A count assertion on the empty page reads as a value mismatch, yet what the page showed is the same contradiction. */
+const EMPTY_COUNT_FAULT = "Error: expect(locator).toHaveCount(expected) failed\n\nLocator:  locator('app-list').getByRole('button', { name: 'More' })\nExpected: 1\nReceived: 0\nTimeout:  5000ms";
+
+test("a value-mismatch failure on an empty data state the Context Pack read with results is re-read once, never repaired", async () => {
+  const failing = emptyListCase({ detail: EMPTY_COUNT_FAULT });
+  const { loop, rec } = recordingLoop({ runs: [{ verdict: "fail", cases: [failing] }] });
+
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [failing] },
+      integrity: integrity({ hasGreenProof: async () => false }),
+      packConfirmedDataRoutes: PACK_CONFIRMED,
+    }),
+  );
+
+  assert.equal(rec.generates.length, 0, "the test is not what the evidence blames, whatever its assertion");
+  assert.equal(rec.executes.length, 1);
+  assert.equal(result.lastAdjudicatorVerdict?.class, "dev_not_rendered");
+  assert.equal(result.preconditionFailed, true);
+  assert.deepEqual(result.triage, { trigger: "pack-conflict", outcome: "dev-not-rendered", files: 1 });
+});
+
+test("a value-mismatch failure on a page the Context Pack did not confirm is not triaged", async () => {
+  const failing = emptyListCase({ detail: EMPTY_COUNT_FAULT, finalUrl: "https://dev.example/owners/archive" });
+  const { loop, rec } = recordingLoop({ regen: noFix });
+
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [failing] },
+      integrity: integrity({ hasGreenProof: async () => false }),
+      packConfirmedDataRoutes: PACK_CONFIRMED,
+    }),
+  );
+
+  assert.equal(rec.executes.length, 0, "no conflict: no triage re-read");
+  assert.equal(result.triage, undefined);
+});
+
 test("an empty data state on a route the Context Pack did not confirm with results is repaired as before", async () => {
   const failing = emptyListCase({ finalUrl: "https://dev.example/owners/archive" });
   const { loop, rec } = recordingLoop({ regen: noFix });
