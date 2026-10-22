@@ -21,6 +21,7 @@ import { generatorTimeBudgetMs, type DiffTimeBudgets } from "../domain/generator
 import { isReGenTurn } from "../domain/regen-turn.ts";
 import { promptFactsOpts } from "../domain/prompt-facts.ts";
 import { REPAIR_TURN_TIMEOUT_MS, renderRepairTimeoutNote, repairTurnLimit } from "../domain/repair-turn.ts";
+import type { NoopKind } from "@kernel/noop-kind.ts";
 
 export interface RepairPort {
   checkGenerator(text: string): { valid: boolean; issues: string[] };
@@ -58,6 +59,8 @@ export interface GenerationResult {
   parsed?: boolean;
   /** How the generation ended. Only a declared no-op is a decision to write nothing; a generation that ran out of steps or decided nothing never reads as one. */
   end: GenerationEndKind;
+  /** For a declared no-op, the reason the verdict named (`noop.kind`), `unspecified` when it named none. Absent for every other end. */
+  noopKind?: NoopKind;
   /** What the generation's MAIN turn measured, when its runtime can measure a turn (Codex cannot). */
   turn?: AgentTurnStats;
   /** The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
@@ -262,7 +265,13 @@ export class GenerateTestsUseCase {
     const note = repairTimedOutMs !== undefined && (end === GENERATION_END.NO_VERDICT || end === GENERATION_END.UNDECIDED_EMPTY)
       ? [endNote, renderRepairTimeoutNote(repairTimedOutMs)].filter(Boolean).join(" ")
       : endNote;
-    const outcome = { end, note, ...(mainTurn ? { turn: mainTurn } : {}) };
+    const outcome = {
+      end,
+      note,
+      /* The kind the declared no-op names (`unspecified` when its verdict names none): recorded with the run, read by nothing that decides it. */
+      ...(end === GENERATION_END.DECLARED_NOOP && deliverable.noopKind ? { noopKind: deliverable.noopKind } : {}),
+      ...(mainTurn ? { turn: mainTurn } : {}),
+    };
     /* The verdict's own declarations, read before the manifest drops anything: a spec the reviewer rejects, or one the manifest cannot hash, is still a spec the run delivered. */
     const declaredSpecs = declareSpecs(deliverable.specs, deliverable.specMetas);
     const declared = declaredSpecs.length > 0 ? { declaredSpecs } : {};

@@ -344,6 +344,8 @@ export interface RunOutcome {
     agentBrowser?: { calls: number; blocks: number; invalidations: number; renewals: number };
     /* How the run was coordinated when it asked for the lead/sidekick mode; absent for a run in the single mode. */
     coordination?: { mode: "single" | "lead-sidekicks"; plan?: string; downgrade?: string; flows: number; delivered: number; incomplete: number; takeover: boolean; authoring?: string };
+    /* The reason a declared no-op named (`unspecified` when it named none); absent for a run that is not one. Persist-only. */
+    noop?: { kind: "not-worth" | "unobservable" | "unspecified" };
 
     structuralSignalBytes?: number;
     serviceLinksCount?: number;

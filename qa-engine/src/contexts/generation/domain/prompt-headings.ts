@@ -48,6 +48,8 @@ export const PACK_HEADINGS = {
   contracts: "Relevant API contracts",
   notCapturable: "Routes not capturable",
   redirected: "Pages reached by redirect",
+  /* What the captured pages say of the labels the change added and removed. */
+  changedValues: "Changed values",
 } as const;
 
 /* The artifacts only some prompts assemble: static role text is unconditional, so it must not name any of them. */

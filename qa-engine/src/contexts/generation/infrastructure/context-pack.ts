@@ -13,7 +13,8 @@ import { rankRoutesWithRelevance } from "../domain/route-ranking.ts";
 import { instantiableTemplate, instantiateRoute } from "../domain/route-instantiation.ts";
 import { changedValueFactIds, domItemIds, itemId } from "../domain/context-item-ids.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
-
+import { renderChangedValues, valuesWithMoreNodesThanLines, type ObservedPage } from "../domain/changed-values.ts";
+import type { ChangedLiteral } from "../../../shared-kernel/diff-parser/changed-literal.ts";
 export { PACK_HEADINGS };
 
 const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
@@ -21,6 +22,7 @@ const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
   [PACK_HEADINGS.feBe, "fe-be-links"],
   [PACK_HEADINGS.risks, "risks"],
   [PACK_HEADINGS.liveDom, "dom-live"],
+  [PACK_HEADINGS.changedValues, "changed-values"],
   [PACK_HEADINGS.contracts, "api-operations"],
 ];
 
@@ -51,6 +53,9 @@ export interface ContextPackInput {
 
   /* Diff/guidance selector signals forwarded to formatDomSnapshot for [CHANGED: …] annotation. Absent/empty → no annotation. */
   changedElements?: ChangedElement[];
+
+  /* The quoted labels the diff added and removed, each with how many unchanged lines of its file already hold it when that file was read. The pack states, for each, how many nodes of the captured trees show it. Absent/empty → no section. */
+  changedLiterals?: ChangedLiteral[];
 
   /* Selector grounding: the config-declared test-id convention (e.g. "data-cy"), forwarded to captureDomForRoutes so the DOM capture queries the right attribute and the agent transcribes real test-ids instead of guessing. Absent → capture defaults to "data-testid". */
   testIdAttribute?: string;
@@ -124,7 +129,8 @@ export interface ContextPackAssembly {
   domBytes: number;
   contractBytes: number;
   trace?: ContextPackTrace;
-}
+  /* The added values whose changed-value line states more nodes on a route than unchanged lines hold them. Absent when none does. */
+  changedValuesWithMoreNodes?: string[];}
 
 export interface ContextPackDeps {
   captureDomForRoutes(
@@ -393,13 +399,15 @@ export async function buildContextPack(
   const captures: PackCapture[] = [];
   let renderedRoutes = 0;
   let omittedLines = 0;
-  const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
+  /* The routes the report covers: a page rendered only for its links is no part of it. */
+  const reportedRoutes = new Set<string>();  const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
     const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) { pages.set(page.route, page); deliveries.set(page.route, { route: page.template ?? page.route, ...(page.template !== undefined ? { template: page.template } : {}), keptNodes: page.keptNodes ?? [], keptTestIds: page.keptTestIds ?? [], testIdOfNode: page.testIdOfNode ?? new Map(), nodeCapOmitted: page.nodeCapOmitted ?? 0, lineCapOmitted: 0, lineKeptNodes: [], lineKeptTestIds: [] }); } } }, deps.domDeps, input.changedElements);
     const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
     if (!raw) return;
     const { grounded, advisory } = splitRedirectSection(raw);
     captures.push({ grounded, advisory });
     renderedRoutes += routes.length;
+    for (const route of routes) reportedRoutes.add(route);
   };
   /* What became of each template the run looked at: the page the links gave it, if any. A template behind the cut is never looked at. */
   const instanceOfTemplate = new Map<string, string | undefined>();
@@ -516,6 +524,15 @@ export async function buildContextPack(
     log(`[qa] context-pack: ${relevantOps.length} relevant API contract(s) included`);
   }
 
+  /* What the grounded pages of the report say of the labels the change added and removed: nothing without a captured DOM to count in. */
+  const observedPages: ObservedPage[] = [...pages.values()]
+    .filter((page) => page.grounded && reportedRoutes.has(page.route))
+    .map((page) => ({ route: page.route, nodes: page.nodes ?? [] }));
+  const changedValuesSection =
+    domSection !== "" && input.changedLiterals?.length ? sanitizeText(renderChangedValues(input.changedLiterals, observedPages), "model").text : "";
+
+  const moreNodes = changedValuesSection === "" ? [] : valuesWithMoreNodesThanLines(input.changedLiterals ?? [], observedPages);
+
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
   const trace: ContextPackTrace = domPack
@@ -544,6 +561,7 @@ export async function buildContextPack(
 
   const sections = [
     { text: domSection, held: "the live DOM of the routes it covers" },
+    { text: changedValuesSection, held: "what the captured pages show of the values the change added and removed" },
     { text: redirectSection, held: "the pages reached by redirect (advisory)" },
     { text: contractSection, held: "the API contracts relevant to this objective" },
   ].filter(hasText);
@@ -565,5 +583,5 @@ export async function buildContextPack(
   ].join("\n");
 
   const text = packHeader + parts.join("\n\n");
-  return { text, domBytes, contractBytes, trace };
+  return { text, domBytes, contractBytes, trace, ...(moreNodes.length > 0 ? { changedValuesWithMoreNodes: moreNodes } : {}) };
 }

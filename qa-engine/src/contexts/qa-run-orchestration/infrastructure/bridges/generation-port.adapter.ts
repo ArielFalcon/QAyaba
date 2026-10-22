@@ -120,6 +120,7 @@ export class GenerationPortAdapter implements GenerationPort {
     const result: GenerationOutput = {
       specs: generated.specs,
       end: generated.end,
+      ...(generated.noopKind ? { noopKind: generated.noopKind } : {}),
       reviewed: generated.reviewed,
       approved: generated.approved,
       ...(generated.note !== undefined ? { note: generated.note } : {}),

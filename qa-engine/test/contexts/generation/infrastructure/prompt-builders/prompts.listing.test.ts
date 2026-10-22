@@ -9,7 +9,6 @@ import {
   FIX_STEPS,
   OBJECTIVE_HEADING,
   OBJECTIVE_QUESTION,
-  buildFollowupPrompt,
   buildPromptAssembled,
   setExplorationBriefCollaborators,
   type AssembledPrompt,
@@ -283,7 +282,6 @@ const FAILED_CASE: QaCase = {
 };
 const builders: Array<[string, (fixCases: QaCase[]) => string]> = [
   ["the fix section of the prompt", (fixCases) => buildPromptAssembled(mkInput({ deliveredSpecs: [A], fixCases })).text],
-  ["the continuation prompt", (fixCases) => buildFollowupPrompt(mkInput({ fixCases }))],
 ];
 
 test("what a failing case reports is redacted before it reaches the prompt: its name, its error, the page it ended on and the errors the page raised", () => {

@@ -6,6 +6,7 @@ import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
 import { sanitizeText } from "./sanitize-text.ts";
 import { boundReviewCorrections, boundReviewRationale, boundReviewText, reviewAnswerIsOversized, REVIEW_CORRECTION_MAX_CHARS, REVIEW_CORRECTIONS_MAX, REVIEW_RATIONALE_MAX_CHARS, REVIEW_RESPONSE_MAX_CHARS } from "../domain/review-output.ts";
+import type { NoopKind } from "@kernel/noop-kind.ts";
 
 /* Redacted at the earliest point, then cut to the note bound: the reason and the output tail end up persisted on the run, where no later stage redacts them. The reason keeps its start, the output keeps its end. */
 function forNote(text: string, keep: "start" | "end"): string {
@@ -34,6 +35,8 @@ interface LegacyVerdict {
   note?: string;
   /* The reason the generator gave for writing nothing; approved is never a no-op signal. */
   noopReason?: string;
+  /* The kind the no-op names, `unspecified` when it names none. */
+  noopKind?: NoopKind;
   /* The plan the legacy parser read, forwarded untouched: it is the orchestrator's admission that judges it. */
   plan?: Record<string, unknown>;
   /* The generator's typed test-correct claim, forwarded after sanitizing/bounding its reason. */
@@ -91,7 +94,7 @@ export class VerdictParserAdapter implements VerdictParserPort {
     return {
       specs: (v.specs ?? []).map(resolve),
       ...(v.note ? { note: v.note } : {}),
-      ...(noopReason ? { noopReason } : {}),
+      ...(noopReason ? { noopReason, ...(v.noopKind ? { noopKind: v.noopKind } : {}) } : {}),
       ...(outputTail ? { outputTail } : {}),
       ...(v.plan ? { plan: v.plan } : {}),
       ...(v.testCorrect && testCorrectReason ? { testCorrect: { cause: v.testCorrect.cause, reason: testCorrectReason } } : {}),

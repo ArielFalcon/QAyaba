@@ -7,6 +7,7 @@ import {
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { matchExemplars } from "@kernel/scenario-catalog.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import { lintCell, type FactId, type LintSection, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
@@ -148,11 +149,12 @@ const RETRIEVED_RULES: readonly RetrievedRule[] = [
   { id: "rule-experimental", trigger: "a total that re-queries", action: "assert once the re-query settles", errorClass: "timing", status: "candidate", confidence: "low" },
 ];
 const LEARNED_RULES = renderLearnedRules(RETRIEVED_RULES);
-const FORM_PATTERN: NonNullable<OpencodeRunInput["structuralPatterns"]> = [{ kind: "form", hasOnSubmit: true, hasValidation: true }];
+/* The templates the curriculum selects for a form change, as the generation port hands them to the prompt. */
+const FORM_EXEMPLARS: NonNullable<OpencodeRunInput["skillExemplars"]> = matchExemplars({ kind: "form", hasOnSubmit: true, hasValidation: true }).map(({ id, name, template, archetype }) => ({ id, name, template, archetype, proven: false, promotionCount: 0 }));
 const SUITE_LISTING = ["flows/cart.spec.ts", "flows/login.spec.ts — flow: login, objective: the user signs in"];
 
 test("the suite listing, the skill exemplars and the learned rules each declare the fact they provide, and each fact has that one provider", () => {
-  const a = buildPromptAssembled(mkInput({ existingSpecFiles: SUITE_LISTING, structuralPatterns: FORM_PATTERN, learnedRules: LEARNED_RULES }));
+  const a = buildPromptAssembled(mkInput({ existingSpecFiles: SUITE_LISTING, skillExemplars: FORM_EXEMPLARS, learnedRules: LEARNED_RULES }));
   assert.deepEqual(provided(a, "existing-suite-manifest"), ["existing-suite"]);
   assert.deepEqual(provided(a, "skill-exemplars"), ["exemplars"]);
   assert.deepEqual(provided(a, "learned-rules"), ["learned-rules"]);
@@ -170,10 +172,10 @@ test("a section that is not rendered provides nothing: no listing, no exemplar m
 
 /* The matrix assembles neither the exemplars nor the learned rules, so this is where their references meet the real sections: the exemplars' own text points at test templates, and only the section's claim keeps that from being a dangling reference. */
 test("a prompt that carries the suite listing, the exemplars and the learned rules refers to each only where it carries it", () => {
-  const carrying = buildPromptAssembled(mkInput({ existingSpecFiles: SUITE_LISTING, structuralPatterns: FORM_PATTERN, learnedRules: LEARNED_RULES }));
+  const carrying = buildPromptAssembled(mkInput({ existingSpecFiles: SUITE_LISTING, skillExemplars: FORM_EXEMPLARS, learnedRules: LEARNED_RULES }));
   assert.deepEqual(findingsOf(carrying), []);
   const regen = buildPromptAssembled(
-    mkInput({ existingSpecFiles: SUITE_LISTING, structuralPatterns: FORM_PATTERN, learnedRules: LEARNED_RULES, fixCases: [{ name: "cart total", status: "fail", detail: "boom" }] }),
+    mkInput({ existingSpecFiles: SUITE_LISTING, skillExemplars: FORM_EXEMPLARS, learnedRules: LEARNED_RULES, fixCases: [{ name: "cart total", status: "fail", detail: "boom" }] }),
   );
   assert.deepEqual(findingsOf(regen, true), []);
 });

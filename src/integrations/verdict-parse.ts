@@ -1,6 +1,7 @@
 
 
 import type { SpecMeta } from "../types";
+import { readNoopKind, type NoopKind } from "@kernel/noop-kind";
 
 export interface FinalVerdict {
   approved: boolean;
@@ -9,6 +10,8 @@ export interface FinalVerdict {
   note?: string;
   /** The reason the generator gave for writing nothing (`noop.reason`); absent unless it declared a no-op with a reason. `approved` is never a no-op signal. */
   noopReason?: string;
+  /** The reason it gave, as the contract names it (`noop.kind`): recorded as `unspecified` when the verdict names none. Present exactly when `noopReason` is. */
+  noopKind?: NoopKind;
   /** The plan a lead emitted when its turn asked for one: the raw object, untrusted and read by the orchestrator's admission alone. Absent unless the verdict carried a `plan` object. */
   plan?: Record<string, unknown>;
   /** The generator's typed claim that the test is correct; a claim, never evidence. Absent unless it carried a valid cause and a non-blank reason. */
@@ -114,6 +117,10 @@ function rebuttalsOf(raw: unknown): { finding: string; basis: "execution" | "con
   }
   return rebuttals.length > 0 ? rebuttals : undefined;
 }
+/* The decision of a `noop` block: its reason and the kind it names, both only when it gives a reason. */
+function noopOf(raw: unknown): { noopReason?: string; noopKind?: NoopKind } {
+  const reason = noopReasonOf(raw);
+  return reason === undefined ? {} : { noopReason: reason, noopKind: readNoopKind((raw as Record<string, unknown>).kind) };}
 
 /*
  * Last balanced object with `specs`, `noop`, `testCorrect` or `approved`. A missing `approved` is
@@ -135,10 +142,9 @@ export function parseVerdict(text: string): FinalVerdict {
       specs: specs as string[],
       specMetas: parseSpecMetas(o.specMetas),
       note: typeof o.note === "string" ? o.note : undefined,
-      noopReason: noopReasonOf(o.noop),
+      ...noopOf(o.noop),
       ...(testCorrect ? { testCorrect } : {}),
-      ...(rebuttals ? { rebuttals } : {}),
-      ...(planOf(o.plan) ? { plan: planOf(o.plan) } : {}),
+      ...(rebuttals ? { rebuttals } : {}),      ...(planOf(o.plan) ? { plan: planOf(o.plan) } : {}),
       parsed: true,
     };
   }

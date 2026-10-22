@@ -10,4 +10,6 @@ export interface ChangedElement {
   role?: string;      /* best-effort tag → ARIA role */
   raw: string;        /* trimmed added line */
   scope?: string[];   /* the containers the changed line sits in, nearest first, named as the DOM capture names them (see RepeatedName) */
+  /* For a text-only element: how many unchanged lines of `file`, as it is after the change, already hold `text`. Set by a caller that read the file; absent when it was not read. */
+  unchangedLines?: number;
 }

@@ -12,6 +12,7 @@ import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { CoordinationGateSignal } from "@kernel/coordination.ts";
+import type { NoopKind } from "@kernel/noop-kind.ts";
 import { DecideCoverageService, type CoverageStatus } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { isContentReadTool } from "@contexts/generation/domain/call-sequence.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -326,6 +327,8 @@ export interface ProbeReport {
   agentBrowser?: AgentBrowserGateSignal;
   /** How the run was coordinated when it asked for the lead/sidekick mode: what became of the plan, the flows delivered and left unfinished, and whether the lead took over. Absent for a run in the single mode. */
   coordination?: CoordinationGateSignal;
+  /** The reason a declared no-op named (`not-worth`, `unobservable`, or `unspecified` when it named none). Absent for a run that declared none. */
+  noop?: { kind: NoopKind };
   /** How the run's evidence scores against a hand-written ground truth (`--ground-truth`); absent when none was given. */
   groundTruth?: GroundTruthScore;
   /** What only one arm can say (the plain agent's model, step cap and timeout, its final words, what it wrote outside the suite). Not compared across arms. */
@@ -448,6 +451,7 @@ export function buildPipelineReport(input: PipelineReportInput): ProbeReport {
     ...(outcome?.gateSignals.closedLoop ? { closedLoop: outcome.gateSignals.closedLoop } : {}),
     ...(outcome?.gateSignals.agentBrowser ? { agentBrowser: outcome.gateSignals.agentBrowser } : {}),
     ...(outcome?.gateSignals.coordination ? { coordination: outcome.gateSignals.coordination } : {}),
+    ...(outcome?.gateSignals.noop ? { noop: outcome.gateSignals.noop } : {}),
     ...(input.groundTruth
       ? { groundTruth: scoreGroundTruth(input.groundTruth, { briefText, filesRead: contentReadsOf(turns), specSources: specSourcesOf(specs, input.specSources), ...(input.contextIds ? { contextIds: input.contextIds } : {}) }) }
       : {}),
@@ -934,11 +938,19 @@ export function renderCoordinationLines(reports: readonly ProbeReport[]): string
   ];
 }
 
+/** The kind each declared no-op named: a run that declared none lists nothing. */
+export function renderNoopLines(reports: readonly ProbeReport[]): string[] {
+  const used = reports.filter((r) => r.noop !== undefined);
+  if (used.length === 0) return [];
+  return ["", "### No-op", "", ...used.map((r) => `- ${r.id}: ${r.noop!.kind}`)];
+}
+
 export function renderMarkdown(reports: readonly ProbeReport[]): string {
   const lines = ["### Runs", "", RUN_TABLE_HEADER, ...reports.map(renderRunRow), "", "### Agent turns", "", TURN_TABLE_HEADER, ...reports.flatMap(renderTurnRows)];
   lines.push(...renderStitcherTables(reports));
   lines.push(...renderBrowserLines(reports));
   lines.push(...renderCoordinationLines(reports));
+  lines.push(...renderNoopLines(reports));
   if (reports.some((r) => r.totals.turnsWithPartialUsage > 0)) {
     lines.push("", "`*` tokens and cost of a turn recorded before per-step usage existed: the last assistant message alone, which understates a many-step turn.");
   }

@@ -166,9 +166,6 @@ export interface OpencodeRunInput {
   staticSignal?: string;
   /* True when the static signal names symbols (impacted or callers): only then does it stand for an explored blast radius. Absent = a signal of co-change files alone (or no signal), which names no blast radius. */
   staticSignalHasSymbols?: boolean;
-  diffArchetypes?: string[];
-  /* Fed into prompts.ts's matchExemplars/renderExemplarsForPrompt loop to render a "Skill exemplars" section. Absent or empty = no section (never fabricated). Restoration-only: no live production caller populates this yet (mirrors diffArchetypes' own still-open wiring gap into the rewritten engine). */
-  structuralPatterns?: StructuralPattern[];
   skillExemplars?: readonly {
     id: string; name: string; template: string; archetype: string; proven: boolean; promotionCount: number;
   }[];

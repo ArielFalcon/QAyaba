@@ -4,6 +4,7 @@ import { z } from "zod";
 import { GeneratorVerdictSchema, ReviewerVerdictSchema, correctionText, correctionSeverity, correctionCitation } from "../orchestrator/schemas";
 import { lastJsonMatching, isClosingVerdict } from "./verdict-parse";
 import { GRAVE_TAGS } from "../qa/learning/taxonomy";
+import { NOOP_KIND } from "@kernel/noop-kind";
 
 
 /*
@@ -150,8 +151,8 @@ export interface RepairInstructionOpts {
 export function repairInstruction(kind: "generator" | "reviewer", issues: string[], opts?: RepairInstructionOpts): string {
   const shape =
     kind === "generator"
-      ? `{"specs": string[], "specMetas"?: [{"file","flow","objective","targets": string[]}], "note"?: string, "noop"?: {"reason": string}}` +
-        `\nIf you wrote no specs, "specs" is [] and "noop" gives the reason.`
+      ? `{"specs": string[], "specMetas"?: [{"file","flow","objective","targets": string[]}], "note"?: string, "noop"?: {"kind": "${NOOP_KIND.NOT_WORTH}" | "${NOOP_KIND.UNOBSERVABLE}", "reason": string}}` +
+        `\nIf you wrote no specs, "specs" is [] and "noop" gives its kind and the reason.`
       : `{"approved": boolean, "rationale": string, "corrections": string[]}`;
   const tail = opts?.priorResponseTail ? stripFrameMarkers(opts.priorResponseTail).trim() : "";
   const tailBlock = tail

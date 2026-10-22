@@ -23,6 +23,7 @@ import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-buil
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { OpencodeRunInput, ReviewInput, ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import { BUILT_IN_EXEMPLARS } from "@kernel/scenario-catalog.ts";
 
 setExplorationBriefCollaborators({
   parseExplorationBrief: () => null,
@@ -200,14 +201,6 @@ test("SECURITY: a secret quoted in a reviewCorrection is redacted before reachin
   assert.match(text, /\[REDACTED\]/, "the redaction placeholder must appear in its place");
 });
 
-test("SECURITY: a secret quoted in a reviewCorrection is redacted in the followup (continuation-session) prompt too", () => {
-  const text = buildFollowupPrompt(mkInput({
-    reviewCorrections: [`found ${SECRET_IN_REVIEW_CORRECTION} while reading .env`],
-  }));
-  assert.ok(!text.includes(SECRET_IN_REVIEW_CORRECTION), "a secret in a reviewer correction must never reach the followup prompt unredacted");
-  assert.match(text, /\[REDACTED\]/, "the redaction placeholder must appear in its place");
-});
-
 /* selectorContradictions/priorCorrections were all sanitized in "model" mode — the SAME mode used
    for the diff (deliberately narrowed to avoid over-redacting legitimate code shapes like
    `password: string`). But these three fields are SHORT AGENT PROSE (a rejection rationale, a
@@ -285,15 +278,6 @@ test("SECURITY: a secret embedded in a selectorContradiction (agent-authored loc
     selectorContradictions: [`role:name 'button' with name "${SECRET_IN_SELECTOR_CONTRADICTION}" is NOT in the captured tree; present roles: button:"Save"`],
   }));
   assert.ok(!text.includes(SECRET_IN_SELECTOR_CONTRADICTION), "a secret embedded in a selector contradiction must never reach the model prompt unredacted");
-  assert.match(text, /\[REDACTED\]/, "the redaction placeholder must appear in its place");
-});
-
-test("SECURITY: a secret embedded in a selectorContradiction is redacted in the followup (continuation-session) prompt too", () => {
-  const text = buildFollowupPrompt(mkInput({
-    mode: "diff",
-    selectorContradictions: [`role:name 'button' with name "${SECRET_IN_SELECTOR_CONTRADICTION}" is NOT in the captured tree`],
-  }));
-  assert.ok(!text.includes(SECRET_IN_SELECTOR_CONTRADICTION), "a secret embedded in a selector contradiction must never reach the followup prompt unredacted");
   assert.match(text, /\[REDACTED\]/, "the redaction placeholder must appear in its place");
 });
 
@@ -383,39 +367,6 @@ test("regen-discipline is in the stable band (renders before the volatile contex
   assert.ok(iRegen < iPack, "regen-discipline (stable) must render before the volatile context-pack");
 });
 
-/* RE-3: a re-generation on a CONTINUED session sends a short follow-up — the session already holds
-   the working-rules, context-pack, brief and diff, so re-sending them wastes tokens. The follow-up
-   carries only the new failure/correction signal + a "do not re-explore" continuation framing.
- */
-test("buildFollowupPrompt: continuation carries the failures but NOT the full re-sent context", () => {
-  const input = mkInput({
-    fixCases: [failingCase],
-    contextPack: "## Context Pack CTXPACK_UNIQUE_MARKER\n" + "x".repeat(2000),
-    domSnapshot: "button: Add Owner",
-    failureSourced: true,
-  });
-  const full = buildPrompt(input);
-  const followup = buildFollowupPrompt(input);
-  assert.ok(followup.length < full.length, "the follow-up must be smaller than the full prompt");
-  assert.ok(followup.includes("owners list"), "the follow-up carries the failing case");
-  assert.ok(
-    !followup.includes("CTXPACK_UNIQUE_MARKER"),
-    "the follow-up must NOT re-send the context pack (the session already has it)",
-  );
-  assert.ok(
-    /continuation|do NOT re-explore|do NOT re-orient|already in this session/i.test(followup),
-    "the follow-up frames the turn as a continuation",
-  );
-});
-
-test("buildFollowupPrompt: a failure-sourced continuation still injects the GROUND TRUTH AT FAILURE tree", () => {
-  const followup = buildFollowupPrompt(
-    mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }),
-  );
-  assert.ok(followup.includes("GROUND TRUTH AT FAILURE"), "the failure-point tree is NEW info, not in the session yet");
-  assert.ok(followup.includes("Add Owner"), "the captured failure DOM is present");
-});
-
 /* anti-blinding gap — a fix that must touch a route NOT in that tree needs the same escape. */
 test("the failure-sourced fix branch carries the anti-blinding escape too", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }));
@@ -440,11 +391,6 @@ test("the generator's live-DOM section sanitizes a secret-shaped DOM string", ()
 test("the failure-sourced 'GROUND TRUTH AT FAILURE' DOM section sanitizes a secret-shaped string", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: secretShapedDom, failureSourced: true }));
   assert.ok(!text.includes("sk-liveSECRETVALUE123456"), "the failure-point DOM capture must be sanitized too");
-});
-
-test("buildFollowupPrompt's injected failure DOM sanitizes a secret-shaped string", () => {
-  const followup = buildFollowupPrompt(mkInput({ fixCases: [failingCase], domSnapshot: secretShapedDom, failureSourced: true }));
-  assert.ok(!followup.includes("sk-liveSECRETVALUE123456"), "the follow-up's re-injected failure DOM must be sanitized too");
 });
 
 test("buildReviewerPrompt's live-DOM section sanitizes a secret-shaped string", () => {
@@ -487,9 +433,8 @@ test("SECURITY: a secret quoted in a priorCorrection is redacted before reaching
 /* ── fix-cases evidence rendering (httpStatus/finalUrl/runtimeErrors) ─────
    The FixLoop already carries runtime evidence on each failing QaCase; the fix-cases
    prompt sections must render more than `name` + `detail`, discarding the strongest signal available for
-   telling an app defect (5xx, console error) apart from a test defect. Both render sites — the
-   initial fixContent in buildPromptAssembled/buildPrompt and buildFollowupPrompt — must
-   surface it.
+   telling an app defect (5xx, console error) apart from a test defect. The fixContent of
+   buildPromptAssembled/buildPrompt must surface it.
  */
 
 const evidenceCase: QaCase = {
@@ -571,7 +516,6 @@ test("buildPrompt fix-cases section still renders HTTP (unknown) when there is a
   const text = buildPrompt(mkInput({ fixCases: [noNet] }));
   assert.match(text, /HTTP \(unknown\) at https:\/\/dev\.example\.com\/owners/, "no network errors must keep the HTTP (unknown) line");
 });
-
 function padTo(s: string, bytes: number): string {
   const current = Buffer.byteLength(s, "utf8");
   if (current >= bytes) return s;
@@ -896,191 +840,38 @@ test("coverage-gap (shedAs critical-recap) survives budget pressure that sheds l
 /* The selector priority is unconditional craft: the generator role prompt's Procedure owns it (pinned by
    prompt-sync.test.ts), so the assembled working rules never restate it (prompts.scaffold.test.ts). */
 
-/* When diffArchetypes are present in the input, the prompt must contain
-   the one-line "Change shape (deterministic):" hint.
- */
-test("diffArchetypes line appears in the prompt when archetypes are present", () => {
-  const text = buildPrompt(mkInput({ diffArchetypes: ["auth-flow", "data-list"] }));
-  assert.ok(
-    text.includes("Change shape (deterministic)"),
-    "prompt must contain the 'Change shape (deterministic):' hint when diffArchetypes are present",
-  );
-  assert.ok(
-    text.includes("auth-flow"),
-    "prompt must include the archetype kinds",
-  );
-  assert.ok(
-    text.includes("data-list"),
-    "prompt must include all archetype kinds",
-  );
-});
+/* The skill-exemplars section carries exactly the templates the curriculum selected (input.skillExemplars), in its order, with the marker of each pattern that has caught a defect. It is the only source: the learning fold credits those templates, so the prompt never derives others from the diff. */
+const EXEMPLAR_HEADING = "## Skill exemplars for the detected structural patterns";
 
-/* When diffArchetypes are absent, NO empty header must appear. */
-test("no diffArchetypes line when archetypes are absent", () => {
-  const text = buildPrompt(mkInput());
-  assert.ok(
-    !text.includes("Change shape (deterministic)"),
-    "prompt must NOT contain the archetypes hint when diffArchetypes is absent",
-  );
-});
-
-/* When diffArchetypes is an empty array, NO empty header must appear. */
-test("no diffArchetypes line when archetypes array is empty", () => {
-  const text = buildPrompt(mkInput({ diffArchetypes: [] }));
-  assert.ok(
-    !text.includes("Change shape (deterministic)"),
-    "prompt must NOT contain the archetypes hint when diffArchetypes is an empty array",
-  );
-});
-
-/* matchExemplars/renderExemplarsForPrompt (src/qa/learning/skill-exemplar.ts) run during prompt
-   assembly, keyed off input.structuralPatterns (a StructuralPattern[], NOT a single pattern —
-   matchExemplars itself takes ONE pattern, so the consumer here loops + flatMaps + dedupes before
-   rendering). Wired into buildPromptAssembled alongside the existing diffArchetypes path (same
-   semi-stable/priority-3 band), byte-budget capped at ~1.5KB like other capped sections.
- */
-
-test("a matched structural pattern (form+validation) includes its exemplar template in the prompt", () => {
-  const text = buildPrompt(mkInput({
-    structuralPatterns: [{ kind: "form", hasOnSubmit: true, hasValidation: true }],
-  }));
-  assert.ok(
-    text.includes("## Skill exemplars for the detected structural patterns"),
-    "prompt must contain the Skill exemplars section heading when a pattern matches",
-  );
-  assert.ok(
-    text.includes("Form invalid input"),
-    "prompt must include the matched exemplar's name/heading",
-  );
-  assert.ok(
-    text.includes("asserts that the error message is visible and the form was NOT submitted successfully"),
-    "prompt must include the matched exemplar's own template text",
-  );
-});
-
-test("no matching structural pattern (generic) omits the Skill exemplars section entirely", () => {
-  const text = buildPrompt(mkInput({ structuralPatterns: [{ kind: "generic" }] }));
-  assert.ok(
-    !text.includes("## Skill exemplars for the detected structural patterns"),
-    "prompt must NOT contain the Skill exemplars heading when no pattern matches the catalog",
-  );
-});
-
-test("structuralPatterns absent omits the Skill exemplars section (never fabricated)", () => {
-  const text = buildPrompt(mkInput());
-  assert.ok(
-    !text.includes("## Skill exemplars for the detected structural patterns"),
-    "prompt must NOT contain the Skill exemplars heading when structuralPatterns is absent",
-  );
-});
-
-test("an empty structuralPatterns array omits the Skill exemplars section", () => {
-  const text = buildPrompt(mkInput({ structuralPatterns: [] }));
-  assert.ok(
-    !text.includes("## Skill exemplars for the detected structural patterns"),
-    "prompt must NOT contain the Skill exemplars heading when structuralPatterns is an empty array",
-  );
-});
-
-test("matched exemplars whose rendered content exceeds the ~1.5KB budget are omitted entirely (overflow:drop, no window starvation)", () => {
-  /* Every BUILT_IN_EXEMPLARS entry matches — 6 exemplars, ~1.7KB rendered (measured), over the 1536
-     byte cap. The whole section must drop rather than silently truncating mid-template or starving
-     other sections' budget.
-   */
-  const text = buildPrompt(mkInput({
-    structuralPatterns: [
-      { kind: "form", hasOnSubmit: true, hasValidation: true },
-      { kind: "form", hasOnSubmit: true, hasValidation: false },
-      { kind: "api-call", method: "POST", hasRequestBody: true, hasErrorHandling: true },
-      { kind: "stateful-cache", sourceType: "any", hasIndependentWritePath: true },
-      { kind: "data-list", hasFilter: false, hasPagination: false, hasEmptyState: true },
-    ],
-  }));
-  assert.ok(
-    !text.includes("## Skill exemplars for the detected structural patterns"),
-    "an over-budget skill-exemplars section must be omitted entirely, not truncated mid-template",
-  );
-});
-
-test("duplicate exemplar matches across multiple patterns are deduped by name (never rendered twice)", () => {
-  /* Two data-list-shaped patterns both match BOTH data-list exemplars (matchExemplars' own
-     kind==='data-list' branch returns true unconditionally) — without dedup this would render
-     "Data list empty state" twice.
-   */
-  const text = buildPrompt(mkInput({
-    structuralPatterns: [
-      { kind: "data-list", hasFilter: false, hasPagination: false, hasEmptyState: true },
-      { kind: "data-list", hasFilter: true, hasPagination: true, hasEmptyState: false },
-    ],
-  }));
-  const occurrences = (text.match(/### Data list empty state/g) ?? []).length;
-  assert.equal(occurrences, 1, "a duplicate exemplar match across patterns must render exactly once, never duplicated");
-});
-
-/* (verified: zero references in run-qa.use-case.ts, generation-port.adapter.ts,
-   rewritten-engine-factory.ts) — the "archetype-matched templates re-enter the generation prompt"
-   scenario went unmet for a real run. Fixed by deriving structuralPatterns from input.diff (the SAME
-   diff cappedDiffText already reads) when the caller supplies none — no new qa-engine plumbing.
- */
-
-test("a diff matching a structural archetype re-enters the generation prompt (structuralPatterns derived from the diff, never explicitly supplied)", () => {
-  const text = buildPrompt(mkInput({
-    diff: [
-      "diff --git a/src/api.ts b/src/api.ts",
-      "+export async function submitOrder(payload: OrderPayload) {",
-      "+  try {",
-      '+    const res = await fetch("/api/orders", { method: "POST", body: JSON.stringify(payload) });',
-      '+    if (!res.ok) throw new Error("failed");',
-      "+    return res.json();",
-      "+  } catch (error) {",
-      "+    console.error(error);",
-      "+  }",
-      "+}",
-    ].join("\n"),
-  }));
-  assert.ok(
-    text.includes("## Skill exemplars for the detected structural patterns"),
-    "a diff matching the api-call archetype must derive structuralPatterns and render the exemplar section, even though structuralPatterns was never supplied",
-  );
-  assert.ok(
-    text.includes("API error handling"),
-    "the derived pattern must match the same catalog entry an explicitly-supplied pattern would",
-  );
-});
-
-test("a shape-less diff derives only the generic pattern — no exemplar section (never fabricated)", () => {
-  const text = buildPrompt(mkInput());
-  assert.ok(
-    !text.includes("## Skill exemplars for the detected structural patterns"),
-    "a diff matching no archetype must derive only the generic pattern, which matches no exemplar",
-  );
-});
-
-test("an explicitly-supplied structuralPatterns still wins over derivation from the diff", () => {
-  /* The diff here would derive an api-call pattern if it were consulted; the explicit
-     structuralPatterns (form) must win instead — proves the derivation is a FALLBACK, not an override.
-   */
-  const text = buildPrompt(mkInput({
-    diff: 'diff --git a/src/api.ts b/src/api.ts\n+fetch("/x", { body: x, method: "POST" });\n try { } catch (error) {}\n',
-    structuralPatterns: [{ kind: "form", hasOnSubmit: true, hasValidation: true }],
-  }));
-  assert.ok(text.includes("Form invalid input"), "an explicitly-supplied structuralPatterns must take precedence over diff-derived ones");
-  assert.ok(!text.includes("API error handling"), "the diff-derived api-call pattern must NOT also render when structuralPatterns was explicitly supplied");
-});
-
-/* ── Curriculum wiring: a supplied, curriculum-ranked exemplar list ───────────────────────
-   input.skillExemplars is CurriculumPort.select()'s output: the same catalog entries, already
-   deduped, already ordered by this app's evidence, and already capped. It REPLACES the local
-   derivation above, and prompts.ts must render it verbatim — re-sorting here would decouple "what
-   the generator was shown" from "what the curriculum folds".
-   This diff derives the api-call pattern ("API error handling"), so a supplied list that does NOT
-   contain it proves replacement rather than addition.
- */
 const CURRICULUM_API_CALL_DIFF = [
   "diff --git a/src/api.ts b/src/api.ts",
   '+const res = await fetch("/api/orders", { method: "POST", body: JSON.stringify(payload) });',
   '+if (!res.ok) throw new Error("failed");',
 ].join("\n");
+
+const asSelected = (exemplars: readonly (typeof BUILT_IN_EXEMPLARS)[number][]): NonNullable<OpencodeRunInput["skillExemplars"]> =>
+  exemplars.map(({ id, name, template, archetype }) => ({ id, name, template, archetype, proven: false, promotionCount: 0 }));
+
+test("no skillExemplars, or an empty list, omits the Skill exemplars section (never fabricated)", () => {
+  assert.ok(!buildPrompt(mkInput()).includes(EXEMPLAR_HEADING));
+  assert.ok(!buildPrompt(mkInput({ skillExemplars: [] })).includes(EXEMPLAR_HEADING));
+});
+
+test("a diff that matches a structural archetype renders no template the curriculum did not select", () => {
+  const text = buildPrompt(mkInput({ diff: CURRICULUM_API_CALL_DIFF }));
+  assert.ok(!text.includes(EXEMPLAR_HEADING), "the diff alone derives nothing: what the generator is shown is what the fold credits");
+  assert.ok(!text.includes("API error handling"));
+});
+
+test("a context run renders no exemplars even when some are supplied", () => {
+  assert.ok(!buildPrompt(mkInput({ mode: "context", skillExemplars: asSelected(BUILT_IN_EXEMPLARS.slice(0, 1)) })).includes(EXEMPLAR_HEADING));
+});
+
+test("selected exemplars whose rendered content exceeds the ~1.5KB budget are omitted entirely (overflow:drop, no window starvation)", () => {
+  /* The whole catalog is ~1.7KB rendered (measured), over the 1536 byte cap. The whole section must drop rather than silently truncating mid-template or starving other sections' budget. */
+  const text = buildPrompt(mkInput({ skillExemplars: asSelected(BUILT_IN_EXEMPLARS) }));
+  assert.ok(!text.includes(EXEMPLAR_HEADING), "an over-budget skill-exemplars section must be omitted entirely, not truncated mid-template");
+});
 
 /* The supplied order below is deliberately at odds with EVERY ordering this renderer could
    plausibly impose on its own: it is neither ascending nor descending by catalog index (0, 4, 3),
@@ -1107,14 +898,8 @@ test("curriculum: a supplied skillExemplars list renders in the SUPPLIED order, 
   );
   assert.ok(
     !text.includes("API error handling"),
-    "a supplied list REPLACES the local diff derivation, it never appends to it",
+    "a supplied list is all the prompt renders, whatever the diff would match",
   );
-});
-
-test("curriculum: with no skillExemplars supplied the local diff derivation still runs ([SWAP]-absent guard)", () => {
-  const text = buildPrompt(mkInput({ diff: CURRICULUM_API_CALL_DIFF }));
-  assert.match(text, /## Skill exemplars for the detected structural patterns/);
-  assert.ok(text.includes("API error handling"), "the fallback must still render the diff-derived exemplar");
 });
 
 /* cappedDiffText — THE single way every prompt embeds a commit diff — now sanitizes in "model" mode

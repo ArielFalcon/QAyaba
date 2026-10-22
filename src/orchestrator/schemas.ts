@@ -504,8 +504,7 @@ export const GeneratorVerdictSchema = z
       path: ["noop"],
       message:
         verdict.noop === undefined
-          ? 'an empty "specs" list is only a decision with a "noop" object, a valid "testCorrect" claim or valid "rebuttals": {"noop":{"reason":"why nothing was written"}}'
-          : 'a "noop" needs a non-empty text "reason"',
+          ? 'an empty "specs" list is only a decision with a "noop" object, a valid "testCorrect" claim or valid "rebuttals": {"noop":{"kind":"not-worth","reason":"why nothing was written"}}'          : 'a "noop" needs a non-empty text "reason"',
     });
   });
 

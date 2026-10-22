@@ -256,12 +256,16 @@ export function buildChangedMarker(
         const carried = textWords.length > 0 && nodeWords.some((_, i) => textWords.every((w, j) => nodeWords[i + j] === w));
         if (carried) {
           /* The page repeats this text and the change's containers are known: only the occurrence inside one of them is the changed one. */
-          if (occurrenceScope === undefined || !c.scope?.length) return ` [CHANGED: added text "${c.text}"]`;
+          if (occurrenceScope === undefined || !c.scope?.length) {
+            /* A text-only change names no attribute to tell its node from another that shows the same text: when an unchanged line of its file already holds the text, a node showing it is as likely to come from that line, so it is no mark of the change. */
+            const textOnly = c.testId === undefined && c.id === undefined && c.name === undefined && c.href === undefined;
+            if (textOnly && (c.unchangedLines ?? 0) > 0) continue;
+            return ` [CHANGED: added text "${c.text}"]`;
+          }
           const inside = c.scope.find((container) => occurrenceScope.includes(container));
           if (inside !== undefined) return ` [CHANGED: added text "${c.text}" in ${inside}]`;
         }
-      }
-    }
+      }    }
   }
   return "";
 }
@@ -448,6 +452,8 @@ export interface CapturedPage {
   captureAttempts?: number;
   /* Whether the page's data state could not be confirmed at capture time (its result stayed empty, or its readiness never appeared). */
   dataStateUnconfirmed?: boolean;
+  /* The node lines of its tree, one `role: name` each. Absent when the page did not report them. */
+  nodes?: readonly string[];
 }
 
 /* What one captured page supplied and lost, for the trace: the kept nodes and test ids (within the per-route bound), the node→test-id map, and how many the bound left out. The line cap is the pack's, applied later; `lineKeptNodes`/`lineKeptTestIds` are what that cap left in (absent before it runs). */
@@ -480,8 +486,7 @@ export function pageDeliveryOf(snap: RouteSnapshot, template?: string): PageDeli
     testIdOfNode,
     nodeCapOmitted: Math.max(0, nodes.length - keptNodes.length) + Math.max(0, testIds.length - keptTestIds.length),
     lineCapOmitted: 0,
-  };
-}
+  };}
 
 export async function captureDomForRoutes(
   routes: string[],
@@ -504,6 +509,7 @@ export async function captureDomForRoutes(
         route: snap.route,
         grounded: buildRouteCatalog(snap).status === ROUTE_STATUS.CAPTURED,
         links: snap.links ?? [],
+        nodes: snap.nodes ?? [],
         ...(template !== undefined ? { template } : {}),
         ...(snap.testIds && snap.testIds.size > 0 ? { testIds: [...snap.testIds.keys()] } : {}),
         keptNodes: delivery.keptNodes,
@@ -519,8 +525,7 @@ export async function captureDomForRoutes(
         ...(snap.captureAttempts !== undefined ? { captureAttempts: snap.captureAttempts } : {}),
         dataStateUnconfirmed: dataStateUnconfirmed(snap),
       };
-    }));
-    const reported = snaps
+    }));    const reported = snaps
       .filter((snap) => !seeds.includes(snap.route))
       .map((snap) => {
         const template = input.instanceOf?.get(snap.route);

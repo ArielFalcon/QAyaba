@@ -13,6 +13,7 @@ import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orche
 import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
+import { NOOP_KIND } from "@kernel/noop-kind.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
@@ -9282,3 +9283,59 @@ for (const [label, change, expected] of [
     }
   });
 }
+
+/* The kind of a declared no-op is recorded with the run, and a no-op that calls the change unobservable while the pack's changed-value lines show more nodes than unchanged lines is logged. Observe-only: the verdict stays skipped. */
+test("a declared no-op records its kind in the gate signals of the run it skips", async () => {
+  for (const kind of [NOOP_KIND.NOT_WORTH, NOOP_KIND.UNOBSERVABLE, NOOP_KIND.UNSPECIFIED]) {
+    const { ports, savedOutcomes } = stubPorts({
+      generate: async () => ({ ...scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "no rows on DEV" }), noopKind: kind }),
+    });
+    const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: `noop-kind-${kind}` });
+    assert.equal(out.outcome?.verdict, "skipped");
+    assert.deepEqual(savedOutcomes.at(-1)?.gateSignals.noop, { kind });
+  }
+});
+
+test("a run that is no declared no-op records no no-op signal", async () => {
+  const { ports, savedOutcomes } = stubPorts({});
+  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "no-noop-signal" });
+  assert.equal("noop" in (savedOutcomes.at(-1)?.gateSignals ?? {}), false);
+});
+
+test("an unobservable no-op declared while the pack shows more nodes than unchanged lines is logged as a warning and still skips", async () => {
+  const { ports } = stubPorts({
+    ground: async () => ({ contextPack: "## Context Pack", changedValuesWithMoreNodes: ["Cambiar filtros"] }),
+    generate: async () => ({ ...scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "no rows on DEV" }), noopKind: NOOP_KIND.UNOBSERVABLE }),
+  });
+  const { observer, events } = fakeObserver();
+  const out = await new RunQaUseCase({ ...ports, observer, config: baseConfig }).run({ ...baseInput, runId: "noop-contradicted" });
+  assert.equal(out.outcome?.verdict, "skipped");
+  const warnings = events.filter((e) => e.type === "log.line" && e.level === "warn");
+  assert.equal(warnings.length, 1);
+  assert.match(String((warnings[0] as { text: string }).text), /unobservable/);
+});
+
+test("a no-op the lead declares in its plan is recorded with the kind unspecified: a plan names no kind", async () => {
+  const { ports, savedOutcomes } = stubPorts({});
+  const leadSidekicks = { coordinate: async () => ({ action: "noop" as const, reason: "nothing worth a test", signal: { mode: COORDINATION_MODE.LEAD_SIDEKICKS, plan: "noop", flows: 0, delivered: 0, incomplete: 0, takeover: false } }) };
+  const out = await new RunQaUseCase({
+    ...ports,
+    coordinationSettings: { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS },
+    leadSidekicks,
+    config: baseConfig,
+  }).run({ ...baseInput, runId: "plan-noop-kind" });
+  assert.equal(out.outcome?.verdict, "skipped");
+  assert.deepEqual(savedOutcomes.at(-1)?.gateSignals.noop, { kind: NOOP_KIND.UNSPECIFIED });
+});
+
+test("no warning is logged for an unobservable no-op when the pack showed no such line, nor for another kind", async () => {
+  for (const [kind, moreNodes] of [[NOOP_KIND.UNOBSERVABLE, []], [NOOP_KIND.NOT_WORTH, ["Cambiar filtros"]]] as const) {
+    const { ports } = stubPorts({
+      ground: async () => ({ contextPack: "## Context Pack", changedValuesWithMoreNodes: [...moreNodes] }),
+      generate: async () => ({ ...scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "reason" }), noopKind: kind }),
+    });
+    const { observer, events } = fakeObserver();
+    await new RunQaUseCase({ ...ports, observer, config: baseConfig }).run({ ...baseInput, runId: `noop-quiet-${kind}-${moreNodes.length}` });
+    assert.equal(events.filter((e) => e.type === "log.line" && e.level === "warn").length, 0, `${kind} ${moreNodes.length}`);
+  }
+});

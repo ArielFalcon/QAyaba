@@ -17,7 +17,8 @@ import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../..
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 import { withDeclaredResources } from "./implementation-resources.ts";
 import { withChangedElementScopes } from "./changed-element-scope.ts";
-
+import { withUnchangedLines, type MeasuredLabels } from "./changed-label-lines.ts";
+import { filesLinkedToPages } from "@contexts/generation/domain/route-ranking.ts";
 const diffParser = new DiffParserService();
 
 export interface PreGenerationGroundingStaticContext {
@@ -220,6 +221,21 @@ export function readHarnessFacts(input: { specDir: string; testIdAttribute?: str
   return { ...(testIdAttribute !== undefined ? { testIdAttribute } : {}), ...(fixtures ? { fixtures } : {}) };
 }
 
+/* The elements and quoted labels of a diff, with the unchanged lines of the working copy that already hold each label. With a map, the labels of the changed files it links to pages come first (see `filesLinkedToPages`). A single repo only: across repos the diff is the service's, so its labels say nothing about the pages and the working copy belongs to the other repo. */
+function changedLabelsOf(diff: string, ctx: PreGenerationGroundingStaticContext, contextMap: ArchitectureContext | undefined): MeasuredLabels {
+  if (ctx.stagedRoots !== undefined) return { elements: diffParser.changedElements(diff, { quotedLabels: false }), literals: [] };
+  const elements = diffParser.changedElements(diff);
+  const linked = contextMap ? filesLinkedToPages(contextMap, diffParser.changedFiles(diff)) : undefined;
+  const literals = diffParser.changedLiterals(diff, linked ? { preferFiles: linked } : {});
+  if (!ctx.mirrorDir) return { elements, literals };
+  try {
+    return withUnchangedLines(ctx.mirrorDir, diffParser.changedLines(diff), literals, elements);
+  } catch (err) {
+    console.warn(`[qa] WARNING: unchanged lines holding the changed labels not read (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+    return { elements, literals };
+  }
+}
+
 export class PreGenerationGroundingPortAdapter implements PreGenerationGroundingPort {
   constructor(
     private readonly ctx: PreGenerationGroundingStaticContext,
@@ -322,11 +338,11 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
         ? contextMap.routes.map((r) => r.path).filter(Boolean)
         : undefined;
       /* A cross-repo run's diff is of the service's tree, not of this working copy: its lines are not looked up here. The changed-element scopes feed only the pack's DOM capture, so they are skipped when the pack carries no DOM. */
-      const parsed = domPack && diff ? diffParser.changedElements(diff) : undefined;
+      const labels = diff ? changedLabelsOf(diff, this.ctx, contextMap) : undefined;
+      const parsed = domPack && diff ? labels?.elements : undefined;
       const changedElements = parsed && this.ctx.mirrorDir && this.ctx.stagedRoots === undefined
         ? withChangedElementScopes(parsed, this.ctx.mirrorDir, this.ctx.testIdAttribute)
-        : parsed;
-      const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
+        : parsed;      const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
       const buildPromise = build(
         {
           baseUrl: this.ctx.baseUrl,
@@ -339,6 +355,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(deterministicRoutes?.length ? { routes: deterministicRoutes } : {}),
           ...(this.ctx.stagedRoots ? { stagedRoots: this.ctx.stagedRoots } : {}),
           ...(changedElements?.length ? { changedElements } : {}),
+          ...(labels?.literals.length ? { changedLiterals: labels.literals } : {}),
         },
         deps,
       );
@@ -349,8 +366,8 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
         result.contextPackItemIds = delivery.ids;
         result.contextPackOmissions = delivery.omissions;
       }
-      this.tell(() => this.collaborators.trace?.pack?.(packResult));
-    } catch (err) {
+      if (packResult.changedValuesWithMoreNodes?.length) result.changedValuesWithMoreNodes = packResult.changedValuesWithMoreNodes;
+      this.tell(() => this.collaborators.trace?.pack?.(packResult));    } catch (err) {
       if (isAbortError(err)) return result; /* abort: return whatever was gathered so far, never throw — see the note above. */
       console.warn(`[qa] WARNING: context-pack build FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
