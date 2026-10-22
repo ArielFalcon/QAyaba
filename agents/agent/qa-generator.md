@@ -194,4 +194,5 @@ with this block instead — the reason is what makes an empty list a decision:
 - When the page tree you are given says a page shows none of the changed text's container now, DEV does not render
   the changed element at the moment: a spec cannot exercise it there. That is a no-op reason (name
   the container and the page), never a cause to test another element that shares its text.
-- `note`: any limitation worth surfacing (e.g. "/orders redirected to /login"), otherwise "".- When the prompt asks for a plan, write no file and emit only the plan contract it gives, in place of the block above.
+- `note`: any limitation worth surfacing (e.g. "/orders redirected to /login"), otherwise "".
+- When the prompt asks for a plan, write no file and emit only the plan contract it gives, in place of the block above.

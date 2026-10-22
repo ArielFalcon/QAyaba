@@ -130,7 +130,8 @@ export interface ContextPackAssembly {
   contractBytes: number;
   trace?: ContextPackTrace;
   /* The added values whose changed-value line states more nodes on a route than unchanged lines hold them. Absent when none does. */
-  changedValuesWithMoreNodes?: string[];}
+  changedValuesWithMoreNodes?: string[];
+}
 
 export interface ContextPackDeps {
   captureDomForRoutes(
@@ -400,7 +401,8 @@ export async function buildContextPack(
   let renderedRoutes = 0;
   let omittedLines = 0;
   /* The routes the report covers: a page rendered only for its links is no part of it. */
-  const reportedRoutes = new Set<string>();  const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
+  const reportedRoutes = new Set<string>();
+  const capture = async (routes: string[], captureInput: CaptureRoutesInput): Promise<void> => {
     const rawCaptured = await deps.captureDomForRoutes(routes, { ...captureInput, onPages: (reported) => { for (const page of reported) { pages.set(page.route, page); deliveries.set(page.route, { route: page.template ?? page.route, ...(page.template !== undefined ? { template: page.template } : {}), keptNodes: page.keptNodes ?? [], keptTestIds: page.keptTestIds ?? [], testIdOfNode: page.testIdOfNode ?? new Map(), nodeCapOmitted: page.nodeCapOmitted ?? 0, lineCapOmitted: 0, lineKeptNodes: [], lineKeptTestIds: [] }); } } }, deps.domDeps, input.changedElements);
     const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
     if (!raw) return;

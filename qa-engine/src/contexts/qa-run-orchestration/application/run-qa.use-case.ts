@@ -3416,7 +3416,8 @@ export class RunQaUseCase {
       /* The test-intent lock's derived clauses and deltas; absent when the lock is off or nothing was derived. */
       intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
       /* The kind a declared no-op named; absent for every run that is not one. */
-      noop?: { kind: NoopKind };    },
+      noop?: { kind: NoopKind };
+    },
   ) {
     const gateCoverageRatio = coverageRatio;
     const gateValueScore = extra?.valueScore ?? null;

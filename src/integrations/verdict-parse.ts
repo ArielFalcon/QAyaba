@@ -120,7 +120,8 @@ function rebuttalsOf(raw: unknown): { finding: string; basis: "execution" | "con
 /* The decision of a `noop` block: its reason and the kind it names, both only when it gives a reason. */
 function noopOf(raw: unknown): { noopReason?: string; noopKind?: NoopKind } {
   const reason = noopReasonOf(raw);
-  return reason === undefined ? {} : { noopReason: reason, noopKind: readNoopKind((raw as Record<string, unknown>).kind) };}
+  return reason === undefined ? {} : { noopReason: reason, noopKind: readNoopKind((raw as Record<string, unknown>).kind) };
+}
 
 /*
  * Last balanced object with `specs`, `noop`, `testCorrect` or `approved`. A missing `approved` is
@@ -144,7 +145,8 @@ export function parseVerdict(text: string): FinalVerdict {
       note: typeof o.note === "string" ? o.note : undefined,
       ...noopOf(o.noop),
       ...(testCorrect ? { testCorrect } : {}),
-      ...(rebuttals ? { rebuttals } : {}),      ...(planOf(o.plan) ? { plan: planOf(o.plan) } : {}),
+      ...(rebuttals ? { rebuttals } : {}),
+      ...(planOf(o.plan) ? { plan: planOf(o.plan) } : {}),
       parsed: true,
     };
   }

@@ -265,7 +265,8 @@ export function buildChangedMarker(
           const inside = c.scope.find((container) => occurrenceScope.includes(container));
           if (inside !== undefined) return ` [CHANGED: added text "${c.text}" in ${inside}]`;
         }
-      }    }
+      }
+    }
   }
   return "";
 }
@@ -486,7 +487,8 @@ export function pageDeliveryOf(snap: RouteSnapshot, template?: string): PageDeli
     testIdOfNode,
     nodeCapOmitted: Math.max(0, nodes.length - keptNodes.length) + Math.max(0, testIds.length - keptTestIds.length),
     lineCapOmitted: 0,
-  };}
+  };
+}
 
 export async function captureDomForRoutes(
   routes: string[],
@@ -525,7 +527,8 @@ export async function captureDomForRoutes(
         ...(snap.captureAttempts !== undefined ? { captureAttempts: snap.captureAttempts } : {}),
         dataStateUnconfirmed: dataStateUnconfirmed(snap),
       };
-    }));    const reported = snaps
+    }));
+    const reported = snaps
       .filter((snap) => !seeds.includes(snap.route))
       .map((snap) => {
         const template = input.instanceOf?.get(snap.route);

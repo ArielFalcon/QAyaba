@@ -30,7 +30,8 @@ import { renderSuiteListing, suiteListingHead } from "@contexts/generation/domai
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { advisoryLineIds, briefItemIds, itemId } from "@contexts/generation/domain/context-item-ids.ts";
-import type { Omission } from "@kernel/telemetry/section-meta.ts";import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
+import type { Omission } from "@kernel/telemetry/section-meta.ts";
+import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
 import {
   REVIEWER_PROMPT_VERSION,

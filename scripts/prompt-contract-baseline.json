@@ -5,8 +5,8 @@
     "directives": 20
   },
   "staticLayers": {
-    "opencode": 21288,
-    "codex": 36635
+    "opencode": 21289,
+    "codex": 36636
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -14435,24 +14435,10 @@
     }
   },
   "lastIncrease": {
-    "reason": "merging agent-a745f866 into plan-v4 adds the no-op kind and the changed-values section to the generator prompts",
+    "reason": "the plan bullet of the generator note regains its own line, which adds a byte per mirror",
     "budgets": [
-      "complete/e2e/first/tree-none/brief+pack/planning/limit:bytes",
-      "complete/e2e/first/tree-none/brief/planning/limit:bytes",
-      "complete/e2e/first/tree-none/none/planning/limit:bytes",
-      "complete/e2e/first/tree-none/pack/planning/limit:bytes",
-      "diff/e2e/first/tree-none/brief+pack/planning/limit:bytes",
-      "diff/e2e/first/tree-none/brief/planning/limit:bytes",
-      "diff/e2e/first/tree-none/none/planning/limit:bytes",
-      "diff/e2e/first/tree-none/pack/planning/limit:bytes",
-      "exhaustive/e2e/first/tree-none/brief+pack/planning/limit:bytes",
-      "exhaustive/e2e/first/tree-none/brief/planning/limit:bytes",
-      "exhaustive/e2e/first/tree-none/none/planning/limit:bytes",
-      "exhaustive/e2e/first/tree-none/pack/planning/limit:bytes",
-      "manual/e2e/first/tree-none/brief+pack/planning/limit:bytes",
-      "manual/e2e/first/tree-none/brief/planning/limit:bytes",
-      "manual/e2e/first/tree-none/none/planning/limit:bytes",
-      "manual/e2e/first/tree-none/pack/planning/limit:bytes"
+      "static:opencode",
+      "static:codex"
     ]
   }
 }
