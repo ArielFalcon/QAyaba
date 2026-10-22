@@ -504,3 +504,27 @@ test("how long a failing test took is reported to the second, not to the millise
   assert.ok(response.ok);
   assert.equal(response.report.tests[0]!.durationMs, 4_000);
 });
+
+test("the ledger keeps the facts of each failing test: its page by pathname, the results it read, the server status, the runtime errors, whether the page had settled, and its error, redacted", async (t) => {
+  const h = harness(t);
+  h.next.result = {
+    verdict: "fail",
+    cases: [
+      { name: "empty", status: "fail", detail: "Error: expected hunter2", finalUrl: "https://dev.example/shops/madrid?near=1#top", failureResultCount: 0, failureSettle: { inFlight: 2, treeStable: false } },
+      { name: "server", status: "fail", detail: "x", httpStatus: 503, runtimeErrors: [{ type: "pageerror", text: "boom hunter2" }] },
+      { name: "passes", status: "pass" },
+    ],
+    logs: "",
+  };
+  await call(h, "flows/a.spec.ts");
+  assert.deepEqual(h.capability.ledger[0]!.failures, [
+    { detail: "Error: expected [REDACTED]", path: "/shops/madrid", resultCount: 0, unsettled: true },
+    { detail: "x", httpStatus: 503, runtimeErrors: [{ type: "pageerror", text: "boom [REDACTED]" }] },
+  ]);
+});
+
+test("a call whose tests all passed keeps no failure facts", async (t) => {
+  const h = harness(t);
+  await call(h, "flows/a.spec.ts");
+  assert.equal(h.capability.ledger[0]!.failures, undefined);
+});

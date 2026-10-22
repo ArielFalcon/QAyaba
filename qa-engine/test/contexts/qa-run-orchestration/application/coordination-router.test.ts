@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildProgressSnapshot,
+  evidenceFromEmptyRead,
   evidenceFromExecution,
+  evidenceFromPackDataRoutes,
   routeOrchestration,
   sameProgress,
   type AgentCapability,
@@ -125,4 +127,19 @@ test("every routing decision explains itself", () => {
     route({ currentCapability: "lead" }),
   ];
   for (const d of decisions) assert.ok(d.reason.trim().length > 0, `${d.action} has no reason`);
+});
+
+test("a sidekick's empty read of a page the Context Pack read with results sends it back once with both reads, then hands the flow to the lead", () => {
+  const evidence = [...evidenceFromPackDataRoutes([{ path: "/shops/madrid", resultCount: 3 }]), evidenceFromEmptyRead("/shops/madrid")];
+  const standard = route({ evidence });
+  assert.deepEqual([standard.action, standard.nextCapability], ["escalate-sidekick", "sidekick-escalated"]);
+  assert.match(standard.reason, /3 results/);
+  assert.match(standard.reason, /\/shops\/madrid/);
+  const escalated = route({ evidence, currentCapability: "sidekick-escalated" });
+  assert.deepEqual([escalated.action, escalated.nextCapability], ["lead-takeover", "lead"]);
+});
+
+test("an empty read of a page the Context Pack did not read with results is no conflict", () => {
+  const evidence = [...evidenceFromPackDataRoutes([{ path: "/shops/madrid", resultCount: 3 }]), evidenceFromEmptyRead("/shops/sevilla")];
+  assert.equal(route({ evidence }).action, "retry-sidekick");
 });

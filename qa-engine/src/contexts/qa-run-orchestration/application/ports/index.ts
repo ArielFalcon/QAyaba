@@ -336,6 +336,17 @@ export interface FlowLedgerEntry {
   sha256: string;
   status: string;
   devWrites: number;
+  /** The facts of the call's failing tests: error, page by pathname, results read, server status, runtime errors, whether the page was still changing. */
+  failures?: readonly FlowFailureFact[];
+}
+/** One failing test of a flow's run_spec call, as the orchestrator kept it. */
+export interface FlowFailureFact {
+  detail?: string;
+  path?: string;
+  resultCount?: number;
+  httpStatus?: number;
+  runtimeErrors?: readonly { type: string; text: string }[];
+  unsettled?: true;
 }
 export interface FlowLoopHandle {
   /** What the flow's prompt states about the tool: its own share. */
@@ -345,6 +356,8 @@ export interface FlowLoopHandle {
   ledger(): readonly FlowLedgerEntry[];
   /** Whether the spec the sidekick holds now is the one whose last call passed. */
   isClosed(): Promise<boolean>;
+  /** Whether the spec the sidekick holds now has these bytes (their sha256). */
+  holds(sha256: string): Promise<boolean>;
   /** Revokes the flow's right and cleans the data of a call that was in flight. Never throws. */
   close(): Promise<void>;
 }

@@ -18,6 +18,7 @@ import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
 import { CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+import type { CoordinateInput } from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
 import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
@@ -9373,4 +9374,20 @@ test("a failure that reads empty, twice, a page the Context Pack read with resul
   } finally {
     fixtures.cleanup();
   }
+});
+
+test("the pages the Context Pack read with results reach the coordination as deterministic facts for every sidekick", async () => {
+  const { ports } = stubPorts({ ground: async () => ({ packConfirmedDataRoutes: [{ path: "/owners/list", resultCount: 3 }] }) });
+  const seen: CoordinateInput[] = [];
+  const leadSidekicks = { coordinate: async (coordinateInput: CoordinateInput) => { seen.push(coordinateInput); return { action: "single" as const, signal: { mode: COORDINATION_MODE.LEAD_SIDEKICKS, plan: "single", flows: 1, delivered: 0, incomplete: 0, takeover: false } }; } };
+  await new RunQaUseCase({
+    ...ports,
+    coordinationSettings: { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS },
+    leadSidekicks,
+    config: baseConfig,
+  }).run({ ...baseInput, runId: "pack-facts-to-sidekicks" });
+  assert.equal(seen.length, 1);
+  const facts = seen[0]!.knownFacts ?? [];
+  assert.deepEqual(facts.map((f) => [f.kind, f.confidence, f.dataRef]), [["grounding", "deterministic", "/owners/list"]]);
+  assert.match(facts[0]!.summary, /3 results/);
 });

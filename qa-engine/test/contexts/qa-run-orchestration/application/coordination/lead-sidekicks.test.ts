@@ -16,8 +16,9 @@ import type { DelegationResult } from "@contexts/qa-run-orchestration/applicatio
 import type { SidekickExecuteOpts } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
 import type { DelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
 import type { DelegationCollection, DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest } from "@contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts";
-import type { AgentBrowserHandle, ClosedLoopHandle, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
+import { evidenceFromPackDataRoutes } from "@contexts/qa-run-orchestration/application/coordination/evidence-from.ts";
 
 class FakeTimers implements TimerPort {
   now = 0;
@@ -58,7 +59,7 @@ interface Rig {
   swept: number;
   events: CoordinationTelemetryEvent[];
   logs: string[];
-  flowLoops: Array<{ input: FlowLoopOpenInput; closed: number; ledger: Array<{ path: string; sha256: string; status: string; devWrites: number }> }>;
+  flowLoops: Array<{ input: FlowLoopOpenInput; closed: number; ledger: FlowLedgerEntry[]; held?: string }>;
   shares: Array<[string, number]>;
   closedLoop: ClosedLoopHandle;
   agentBrowser: AgentBrowserHandle;
@@ -123,13 +124,14 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
   r.closedLoop = {
     limits: { maxCalls: 8, perCallMs: 60_000, maxDevWrites: 12 },
     openFlow: (input) => {
-      const entry = { input, closed: 0, ledger: [] as Array<{ path: string; sha256: string; status: string; devWrites: number }> };
+      const entry: { input: FlowLoopOpenInput; closed: number; ledger: FlowLedgerEntry[]; held?: string } = { input, closed: 0, ledger: [] };
       r.flowLoops.push(entry);
       const handle: FlowLoopHandle = {
         limits: { maxCalls: input.limits.maxCalls, perCallMs: 60_000, maxDevWrites: input.limits.maxDevWrites },
         signals: () => ({ calls: entry.ledger.length, devWrites: 0 }),
         ledger: () => entry.ledger,
         isClosed: async () => false,
+        holds: async (sha256) => entry.held === sha256,
         close: async () => { entry.closed += 1; },
       };
       return handle;
@@ -531,4 +533,84 @@ test("a plan's location opens the flow there, the sidekick's task states it, and
   assert.match(cart.brief.task, /setLocation/);
   assert.match(cart.brief.task, /barcelona/);
   assert.deepEqual(closed.sort(), ["run-1-flow-cart", "run-1-flow-login"]);
+});
+
+test("a sidekick whose run_spec read empty a page the Context Pack read with results is not taken at its word: it is sent back with both reads, then the flow goes to the lead", async () => {
+  const r = rig({ answers: { cart: [{ summary: "DEV shows no shops, nothing to assert", filesChanged: [] }] }, hasFile: new Set(["login"]) });
+  r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
+    const handle = original(flowInput)!;
+    if (flowInput.flowId === "cart") r.flowLoops.at(-1)!.ledger.push({ path: flowInput.specFile, sha256: "bytes", status: "failed", devWrites: 0, failures: [{ path: "/shops/madrid", resultCount: 0 }] });
+    return handle;
+  })(r.closedLoop.openFlow);
+  const outcome = await r.coordinator.coordinate(input(r, { knownFacts: evidenceFromPackDataRoutes([{ path: "/shops/madrid", resultCount: 3 }]) }));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => [f.id, f.kind]), [["cart", "failed"]], "an empty read the pack contradicts is no decline");
+  const cartRuns = r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart");
+  assert.equal(cartRuns.length, 2);
+  assert.match(cartRuns[1]!.opts.feedback ?? "", /3 results/);
+  assert.match(cartRuns[1]!.opts.feedback ?? "", /\/shops\/madrid/);
+  assert.ok(r.events.some((e) => e.kind === "escalation" && e.action === "lead-takeover" && /Context Pack/.test(e.reason)));
+});
+
+test("a sidekick that declines with no empty read of a page the Context Pack read with results still declines", async () => {
+  const r = rig({ answers: { cart: [{ summary: "nothing to assert", filesChanged: [] }], login: [{}] }, hasFile: new Set(["login"]) });
+  const outcome = await r.coordinator.coordinate(input(r, { knownFacts: evidenceFromPackDataRoutes([{ path: "/shops/madrid", resultCount: 3 }]) }));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => f.id), []);
+});
+
+/* A cart flow whose sidekick did not deliver, after one run_spec call that failed with these facts; the bytes that ran are still the sidekick's when `held`. */
+function failedCartWith(failures: FlowLedgerEntry["failures"], held = false): Rig {
+  const r = rig({ answers: { cart: [{ status: "failed", summary: "the spec does not pass", filesChanged: [] }] }, hasFile: new Set(["login"]) });
+  r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
+    const handle = original(flowInput)!;
+    const entry = r.flowLoops.at(-1)!;
+    if (flowInput.flowId === "cart") {
+      entry.ledger.push({ path: flowInput.specFile, sha256: "ran-bytes", status: "failed", devWrites: 0, failures });
+      if (held) entry.held = "ran-bytes";
+    }
+    return handle;
+  })(r.closedLoop.openFlow);
+  return r;
+}
+
+test("a run_spec failure that shows the app at fault is never sent back to be made green: the spec that showed it is taken back as it ran", async () => {
+  const r = failedCartWith([{ detail: "expect(locator).toBeVisible() failed", httpStatus: 503 }], true);
+  r.script.hasFile.add("cart");
+  const outcome = await r.coordinator.coordinate(input(r));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.equal(r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart").length, 1, "no second attempt");
+  assert.ok(r.collected.includes("cart"));
+  assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => f.id), [], "the flow is delivered, so the run's own execution can report the defect");
+  assert.ok(r.events.some((e) => e.delegationId === "run-1-flow-cart" && /app defect/.test(e.reason) && /503/.test(e.reason)));
+});
+
+test("an uncaught page error is app evidence too, and with the bytes that showed it gone the flow ends on it without a second attempt", async () => {
+  const r = failedCartWith([{ detail: "x", runtimeErrors: [{ type: "pageerror", text: "Cannot read properties of undefined" }] }], false);
+  const outcome = await r.coordinator.coordinate(input(r));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.equal(r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart").length, 1);
+  assert.equal(r.collected.includes("cart"), false);
+  const cart = outcome.aggregated.incompleteFlows.find((f) => f.id === "cart");
+  assert.equal(cart?.kind, "failed");
+  assert.match(cart?.reason ?? "", /app defect/);
+});
+
+test("the second attempt is told what kind of failure the first one met, from the facts of its last run_spec call", async () => {
+  const cases: Array<[FlowLedgerEntry["failures"], RegExp]> = [
+    [[{ detail: "Error: element(s) not found", unsettled: true }], /still loading/],
+    [[{ detail: "Error: element(s) not found" }], /not in the page's tree/],
+    [[{ detail: "Expected: 3\nReceived: 0" }], /never from what the page shows/],
+  ];
+  for (const [failures, expected] of cases) {
+    const r = failedCartWith(failures);
+    await r.coordinator.coordinate(input(r));
+    const cartRuns = r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart");
+    assert.equal(cartRuns.length, 2);
+    assert.match(cartRuns[1]!.opts.feedback ?? "", expected);
+  }
 });

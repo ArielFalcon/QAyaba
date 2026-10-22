@@ -93,6 +93,25 @@ attempts or exhausts its time is handed back. A sidekick that writes nothing and
 its own) is a declined flow, not a failure. When every flow comes back empty and time remains, the lead takes over the
 whole change as one piece of work (`takeover` in the signal).
 
+A `run_spec` call keeps the facts of each failing test in the ledger (`failures`: its error, redacted and bounded; the
+page it ended on, by pathname; the results the app's declared data state showed there; the server status; the runtime
+errors the page raised; whether the page was still changing). The flow's next step is decided from them by fixed rules,
+never by the sidekick's account (`classifyAuthoringFailure`, `authoring-failure.ts`, the fix loop's adjudicator rules):
+
+- **App defect** (an attributed 5xx, or a framework/uncaught runtime error): the spec is right to fail and is never sent
+  back to be made green. When the sidekick still holds the bytes that showed it, they are taken back as they ran and the
+  flow is delivered, so the run's own execution and fix loop report the defect; otherwise the flow ends on it.
+- **Page still loading**, **element not on the page**, **value mismatch**: the second attempt is told which, with what to
+  do about it (wait for the page's data; build the locator from the failure-point tree; take the expected value from the
+  change and its contract, never from the page).
+
+The pages the run's Context Pack read with results (under the app's declared data state) are deterministic facts in
+every sidekick's brief. When a flow's empty read lands on one of them, the two reads disagree: the sidekick's decline is
+not taken, its next attempt is told both reads, and a conflict still open on the escalated attempt hands the flow to the
+lead (`observationConflictIn`, `orchestration-router.ts`). The two reads are not taken under the same conditions (the pack
+reads every route in one shared browser context and waits for the declared data state), so the conflict names a
+difference to look at, not a culprit.
+
 ## Cleanup
 
 Delegation workspaces are removed in a `finally` when the coordinated pass ends, and swept at the start of a
