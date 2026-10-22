@@ -220,6 +220,18 @@ export const AppConfigSchema = z
         })
         .optional(),
       /*
+       * Test-intent lock. off = the contract is not derived; signal (default) = derive it and record
+       * the would-be rejections; enforce = a regeneration that drops or weakens the contract is
+       * rejected (its pre-turn bytes restored). opacityFlagRatio flags a contract whose statically
+       * unreadable clauses cross it; the flag never blocks.
+       */
+      intentLock: z
+        .object({
+          mode: z.enum(["off", "signal", "enforce"]).optional(),
+          opacityFlagRatio: z.number().min(0).max(1).optional(),
+        })
+        .optional(),
+      /*
        * e2e value oracle (response fault-injection). off (default) = skip; signal = re-run the
        * green suite with corrupted responses and record the catch-rate. NEVER blocks publish, and
        * it DOUBLES the DEV run — so it is opt-in.

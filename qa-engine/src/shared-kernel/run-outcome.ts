@@ -24,6 +24,19 @@ export interface RunOutcome {
     /* Absent means the value-oracle never measured this run — never a fabricated 0 (indistinguishable from a genuine measured zero). */
     mutantCount?: number;
     killedCount?: number;
+    /*
+     * The test-intent lock: what this run derived and what it would have rejected. `wouldReject` counts
+     * regenerations that were accepted only because the policy is `signal`; the opacity flag is
+     * telemetry and never blocks. Absent when the lock is off or no contract was derived.
+     */
+    intent?: {
+      mode: string;
+      violations: number;
+      wouldReject: number;
+      clauses: number;
+      opaque: number;
+      opacityHigh: boolean;
+    };
     reviewerCorrections: string[];
     reviewerRationale?: string;
     reviewerApproved?: boolean;

@@ -761,6 +761,7 @@ export function buildRewrittenCompositionConfig(
   const codeSandbox = resolveCodeSandbox(deps.env ?? process.env);
 
   const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
+  const intentLock = { mode: app.qa.intentLock?.mode ?? "signal", opacityFlagRatio: app.qa.intentLock?.opacityFlagRatio ?? 0.5 } as const;
 
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
   /*
@@ -1110,6 +1111,8 @@ export function buildRewrittenCompositionConfig(
      */
     coveragePolicyMode: coveragePolicy.mode,
     coverageMinRatio: coveragePolicy.minRatio,
+    /* The same intentLock that configures the contract check, so the derived policy has one source. */
+    intentLock,
     agentTimeoutMs: agentTimeout(run.mode),
     ...(app.qa.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: app.qa.wallClockBudgetMs } : {}),
     ...(app.qa.iterationBudget !== undefined ? { iterationBudget: app.qa.iterationBudget } : {}),

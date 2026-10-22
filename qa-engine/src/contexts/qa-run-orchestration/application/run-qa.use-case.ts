@@ -165,6 +165,9 @@ import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
 import type { CoordinationTelemetryPort } from "./coordination/coordination-telemetry.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { changeTokens, EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/domain/change-tokens.ts";
+import { diffContracts, type IntentViolation } from "@contexts/objective-signal/domain/test-intent-contract.ts";
+import type { IntentContractPort, SpecIntentView } from "./ports/intent-contract.port.ts";
 import { checkPreExecGrounding } from "../domain/pre-exec-grounding.service.ts";
 import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
@@ -232,6 +235,12 @@ export interface RunQaConfig {
   /** The change-coverage threshold in force; recorded with the run's coverage decision. */
   coverageMinRatio?: number;
   /**
+   * The test-intent lock: whether the contract a primary pass establishes binds later regenerations.
+   * "signal" (default) records the deltas that would have been rejected; "enforce" rejects them and
+   * restores the pre-turn bytes. The opacity ratio flags a contract, never blocks one.
+   */
+  intentLock?: { mode: "off" | "signal" | "enforce"; opacityFlagRatio: number };
+  /**
    * Per-mode agent session budget (ms). 0 / omitted derives WallClockBudget but
    * MUST NOT enforce it — a zero budget would abort every retry immediately.
    */
@@ -246,6 +255,8 @@ export interface RunQaUseCaseDeps {
   phaseClock?: PhaseClock;
   /** Absent: nothing is traced. Present: each phase of the run is a span under the run's active context (run-phase-spans.ts). Never changes a verdict. */
   telemetry?: TelemetryPort;
+  /** Extracts a spec's clause contract for the intent lock. Absent: the lock has nothing to judge and never rejects. */
+  intentContract?: IntentContractPort;
   changeAnalysis: ChangeAnalysisPort;
   generation: GenerationPort;
   review: ReviewPort;
@@ -481,6 +492,8 @@ export interface RunQaResult {
     coverage?: { stale: boolean };
     /** Present only when a regeneration went through acceptance. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
+    /** Present only when the test-intent lock derived a contract this run. */
+    intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
   };
   cases: QaCase[];
   /** One-shot post-execution string. Absent on early exits that never reached execute(). */
@@ -504,6 +517,7 @@ const DEFAULT_CONFIG: RunQaConfig = {
   isCode: false,
   reviewLoopIntegrity: false,
   coveragePolicyMode: "signal",
+  intentLock: { mode: "signal", opacityFlagRatio: 0.5 },
 };
 
 /** What the run knows when its deadline ends it: the little a terminal outcome carries, filled in as the run learns it. */
@@ -863,12 +877,75 @@ export class RunQaUseCase {
     const integrityCounters = { acceptances: 0, rejected: 0, proofReused: 0, capHit: false };
     const snapshotPort = specSnapshotPort(specRoot);
     /* Built once per run; the deadline, validation, execution and the closed-loop proof source are each passed per call. */
+    /*
+     * The test-intent lock. A primary pass fixes each spec's contract against the change's own tokens
+     * (the literals on added diff lines); a later regeneration is diffed against that baseline and a
+     * generic weakening is rejected under `enforce`, recorded under `signal`. Baseline and tokens live
+     * for this run only: a new primary pass is never bound by a previous run's contract.
+     */
+    const intentLock = cfg.intentLock ?? { mode: "signal", opacityFlagRatio: 0.5 };
+    const intentState: {
+      tokens: ChangeTokenSet;
+      baselines: Map<string, readonly SpecIntentView[]>;
+      violations: number;
+      wouldReject: number;
+      clauses: number;
+      opaque: number;
+      opacityHigh: boolean;
+    } = { tokens: EMPTY_TOKEN_SET, baselines: new Map(), violations: 0, wouldReject: 0, clauses: 0, opaque: 0, opacityHigh: false };
+    /** The primary pass's bytes, read once after its execution: the contract a regeneration may not weaken. */
+    const primeIntentBaseline = async (): Promise<void> => {
+      const extractor = this.deps.intentContract;
+      if (!extractor || intentLock.mode === "off") return;
+      const current = await snapshotPort.snapshot(workspace.specDir, listSpecFiles(workspace.specDir));
+      const decoder = new TextDecoder();
+      for (const [file, bytes] of current.files) {
+        if (intentState.baselines.has(file)) continue;
+        const extraction = extractor.extract(file, decoder.decode(bytes));
+        intentState.clauses += extraction.clauseCount;
+        intentState.opaque += extraction.opaqueCount;
+        if (extraction.clauseCount > 0 && extraction.opacityRatio > intentLock.opacityFlagRatio) intentState.opacityHigh = true;
+        intentState.baselines.set(file, extraction.specs);
+      }
+    };
+    const contractCheck = async (files: readonly string[]): Promise<{ ok: boolean; reason?: string }> => {
+      const extractor = this.deps.intentContract;
+      if (!extractor || intentLock.mode === "off" || files.length === 0) return { ok: true };
+      const current = await snapshotPort.snapshot(workspace.specDir, [...files]);
+      const decoder = new TextDecoder();
+      const deltas: IntentViolation[] = [];
+      for (const file of files) {
+        const bytes = current.files.get(file);
+        /* A file the turn deleted is judged by the delta rules of its tests, not re-read here. */
+        if (bytes === undefined) continue;
+        const extraction = extractor.extract(file, decoder.decode(bytes));
+        intentState.clauses += extraction.clauseCount;
+        intentState.opaque += extraction.opaqueCount;
+        if (extraction.clauseCount > 0 && extraction.opacityRatio > intentLock.opacityFlagRatio) intentState.opacityHigh = true;
+        const previous = intentState.baselines.get(file);
+        if (previous === undefined) {
+          /* The primary pass establishes the contract; a regeneration never re-baselines (A5). */
+          intentState.baselines.set(file, extraction.specs);
+          continue;
+        }
+        deltas.push(...diffContracts(previous, extraction.specs, intentState.tokens));
+      }
+      if (deltas.length === 0) return { ok: true };
+      intentState.violations += deltas.length;
+      const reason = `contract: ${deltas.map((delta) => `${delta.rule} (${delta.clauseId})`).join(", ")}`;
+      if (intentLock.mode === "enforce") return { ok: false, reason };
+      /* Signal: the regeneration is accepted and the would-be rejection is recorded. */
+      intentState.wouldReject += 1;
+      this.deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] intent lock would reject this regeneration — ${reason}` });
+      return { ok: true };
+    };
     const acceptance = new RegenerationAcceptance({
       snapshot: snapshotPort,
       fingerprint: (bytes) => sha256Hex(Buffer.from(bytes).toString("utf8")),
       ledger: async (entry) => {
         proofLedger.set(entry.file, { sha256: entry.sha256, bytes: entry.bytes });
       },
+      contractCheck,
     });
     const runDeadlinePort = this.deps.runDeadline ?? { arm: () => {}, describe: () => undefined, remainingMs: () => undefined };
     let acceptanceCalls = 0;
@@ -966,6 +1043,7 @@ export class RunQaUseCase {
     }
 
     /* Armed here because a diff run's budget follows the size of its change, known only now; a classify-skip has already returned without spending any agent time. */
+    intentState.tokens = changeTokens(classificationDiff ?? "");
     this.deps.runDeadline?.arm({ mode: input.mode, ...(classificationDiff !== undefined ? { diff: classificationDiff } : {}), ...(classificationIntent ? { changedFiles: classificationIntent.changedFiles } : {}) });
     this.noteDeadlineArmed(trail);
 
@@ -1788,6 +1866,8 @@ export class RunQaUseCase {
     let run = input.mode === "context"
       ? { verdict: "pass" as const, cases: [] as QaCase[], logs: generated.note ?? "" }
       : await this.deps.execution.execute(workspace.specDir, liveExecutionOpts);
+    /* The primary pass just ran: its bytes fix the contract every later regeneration is measured against (A5). */
+    await primeIntentBaseline();
     let devNotRenderedConclusive = false;
     if (signal?.aborted) {
       return this.abortedResult(workspace.mirrorDir);
@@ -2803,6 +2883,18 @@ export class RunQaUseCase {
         ...(integrityCounters.acceptances > 0 || integrityCounters.rejected > 0 || integrityCounters.capHit
           ? { integrity: { ...integrityCounters } }
           : {}),
+        ...(intentState.clauses > 0 || intentState.violations > 0
+          ? {
+              intent: {
+                mode: intentLock.mode,
+                violations: intentState.violations,
+                wouldReject: intentState.wouldReject,
+                clauses: intentState.clauses,
+                opaque: intentState.opaque,
+                opacityHigh: intentState.opacityHigh,
+              },
+            }
+          : {}),
       });
       await this.deps.runHistory.save(mainlineOutcome);
       trail.phases.enter("learn");
@@ -2899,6 +2991,18 @@ export class RunQaUseCase {
         ...(coverageStale ? { coverage: { stale: true } } : {}),
         ...(integrityCounters.acceptances > 0 || integrityCounters.rejected > 0 || integrityCounters.capHit
           ? { integrity: { ...integrityCounters } }
+          : {}),
+        ...(intentState.clauses > 0 || intentState.violations > 0
+          ? {
+              intent: {
+                mode: intentLock.mode,
+                violations: intentState.violations,
+                wouldReject: intentState.wouldReject,
+                clauses: intentState.clauses,
+                opaque: intentState.opaque,
+                opacityHigh: intentState.opacityHigh,
+              },
+            }
           : {}),
       },
       cases: run.cases,
@@ -3015,6 +3119,8 @@ export class RunQaUseCase {
       coverage?: { stale: boolean };
       /* What the run's regeneration acceptance did; absent when no regeneration came through it. */
       integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
+      /* The test-intent lock's derived clauses and deltas; absent when the lock is off or nothing was derived. */
+      intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
     },
   ) {
     const gateCoverageRatio = coverageRatio;

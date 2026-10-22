@@ -47,7 +47,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
     structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
     crossRepoImpactedCount: true, sandbox: true, closedLoop: true, agentBrowser: true, coordination: true,
-    coverage: true, integrity: true,
+    coverage: true, integrity: true, intent: true,
   } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
 
   const ALLOWLIST: Record<string, string> = {
@@ -78,7 +78,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
       "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "closedLoop", "agentBrowser", "coordination",
-      "coverage", "integrity",
+      "coverage", "integrity", "intent",
     ];
     assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toLegacyRunOutcome's own header claims 100% pass-through for this nested object");
   });
@@ -121,6 +121,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
         coordination: { mode: "lead-sidekicks", plan: "fanout", flows: 3, delivered: 2, incomplete: 1, takeover: false, authoring: "authenticated-browser" },
         coverage: { stale: true },
         integrity: { acceptances: 2, rejected: 1, proofReused: 1, capHit: true },
+        intent: { mode: "enforce", violations: 2, wouldReject: 0, clauses: 9, opaque: 1, opacityHigh: false },
       },
       rulesRetrieved: [S("rulesRetrieved")],
       reflection: { rootCause: S("reflection.rootCause") },

@@ -343,6 +343,8 @@ export interface RunOutcome {
     coverage?: { stale: boolean };
     /* How the run's regeneration acceptance spent its proof ledger. Persist-only. */
     integrity?: { acceptances: number; rejected: number; proofReused: number; capHit: boolean };
+    /* The test-intent lock: derived clauses, deltas and would-be rejections, with the opacity flag. Persist-only. */
+    intent?: { mode: string; violations: number; wouldReject: number; clauses: number; opaque: number; opacityHigh: boolean };
   };
   rulesRetrieved: string[];
   reflection?: StructuredReflection;

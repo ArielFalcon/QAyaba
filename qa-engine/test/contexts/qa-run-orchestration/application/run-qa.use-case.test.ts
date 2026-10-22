@@ -68,6 +68,7 @@ import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { extractSpecContract } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor.ts";
 import { reassignableGeneration, runWorkspace } from "../../../support/run-workspace.ts";
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
@@ -8639,5 +8640,125 @@ test("the reviewer decision span carries the delivered targets, the existing sui
     assert.equal(metric?.attrs["qayaba.review.correction_class"], "wrong-objective");
   } finally {
     fixtures.cleanup();
+  }
+});
+
+/* The intent lock: the primary pass fixes each spec's contract, and a later regeneration that weakens it
+   is recorded (signal) or rejected with its pre-turn bytes (enforce). The baseline never crosses runs. */
+function intentWorkspace(bodies: readonly string[]): { prepare: WorkspacePort["prepare"]; generate: GenerationPort["generate"]; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "qa-intent-"));
+  const specDir = join(dir, "e2e");
+  let calls = 0;
+  return {
+    prepare: async () => ({ specDir, mirrorDir: dir }),
+    generate: async () => {
+      const body = bodies[Math.min(calls, bodies.length - 1)]!;
+      calls += 1;
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "a.spec.ts"), body);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+const INTENT_PRIMARY = `test("checkout", async ({ page }) => {
+  await expect(page.getByText("Pay now")).toHaveText("Pay now");
+});`;
+
+const INTENT_WEAKENED = `test("checkout", async ({ page }) => {
+  await expect(page.getByText("Pay now")).toBeVisible();
+});`;
+
+test("intent lock in signal mode accepts a weakened regeneration and records the would-be rejection", async () => {
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED]);
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }),
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", intentLock: { mode: "signal", opacityFlagRatio: 0.5 } },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "intent-signal-records" });
+
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.gateSignals.intent?.wouldReject, 1, "a weakened matcher in signal mode is recorded, not rejected");
+    assert.equal(out.gateSignals.intent?.violations, 1);
+    assert.equal(out.decision.sideEffect, "issue", "the coverage policy still holds the PR; the intent lock did not decide it");
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("intent lock in enforce mode rejects the weakened regeneration and restores the primary bytes", async () => {
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED]);
+  try {
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => ({ status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }),
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "intent-enforce-rejects" });
+
+    assert.equal(out.decision.verdict, "pass");
+    assert.equal(out.gateSignals.intent?.violations, 1);
+    assert.equal(out.gateSignals.intent?.wouldReject, 0, "enforce rejects instead of recording a would-be rejection");
+    assert.equal(
+      out.gateSignals.integrity?.rejected,
+      1,
+      "the rejected regeneration went through the one acceptance path, which restored its bytes",
+    );
+  } finally {
+    real.cleanup();
+  }
+});
+
+test("a new run is never bound by a previous run's contract", async () => {
+  /* Run 1's primary is a strong matcher; run 2's primary is a presence matcher and its regeneration repeats
+     those same bytes. Compared against run 2's own baseline that is no delta; against run 1's it would be a
+     weakened matcher, which enforce would reject (and the coverage gate would then hold the PR). */
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED, INTENT_WEAKENED]);
+  try {
+    let measureCalls = 0;
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      generate: real.generate,
+      execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
+      measure: async () => {
+        measureCalls += 1;
+        return measureCalls <= 2
+          ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/a.ts", lines: [1] }] }
+          : { status: "pass" as const, ratio: 0.95 };
+      },
+      blocks: (status) => status === "fail",
+    });
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+    });
+
+    await useCase.run({ ...baseInput, runId: "intent-run-one" });
+    const second = await useCase.run({ ...baseInput, runId: "intent-run-two" });
+
+    assert.equal(second.decision.verdict, "pass");
+    assert.equal(second.decision.sideEffect, "pr", "run 2's regeneration is judged against run 2's own primary pass, so nothing is rejected");
+  } finally {
+    real.cleanup();
   }
 });
