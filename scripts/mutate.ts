@@ -638,8 +638,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   },
   "intent-contract": {
     description: "test-intent contract: change tokens from the diff's added lines, anchoring, and the generic delta rules with their change-derived waivers",
-    mutate: [`${OS}/change-tokens.ts`, `${OS}/test-intent-contract.ts`],
-    tests: [`${OS_TEST}/test-intent-contract.test.ts`],
+    mutate: [`${OS}/change-tokens.ts`, `${OS}/test-intent-contract.ts`, `${OS_INFRA}/ts-spec-contract.extractor.ts`],
+    tests: [`${OS_TEST}/test-intent-contract.test.ts`, `${OS_INFRA_TEST}/ts-spec-contract.extractor.test.ts`],
     thresholds: DEFAULT_THRESHOLDS,
   },
 };
