@@ -169,6 +169,7 @@ import { learningGates, observesOperatingSignal } from "../domain/helpers/learni
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
 import type { CoordinationTelemetryPort } from "./coordination/coordination-telemetry.ts";
+import { evidenceFromPackDataRoutes } from "./coordination/evidence-from.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 import { filterReviewFindings } from "../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey, refKey, type DisputedFinding, type RebuttalEvidence, type ReviewRebuttal } from "../domain/review-rebuttals.service.ts";
@@ -1542,6 +1543,8 @@ export class RunQaUseCase {
           ...(agentBrowser ? { agentBrowser } : {}),
           ...(geolocation ? { geolocation } : {}),
           ...(this.deps.sidekickDevBaseUrl ? { devBaseUrl: this.deps.sidekickDevBaseUrl } : {}),
+          /* The pages the pack read with results: every sidekick's brief states them, and a flow's empty read of one is checked against them. */
+          ...(groundingConfirmedDataRoutes?.length ? { knownFacts: evidenceFromPackDataRoutes(groundingConfirmedDataRoutes) } : {}),
           ...(this.deps.generation.plan
             ? { plan: (planning) => this.deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, ...geolocationEnrichment(), planning }) }
             : {}),

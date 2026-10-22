@@ -11,7 +11,7 @@ import { dropOpaqueTokens } from "../../../shared-infrastructure/output-token-fi
 import { importsTestFromFixtures } from "../../../shared-infrastructure/spec-fixtures-import.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
-import type { QaCase } from "@kernel/qa-case.ts";
+import { failureUnsettled, type QaCase } from "@kernel/qa-case.ts";
 import { normalizeSpecPath } from "@kernel/spec-path.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { AccountLock } from "../domain/account-lock.ts";
@@ -21,6 +21,7 @@ import {
   type CallBudget,
   type ClosedLoopRefusalCode,
   type RunSpecCapability,
+  type RunSpecFailureFact,
   type RunSpecStatus,
 } from "../domain/run-spec-capability.ts";
 import type { SessionRenewalPort, SpecCleanupPort, SpecExecutionResult, SpecExecutorPort } from "./ports/run-spec.ports.ts";
@@ -30,6 +31,9 @@ export const MAX_ERROR_CHARS = 2_000;
 export const MAX_FAILURE_DOM_CHARS = 8_000;
 export const MAX_TITLE_CHARS = 160;
 export const MAX_REPORTED_TESTS = 20;
+/* What a failure fact keeps of the runtime errors its page raised. */
+export const MAX_FACT_RUNTIME_ERRORS = 5;
+export const MAX_FACT_TEXT_CHARS = 300;
 /* How exactly a failing test's time is told: a duration to the millisecond is a number the spec chooses by sleeping. */
 export const DURATION_GRANULARITY_MS = 1_000;
 
@@ -128,6 +132,15 @@ function withoutQuery(url: string): string {
   }
 }
 
+function pathnameOf(url: string | undefined): string | undefined {
+  if (url === undefined) return undefined;
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return undefined;
+  }
+}
+
 export class RunSpecUseCase {
   constructor(private readonly deps: RunSpecDeps) {}
 
@@ -175,6 +188,7 @@ export class RunSpecUseCase {
     let tests: RunSpecTestReport[] = [];
     let passedTests = 0;
     let devWrites = 0;
+    let failures: RunSpecFailureFact[] = [];
     let note: string | undefined;
     let sessionLost = false;
     const now = this.deps.now ?? Date.now;
@@ -199,6 +213,7 @@ export class RunSpecUseCase {
       tests = outcome.tests;
       passedTests = outcome.passedTests;
       devWrites = outcome.devWrites;
+      failures = outcome.failures;
       note = outcome.note;
       sessionLost = outcome.sessionLost === true;
       tell({ "qayaba.tool.dev_writes": devWrites });
@@ -212,13 +227,13 @@ export class RunSpecUseCase {
       note = "the call could not be completed by the harness; nothing was reported by the spec";
     } finally {
       if (!waited) tell({ "qayaba.lease.wait_ms": Math.max(0, now() - asked) });
-      if (began) capability.settle({ path: rel, sha256, status, ms: Date.now() - started, devWrites });
+      if (began) capability.settle({ path: rel, sha256, status, ms: Date.now() - started, devWrites, ...(failures.length > 0 ? { failures } : {}) });
       else capability.cancel();
     }
     return { ok: true, report: { status, tests, passedTests, budget: capability.budget(deadline?.remainingMs()), ...(note !== undefined ? { note } : {}), ...(sessionLost ? { sessionLost: true as const } : {}) } };
   }
 
-  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; note?: string; sessionLost?: boolean }> {
+  private async executeAndClean(rel: string, grep: string | undefined, namespace: string, timeoutMs: number, stop: AbortSignal | undefined): Promise<{ status: RunSpecStatus; tests: RunSpecTestReport[]; passedTests: number; devWrites: number; failures: RunSpecFailureFact[]; note?: string; sessionLost?: boolean }> {
     let result: SpecExecutionResult | undefined;
     let failure: string | undefined;
     try {
@@ -232,10 +247,11 @@ export class RunSpecUseCase {
     } catch (err) {
       console.warn(`[qa] run_spec cleanup of ${namespace} failed (best effort): ${err instanceof Error ? err.message : String(err)}`);
     }
-    if (result === undefined) return { status: RUN_SPEC_STATUS.ERROR, tests: [], passedTests: 0, devWrites: 0, note: failure ?? "the spec could not be run" };
+    if (result === undefined) return { status: RUN_SPEC_STATUS.ERROR, tests: [], passedTests: 0, devWrites: 0, failures: [], note: failure ?? "the spec could not be run" };
 
     const failing = result.cases.filter((c) => c.status !== "pass");
     const passedTests = result.cases.length - failing.length;
+    const failures = failing.slice(0, MAX_REPORTED_TESTS).map((c) => this.failureFact(c));
     const tests = failing.slice(0, MAX_REPORTED_TESTS).map((c) => this.testReport(c));
     const status = this.statusOf(result);
     const notes: string[] = [];
@@ -254,7 +270,7 @@ export class RunSpecUseCase {
     }
     /* A run whose writes could not be counted (an older fixtures file, a ledger the child spoiled or never left, a run that was stopped) is charged the whole budget that was left: the count comes from the suite's own fixtures, which is code the agent can edit, so an absent or unbelievable count is never read as "none". */
     if (result.devWrites === undefined) notes.push("the requests it sent to DEV could not be counted; the whole write budget that was left was charged");
-    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
+    return { status, tests, passedTests, devWrites: result.devWrites ?? this.deps.capability.budget(this.deps.deadline?.remainingMs()).devWritesLeft, failures, ...(notes.length > 0 ? { note: notes.join("; ") } : {}), ...(sessionLost ? { sessionLost } : {}) };
   }
 
   /* The sha256 of the spec as it stands now, read strictly, or undefined when it is gone or cannot be read. */
@@ -284,6 +300,20 @@ export class RunSpecUseCase {
   }
 
   /* Everything a spec can write into a test's title, error or final address passes the run's by-value redaction (the secrets it holds, in each encoding it could print them in) and then the long-token filter. */
+  /* The facts a failure is classified from, kept for the orchestrator: text the spec can influence is redacted and bounded like the report's. */
+  private failureFact(c: QaCase): RunSpecFailureFact {
+    const path = pathnameOf(c.finalUrl);
+    const runtimeErrors = (c.runtimeErrors ?? []).slice(0, MAX_FACT_RUNTIME_ERRORS).map((e) => ({ type: e.type, text: cut(this.deps.redact(e.text), MAX_FACT_TEXT_CHARS) }));
+    return {
+      ...(c.detail !== undefined ? { detail: cut(this.deps.redact(stripAnsi(c.detail)), MAX_ERROR_CHARS) } : {}),
+      ...(path !== undefined ? { path } : {}),
+      ...(c.failureResultCount !== undefined ? { resultCount: c.failureResultCount } : {}),
+      ...(c.httpStatus !== undefined ? { httpStatus: c.httpStatus } : {}),
+      ...(runtimeErrors.length > 0 ? { runtimeErrors } : {}),
+      ...(failureUnsettled(c.failureSettle) ? { unsettled: true as const } : {}),
+    };
+  }
+
   private testReport(c: QaCase): RunSpecTestReport {
     /* What the page showed at this test's failure point: a token that is in it is one the generator can read there, so the filter leaves it alone. */
     const shown = c.failureDom === undefined ? "" : this.deps.redact(c.failureDom);

@@ -225,7 +225,11 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `sidekickAuthoring`: authenticated browser, `run_spec` only, the plain browser for an app with no login (one flow at a time), or
   excluded (a Codex sidekick, or a login with neither grant): the lead then authors alone and the log says why. A flow climbs the
   escalation ladder (a second attempt, then the lead takes it back) on what the orchestrator saw of its `run_spec` calls, never on the
-  sidekick's word. Flows that deliver are added up like a generation (`aggregateFlowOutcomes`), and the rest of the run (validate,
+  sidekick's word. The ledger keeps each failing test's facts, and fixed rules (`authoring-failure.ts`) decide the next step: an app
+  defect (5xx, uncaught runtime error) is never sent back to be made green (the bytes that showed it are delivered as they ran), and
+  the other kinds give the second attempt a specific instruction. The pages the Context Pack read with results reach every brief as
+  facts; a flow whose `run_spec` read one of them empty has its decline refused, is retried with both reads, and goes to the lead if
+  the conflict stays open. Flows that deliver are added up like a generation (`aggregateFlowOutcomes`), and the rest of the run (validate,
   execute, coverage, review, decide) is unchanged. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
   whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
   Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { mode, plan, downgrade, flows, delivered,

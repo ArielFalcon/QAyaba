@@ -15,7 +15,7 @@ import type { CoordinationGateSignal, CoordinationSettings, PlanningLimits } fro
 import { COORDINATION_MODE } from "@kernel/coordination.ts";
 import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
 import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
-import type { AgentBrowserHandle, ClosedLoopHandle, FlowGeolocationHandle, FlowLoopHandle, GeolocationHandle, PlanOutput } from "../ports/index.ts";
+import type { AgentBrowserHandle, ClosedLoopHandle, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, GeolocationHandle, PlanOutput } from "../ports/index.ts";
 import type { DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest, WorkspaceChange } from "../ports/delegation-workspace.port.ts";
 import { createDelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
@@ -23,6 +23,9 @@ import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import type { CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
+import { evidenceFromEmptyRead } from "./evidence-from.ts";
+import { observationConflictIn } from "./evidence-precedence.ts";
+import { AUTHORING_FAILURE, authoringFailureFeedback, classifyAuthoringFailure, type AuthoringFailure } from "./authoring-failure.ts";
 import { FanOutDispatcher, FLOW_RESULT, type TimerPort } from "./fan-out-dispatcher.ts";
 import { aggregateFlowOutcomes, FLOW_OUTCOME, type AggregatedFlows, type FlowOutcome } from "./flow-outcomes.ts";
 import { admitLeadPlan, LEAD_PLAN_KIND, type AdmittedFlow, type AdmittedPlan } from "./lead-plan.ts";
@@ -277,6 +280,8 @@ export class LeadSidekicks {
     let previous: ProgressSnapshot | undefined;
     let feedback: string | undefined;
     let last: DelegationResult | undefined;
+    /* The observation conflict the last attempt left open, when one did: the flow's reason when it ends on it. */
+    let openConflict: string | undefined;
 
     for (const [index, capability] of capabilities.entries()) {
       const attempt = index + 1;
@@ -333,18 +338,39 @@ export class LeadSidekicks {
       if (copied) {
         return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals };
       }
-      if (eligible && refusal === undefined && workspaceUntouched && result.filesChanged.length === 0 && result.summary.trim() !== "") {
+      const ledger = loop?.ledger() ?? [];
+      const lastCall = ledger.at(-1);
+      /* What the flow's last run_spec call met, from the facts the orchestrator kept of it. */
+      const failure = lastCall?.status === "failed" ? classifyAuthoringFailure(lastCall.failures) : undefined;
+      /* The app at fault: the spec is right to fail and is never sent back to be made green. The bytes that showed it are taken back as they ran, so the run's own execution reports the defect; with those bytes gone the flow ends on it. */
+      if (failure?.kind === AUTHORING_FAILURE.APP_DEFECT && lastCall && loop) {
+        const evidence = `app defect: ${failure.reason}`;
+        if (!signal.aborted && (await loop.holds(lastCall.sha256))) {
+          const collected = await this.deps.workspaces.collect(workspace, request);
+          if (collected.copied.length > 0) {
+            this.record(input, { kind: "delegation", action: "delegate", capability, reason: `flow ${flow.id}: ${evidence}; the spec that showed it is taken back as it ran`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
+            return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals: collected.proposalsTotal > 0 ? { flowId: flow.id, changes: collected.proposals, total: collected.proposalsTotal } : undefined };
+          }
+        }
+        this.record(input, { kind: "delegation", action: "delegate", capability, reason: `flow ${flow.id}: ${evidence}; the spec that showed it is no longer the sidekick's, and no attempt is made to make it pass`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
+        return { outcome: { id: flow.id, kind: FLOW_OUTCOME.FAILED, reason: `${evidence}; the spec that showed it is no longer in the workspace` }, proposals: undefined };
+      }
+      /* What the run knows beside what the sidekick says: the pages the Context Pack read with results, and the pages the flow's own run_spec calls read empty. */
+      const evidence = [...(input.knownFacts ?? []), ...emptyReadEvidence(ledger)];
+      const conflict = observationConflictIn(evidence);
+      openConflict = conflict ? `${conflict.pack.summary}, but ${conflict.read.summary}` : undefined;
+      /* A decline that rests on an empty read the Context Pack contradicts is not taken. */
+      if (conflict === undefined && eligible && refusal === undefined && workspaceUntouched && result.filesChanged.length === 0 && result.summary.trim() !== "") {
         return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DECLINED, reason: result.summary }, proposals };
       }
 
-      const ledger = loop?.ledger() ?? [];
       const current = buildProgressSnapshot({
         failureClass: result.status,
         failingNames: ledger.map((entry) => entry.status),
         changedFiles: [...new Set(ledger.map((entry) => entry.sha256))],
       });
       const decision = routeOrchestration({
-        evidence: [],
+        evidence,
         currentCapability: capability,
         ...(previous ? { previous } : {}),
         current,
@@ -360,9 +386,9 @@ export class LeadSidekicks {
       if (decision.action !== "escalate-sidekick" && attempt < capabilities.length) {
         this.record(input, { kind: "escalation", action: "escalate-sidekick", capability: capabilities[attempt]!, reason: `flow ${flow.id}: ${decision.reason}; the next attempt runs on the escalated capability`, delegationId, attempt, progressFingerprint: current.failureFingerprint });
       }
-      feedback = feedbackOf(result, ledger.at(-1)?.status, refusal);
+      feedback = feedbackOf(result, lastCall?.status, refusal, openConflict, failure);
     }
-    const reason = last ? `${last.status}: ${last.summary}` : "no attempt could be made";
+    const reason = last ? `${last.status}: ${openConflict ? `observation conflict: ${openConflict}` : last.summary}` : "no attempt could be made";
     return { outcome: { id: flow.id, kind: last?.status === "needs-lead" ? FLOW_OUTCOME.NEEDS_LEAD : FLOW_OUTCOME.FAILED, reason }, proposals: undefined };
   }
 
@@ -403,11 +429,19 @@ function taskOf(
   ].filter(Boolean).join("\n");
 }
 
-function feedbackOf(result: DelegationResult, lastRun: string | undefined, refusal: string | undefined): string {
+/* The pages the flow's run_spec calls read empty at a failure point, each once. */
+function emptyReadEvidence(ledger: readonly FlowLedgerEntry[]): EvidenceRef[] {
+  const paths = ledger.flatMap((entry) => (entry.failures ?? []).flatMap((f) => (f.resultCount === 0 && f.path !== undefined ? [f.path] : [])));
+  return [...new Set(paths)].map(evidenceFromEmptyRead);
+}
+
+function feedbackOf(result: DelegationResult, lastRun: string | undefined, refusal: string | undefined, conflict: string | undefined, failure: AuthoringFailure | undefined): string {
   return [
     `Your first attempt did not deliver the spec (status ${result.status}).`,
     result.summary ? `You reported: ${result.summary}` : "",
     lastRun ? `The last run_spec call ended ${lastRun}.` : "No run_spec call of yours was seen.",
+    authoringFailureFeedback(failure),
+    conflict ? `Two reads of the same page disagree: ${conflict}. An empty read there is no evidence that DEV has no data, so it is no reason to decline the flow or to assert that the page is empty.` : "",
     refusal ? `The file could not be taken back: ${refusal}` : "",
     "Fix what is missing, write the file, and report again.",
   ].filter(Boolean).join("\n");

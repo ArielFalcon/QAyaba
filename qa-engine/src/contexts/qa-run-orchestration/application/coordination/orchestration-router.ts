@@ -1,7 +1,7 @@
 /* Deterministic orchestration router. Returns OrchestrationDecision — distinct from CoordinationDecision (assignment). */
 import { createHash } from "node:crypto";
 import type { AgentCapability } from "./agent-capability.ts";
-import { agentClaimInvalidatedBy } from "./evidence-precedence.ts";
+import { agentClaimInvalidatedBy, observationConflictIn } from "./evidence-precedence.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 
 export interface ProgressSnapshot {
@@ -92,6 +92,24 @@ export function routeOrchestration(input: RouterInput): OrchestrationDecision {
     return {
       action: "lead-takeover",
       reason: `deterministic contradiction: ${contradiction.summary}`,
+      evidence,
+      nextCapability: "lead",
+    };
+  }
+  /* A sidekick's empty read that the Context Pack contradicts gets one more look with both reads in hand, then the lead. */
+  const conflict = observationConflictIn(evidence);
+  if (conflict && input.currentCapability === "sidekick-standard") {
+    return {
+      action: "escalate-sidekick",
+      reason: `observation conflict: ${conflict.pack.summary}, but ${conflict.read.summary}`,
+      evidence,
+      nextCapability: "sidekick-escalated",
+    };
+  }
+  if (conflict && input.currentCapability === "sidekick-escalated") {
+    return {
+      action: "lead-takeover",
+      reason: `observation conflict still open: ${conflict.pack.summary}, but ${conflict.read.summary}`,
       evidence,
       nextCapability: "lead",
     };
