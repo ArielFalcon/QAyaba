@@ -37,6 +37,7 @@ const ERROR_CLASS_LABEL: Record<string, string> = {
   "E-PRECONDITION": "app login could not be completed",
   "E-TIME-BUDGET": "agent ran out of time",
   "E-REVIEWER-UNAVAILABLE": "reviewer unavailable",
+  "E-REVIEW-DISPUTED": "review dispute",
   "E-SANDBOX": "execution sandbox unavailable",
 };
 

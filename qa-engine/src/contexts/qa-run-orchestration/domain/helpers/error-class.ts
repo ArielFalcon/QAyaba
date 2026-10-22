@@ -1,4 +1,4 @@
-/* Zero-LLM error taxonomy derived on every persisted RunOutcome. Hardcoding errorClass:null breaks the learning/governance flywheel (rule retrieval keys on this field). E-INFRA is recorded but excluded from learning — infrastructure failures teach nothing. E-STEP-BUDGET (the agent ran out of steps with no spec reported) is an engine-side infrastructure class that DOES feed learning; E-NO-DECISION (a verdict with no specs and no no-op) is recorded but never learned from. E-PRECONDITION (the app's login was positively evidenced to fail before generation) is recorded but never learned from: it says nothing about the tests or the engine. E-TIME-BUDGET (the generator's turn was cut off by the wall-clock budget its change allowed, or any agent turn by the run's own deadline, with no verdict reached) is the time counterpart of E-STEP-BUDGET but is never learned from: how long a turn takes is confounded by DEV latency, so it says nothing about the tests or the engine. E-REVIEWER-UNAVAILABLE (the reviewer's session failed or returned nothing, so the tests that passed were never judged) is recorded, never learned from, and is not a rejection: it opens no Issue and no PR. E-REVIEWER-REJECTED is not produced here; it is the corrections-distillation fallback in distill-rule.ts. */
+/* Zero-LLM error taxonomy derived on every persisted RunOutcome. Hardcoding errorClass:null breaks the learning/governance flywheel (rule retrieval keys on this field). E-INFRA is recorded but excluded from learning — infrastructure failures teach nothing. E-STEP-BUDGET (the agent ran out of steps with no spec reported) is an engine-side infrastructure class that DOES feed learning; E-NO-DECISION (a verdict with no specs and no no-op) is recorded but never learned from. E-PRECONDITION (the app's login was positively evidenced to fail before generation) is recorded but never learned from: it says nothing about the tests or the engine. E-TIME-BUDGET (the generator's turn was cut off by the wall-clock budget its change allowed, or any agent turn by the run's own deadline, with no verdict reached) is the time counterpart of E-STEP-BUDGET but is never learned from: how long a turn takes is confounded by DEV latency, so it says nothing about the tests or the engine. E-REVIEWER-UNAVAILABLE (the reviewer's session failed or returned nothing, so the tests that passed were never judged) is recorded, never learned from, and is not a rejection: it opens no Issue and no PR. E-REVIEWER-REJECTED is not produced here; it is the corrections-distillation fallback in distill-rule.ts. E-REVIEW-DISPUTED (a verified blocking finding survived every round while the generator's rebuttal stayed unverified) is recorded, never learned from, and is neither a PR nor an Issue: the engine could not decide. */
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 
 export const ERROR_CLASSES = [
@@ -18,6 +18,7 @@ export const ERROR_CLASSES = [
   "E-PRECONDITION",
   "E-TIME-BUDGET",
   "E-REVIEWER-UNAVAILABLE",
+  "E-REVIEW-DISPUTED",
   "E-SANDBOX",
   /* The shell's own classes: a run it ended itself, not one the engine classified. They are here so the two copies of the
      taxonomy stay identical; the learning gates decide they teach nothing. */
@@ -36,6 +37,7 @@ export const ERROR_CLASS = {
   PRECONDITION: "E-PRECONDITION",
   TIME_BUDGET: "E-TIME-BUDGET",
   REVIEWER_UNAVAILABLE: "E-REVIEWER-UNAVAILABLE",
+  REVIEW_DISPUTED: "E-REVIEW-DISPUTED",
   SANDBOX: "E-SANDBOX",
 } as const satisfies Record<string, ErrorClass>;
 
