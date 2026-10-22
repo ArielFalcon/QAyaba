@@ -2429,6 +2429,8 @@ export class RunQaUseCase {
          * generator. The pre-check is the orchestrator's own deterministic evidence, so it is not a
          * reviewer finding and is never filtered. Gated by the master switch.
          */
+        let filteredReviewFindings = 0;
+        let advisoryReviewFindings = 0;
         if (cfg.reviewLoopIntegrity && decidedBy === "model" && reviewResult.corrections.length > 0) {
           const findings = reviewResult.corrections.map((text, index) => ({
             text,
@@ -2439,9 +2441,12 @@ export class RunQaUseCase {
             inScopeSpecs: new Set(reviewCases.map((c) => c.file ?? c.name)),
             executedSpecs: new Set(run.cases.map((c) => c.file).filter((file): file is string => !!file)),
           });
-          if (filtered.dropped.length > 0) {
+          filteredReviewFindings = filtered.dropped.length;
+          advisoryReviewFindings = filtered.advisory.length;
+          if (filtered.dropped.length > 0 || filtered.advisory.length > 0) {
             try {
               this.telemetry.counter("qayaba.review.filtered")(filtered.dropped.length, { "qayaba.app": input.app });
+              this.telemetry.counter("qayaba.review.advisory")(filtered.advisory.length, { "qayaba.app": input.app });
             } catch (err) {
               console.error(`[telemetry] the filtered-findings counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
             }
@@ -2479,6 +2484,9 @@ export class RunQaUseCase {
               "qayaba.review.targets": reviewTargets,
               ...(existingSpecFiles.length ? { "qayaba.review.existing_specs": [...existingSpecFiles] } : {}),
               ...(reviewResult.corrections.length ? { "qayaba.review.corrections": [...reviewResult.corrections] } : {}),
+              /* What the filter set aside: a dropped finding can never block, an advisory one is recorded only. */
+              ...(filteredReviewFindings > 0 ? { "qayaba.review.filtered": filteredReviewFindings } : {}),
+              ...(advisoryReviewFindings > 0 ? { "qayaba.review.advisory": advisoryReviewFindings } : {}),
               ...(reviewResult.rationale ? { "qayaba.review.rationale": reviewResult.rationale } : {}),
             },
           });
