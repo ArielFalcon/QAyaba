@@ -276,6 +276,18 @@ export const ATTRIBUTES = {
   "qayaba.test.network_error_count": int("Failed requests the page saw, harvested from the capture dump."),
   "qayaba.test.network_class": str("egress, backend, dns or other, derived from the harvested network errors and the run's egress report."),
   "qayaba.test.attempt": int("The attempt number of a case (0 is the first run)."),
+  /* An attempt's failure-point capture (the fixture's dump of that retry), on its qayaba.attempt span. */
+  "qayaba.failure.final_url": text("The address the page was on when the attempt failed."),
+  "qayaba.failure.http_status": int("The HTTP status of the page the attempt failed on."),
+  "qayaba.failure.result_count": int("The result count the app's declared data state showed when the attempt failed."),
+  "qayaba.failure.data_in_flight": int("Data requests (fetch/xhr) still in flight when the attempt failed."),
+  "qayaba.failure.quiet_ms": int("Milliseconds since the last data response when the attempt failed."),
+  "qayaba.failure.tree_stable": bool("Whether the accessibility tree was the same on a second read a moment after the failure."),
+  "qayaba.failure.runtime_error_count": int("Console errors and uncaught page errors the page had raised when the attempt failed."),
+  "qayaba.failure.runtime_error": text("The first runtime error the page raised before the attempt failed."),
+  "qayaba.failure.network_error_count": int("Failed requests the page saw before the attempt failed."),
+  "qayaba.failure.dom_lines": int("Lines of the accessibility tree captured when the attempt failed."),
+  "qayaba.failure.dom_sha256": metaHash("sha256 of the accessibility tree captured when the attempt failed (equal digests: the same page)."),
   "qayaba.selector.match_count": int("Elements a locator resolved to in a strict mode violation."),
   "qayaba.selector.strategy": str("The kind of locator that failed: testid, role, text or css."),
 

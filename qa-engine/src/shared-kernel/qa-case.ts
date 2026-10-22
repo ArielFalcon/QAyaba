@@ -24,6 +24,24 @@ export interface QaCase {
   failureSettle?: FailureSettle;
   /* The result count the app's declared data state (dev.dataState) showed on the failure-point page. Absent when no data state matched that page or it could not be read. */
   failureResultCount?: number;
+  /* The failure-point capture of every failed attempt the fixture dumped, in retry order. The fields above keep the latest retry's capture; these say what each attempt saw, for telemetry. Absent when no dump matched. */
+  failureAttempts?: FailureAttemptEvidence[];
+}
+
+/* One attempt's failure-point capture, reduced to facts: the page's address and status, the data state, whether it had settled, and counts and a digest of what it showed. The tree itself stays on the case (failureDom) for the fix loop. */
+export interface FailureAttemptEvidence {
+  retry: number;
+  finalUrl?: string;
+  httpStatus?: number;
+  resultCount?: number;
+  settle?: FailureSettle;
+  runtimeErrorCount: number;
+  /* The first runtime error's text, when there was one. */
+  runtimeError?: string;
+  networkErrorCount: number;
+  /* Lines of the parsed accessibility tree and the sha256 of those lines; absent when the dump had no tree. */
+  domLines?: number;
+  domSha256?: string;
 }
 
 export interface FailureSettle {

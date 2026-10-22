@@ -1,9 +1,10 @@
 /* E2E Playwright runner against live DEV. Timeouts and recordAudit are injected — this module never reads process.env and never imports src/orchestrator. */
 
+import { createHash } from "node:crypto";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import type { QaCase, CaseStatus, FailureSettle } from "@kernel/qa-case.ts";
+import type { QaCase, CaseStatus, FailureSettle, FailureAttemptEvidence } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
@@ -353,7 +354,9 @@ export async function runE2E(
   const deniedHosts = activeExecScope()?.report.denied ?? [];
   for (const c of parsed.cases) {
     const qa = c as unknown as QaCase;
-    const dump = matchFailureDumps(c.name, dumps);
+    const caseDumps = failureDumpsOf(c.name, dumps);
+    const dump = caseDumps[0] ?? null;
+    if (caseDumps.length > 0) qa.failureAttempts = caseDumps.filter((d) => d.project === caseDumps[0]!.project).map(attemptEvidence).sort((a, b) => a.retry - b.retry);
     if (dump?.yaml) {
       const nodes = parseAriaSnapshot(dump.yaml);
       if (nodes.length > 0) qa.failureDom = nodes.join("\n");
@@ -416,6 +419,13 @@ function redactCaseByValue(c: QaCase): void {
   if (c.failureDom !== undefined) c.failureDom = redactByValue(c.failureDom);
   if (c.finalUrl !== undefined) c.finalUrl = redactByValue(c.finalUrl);
   if (c.runtimeErrors !== undefined) c.runtimeErrors = c.runtimeErrors.map((e) => ({ type: e.type, text: redactByValue(e.text) }));
+  if (c.failureAttempts !== undefined) {
+    c.failureAttempts = c.failureAttempts.map((a) => ({
+      ...a,
+      ...(a.finalUrl !== undefined ? { finalUrl: redactByValue(a.finalUrl) } : {}),
+      ...(a.runtimeError !== undefined ? { runtimeError: redactByValue(a.runtimeError) } : {}),
+    }));
+  }
   if (c.networkErrors !== undefined) {
     c.networkErrors = c.networkErrors.map((e) => ({
       ...e,
@@ -604,15 +614,34 @@ function deriveNetworkClass(errors: NonNullable<QaCase["networkErrors"]>, denied
 }
 
 export function matchFailureDumps(caseName: string, dumps: FailureDump[]): FailureDump | null {
+  return failureDumpsOf(caseName, dumps)[0] ?? null;
+}
+
+/* Every dump of a case, its first project first and, within a project, the latest retry first. */
+function failureDumpsOf(caseName: string, dumps: FailureDump[]): FailureDump[] {
   const caseSegs = titleSegments(caseName);
   const candidates = dumps.filter((d) => {
     if (!d.title || !segmentsAreTail(caseSegs, titleSegments(d.title))) return false;
     if (d.file && !caseSegs.some((s) => s === d.file || s.endsWith(`/${d.file}`))) return false;
     return true;
   });
-  if (candidates.length === 0) return null;
   candidates.sort((a, b) => (a.project < b.project ? -1 : a.project > b.project ? 1 : b.retry - a.retry));
-  return candidates[0]!;
+  return candidates;
+}
+
+function attemptEvidence(d: FailureDump): FailureAttemptEvidence {
+  const nodes = d.yaml ? parseAriaSnapshot(d.yaml) : [];
+  return {
+    retry: d.retry,
+    ...(d.finalUrl !== undefined ? { finalUrl: d.finalUrl } : {}),
+    ...(d.httpStatus !== undefined ? { httpStatus: d.httpStatus } : {}),
+    ...(d.resultCount !== undefined ? { resultCount: d.resultCount } : {}),
+    ...(d.settle !== undefined ? { settle: d.settle } : {}),
+    runtimeErrorCount: d.runtimeErrors?.length ?? 0,
+    ...(d.runtimeErrors?.[0] !== undefined ? { runtimeError: d.runtimeErrors[0].text } : {}),
+    networkErrorCount: d.networkErrors?.length ?? 0,
+    ...(nodes.length > 0 ? { domLines: nodes.length, domSha256: createHash("sha256").update(nodes.join("\n")).digest("hex") } : {}),
+  };
 }
 
 /** Runs the repo's `e2e/` project (with its own config/fixtures) with the JSON reporter. Playwright is not a dependency of this template (it would pull in browsers): it lives in the environment where the service runs (the orchestrator image is based on the Playwright image). PW_BASE_URL points to DEV; PW_NAMESPACE is the run's data prefix (read by the fixtures). Orphan-data cleanup: runs ONLY cleanup.spec.ts with PW_CLEANUP=1 and the interrupted run's namespace, so a crashed run's namespaced test data is deleted before the next run. Best-effort: it never throws and never blocks the new run (failures are warnings). */

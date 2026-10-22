@@ -1345,6 +1345,48 @@ test("readFailureDumps parses the settle facts and the result count, and drops w
   }
 });
 
+test("harvest keeps every retry's failure-point capture, in retry order, next to the latest one on the case", async () => {
+  const hash = createHash("sha1").update(`${netCase.file}/${netCase.title}`).digest("hex").slice(0, 12);
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => {
+      if (args.failureCaptureDir) {
+        writeFileSync(
+          join(args.failureCaptureDir, `desktop__${hash}__1.json`),
+          JSON.stringify({ project: "desktop", file: netCase.file, title: netCase.title, retry: 1, yaml: "- heading \"Owners\"\n- text: 3 results", finalUrl: "https://dev/owners?page=2", settle: { inFlight: 0, quietMs: 900, treeStable: true }, resultCount: 3 }),
+        );
+        writeFileSync(
+          join(args.failureCaptureDir, `desktop__${hash}__0.json`),
+          JSON.stringify({ project: "desktop", file: netCase.file, title: netCase.title, retry: 0, yaml: "- heading \"Owners\"", finalUrl: "https://dev/owners", httpStatus: 200, settle: { inFlight: 2, quietMs: 10, treeStable: false }, resultCount: 0, runtimeErrors: [{ type: "pageerror", text: "boom" }], networkErrors: [{ url: "https://api/x", status: 502 }] }),
+        );
+      }
+      return {
+        report: { suites: [{ title: netCase.file, specs: [{ title: netCase.title, ok: false, tests: [{ results: [{ status: "failed", retry: 0, error: { message: "timeout" } }, { status: "failed", retry: 1, error: { message: "timeout" } }] }] }] }] },
+        logs: "failed",
+        ran: true,
+      };
+    },
+  };
+  const run = await runE2E("/e2e", { baseUrl: "https://dev", namespace: "desktop" }, deps);
+  const failed = run.cases.find((c) => c.status === "fail") as QaCase | undefined;
+  assert.ok(failed, "the failed case must be present");
+  assert.equal(failed.failureResultCount, 3, "the case keeps the latest retry's capture");
+  assert.equal(failed.finalUrl, "https://dev/owners?page=2");
+  const attempts = failed.failureAttempts ?? [];
+  assert.deepEqual(attempts.map((a) => a.retry), [0, 1]);
+  const first = attempts[0]!;
+  assert.equal(first.finalUrl, "https://dev/owners");
+  assert.equal(first.httpStatus, 200);
+  assert.equal(first.resultCount, 0);
+  assert.deepEqual(first.settle, { inFlight: 2, quietMs: 10, treeStable: false });
+  assert.equal(first.runtimeErrorCount, 1);
+  assert.equal(first.runtimeError, "boom");
+  assert.equal(first.networkErrorCount, 1);
+  assert.equal(first.domLines, 1);
+  assert.match(first.domSha256 ?? "", /^[0-9a-f]{64}$/);
+  assert.equal(attempts[1]!.domLines, 2);
+  assert.notEqual(attempts[1]!.domSha256, first.domSha256);
+});
+
 test("harvest folds the settle facts and the result count onto the failed case", async () => {
   const hash = createHash("sha1").update(`${netCase.file}/${netCase.title}`).digest("hex").slice(0, 12);
   const deps: E2eExecuteDeps = {

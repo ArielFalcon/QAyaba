@@ -460,3 +460,45 @@ test("a spec file name that carries a secret of the run, or a pattern the saniti
   assert.equal(file.includes("hunter2-secret-value"), false);
   assert.equal(file.includes("ghp_0123456789"), false);
 });
+
+test("each attempt carries the failure-point capture of its own retry, and a passing attempt carries none", () => {
+  const h = traceHarness();
+  const cases: QaCase[] = [{
+    name: "flows/orders.spec.ts › orders › saves an order",
+    status: "flaky",
+    failureAttempts: [{
+      retry: 0,
+      finalUrl: "https://dev.example.com/orders",
+      httpStatus: 200,
+      resultCount: 0,
+      settle: { inFlight: 1, quietMs: 40, treeStable: false },
+      runtimeErrorCount: 2,
+      runtimeError: "TypeError: cannot read properties of undefined",
+      networkErrorCount: 3,
+      domLines: 12,
+      domSha256: "a".repeat(64),
+    }],
+  }];
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT, cases);
+  const saves = h.named("qayaba.test").find((s) => s.attributes["qayaba.test.name"] === "orders › saves an order")!;
+  const [failed, passed] = h.named("qayaba.attempt").filter((s) => s.parentSpanContext?.spanId === saves.spanContext().spanId);
+  assert.equal(failed!.attributes["qayaba.failure.final_url"], "https://dev.example.com/orders");
+  assert.equal(failed!.attributes["qayaba.failure.http_status"], 200);
+  assert.equal(failed!.attributes["qayaba.failure.result_count"], 0);
+  assert.equal(failed!.attributes["qayaba.failure.data_in_flight"], 1);
+  assert.equal(failed!.attributes["qayaba.failure.quiet_ms"], 40);
+  assert.equal(failed!.attributes["qayaba.failure.tree_stable"], false);
+  assert.equal(failed!.attributes["qayaba.failure.runtime_error_count"], 2);
+  assert.equal(failed!.attributes["qayaba.failure.runtime_error"], "TypeError: cannot read properties of undefined");
+  assert.equal(failed!.attributes["qayaba.failure.network_error_count"], 3);
+  assert.equal(failed!.attributes["qayaba.failure.dom_lines"], 12);
+  assert.equal(failed!.attributes["qayaba.failure.dom_sha256"], "a".repeat(64));
+  assert.equal(Object.keys(passed!.attributes).some((k) => k.startsWith("qayaba.failure.")), false);
+});
+
+test("an attempt with no capture of its retry carries no failure-point attributes", () => {
+  const h = traceHarness();
+  const cases: QaCase[] = [{ name: "flows/orders.spec.ts › orders › saves an order", status: "flaky", failureAttempts: [{ retry: 5, resultCount: 0, runtimeErrorCount: 0, networkErrorCount: 0 }] }];
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT, cases);
+  for (const a of h.named("qayaba.attempt")) assert.equal(Object.keys(a.attributes).some((k) => k.startsWith("qayaba.failure.")), false);
+});
