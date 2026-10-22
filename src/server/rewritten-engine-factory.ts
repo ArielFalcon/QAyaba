@@ -119,7 +119,7 @@ import { parseExplorationBrief } from "../qa/exploration-brief";
 import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter";
 import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/ports/generation-ports";
 import { MultiRepoCheckoutAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/multi-repo-checkout.adapter";
-import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { roleWindowBytes, setLiveModelWindows } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import type { RepairPort } from "@contexts/generation/application/generate-tests.use-case.ts";
 
 import {
@@ -601,12 +601,15 @@ const RUNTIME_ROLE_OF_STEP_LIMIT_ROLE: Readonly<Record<StepLimitRole, AgentRole>
  * serves every role and every prompt of the run. The facade is resolved at the first ask, so a run that never
  * prompts reads nothing and a runtime switched between runs gives each run its own. A read that throws or outlasts
  * its deadline leaves every role without a limit and warns once. The baked config copy is never a substitute: it
- * can differ from what the server enforces.
+ * can differ from what the server enforces. The same first ask installs the context window the runtime reports for
+ * each model, which budgets every prompt of the run (every prompt that states a limit awaits this read first).
  */
 function stepLimitResolver(getAgentFacade: () => AgentFacade, directory: string): StepLimitFor {
   let read: Promise<StepLimits> | undefined;
+  let facade: AgentFacade | undefined;
+  const facadeOnce = (): AgentFacade => (facade ??= getAgentFacade());
   return async (role) => {
-    read ??= readStepLimits(getAgentFacade, directory);
+    read ??= Promise.all([readStepLimits(facadeOnce, directory), installModelWindows(facadeOnce, directory)]).then(([limits]) => limits);
     return enforcedStepLimit((await read)[RUNTIME_ROLE_OF_STEP_LIMIT_ROLE[role]]);
   };
 }
@@ -618,6 +621,23 @@ async function readStepLimits(getAgentFacade: () => AgentFacade, directory: stri
   } catch (err) {
     console.warn(`[qa] WARNING: the step limits of ${directory} could not be read from the agent runtime (${err instanceof Error ? err.message : String(err)}); no prompt of this run states one.`);
     return {};
+  }
+}
+
+/* Never rejects: a failed read leaves the catalog in charge for this run, said once; a previous run's windows never stand in. */
+async function installModelWindows(getAgentFacade: () => AgentFacade, directory: string): Promise<void> {
+  setLiveModelWindows(undefined);
+  let facade: AgentFacade;
+  try {
+    facade = getAgentFacade();
+  } catch {
+    return; /* the step-limit read of the same ask reports a facade that cannot be resolved */
+  }
+  if (!facade.modelWindows) return;
+  try {
+    setLiveModelWindows(await withTimeout(facade.modelWindows(directory), STEP_LIMIT_READ_TIMEOUT_MS, "model window read"));
+  } catch (err) {
+    console.warn(`[qa] WARNING: the model context windows of ${directory} could not be read from the agent runtime (${err instanceof Error ? err.message : String(err)}); this run's prompts are budgeted by the catalog.`);
   }
 }
 

@@ -304,9 +304,9 @@ export function createRawEventStreamOpener(deps: EventStreamOpenerDeps): RawEven
 setRawEventStreamOpener(createRawEventStreamOpener({ getEventClient }));
 
 
-/* What the agent-list primitive needs from the SDK, injected so its request and its reading are testable over a faked network. */
+/* What the agent-list and model-window primitives need from the SDK, injected so their requests and their reading are testable over a faked network. */
 export interface AgentListDeps {
-  getClient(): Promise<Pick<Awaited<ReturnType<typeof getEventClient>>, "app">>;
+  getClient(): Promise<Pick<Awaited<ReturnType<typeof getEventClient>>, "app" | "config">>;
 }
 
 export const defaultAgentListDeps: AgentListDeps = { getClient: getEventClient };
@@ -349,6 +349,30 @@ export async function listAgentCaps(directory: string, deps: AgentListDeps = def
   if (!Array.isArray(res.data)) throw new Error(`OpenCode app.agents returned no list of agents: ${JSON.stringify(res.data)}`);
   const agents: ReadonlyArray<AgentOnTheWire> = res.data;
   return agents.map((agent) => ({ name: agent.name, cap: agent.steps ?? agent.maxSteps }));
+}
+
+/*
+ * The context window of every model the OpenCode server serves for `directory`, keyed by the `provider/model`
+ * reference a role is assigned: `GET /config/providers`, each model's `limit.context`. A model listed without a
+ * positive whole window is left out. A failure to read, or a reply with no list of providers, throws.
+ */
+export async function listModelWindows(directory: string, deps: AgentListDeps = defaultAgentListDeps): Promise<Record<string, number>> {
+  const client = await deps.getClient();
+  const res = await client.config.providers({ directory });
+  if (res.error) {
+    const status = res.response?.status;
+    throw new Error(`OpenCode config.providers failed${status === undefined ? "" : ` (HTTP ${status})`}: ${describeFailure(res.error)}`);
+  }
+  const providers: unknown = res.data?.providers;
+  if (!Array.isArray(providers)) throw new Error(`OpenCode config.providers returned no list of providers: ${JSON.stringify(res.data)}`);
+  const windows: Record<string, number> = {};
+  for (const provider of providers as Array<{ id: string; models?: Record<string, { limit?: { context?: unknown } }> }>) {
+    for (const [model, info] of Object.entries(provider.models ?? {})) {
+      const context = info?.limit?.context;
+      if (typeof context === "number" && Number.isSafeInteger(context) && context > 0) windows[`${provider.id}/${model}`] = context;
+    }
+  }
+  return windows;
 }
 
 

@@ -1,4 +1,4 @@
-/* Per-role prompt byte budgets. Reads agents/opencode.json so model identities stay in agents/, not in the engine. That filesystem read is not an env-read confinement violation — the invariant forbids a new process.env read inside qa-engine, not fs. When the JSON is unavailable or the role is absent, DEFAULT_WINDOW_TOKENS is a conservative fallback. Budget is bytes via 1 token ≈ 4 bytes; no tokenizer at this layer. */
+/* Per-role prompt byte budgets. Reads agents/opencode.json so model identities stay in agents/, not in the engine. That filesystem read is not an env-read confinement violation — the invariant forbids a new process.env read inside qa-engine, not fs. A window the agent runtime reports for the role's model (setLiveModelWindows) wins over this file's catalog. When the JSON is unavailable, the role is absent or its model is neither reported nor cataloged, DEFAULT_WINDOW_TOKENS is a conservative fallback. Budget is bytes via 1 token ≈ 4 bytes; no tokenizer at this layer. */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -32,8 +32,33 @@ export const CATALOGED_MODELS: readonly string[] = Object.keys(MODEL_WINDOW_TOKE
 export const DEFAULT_WINDOW_TOKENS = 32_000;
 
 export function modelWindowBytes(modelName: string): number {
-  const tokens = MODEL_WINDOW_TOKENS[modelName] ?? DEFAULT_WINDOW_TOKENS;
+  return tokensToBytes(MODEL_WINDOW_TOKENS[modelName] ?? DEFAULT_WINDOW_TOKENS);
+}
+
+function tokensToBytes(tokens: number): number {
   return Math.floor(tokens * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN);
+}
+
+/* The context window the agent runtime reports for each model it serves, keyed by the provider/model reference a role is
+   assigned. It wins over the catalog, which then only answers for a model the runtime did not report. */
+let liveModelWindows: Readonly<Record<string, number>> | undefined;
+
+export function setLiveModelWindows(windows: Readonly<Record<string, number>> | undefined): void {
+  liveModelWindows = windows;
+}
+
+function liveWindowBytes(modelRef: string): number | undefined {
+  const tokens = liveModelWindows?.[modelRef];
+  return tokens !== undefined && Number.isSafeInteger(tokens) && tokens > 0 ? tokensToBytes(tokens) : undefined;
+}
+
+/* The runtime's window for the reference when it reported one, else the catalog's for the bare model name. */
+function windowBytesFor(role: string, modelRef: string, source: string): number {
+  const live = liveWindowBytes(modelRef);
+  if (live !== undefined) return live;
+  const modelName = normalizeModelName(modelRef);
+  if (!(modelName in MODEL_WINDOW_TOKENS)) warnFallbackOnce(role, `${source} '${modelName}' not in the catalog and not reported by the runtime`);
+  return modelWindowBytes(modelName);
 }
 
 export function normalizeModelName(raw: string): string {
@@ -109,10 +134,7 @@ export function roleWindowBytes(
       );
     }
 
-    if (!(modelName in MODEL_WINDOW_TOKENS)) {
-      warnFallbackOnce(role, `runtime-assigned model '${modelName}' not in the catalog`);
-    }
-    return modelWindowBytes(modelName);
+    return windowBytesFor(role, modelRef, "runtime-assigned model");
   }
 
   try {
@@ -128,11 +150,7 @@ export function roleWindowBytes(
       warnFallbackOnce(role, "role absent from agents.agent map (no model assigned)");
       return modelWindowBytes("__fallback__");
     }
-    const modelName = normalizeModelName(modelRef);
-    if (!(modelName in MODEL_WINDOW_TOKENS)) {
-      warnFallbackOnce(role, `model '${modelName}' not in the catalog`);
-    }
-    return modelWindowBytes(modelName);
+    return windowBytesFor(role, modelRef, "model");
   } catch {
     warnFallbackOnce(role, "config unreadable or unparseable JSON");
     return modelWindowBytes("__fallback__");
