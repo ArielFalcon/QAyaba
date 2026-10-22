@@ -637,9 +637,9 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "review-findings": {
-    description: "review findings filter: a finding may block only when the orchestrator can verify the evidence it cites",
-    mutate: [`${ORCH}/domain/review-finding-filter.service.ts`],
-    tests: [`${ORCH_TEST}/domain/review-finding-filter.service.test.ts`],
+    description: "review findings and rebuttals: a finding may block only when the orchestrator can verify the evidence it cites, and a rebuttal withdraws it only against evidence the run can check",
+    mutate: [`${ORCH}/domain/review-finding-filter.service.ts`, `${ORCH}/domain/review-rebuttals.service.ts`],
+    tests: [`${ORCH_TEST}/domain/review-finding-filter.service.test.ts`, `${ORCH_TEST}/domain/review-rebuttals.service.test.ts`],
     thresholds: DEFAULT_THRESHOLDS,
   },
   "intent-contract": {

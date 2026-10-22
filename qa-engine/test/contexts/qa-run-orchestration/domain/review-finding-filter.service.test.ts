@@ -76,3 +76,46 @@ test("an execution citation for a spec the run never executed is dropped", () =>
   assert.deepEqual(out.blocking, []);
   assert.equal(out.dropped.length, 1);
 });
+
+test("a verified advisory finding is kept as advisory, never promoted to blocking", () => {
+  const out = filterReviewFindings(
+    [
+      finding({
+        text: "[fragile-selector] checkout.spec.ts: prefer a role over a text selector",
+        severity: "advisory",
+        citation: { kind: "execution", ref: "flows/checkout.spec.ts" },
+      }),
+    ],
+    scope,
+  );
+  assert.deepEqual(out.blocking, []);
+  assert.equal(out.advisory.length, 1);
+  assert.deepEqual(out.dropped, []);
+});
+
+test("a contract citation needs the spec in scope, not an execution of it: only an execution citation must have run", () => {
+  const out = filterReviewFindings(
+    [
+      finding({
+        text: "[wrong-objective] checkout.spec.ts: the contract clause no longer asserts the total",
+        citation: { kind: "contract", ref: "flows/checkout.spec.ts#assertion-1" },
+      }),
+    ],
+    { inScopeSpecs: new Set(["flows/checkout.spec.ts"]), executedSpecs: new Set<string>() },
+  );
+  assert.equal(out.blocking.length, 1, "the clause travels with the bytes; it does not need its own execution");
+});
+
+test("an execution citation on an in-scope spec the run never executed is dropped", () => {
+  const out = filterReviewFindings(
+    [
+      finding({
+        text: "[false-positive] checkout.spec.ts: nothing verifies the total",
+        citation: { kind: "execution", ref: "flows/checkout.spec.ts" },
+      }),
+    ],
+    { inScopeSpecs: new Set(["flows/checkout.spec.ts"]), executedSpecs: new Set<string>() },
+  );
+  assert.deepEqual(out.blocking, []);
+  assert.equal(out.dropped.length, 1, "an execution claim needs an execution of that spec");
+});

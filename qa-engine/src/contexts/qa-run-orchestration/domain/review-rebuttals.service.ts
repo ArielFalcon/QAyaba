@@ -60,7 +60,7 @@ function names(rebuttalFinding: string, finding: string): boolean {
   const claimed = findingKey(rebuttalFinding);
   const actual = findingKey(finding);
   if (claimed === actual) return true;
-  const [shorter, longer] = claimed.length <= actual.length ? [claimed, actual] : [actual, claimed];
+  const [shorter, longer] = [claimed, actual].sort((a, b) => a.length - b.length) as [string, string];
   return shorter.length >= MIN_MATCH_CHARS && longer.includes(shorter);
 }
 
@@ -78,13 +78,12 @@ export function verifyRebuttals(
   const disputed = new Map<string, DisputedFinding>();
 
   for (const rebuttal of rebuttals) {
-    const named = findings.filter((finding) => names(rebuttal.finding, finding));
-    if (named.length === 0) continue;
     const checked =
       rebuttal.basis === "execution"
         ? evidence.greenCaseRefs.has(refKey(rebuttal.ref))
         : evidence.intactClauses.has(refKey(rebuttal.ref));
-    for (const finding of named) {
+    for (const finding of findings) {
+      if (!names(rebuttal.finding, finding)) continue;
       if (checked) withdrawn.add(finding);
       else if (!disputed.has(finding)) disputed.set(finding, { finding, rebuttal });
     }
