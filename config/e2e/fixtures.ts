@@ -272,6 +272,7 @@ function countWrites(api: WriteCountable | undefined): void {
     return original(target, options);
   };
 }
+
 test.beforeEach(async ({ page, request }) => {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
@@ -328,6 +329,7 @@ test.beforeEach(async ({ page, request }) => {
     });
   } catch {}
 });
+
 test.afterEach(async ({ page }, testInfo) => {
   const dir = process.env.QA_FAILURE_CAPTURE_DIR;
   if (!dir) return;                                   // degrade to no-op when the orchestrator did not ask
@@ -391,10 +393,11 @@ test.afterEach(async ({ page }, testInfo) => {
       } catch { resultCount = undefined; }
     }
     // A second read of the tree a moment later: a tree that changed was a moment of a render, not a settled page.
+    // The gap between the two reads is the measurement itself, not a wait for the page.
     let settle: { inFlight: number; quietMs?: number; treeStable: boolean } | undefined;
     if (!expected) {
       try {
-        await page.waitForTimeout(1000);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         const again = await page.locator("body").ariaSnapshot();
         settle = { inFlight, ...(quietMs !== undefined ? { quietMs } : {}), treeStable: again === yaml };
       } catch { settle = undefined; }

@@ -48,6 +48,7 @@ const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
   "0e5d28a7cbed9a6c8864f9b3e4d236cfe8579dd77169fd7a7880fffc42508260",
   "846bfe41978b705a8bec9f75141445d717c14ea5273fe8437d874a3edf10b358",
   "e0bf2a9c97e3e51bb9ba8b13098a1c2d5d36f119c6529fc409d3f6ad2664a15c",
+  "70c791658e6a2ac48fda2dc2c8a351f293b59f18ccaf34025a4db98da930cd88",
 ]);
 
 /*
@@ -146,6 +147,7 @@ function countWrites(api: WriteCountable | undefined): void {
     return original(target, options);
   };
 }
+
 test.beforeEach(async ({ page, request }) => {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
@@ -202,6 +204,7 @@ test.beforeEach(async ({ page, request }) => {
     });
   } catch {}
 });
+
 test.afterEach(async ({ page }, testInfo) => {
   const dir = process.env.QA_FAILURE_CAPTURE_DIR;
   if (!dir) return;                                   // degrade to no-op when the orchestrator did not ask
@@ -265,10 +268,11 @@ test.afterEach(async ({ page }, testInfo) => {
       } catch { resultCount = undefined; }
     }
     // A second read of the tree a moment later: a tree that changed was a moment of a render, not a settled page.
+    // The gap between the two reads is the measurement itself, not a wait for the page.
     let settle: { inFlight: number; quietMs?: number; treeStable: boolean } | undefined;
     if (!expected) {
       try {
-        await page.waitForTimeout(1000);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         const again = await page.locator("body").ariaSnapshot();
         settle = { inFlight, ...(quietMs !== undefined ? { quietMs } : {}), treeStable: again === yaml };
       } catch { settle = undefined; }
