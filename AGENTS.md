@@ -56,9 +56,10 @@ npm run typecheck
 node --import ./test-setup.mjs --import tsx --test path/to/file.test.ts [--test-name-pattern="..."]
 
 # Full CI gate (.github/workflows/ci.yml) — all must stay green:
-npm run typecheck && npm run arch:check && npm run sdk:typecheck && npm run contract:check && npm test
+npm run typecheck && npm run arch:check && npm run seed:lint && npm run sdk:typecheck && npm run contract:check && npm test
 (cd client && go vet ./... && go test ./...)
 
+npm run seed:lint           # the e2e seed (config/e2e/) against its own ESLint config, as an app's static gate runs it
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
 npm run sandbox:smoke       # IN the running orchestrator container: proves the execution sandbox holds (docs/execution-sandbox.md)
 npm run judge-calibrate -- --judge <name> [--min-n 20] # calibrate an LLM judge against human labels and persist the report (inside the orchestrator container; docs/observability-design.md §11.3)
