@@ -2678,6 +2678,8 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
       fixtures.write("flows/restaurants.spec.ts", generation === 1 ? "// first\n" : "// second\n");
       return scriptedGeneration({ specs: ["flows/restaurants.spec.ts"], approved: true });
     };
+    let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
+    ports.runHistory.save = async (outcome) => { saved = outcome; };
     const useCase = new RunQaUseCase({
       ...ports,
       config: { ...baseConfig, needsReview: true, coveragePolicyMode: "signal" },
@@ -2690,6 +2692,8 @@ test("signal mode — an accepted regeneration after the measurement reuses it a
     assert.equal(out.gateSignals.value?.stale, true, "the value score describes the same superseded bytes and is marked stale");
     assert.equal(out.gateSignals.valueScore, 0.25, "the measured score is kept for the record, never re-measured in signal mode");
     assert.equal(out.decision.sideEffect, "pr", "a stale signal is a recorded caveat, never a block");
+    assert.equal(saved?.gateSignals.coverage?.stale, true, "the persisted outcome records the stale coverage");
+    assert.equal(saved?.gateSignals.value?.stale, true, "the persisted outcome records the stale value score");
   } finally {
     fixtures.cleanup();
   }
@@ -8831,11 +8835,14 @@ test("intent lock in signal mode accepts a weakened regeneration and records the
       config: { ...baseConfig, needsReview: false, coveragePolicyMode: "enforce", reviewLoopIntegrity: true, intentLock: { mode: "signal", opacityFlagRatio: 0.5 } },
     });
 
+    let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
+    ports.runHistory.save = async (outcome) => { saved = outcome; };
     const out = await useCase.run({ ...baseInput, runId: "intent-signal-records" });
 
     assert.equal(out.decision.verdict, "pass");
     assert.equal(out.gateSignals.intent?.wouldReject, 1, "a weakened matcher in signal mode is recorded, not rejected");
     assert.equal(out.gateSignals.intent?.violations, 1);
+    assert.deepEqual(saved?.gateSignals.intent, out.gateSignals.intent, "the persisted outcome records the same intent-lock signal the result carries");
     assert.equal(out.decision.sideEffect, "issue", "the coverage policy still holds the PR; the intent lock did not decide it");
   } finally {
     real.cleanup();
