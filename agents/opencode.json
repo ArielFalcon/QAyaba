@@ -93,7 +93,7 @@
           "*.env.example": "allow"
         }
       },
-      "maxSteps": 50,
+      "maxSteps": 250,
       "temperature": 0.2
     },
     "qa-reviewer": {
@@ -484,7 +484,7 @@
         "browser_drop": false,
         "execute_shell_command": false
       },
-      "maxSteps": 60,
+      "maxSteps": 300,
       "temperature": 0.3,
       "permission": {
         "read": {
