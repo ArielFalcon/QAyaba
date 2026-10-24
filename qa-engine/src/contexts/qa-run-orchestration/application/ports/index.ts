@@ -472,6 +472,13 @@ export interface PlanOutput {
   parsed: boolean;
   timedOut: boolean;
   turn?: AgentTurnStats;
+  /** The lead's planning session, held open when the turn came back with a plan, for the lead's review of the flows. The caller disposes it. */
+  lead?: LeadSessionHandle;
+}
+/** The lead's planning session, held open for its next turn: asked read-only, a turn out of its time answers `timedOut`. */
+export interface LeadSessionHandle {
+  ask(text: string, opts: { timeoutMs: number }): Promise<{ output: string; timedOut: boolean }>;
+  dispose(): Promise<void>;
 }
 /**
  * `priorCorrections` lets the next review judge convergence on previously

@@ -44,3 +44,37 @@ test("a session with no flow and no denied tools says neither", async () => {
   assert.equal("delegationId" in (opened[0]!.opts?.descriptor ?? {}), false);
   assert.equal("denyTools" in (opened[0]!.opts?.descriptor ?? {}), false);
 });
+
+test("an open sidekick session answers a follow-up in the same session, read as the first answer is, and is disposed once when its holder lets it go", async () => {
+  const prompts: string[] = [];
+  let opened = 0;
+  let disposed = 0;
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () => {
+        opened += 1;
+        return { prompt: async (text: string) => { prompts.push(text); return { output: RESULT }; }, dispose: async () => { disposed += 1; } };
+      },
+    },
+  });
+  const session = await sidekick.open(brief, { cwd: "/w", capability: "sidekick-standard" });
+  assert.equal(session.first.status, "completed");
+  assert.equal(disposed, 0, "the session outlives its first answer");
+  const second = await session.ask("Assert the total, not the count.", { timeoutMs: 30_000 });
+  assert.equal(second.status, "completed");
+  assert.equal(opened, 1, "the follow-up went to the same session");
+  assert.match(prompts[1]!, /Assert the total, not the count\./);
+  assert.match(prompts[1]!, /delegationId=run-1-flow-cart/, "the follow-up asks for the same contract");
+  await session.dispose();
+  await session.dispose();
+  assert.equal(disposed, 1);
+});
+
+test("a sidekick session whose first answer throws is disposed before the error leaves", async () => {
+  let disposed = 0;
+  const sidekick = new SidekickExecutor({
+    runtime: { openSession: async () => ({ prompt: async () => { throw new Error("boom"); }, dispose: async () => { disposed += 1; } }) },
+  });
+  await assert.rejects(sidekick.open(brief, { cwd: "/w", capability: "sidekick-standard" }), /boom/);
+  assert.equal(disposed, 1);
+});

@@ -253,7 +253,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
-      `${GEN}/application/generate-tests.use-case.ts:263-264`,
+      `${GEN}/application/generate-tests.use-case.ts:309-310`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:147-153`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:179-180`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:188-188`,

@@ -86,6 +86,16 @@ export interface PlanResult {
   timedOut: boolean;
   /** What the turn measured, when its runtime can measure a turn. */
   turn?: AgentTurnStats;
+  /** The lead's session, held open when the turn came back with a plan: the lead's next turn (its review of the flows) is asked in it, read-only like the plan. The holder disposes it. */
+  lead?: LeadSession;
+}
+
+/* The lead's planning session, held open for its next turn. */
+export interface LeadSession {
+  /* Asks the lead again, read-only; a turn that runs out of its time answers `timedOut` with no output. */
+  ask(text: string, opts: { timeoutMs: number }): Promise<{ output: string; timedOut: boolean }>;
+  /* Ends the session. Idempotent. */
+  dispose(): Promise<void>;
 }
 
 export class GenerateTestsUseCase {
@@ -94,7 +104,8 @@ export class GenerateTestsUseCase {
   /**
    * The one turn a coordinated run asks its lead for a plan instead of specs. One prompt in one generator session, bounded by the
    * planning time, in which the agent may read and look things up but not write; no reviewer, no repair, no manifest. A turn that
-   * runs out of its time is reported, not thrown (the run then goes on as one piece of work); any other fault is thrown.
+   * runs out of its time is reported, not thrown (the run then goes on as one piece of work); any other fault is thrown. A turn that
+   * came back with a plan keeps its session open (`lead`) for the lead's review of the flows; every other turn closes it.
    */
   async plan(input: OpencodeRunInput, opts?: GenerateOpts): Promise<PlanResult> {
     const planning = input.planning;
@@ -109,6 +120,12 @@ export class GenerateTestsUseCase {
     let output = "";
     let turn: AgentTurnStats | undefined;
     let timedOut = false;
+    let disposed = false;
+    const dispose = async (): Promise<void> => {
+      if (disposed) return;
+      disposed = true;
+      await session.dispose();
+    };
     try {
       const result = await session.prompt(assembled.text, {
         sectionSizes: assembled.sectionSizes,
@@ -123,19 +140,35 @@ export class GenerateTestsUseCase {
       });
       output = result.output;
     } catch (err) {
+      await dispose();
       if (!isAgentTimeoutError(err)) throw err;
       timedOut = true;
-    } finally {
-      await session.dispose();
     }
     if (timedOut) return { parsed: false, timedOut: true, ...(turn ? { turn } : {}) };
     const deliverable = this.ports.verdicts.parseGenerator(output, `${input.mirrorDir}/${input.e2eRelDir}`);
+    /* Only a plan has a next turn to ask: anything else ends the session here. */
+    if (!deliverable.plan) await dispose();
+    const lead: LeadSession | undefined = deliverable.plan
+      ? {
+          ask: async (text, askOpts) => {
+            try {
+              const answer = await session.prompt(text, { finalStepOnly: true, withoutWrites: true, timeoutMs: askOpts.timeoutMs, timeLimit: "prompt-budget" });
+              return { output: answer.output, timedOut: false };
+            } catch (err) {
+              if (!isAgentTimeoutError(err)) throw err;
+              return { output: "", timedOut: true };
+            }
+          },
+          dispose,
+        }
+      : undefined;
     return {
       ...(deliverable.plan ? { plan: deliverable.plan } : {}),
       ...(deliverable.noopReason ? { noopReason: deliverable.noopReason } : {}),
       parsed: deliverable.parsed !== false,
       timedOut: false,
       ...(turn ? { turn } : {}),
+      ...(lead ? { lead } : {}),
     };
   }
 

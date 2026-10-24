@@ -153,6 +153,16 @@ function failedResult(brief: DelegationBrief, summary: string): DelegationResult
   };
 }
 
+/* A sidekick's session, held open after its first answer so that the lead's follow-up reaches the session that did the work. */
+export interface SidekickSession {
+  /* What the brief's prompt came to. */
+  readonly first: DelegationResult;
+  /* Asks the same session again; the answer is read as the first one was. */
+  ask(instruction: string, opts?: { timeoutMs?: number }): Promise<DelegationResult>;
+  /* Ends the session. Idempotent. */
+  dispose(): Promise<void>;
+}
+
 export class SidekickExecutor {
   private readonly render: SidekickRender;
 
@@ -160,7 +170,15 @@ export class SidekickExecutor {
     this.render = deps.render ?? renderSidekickBrief;
   }
 
+  /* One answer in a session of its own, which ends with it. */
   async execute(brief: DelegationBrief, opts: SidekickExecuteOpts): Promise<DelegationResult> {
+    const session = await this.open(brief, opts);
+    await session.dispose();
+    return session.first;
+  }
+
+  /* Opens the sidekick's session and asks it the brief; the session stays open for the holder to ask again and to dispose. */
+  async open(brief: DelegationBrief, opts: SidekickExecuteOpts): Promise<SidekickSession> {
     const role = resolveCapabilityRole(opts.capability);
     const session = await this.deps.runtime.openSession(role, opts.cwd, {
       signal: opts.signal,
@@ -174,38 +192,52 @@ export class SidekickExecutor {
         ...(opts.denyTools?.length ? { denyTools: opts.denyTools } : {}),
       },
     });
+    let disposed = false;
+    const dispose = async (): Promise<void> => {
+      if (disposed) return;
+      disposed = true;
+      await session.dispose();
+    };
+    const contract = `Respond with the SAME JSON output contract for delegationId=${brief.delegationId} runId=${brief.runId}.`;
     try {
       const assembled = this.render(brief);
-      /* A retry's session is a fresh one that has seen nothing, so its one prompt carries the brief and the feedback together: answering the brief on its own first would spend the flow's budget on work that is then thrown away. */
+      /* A fresh session that has seen nothing gets the brief and any feedback in one prompt: answering the brief on its own first would spend the flow's budget on work that is then thrown away. */
       const text = opts.feedback
-        ? [
-            assembled.text,
-            ``,
-            `## Feedback from lead`,
-            scrub(opts.feedback),
-            ``,
-            `Respond with the SAME JSON output contract for delegationId=${brief.delegationId} runId=${brief.runId}.`,
-          ].join("\n")
+        ? [assembled.text, ``, `## Feedback from lead`, scrub(opts.feedback), ``, contract].join("\n")
         : assembled.text;
       const { output } = await session.prompt(text, { sectionSizes: assembled.sectionSizes });
-      const parsed = parseDelegationResult(extractJsonObject(output), brief);
-      if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult");
-      if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {
-        return failedResult(brief, "sidekick result did not belong to this brief");
-      }
-      const illegal = parsed.filesChanged.filter((f) => !isPathWithinWritableRoots(f.path, brief.scope.writablePaths));
-      if (illegal.length > 0) {
-        return {
-          ...parsed,
-          status: "blocked",
-          summary: scrub(`write outside writablePaths: ${illegal.map((f) => f.path).join(", ")}`),
-          recommendation: "escalate",
-          concerns: [...parsed.concerns, scrub(`paths outside scope: ${illegal.map((f) => f.path).join(", ")}`)],
-        };
-      }
-      return applyPushback(brief, parsed);
-    } finally {
-      await session.dispose();
+      const first = this.read(output, brief);
+      return {
+        first,
+        ask: async (instruction, askOpts) => {
+          const followUp = [`## Feedback from lead`, scrub(instruction), ``, contract].join("\n");
+          const answer = await session.prompt(followUp, askOpts?.timeoutMs !== undefined ? { timeoutMs: askOpts.timeoutMs } : {});
+          return this.read(answer.output, brief);
+        },
+        dispose,
+      };
+    } catch (err) {
+      await dispose();
+      throw err;
     }
+  }
+
+  private read(output: string, brief: DelegationBrief): DelegationResult {
+    const parsed = parseDelegationResult(extractJsonObject(output), brief);
+    if (!parsed) return failedResult(brief, "sidekick output was not a valid DelegationResult");
+    if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {
+      return failedResult(brief, "sidekick result did not belong to this brief");
+    }
+    const illegal = parsed.filesChanged.filter((f) => !isPathWithinWritableRoots(f.path, brief.scope.writablePaths));
+    if (illegal.length > 0) {
+      return {
+        ...parsed,
+        status: "blocked",
+        summary: scrub(`write outside writablePaths: ${illegal.map((f) => f.path).join(", ")}`),
+        recommendation: "escalate",
+        concerns: [...parsed.concerns, scrub(`paths outside scope: ${illegal.map((f) => f.path).join(", ")}`)],
+      };
+    }
+    return applyPushback(brief, parsed);
   }
 }

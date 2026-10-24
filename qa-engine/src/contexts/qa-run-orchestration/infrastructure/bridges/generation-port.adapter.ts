@@ -108,6 +108,7 @@ export class GenerationPortAdapter implements GenerationPort {
       parsed: planned.parsed,
       timedOut: planned.timedOut,
       ...(planned.turn ? { turn: planned.turn } : {}),
+      ...(planned.lead ? { lead: planned.lead } : {}),
     };
   }
 
