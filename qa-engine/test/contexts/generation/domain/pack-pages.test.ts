@@ -50,3 +50,11 @@ test("a page listed under its template's own address is read whole, not cut at t
   assert.ok(slice.includes("could not capture"));
   assert.ok(!slice.includes("other"));
 });
+
+test("a flow that names a page with a query is given that page, and a heading of any level ends the Live DOM section", () => {
+  const withTrailer = [pack.replace(`### ${PACK_HEADINGS.contracts}\n- \`getCart\`: GET /api/cart`, ""), "## Another section", "- not a page line"].join("\n");
+  const slice = packPagesFor(withTrailer, ["/cart?coupon=x"])!;
+  assert.ok(slice.includes("button \"Checkout\""));
+  assert.ok(!slice.includes("Another section"));
+  assert.ok(!slice.includes("not a page line"));
+});

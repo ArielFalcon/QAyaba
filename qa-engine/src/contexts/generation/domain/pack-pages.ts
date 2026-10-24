@@ -1,7 +1,7 @@
 /*
  * The part of a run's Context Pack one flow needs: the Live DOM of the pages it visits, under the section's own head. A sidekick
  * authors one flow; the trees of every other page would only crowd its brief. A page is the flow's when its address, or the map
- * template it was opened from, is one the flow names (a trailing slash aside). Whole pages only, within a bound, and the pages the
+ * template it was opened from, is one the flow names (a trailing slash and a query aside). Whole pages only, within a bound, and the pages the
  * bound leaves out are counted. Pure.
  */
 import { PACK_HEADINGS } from "./prompt-headings.ts";
@@ -10,7 +10,12 @@ export const MAX_FLOW_PACK_CHARS = 12_000;
 
 const PAGE_LINE = /^route (\S+?)(?: \(instance of (\S+?)\))?:(?=\s|$)/;
 
-const normalized = (route: string): string => (route.length > 1 ? route.replace(/\/+$/, "") : route);
+const normalized = (route: string): string => {
+  const path = route.replace(/[?#].*$/, "");
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+};
+/* Any heading ends a section: the Live DOM section runs to the next one, whatever its level. */
+const HEADING = /^#{1,6} /;
 
 export function packPagesFor(pack: string | undefined, routes: readonly string[], maxChars: number = MAX_FLOW_PACK_CHARS): string | undefined {
   if (!pack || routes.length === 0) return undefined;
@@ -19,7 +24,7 @@ export function packPagesFor(pack: string | undefined, routes: readonly string[]
   const pages: string[][] = [];
   let inLiveDom = false;
   for (const line of pack.split("\n")) {
-    if (line.startsWith("### ")) {
+    if (HEADING.test(line)) {
       inLiveDom = line.startsWith(`### ${PACK_HEADINGS.liveDom}`);
       if (inLiveDom) head.push(line);
       continue;
