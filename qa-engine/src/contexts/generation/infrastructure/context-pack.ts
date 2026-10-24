@@ -1,7 +1,7 @@
 /* Deterministic pre-generation context pack (DOM + explorer brief + contracts). Read-only on watched repos. Every component is fail-open: a failed piece yields an absent section, never a crashed run. */
 
 import { sanitizeText } from "./sanitize-text.ts";
-import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
+import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO } from "./dom-snapshot.ts";
 import type { CapturedPage, CaptureDomDeps, CaptureRoutesInput, PageDelivery } from "./dom-snapshot.ts";
 import { loggableRoute, loggableRoutes } from "./loggable-route.ts";
 import type { ExplorationBrief, ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
@@ -401,15 +401,17 @@ export async function buildContextPack(
   const classified = classifyRoutes([...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes]);
   /* Only a route made of literals and whole-segment parameters can be filled from a link; any other route that names no page is simply left out. */
   const isTemplate = (entry: { route: string }): boolean => instantiableTemplate(entry.route);
+  /* The cut: a change linked to more pages than the default cut has each of them captured, up to the per-change bound. */
+  const routeCap = Math.min(MAX_ROUTES_PER_CHANGE, Math.max(MAX_ROUTES, relevantMapRoutes.length));
   /* The pages the first capture renders: the routes that are pages, as many as the cut keeps. */
   const capturablePages = classified.filter((entry) => entry.reason === undefined).length;
-  const firstPass = classified.filter((entry) => entry.reason === undefined).map((entry) => entry.route).slice(0, MAX_ROUTES);
+  const firstPass = classified.filter((entry) => entry.reason === undefined).map((entry) => entry.route).slice(0, routeCap);
   /* A template can take a slot only if fewer than a cut's worth of pages rank ahead of it. */
   const reachableTemplates: string[] = [];
   let pagesAhead = 0;
   for (const entry of classified) {
     if (entry.reason === undefined) pagesAhead++;
-    else if (isTemplate(entry) && pagesAhead < MAX_ROUTES) reachableTemplates.push(entry.route);
+    else if (isTemplate(entry) && pagesAhead < routeCap) reachableTemplates.push(entry.route);
   }
   const reachable = reachableTemplates.length > 0;
   const pages = new Map<string, CapturedPage>();
@@ -457,7 +459,7 @@ export async function buildContextPack(
       .map(({ page }) => page);
   };
   if (domPack && (firstPass.length > 0 || reachable) && input.e2eDir && input.baseUrl) {
-    const base = { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute };
+    const base = { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute, maxRoutes: routeCap };
     try {
       /* The first capture is of the routes that are pages. When a template can still take a slot it also reports the links its pages show, and renders the app root for them when the root is no route asked for: the template cannot be opened, but a link to a page of it can. */
       await capture(firstPass, reachable && !firstPass.includes("/") ? { ...base, linkSeeds: ["/"] } : base);
@@ -468,7 +470,7 @@ export async function buildContextPack(
       /* The pages taken from dev.routeSamples because no link fit their template: what the site showed is live, a declared page may be gone. */
       const declaredInstances = new Map<string, string>();
       for (const entry of classified) {
-        if (cut.size >= MAX_ROUTES) break;
+        if (cut.size >= routeCap) break;
         /* A route that is a page and comes up before the cut is full is one of the first capture's: fewer than a cut's worth of pages came before it. */
         if (entry.reason === undefined) {
           cut.add(entry.route);

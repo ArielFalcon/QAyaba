@@ -57,6 +57,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       /* The pages the pack read with results: every sidekick's brief states them, and a flow's empty read of one is checked against them. */
       ...(state.grounding.confirmedDataRoutes?.length ? { knownFacts: evidenceFromPackDataRoutes(state.grounding.confirmedDataRoutes) } : {}),
       ...(state.grounding.contextPack ? { contextPack: state.grounding.contextPack } : {}),
+      ...(state.grounding.changeRoutes.length > 0 ? { changeRoutes: state.grounding.changeRoutes } : {}),
       ...(deps.generation.plan
         ? { plan: (planning) => deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, ...geolocationEnrichment(ctx), planning }) }
         : {}),

@@ -63,6 +63,8 @@ export interface Grounding {
   harnessFacts: HarnessFacts | undefined;
   /** The added labels whose changed-value line in the pack said more nodes than unchanged lines: what an unobservable no-op is set beside. */
   moreNodes: readonly string[];
+  /** The pages of the app's map the change is linked to, in rank order: a coordinated run's planning turn is told them. */
+  changeRoutes: readonly string[];
   /** The pages the pack read with results under the declared data state: the witness a failure that reads them empty contradicts. */
   confirmedDataRoutes: readonly { path: string; resultCount: number }[] | undefined;
   blastRadiusSignal: string;
@@ -208,6 +210,7 @@ export function initialRunState(): RunState {
       contextBrief: undefined,
       harnessFacts: undefined,
       moreNodes: [],
+      changeRoutes: [],
       confirmedDataRoutes: undefined,
       blastRadiusSignal: "",
       blastRadiusSignalHasSymbols: false,

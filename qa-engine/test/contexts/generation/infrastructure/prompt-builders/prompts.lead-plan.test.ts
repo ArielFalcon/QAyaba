@@ -66,6 +66,14 @@ test("the contract names every shape a plan may take and the limits the orchestr
   for (const key of ["plan", "kind", "flows", "id", "objective", "acceptance", "routes"]) assert.ok(section.text.includes(`"${key}"`), key);
 });
 
+test("the pages the change is linked to are named in the contract, and a contract without them names none", () => {
+  const changeRoutes = ["/order", "/upload-menu/:step"];
+  const named = sectionOf(assemble({ planning: { ...PLANNING, changeRoutes } }))!;
+  for (const route of changeRoutes) assert.ok(named.text.includes(route), route);
+  const plain = sectionOf(assemble({ planning: PLANNING }))!;
+  assert.equal(plain.text.includes("/order"), false);
+});
+
 test("no planning turn, no section: the prompt is what it always was", () => {
   const without = assemble();
   assert.equal(sectionOf(without), undefined);

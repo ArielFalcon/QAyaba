@@ -248,6 +248,19 @@ test("with the authenticated browser, a plan is never asked for more flows at on
   assert.equal(seen[0]!.maxParallel, MAX_SESSION_PAGES);
 });
 
+test("the planning turn is told the pages the change is linked to, and the pages no admitted flow visits are reported", async () => {
+  const r = rig();
+  const seen: PlanningLimits[] = [];
+  const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/shops/madrid"] }] };
+  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/cart", "/shops/:city", "/orders"], plan: async (p) => (seen.push(p), { plan, parsed: true, timedOut: false }) }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  assert.deepEqual(seen[0]?.changeRoutes, ["/cart", "/shops/:city", "/orders"]);
+  const reported = r.events.filter((e) => /change page/.test(e.reason ?? ""));
+  assert.equal(reported.length, 1);
+  assert.match(reported[0]!.reason, /1 of 3 .*\/orders/);
+  assert.doesNotMatch(reported[0]!.reason, /\/shops/, "a template a flow visits a page of counts as visited");
+});
+
 test("the planning turn is given the limits the plan is held to, and one that ran out of time or gave neither plan nor reason is one piece of work", async () => {
   const r = rig();
   const seen: PlanningLimits[] = [];

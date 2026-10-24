@@ -228,7 +228,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   in the probe report) has the lead return a **plan** instead of specs (`GenerationPort.plan`, a read-only turn, `plan` in the generator's
   verdict) and each flow authored by a sidekick in parallel. The lead grounds deterministically: no explorer runs, the plan turn's
   diff names the app's own test files instead of showing them (`LanguageRegistry.isTestFile`), its session is denied Playwright
-  (`LEAD_PLAN_DENIED_TOOLS`), and it explores with the code-graph tools. The plan is untrusted: `admitLeadPlan` keeps only what its shape and the
+  (`LEAD_PLAN_DENIED_TOOLS`), and it explores with the code-graph tools. A diff over the prompt cap keeps every whole file section that fits
+  (code before style sheets) and lists each one left out with its added and removed lines (`prompt-cap.ts`), and the plan turn is told the
+  pages of the map the change is linked to (`PlanningLimits.changeRoutes`); a page no admitted flow visits is a `router` event. The plan is untrusted: `admitLeadPlan` keeps only what its shape and the
   run's limits allow (`maxFlows`, a deterministic spec path `e2e/flows/<slug>.spec.ts` per flow, the lead's own write lists ignored) and
   downgrades to `single` with a recorded reason otherwise. Each sidekick works in a plain bounded copy of what the run may read
   (`<mirrors>/.qa-delegations/<run>/<delegation>`, `DelegationWorkspacePort`); only the files its brief names (`writablePaths`) are taken
@@ -338,7 +340,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   style sheets), read strictly from the working copy (`infrastructure/bridges/implementation-resources.ts`).
   Brief routes keep their place in
   front, nothing is inferred from names, and a cross-repo run ranks only by the spec of an
-  operation under the service's staged root.
+  operation under the service's staged root. The cut is `MAX_ROUTES` pages, raised to as many as the change is
+  linked to, up to `MAX_ROUTES_PER_CHANGE`.
 - **Templated routes** — a route template of the map (`/shops/:province/:city`) is opened through a real
   link: the first capture renders the routes that are pages, and also the app root for the links it shows;
   `generation/domain/route-instantiation.ts` matches those same-origin pathnames to the template segment by

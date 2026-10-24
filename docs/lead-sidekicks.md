@@ -59,6 +59,14 @@ signed-in app (see below); without either, they stay out and the lead authors al
 
 If nothing could be coordinated (no plan, no time, nobody to author with) the lead authors the change alone.
 
+### What the lead plans from
+
+The planning turn sees the whole change even when it is large: the diff keeps every whole file section that fits the prompt
+cap, code before style sheets, and lists each file it leaves out with the lines it adds and removes. It is told the pages
+of the app's map the change is linked to and asked to give a flow to each page whose behaviour the change alters; the
+pages no admitted flow visits are recorded as a `router` event. The Context Pack captures as many of those pages as the
+change is linked to, up to `MAX_ROUTES_PER_CHANGE`.
+
 ## What a sidekick may author with
 
 `sidekickAuthoring` picks one mode per run:

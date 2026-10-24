@@ -383,6 +383,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       if (packResult.changedValuesWithMoreNodes?.length) result.changedValuesWithMoreNodes = packResult.changedValuesWithMoreNodes;
       const confirmed = confirmedDataRoutes(packResult.trace?.pages ?? []);
       if (confirmed.length > 0) result.packConfirmedDataRoutes = confirmed;
+      if (packResult.trace?.relevantRoutes?.length) result.changeRoutes = [...packResult.trace.relevantRoutes];
       this.tell(() => this.collaborators.trace?.pack?.(packResult));    } catch (err) {
       if (isAbortError(err)) return result; /* abort: return whatever was gathered so far, never throw — see the note above. */
       console.warn(`[qa] WARNING: context-pack build FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);

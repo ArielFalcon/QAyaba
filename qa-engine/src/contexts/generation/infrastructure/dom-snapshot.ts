@@ -136,6 +136,8 @@ export interface CaptureDataState {
 export const DEGRADED_ROUTE_LABEL = "route rendered empty or errored";
 
 export const MAX_ROUTES = 4;
+/* The most pages one capture renders when the change is linked to more pages than MAX_ROUTES: each of them, up to this bound. */
+export const MAX_ROUTES_PER_CHANGE = 8;
 /* The most pages rendered only for the links they show. */
 export const MAX_LINK_SEEDS = 1;
 export const MAX_NODES_PER_ROUTE = 60;
@@ -424,6 +426,8 @@ export interface CaptureRoutesInput {
   linkSeeds?: readonly string[];
   /* For a route asked for that is an instance of a template of the map, that template: the report names both. */
   instanceOf?: ReadonlyMap<string, string>;
+  /* The most routes this capture renders (at most MAX_ROUTES_PER_CHANGE). Absent: MAX_ROUTES. */
+  maxRoutes?: number;
   /* Told, once the render has answered, every page it returned (routes and seeds): whether the page is grounded and the links it showed. Never told when the render failed. */
   onPages?: (pages: CapturedPage[]) => void;
 }
@@ -496,7 +500,7 @@ export async function captureDomForRoutes(
   deps: CaptureDomDeps,
   changed?: ChangedElement[],
 ): Promise<string | undefined> {
-  const clean = normalizeRoutes(routes).slice(0, MAX_ROUTES);
+  const clean = normalizeRoutes(routes).slice(0, Math.min(input.maxRoutes ?? MAX_ROUTES, MAX_ROUTES_PER_CHANGE));
   const seeds = normalizeRoutes([...(input.linkSeeds ?? [])]).slice(0, MAX_LINK_SEEDS).filter((seed) => !clean.includes(seed));
   if ((clean.length === 0 && seeds.length === 0) || !input.baseUrl) return undefined;
   const asked = [...clean, ...seeds];

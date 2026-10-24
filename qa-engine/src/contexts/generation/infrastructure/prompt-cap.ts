@@ -2,10 +2,11 @@
  * Prompt-budget capping for the two shapes a generator/reviewer prompt carries: a diff (capDiff)
  * and free-form prose like a commit body (capText) — genuinely distinct truncation strategies, not
  * two names for the same thing. capDiff splits the diff into per-file sections (`diff --git a/...
- * b/...` boundaries), relevance-orders them (high-relevance changed source FIRST; lockfiles/
- * generated/snapshot/binary/build-artifact/map/changelog files LAST — LOW_RELEVANCE_PATTERNS),
- * keeps WHOLE sections until the budget is spent, and replaces the rest with a named list of
- * omitted files (never truncates a hunk mid-line). A degenerate single-oversized-file overflow
+ * b/...` boundaries), relevance-orders them (changed source FIRST; style sheets after it;
+ * lockfiles/generated/snapshot/binary/build-artifact/map/changelog files LAST —
+ * LOW_RELEVANCE_PATTERNS), keeps every WHOLE section that still fits the budget, and lists each one
+ * it leaves out on a line of its own with its added and removed lines (never truncates a hunk
+ * mid-line), so a reader of a large change still sees every file it touches. A degenerate single-oversized-file overflow
  * hard-slices that one section. capText is flat prose truncation with no file-awareness.
  * capDiff is the only diff capper; nothing in src/ keeps a copy.
  */
@@ -28,6 +29,21 @@ function isLowRelevance(filePath: string): boolean {
   return LOW_RELEVANCE_PATTERNS.some((p) => p.test(filePath) || p.test(basename));
 }
 
+/* A style sheet changes how a page looks; the code beside it decides what the page does. */
+const STYLE_SHEET = /\.(css|scss|sass|less|styl)$/i;
+
+/* One line for a section left out: its path, its added and removed lines, and whether the file is new or deleted. */
+function omittedLine(section: string, file: string): string {
+  let added = 0;
+  let removed = 0;
+  for (const line of section.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) added++;
+    else if (line.startsWith("-") && !line.startsWith("---")) removed++;
+  }
+  const status = /^new file mode/m.test(section) ? ", new file" : /^deleted file mode/m.test(section) ? ", deleted" : "";
+  return `- ${file} (+${added} -${removed}${status})`;
+}
+
 export function extractDiffFilePath(section: string): string {
   const m = /^diff --git a\/\S+ b\/(\S+)/m.exec(section);
   return m?.[1] ?? "";
@@ -45,32 +61,37 @@ export function capDiff(diff: string, maxChars: number = MAX_PROMPT_DIFF_CHARS):
   const preamble = hasRealPreamble ? firstSection : "";
   const fileSections = hasRealPreamble ? rawSections.slice(1) : rawSections;
   const highRelevance: string[] = [];
+  const styleSheets: string[] = [];
   const lowRelevance: string[] = [];
   for (const s of fileSections) {
     const filePath = extractDiffFilePath(s);
     if (isLowRelevance(filePath)) {
       lowRelevance.push(s);
+    } else if (STYLE_SHEET.test(filePath)) {
+      styleSheets.push(s);
     } else {
       highRelevance.push(s);
     }
   }
-  const ordered = [preamble, ...highRelevance, ...lowRelevance];
+  const ordered = [preamble, ...highRelevance, ...styleSheets, ...lowRelevance];
 
   const kept: string[] = [];
   const omitted: string[] = [];
+  const omittedLines = new Map<string, string>();
   let used = 0;
   for (const section of ordered) {
-    if (omitted.length === 0 && used + section.length <= maxChars) {
+    if (used + section.length <= maxChars) {
       kept.push(section);
       used += section.length;
     } else {
       if (section === preamble) continue;
       const file = extractDiffFilePath(section) || (/^diff --git a\/(\S+)/.exec(section)?.[1] ?? "(unnamed section)");
       omitted.push(file);
+      omittedLines.set(file, omittedLine(section, file));
     }
   }
   if (kept.filter((s) => s !== preamble).length === 0 && fileSections.length > 0) {
-    const firstFile = highRelevance[0] ?? lowRelevance[0] ?? fileSections[0]!;
+    const firstFile = highRelevance[0] ?? styleSheets[0] ?? lowRelevance[0] ?? fileSections[0]!;
     kept.push(firstFile.slice(0, maxChars));
     const name = extractDiffFilePath(firstFile);
     const idx = omitted.indexOf(name);
@@ -83,8 +104,9 @@ export function capDiff(diff: string, maxChars: number = MAX_PROMPT_DIFF_CHARS):
   return (
     kept.join("") +
     `\n[diff truncated for the prompt: ${omitted.length} file(s) omitted (${diff.length} chars total).` +
-    ` Omitted: ${omitted.join(", ")}.` +
-    ` Read the full change in the working copy with \`git show <sha>\`.]\n`
+    ` Read the full change in the working copy with \`git show <sha>\`. Omitted, with the lines each adds and removes:\n` +
+    omitted.map((file) => omittedLines.get(file) ?? `- ${file}`).join("\n") +
+    `]\n`
   );
 }
 

@@ -36,6 +36,8 @@ export interface PlanningLimits {
   budgetMs: number;
   /* The places the app declares, when it declares a location: a flow may name one. Absent: the plan names no location. */
   locations?: readonly string[];
+  /* The pages of the app's map the change is linked to, in rank order (a template stands for its pages). Absent: the run linked none. */
+  changeRoutes?: readonly string[];
 }
 
 /* The longest one flow may take, by the runtime its sidekick runs on. */

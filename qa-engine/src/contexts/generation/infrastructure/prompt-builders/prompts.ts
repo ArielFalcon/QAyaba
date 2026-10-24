@@ -100,6 +100,9 @@ function renderLeadPlan(limits: PlanningLimits): string {
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]${locationField}}]}} when the change is several independent flows, each of which can be written and run without the others.`,
     `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
     ...(limits.locations?.length ? [`A flow may name one of the app's locations; a flow without one inherits the run's.`] : []),
+    ...(limits.changeRoutes?.length
+      ? [`The change is linked to these pages of the app's map: ${limits.changeRoutes.join(", ")}. Give a flow to each page whose behaviour the change alters; a page no flow visits is reported with the plan.`]
+      : []),
     ``,
   ].join("\n");
 }

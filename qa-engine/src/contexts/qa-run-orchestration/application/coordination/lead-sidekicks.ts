@@ -35,6 +35,7 @@ import { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
+import { isPageOfTemplate } from "@contexts/generation/domain/route-instantiation.ts";
 import { scrub } from "./scrub.ts";
 import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
@@ -85,6 +86,8 @@ export interface CoordinateInput {
   knownFacts?: readonly EvidenceRef[];
   /* The run's Context Pack: each flow's brief carries the Live DOM of the pages that flow visits. */
   contextPack?: string;
+  /* The pages of the app's map the change is linked to: the planning turn is told them, and those no admitted flow visits are reported. */
+  changeRoutes?: readonly string[];
   /* The run's deadline, when one is armed. */
   deadline?: { remainingMs(): number | undefined };
   /* The planning turn, asked for with the limits the plan will be held to. Absent: this run's generation cannot plan. */
@@ -235,6 +238,7 @@ export class LeadSidekicks {
       maxParallel: parallel,
       budgetMs: settings.planBudgetMs,
       ...(locations.length > 0 ? { locations } : {}),
+      ...(input.changeRoutes?.length ? { changeRoutes: input.changeRoutes } : {}),
     });
     /* The lead's planning session, when the plan kept it: its review of the flows is asked there, and it ends with the pass. */
     let leadHanded = false;
@@ -270,6 +274,8 @@ export class LeadSidekicks {
       if (admitted.kind === LEAD_PLAN_KIND.SINGLE) {
         return single(admitted.downgrade ?? "the plan is one piece of work", { plan: LEAD_PLAN_KIND.SINGLE, authoring: authoringName });
       }
+      const unvisited = (input.changeRoutes ?? []).filter((route) => !admitted.flows.some((flow) => flow.routes.some((visited) => visited === route || isPageOfTemplate(route, visited))));
+      if (unvisited.length > 0) this.record(input, { kind: "router", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
       const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName });
       /* A pass kept open holds the lead's session from here on. */
       if (result.action === "fanout" && result.pass) leadHanded = true;

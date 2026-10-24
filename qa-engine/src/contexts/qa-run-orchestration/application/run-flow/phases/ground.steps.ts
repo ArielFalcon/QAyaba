@@ -88,6 +88,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
   let groundingHarnessFacts: RunState["grounding"]["harnessFacts"];
   /* The added labels whose changed-value line in the pack said more nodes than unchanged lines: what an unobservable no-op is set beside. */
   let groundingMoreNodes: readonly string[] = [];
+  let groundingChangeRoutes: readonly string[] = [];
   let groundingConfirmedDataRoutes: RunState["grounding"]["confirmedDataRoutes"];
   if (deps.preGenerationGrounding) {
     deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
@@ -106,6 +107,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
       groundingContextBrief = grounding.contextBrief;
       groundingHarnessFacts = grounding.harnessFacts;
       groundingMoreNodes = grounding.changedValuesWithMoreNodes ?? [];
+      groundingChangeRoutes = grounding.changeRoutes ?? [];
       groundingConfirmedDataRoutes = grounding.packConfirmedDataRoutes;
     } catch (err) {
       rethrowIfRunDeadline(err);
@@ -131,6 +133,7 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
         contextBrief: groundingContextBrief,
         harnessFacts: groundingHarnessFacts,
         moreNodes: groundingMoreNodes,
+        changeRoutes: groundingChangeRoutes,
         confirmedDataRoutes: groundingConfirmedDataRoutes,
       },
     },

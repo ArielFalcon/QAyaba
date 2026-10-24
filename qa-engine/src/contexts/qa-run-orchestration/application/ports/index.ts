@@ -842,6 +842,8 @@ export interface GroundingResult {
   changedValuesWithMoreNodes?: string[];
   /** The pages the pack read with results (> 0) under the app's declared data state, by pathname. Absent when it read none. */
   packConfirmedDataRoutes?: { path: string; resultCount: number }[];
+  /** The pages of the app's map the change's files are linked to, in rank order. Absent when none is. */
+  changeRoutes?: string[];
 }
 /**
  * Pre-generate first-write grounding (DOM/route/context pack), run once after

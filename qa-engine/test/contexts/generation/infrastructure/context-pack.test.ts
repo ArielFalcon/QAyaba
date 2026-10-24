@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, TEMPLATE_LEFT_OUT, packDeliveredItemIds, packProducedItemIds, type ContextPackAssembly, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { itemId } from "@contexts/generation/domain/context-item-ids.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import { MAX_ROUTES, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { MAX_ROUTES, MAX_ROUTES_PER_CHANGE, REDIRECT_ADVISORY_INTRO, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { ROUTE_REASON } from "@kernel/route-capturability.ts";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -508,6 +508,16 @@ test("buildContextPack: each way a route can be linked reaches the capture from 
     const captured: string[][] = [];
     await buildContextPack({ contextMap, routes: BEHIND_THE_CUT, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
     assert.equal(captured[0]?.[0], LAST_ROUTE, name);
+  }
+});
+
+test("buildContextPack: a change linked to more pages than the default cut captures each of them, up to the per-change bound", async () => {
+  for (const linked of [MAX_ROUTES + 2, MAX_ROUTES_PER_CHANGE + 3]) {
+    const routes = plainRoutes(linked + 1);
+    const contextMap = mapWith(entriesOf(routes, Object.fromEntries(routes.slice(0, linked).map((route) => [route, { [SOURCE_FIELD]: CHANGED_FILE }]))));
+    const captured: string[][] = [];
+    await buildContextPack({ contextMap, routes, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
+    assert.deepEqual(captured[0], routes.slice(0, Math.min(linked, MAX_ROUTES_PER_CHANGE)), `${linked} linked pages`);
   }
 });
 

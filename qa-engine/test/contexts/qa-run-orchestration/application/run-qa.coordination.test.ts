@@ -138,6 +138,16 @@ test("a coordinated run hands the coordinator what the run knows: its identity, 
   assert.ok(r.planned[0]!.closedLoop && r.planned[0]!.agentBrowser, "the plan turn is told the tool budgets like any generation");
 });
 
+test("the pages the grounding linked to the change reach the coordinator, and a run that linked none passes none", async () => {
+  const grounded = rig();
+  const preGenerationGrounding = { ground: async () => ({ changeRoutes: ["/order", "/upload-menu"] }) };
+  await new RunQaUseCase(grounded.deps({ ...LEAD_SIDEKICKS, preGenerationGrounding })).run(INPUT);
+  assert.deepEqual(grounded.coordinated[0]!.changeRoutes, ["/order", "/upload-menu"]);
+  const plain = rig();
+  await new RunQaUseCase(plain.deps({ ...LEAD_SIDEKICKS, preGenerationGrounding: { ground: async () => ({}) } })).run(INPUT);
+  assert.equal(plain.coordinated[0]!.changeRoutes, undefined);
+});
+
 test("a generation that cannot plan is told to the coordinator as no planning turn", async () => {
   const r = rig();
   await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true }) } })).run(INPUT);

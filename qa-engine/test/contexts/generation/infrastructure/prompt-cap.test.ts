@@ -109,3 +109,32 @@ test("capDiff and capText are DISTINCT functions — capDiff preserves diff stru
    */
   assert.notEqual(viaCapDiff, viaCapText);
 });
+
+const section = (path: string, added: number, removed = 0, mode = "") =>
+  `diff --git a/${path} b/${path}\n${mode}@@ -1,${removed} +1,${added} @@\n${"-gone\n".repeat(removed)}${"+line of code\n".repeat(added)}`;
+
+test("a file the budget leaves out is still listed with its added and removed lines, and whether it is new or deleted", () => {
+  const kept = section("src/a.ts", 2);
+  const out = capDiff(kept + section("src/big.ts", 400, 3) + section("src/fresh.html", 300, 0, "new file mode 100644\n") + section("src/old.ts", 0, 200, "deleted file mode 100644\n"), kept.length + 10);
+  assert.ok(out.includes("3 file(s) omitted"));
+  assert.match(out, /src\/big\.ts \(\+400 -3\)/);
+  assert.match(out, /src\/fresh\.html \(\+300 -0, new file\)/);
+  assert.match(out, /src\/old\.ts \(\+0 -200, deleted\)/);
+});
+
+test("a section that does not fit does not keep out the smaller ones after it", () => {
+  const small = section("src/a.ts", 2);
+  const later = section("src/z.ts", 2);
+  const out = capDiff(small + section("src/m.ts", 500) + later, small.length + later.length + 5);
+  assert.ok(out.includes("+line of code") && out.includes("diff --git a/src/z.ts"), "the later small file is kept");
+  assert.match(out, /1 file\(s\) omitted/);
+  assert.match(out, /src\/m\.ts \(\+500 -0\)/);
+});
+
+test("style sheets give way to the code that defines the behaviour", () => {
+  const style = section("src/a.component.scss", 20);
+  const code = section("src/z.component.ts", 20);
+  const out = capDiff(style + code, code.length + 5);
+  assert.ok(out.includes("diff --git a/src/z.component.ts"), "the code is kept");
+  assert.match(out, /src\/a\.component\.scss \(\+20 -0\)/, "the style sheet is the one listed");
+});
