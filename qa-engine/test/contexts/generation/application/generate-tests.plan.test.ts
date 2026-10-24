@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { LEAD_PLAN_DENIED_TOOLS } from "@kernel/coordination.ts";
 import assert from "node:assert/strict";
 import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GeneratorDeliverable, ManifestEntry } from "@contexts/generation/application/ports/index.ts";
@@ -168,4 +169,11 @@ test("the cancellation of the run reaches the planning session", async () => {
   const controller = new AbortController();
   await new GenerateTestsUseCase(ports).plan(planInput(), { signal: controller.signal });
   assert.equal(seen.opened[0]!.opts?.signal, controller.signal);
+});
+
+test("the lead's planning session is denied the scripted browser: it plans from the Context Pack and the code graph, and the sidekicks read DEV", async () => {
+  const { ports, seen } = build({ output: '{"plan":{}}' }, { specs: [], parsed: true, plan: FANOUT });
+  await new GenerateTestsUseCase(ports).plan(planInput());
+  for (const tool of LEAD_PLAN_DENIED_TOOLS) assert.ok(seen.opened[0]!.opts?.descriptor?.denyTools?.includes(tool), tool);
+  assert.ok(LEAD_PLAN_DENIED_TOOLS.includes("playwright*"));
 });

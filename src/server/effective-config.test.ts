@@ -35,6 +35,14 @@ test("grounding and policy are what the run's app declares, with the engine's de
   assert.equal(withBoundaries.grounding.stitcher, "signal");
 });
 
+test("a lead-sidekicks run grounds without the explorer, whatever the app declares, unless the run itself asks for it", () => {
+  const withServices = app({ services: [{ repo: "o/s" }] }, { explorer: true });
+  assert.equal(resolveRunConfig(withServices, "e2e", { coordinationMode: "lead-sidekicks" }, "metadata", env).grounding.explorer, false);
+  assert.equal(resolveRunConfig(app({ services: [{ repo: "o/s" }] }, { coordination: { mode: "lead-sidekicks" } }), "e2e", {}, "metadata", env).grounding.explorer, false);
+  assert.equal(resolveRunConfig(withServices, "e2e", { coordinationMode: "lead-sidekicks", grounding: { explorer: true } }, "metadata", env).grounding.explorer, true);
+  assert.equal(resolveRunConfig(withServices, "e2e", { coordinationMode: "single" }, "metadata", env).grounding.explorer, true);
+});
+
 test("a run's grounding lever wins over the app's setting and the freeze still wins over the curriculum lever", () => {
   const withServices = app({ services: [{ repo: "o/s" }], boundaries: [{}] });
   const asked = resolveRunConfig(withServices, "e2e", { grounding: { explorer: true, stitcher: false, structuralSignal: false, curriculum: false } }, "metadata", env);

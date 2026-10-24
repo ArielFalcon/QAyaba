@@ -1,4 +1,4 @@
-/* Who executes next. Distinct from OrchestrationDecision (accept / retry-sidekick / continue-fix-loop / …). */
+/* Who executes next. */
 import type { AgentCapability } from "./agent-capability.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 

@@ -571,3 +571,11 @@ test("the brief numbers each acceptance criterion and asks for a report of every
     }
   }
 });
+
+test("a brief that carries its flow's pages renders them in a section of their own, and one without renders no such section", () => {
+  const withPages = createDelegationBrief({ delegationId: "d1", runId: "r1", objective: "cover checkout", task: "write smoke spec", scope, pages: "route /cart:\n  button \"Checkout\"" });
+  const rendered = renderSidekickBrief(withPages);
+  assert.ok("pages" in rendered.sectionSizes);
+  assert.ok(rendered.text.includes("button \"Checkout\""));
+  assert.equal("pages" in renderSidekickBrief(brief()).sectionSizes, false);
+});

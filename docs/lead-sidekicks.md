@@ -37,12 +37,17 @@ signed-in app (see below); without either, they stay out and the lead authors al
    `dev.geolocation`, an optional place it authors at. The turn is held to
    read-only by a per-prompt tool denial (the runtime's file tools and every editing tool of the code-navigation
    server); a lead on a runtime that has no such denial is not asked for a plan and the change stays with it as one
-   piece of work, with the reason recorded.
+   piece of work, with the reason recorded. The lead grounds without the explorer (a run may still ask for one): it
+   reads the Context Pack, the structural signal, the suite listing and the diff, in which the app's own test files
+   are named rather than shown (the language registry's conventions), and it explores with its code-graph tools. Its
+   planning session, review included, is denied Playwright: DEV is read by the sidekicks.
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
    duplicates and more than `maxFlows`. A plan that cannot be admitted, or that names one flow, hands the change
    back to the lead as one piece of work with the reason recorded (`downgrade`).
-3. **Author.** `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
+3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
+   page was opened from), cut from the run's Context Pack and bounded; a flow whose pages the pack did not read gets
+   none. `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
    (`flowBudgetMs`, cut to the run's deadline); a flow that throws does not stop the others.
 4. **Take back.** Each sidekick works in a plain, bounded copy of what the run may read
    (`<mirrors>/.qa-delegations/<run>/<delegation>`). Only the files its brief names (`writablePaths`) are copied

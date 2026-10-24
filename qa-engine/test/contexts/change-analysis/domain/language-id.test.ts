@@ -33,3 +33,12 @@ test("DRIFT KILLED: hasAstGrepRules derives from the ONE record — true for eve
   /* A language NOT in the registry returns false (no second set to diverge from). */
   assert.equal(LanguageRegistry.hasAstGrepRules("ruby" as LanguageId), false);
 });
+
+test("a file is a test file by its own language's conventions, and only then", () => {
+  for (const file of ["src/app/store.spec.ts", "src/app/store.test.tsx", "lib/__tests__/util.js", "web/a.test.mjs", "svc/src/test/java/com/x/OrderServiceTest.java", "svc/src/main/java/com/x/OrderIT.java", "svc/src/main/java/com/x/OrderTests.java"]) {
+    assert.equal(LanguageRegistry.isTestFile(file), true, file);
+  }
+  for (const file of ["src/app/store.ts", "src/app/testimonials.component.ts", "svc/src/main/java/com/x/Contest.java", "README.test.md", "config/spec.yaml", "Makefile"]) {
+    assert.equal(LanguageRegistry.isTestFile(file), false, file);
+  }
+});

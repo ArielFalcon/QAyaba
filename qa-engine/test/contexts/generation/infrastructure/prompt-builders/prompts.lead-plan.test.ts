@@ -98,3 +98,14 @@ test("a regeneration never carries the contract: only the first pass is planned"
     assert.equal(sectionOf(assemble({ ...over, planning: PLANNING })), undefined);
   }
 });
+
+test("a planning turn's diff leaves out the bodies of the app's own test files and still names them; any other turn shows them whole", () => {
+  const testBody = "+it('totals the cart', () => expect(total()).toBe(3));";
+  const diff = "diff --git a/src/app/cart/cart.service.ts b/src/app/cart/cart.service.ts\n+export function total() {}\n" +
+    `diff --git a/src/app/cart/cart.service.spec.ts b/src/app/cart/cart.service.spec.ts\n${testBody}\n`;
+  const planned = assemble({ diff, planning: PLANNING }).text;
+  assert.ok(planned.includes("+export function total() {}"));
+  assert.ok(!planned.includes(testBody));
+  assert.ok(planned.includes("src/app/cart/cart.service.spec.ts"));
+  assert.ok(assemble({ diff }).text.includes(testBody));
+});

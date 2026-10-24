@@ -83,19 +83,9 @@ export {
 export { isPathWithinWritableRoots } from "./path-scope.ts";
 export { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 export {
-  buildProgressSnapshot,
-  fingerprintOf,
-  ORCHESTRATION_ACTIONS,
-  routeOrchestration,
-  sameProgress,
-  type OrchestrationAction,
-  type OrchestrationDecision,
-  type ProgressSnapshot,
-  type RouterInput,
-} from "./orchestration-router.ts";
-export {
   CoordinationTelemetryRecorder,
   type CoordinationTelemetryEvent,
   type CoordinationTelemetryKind,
+  type RouterEventAction,
   type CoordinationTelemetryPort,
 } from "./coordination-telemetry.ts";

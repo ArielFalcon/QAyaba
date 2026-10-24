@@ -78,6 +78,7 @@ export function renderSidekickBrief(brief: DelegationBrief): {
     scope,
     authority,
     facts,
+    ...(brief.pages ? { pages: ["## Pages of this flow (from the run's Context Pack)", brief.pages].join("\n") } : {}),
     artifacts,
     validation,
     escalation,

@@ -1,14 +1,11 @@
-/* Coordination contracts: pushback, router and telemetry. */
+/* Coordination contracts: pushback and telemetry. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyPushback,
-  buildProgressSnapshot,
   createDelegationBrief,
   evidenceFromValidation,
   CoordinationTelemetryRecorder,
-  routeOrchestration,
-  sameProgress,
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 
 const scope = {
@@ -43,51 +40,6 @@ test("pushback blocks writes outside scope and foreign briefs", () => {
   });
   assert.equal(blocked.status, "blocked");
   assert.equal(blocked.recommendation, "escalate");
-});
-
-test("router order: infra and budget beat retry; no-progress escalates; FixLoop owns QA correction", () => {
-  const snap = buildProgressSnapshot({ failureClass: "selector", failingNames: ["a"] });
-  assert.equal(
-    routeOrchestration({
-      evidence: [],
-      currentCapability: "sidekick-standard",
-      current: snap,
-      budgetExhausted: false,
-      infraFailure: true,
-    }).action,
-    "abort-human",
-  );
-  assert.equal(
-    routeOrchestration({
-      evidence: [],
-      currentCapability: "sidekick-standard",
-      current: snap,
-      budgetExhausted: true,
-      infraFailure: false,
-    }).action,
-    "abort-human",
-  );
-  const escalated = routeOrchestration({
-    evidence: [],
-    currentCapability: "sidekick-standard",
-    previous: snap,
-    current: snap,
-    budgetExhausted: false,
-    infraFailure: false,
-  });
-  assert.equal(escalated.action, "escalate-sidekick");
-  assert.equal(sameProgress(snap, snap), true);
-  assert.equal(
-    routeOrchestration({
-      evidence: [evidenceFromValidation({ ok: false, errors: 1 })],
-      currentCapability: "lead",
-      current: snap,
-      budgetExhausted: false,
-      infraFailure: false,
-      qaCorrectionOwnedByFixLoop: true,
-    }).action,
-    "continue-fix-loop",
-  );
 });
 
 test("coordination telemetry records proposals", () => {

@@ -58,18 +58,20 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
   const services = (app.services?.length ?? 0) > 0;
   const stitched = serviceTopologyWired(app);
   const requestedGrounding = request.grounding ?? {};
+  const coordinationMode = isCode ? null : (request.coordinationMode ?? resolveCoordinationSettings(app.qa.coordination).mode);
   return {
     levers: {
       closedLoop: tools ? env.toolsGranted && closedLoopAsked : null,
       agentBrowser: tools ? env.toolsGranted && agentBrowserAsked : null,
-      coordinationMode: isCode ? null : (request.coordinationMode ?? resolveCoordinationSettings(app.qa.coordination).mode),
+      coordinationMode,
       captureMode,
     },
     campaignFreeze: env.campaignFrozen,
     runtime: env.runtime(),
     prompt: { staticHash: env.staticPromptHash() },
     grounding: {
-      explorer: requestedGrounding.explorer ?? app.qa.explorer ?? services,
+      /* A lead-sidekicks run grounds deterministically: the lead explores the code graph itself, so no explorer runs unless the run asks for one. */
+      explorer: requestedGrounding.explorer ?? (coordinationMode === "lead-sidekicks" ? false : (app.qa.explorer ?? services)),
       /* The service-topology collaborator is one of the two advisory structural signals: it exists only for an app with services and declared boundaries. */
       stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : structuralMode) : null,
       structuralSignal: requestedGrounding.structuralSignal === false ? "off" : structuralMode,

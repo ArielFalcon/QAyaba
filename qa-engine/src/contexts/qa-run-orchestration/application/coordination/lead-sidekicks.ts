@@ -34,6 +34,13 @@ import { admitLeadPlan, LEAD_PLAN_KIND, type AdmittedFlow, type AdmittedPlan } f
 import { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
+import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
+
+/* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
+const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
+  const pages = packPagesFor(pack, routes);
+  return pages === undefined ? undefined : { pages };
+};
 
 /* Less than this of a flow's time left and a second attempt is not started; less than this of the run and a plan is not asked for. */
 export const MIN_FLOW_MS = 60_000;
@@ -74,6 +81,8 @@ export interface CoordinateInput {
   geolocation?: GeolocationHandle;
   devBaseUrl?: string;
   knownFacts?: readonly EvidenceRef[];
+  /* The run's Context Pack: each flow's brief carries the Live DOM of the pages that flow visits. */
+  contextPack?: string;
   /* The run's deadline, when one is armed. */
   deadline?: { remainingMs(): number | undefined };
   /* The planning turn, asked for with the limits the plan will be held to. Absent: this run's generation cannot plan. */
@@ -361,6 +370,7 @@ export class LeadSidekicks {
       acceptanceCriteria: flow.acceptance,
       scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
       knownFacts: input.knownFacts ?? [],
+      ...(pagesOf(input.contextPack, flow.routes) ?? {}),
       ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
     });
   }

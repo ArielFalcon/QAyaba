@@ -1581,6 +1581,7 @@ export class RunQaUseCase {
           ...(this.deps.sidekickDevBaseUrl ? { devBaseUrl: this.deps.sidekickDevBaseUrl } : {}),
           /* The pages the pack read with results: every sidekick's brief states them, and a flow's empty read of one is checked against them. */
           ...(groundingConfirmedDataRoutes?.length ? { knownFacts: evidenceFromPackDataRoutes(groundingConfirmedDataRoutes) } : {}),
+          ...(groundingContextPack ? { contextPack: groundingContextPack } : {}),
           ...(this.deps.generation.plan
             ? { plan: (planning) => this.deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, ...geolocationEnrichment(), planning }) }
             : {}),

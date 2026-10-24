@@ -115,16 +115,14 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   coordination: {
-    description: "coordination routing: acceptance report, pushback authority checks, delegation-failure class, orchestration router",
+    description: "coordination routing: acceptance report, pushback authority checks, delegation-failure class",
     mutate: [
       `${ORCH}/application/coordination/acceptance-report.ts`,
       `${ORCH}/application/coordination/pushback.ts`,
       `${ORCH}/application/coordination/delegation-failure-class.ts`,
-      `${ORCH}/application/coordination/orchestration-router.ts`,
     ],
     tests: [
       `${ORCH_TEST}/application/coordination-pushback.test.ts`,
-      `${ORCH_TEST}/application/coordination-router.test.ts`,
       "qa-engine/test/contract/coordination-phases-5-14.contract.test.ts",
       "qa-engine/test/contract/coordination-disk-and-model.contract.test.ts",
       "qa-engine/test/contract/coordination-delegation.contract.test.ts",

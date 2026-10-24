@@ -1,11 +1,17 @@
 /* Single language registry for every extractor in this context. `supported` and `hasAstGrepRules` both derive from LANGS — adding a language is one record. Project-agnostic: keyed by language, never by app. */
 export type LanguageId = "javascript" | "typescript" | "java";
 
-/* astGrep: true → AstGrepPatternAdapter; false → regex fallback. Both `supported` and `hasAstGrepRules` derive from this record. */
-const LANGS: Record<LanguageId, { astGrep: boolean }> = {
-  javascript: { astGrep: true },
-  typescript: { astGrep: true },
-  java:       { astGrep: true },
+/* JavaScript and TypeScript share their test conventions: a `.test.` or `.spec.` file, or a file under `__tests__/`. */
+const JS_TEST_PATHS: readonly RegExp[] = [/\.(test|spec)\.[cm]?[jt]sx?$/, /(^|\/)__tests__\//];
+
+/*
+ * astGrep: true → AstGrepPatternAdapter; false → regex fallback. Both `supported` and `hasAstGrepRules` derive from this record.
+ * testPaths: the language's own conventions for a test file (the build tool's test source set, the test-runner's file names).
+ */
+const LANGS: Record<LanguageId, { astGrep: boolean; testPaths: readonly RegExp[] }> = {
+  javascript: { astGrep: true, testPaths: JS_TEST_PATHS },
+  typescript: { astGrep: true, testPaths: JS_TEST_PATHS },
+  java:       { astGrep: true, testPaths: [/(^|\/)src\/test\//, /(Test|Tests|IT)\.java$/] },
 };
 
 const EXT_TO_LANGUAGE: Record<string, LanguageId> = {
@@ -33,6 +39,12 @@ export const LanguageRegistry = {
       out.set(lang, list);
     }
     return out;
+  },
+
+  /* Whether a file is a test of its language, by that language's conventions; a file of no declared language is not. */
+  isTestFile(file: string): boolean {
+    const lang = this.languageForFile(file);
+    return lang !== null && LANGS[lang].testPaths.some((pattern) => pattern.test(file));
   },
 
   hasAstGrepRules(lang: LanguageId): boolean {

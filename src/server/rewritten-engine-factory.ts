@@ -1059,8 +1059,10 @@ export function buildRewrittenCompositionConfig(
    * `??`, not `||`: app.qa.explorer is a tri-state (true/false/unconfigured). An explicit
    * `explorer: false` must win over the services-length auto-detect, never be swallowed by it —
    * `||` treated false and unconfigured identically, silently ignoring an operator's opt-out.
+   * Without a recorded grounding, a lead-sidekicks app grounds without the explorer, as the run's effective config decides.
    */
-  const shouldExplore = grounding?.explorer ?? (app.qa.explorer ?? (app.services?.length ?? 0) > 0);
+  const shouldExplore =
+    grounding?.explorer ?? (resolveCoordinationSettings(app.qa.coordination).mode === "lead-sidekicks" ? false : (app.qa.explorer ?? (app.services?.length ?? 0) > 0));
 
   const explorerBriefAdapter = new ExplorerBriefSessionAdapter(
     {

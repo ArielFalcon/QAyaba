@@ -15,6 +15,7 @@ import type { CoordinationTelemetryEvent } from "@contexts/qa-run-orchestration/
 import type { DelegationResult } from "@contexts/qa-run-orchestration/application/coordination/delegation-result.ts";
 import type { SidekickExecuteOpts } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
 import type { DelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { DelegationCollection, DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest } from "@contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowLedgerEntry, FlowLoopHandle, FlowLoopOpenInput, GeolocationHandle, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
@@ -762,4 +763,15 @@ test("a revision is told what kind of failure the flow's last run_spec call met,
     assert.match(cart[1]!.opts.feedback ?? "", expected);
     assert.match(cart[1]!.opts.feedback ?? "", /fix the locator/);
   }
+});
+
+test("each sidekick's brief carries the Live DOM of its own flow's pages from the Context Pack, and none of another flow's", async () => {
+  const r = rig();
+  const contextPack = [`### ${PACK_HEADINGS.liveDom}`, "route /cart:", "  button \"Checkout\"", "route /login:", "  textbox \"Email\""].join("\n");
+  const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/nowhere"] }] };
+  await r.coordinator.coordinate(input(r, { contextPack, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
+  assert.ok(brief("cart").pages?.includes("button \"Checkout\""));
+  assert.ok(!brief("cart").pages?.includes("Email"));
+  assert.equal(brief("login").pages, undefined, "a flow whose pages the pack did not read gets no slice");
 });

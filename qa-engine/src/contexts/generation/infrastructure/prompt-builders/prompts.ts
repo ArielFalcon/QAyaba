@@ -19,6 +19,7 @@ import { diffStat, diffTier, type DiffStat, type DiffTier } from "@contexts/gene
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
+import { diffWithoutTestFiles } from "@contexts/generation/domain/diff-without-test-files.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { AgentBrowserLimits } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
@@ -1435,12 +1436,15 @@ function buildDiffSection(input: OpencodeRunInput): string {
   if (input.target === "code") return "";
   if (input.mode !== "diff") return "";
   if (isReGenTurn(input)) return "";
+  /* A lead's planning turn sees the change without the app's own test files, named instead (the flows it plans are end-to-end). */
+  const { diff, testFiles } = input.planning ? diffWithoutTestFiles(input.diff) : { diff: input.diff, testFiles: [] };
   /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
   return [
     COMMIT_DIFF_HEADING,
     "```diff",
-    cappedDiffText(input.diff),
+    cappedDiffText(diff),
     "```",
+    ...(testFiles.length > 0 ? [`Test files the change also touches (not shown): ${sanitizeText(testFiles.join(", "), "issue").text}`] : []),
   ].join("\n");
 }
 

@@ -171,7 +171,7 @@ The harness pre-computes context so the agent does not have to rediscover it. An
 to the agent's behaviour must make it **consume** this context, not re-derive it:
 - **Pre-generation grounding** —
   `qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts`
-  (fail-open): explorer brief (blast radius; `qa.explorer`, default on when `services[]`) on diff and manual runs,
+  (fail-open): explorer brief (blast radius; `qa.explorer`, default on when `services[]`, off in `lead-sidekicks` mode unless the run asks) on diff and manual runs,
   context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
   capturable — `generation/infrastructure/context-pack.ts`), harness facts
   (`generation/domain/harness-facts.ts`), existing-suite manifest.
@@ -224,11 +224,14 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   sequence a run without this mode makes; `mode: lead-sidekicks` (the app's `qa.coordination`, or a run's own choice: `--coordination
   single|lead-sidekicks`, `coordinationMode` on `POST /api/v1/runs`, the campaign's `--coordination`; the run's choice wins and is recorded
   in the probe report) has the lead return a **plan** instead of specs (`GenerationPort.plan`, a read-only turn, `plan` in the generator's
-  verdict) and each flow authored by a sidekick in parallel. The plan is untrusted: `admitLeadPlan` keeps only what its shape and the
+  verdict) and each flow authored by a sidekick in parallel. The lead grounds deterministically: no explorer runs, the plan turn's
+  diff names the app's own test files instead of showing them (`LanguageRegistry.isTestFile`), its session is denied Playwright
+  (`LEAD_PLAN_DENIED_TOOLS`), and it explores with the code-graph tools. The plan is untrusted: `admitLeadPlan` keeps only what its shape and the
   run's limits allow (`maxFlows`, a deterministic spec path `e2e/flows/<slug>.spec.ts` per flow, the lead's own write lists ignored) and
   downgrades to `single` with a recorded reason otherwise. Each sidekick works in a plain bounded copy of what the run may read
   (`<mirrors>/.qa-delegations/<run>/<delegation>`, `DelegationWorkspacePort`); only the files its brief names (`writablePaths`) are taken
-  back, through `spec-path-confinement`, and anything else it changed is listed as a proposal and never applied. A pool of at most
+  back, through `spec-path-confinement`, and anything else it changed is listed as a proposal and never applied. Each brief carries
+  the Live DOM of its flow's pages, cut from the run's Context Pack (`generation/domain/pack-pages.ts`). A pool of at most
   `maxParallel` flows runs under `FanOutDispatcher` (a signal and a time per flow, a throwing flow isolated); each flow closes its own
   `run_spec` loop (`ClosedLoopHandle.openFlow`, the same `AccountLock` lease, its own caps and namespace) and, with a login, reads DEV
   through the orchestrator's authenticated browser with a share of the run's caps. What a sidekick may author with is

@@ -22,6 +22,7 @@ import { isReGenTurn } from "../domain/regen-turn.ts";
 import { promptFactsOpts } from "../domain/prompt-facts.ts";
 import { REPAIR_TURN_TIMEOUT_MS, renderRepairTimeoutNote, repairTurnLimit } from "../domain/repair-turn.ts";
 import type { NoopKind } from "@kernel/noop-kind.ts";
+import { LEAD_PLAN_DENIED_TOOLS } from "@kernel/coordination.ts";
 
 export interface RepairPort {
   checkGenerator(text: string): { valid: boolean; issues: string[] };
@@ -115,7 +116,7 @@ export class GenerateTestsUseCase {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       timeoutMs: planning.budgetMs,
       timeLimit: "prompt-budget",
-      descriptor: { runId: input.runId, role: "qa-generator" },
+      descriptor: { runId: input.runId, role: "qa-generator", denyTools: LEAD_PLAN_DENIED_TOOLS },
     });
     let output = "";
     let turn: AgentTurnStats | undefined;
