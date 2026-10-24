@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildExecWiring, buildScriptExec, suiteAccountFor } from "./exec-sandbox-factory";
@@ -37,6 +37,35 @@ test("the run's and the scripts' launchers refuse agent code when the boot check
     assert.throws(() => run.exec.spawn("true", [], { cwd: dir, profile: "offline", scope }), refusesForFiles);
     const script = buildScriptExec(env, sandbox);
     assert.throws(() => script.exec.spawn("true", [], { cwd: dir, profile: "offline", scope }), refusesForFiles);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* An operator script's suite lives in a throwaway copy under the mirrors volume, which boot closes to root: the scripts' launcher opens the mirror a child runs in to the sandbox group, as a run's does, or the sandbox uid cannot reach the suite it installs or runs. */
+test("the scripts' launcher opens the mirror a child runs in to the sandbox group, and its scope seals the mirrors", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "exec-factory-"));
+  try {
+    const mirrors = join(dir, "mirrors");
+    const copy = join(mirrors, ".baseline", "label", "e2e");
+    mkdirSync(copy, { recursive: true });
+    const calls: string[] = [];
+    const mirrorOps = {
+      lstat: () => ({ isDirectory: () => true, uid: 0 }),
+      readdir: () => [".baseline"],
+      chown: (path: string, uid: number, gid: number) => { calls.push(`chown ${path} ${uid}:${gid}`); },
+      chmod: (path: string, mode: number) => { calls.push(`chmod ${path} ${mode.toString(8)}`); },
+    };
+    const env: NodeJS.ProcessEnv = { QA_EGRESS_MODE: "warn", QA_EXEC_ROOT: join(dir, "exec") };
+    const sandbox = { uid: process.getuid?.() ?? 1002, gid: process.getgid?.() ?? 1002, home: dir };
+    const script = buildScriptExec(env, sandbox, undefined, { mirrorRoot: mirrors, mirrorOps });
+    await script.scoped({ runId: "r" }, async () => {
+      assert.ok(calls.includes(`chmod ${mirrors} 711`), "the scope seals the mirrors when it opens");
+      const scope = { runId: "r", workDir: dir, egress: { dev: [], install: [] }, report: newSandboxReport() };
+      const child = script.exec.spawn("true", [], { cwd: copy, profile: "offline", scope });
+      await new Promise((resolve) => child.on("close", resolve));
+    });
+    assert.ok(calls.includes(`chown ${join(mirrors, ".baseline")} 0:${sandbox.gid}`), "the copy's mirror is opened to the sandbox group");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

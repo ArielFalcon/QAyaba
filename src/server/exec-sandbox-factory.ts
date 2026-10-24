@@ -6,6 +6,7 @@ import { createExecSandbox, resolveExecSandboxMode, type EgressGate, type ExecSa
 import type { ExecScopePort } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { createExecScopeProvider } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope-provider";
 import type { Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import type { MirrorFsOps } from "../../qa-engine/src/shared-infrastructure/process-sandbox/mirror-access";
 import { resolveEgressMode } from "./egress-wiring";
 import { fileBoundaryGateFor } from "./file-boundary";
 import type { TelemetryPort } from "@kernel/telemetry/telemetry.port";
@@ -71,10 +72,18 @@ export interface ScriptExec {
   scoped<T>(scope: { runId: string; authDir?: string; devOrigins?: readonly string[]; installOrigins?: readonly string[] }, fn: () => Promise<T>): Promise<T>;
 }
 
-export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null, egress?: EgressGate): ScriptExec {
+/* The mirrors volume the scripts' copies live in (MIRROR_DIR): the mirror a script's child runs in is opened to the sandbox group as a run's is, and every scope seals the mirrors when it opens and when it closes. Unset: no mirror is touched. */
+export interface ScriptMirrors {
+  mirrorRoot?: string;
+  mirrorOps?: MirrorFsOps;
+}
+
+export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null, egress?: EgressGate, mirrors: ScriptMirrors = {}): ScriptExec {
   const mode = resolveExecSandboxMode(env);
   const reaper = processReaper(sandbox);
-  const exec = createExecSandbox({ sandbox, mode, egressMode: resolveEgressMode(env), baseEnv: env, fileBoundary: fileBoundaryGateFor(env), ...(egress ? { egress } : {}), ...(reaper ? { reaper } : {}) });
+  const mirrorRoot = mirrors.mirrorRoot ?? (env.MIRROR_DIR && env.MIRROR_DIR !== "" ? env.MIRROR_DIR : undefined);
+  const mirrorDeps = mirrorRoot ? { mirrorRoot, ...(mirrors.mirrorOps ? { mirrorOps: mirrors.mirrorOps } : {}) } : {};
+  const exec = createExecSandbox({ sandbox, mode, egressMode: resolveEgressMode(env), baseEnv: env, fileBoundary: fileBoundaryGateFor(env), ...(egress ? { egress } : {}), ...mirrorDeps, ...(reaper ? { reaper } : {}) });
   const gateCreds = gateCredsFrom(env);
   return {
     exec,
@@ -87,6 +96,7 @@ export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null,
         ...(gateCreds ? { gateCreds } : {}),
         egress: { dev: scope.devOrigins ?? [], install: scope.installOrigins ?? [] },
         ...(egress ? { egressGate: egress } : {}),
+        ...mirrorDeps,
         ...(reaper ? { reaper } : {}),
       }).open({ runId: scope.runId });
       try {
