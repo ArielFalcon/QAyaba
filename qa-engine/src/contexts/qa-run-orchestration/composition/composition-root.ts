@@ -3,7 +3,7 @@ buildShadow always uses this engine with shadow-log publication and in-memory hi
 
 import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort, ValidationPort, LearningPort } from "../application/ports/index.ts";
+import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort, ValidationPort, LearningPort, ObjectiveSignalPort } from "../application/ports/index.ts";
 import type { RunDeadlineView } from "@kernel/run-deadline.ts";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port.ts";
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
@@ -33,6 +33,8 @@ import { getSharedCoordinationTelemetry } from "../infrastructure/bridges/coordi
 import { SpecSnapshotValidationPort } from "../infrastructure/bridges/spec-snapshot-validation.adapter.ts";
 import { TracedCrossRepoImpactPort, TracedCurriculumPort, TracedLearningPort, TracedServiceLinksPort, TracedStructuralSignalPort, telemetryGroundingTrace } from "../infrastructure/bridges/context-trace.ts";
 import { TracedSuiteStore } from "../infrastructure/bridges/suite-store-trace.ts";
+import { TracedCoordinationTelemetry } from "../infrastructure/bridges/coordination-telemetry-trace.ts";
+import { TracedObjectiveSignalPort } from "../infrastructure/bridges/objective-signal-trace.ts";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
@@ -546,7 +548,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     : undefined;
   const crossRepoImpact = plainCrossRepoImpact && cfg.telemetry ? new TracedCrossRepoImpactPort(plainCrossRepoImpact, cfg.telemetry) : plainCrossRepoImpact;
 
-  const objectiveSignal = new ObjectiveSignalPortAdapter(
+  const plainObjectiveSignal = new ObjectiveSignalPortAdapter(
     {
       collector: cfg.objectiveSignal.collector as CoverageCollectorPort,
       decide: new DecideCoverageService(),
@@ -561,6 +563,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       ...(cfg.baselineCases ? { baselineCases: cfg.baselineCases } : {}),
     },
   );
+  const objectiveSignal: ObjectiveSignalPort = cfg.telemetry ? new TracedObjectiveSignalPort(plainObjectiveSignal, cfg.telemetry) : plainObjectiveSignal;
 
   const plainLearning = new LearningPortAdapter(cfg.learningRepo ?? new StubLearningRepository(), cfg.appName);
   const learning: LearningPort = cfg.telemetry ? new TracedLearningPort(plainLearning, cfg.telemetry) : plainLearning;
@@ -673,9 +676,10 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     /* The lead/sidekick mode: wired for an e2e run whose shell gave it a place for the sidekicks' workspaces; whether a run uses it is the app's coordination mode or the run's own choice. The sidekicks share the reviewer's runtime, each with a session of its own. A run in the single mode (the default) asks it for nothing. */
     ...(() => {
       /* Process-lifetime store so the ledger of decisions outlives a run (not a fresh empty bag per composition). */
-      const coordinationTelemetry = cfg.coordinationTelemetryPath
+      const ledger = cfg.coordinationTelemetryPath
         ? getSharedCoordinationTelemetry(cfg.coordinationTelemetryPath)
         : getSharedCoordinationTelemetry();
+      const coordinationTelemetry = cfg.telemetry ? new TracedCoordinationTelemetry(ledger, cfg.telemetry) : ledger;
       return {
         coordinationTelemetry,
         ...(cfg.baseUrl ? { sidekickDevBaseUrl: cfg.baseUrl } : {}),

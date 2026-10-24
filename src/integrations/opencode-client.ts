@@ -18,6 +18,7 @@ import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/t
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
 import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { installHttpDispatcher } from "../util/net";
+import { enforcedStepLimit } from "../agent-runtime/step-limit";
 import { openCodeServerAuth } from "./opencode-server-auth";
 import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/domain/agent-browser-capability";
 import { CODE_GRAPH_AGENT } from "@kernel/code-graph-tools";
@@ -349,7 +350,21 @@ export async function listAgentCaps(directory: string, deps: AgentListDeps = def
   }
   if (!Array.isArray(res.data)) throw new Error(`OpenCode app.agents returned no list of agents: ${JSON.stringify(res.data)}`);
   const agents: ReadonlyArray<AgentOnTheWire> = res.data;
-  return agents.map((agent) => ({ name: agent.name, cap: agent.steps ?? agent.maxSteps }));
+  const caps = agents.map((agent) => ({ name: agent.name, cap: agent.steps ?? agent.maxSteps }));
+  lastListedCaps = new Map(caps.map(({ name, cap }) => [name, enforcedStepLimit(cap)]));
+  return caps;
+}
+
+/* The caps of the server's last successful agent list, by agent name: an agent listed without a cap maps to undefined. */
+let lastListedCaps: ReadonlyMap<string, number | undefined> = new Map();
+
+/*
+ * The step limit a turn of `agent` ran under, for the exhaustion report of a turn whose prompt stated none: the cap the server
+ * last reported for the agent, which is the one it enforces; the local opencode.json only for an agent the server has not
+ * listed yet. The orchestrator's copy of the file ships in its image and goes stale when only the agents' configuration moves.
+ */
+export function turnStepLimit(agent: string, configPath: string = DEFAULT_AGENTS_CONFIG_PATH()): number | undefined {
+  return lastListedCaps.has(agent) ? lastListedCaps.get(agent) : maxStepsFromConfig(agent, configPath);
 }
 
 /*
@@ -722,7 +737,7 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
     persistTurn: saveAgentTurnEvent,
     takeTurnCalls: (sessionId, promptText, providedPaths) => callEfficiencyTracker.take(sessionId, promptText, providedPaths),
     prepareAttempt: (sessionId, attempt) => callEfficiencyTracker.prepareAttempt(sessionId, attempt),
-    maxStepsFor: maxStepsFromConfig,
+    maxStepsFor: (agent) => turnStepLimit(agent),
     onAttempt: (sessionId, event) => agentTurnTraces.attempt(sessionId, event),
     outerLimit: (sessionId, prompt) => agentTurnTraces.firedBy(sessionId, prompt),
   });

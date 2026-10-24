@@ -1,6 +1,6 @@
 /*
  * The static gate's checks as spans: one `qayaba.validate.check` per check (typecheck, lint, list, manifest), a child of the phase that is open,
- * with whether it passed and how many errors it reported. The checks run in parallel, so each span is opened with an explicit parent and not
+ * with whether it passed, how many errors it reported and where the first one is. The checks run in parallel, so each span is opened with an explicit parent and not
  * from the active context. A decorator over the checks: what a check returns is returned as it was.
  */
 
@@ -17,6 +17,28 @@ const ESLINT_LINE = /^\s*\d+:\d+\s+error\b/gm;
 const PLAYWRIGHT_ERROR = /^\s*Error:/gm;
 
 const matches = (re: RegExp, text: string): number => text.match(re)?.length ?? 0;
+
+const TSC_FIRST = /^(\S[^\n(]*)\((\d+),(\d+)\): error (TS\d+)/m;
+const ESLINT_FILE = /^(\S.*)$/;
+const ESLINT_ERROR = /^\s+(\d+):(\d+)\s+error\s+.*?\s{2,}(\S+)\s*$/;
+
+/* Where a failed typecheck or lint's first error is: `file:line:column rule-or-code`. Absent for a check that passed, or whose output names no file and line. */
+export function firstCheckError(check: ValidateCheckName, result: CheckResult): string | undefined {
+  if (result.ok) return undefined;
+  if (check === "typecheck") {
+    const m = TSC_FIRST.exec(result.output);
+    return m ? `${m[1]}:${m[2]}:${m[3]} ${m[4]}` : undefined;
+  }
+  if (check !== "lint") return undefined;
+  let file: string | undefined;
+  for (const line of result.output.split("\n")) {
+    const error = ESLINT_ERROR.exec(line);
+    if (error && file) return `${file}:${error[1]}:${error[2]} ${error[3]}`;
+    const named = ESLINT_FILE.exec(line);
+    if (named && !line.startsWith("✖")) file = named[1];
+  }
+  return undefined;
+}
 
 /* How many errors a failed check reported, from its output; zero for a check that passed. A failure whose output no rule counts is one error. */
 export function countCheckErrors(check: ValidateCheckName, result: CheckResult): number {
@@ -50,6 +72,7 @@ export function traceValidateDeps(deps: ValidateDeps, telemetry: TelemetryPort):
       span.setAttrs({
         "qayaba.validate.ok": result.ok,
         "qayaba.validate.errors": countCheckErrors(check, result),
+        ...((first) => (first ? { "qayaba.validate.first_error": first } : {}))(firstCheckError(check, result)),
         ...(result.infra === true ? { "qayaba.validate.infra": true } : {}),
       });
       span.end();

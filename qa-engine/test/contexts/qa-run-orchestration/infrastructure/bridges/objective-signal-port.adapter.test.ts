@@ -406,3 +406,20 @@ test("measure() with policy.mode off skips collector and oracle", async () => {
   assert.equal(result.mutantCount, undefined, "the oracle never ran — mutantCount must be absent, never a fabricated 0 or null");
   assert.equal(result.killedCount, undefined, "the oracle never ran — killedCount must be absent, never a fabricated 0 or null");
 });
+
+test("measure() says why a change-coverage is unknown: no executed source mapped to a changed file, no diff, no assembler", async () => {
+  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
+  const adapterWith = (report: CoverageReport, assembler = true) =>
+    new ObjectiveSignalPortAdapter({ collector: fakeCollector(report), decide: new DecideCoverageService(), oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/r", ...(assembler ? { assembleChangeCoverage } : {}) });
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+
+  const unmapped = await adapterWith({ covered: [] }).measure(br, "/r/e2e", SAMPLE_DIFF);
+  assert.equal(unmapped.status, "unknown");
+  assert.deepEqual(unmapped.measurement, { changedLines: 2, coveredChanged: 0, changedFiles: 1, mappedFiles: 0, unmeasured: "no-changed-file-mapped" });
+
+  const measured = await adapterWith({ covered: [{ file: "src/checkout.ts", lines: [1] }] }).measure(br, "/r/e2e", SAMPLE_DIFF);
+  assert.deepEqual(measured.measurement, { changedLines: 2, coveredChanged: 1, changedFiles: 1, mappedFiles: 1 });
+
+  assert.equal((await adapterWith({ covered: [] }).measure(br, "/r/e2e")).measurement?.unmeasured, "no-diff");
+  assert.equal((await adapterWith({ covered: [] }, false).measure(br, "/r/e2e", SAMPLE_DIFF)).measurement?.unmeasured, "not-assembled");
+});

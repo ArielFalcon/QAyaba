@@ -1,7 +1,7 @@
 /* ObjectiveSignalPort: change-coverage measure + blocks. unknown never blocks. */
 
 import type { BlastRadius } from "@kernel/blast-radius.ts";
-import type { ObjectiveSignalPort } from "../../application/ports/index.ts";
+import type { CoverageMeasurement, ObjectiveSignalPort } from "../../application/ports/index.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import type { CoverageCollectorPort, CoverageReport, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
 import { parseDiffHunks } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
@@ -22,13 +22,26 @@ export interface ObjectiveSignalPortStaticContext {
   namespace?: string;
 }
 
+/* What the measurement counted, and why one that decides nothing did not. */
+function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["unmeasured"]): CoverageMeasurement {
+  if (!cc) return { changedLines: 0, coveredChanged: 0, changedFiles: 0, mappedFiles: 0, unmeasured: skipped ?? "not-assembled" };
+  const counts = {
+    changedLines: cc.overall.changedLines,
+    coveredChanged: cc.overall.coveredChanged,
+    changedFiles: cc.perFile.length,
+    mappedFiles: cc.perFile.filter((file) => file.covered > 0).length,
+  };
+  if (cc.overall.changedLines === 0) return { ...counts, unmeasured: "no-changed-lines" };
+  return cc.measured ? counts : { ...counts, unmeasured: "no-changed-file-mapped" };
+}
+
 export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
   constructor(
     private readonly deps: ObjectiveSignalPortCollaborators,
     private readonly ctx: ObjectiveSignalPortStaticContext,
   ) {}
 
-  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[] }> {
+  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }> {
     const namespace = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
     /* coverage.mode "off" skips collector IO and the value oracle. decide() sees null → "unknown" (never blocks). */
     if (this.ctx.policy.mode === "off") {
@@ -43,6 +56,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
 
     const status = this.deps.decide.decide(cc, this.ctx.policy);
     const ratio = cc?.measured ? cc.overall.ratio : null;
+    const measurement = measurementOf(cc, !diff ? "no-diff" : this.ctx.assembleChangeCoverage === undefined ? "not-assembled" : undefined);
 
     const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases);
 
@@ -53,6 +67,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       mutantCount: oracleResult.mutantCount,
       killedCount: oracleResult.killedCount,
       ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
+      measurement,
     };
   }
 

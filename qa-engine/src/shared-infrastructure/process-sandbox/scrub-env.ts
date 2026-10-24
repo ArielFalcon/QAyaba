@@ -27,6 +27,9 @@ export interface ScrubEnvOptions {
   quiet?: boolean;
 }
 
+/* The sets of variables already named: a spawn site scrubs the same environment on every spawn, and one line per set is enough. */
+const named = new Set<string>();
+
 export function scrubEnv(opts?: ScrubEnvOptions): Record<string, string> {
   return scrubEnvFrom(process.env, opts);
 }
@@ -49,7 +52,9 @@ export function scrubEnvFrom(source: NodeJS.ProcessEnv, opts?: ScrubEnvOptions):
       dropped.push(key);
     }
   }
-  if (dropped.length > 0 && opts?.quiet !== true) {
+  const set = dropped.join(",");
+  if (dropped.length > 0 && opts?.quiet !== true && !named.has(set)) {
+    named.add(set);
     console.warn(`[qa] scrubEnv dropped ${dropped.length} env var(s) not in allowlist: ${dropped.join(", ")}`);
   }
   return env;

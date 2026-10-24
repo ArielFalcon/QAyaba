@@ -643,6 +643,16 @@ export interface ExecutionPort {
   /** Bare AbortSignal or richer opts bag; absent is specDir only. */
   execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number }>;
 }
+/** What a change-coverage measurement counted, and why a measurement that decides nothing did not. */
+export interface CoverageMeasurement {
+  changedLines: number;
+  coveredChanged: number;
+  changedFiles: number;
+  /** Changed files the executed code was mapped to. */
+  mappedFiles: number;
+  /** Why the measurement decides nothing: no diff, no assembler, no changed line, or no executed source mapped to a changed file (no coverage dump, or bundles that do not map back to the repository's files). Absent when it measured. */
+  unmeasured?: "no-diff" | "not-assembled" | "no-changed-lines" | "no-changed-file-mapped";
+}
 export interface ObjectiveSignalPort {
   /**
    * `valueScore` absent means not measured — never a fabricated 0.
@@ -658,7 +668,7 @@ export interface ObjectiveSignalPort {
    * `opts.namespace` overrides the dump namespace for the regen's second
    * measure(); the first measurement is untouched.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[] }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.

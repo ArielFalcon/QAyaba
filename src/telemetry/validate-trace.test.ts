@@ -1,7 +1,7 @@
 /* The static gate's checks as spans under the phase that is open. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countCheckErrors, traceValidateDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.trace";
+import { countCheckErrors, firstCheckError, traceValidateDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.trace";
 import { validateSpecs, type ValidateDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import type { CheckResult } from "../../qa-engine/src/contexts/test-execution/application/ports/index";
@@ -50,6 +50,8 @@ test("each of the four checks is a span under the open phase with its outcome", 
   const by = (name: string) => checks.find((s) => s.attributes["qayaba.validate.check"] === name)!;
   assert.equal(by("typecheck").attributes["qayaba.validate.ok"], false);
   assert.equal(by("typecheck").attributes["qayaba.validate.errors"], 2);
+  assert.equal(by("typecheck").attributes["qayaba.validate.first_error"], "flows/a.spec.ts:3:5 TS2322");
+  assert.equal(by("lint").attributes["qayaba.validate.first_error"], undefined);
   assert.equal(by("lint").attributes["qayaba.validate.ok"], true);
   assert.equal(by("lint").attributes["qayaba.validate.errors"], 0);
   assert.equal(by("list").attributes["qayaba.validate.infra"], true);
@@ -72,4 +74,11 @@ test("a check that throws is recorded as an infrastructure failure and the excep
   await assert.rejects(deps.typecheck("/x"), /spawn failed/);
   const span = h.only("qayaba.validate.check");
   assert.equal(span.status.code, 2);
+});
+
+test("a failed check names its first error: the file, the line and the rule or code", () => {
+  assert.equal(firstCheckError("typecheck", { ok: false, output: TSC_OUTPUT }), "flows/a.spec.ts:3:5 TS2322");
+  assert.equal(firstCheckError("lint", { ok: false, output: ESLINT_OUTPUT }), "/m/e2e/flows/a.spec.ts:4:3 playwright/missing-playwright-await");
+  assert.equal(firstCheckError("lint", { ok: true, output: "" }), undefined);
+  assert.equal(firstCheckError("list", { ok: false, output: "Error: no tests found" }), undefined);
 });

@@ -272,8 +272,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
 - **Step limit and milestone** — the generator, explorer and reviewer prompts state the cap
   their runtime enforces (facts-only `step-limit` section): one live read per run of the
   OpenCode server's resolved agents (`steps`, the legacy `maxSteps` mapped into it; `stepLimits`
-  in `src/agent-runtime/`), never the orchestrator's own copy of `agents/opencode.json`, which
-  only classifies exhaustion for a prompt that stated none. A role with no resolved limit
+  in `src/agent-runtime/`), never the orchestrator's own copy of `agents/opencode.json`. A turn whose prompt
+  stated none (a sidekick's) is classified against the cap the server last listed for its agent
+  (`turnStepLimit`); the file, baked into the orchestrator's image, only for an agent never listed. A role with no resolved limit
   (failed read, uncapped agent, or Codex, which has no step budget) states none. The
   generator's test-writing turns (diff/manual first passes, every regeneration) add a
   `step-milestone` directive, counted by the prompt-contract lint, at half the limit: the first

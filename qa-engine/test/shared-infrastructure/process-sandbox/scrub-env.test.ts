@@ -129,3 +129,14 @@ test("scrubEnv drops any provider's API key, whatever the provider is named, eve
     else process.env[key] = saved;
   }
 });
+
+test("the variables left out are named once per process for the same set, not on every spawn", (t) => {
+  const warned: string[] = [];
+  t.mock.method(console, "warn", (line: string) => void warned.push(line));
+  const source = { PATH: "/bin", QA_ONLY_ONCE_A: "1", QA_ONLY_ONCE_B: "2" };
+  scrubEnvFrom(source);
+  scrubEnvFrom(source);
+  assert.equal(warned.filter((l) => l.includes("QA_ONLY_ONCE_A")).length, 1);
+  scrubEnvFrom({ ...source, QA_ONLY_ONCE_C: "3" });
+  assert.equal(warned.filter((l) => l.includes("QA_ONLY_ONCE_C")).length, 1, "a different set is named again");
+});

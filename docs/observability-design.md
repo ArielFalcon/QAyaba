@@ -265,12 +265,14 @@ qayaba.run
 │  ├─ invoke_agent qa-generator   round=first|repair|static-fix|pre-exec|fix-loop|coverage-regen|review-correction
 │  ├─ plan qa-generator           (lead+sidekicks: read-only plan turn)
 │  ├─ qayaba.fanout               children: invoke_agent qa-sidekick (overlapping)
-│  └─ qayaba.merge                links → each delivering sidekick span
-├─ qayaba.phase.validate          per check: typecheck | lint | list | manifest; catalog gate; ambiguity advisory
+│  ├─ qayaba.merge                links → each delivering sidekick span
+│  └─ qayaba.coordination.event   one per plan/router/delegation/review decision: kind, action, reason, delegation, attempt, failure class
+├─ qayaba.phase.validate          per check: typecheck | lint | list | manifest (first error: file:line:col rule); catalog gate; ambiguity advisory
 ├─ qayaba.phase.health
 ├─ qayaba.phase.execute           qayaba.spec.execute per spec, qayaba.test per case (synthesized, §6.2)
 ├─ qayaba.phase.fix_loop          rounds as children: regenerate → validate → execute
 ├─ qayaba.phase.coverage          status, ratio, changed/covered lines, policy; coverage regen child
+│  └─ qayaba.coverage.measure     changed/covered lines, changed/mapped files, why nothing was measured
 ├─ qayaba.phase.review            invoke_agent qa-reviewer per round, review-dom grounding
 ├─ qayaba.phase.decide            verdict, decision pr|issue|shadow|none
 ├─ qayaba.phase.publish           suite_store.capture, PR/Issue

@@ -7,7 +7,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
-import { listAgentCaps, listModelWindows, type AgentListDeps } from "./opencode-client";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { listAgentCaps, listModelWindows, turnStepLimit, type AgentListDeps } from "./opencode-client";
 
 const RECORDED_AGENT_LIST = join(import.meta.dirname ?? __dirname, "fixtures", "opencode-agent-list.json");
 
@@ -151,4 +153,15 @@ test("the server's providers answer the context window of every model it serves,
 test("a providers read the server refuses, or answers without a list, is thrown, never read as no windows", async () => {
   await assert.rejects(async () => listModelWindows("/m/app", await depsServing(() => json({ message: "boom" }, 500))), /config\.providers failed \(HTTP 500\)/);
   await assert.rejects(async () => listModelWindows("/m/app", await depsServing(() => json({ default: {} }))), /no list of providers/);
+});
+
+test("a turn's step limit is the one the server last reported for its agent, and the local file only for an agent the server never listed", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-turn-step-limit-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const stale = join(dir, "opencode.json");
+  writeFileSync(stale, JSON.stringify({ agent: { "qa-sidekick": { steps: 60 }, "qa-unlisted": { steps: 7 } } }));
+  await listAgentCaps("/work", await depsServing(() => json([{ name: "qa-sidekick", steps: 300 }, { name: "qa-uncapped", steps: null }])));
+  assert.equal(turnStepLimit("qa-sidekick", stale), 300);
+  assert.equal(turnStepLimit("qa-uncapped", stale), undefined, "an agent the server enforces no cap for has none, whatever the file says");
+  assert.equal(turnStepLimit("qa-unlisted", stale), 7);
 });
