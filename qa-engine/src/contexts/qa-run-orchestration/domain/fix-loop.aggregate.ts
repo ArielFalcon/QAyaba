@@ -368,7 +368,8 @@ export class FixLoop {
         !input.isCode &&
         (absentKeys.size > 0 || packConflict) &&
         failureClasses.length > 0 &&
-        failureClasses.every((failure) => failure === "locator" || failure === "timeout") &&
+        /* A contradicted data state is the page's own reading, whatever the assertion that met it; an absent target stands only on a presence failure. */
+        (packConflict || failureClasses.every((failure) => failure === "locator" || failure === "timeout")) &&
         failed.every((c) => !!c.file)
       ) {
         const failedFiles = [...new Set(failed.map((c) => c.file as string))];
