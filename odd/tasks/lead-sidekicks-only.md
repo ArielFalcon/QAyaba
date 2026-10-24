@@ -18,7 +18,7 @@ Branch: fix/failure-observation-conflict (single branch). Delivery: work-unit co
 - T3 S3 — inline — done db489e27
 - T4 S4 — inline — done a57efbe2 (agent turns were already children of their phase span: verified on the R7 trace)
 - T5 S5 — delegated (context backstop: ~60 files after one compaction) — done (see git log; Risk item 3: config/API contract)
-- T6 S6 — inline — pending
+- T6 S6 — inline — done (run-8442cd4-mvmxq1d6-24591a79, campaign r8-leadonly-20261024)
 
 ## Log
 
@@ -26,3 +26,4 @@ Branch: fix/failure-observation-conflict (single branch). Delivery: work-unit co
 - L2 Evidence (runs run-8442cd4-mvmulhz3-7eb60499 single pass 1 spec; run-8442cd4-mvmuxex5-99b5ae76 lead-sidekicks invalid): correction edit discarded on `needs-lead` (lead-sidekicks.ts:436); static-fix loop stops when the correction returns no specs (execute.steps.ts:127); home flow lost to an unreadable DelegationResult three times then dropped; diff cap 50k alphabetical (prompt-cap.ts:13), MAX_ROUTES 4 (dom-snapshot.ts:138); coverage never measured for this app (no source maps); decisive facts only in data/coordination-events.jsonl.
 - L3 (2026-10-24) T1-T4 committed; full suite 10568 pass, 5 known failures (all roles on one model). Sidekick turns stated no step limit and were classified against the orchestrator's baked opencode.json (60): now against the server's last listed cap.
 - L4 (2026-10-24) T5: `single` was an early return in coordinateFirstPass; removed with its config/API/CLI/campaign surface. `qa.coordination.mode: single` now fails config load; `coordinationMode` is gone from the contract (unknown body fields are ignored). gateSignals.coordination.mode kept as a string. Explorer grounding is now off for every e2e run unless the run asks (what lead-sidekicks apps already had). Gate: 10559 pass, 5 known failures.
+- L5 (2026-10-25) T6 R8 run-8442cd4-mvmxq1d6-24591a79 (r8-leadonly-20261024, same case as R7, freeze on): pass, 5 flows planned and delivered, 7 tests green, reviewer approved, validate passed first try, 1433s wall. R7 lead-sidekicks was invalid with 2 flows planned (1 dropped); R7 single passed with 1 spec / 3 tests. Take-back proven: three flows ended failed/blocked/needs-lead and their specs were still collected and passed execution; three lead `drop`s were refused because a delivered spec existed. Router event: 3 of 8 change pages had no flow (/user/faq, /user/reviews, /merchant/register). Change-coverage still n/a for this app (no source maps). Sidekick #0 aborted at 42/300 steps.
