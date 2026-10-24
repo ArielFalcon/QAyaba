@@ -13,6 +13,7 @@ import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent
 import type { AppConfig } from "../orchestrator/config-loader";
 import type { CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root";
 import type { StepLimitRole } from "@contexts/generation/application/ports/generation-ports";
+import { BYTES_PER_TOKEN, INPUT_PROMPT_SAFETY_MARGIN, modelWindowBytes, roleWindowBytes, setLiveModelWindows, setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 
 const APP: AppConfig = {
   name: "step-limit-app",
@@ -239,4 +240,32 @@ test("the explorer asks the same per-run read for its own limit, before it spend
 
   await limitsOf(config);
   assert.equal(reads.length, 1, "the explorer shares the run's one read");
+});
+
+test("the run's one read of its runtime also installs the context window the runtime reports for each model, so a prompt is budgeted by the real window", async () => {
+  const { facade } = reporting({ primary: 41 });
+  facade.modelWindows = async () => ({ "some-provider/uncataloged-model": 500_000 });
+  setRuntimeRoleModels({ primary: "some-provider/uncataloged-model", reviewer: "some-provider/uncataloged-model", chat: "some-provider/uncataloged-model" });
+  try {
+    await limitOf(compose(() => facade), "generator");
+    assert.equal(roleWindowBytes("qa-generator"), Math.floor(500_000 * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN));
+  } finally {
+    setLiveModelWindows(undefined);
+    setRuntimeRoleModels(undefined);
+  }
+});
+
+test("a window read that fails leaves the catalog in charge and still answers the step limits", async (t) => {
+  t.mock.method(console, "warn", () => undefined);
+  const { facade } = reporting({ primary: 41 });
+  facade.modelWindows = async () => { throw new Error("providers unreachable"); };
+  setLiveModelWindows({ "opencode-go/minimax-m3": 7 });
+  setRuntimeRoleModels({ primary: "opencode-go/minimax-m3", reviewer: "opencode-go/minimax-m3", chat: "opencode-go/minimax-m3" });
+  try {
+    assert.equal(await limitOf(compose(() => facade), "generator"), 41);
+    assert.equal(roleWindowBytes("qa-generator"), modelWindowBytes("minimax-m3"), "a previous run's windows never outlive a failed read");
+  } finally {
+    setLiveModelWindows(undefined);
+    setRuntimeRoleModels(undefined);
+  }
 });

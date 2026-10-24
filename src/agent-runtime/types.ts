@@ -57,6 +57,9 @@ export interface AgentRuntimeSession extends AgentSession {}
 /* The step limit each role runs under, in steps per prompt turn. A role the runtime enforces no limit for is absent: nothing is defaulted. */
 export type StepLimits = Partial<Record<AgentRole, number>>;
 
+/* The context window, in tokens, of each model a runtime serves, keyed by the provider/model reference a role is assigned. */
+export type ModelWindows = Readonly<Record<string, number>>;
+
 export interface AgentRuntimeStrategy {
   provider: AgentProvider;
   health(): Promise<AgentProviderHealth>;
@@ -67,6 +70,8 @@ export interface AgentRuntimeStrategy {
    * makes no statement, and its roles are absent.
    */
   stepLimits?(directory: string): Promise<StepLimits>;
+  /** The context window of every model the runtime serves for `directory`, read live. Optional: a runtime that reports none makes no statement. A read that fails throws. */
+  modelWindows?(directory: string): Promise<ModelWindows>;
   /** Usage is observation-only (never a verdict input). Each prompt emits an AgentTurnEvent so agent_turns persist with a real run_id. */
   openSession(
     role: AgentRole,
@@ -99,6 +104,8 @@ export interface AgentFacade {
   listModels(provider?: AgentProvider): Promise<AgentModelInfo[]>;
   /** The step limit each role runs under, from the provider the role is assigned to; a role whose provider reports none is absent. */
   stepLimits(directory: string): Promise<StepLimits>;
+  /** The context window of every model the providers in use report; optional so a host without a live runtime states none. A read that fails throws. */
+  modelWindows?(directory: string): Promise<ModelWindows>;
   startEventStream?(
     onActivity: (a: LiveActivity) => void,
     signal?: AbortSignal,

@@ -38,7 +38,8 @@ export interface VerdictParserPort {
 export interface PromptSection { heading: string; body: string; }
 export interface PromptRenderingPort {
   render(sections: readonly PromptSection[]): string;
-  renderMain(input: OpencodeRunInput): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } & RenderedPromptFacts;
+  /** `continuation`: the prompt of a regeneration sent in the session that already holds the run's grounding, so only what changed is rendered. */
+  renderMain(input: OpencodeRunInput, opts?: { continuation?: boolean }): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] } & RenderedPromptFacts;
   renderReviewer(input: ReviewInput): { text: string; sectionSizes: Record<string, number> } & RenderedPromptFacts;
   renderExplorer(input: OpencodeRunInput): string;
   specFileForFlow(flow: string): string;

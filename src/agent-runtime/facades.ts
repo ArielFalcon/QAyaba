@@ -9,6 +9,7 @@ import {
   AgentProviderHealth,
   AgentRuntimeConfig,
   AgentRuntimeStrategy,
+  ModelWindows,
   StepLimits,
   assignmentForRole,
   roleForLegacyAgent,
@@ -48,6 +49,10 @@ export class SingleAgentFacade implements AgentFacade {
   /* Every role runs on the one strategy; a strategy that reports no limit makes no statement. */
   async stepLimits(directory: string): Promise<StepLimits> {
     return (await this.strategy.stepLimits?.(directory)) ?? {};
+  }
+
+  async modelWindows(directory: string): Promise<ModelWindows> {
+    return (await this.strategy.modelWindows?.(directory)) ?? {};
   }
 
   startEventStream(
@@ -112,6 +117,13 @@ export class DualAgentFacade implements AgentFacade {
       }),
     );
     return limits;
+  }
+
+  /* Each provider that runs a role reports the windows of the models it serves; one that runs none is not read. */
+  async modelWindows(directory: string): Promise<ModelWindows> {
+    const providers = (["opencode", "codex"] as const).filter((provider) => AGENT_ROLES.some((role) => assignmentForRole(this.config, role).provider === provider));
+    const reported = await Promise.all(providers.map(async (provider) => (await this.strategies[provider].modelWindows?.(directory)) ?? {}));
+    return Object.assign({}, ...reported);
   }
 
   async startEventStream(

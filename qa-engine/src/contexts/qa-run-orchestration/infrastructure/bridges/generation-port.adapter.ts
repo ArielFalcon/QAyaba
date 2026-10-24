@@ -112,6 +112,10 @@ export class GenerationPortAdapter implements GenerationPort {
     };
   }
 
+  async release(): Promise<void> {
+    await this.useCase.releaseSession();
+  }
+
   async generate(_objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput> {
     const input = await this.buildInput(specDir, diff, enrichment);
     const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
