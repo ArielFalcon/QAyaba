@@ -5,8 +5,8 @@
     "directives": 20
   },
   "staticLayers": {
-    "opencode": 21289,
-    "codex": 36636
+    "opencode": 21465,
+    "codex": 36812
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -14435,7 +14435,7 @@
     }
   },
   "lastIncrease": {
-    "reason": "the plan bullet of the generator note regains its own line, which adds a byte per mirror",
+    "reason": "the lead is told when to use the code-graph tools it is now offered",
     "budgets": [
       "static:opencode",
       "static:codex"

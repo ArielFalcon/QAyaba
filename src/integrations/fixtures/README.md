@@ -5,7 +5,7 @@
 Recorded-output fixture for `listAgentCaps`: the body of `GET /agent?directory=<dir>` as an OpenCode
 server returns it (the SDK's `app.agents`, whose element type is the v2 `Agent`).
 
-Captured 2026-10-12 from an `opencode serve` 1.17.7, the build `agents/Dockerfile` pins, run inside the
+Captured 2026-10-12, and again on 2026-10-24 after the `codegraph_*` switches were added, from an `opencode serve` 1.17.7, the build `agents/Dockerfile` pins, run inside the
 `agents` container (so the Linux/Node build the stack ships) and bound to 127.0.0.1. The server ran with an
 isolated HOME and XDG directories and an empty environment (`env -i`), with no credentials, no provider and
 no repository, and its config sat at `$XDG_CONFIG_HOME/opencode/opencode.json`: the `OPENCODE_CONFIG`
@@ -28,7 +28,8 @@ Edits to the recorded body, and nothing else:
 - each permission rule is laid out on one line.
 
 The recording is a fresh capture, not a hand edit: the global `tools` map's `run_spec` and `authbrowser_*` switches resolve into
-deny rules on every agent (and an allow rule on the two authoring roles), which the earlier hand-edited body lacked.
+deny rules on every agent (and an allow rule on the two authoring roles), and its `codegraph_*` switches into a deny
+rule on every agent and an allow rule on `qa-generator`, which the earlier hand-edited body lacked.
 
 What the capture shows, and what the parser tests pin (the first two points are as the 1.17.7 recording shows
 them; the two about the directory were observed on the 1.16.2 capture of 2026-10-07 and were not repeated):

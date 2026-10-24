@@ -13,7 +13,10 @@
     "authbrowser_snapshot": false,
     "authbrowser_click": false,
     "authbrowser_type": false,
-    "set_geolocation": false
+    "set_geolocation": false,
+    "codegraph_search_graph": false,
+    "codegraph_trace_path": false,
+    "codegraph_get_code_snippet": false
   },
   "permission": {
     "doom_loop": "deny",
@@ -24,7 +27,7 @@
   },
   "agent": {
     "qa-generator": {
-      "description": "Generates Playwright E2E tests for a commit's blast radius and writes them in e2e/. Has serena+engram+playwright MCP access by design (test author), except the memory-conflict tools (judge, compare), because resolving a conflict between memories is not the generator's job, mem_session_summary, because the generator ends on its verdict and has no session to summarize, and the tools that run code, push a file or open a shell (browser_run_code_unsafe, browser_evaluate, browser_file_upload, browser_drop, execute_shell_command). It has no shell at all (permission.bash is denied outright, for every target): the orchestrator's Validate and Execute phases compile, lint, list and run what it writes. Enforced here: no shell, no code-running or file-pushing browser tool. Not enforced: browser_click, browser_type and browser_fill_form can still submit a form on DEV through the UI, which only the prompt forbids (live DEV is observed while authoring; a generated spec is what writes to it). It also holds the authbrowser_* tools, served by the orchestrator: a read-only browser signed in as the test account, whose session the agent never holds; the orchestrator refuses them unless the run granted them.",
+      "description": "Generates Playwright E2E tests for a commit's blast radius and writes them in e2e/. Has serena+engram+playwright MCP access by design (test author), except the memory-conflict tools (judge, compare), because resolving a conflict between memories is not the generator's job, mem_session_summary, because the generator ends on its verdict and has no session to summarize, and the tools that run code, push a file or open a shell (browser_run_code_unsafe, browser_evaluate, browser_file_upload, browser_drop, execute_shell_command). It has no shell at all (permission.bash is denied outright, for every target): the orchestrator's Validate and Execute phases compile, lint, list and run what it writes. Enforced here: no shell, no code-running or file-pushing browser tool. Not enforced: browser_click, browser_type and browser_fill_form can still submit a form on DEV through the UI, which only the prompt forbids (live DEV is observed while authoring; a generated spec is what writes to it). It also holds the authbrowser_* tools, served by the orchestrator: a read-only browser signed in as the test account, whose session the agent never holds; the orchestrator refuses them unless the run granted them. As the lead it also holds the codegraph_* tools, served by the orchestrator: read-only queries of the run's own project in the code graph (search symbols, trace callers and callees, read a symbol's source); the orchestrator refuses them unless the run granted them.",
       "mode": "primary",
       "model": "opencode-go/minimax-m3.1-flash-free",
       "options": { "reasoningEffort": "low" },
@@ -39,6 +42,9 @@
         "authbrowser_click": true,
         "authbrowser_type": true,
         "set_geolocation": true,
+        "codegraph_search_graph": true,
+        "codegraph_trace_path": true,
+        "codegraph_get_code_snippet": true,
         "webfetch": false,
         "engram_mem_judge": false,
         "engram_mem_compare": false,

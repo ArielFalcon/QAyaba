@@ -68,6 +68,8 @@ import type {
   ClosedLoopHandle,
   ClosedLoopPort,
   AgentBrowserHandle,
+  CodeGraphToolsHandle,
+  CodeGraphToolsPort,
   AgentBrowserPort,
   GeolocationHandle,
   GeolocationPort,
@@ -403,6 +405,13 @@ export interface RunQaUseCaseDeps {
    */
   agentBrowser?: AgentBrowserPort;
   /**
+   * The lead's read-only code-graph tools: search the run's own project, trace a symbol's callers and callees, read a symbol's
+   * source. Opened for the same runs the browser is, after the graph was synced, and closed when the run ends, however it ends.
+   * Absent, or resolving undefined (the app is not in the graph): the lead reads the code with its file tools alone. A fault
+   * opening it costs the run only the tools, said aloud. It decides nothing.
+   */
+  codeGraphTools?: CodeGraphToolsPort;
+  /**
    * The device location of the authoring run: the app's declared default and places, the lead's own value and one value per
    * flow (the `set_geolocation` tool). Opened for the same runs the loop and the browser are, after the login and before the
    * first generation, and closed when the run ends, however it ends. Absent: the app declares no location. It is authoring
@@ -581,6 +590,8 @@ interface RunTrail {
   closedLoop?: ClosedLoopHandle;
   /** The authenticated agent browser, once opened: closed by runInScope however the run ends. */
   agentBrowser?: AgentBrowserHandle;
+  /** The lead's code-graph tools, once granted: revoked by runInScope however the run ends. */
+  codeGraphTools?: CodeGraphToolsHandle;
   /** The authoring location, once opened: closed by runInScope however the run ends. */
   geolocation?: GeolocationHandle;
 }
@@ -645,6 +656,7 @@ export class RunQaUseCase {
       phases.close();
       await this.closeClosedLoop(trail);
       await this.closeAgentBrowser(trail);
+      this.closeCodeGraphTools(trail);
       this.closeGeolocation(trail);
       this.sayDeniedHosts();
     }
@@ -778,6 +790,20 @@ export class RunQaUseCase {
       await browser.close();
     } catch (err) {
       console.error(`[qa] closing the agent browser failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /* Revokes the lead's code-graph tools and says what the run made of them. A fault is said and never changes how the run ended. */
+  private closeCodeGraphTools(trail: RunTrail): void {
+    const tools = trail.codeGraphTools;
+    if (!tools) return;
+    trail.codeGraphTools = undefined;
+    try {
+      const used = tools.signals();
+      tools.close();
+      console.log(`[qa] code-graph tools: ${used.calls} call(s), ${used.refused} refused, ${used.failed} the graph could not answer`);
+    } catch (err) {
+      console.error(`[qa] closing the code-graph tools failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -1298,6 +1324,16 @@ export class RunQaUseCase {
       trail.agentBrowser = agentBrowser;
     }
     const agentBrowserSignal = (): AgentBrowserGateSignal | undefined => agentBrowser?.signals();
+
+    /* The lead's code-graph tools: the same runs as the browser. The graph was synced in the index phase, before this. */
+    if (this.deps.codeGraphTools && generating && !cfg.isCode && input.mode !== "context" && input.purpose !== RUN_PURPOSE.LOGIN_BOOTSTRAP && !authSeedUnauthored) {
+      try {
+        trail.codeGraphTools = await this.deps.codeGraphTools.open({ runId: input.runId });
+      } catch (err) {
+        rethrowIfRunDeadline(err);
+        console.error(`[qa] the code-graph tools could not be opened (the run goes on without them): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     /*
      * sha is always present so manifest changeRef.sha is never empty.

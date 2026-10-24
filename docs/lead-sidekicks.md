@@ -133,6 +133,13 @@ not taken, the flow is shown to the lead with the conflict, and any revision is 
 reads every route in one shared browser context and waits for the declared data state), so the conflict names a
 difference to look at, not a culprit.
 
+## The lead's code-graph tools
+
+When the app's structural signal is on and the generator runs on OpenCode, the lead (not a sidekick) can query the code graph
+while it plans and reviews: `codegraph_search_graph` (find a symbol), `codegraph_trace_path` (its callers or callees) and
+`codegraph_get_code_snippet` (its source). The orchestrator serves each call on the run's own project, bounded and redacted
+(AGENTS.md, Code-graph tools). The tools are the lead's in `single` mode too.
+
 ## Cleanup
 
 Sidekick sessions, `run_spec` loops, flow locations and delegation workspaces are released, and the lead's session

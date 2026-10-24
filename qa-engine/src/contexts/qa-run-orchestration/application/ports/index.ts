@@ -475,6 +475,21 @@ export interface PlanOutput {
   /** The lead's planning session, held open when the turn came back with a plan, for the lead's review of the flows. The caller disposes it. */
   lead?: LeadSessionHandle;
 }
+/** What a run is asked when it opens the lead's code-graph tools. */
+export interface CodeGraphToolsOpenInput {
+  runId: string;
+}
+/** The lead's code-graph right for one run: its limits, what was used of it, and its end. */
+export interface CodeGraphToolsHandle {
+  limits: { maxCalls: number; perCallMs: number; maxAnswerChars: number };
+  signals(): { calls: number; refused: number; failed: number };
+  /** Revokes the right. Never throws. */
+  close(): void;
+}
+/** Grants the lead read-only queries of the run's own project in the code graph. `open` answers nothing when the run cannot be granted it. */
+export interface CodeGraphToolsPort {
+  open(input: CodeGraphToolsOpenInput): Promise<CodeGraphToolsHandle | undefined>;
+}
 /** The lead's planning session, held open for its next turn: asked read-only, a turn out of its time answers `timedOut`. */
 export interface LeadSessionHandle {
   ask(text: string, opts: { timeoutMs: number }): Promise<{ output: string; timedOut: boolean }>;

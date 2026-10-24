@@ -1,5 +1,5 @@
 /*
- * A tool call the orchestrator serves for an agent (`run_spec`, the authenticated browser) as a SERVER span. The HTTP request
+ * A tool call the orchestrator serves for an agent (`run_spec`, the authenticated browser, the lead's code graph) as a SERVER span. The HTTP request
  * that brings a call in carries no trace context, and the port answers it inside a snapshot of the run's async context taken
  * during setup, which restores the OpenTelemetry context of that moment too (the `setup` phase, long ended). So the span is
  * opened here, explicitly parented on the attempt span of the session that called (the registry the turn decorator fills),
@@ -26,7 +26,7 @@ export interface ToolTraceWiring {
 
 export interface ToolCallTrace {
   /* The span's name, `qayaba.tool.<tool>`. */
-  span: "qayaba.tool.run_spec" | "qayaba.tool.authbrowser";
+  span: "qayaba.tool.run_spec" | "qayaba.tool.authbrowser" | "qayaba.tool.codegraph";
   /* The agent-side tool name the runtime reports for the call, which the synthesized span carries: `run_spec`, `authbrowser_navigate`... */
   tool: string;
   sessionId: string;

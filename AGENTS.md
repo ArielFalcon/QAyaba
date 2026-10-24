@@ -211,6 +211,15 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   a boot sweep ends a browser a previous process left. A prompt of an authoring session the run did not grant hides the tools
   (a per-prompt `tools` map, `openCodePromptBody`). The `Authenticated browser budget` prompt section (facts only) exists only
   when granted; Codex is never granted it (a custom tool is OpenCode's).
+- **Code-graph tools (`codegraph_*`)** — on for an e2e run whose structural signal is on and whose generator runs on OpenCode. The
+  lead (`qa-generator`, never a sidekick) gets three read-only tools (`agents/tool/codegraph.ts`: `search_graph`, `trace_path`,
+  `get_code_snippet`) that POST to the same internal listener (`/internal/codegraph`, `QA_TOOLS_TOKEN`). The orchestrator admits
+  the query (`qa-run-orchestration/domain/code-graph-query.ts`: known keys, bounded values, no free graph query, nothing that
+  indexes or deletes), binds it to the run's own project (the graph holds every app's code and is never mounted into the agents
+  container) and runs the codebase-memory CLI; the answer is redacted and cut. `CodeGraphToolRegistry` binds the lead's sessions
+  of the run, calls are capped per run (`DEFAULT_CODE_GRAPH_TOOL_LIMITS`), and the capability is revoked when the run ends. A prompt
+  of a `qa-generator` session the run did not grant hides the tools. Calls are spans (`qayaba.tool.codegraph`) and the run log
+  counts them; Codex has none.
 - **Lead and sidekicks (`qa.coordination`)** — `mode: single` (default) is the lead authoring the change alone, exactly the call
   sequence a run without this mode makes; `mode: lead-sidekicks` (the app's `qa.coordination`, or a run's own choice: `--coordination
   single|lead-sidekicks`, `coordinationMode` on `POST /api/v1/runs`, the campaign's `--coordination`; the run's choice wins and is recorded
@@ -431,6 +440,9 @@ threat-model header first) and a canary-before-promote hot-swap.
   a live run, behind the service token; every other role denies the tools (`agents/opencode.json`, pinned by a test) and Codex has none.
   Never widen the tools to another role, add an action that runs script or sends a file, or let a mutating request through without an
   `allowMutating` entry the app's config names.
+- **The code-graph tools read one app's index, and only through the orchestrator.** The agent names a query; the orchestrator
+  admits it, names the project and runs the CLI. Never forward a project the agent names, add a free graph query or an action that
+  indexes, deletes or writes, mount the graph store into the agents container, or widen the tools beyond `qa-generator`.
 - **Agent-influenced code runs only through the execution launcher**
   (`qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
   Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts, the DOM capture, a code-mode

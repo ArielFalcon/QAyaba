@@ -3945,3 +3945,19 @@ test("buildRewrittenCompositionConfig grants the review-loop integrity slice unl
   const off: AppConfig = { ...base, qa: { ...base.qa, reviewLoopIntegrity: false } };
   assert.equal(buildRewrittenCompositionConfig(off, { getAgentDeps: stubAgentDeps }, "qa-bot-int0001-run1", { mode: "diff" }).integrity?.reviewLoop, false);
 });
+
+test("the lead's sessions of a run are told to the code-graph registry and lose the right when they end; a sidekick's never gets it", async () => {
+  const { CodeGraphToolRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry");
+  const registry = new CodeGraphToolRegistry();
+  registry.register({ runId: "run-graph", call: async () => { throw new Error("not called"); } });
+  let n = 0;
+  const deps: AgentDeps = { open: async () => ({ id: `ses-${++n}`, prompt: async () => "", dispose: async () => {} }) as never };
+  const opened = engineAgentDeps({ getAgentDeps: () => deps, codeGraphRegistry: registry });
+  const lead = await opened.open("qa-generator", "/m", { descriptor: { runId: "run-graph", role: "qa-generator" } });
+  const sidekick = await opened.open("qa-sidekick", "/m", { descriptor: { runId: "run-graph", role: "qa-sidekick", delegationId: "run-graph-flow-cart" } });
+  assert.ok(registry.find("ses-1"));
+  assert.equal(registry.find("ses-2"), undefined);
+  await lead.dispose();
+  await sidekick.dispose();
+  assert.equal(registry.find("ses-1"), undefined);
+});

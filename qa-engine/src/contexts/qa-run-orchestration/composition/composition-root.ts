@@ -13,11 +13,13 @@ import { ClosedLoopPortAdapter } from "../infrastructure/bridges/closed-loop-por
 import type { ClosedLoopRegistry } from "../infrastructure/closed-loop-registry.ts";
 import type { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
 import { AgentBrowserPortAdapter } from "../infrastructure/bridges/agent-browser-port.adapter.ts";
+import { CodeGraphToolsPortAdapter } from "../infrastructure/bridges/code-graph-tools-port.adapter.ts";
 import { GeolocationPortAdapter } from "../infrastructure/bridges/geolocation-port.adapter.ts";
 import type { GeolocationRegistry } from "../infrastructure/geolocation-registry.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
 import { readAgentBrowserSession } from "../infrastructure/bridges/agent-browser-session-material.ts";
 import type { AgentBrowserRegistry } from "../infrastructure/agent-browser-registry.ts";
+import type { CodeGraphToolRegistry } from "../infrastructure/code-graph-tool-registry.ts";
 import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
@@ -131,6 +133,16 @@ export interface AgentBrowserWiring {
   redact: (text: string) => string;
 }
 
+/* What the shell hands the root to let a run grant the lead the code-graph tools. Absent: no run does. */
+export interface CodeGraphToolsWiring {
+  /* Where the lead's sessions find the run's graph (shared with the tools endpoint and the session transport). */
+  registry: CodeGraphToolRegistry;
+  /* Whether the generator role is assigned to a runtime that can call a custom tool (OpenCode). */
+  generatorRuntimeCanCall: () => boolean;
+  /* Takes the run's secrets out of any text that leaves; called inside the run's scope. */
+  redact: (text: string) => string;
+}
+
 /* What the shell hands the root to let a run carry its authoring location. Absent: the app declares no location and no run has one. */
 export interface GeolocationWiring {
   /* Where the authoring agents' sessions find the run's location (shared with the tools endpoint and the session transport). */
@@ -184,6 +196,8 @@ export interface CompositionConfig {
   closedLoop?: ClosedLoopWiring;
   /** The authenticated agent browser. Optional, no stub: absent (or a code target, or an app with no DEV url) omits RunQaUseCaseDeps.agentBrowser and no run grants the tools. */
   agentBrowser?: AgentBrowserWiring;
+  /** The lead's code-graph tools. Optional, no stub: absent (or a code target, or an app with no code graph) omits RunQaUseCaseDeps.codeGraphTools and no run grants them. */
+  codeGraphTools?: CodeGraphToolsWiring;
   /** The authoring location. Optional, no stub: absent (or a code target, or an app that declares none) omits RunQaUseCaseDeps.geolocation and no run carries one. */
   geolocation?: GeolocationWiring;
   /** The sandbox scope each run runs agent-influenced code in; absent: none is opened (tests). */
@@ -441,6 +455,17 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       })
     : undefined;
 
+  /* The lead reads the run's own project of the graph the index phase synced; the graph's CLI never runs a query the lead names in full. */
+  const codeGraphTools = cfg.codeGraphTools && cfg.codebaseMemory && !cfg.isCode
+    ? new CodeGraphToolsPortAdapter({
+        ...cfg.codeGraphTools,
+        client: cfg.codebaseMemory,
+        resolver: new ProjectNameResolver(cfg.codebaseMemory),
+        repoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir,
+        ...(toolTrace ? { trace: toolTrace } : {}),
+      })
+    : undefined;
+
   /* The app's declared position, the lead's value and one per flow: authoring context, never an input to the delivered suite. */
   const geolocation = cfg.geolocation && !cfg.isCode ? new GeolocationPortAdapter(cfg.geolocation) : undefined;
 
@@ -603,6 +628,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.execScope ? { execScope: cfg.execScope } : {}),
     ...(closedLoop ? { closedLoop } : {}),
     ...(agentBrowser ? { agentBrowser } : {}),
+    ...(codeGraphTools ? { codeGraphTools } : {}),
     ...(geolocation ? { geolocation } : {}),
     ...(setup ? { setup } : {}),
     ...(cfg.authSession && cfg.baseUrl

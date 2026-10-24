@@ -9,7 +9,7 @@ import type { AgentBrowserRequest, AgentBrowserResponse } from "@contexts/test-e
 import { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
 import { RunGeolocation } from "@contexts/qa-run-orchestration/domain/run-geolocation";
 import net from "node:net";
-import { AUTHBROWSER_PATH, DEFAULT_TOOLS_PORT, GEOLOCATION_PATH, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsPort, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
+import { AUTHBROWSER_PATH, CODEGRAPH_PATH, DEFAULT_TOOLS_PORT, GEOLOCATION_PATH, MIN_TOOLS_TOKEN_CHARS, createToolsServer, createToolsRateLimiter, handleToolsRequest, resolveToolsListenHost, resolveToolsPort, resolveToolsToken, type ToolsRequest } from "./tools-endpoint";
 
 const TOKEN = "service-token-for-tests-0123456789abcdef";
 
@@ -393,4 +393,56 @@ test("the location endpoint takes the service token and POST only", async () => 
   assert.equal((await handleToolsRequest(geoRequest({ sessionID: "ses-lead", agent: "qa-generator", place: "barcelona" }), { ...deps, token: TOKEN })).status, 200);
   const unauthorized = await handleToolsRequest({ ...geoRequest({ sessionID: "ses-lead", agent: "qa-generator", place: "barcelona" }), authorization: "Bearer wrong" }, deps);
   assert.equal(unauthorized.status, 401);
+});
+
+/* ── the lead's code graph ─────────────────────────────────────────────────────────────────────── */
+
+async function codeGraphs(answer: (req: import("@contexts/qa-run-orchestration/domain/code-graph-query").CodeGraphToolRequest) => Promise<import("@contexts/qa-run-orchestration/domain/code-graph-query").CodeGraphToolResponse> = async () => ({ ok: true, result: '{"results":[]}', truncated: false, callsLeft: 39 })) {
+  const { CodeGraphToolRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry");
+  const registry = new CodeGraphToolRegistry();
+  const seen: unknown[] = [];
+  registry.register({ runId: "run-graph", call: async (req) => { seen.push(req); return answer(req); } });
+  registry.bindSession({ sessionId: "ses-lead", runId: "run-graph", agent: "qa-generator" });
+  return { registry, seen };
+}
+
+const graphRequest = (body: unknown): ToolsRequest => request({ path: CODEGRAPH_PATH, body: JSON.stringify(body) });
+
+test("a code-graph query from the lead's session reaches the run's graph with its admitted arguments alone, and never a project of the caller's", async () => {
+  const { registry, seen } = await codeGraphs();
+  const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "search_graph", name_pattern: ".*Store.*", project: "another-app", extra: 1 }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+  assert.equal(res.status, 200);
+  assert.deepEqual(seen, [{ sessionId: "ses-lead", agent: "qa-generator", query: { action: "search_graph", namePattern: ".*Store.*", limit: 10 } }]);
+});
+
+test("a free graph query, or any action but the three reads, is a bad request that never reaches the graph", async () => {
+  const { registry, seen } = await codeGraphs();
+  for (const action of ["query_graph", "index_repository", "delete_project", "manage_adr"]) {
+    const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action, query: "MATCH (n) DETACH DELETE n" }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+    assert.equal(res.status, 400, action);
+  }
+  assert.equal(seen.length, 0);
+});
+
+test("the code-graph endpoint wants the service token, and a session no run granted the graph is forbidden", async () => {
+  const { registry } = await codeGraphs();
+  const unauthorized = await handleToolsRequest({ ...graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "search_graph", query: "x" }), authorization: "Bearer nope" }, { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+  assert.equal(unauthorized.status, 401);
+  const stranger = await handleToolsRequest(graphRequest({ sessionID: "ses-sidekick", agent: "qa-sidekick", action: "search_graph", query: "x" }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+  assert.equal(stranger.status, 403);
+  const none = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "search_graph", query: "x" }), { token: TOKEN, registry: liveRegistry() });
+  assert.equal(none.status, 403);
+});
+
+test("each code-graph refusal has its own status, and a fault inside a call says nothing of its cause", async () => {
+  const cases: Array<[string, number]> = [["wrong-agent", 403], ["revoked", 403], ["no-calls", 429], ["failed", 422]];
+  for (const [code, status] of cases) {
+    const { registry } = await codeGraphs(async () => ({ ok: false, code: code as "failed", message: code }));
+    const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "trace_path", function_name: "f" }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+    assert.equal(res.status, status, code);
+  }
+  const { registry } = await codeGraphs(async () => { throw new Error("/app/.codebase-memory/graph.db is locked"); });
+  const res = await handleToolsRequest(graphRequest({ sessionID: "ses-lead", agent: "qa-generator", action: "get_code_snippet", qualified_name: "a.b" }), { token: TOKEN, registry: liveRegistry(), codeGraphs: registry });
+  assert.equal(res.status, 500);
+  assert.ok(!JSON.stringify(res.body).includes("codebase-memory"));
 });

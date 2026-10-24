@@ -44,6 +44,7 @@ import { DevLease } from "@contexts/test-execution/domain/dev-lease";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
 import type { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
+import type { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry";
 import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
 import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
 import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
@@ -513,6 +514,11 @@ export interface RewrittenEngineFactoryDeps {
    * set_geolocation tool. Absent: no run carries an authoring location.
    */
   geolocationRegistry?: GeolocationRegistry;
+  /*
+   * Where the lead's sessions find the run's code graph. One per process, shared with the tools endpoint that serves the
+   * codegraph_* tools. Absent: no run grants the lead the code graph.
+   */
+  codeGraphRegistry?: CodeGraphToolRegistry;
   mirrorRoot?: string;
   /* Test seam: inject spies for the two mirror primitives instead of real git/disk. */
   mirror?: {
@@ -1306,6 +1312,20 @@ export function buildRewrittenCompositionConfig(
      * orchestrator forgot, because it was restarted in place, ends by itself. The generator's runtime is read as it is now, and a
      * host that cannot say is not assumed to be OpenCode: only OpenCode can call a custom tool, and a Codex role never gets one.
      */
+    /*
+     * The lead's code-graph tools: read-only queries of the project the index phase synced, served by the orchestrator, whose CLI
+     * and store the agents container never holds. Only where the structural signal has the graph client, and only for a lead on
+     * OpenCode (a Codex role never gets a custom tool).
+     */
+    ...(deps.codeGraphRegistry && toolsApplyToRun && structuralSignalsOn
+      ? {
+          codeGraphTools: {
+            registry: deps.codeGraphRegistry,
+            generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
+            redact: (text: string) => redactionPort.redact(redactByValue(text)),
+          },
+        }
+      : {}),
     ...(deps.agentBrowserRegistry && toolsApplyToRun
       ? {
           agentBrowser: {
@@ -1544,10 +1564,11 @@ export interface TurnTelemetryContext {
 const DEFAULT_STEP_INTENT: StepIntentContext = { specTargets: { kind: "dir", relDir: "e2e" }, authFiles: [], loginUrls: [], authOnlyOrigins: [], reviewAgents: [] };
 
 /* The agent transport the engine opens its sessions through: the host's, with live observation, the stall watchdog and usage, and the run_spec and agent-browser registries told which sessions the agents open for which run. */
-export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry" | "geolocationRegistry" | "telemetry" | "clock">, turn?: TurnTelemetryContext): AgentDeps {
+export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgentDeps" | "closedLoopRegistry" | "agentBrowserRegistry" | "geolocationRegistry" | "codeGraphRegistry" | "telemetry" | "clock">, turn?: TurnTelemetryContext): AgentDeps {
   const registry = deps.closedLoopRegistry;
   const browsers = deps.agentBrowserRegistry;
   const geolocations = deps.geolocationRegistry;
+  const codeGraphs = deps.codeGraphRegistry;
   const stack = withUsageSink(
     withStallWatchdog(
       withSessionRegistration(deps.getAgentDeps(), {
@@ -1559,12 +1580,14 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
           registry?.bindSession(session);
           browsers?.bindSession(session);
           geolocations?.bindSession(session);
+          codeGraphs?.bindSession(session);
           setSessionToolDeny(session.sessionId, session.denyTools);
         },
         unbind: (sessionId) => {
           registry?.unbindSession(sessionId);
           browsers?.unbindSession(sessionId);
           geolocations?.unbindSession(sessionId);
+          codeGraphs?.unbindSession(sessionId);
           setSessionToolDeny(sessionId, undefined);
         },
       }),

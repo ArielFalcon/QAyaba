@@ -1411,3 +1411,19 @@ test("a session is shown the location tool only when its run carries an authorin
     setGeolocationGrantLookup(undefined);
   }
 });
+
+test("the lead's code-graph tools are in the deny-all map and are hidden from a lead's prompt whose session the run granted no graph", async () => {
+  const { NO_TOOLS: noTools, openCodePromptBody: body, hidesCodeGraphTools, setCodeGraphGrantLookup } = await import("./opencode-client");
+  assert.equal(noTools["codegraph*"], false);
+  const hidden = body({ agent: "qa-generator", text: "plan", hideCodeGraphTools: true }) as { tools?: Record<string, boolean> };
+  assert.equal(hidden.tools?.["codegraph*"], false);
+  setCodeGraphGrantLookup((sessionId) => sessionId === "granted");
+  try {
+    assert.equal(hidesCodeGraphTools("qa-generator", "granted"), false);
+    assert.equal(hidesCodeGraphTools("qa-generator", "other"), true);
+    assert.equal(hidesCodeGraphTools("qa-sidekick", "other"), false, "a role whose configuration never holds the tools needs no hiding");
+  } finally {
+    setCodeGraphGrantLookup(undefined);
+  }
+  assert.equal(hidesCodeGraphTools("qa-generator", "granted"), true, "nothing is granted without a lookup");
+});

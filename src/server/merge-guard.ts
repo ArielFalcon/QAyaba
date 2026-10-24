@@ -329,6 +329,13 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts",
   "qa-engine/src/contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts",
   "agents/lib/run-spec-client.mjs",
+  /* What the lead may ask of the code graph and on which project: the admitted queries, the registry that binds a session, the adapter that runs the CLI on the run's project, the tool and its client. A fix that loosened them could let an agent query another app's code or run a free graph query. */
+  "qa-engine/src/shared-kernel/code-graph-tools.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/domain/code-graph-query.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/code-graph-tools-port.adapter.ts",
+  "agents/tool/codegraph.ts",
+  "agents/lib/codegraph-client.mjs",
   /* The spans a served call runs under and how its outcome is told: bridges/ covers them, and they are listed so that narrowing that prefix cannot unprotect them. */
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-trace.ts",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-outcome.ts",

@@ -1,13 +1,14 @@
 /*
  * The orchestrator's internal endpoint for the agents' custom tools: `run_spec`, which lets the generator run a spec it wrote
  * (POST /internal/run-spec), the `authbrowser_*` tools, which let the authoring roles read DEV through the run's saved
- * session without holding it (POST /internal/authbrowser), and `set_geolocation`, which moves the authoring location of the
- * caller's scope (POST /internal/geolocation). It is a second listener on its own port (QA_TOOLS_PORT), which compose does
+ * session without holding it (POST /internal/authbrowser), `set_geolocation`, which moves the authoring location of the
+ * caller's scope (POST /internal/geolocation), and the lead's read-only `codegraph_*` queries of the run's own project in the code
+ * graph (POST /internal/codegraph). It is a second listener on its own port (QA_TOOLS_PORT), which compose does
  * not publish: it is reachable from the agents container only, and the sandbox uid that runs the specs cannot reach it (the
  * egress filter rejects every loopback port but its own). A service secret (QA_TOOLS_TOKEN) is required on top of that.
  * The caller names a session and an agent; neither decides anything by itself: the call is served only when the session is
- * one the orchestrator bound to an authorized role of a live run (see ClosedLoopRegistry, AgentBrowserRegistry and
- * GeolocationRegistry), and every limit is the run's own.
+ * one the orchestrator bound to an authorized role of a live run (see ClosedLoopRegistry, AgentBrowserRegistry,
+ * GeolocationRegistry and CodeGraphToolRegistry), and every limit is the run's own.
  * Pure handler plus a thin Node wrapper; the handler never throws and never says what went wrong inside.
  */
 
@@ -17,6 +18,8 @@ import os from "node:os";
 import type { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import type { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
 import type { GeolocationRegistry } from "@contexts/qa-run-orchestration/infrastructure/geolocation-registry";
+import type { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry";
+import { admitCodeGraphQuery, type CodeGraphRefusalCode, type CodeGraphToolRequest } from "@contexts/qa-run-orchestration/domain/code-graph-query";
 import type { GeolocationRefusalCode } from "@contexts/qa-run-orchestration/domain/run-geolocation";
 import { MAX_PLACE_NAME_CHARS, type GeolocationInput } from "@kernel/geolocation";
 import type { AgentBrowserRefusalCode } from "@contexts/test-execution/domain/agent-browser-capability";
@@ -29,6 +32,7 @@ export const DEFAULT_TOOLS_PORT = 459;
 export const RUN_SPEC_PATH = "/internal/run-spec";
 export const AUTHBROWSER_PATH = "/internal/authbrowser";
 export const GEOLOCATION_PATH = "/internal/geolocation";
+export const CODEGRAPH_PATH = "/internal/codegraph";
 export const QA_TOOLS_LISTEN_HOST_ENV = "QA_TOOLS_LISTEN_HOST";
 /* The service token is a bearer secret on a port other containers can reach: a guessable one is no secret. 32 characters is 128 bits of hex, and what a generated token has. */
 export const MIN_TOOLS_TOKEN_CHARS = 32;
@@ -113,6 +117,8 @@ export interface ToolsHandlerDeps {
   browsers?: AgentBrowserRegistry;
   /* Absent: no run carries an authoring location and its endpoint answers like any session no run owns. */
   geolocations?: GeolocationRegistry;
+  /* Absent: no run grants the lead the code graph and its endpoint answers like any session no run owns. */
+  codeGraphs?: CodeGraphToolRegistry;
 }
 
 const REFUSAL_STATUS: Readonly<Record<RunSpecRefusalCode, number>> = {
@@ -145,6 +151,13 @@ const BROWSER_REFUSAL_STATUS: Readonly<Record<AgentBrowserRefusalCode, number>> 
   "no-calls": 429,
   busy: 409,
   "session-invalidated": 409,
+  failed: 422,
+};
+
+const CODE_GRAPH_REFUSAL_STATUS: Readonly<Record<CodeGraphRefusalCode, number>> = {
+  "wrong-agent": 403,
+  revoked: 403,
+  "no-calls": 429,
   failed: 422,
 };
 
@@ -264,6 +277,35 @@ async function handleGeolocationRequest(request: ToolsRequest, deps: ToolsHandle
   }
 }
 
+/* The code-graph call a body names: the session and agent, and a query admitted by its known keys alone. */
+function parseCodeGraphCall(body: string): CodeGraphToolRequest | undefined {
+  const parsed = parseObject(body);
+  if (!parsed) return undefined;
+  const { sessionID, agent } = parsed;
+  if (typeof sessionID !== "string" || sessionID === "" || sessionID.length > MAX_ID_CHARS) return undefined;
+  if (typeof agent !== "string" || agent === "" || agent.length > MAX_ID_CHARS) return undefined;
+  const query = admitCodeGraphQuery(parsed);
+  if (!query) return undefined;
+  const messageId = messageIdOf(parsed);
+  return { sessionId: sessionID, agent, ...(messageId !== undefined ? { messageId } : {}), query };
+}
+
+async function handleCodeGraphRequest(request: ToolsRequest, deps: ToolsHandlerDeps): Promise<ToolsResponse> {
+  const call = parseCodeGraphCall(request.body);
+  if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent and an action (search_graph with a name_pattern or a query, trace_path with a function_name, or get_code_snippet with a qualified_name)" } };
+  if (deps.limiter && !deps.limiter.allowCall(call.sessionId)) return { status: 429, body: { ok: false, code: "rate-limited", message: "too many calls from this session in a short time; wait a few seconds and retry" } };
+  const graph = deps.codeGraphs?.find(call.sessionId);
+  if (!graph) return { status: 403, body: { ok: false, code: "unknown-session", message: "the code graph is not available to this session" } };
+  try {
+    const response = await graph.call(call);
+    if (response.ok) return { status: 200, body: response };
+    return { status: CODE_GRAPH_REFUSAL_STATUS[response.code], body: response };
+  } catch (err) {
+    console.error(`[qa] the code graph failed in the orchestrator: ${err instanceof Error ? err.message : String(err)}`);
+    return { status: 500, body: { ok: false, code: "internal", message: "the code graph failed in the orchestrator" } };
+  }
+}
+
 async function handleBrowserRequest(request: ToolsRequest, deps: ToolsHandlerDeps): Promise<ToolsResponse> {
   const call = parseBrowserCall(request.body);
   if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent and an action (navigate, snapshot, click or type) with its arguments" } };
@@ -288,10 +330,11 @@ export async function handleToolsRequest(request: ToolsRequest, deps: ToolsHandl
     deps.limiter?.recordFailure(request.remote);
     return { status: 401, body: { ok: false, code: "unauthorized", message: `the service token was rejected: ${QA_TOOLS_TOKEN_ENV} differs between the agents and the orchestrator services` } };
   }
-  if (request.path !== RUN_SPEC_PATH && request.path !== AUTHBROWSER_PATH && request.path !== GEOLOCATION_PATH) return { status: 404, body: { ok: false, code: "not-found", message: "no such tool endpoint" } };
+  if (request.path !== RUN_SPEC_PATH && request.path !== AUTHBROWSER_PATH && request.path !== GEOLOCATION_PATH && request.path !== CODEGRAPH_PATH) return { status: 404, body: { ok: false, code: "not-found", message: "no such tool endpoint" } };
   if (request.method !== "POST") return { status: 405, body: { ok: false, code: "method-not-allowed", message: "POST only" } };
   if (request.path === AUTHBROWSER_PATH) return handleBrowserRequest(request, deps);
   if (request.path === GEOLOCATION_PATH) return handleGeolocationRequest(request, deps);
+  if (request.path === CODEGRAPH_PATH) return handleCodeGraphRequest(request, deps);
   const call = parseCall(request.body);
   if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent, path and an optional grep" } };
 

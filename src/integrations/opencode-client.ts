@@ -20,6 +20,7 @@ import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt
 import { installHttpDispatcher } from "../util/net";
 import { openCodeServerAuth } from "./opencode-server-auth";
 import { AGENT_BROWSER_AGENTS } from "@contexts/test-execution/domain/agent-browser-capability";
+import { CODE_GRAPH_AGENT } from "@kernel/code-graph-tools";
 
 
 import {
@@ -488,7 +489,7 @@ export function stallMs(): number {
  * names and not patterns.
  */
 export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
-  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
+  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "codegraph*", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
 );
 
 /*
@@ -522,6 +523,21 @@ export function hidesGeolocationTool(agent: string, sessionId: string): boolean 
 }
 
 /*
+ * The same arrangement for the lead's code-graph tools: the lead's role holds them in the configuration, and a prompt of a session
+ * whose run granted no code graph (the app is not in it, or the session is the lead's for a flow) hides them. Until a lookup is
+ * installed (a test, the standalone CLI) nothing is granted.
+ */
+let codeGraphGrant: ((sessionId: string) => boolean) | undefined;
+
+export function setCodeGraphGrantLookup(lookup: ((sessionId: string) => boolean) | undefined): void {
+  codeGraphGrant = lookup;
+}
+
+export function hidesCodeGraphTools(agent: string, sessionId: string): boolean {
+  return agent === CODE_GRAPH_AGENT && !(codeGraphGrant?.(sessionId) ?? false);
+}
+
+/*
  * The tools a prompt that may not write is denied: the file tools of the runtime and every editing tool of the code-navigation server
  * (the list the call taxonomy classifies as writes), under both the names the runtime gives a server's tools. Reading, searching and the
  * browser stay as the agent's configuration has them.
@@ -547,13 +563,14 @@ export function sessionToolDeny(sessionId: string): readonly string[] | undefine
   return deniedToolsBySession.get(sessionId);
 }
 
-/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one that may not write is denied the file tools; one of a session the browser was not granted to hides its tools; the tools its session was denied are denied it; every other prompt leaves the tools to its agent's configuration. */
-export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; denyTools?: readonly string[] | undefined }) {
+/** The body of one OpenCode prompt. A prompt that asks for no tools carries the deny map; one that may not write is denied the file tools; one of a session the browser, or the code graph, was not granted to hides their tools; the tools its session was denied are denied it; every other prompt leaves the tools to its agent's configuration. */
+export function openCodePromptBody(args: { agent: string; text: string; model?: { providerID: string; modelID: string } | undefined; withoutTools?: boolean | undefined; withoutWrites?: boolean | undefined; hideBrowserTools?: boolean | undefined; hideGeolocationTool?: boolean | undefined; hideCodeGraphTools?: boolean | undefined; denyTools?: readonly string[] | undefined }) {
   const tools: Record<string, false> = args.withoutTools
     ? { ...NO_TOOLS }
     : {
         ...(args.hideBrowserTools ? { "authbrowser*": false as const } : {}),
         ...(args.hideGeolocationTool ? { set_geolocation: false as const } : {}),
+        ...(args.hideCodeGraphTools ? { "codegraph*": false as const } : {}),
         ...(args.withoutWrites ? NO_WRITE_TOOLS : {}),
         ...Object.fromEntries((args.denyTools ?? []).map((name) => [name, false as const])),
       };
@@ -594,7 +611,7 @@ async function buildRawAgentTransport(): Promise<RawAgentTransport> {
       const res = await client.session.prompt({
         path: { id },
         query: { directory: cwd },
-        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id), hideGeolocationTool: hidesGeolocationTool(agent, id), denyTools: sessionToolDeny(id) }),
+        body: openCodePromptBody({ agent, text, model, withoutTools, withoutWrites, hideBrowserTools: hidesBrowserTools(agent, id), hideGeolocationTool: hidesGeolocationTool(agent, id), hideCodeGraphTools: hidesCodeGraphTools(agent, id), denyTools: sessionToolDeny(id) }),
       });
       if (res.error) {
         throw new Error(`OpenCode session.prompt failed: ${describeFailure(res.error)}`);
