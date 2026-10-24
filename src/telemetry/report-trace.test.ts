@@ -493,12 +493,33 @@ test("each attempt carries the failure-point capture of its own retry, and a pas
   assert.equal(failed!.attributes["qayaba.failure.network_error_count"], 3);
   assert.equal(failed!.attributes["qayaba.failure.dom_lines"], 12);
   assert.equal(failed!.attributes["qayaba.failure.dom_sha256"], "a".repeat(64));
+  assert.equal(failed!.attributes["qayaba.failure.captured"], true);
   assert.equal(Object.keys(passed!.attributes).some((k) => k.startsWith("qayaba.failure.")), false);
 });
 
-test("an attempt with no capture of its retry carries no failure-point attributes", () => {
+test("a failed attempt with no capture of its retry carries no failure-point facts and says its capture is missing", () => {
   const h = traceHarness();
   const cases: QaCase[] = [{ name: "flows/orders.spec.ts › orders › saves an order", status: "flaky", failureAttempts: [{ retry: 5, resultCount: 0, runtimeErrorCount: 0, networkErrorCount: 0 }] }];
   synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT, cases);
+  const saves = h.named("qayaba.test").find((s) => s.attributes["qayaba.test.name"] === "orders › saves an order")!;
+  const [failed, passed] = h.named("qayaba.attempt").filter((s) => s.parentSpanContext?.spanId === saves.spanContext().spanId);
+  assert.equal(failed!.attributes["qayaba.failure.captured"], false);
+  assert.deepEqual(Object.keys(failed!.attributes).filter((k) => k.startsWith("qayaba.failure.")), ["qayaba.failure.captured"]);
+  assert.equal(Object.keys(passed!.attributes).some((k) => k.startsWith("qayaba.failure.")), false);
+});
+
+test("a failed attempt of a case executed without the failure capture says nothing about a capture", () => {
+  const h = traceHarness();
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT, [{ name: "flows/orders.spec.ts › orders › saves an order", status: "flaky" }]);
   for (const a of h.named("qayaba.attempt")) assert.equal(Object.keys(a.attributes).some((k) => k.startsWith("qayaba.failure.")), false);
+});
+
+test("a passing attempt carries no failure-point attributes even when its retry has a capture", () => {
+  const h = traceHarness();
+  const cases: QaCase[] = [{ name: "flows/orders.spec.ts › orders › saves an order", status: "flaky", failureAttempts: [{ retry: 1, finalUrl: "https://dev.example.com/done", runtimeErrorCount: 1, networkErrorCount: 2 }] }];
+  synthesizeReportSpans({ telemetry: h.telemetry, now: NOW }, REPORT, cases);
+  const saves = h.named("qayaba.test").find((s) => s.attributes["qayaba.test.name"] === "orders › saves an order")!;
+  const passed = h.named("qayaba.attempt").find((s) => s.parentSpanContext?.spanId === saves.spanContext().spanId && s.attributes["qayaba.test.attempt"] === 1)!;
+  assert.equal(passed.attributes["qayaba.test.status"], "passed");
+  assert.equal(Object.keys(passed.attributes).some((k) => k.startsWith("qayaba.failure.")), false);
 });

@@ -24,7 +24,7 @@ export interface QaCase {
   failureSettle?: FailureSettle;
   /* The result count the app's declared data state (dev.dataState) showed on the failure-point page. Absent when no data state matched that page or it could not be read. */
   failureResultCount?: number;
-  /* The failure-point capture of every failed attempt the fixture dumped, in retry order. The fields above keep the latest retry's capture; these say what each attempt saw, for telemetry. Absent when no dump matched. */
+  /* The failure-point capture of every failed attempt the fixture dumped, in retry order. The fields above keep the latest retry's capture; these say what each attempt saw, for telemetry. Empty when the execution captured failure points and no dump matched; absent when it did not capture. */
   failureAttempts?: FailureAttemptEvidence[];
 }
 

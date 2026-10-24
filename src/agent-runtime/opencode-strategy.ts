@@ -4,6 +4,7 @@ import {
   defaultAgentDeps,
   disposeSharedClient,
   listAgentCaps,
+  listModelWindows,
   startActivitySink,
   type AgentCap,
   type LiveActivity,
@@ -22,6 +23,7 @@ import {
   type AgentRole,
   type AgentRuntimeSession,
   type AgentRuntimeStrategy,
+  type ModelWindows,
   type StepLimits,
 } from "./types";
 
@@ -37,6 +39,7 @@ interface OpenCodeRuntimeStrategyOptions {
   configPath?: string;
   /* The agents the server resolves for a directory, each with its cap: the live read unless a test supplies one. */
   listAgentCaps?: (directory: string) => Promise<ReadonlyArray<AgentCap>>;
+  listModelWindows?: (directory: string) => Promise<ModelWindows>;
 }
 
 /* Used only when opencode.json is missing; keep aligned with agents/opencode.json. */
@@ -54,6 +57,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   private readonly disposeClient: () => void;
   private readonly configPath: string;
   private readonly listCaps: NonNullable<OpenCodeRuntimeStrategyOptions["listAgentCaps"]>;
+  private readonly listWindows: NonNullable<OpenCodeRuntimeStrategyOptions["listModelWindows"]>;
 
   constructor(opts: OpenCodeRuntimeStrategyOptions = {}) {
     this.env = opts.env ?? process.env;
@@ -62,6 +66,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
     this.disposeClient = opts.dispose ?? disposeSharedClient;
     this.configPath = opts.configPath ?? join(process.cwd(), "agents", "opencode.json");
     this.listCaps = opts.listAgentCaps ?? ((directory) => listAgentCaps(directory));
+    this.listWindows = opts.listModelWindows ?? ((directory) => listModelWindows(directory));
   }
 
   async health(): Promise<AgentProviderHealth> {
@@ -98,6 +103,11 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
       else limits[role] = limit;
     }
     return limits;
+  }
+
+  /* The window the server declares for every model it serves (`limit.context`), never a hand-kept copy. A read that fails throws. */
+  modelWindows(directory: string): Promise<ModelWindows> {
+    return this.listWindows(directory);
   }
 
   async openSession(

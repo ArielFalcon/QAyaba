@@ -40,6 +40,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run arch:check
+      # The e2e seed (config/e2e/) must pass the lint it ships: every app's static gate runs it,
+      # and a seed error lands on the agent as a fix round on harness files.
+      - run: npm run seed:lint
       - run: npm run sdk:typecheck
       # Catches a src/contract/*.ts (zod) edit that shipped without rerunning
       # `npm run contract:gen && npm run sdk:gen` — see scripts/check-contract-fresh.ts.

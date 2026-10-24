@@ -16,6 +16,7 @@ import {
   modelWindowBytes,
   normalizeModelName,
   roleWindowBytes,
+  setLiveModelWindows,
   setRuntimeRoleModels,
 } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 
@@ -333,5 +334,42 @@ test("catalog: every model agents/opencode.json assigns to an agent is cataloged
   assert.ok(assigned.length > 0, "the config assigns a model to at least one agent");
   for (const { agent, id } of assigned) {
     assert.ok(CATALOGED_MODELS.includes(id), `${agent} runs ${id}, which has no window in the catalog`);
+  }
+});
+
+const liveBytes = (tokens: number): number => Math.floor(tokens * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN);
+
+test("a role's budget is the window the runtime reports for its model, also for a model the catalog does not know", () => {
+  setRuntimeRoleModels({ primary: "some-provider/uncataloged-model", reviewer: "opencode-go/minimax-m3", chat: "gpt-5.4" });
+  setLiveModelWindows({ "some-provider/uncataloged-model": 500_000 });
+  try {
+    assert.equal(roleWindowBytes("qa-generator", "/nonexistent/path/opencode.json"), liveBytes(500_000));
+  } finally {
+    setLiveModelWindows(undefined);
+    setRuntimeRoleModels(undefined);
+  }
+});
+
+test("the window the runtime reports wins over the catalog's for the same model, on the config-file path too", () => {
+  setRuntimeRoleModels(undefined);
+  const cfgPath = writeTempConfig({ agent: { "qa-reviewer": { model: "opencode-go/minimax-m3" } } });
+  setLiveModelWindows({ "opencode-go/minimax-m3": 200_000 });
+  try {
+    assert.equal(roleWindowBytes("qa-reviewer", cfgPath), liveBytes(200_000));
+  } finally {
+    setLiveModelWindows(undefined);
+  }
+});
+
+test("a reported window that is not a positive whole number is ignored: the catalog decides", () => {
+  setRuntimeRoleModels({ primary: "opencode-go/minimax-m3", reviewer: "opencode-go/minimax-m3", chat: "opencode-go/minimax-m3" });
+  try {
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      setLiveModelWindows({ "opencode-go/minimax-m3": bad });
+      assert.equal(roleWindowBytes("qa-generator", "/nonexistent/path/opencode.json"), modelWindowBytes("minimax-m3"), String(bad));
+    }
+  } finally {
+    setLiveModelWindows(undefined);
+    setRuntimeRoleModels(undefined);
   }
 });

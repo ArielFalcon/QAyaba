@@ -384,7 +384,15 @@ const RUNTIME_SIGNALS_LINES: readonly string[] = [
 export interface BuildPromptAssembledOpts {
   /** Explicit byte-budget override for tests/telemetry that must not depend on the live model-window catalog. Undefined ⇒ the qa-generator catalog window (production path). */
   budgetBytes?: number;
+  /** The regeneration is sent in the generator session that already holds the run's grounding: the sections it holds are left out. Ignored on a turn that is not a regeneration. */
+  continuation?: boolean;
 }
+
+/* What the generator session already holds from the turn that opened it, and a continuation therefore leaves out. The run's tool budgets and authoring location stay: they are small and may have moved. */
+const HELD_BY_THE_SESSION: ReadonlySet<string> = new Set([
+  "working-rules", "regen-discipline", "arch-map", "context-brief", HARNESS_FACTS_SECTION_ID, "static-signal", "service-links",
+  "skill-exemplars", APP_LOGIN_SECTION_ID, "context-pack", "learned-rules", "diff",
+]);
 
 export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): AssembledPrompt {
   const isGenerationMode = input.mode !== "context";
@@ -393,6 +401,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const memTarget = input.mode === "context" ? "context" : input.target;
   /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not re-activate serena or re-skim the repo. */
   const isReGen = isGenerationMode && isReGenTurn(input);
+  const isContinuation = isReGen && opts.continuation === true;
 
   const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
 
@@ -755,6 +764,18 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ``,
       ].join("\n")
     : "";
+  const continuationContent = isContinuation
+    ? [
+        `## Continuation — same session`,
+        ``,
+        `The suite you wrote was run. The working rules, the grounding and the change are earlier in this session`,
+        `(or in its summary, if it was compacted): do NOT re-read them, do NOT re-activate serena, do NOT re-skim the`,
+        `repository and do NOT re-navigate a route you already explored. Change only what the signal below requires.`,
+        `If something you need is no longer in this session, look up only that.`,
+        GROUNDING_UNCOVERED_ESCAPE,
+        ``,
+      ].join("\n")
+    : "";
 
   /* The stock auth seed did not sign in: the generator authors the login before any spec. Where to read the login page from depends on whether a live-DOM Context Pack is actually in this prompt. */
   const authSetupPath = `${input.e2eRelDir}/auth.setup.ts`;
@@ -842,7 +863,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   /* The sections of the prompt, with the task worded for a suite that a listing in the prompt does, or does not, supply, and asking for the outcome again or not. The listing of a turn with specs to change is summarized when the budget cannot hold it, so that its end is cut and its label stays; the plain list of the suite is dropped whole. */
   const assembleWith = (suiteListed: boolean, reaskObjective: boolean): AssembledPrompt => {
     const task = buildTask(input, { mapInjected, blastRadiusGrounded, suiteListed, reaskObjective });
-    return assemble([
+    const sections = [
       section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
       ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
       ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims, ...(archMap ? { itemIds: archMap.itemIds, omissions: archMap.omissions } : {}) })] : []),
@@ -872,7 +893,10 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ...(leadPlanContent ? [section(LEAD_PLAN_SECTION_ID, "critical-recap", leadPlanContent, { priority: 0, claims: [claim.provides("lead-plan")] })] : []),
       ...(stepLimitContent ? [section(STEP_LIMIT_SECTION_ID, "critical-recap", stepLimitContent, { priority: 1, claims: [claim.provides("step-limit")] })] : []),
       ...(stepMilestoneContent ? [section(STEP_MILESTONE_SECTION_ID, "critical-recap", stepMilestoneContent, { priority: 2 })] : []),
-    ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
+    ];
+    return assemble(isContinuation
+      ? [section("continuation", "stable-prefix", continuationContent, { priority: 1 }), ...sections.filter((s) => !HELD_BY_THE_SESSION.has(s.id))]
+      : sections, { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
   };
 
   /* The listing is a section the byte budget may cut or shed. What the task says about reading the suite depends on whether the listing is there, and the decision not to ask for the outcome again rests on the objectives the listing shows. So when the budget sheds the listing the prompt is assembled again with the task worded for a prompt that has none, so that the agent is sent to read the suite and no claim reads a fact the prompt provides; when it cuts the listing, the prompt is assembled again with what is left of it. Either way the task asks for the outcome. The second assembly is kept only if the question costs the prompt no section and no part of the head of the listing: a wording must not take what the listing is for. */
@@ -888,63 +912,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
 export function buildPrompt(input: OpencodeRunInput): string {
   return buildPromptAssembled(input).text;
-}
-
-export function buildFollowupPrompt(input: OpencodeRunInput): string {
-  const parts: string[] = [
-    `## Continuation — same session; do NOT re-explore`,
-    ``,
-    `The suite you wrote was executed against DEV. The working rules, blast-radius brief, Context Pack`,
-    `and diff are ALREADY in this session above — do NOT re-read them, do NOT re-activate serena, do NOT`,
-    `re-run find_referencing_symbols, and do NOT re-navigate a route you already explored. Fix from what`,
-    `you already have, plus the new failure signal below.`,
-    GROUNDING_UNCOVERED_ESCAPE,
-    ``,
-  ];
-  if (input.domSnapshot && input.failureSourced) {
-    parts.push(
-      `## ${PROMPT_HEADINGS.groundTruthAtFailure}`,
-      ``,
-      `The tree below is the page AT THE FAILURE POINT — the ONLY source of truth for this fix. Quote the`,
-      `exact \`role: name\` line before writing any locator; an unquotable locator MUST be replaced.`,
-      ``,
-      sanitizeText(input.domSnapshot, "model").text,
-      ``,
-    );
-  }
-  if (input.selectorContradictions?.length) {
-    parts.push(
-      `## ⚠ Selector contradictions (DETERMINISTIC — resolve EVERY one)`,
-      `Each was checked against the captured tree and FAILED — replace it with a role/name that appears there:`,
-      ...input.selectorContradictions.map((c) => `- ${sanitizeText(c).text}`),
-      ``,
-    );
-  }
-  if (input.fixCases?.length) {
-    parts.push(
-      `## Fix failing tests`,
-      `These tests FAILED against DEV. Fix ONLY these; do NOT touch tests that passed.`,
-      ...input.fixCases.flatMap(renderFixCase),
-      ``,
-    );
-  }
-  if (input.reviewCorrections?.length) {
-    parts.push(
-      `## Apply reviewer corrections (HIGHEST priority)`,
-      `An independent reviewer REJECTED the previous specs. Address each finding: fix the spec when it holds, rebut it with evidence when it does not. Do NOT rewrite specs not flagged.`,
-      ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
-      ``,
-    );
-  }
-  if (input.coverageGap) {
-    parts.push(
-      `## Cover the change (HIGH priority)`,
-      `The tests ran green but did NOT exercise all the changed lines. Extend/add tests so they are asserted:`,
-      input.coverageGap,
-      ``,
-    );
-  }
-  return parts.join("\n");
 }
 
 /** context.json is read from the WATCHED repo (and committed by this system's own PRs), so it is attacker-influenceable. Every field is sanitized before it reaches the test-writing agent (prompt-injection / secret-exfil defense), and the map is BOUNDED so a huge file cannot blow the token budget. `s()` redacts; MAX_ITEMS caps each section. */

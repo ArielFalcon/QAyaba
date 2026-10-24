@@ -1387,6 +1387,20 @@ test("harvest keeps every retry's failure-point capture, in retry order, next to
   assert.notEqual(attempts[1]!.domSha256, first.domSha256);
 });
 
+test("a failed case the capturing execution left no dump for has an empty attempt list, so its missing capture is told apart", async () => {
+  const deps: E2eExecuteDeps = {
+    runSuite: async () => ({
+      report: { suites: [{ title: netCase.file, specs: [{ title: netCase.title, ok: false, tests: [{ results: [{ status: "failed", retry: 0, error: { message: "timeout" } }] }] }] }] },
+      logs: "failed",
+      ran: true,
+    }),
+  };
+  const run = await runE2E("/e2e", { baseUrl: "https://dev", namespace: "desktop" }, deps);
+  const failed = run.cases.find((c) => c.status === "fail") as QaCase | undefined;
+  assert.ok(failed, "the failed case must be present");
+  assert.deepEqual(failed.failureAttempts, []);
+});
+
 test("harvest folds the settle facts and the result count onto the failed case", async () => {
   const hash = createHash("sha1").update(`${netCase.file}/${netCase.title}`).digest("hex").slice(0, 12);
   const deps: E2eExecuteDeps = {

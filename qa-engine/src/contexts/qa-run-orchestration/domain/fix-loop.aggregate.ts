@@ -171,6 +171,17 @@ export interface FixLoopResult {
   preconditionFailed: boolean;
   /* Typed test-correct claims the loop rejected as unverified evidence (each asked for another repair). */
   rejectedClaims: number;
+  /* The triage's record: what made a failure a candidate for the one re-read, and what came of it. Absent when no failure was a candidate. */
+  triage?: FixLoopTriage;
+}
+
+export interface FixLoopTriage {
+  /* `pack-conflict`: the failures read an empty data state on pages the Context Pack read with results; `absent-selectors`: their target was absent from the failure-point tree. */
+  trigger: "pack-conflict" | "absent-selectors";
+  /* `passed`: the re-read passed (the run is flaky); `dev-not-rendered`: it failed the same way; `inconclusive`: it failed differently; `no-budget`: no execution was left for it; `unproven`: an absent target whose bytes had no green proof, so no re-read was spent. */
+  outcome: "passed" | "dev-not-rendered" | "inconclusive" | "no-budget" | "unproven";
+  /* The spec files the re-read covered. */
+  files: number;
 }
 
 const failCount = (r: FixLoopRun): number => r.cases.filter((c) => c.status === "fail").length;
@@ -274,6 +285,7 @@ export class FixLoop {
     let rejectedClaims = 0;
     /* The one triage re-execution this loop may spend. */
     let triaged = false;
+    let triage: FixLoopTriage | undefined;
     /* A rejected test-correct claim earns one repair even when the progress gate would stop the round. */
     let claimRejected = false;
     /* A round the contract refused never executed, so the progress gate would read it as no progress: it earns one repair all the same. */
@@ -356,16 +368,22 @@ export class FixLoop {
         !input.isCode &&
         (absentKeys.size > 0 || packConflict) &&
         failureClasses.length > 0 &&
-        failureClasses.every((failure) => failure === "locator" || failure === "timeout") &&
+        /* A contradicted data state is the page's own reading, whatever the assertion that met it; an absent target stands only on a presence failure. */
+        (packConflict || failureClasses.every((failure) => failure === "locator" || failure === "timeout")) &&
         failed.every((c) => !!c.file)
       ) {
         const failedFiles = [...new Set(failed.map((c) => c.file as string))];
         const proofs = packConflict ? [] : await Promise.all(failedFiles.map((file) => input.integrity!.hasGreenProof(file)));
+        const record = (outcome: FixLoopTriage["outcome"]): void => {
+          triage ??= { trigger: packConflict ? "pack-conflict" : "absent-selectors", outcome, files: failedFiles.length };
+        };
+        if (!packConflict && !proofs.every(Boolean)) record("unproven");
         if (packConflict || proofs.every(Boolean)) {
           triaged = true;
           const remaining = input.integrity.remainingMs();
           if ((remaining !== undefined && remaining <= 0) || !input.integrity.spendExecution()) {
             devNotRendered = "inconclusive";
+            record("no-budget");
           } else {
             const triageRun = await this.deps.execution.execute({
               namespace: `${input.namespace}-triage`,
@@ -379,6 +397,7 @@ export class FixLoop {
                 verdict: "flaky",
                 cases: [...run.cases.filter((c) => !reportedFiles.has(c.file)), ...triageRun.cases],
               };
+              record("passed");
               break;
             }
             const triageFailed = triageRun.cases.filter((c) => c.status === "fail");
@@ -390,6 +409,7 @@ export class FixLoop {
                 ? triageFailed.length > 0 && triageFailed.every((c) => contradictsPack(c, input.packConfirmedDataRoutes))
                 : [...absentKeys].every((key) => triageAbsentKeys.has(key)));
             devNotRendered = stable ? "conclusive" : "inconclusive";
+            record(stable ? "dev-not-rendered" : "inconclusive");
           }
         }
       }
@@ -648,6 +668,7 @@ export class FixLoop {
       lastSpecMetas: lastRegenResult?.specMetas,
       preconditionFailed,
       rejectedClaims,
+      ...(triage ? { triage } : {}),
     };
   }
 }

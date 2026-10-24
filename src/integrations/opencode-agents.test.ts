@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
-import { listAgentCaps, type AgentListDeps } from "./opencode-client";
+import { listAgentCaps, listModelWindows, type AgentListDeps } from "./opencode-client";
 
 const RECORDED_AGENT_LIST = join(import.meta.dirname ?? __dirname, "fixtures", "opencode-agent-list.json");
 
@@ -132,4 +132,23 @@ test("a reply that is not a list of agents is thrown with what it was", async ()
     async () => listAgentCaps("/m/app", await depsServing(() => new Response("", { status: 200, headers: { "content-type": "application/json" } }))),
     /no list of agents.*\{\}/,
   );
+});
+
+test("the server's providers answer the context window of every model it serves, keyed by the provider/model reference a role is assigned", async () => {
+  const seen: SeenRequest[] = [];
+  const deps = await depsServing(() => json({
+    providers: [
+      { id: "deepseek-api", models: { "deepseek-v4.1-flash": { limit: { context: 1_048_576, output: 8_192 } } } },
+      { id: "opencode", models: { "a-model": { limit: { context: 200_000, output: 4_096 } }, "no-limit": {}, "zero": { limit: { context: 0 } } } },
+    ],
+    default: {},
+  }), seen);
+
+  assert.deepEqual(await listModelWindows("/m/app", deps), { "deepseek-api/deepseek-v4.1-flash": 1_048_576, "opencode/a-model": 200_000 });
+  assert.deepEqual(seen.map((r) => [r.method, r.url.pathname, r.url.searchParams.get("directory")]), [["GET", "/config/providers", "/m/app"]]);
+});
+
+test("a providers read the server refuses, or answers without a list, is thrown, never read as no windows", async () => {
+  await assert.rejects(async () => listModelWindows("/m/app", await depsServing(() => json({ message: "boom" }, 500))), /config\.providers failed \(HTTP 500\)/);
+  await assert.rejects(async () => listModelWindows("/m/app", await depsServing(() => json({ default: {} }))), /no list of providers/);
 });

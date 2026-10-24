@@ -8,7 +8,6 @@ import { join } from "node:path";
 import {
   buildPrompt,
   buildPromptAssembled,
-  buildFollowupPrompt,
   buildReviewerPrompt,
   buildReviewerPromptAssembled,
   buildExplorerPrompt,
@@ -495,13 +494,6 @@ test("buildPrompt fix-cases section slices a long runtimeErrors text to ~200 cha
 test("buildPrompt fix-cases section omits evidence lines when absent (no httpStatus/finalUrl/runtimeErrors)", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
   assert.doesNotMatch(text, /HTTP \d+ at/, "no httpStatus present must render no HTTP line");
-});
-
-test("buildFollowupPrompt fix-cases section also renders httpStatus/finalUrl/runtimeErrors", () => {
-  const followup = buildFollowupPrompt(mkInput({ fixCases: [evidenceCase] }));
-  assert.match(followup, /HTTP 503/);
-  assert.ok(followup.includes("https://dev.example.com/owners"));
-  assert.match(followup, /\[pageerror\] TypeError: cannot read properties of undefined/);
 });
 
 test("buildPrompt fix-cases section renders NET evidence and suppresses the misleading HTTP (unknown)", () => {

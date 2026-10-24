@@ -114,6 +114,9 @@ export const ATTRIBUTES = {
   "qayaba.fix_loop.failing_before": int("Failing cases before the fix loop."),
   "qayaba.fix_loop.failing_after": int("Failing cases after the fix loop."),
   "qayaba.fix_loop.absent_selectors": int("Absent selectors from the first fix-loop round's divergence evidence."),
+  "qayaba.fix_loop.triage_trigger": str("What made a failure a candidate for the fix loop's one triage re-read: pack-conflict or absent-selectors."),
+  "qayaba.fix_loop.triage_outcome": str("What the triage came to: passed, dev-not-rendered, inconclusive, no-budget or unproven (no green proof, no re-read)."),
+  "qayaba.fix_loop.triage_files": int("Spec files the triage re-read covered."),
   "qayaba.fix_loop.specs_changed": bool("The fix loop changed the spec set."),
   "qayaba.fix_loop.spec_sha_before": metaHash("sha256 of the spec set before the fix loop."),
   "qayaba.fix_loop.spec_sha_after": metaHash("sha256 of the spec set after the fix loop."),
@@ -277,6 +280,7 @@ export const ATTRIBUTES = {
   "qayaba.test.network_class": str("egress, backend, dns or other, derived from the harvested network errors and the run's egress report."),
   "qayaba.test.attempt": int("The attempt number of a case (0 is the first run)."),
   /* An attempt's failure-point capture (the fixture's dump of that retry), on its qayaba.attempt span. */
+  "qayaba.failure.captured": bool("The attempt that did not pass left its failure-point capture; false when the execution captured failure points and this attempt's is missing."),
   "qayaba.failure.final_url": text("The address the page was on when the attempt failed."),
   "qayaba.failure.http_status": int("The HTTP status of the page the attempt failed on."),
   "qayaba.failure.result_count": int("The result count the app's declared data state showed when the attempt failed."),

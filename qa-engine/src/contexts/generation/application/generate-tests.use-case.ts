@@ -1,5 +1,5 @@
 /* Generate-tests use case. Review is fail-closed: an unparseable verdict is approved:false. A parse miss (parsed:false) is distinct from an explicit rejection. One bounded generator repair and one bounded reviewer repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
-import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
+import type { AgentRuntimePort, AgentSession, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
@@ -44,6 +44,8 @@ export interface GenerationPorts {
   now?: () => number;
   /** The longest one contract-repair prompt may run, whatever time is left. Absent: `REPAIR_TURN_TIMEOUT_MS`. */
   repairTimeoutMs?: number;
+  /** Whether the generator's runtime keeps a session's conversation from one prompt to the next. Only then does a regeneration continue the generator's session with the continuation prompt. Absent: it does not. */
+  continuesSessions?: () => boolean;
 }
 
 export interface GenerationResult {
@@ -89,7 +91,17 @@ export interface PlanResult {
 }
 
 export class GenerateTestsUseCase {
+  /* The generator session a regeneration continues: the one the run's last generation left open. One instance serves one run. */
+  private continued: { session: AgentSession; tierBound: boolean } | undefined;
+
   constructor(private readonly ports: GenerationPorts) {}
+
+  /** Disposes the generator session the run kept for its regenerations. Called once the run ends; a second call does nothing. */
+  async releaseSession(): Promise<void> {
+    const session = this.continued;
+    this.continued = undefined;
+    await session?.session.dispose();
+  }
 
   /**
    * The one turn a coordinated run asks its lead for a plan instead of specs. One prompt in one generator session, bounded by the
@@ -143,7 +155,12 @@ export class GenerateTestsUseCase {
   async generate(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult> {
     const { runtime, rendering, verdicts, manifest, repair } = this.ports;
 
-    const assembled = rendering.renderMain(input);
+    /* A regeneration continues the session the run kept, which already holds the grounding: it is sent only what changed. The session is this call's now; it is kept again only if this generation ends cleanly. */
+    const kept = this.continued;
+    this.continued = undefined;
+    const reused = isReGenTurn(input) ? kept : undefined;
+    if (kept && !reused) await kept.session.dispose();
+    const assembled = reused ? rendering.renderMain(input, { continuation: true }) : rendering.renderMain(input);
 
     /* The wall time this first pass may take, from the change's size, which the step cap never bounds because a step can be arbitrarily long. A regeneration keeps the host's default: its callers read a turn without specs as "no fixes", and an expired budget must not hide there. */
     const timeBudgetMs = isReGenTurn(input)
@@ -165,11 +182,14 @@ export class GenerateTestsUseCase {
     };
 
     const generatorRole: AgentRole = "primary";
-    const session = await runtime.openSession(generatorRole, input.mirrorDir, {
+    const session = reused?.session ?? await runtime.openSession(generatorRole, input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       ...(timeBudgetMs !== undefined ? { timeoutMs: timeBudgetMs, timeLimit: "tier-budget" as const } : {}),
       descriptor: { runId: input.runId, role: "qa-generator" },
     });
+    /* A session opened under a tier budget gives it to every prompt that states no time of its own; a regeneration in it states the host's deadline instead. */
+    const tierBound = reused?.tierBound ?? timeBudgetMs !== undefined;
+    const regenTime = reused?.tierBound && this.ports.promptCapMs !== undefined ? { timeoutMs: this.ports.promptCapMs } : {};
     let generatorOutput = "";
     let mainTurn: AgentTurnStats | undefined;
     let repairTurn: AgentTurnStats | undefined;
@@ -180,6 +200,7 @@ export class GenerateTestsUseCase {
     const repairCapMs = this.ports.repairTimeoutMs ?? REPAIR_TURN_TIMEOUT_MS;
     const cutByBudget = (err: unknown, repair: boolean): { budgetMs: number; repair: boolean } | undefined =>
       timeBudgetMs !== undefined && isAgentTimeoutError(err) ? { budgetMs: timeBudgetMs, repair } : undefined;
+    let ended = false;
     try {
       /* The verdict is read from the final step's text alone: what the agent recalled or quoted on the way is not its conclusion. */
       try {
@@ -190,6 +211,7 @@ export class GenerateTestsUseCase {
           ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
           finalStepOnly: true,
           ...promptTime(),
+          ...regenTime,
           onTurnStats: (stats) => { mainTurn = stats; },
         });
         generatorOutput = result.output;
@@ -227,8 +249,13 @@ export class GenerateTestsUseCase {
           }
         }
       }
+      ended = true;
     } finally {
-      await session.dispose();
+      /* Kept for the next regeneration only when it can be continued: it ended without a fault, a cut or a spent step cap, its runtime keeps the conversation, and a tier-bound one has a host deadline its regenerations can state. */
+      const keep = ended && !timeCut && mainTurn?.exhausted !== true && this.ports.continuesSessions?.() === true
+        && (!tierBound || this.ports.promptCapMs !== undefined);
+      if (keep) this.continued = { session, tierBound };
+      else await session.dispose();
     }
     /* Only a turn known to have hit its limit counts: an unknown exhaustion is not exhaustion. */
     const mainExhausted = mainTurn?.exhausted === true;

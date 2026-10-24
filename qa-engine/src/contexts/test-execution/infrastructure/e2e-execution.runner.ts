@@ -349,14 +349,14 @@ export async function runE2E(
     }, parsed.executed);
   }
 
-  /* Post-run harvest: read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom, plus the runtime evidence (httpStatus, finalUrl, runtimeErrors, networkErrors). The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md). The dumps are read ONCE and attached to EVERY case (pass and flaky included): a pass case's dump exists only when the fixture wrote one, and a flaky case's first-attempt dump is its evidence. Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the fields we set here because the runtime objects are identical. */
+  /* Post-run harvest: read the aria snapshot dump written by the qa-failure-capture fixture and populate QaCase.failureDom, plus the runtime evidence (httpStatus, finalUrl, runtimeErrors, networkErrors). The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md). The dumps are read ONCE and attached to EVERY case (pass and flaky included): a pass case's dump exists only when the fixture wrote one, and a flaky case's first-attempt dump is its evidence. Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the fields we set here because the runtime objects are identical. */
   const dumps = failureCaptureDir ? readFailureDumps(failureCaptureDir, FAILURE_DUMP_LIMITS, failureCaptureRoot) : [];
   const deniedHosts = activeExecScope()?.report.denied ?? [];
   for (const c of parsed.cases) {
     const qa = c as unknown as QaCase;
     const caseDumps = failureDumpsOf(c.name, dumps);
     const dump = caseDumps[0] ?? null;
-    if (caseDumps.length > 0) qa.failureAttempts = caseDumps.filter((d) => d.project === caseDumps[0]!.project).map(attemptEvidence).sort((a, b) => a.retry - b.retry);
+    if (failureCaptureDir) qa.failureAttempts = caseDumps.filter((d) => d.project === caseDumps[0]!.project).map(attemptEvidence).sort((a, b) => a.retry - b.retry);
     if (dump?.yaml) {
       const nodes = parseAriaSnapshot(dump.yaml);
       if (nodes.length > 0) qa.failureDom = nodes.join("\n");

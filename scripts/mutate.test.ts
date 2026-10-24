@@ -347,12 +347,17 @@ test("the carry-forward preset mutates the spec path and the one fold, the decla
     "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/selector-check.ts",
     "qa-engine/src/contexts/qa-run-orchestration/domain/pre-exec-grounding.service.ts",
     "qa-engine/src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/application/run-qa.use-case.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/generation-services.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/generate.steps.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/execute.steps.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/fix-loop.steps.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/coverage.steps.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/phases/review.steps.ts",
   ]);
   for (const whole of ["spec-path", "delivered-spec", "declared-specs", "delivered-specs", "contradiction-attribution", "suite-entry", "suite-listing", "suite-listing-render"]) {
     assert.ok(preset.mutate.some((entry) => sourcePathOf(entry) === entry && entry.endsWith(`/${whole}.ts`)), `${whole} is mutated whole, never narrowed to a range`);
   }
-  for (const wired of ["generate-tests.use-case", "generation-port.adapter", "pre-generation-grounding-port.adapter", "selector-check", "pre-exec-grounding.service", "fix-loop.aggregate", "run-qa.use-case"]) {
+  for (const wired of ["generate-tests.use-case", "generation-port.adapter", "pre-generation-grounding-port.adapter", "selector-check", "pre-exec-grounding.service", "fix-loop.aggregate", "generation-services", "generate.steps", "execute.steps", "fix-loop.steps", "coverage.steps", "review.steps"]) {
     assert.ok(
       preset.mutate.filter((entry) => sourcePathOf(entry).endsWith(`/${wired}.ts`)).every((entry) => sourcePathOf(entry) !== entry),
       `${wired} is narrowed to the lines that wire the carry-forward: the rest of it is other code`,
