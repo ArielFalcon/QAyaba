@@ -1,5 +1,6 @@
 /* The generate phase of a run: the agent writes the specs (or the lead/sidekick mode authors them as flows), the way the generation ended decides whether the run goes on, and the pre-exec grounding may ask for one corrective regeneration before the static gate. */
 
+import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { relative } from "node:path";
 import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, effectiveCoordinationMode } from "@kernel/coordination.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -247,7 +248,7 @@ export async function groundBeforeExecution(state: Readonly<RunState>, ctx: Work
     const corrected = await regenerate(state, ctx, signal, {
       selectorContradictions: groundingCorrections,
       ...(groundingAttribution.length > 0 ? { attributedSpecFiles: groundingAttribution } : {}),
-    });
+    }, CORRECTION_ORIGIN.PRE_EXEC);
     await ctx.services.confinement.enforce();
     if (corrected.specs.length > 0) {
       generated = corrected;

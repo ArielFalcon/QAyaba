@@ -1,5 +1,6 @@
 /* The coverage phase of a run: the change-coverage measurement of a green execution and, in enforce mode, the one regeneration at the uncovered lines. */
 
+import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 import { isRunDeadlineError } from "../../../../../shared-kernel/run-deadline.ts";
@@ -91,7 +92,7 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
     const gap = renderCoverageGap(state.coverage.uncovered);
     const snapshot = await snapshotSuite();
     const deliveredBefore = generation.delivered;
-    const regen = await regenerate(state, ctx, undefined, { coverageGap: gap });
+    const regen = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);
     await services.confinement.enforce();
     const changedFiles = await suiteChangedFiles(snapshot, regen.specs);
     const changedSpecFiles = acceptanceScope(changedFiles);

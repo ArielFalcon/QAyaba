@@ -1,5 +1,6 @@
 /* The validate, health and execute phases of a run: the static gate with its bounded repair, the DEV pre-flight, the login that signs in just before the specs run, and the primary execution. */
 
+import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { stripAnsi } from "@kernel/ansi.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { isOk } from "@kernel/result.ts";
@@ -135,7 +136,7 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
     const staticGateErrorDetail = stripAnsi(validation.errors.join("\n\n")).slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
     lastGenerated = await regenerate(state, ctx, signal, {
       fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
-    });
+    }, CORRECTION_ORIGIN.STATIC_GATE);
     await ctx.services.confinement.enforce();
     validation = await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx));
   }

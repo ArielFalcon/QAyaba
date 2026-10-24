@@ -11,7 +11,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import type { CoordinateInput, CoordinateResult, CoordinatedPass, PassCorrection } from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
-import type { ReviewerFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN, type CorrectionOrigin, type ReviewerFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, GenerationEnrichment, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
@@ -253,10 +253,11 @@ test("a run cancelled while its flows were being authored is a cancelled run, no
 
 /* A coordinated pass kept open: it records what it was asked to correct and how many times it was released, and corrects as told. */
 function keptPass(r: Rig, answer: (findings: readonly ReviewerFinding[]) => PassCorrection) {
-  const seen = { corrected: [] as ReviewerFinding[][], released: 0 };
+  const seen = { corrected: [] as ReviewerFinding[][], origins: [] as CorrectionOrigin[], released: 0 };
   const pass: CoordinatedPass = {
-    correct: async (findings) => {
+    correct: async (findings, origin = CORRECTION_ORIGIN.REVIEW) => {
       seen.corrected.push([...findings]);
+      seen.origins.push(origin);
       const out = answer(findings);
       for (const spec of out.specs) r.ws.write(spec, `// corrected ${spec}\n`);
       return out;
@@ -352,4 +353,102 @@ test("corrections the lead's pass made are recorded even when the reviewer canno
   assert.equal(result.outcome?.errorClass, "E-REVIEWER-UNAVAILABLE");
   assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0 });
   assert.equal(kept.seen.released, 1);
+});
+
+/* ── the run's own checks, after the flows were authored ─────────────────────────────────────── */
+
+const FAILED_A: QaCase = { name: "lists the restaurants", status: "fail", file: "flows/a.spec.ts", detail: "expected 3 rows, received 0" };
+const FAILED_B: QaCase = { name: "opens a restaurant", status: "fail", file: "flows/b.spec.ts", detail: "locator not found" };
+
+/* An execution that fails with these cases first and passes every one of them from then on. */
+function failingOnce(cases: QaCase[]) {
+  let runs = 0;
+  return { execute: async () => (runs++ === 0 ? { verdict: "fail" as const, cases, logs: "boom" } : { verdict: "pass" as const, cases: cases.map((c) => ({ name: c.name, status: "pass" as const, file: c.file! })), logs: "" }) };
+}
+
+const flowsAB = (pass: CoordinatedPass): CoordinateResult => ({ action: "fanout", aggregated: { end: GENERATION_END.DELIVERED, specs: ["flows/a.spec.ts", "flows/b.spec.ts"], incompleteFlows: [] }, proposals: [], signal: signalOf({ plan: "fanout", flows: 2, delivered: 2 }), pass });
+
+test("in a coordinated run a failing execution goes to the lead's pass with each failing case, not to a regeneration", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const result = await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([FAILED_A]) })).run(INPUT);
+  assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.EXECUTION]);
+  assert.equal(kept.seen.corrected[0]?.length, 1);
+  assert.equal(kept.seen.corrected[0]![0]!.spec, "flows/a.spec.ts", "the finding names the spec that failed");
+  assert.match(kept.seen.corrected[0]![0]!.text, /expected 3 rows, received 0/);
+  assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no regeneration of its own");
+  assert.equal(result.outcome?.verdict, "pass");
+  assert.equal(kept.seen.released, 1);
+});
+
+test("a failing case no flow takes goes to the lead's regeneration with only that case", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => flowsAB(kept.pass));
+  kept = keptPass(r, (findings) => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: findings.filter((f) => f.spec === "flows/b.spec.ts").map((f) => f.text) }));
+  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([FAILED_A, FAILED_B]) })).run(INPUT);
+  assert.equal(kept.seen.corrected[0]?.length, 2, "the lead is asked about both");
+  const regen = r.enrichments.filter((e) => e.fixCases !== undefined);
+  assert.deepEqual(regen.map((e) => e.fixCases!.map((c) => c.name)), [[FAILED_B.name]]);
+});
+
+test("in a coordinated run the static gate's errors go to the lead's pass, one finding per error block", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => flowsAB(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts", "flows/b.spec.ts"], rebuttals: [], unrouted: [] }));
+  let checks = 0;
+  const validation = { validate: async () => (checks++ === 0
+    ? { ok: false, errors: ["flows/a.spec.ts(3,1): error TS2304: Cannot find name 'row'.", "flows/b.spec.ts(9,5): no-wait-for-timeout"] }
+    : { ok: true, errors: [] }) };
+  const result = await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, validation })).run(INPUT);
+  assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.STATIC_GATE]);
+  const texts = kept.seen.corrected[0]!.map((f) => f.text);
+  assert.equal(texts.length, 2);
+  assert.ok(texts[0]!.includes("flows/a.spec.ts") && texts[1]!.includes("flows/b.spec.ts"), "each error reaches the flow it names");
+  assert.equal(r.calls.filter((c) => c === "generate").length, 0);
+  assert.equal(result.outcome?.verdict, "pass");
+});
+
+test("in a coordinated run an uncovered change goes to the lead's pass, not to a regeneration", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  let measures = 0;
+  const objectiveSignal = {
+    measure: async () => (measures++ === 0 ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/list.ts", lines: [4, 5] }] } : { status: "pass" as const, ratio: 0.9 }),
+    blocks: (status: string) => status === "fail",
+  };
+  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "enforce" } })).run(INPUT);
+  assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.COVERAGE]);
+  assert.match(kept.seen.corrected[0]![0]!.text, /src\/list\.ts/);
+  assert.equal(r.calls.filter((c) => c === "generate").length, 0);
+});
+
+test("in a coordinated run the pre-execution selector check goes to the lead's pass, naming the spec it attributed", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  r.ws.write("flows/a.spec.ts", `await page.goto("/owners"); await page.getByTestId("ghost-id").click();`);
+  const capture = async () => ({
+    specFiles: ["flows/a.spec.ts"],
+    specSources: [`await page.goto("/owners"); await page.getByTestId("ghost-id").click();`],
+    routes: [{ route: "/owners", nodes: [], status: "captured" as const, settled: true, testIds: new Map<string, number>() }],
+  });
+  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, preExecGrounding: { capture } })).run(INPUT);
+  assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.PRE_EXEC]);
+  assert.match(kept.seen.corrected[0]![0]!.text, /ghost-id/);
+  assert.equal(kept.seen.corrected[0]![0]!.spec, "flows/a.spec.ts");
+  assert.equal(r.calls.filter((c) => c === "generate").length, 0);
+});
+
+test("a run the lead authored alone regenerates for a failing execution as it always did", async () => {
+  const r = rig();
+  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([FAILED_A]) })).run(INPUT);
+  const regen = r.enrichments.filter((e) => e.fixCases !== undefined);
+  assert.deepEqual(regen.map((e) => e.fixCases!.map((c) => c.name)), [[FAILED_A.name]]);
 });

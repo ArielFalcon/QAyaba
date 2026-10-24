@@ -1,5 +1,6 @@
 /* The fix_loop phase of a run: the bounded repair of a failing primary execution, and the fingerprint the suite store takes of a green one. */
 
+import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { createHash } from "node:crypto";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { readConfinedSpecFile, listSpecFiles, readOwnedSpecFile, MAX_SPEC_SOURCE_BYTES, type SpecRoot } from "../../../../../shared-infrastructure/spec-path-confinement.ts";
@@ -114,7 +115,9 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
         ...(mergedSelectorContradictions.length ? { selectorContradictions: mergedSelectorContradictions } : {}),
         ...(attributedSpecFiles.length ? { attributedSpecFiles } : {}),
         ...(fixLoopInput.domSnapshot ? { domSnapshot: fixLoopInput.domSnapshot } : {}),
-      });
+        /* The intent lock's deltas on the round it refused: the next round repairs the weakening it introduced. */
+        ...(fixLoopInput.contractFeedback?.length ? { contractFeedback: fixLoopInput.contractFeedback } : {}),
+      }, CORRECTION_ORIGIN.EXECUTION);
       await services.confinement.enforce();
       /* Pre-exec corrections are one-shot — clear after the first FixLoop regen. */
       pendingSelectorContradictions = [];
@@ -182,6 +185,8 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
       return {
         kind: "rejected",
         reason: outcome.reason,
+        /* The contract's deltas are the next round's facts: without them the loop would end on a rejection the generator could repair. */
+        ...(outcome.violations?.length ? { violations: outcome.violations } : {}),
         ...(outcome.execution
           ? { execution: { verdict: outcome.execution.verdict, cases: [...outcome.execution.cases] } }
           : {}),

@@ -1,8 +1,9 @@
 /*
- * The reviewer's verified corrections, routed by the lead to the flows that own them. After the run's execution and the
- * independent review, the lead is shown, per flow, the spec its sidekick delivered and the findings that cite it, plus the findings
- * that cite no flow, numbered; it answers per flow (revise in the same sidekick session, or replace with a fresh one) and per
- * finding (a rebuttal, with the basis the run checks). The answer is the lead's word and the orchestrator's facts decide over it: a
+ * Corrections routed by the lead to the flows that own them: the reviewer's verified findings, or what the run's own checks
+ * observed of the flows' specs (the static gate, the execution, the change-coverage, the pre-execution selector check). The lead
+ * is shown, per flow, the spec its sidekick delivered and the findings that cite it, plus the findings that cite no flow,
+ * numbered; it answers per flow (revise in the same sidekick session, or replace with a fresh one) and, for the reviewer's
+ * findings only, per finding (a rebuttal, with the basis the run checks). The answer is the lead's word and the orchestrator's facts decide over it: a
  * finding that cites a flow's spec goes to that flow whatever the lead routes, a finding that cites one flow is never moved to
  * another, and a flow with findings the lead neither ordered nor rebutted is sent them with the orchestrator's own instruction.
  * Pure: no clock, no file, no model.
@@ -14,7 +15,57 @@ import { scrub } from "./scrub.ts";
 const MAX_REF_CHARS = 400;
 const MAX_REASON_CHARS = 400;
 
-/* One verified blocking finding of the reviewer, with the spec its citation names when it names one. */
+/*
+ * Where a correction turn's findings come from: the independent reviewer, or the orchestrator's own checks after the flows were
+ * authored (the static gate, the execution against DEV, the change-coverage measurement, the pre-execution selector check). Only a
+ * reviewer's finding is a judgment the lead may rebut; the others are facts the run observed, and every one of them is corrected.
+ */
+export const CORRECTION_ORIGIN = {
+  REVIEW: "review",
+  STATIC_GATE: "static-gate",
+  EXECUTION: "execution",
+  COVERAGE: "coverage",
+  PRE_EXEC: "pre-exec",
+} as const;
+export type CorrectionOrigin = (typeof CORRECTION_ORIGIN)[keyof typeof CORRECTION_ORIGIN];
+
+const ORIGIN_TEXT: Record<CorrectionOrigin, { heading: string; lead: string; sidekick: string }> = {
+  review: {
+    heading: "The reviewer's corrections",
+    lead: "The run executed the specs your sidekicks delivered and an independent reviewer judged them. These findings are verified: each one cites a contract clause or an execution of this run.",
+    sidekick: "The independent reviewer judged your spec after the run executed it. These findings are verified by the orchestrator:",
+  },
+  "static-gate": {
+    heading: "The static gate's errors",
+    lead: "The orchestrator's static gate (type check, lint, test listing) refused the specs your sidekicks delivered. Each finding is an error it reported.",
+    sidekick: "The orchestrator's static gate refused your spec. What it reported:",
+  },
+  execution: {
+    heading: "The run's failing tests",
+    lead: "The run executed the specs your sidekicks delivered against DEV and these failed. Each finding is what the execution reported, or a fact the orchestrator found in the failure.",
+    sidekick: "The run executed your spec against DEV and it failed. What the orchestrator observed:",
+  },
+  coverage: {
+    heading: "Changed lines no test exercised",
+    lead: "The run passed, but the change-coverage measurement found changed lines that none of the delivered specs exercised.",
+    sidekick: "The run passed, but changed lines no test exercised remain. Extend your spec to exercise those of your flow:",
+  },
+  "pre-exec": {
+    heading: "Selectors the page does not have",
+    lead: "Before the specs ran, the orchestrator checked their selectors against the pages it captured from DEV. These selectors are not on the page.",
+    sidekick: "Before your spec ran, the orchestrator checked its selectors against the page it captured from DEV. These are not on the page:",
+  },
+};
+
+/* What the sidekick is told the findings it is sent are. */
+export function correctionPreamble(origin: CorrectionOrigin): string {
+  return ORIGIN_TEXT[origin].sidekick;
+}
+
+/* Whether the findings of this origin are a judgment the lead may rebut. */
+const rebuttable = (origin: CorrectionOrigin): boolean => origin === CORRECTION_ORIGIN.REVIEW;
+
+/* One finding a correction turn routes: a verified blocking finding of the reviewer, or a fact one of the run's checks observed, with the spec it names when it names one. */
 export interface ReviewerFinding {
   text: string;
   spec?: string;
@@ -55,7 +106,7 @@ export interface CorrectionAdmission {
   refused: Array<{ flowId?: string; finding?: number; reason: string }>;
 }
 
-export const DEFAULT_CORRECTION_INSTRUCTION = "Apply the reviewer's findings below to your spec.";
+export const DEFAULT_CORRECTION_INSTRUCTION = "Correct your spec for the findings above.";
 
 /* The flow a finding belongs to: the one whose spec its citation, or failing that its text, names. */
 export function flowOfFinding(finding: ReviewerFinding, flows: readonly FlowUnderCorrection[]): string | undefined {
@@ -70,7 +121,7 @@ function cut(text: string, max: number): string {
 }
 
 /* The correction turn's prompt: the flows, the findings numbered, and the answer it reads. */
-export function renderLeadCorrection(flows: readonly FlowUnderCorrection[], findings: readonly ReviewerFinding[]): string {
+export function renderLeadCorrection(flows: readonly FlowUnderCorrection[], findings: readonly ReviewerFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
   const owner = findings.map((finding) => flowOfFinding(finding, flows));
   const line = (index: number): string => `${index + 1}. ${scrub(findings[index]!.text)}`;
   const blocks = flows.flatMap((flow) => {
@@ -84,15 +135,22 @@ export function renderLeadCorrection(flows: readonly FlowUnderCorrection[], find
     ].join("\n")];
   });
   const loose = findings.flatMap((_, i) => (owner[i] === undefined ? [i] : []));
+  const text = ORIGIN_TEXT[origin];
+  const route = `Route each finding to the sidekick of its flow: "${REVIEW_ACTION.REVISE}" sends your instruction and the flow's findings to the same sidekick, which keeps what it learned; "${REVIEW_ACTION.REPLACE}" starts a fresh sidekick on the flow.`;
+  const rebut = ' A finding you hold to be wrong can be rebutted instead, with the evidence the run can check: "execution" and a test of this run that passed on the current bytes, or "contract" and the clause that still holds.';
+  const corrections = `"corrections":[{"flow":"<flow id>","action":"${REVIEW_ACTION.REVISE}|${REVIEW_ACTION.REPLACE}","findings":[<number>],"instruction":"<what to change>"}]`;
+  const rebuttals = `"rebuttals":[{"finding":<number>,"basis":"execution|contract","ref":"<test or clause>","reason":"<why the finding is wrong>"}]`;
   return [
-    "## The reviewer's corrections",
-    "The run executed the specs your sidekicks delivered and an independent reviewer judged them. These findings are verified: each one cites a contract clause or an execution of this run.",
-    `Route each finding to the sidekick of its flow: "${REVIEW_ACTION.REVISE}" sends your instruction and the flow's findings to the same sidekick, which keeps what it learned; "${REVIEW_ACTION.REPLACE}" starts a fresh sidekick on the flow. A finding you hold to be wrong can be rebutted instead, with the evidence the run can check: "execution" and a test of this run that passed on the current bytes, or "contract" and the clause that still holds.`,
+    `## ${text.heading}`,
+    text.lead,
+    rebuttable(origin) ? route + rebut : `${route} These are facts the run observed: each one is corrected, none is rebutted.`,
     ...blocks,
-    loose.length > 0 ? ["### Findings that cite no flow", "Name the flow each one belongs to, or rebut it.", ...loose.map(line)].join("\n") : "",
+    loose.length > 0
+      ? ["### Findings that cite no flow", rebuttable(origin) ? "Name the flow each one belongs to, or rebut it." : "Name the flow each one belongs to; one no flow takes goes to a regeneration of its own.", ...loose.map(line)].join("\n")
+      : "",
     "## Answer",
     "Answer with this JSON object and nothing else. A flow's own findings are always sent to it; `findings` adds the numbers of findings that cite no flow.",
-    `{"corrections":[{"flow":"<flow id>","action":"${REVIEW_ACTION.REVISE}|${REVIEW_ACTION.REPLACE}","findings":[<number>],"instruction":"<what to change>"}],"rebuttals":[{"finding":<number>,"basis":"execution|contract","ref":"<test or clause>","reason":"<why the finding is wrong>"}]}`,
+    rebuttable(origin) ? `{${corrections},${rebuttals}}` : `{${corrections}}`,
   ].filter(Boolean).join("\n\n");
 }
 
@@ -100,7 +158,7 @@ function textOf(value: unknown, max: number): string {
   return typeof value === "string" ? scrub(value).trim().slice(0, max) : "";
 }
 
-export function admitLeadCorrection(output: string, flows: readonly FlowUnderCorrection[], findings: readonly ReviewerFinding[]): CorrectionAdmission {
+export function admitLeadCorrection(output: string, flows: readonly FlowUnderCorrection[], findings: readonly ReviewerFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
   const admission: CorrectionAdmission = { readable: false, orders: [], rebuttals: [], unrouted: [], refused: [] };
   const owner = findings.map((finding) => flowOfFinding(finding, flows));
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
@@ -130,7 +188,8 @@ export function admitLeadCorrection(output: string, flows: readonly FlowUnderCor
       }
       routed.set(flow.id, { action, instruction: textOf(e.instruction, MAX_INSTRUCTION_CHARS), extra });
     }
-    for (const entry of Array.isArray(raw!.rebuttals) ? raw!.rebuttals : []) {
+    /* A fact the run observed is not the lead's to withdraw: rebuttals are read only for the reviewer's findings. */
+    for (const entry of rebuttable(origin) && Array.isArray(raw!.rebuttals) ? raw!.rebuttals : []) {
       if (!entry || typeof entry !== "object") continue;
       const e = entry as Record<string, unknown>;
       const index = numberOf(e.finding);

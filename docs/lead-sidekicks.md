@@ -164,13 +164,30 @@ findings, the run asks the lead, in the same planning session, instead of regene
 5. Findings no flow took go to a regeneration with only those findings. Everything delivered goes through the round's acceptance,
    and the lead's rebuttals through the same check as a generator's.
 
-The pass is released as soon as the review ends, and in the run's `finally` however it ends. The corrections are recorded as
-`gateSignals.coordination.corrections { turns, routed, unrouted, revised, replaced, rebutted }`.
+## The run's own checks
+
+The checks that run before the review correct through the same pass (`regenerate`, `generation-services.ts`): each piece of
+evidence becomes a finding, routed by the lead exactly as above. The origin of the findings is named in the lead's prompt and in
+the sidekick's instruction (`CORRECTION_ORIGIN`, `lead-correction.ts`):
+
+| Origin | Findings |
+|---|---|
+| `pre-exec` | one per selector contradiction, citing the spec it was attributed to when only one was |
+| `static-gate` | one per error block the gate reported (each names its file) |
+| `execution` | one per failing case of the fix loop, citing its spec, plus one per contract delta of a round the intent lock refused |
+| `coverage` | the uncovered change lines, citing no flow |
+
+These are facts the run observed: the lead is not offered a rebuttal, and one it gives anyway is not taken. What no flow takes
+goes to the lead's own regeneration with only that evidence (the failure DOM stays with the failing cases it belongs to). The
+round's acceptance, contract check and budgets are the caller's, unchanged. A run without a pass regenerates as it always did.
+
+The pass is released as soon as the review ends, and in the run's `finally` however it ends. The corrections of every origin are
+recorded as `gateSignals.coordination.corrections { turns, routed, unrouted, revised, replaced, rebutted }`.
 
 ## Cleanup
 
 Sidekick sessions, `run_spec` loops, flow locations and delegation workspaces are released, and the lead's session
-ended, when the coordinated pass ends: in the coordination's `finally`, or, for a pass kept for the reviewer's corrections, when
+ended, when the coordinated pass ends: in the coordination's `finally`, or, for a pass kept for the corrections that follow, when
 the run releases it. They are also swept at the start of a coordinated run and at orchestrator boot (a process killed mid-run
 leaves nothing behind).
 
@@ -186,7 +203,8 @@ leaves nothing behind).
 
 - The lead cannot drop a spec that reached the working copy, nor add a flow its plan did not name; sidekick proposals
   (changes outside the brief's file) are reported, not consolidated.
-- The reviewer's corrections still go to a regeneration, not to the lead.
+- A sidekick's correction in the fix loop hands back no spec sources, so the next round's post-failure selector check has
+  nothing to compare for those flows.
 - Read-only concurrency is unreachable until the proxy can enforce read-only access.
 - Each flow's `run_spec` and browser caps are shares of the run's; the shares are not reconciled with what the
   generator spends in the same run.

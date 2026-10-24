@@ -36,7 +36,7 @@ import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type Sideki
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
 import { scrub } from "./scrub.ts";
-import { admitLeadCorrection, renderLeadCorrection, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type ReviewerFinding } from "./lead-correction.ts";
+import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type ReviewerFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
 const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
@@ -125,10 +125,12 @@ export interface CorrectionTally {
 
 /*
  * A coordinated pass kept open after it delivered: the lead's planning session and every flow's sidekick session, workspace, loop
- * and location, for the reviewer's corrections. Whoever holds it releases it, however the run ends.
+ * and location, for the corrections that follow: the static gate's, the execution's, the change-coverage's and the reviewer's.
+ * Whoever holds it releases it, however the run ends.
  */
 export interface CoordinatedPass {
-  correct(findings: readonly ReviewerFinding[]): Promise<PassCorrection>;
+  /* One correction turn over findings of one origin; the reviewer's when none is named. */
+  correct(findings: readonly ReviewerFinding[], origin?: CorrectionOrigin): Promise<PassCorrection>;
   tally(): CorrectionTally;
   release(): Promise<void>;
 }
@@ -612,7 +614,7 @@ export class LeadSidekicks {
     const tally: CorrectionTally = { turns: 0, routed: 0, unrouted: 0, revised: 0, replaced: 0, rebutted: 0 };
     const state = { released: false };
     return {
-      correct: (findings) => this.correct(lead, flows, parallel, context, live, findings, tally, state),
+      correct: (findings, origin = CORRECTION_ORIGIN.REVIEW) => this.correct(lead, flows, parallel, context, live, findings, origin, tally, state),
       tally: () => ({ ...tally }),
       release: async () => {
         if (state.released) return;
@@ -623,11 +625,11 @@ export class LeadSidekicks {
     };
   }
 
-  /* One correction turn: the lead routes the reviewer's findings, the orchestrator holds it to its facts, and each flow sent findings is corrected by its sidekick. */
-  private async correct(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, findings: readonly ReviewerFinding[], tally: CorrectionTally, state: { released: boolean }): Promise<PassCorrection> {
+  /* One correction turn: the lead routes the findings, the orchestrator holds it to its facts, and each flow sent findings is corrected by its sidekick. */
+  private async correct(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, findings: readonly ReviewerFinding[], origin: CorrectionOrigin, tally: CorrectionTally, state: { released: boolean }): Promise<PassCorrection> {
     const { input } = context;
     const nothing = (why: string): PassCorrection => {
-      this.record(input, { kind: "router", reason: `correction: ${why}; the findings stand` });
+      this.record(input, { kind: "router", reason: `correction (${origin}): ${why}; the findings stand` });
       return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((f) => f.text) };
     };
     if (state.released) return nothing("the pass was released");
@@ -640,47 +642,49 @@ export class LeadSidekicks {
     }));
     let output = "";
     try {
-      const answer = await lead.ask(renderLeadCorrection(under, findings), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
-      if (answer.timedOut) this.record(input, { kind: "router", reason: "correction: the lead ran out of its time; each flow is sent its own findings" });
+      const answer = await lead.ask(renderLeadCorrection(under, findings, origin), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
+      if (answer.timedOut) this.record(input, { kind: "router", reason: `correction (${origin}): the lead ran out of its time; each flow is sent its own findings` });
       else output = answer.output;
     } catch (err) {
       if (isRunDeadlineError(err)) throw err;
-      this.record(input, { kind: "router", reason: `correction: the lead's turn failed (${err instanceof Error ? err.message : String(err)}); each flow is sent its own findings` });
+      this.record(input, { kind: "router", reason: `correction (${origin}): the lead's turn failed (${err instanceof Error ? err.message : String(err)}); each flow is sent its own findings` });
     }
     tally.turns += 1;
-    const admission = admitLeadCorrection(output, under, findings);
+    const admission = admitLeadCorrection(output, under, findings, origin);
     tally.rebutted += admission.rebuttals.length;
     tally.unrouted += admission.unrouted.length;
-    for (const r of admission.refused) this.record(input, { kind: "router", reason: `correction: ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
+    for (const r of admission.refused) this.record(input, { kind: "router", reason: `correction (${origin}): ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
     const after = this.room(input);
     const stopped = state.released || input.signal?.aborted === true || (after !== undefined && after < MIN_FLOW_MS);
     const orders = stopped ? [] : admission.orders.filter((o) => live.has(o.flowId));
     /* A finding the lead sent to a flow that cannot take it now is not lost: it goes to a regeneration, as a finding no flow was sent. */
     const untaken = admission.orders.filter((o) => !orders.includes(o)).flatMap((o) => o.findings);
     tally.unrouted += untaken.length;
-    if (untaken.length > 0) this.record(input, { kind: "router", reason: `correction: ${untaken.length} finding(s) the flows could not take go to a regeneration` });
+    if (untaken.length > 0) this.record(input, { kind: "router", reason: `correction (${origin}): ${untaken.length} finding(s) the flows could not take go to a regeneration` });
     for (const order of orders) {
       tally.routed += order.findings.length;
       if (order.action === REVIEW_ACTION.REVISE) tally.revised += 1;
       else tally.replaced += 1;
-      this.record(input, { kind: "router", reason: `correction: flow ${order.flowId} ${order.action} with ${order.findings.length} finding(s)`, delegationId: live.get(order.flowId)!.delegationId });
+      this.record(input, { kind: "router", reason: `correction (${origin}): flow ${order.flowId} ${order.action} with ${order.findings.length} finding(s)`, delegationId: live.get(order.flowId)!.delegationId });
     }
     const slots = orders.map((order) => ({ ...order, id: order.flowId, budgetMs: Math.min(live.get(order.flowId)!.flow.budgetMs, after ?? live.get(order.flowId)!.flow.budgetMs) }));
     for (const slot of slots) live.get(slot.flowId)!.taken = false;
-    const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.amend(live.get(slot.flowId)!, slot, slot.budgetMs, context, signal));
+    const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.amend(live.get(slot.flowId)!, slot, origin, slot.budgetMs, context, signal));
     await this.settle(results, live, new Map());
     const specs = slots.flatMap((slot) => (live.get(slot.flowId)?.taken ? [live.get(slot.flowId)!.flow.specFile] : []));
     return { readable: admission.readable, specs, rebuttals: admission.rebuttals, unrouted: [...admission.unrouted, ...untaken] };
   }
 
   /* One flow's correction: its workspace brought up to the working copy, then the findings and the lead's instruction to its sidekick. */
-  private async amend(entry: LiveFlow, order: CorrectionOrder, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
+  private async amend(entry: LiveFlow, order: CorrectionOrder, origin: CorrectionOrigin, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
     await this.deps.workspaces.refresh(entry.workspace, entry.request).catch((err: unknown) => console.error(`[qa] refreshing flow ${entry.flow.id}'s workspace failed (it corrects the bytes it has): ${err instanceof Error ? err.message : String(err)}`));
     const instruction = [
-      "The independent reviewer judged your spec after the run executed it. These findings are verified by the orchestrator:",
+      correctionPreamble(origin),
       ...order.findings.map((finding) => `- ${scrub(finding)}`),
       `The lead's instruction: ${order.instruction}`,
-      "Correct each finding in your spec without weakening an assertion; a finding you hold to be wrong goes in concerns, with the evidence.",
+      origin === CORRECTION_ORIGIN.REVIEW
+        ? "Correct each finding in your spec without weakening an assertion; a finding you hold to be wrong goes in concerns, with the evidence."
+        : "Correct your spec for each finding without weakening an assertion; a failure you hold to be the app's or the environment's goes in concerns, with the evidence.",
     ].join("\n");
     return this.revise(entry, { flowId: order.flowId, action: order.action, instruction }, timeoutMs, context, signal);
   }

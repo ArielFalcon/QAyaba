@@ -8958,6 +8958,41 @@ const INTENT_STRONGER = `test("checkout", async ({ page }) => {
   await expect(page.getByText("Pay now")).toBeVisible();
 });`;
 
+test("a fix-loop round the contract rejects hands its violations to the next round", async () => {
+  const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED, INTENT_STRONGER]);
+  try {
+    const contractFeedback: Array<readonly { rule: string }[] | undefined> = [];
+    let executions = 0;
+    const { ports } = stubPorts({
+      prepare: real.prepare,
+      execute: async () => ({
+        verdict: executions++ === 0 ? ("fail" as const) : ("pass" as const),
+        cases: [{ name: "checkout", file: "a.spec.ts", status: executions === 1 ? ("fail" as const) : ("pass" as const), detail: "getByRole resolved to 0 elements" }],
+        logs: "",
+      }),
+    });
+    const scripted = real.generate;
+    ports.generation.generate = async (objectives, specDir, signal, diff, enrichment) => {
+      contractFeedback.push(enrichment?.contractFeedback as readonly { rule: string }[] | undefined);
+      return scripted(objectives, specDir, signal, diff, enrichment);
+    };
+    const useCase = new RunQaUseCase({
+      ...ports,
+      intentContract: { extract: extractSpecContract },
+      config: { ...baseConfig, needsReview: false, maxRetries: 3, reviewLoopIntegrity: true, intentLock: { mode: "enforce", opacityFlagRatio: 0.5 } },
+    });
+
+    const out = await useCase.run({ ...baseInput, runId: "intent-fix-loop-feedback" });
+
+    assert.equal(contractFeedback.length, 3, "the primary pass, the rejected fix round and the round that answers it");
+    assert.equal(contractFeedback[1], undefined, "the first fix round has nothing to answer");
+    assert.deepEqual(contractFeedback[2]?.map((entry) => entry.rule), ["weakened-matcher"], "the next round is handed the rule the contract found");
+    assert.equal(out.gateSignals.integrity?.rejected, 1);
+  } finally {
+    real.cleanup();
+  }
+});
+
 test("a correction turn rejected by the contract earns one more turn carrying the violations", async () => {
   const real = intentWorkspace([INTENT_PRIMARY, INTENT_WEAKENED, INTENT_STRONGER]);
   try {

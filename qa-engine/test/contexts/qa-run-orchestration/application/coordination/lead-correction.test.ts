@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, flowOfFinding, renderLeadCorrection, type FlowUnderCorrection, type ReviewerFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, flowOfFinding, renderLeadCorrection, type FlowUnderCorrection, type ReviewerFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
 import { REVIEW_ACTION } from "@contexts/qa-run-orchestration/application/coordination/lead-review.ts";
 
 const flows: FlowUnderCorrection[] = [
@@ -68,4 +68,15 @@ test("an unreadable answer still sends each flow its own findings, and leaves th
   assert.equal(admitted.readable, false);
   assert.deepEqual(admitted.orders.map((o) => o.flowId).sort(), ["cart", "login"]);
   assert.deepEqual(admitted.unrouted, ["a selector is a CSS class"]);
+});
+
+test("a fact the run observed is corrected, never rebutted: the prompt offers no rebuttal and one the lead gives anyway is not taken", () => {
+  const observed = [{ text: "test \"total\" in flows/cart.spec.ts failed: expected 3 rows", spec: "flows/cart.spec.ts" }];
+  const text = renderLeadCorrection(flows, observed, CORRECTION_ORIGIN.EXECUTION);
+  assert.ok(!text.includes('"rebuttals"'), "the answer it asks for has no rebuttals");
+  const answer = JSON.stringify({ corrections: [], rebuttals: [{ finding: 1, basis: "execution", ref: "total", reason: "flaky DEV" }] });
+  const admitted = admitLeadCorrection(answer, flows, observed, CORRECTION_ORIGIN.EXECUTION);
+  assert.deepEqual(admitted.rebuttals, []);
+  assert.deepEqual(admitted.orders.map((o) => [o.flowId, o.findings]), [["cart", [observed[0]!.text]]], "the flow is sent the failure all the same");
+  assert.deepEqual(renderLeadCorrection(flows, findings), renderLeadCorrection(flows, findings, CORRECTION_ORIGIN.REVIEW), "the reviewer's findings are the default");
 });

@@ -17,7 +17,7 @@ import type { StepResult } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
-import { closedLoopSignal, correctThroughLead, regenerate } from "./generation-services.ts";
+import { closedLoopSignal, contractFindingText, correctThroughLead, regenerateByLead } from "./generation-services.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
 import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 
@@ -327,9 +327,9 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
       regen = pass
         ? await correctThroughLead(state, ctx, pass, [
             ...reviewResult.corrections.map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) })),
-            ...(contractFeedback ?? []).map((v) => ({ text: `the correction broke the test's contract (${v.rule}) in ${v.file}, clause ${v.clauseId}: it was ${JSON.stringify(v.before)} and is ${JSON.stringify(v.after)}`, spec: v.file })),
+            ...(contractFeedback ?? []).map((v) => ({ text: contractFindingText(v), spec: v.file })),
           ], signal)
-        : await regenerate(state, ctx, signal, {
+        : await regenerateByLead(state, ctx, signal, {
             reviewCorrections: reviewResult.corrections,
             ...(contractFeedback ? { contractFeedback } : {}),
           });
