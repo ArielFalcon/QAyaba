@@ -907,7 +907,7 @@ test("the tool sequence lists the turn's calls in order with the file, pattern, 
   runCall(tracker, "s1", "c7", "read", { filePath: "/etc/hosts" });
 
   assert.deepEqual(tracker.take("s1", "")?.toolSequence, [
-    { tool: "read", target: "src/app/a.ts" },
+    { tool: "read", target: "src/app/a.ts", window: "offset=10,limit=50" },
     { tool: "grep", target: "createUser", scope: "src" },
     { tool: "glob", target: "**/*.spec.ts" },
     { tool: "playwright_browser_navigate", target: "https://dev.example.test/login" },
@@ -1338,4 +1338,15 @@ test("a session attached to a stream that is still opening waits for it, as befo
   tracker.streamOpening(CWD, Symbol("stream"));
   tracker.attach("s1", CWD);
   assert.equal(await settled(tracker.prepareAttempt("s1", 0)), false);
+});
+
+test("a turn that reads one file from its top, again from line 1, and then a later window counts both re-reads of the file and keeps each window", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts" });
+  runCall(tracker, "s1", "c2", "read", { filePath: "/mirrors/org__app/a.ts", offset: 1 });
+  runCall(tracker, "s1", "c3", "read", { filePath: "/mirrors/org__app/a.ts", offset: 200, limit: 100 });
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.redundantReadCount, 1, "line 1 is the top of the file: c2 reads what c1 read");
+  assert.equal(metrics?.sameFileReadCount, 2, "c2 and c3 both read the file again");
+  assert.deepEqual(metrics?.toolSequence.map((e) => e.window), [undefined, undefined, "offset=200,limit=100"]);
 });

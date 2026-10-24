@@ -1022,11 +1022,12 @@ export const TurnUsageViewSchema = z.object({
   steps: z.number().int().nonnegative(),
 });
 
-/** One call of a turn's tool sequence: the tool, what it pointed at (null when it pointed at nothing), the path a search ran in, and whether the runtime refused it. */
+/** One call of a turn's tool sequence: the tool, what it pointed at (null when it pointed at nothing), the path a search ran in, the part of the file a read asked for (absent for the whole file), and whether the runtime refused it. */
 export const ToolSequenceEntryViewSchema = z.object({
   tool: z.string(),
   target: z.string().nullable(),
   scope: z.string().optional(),
+  window: z.string().optional(),
   denied: z.literal(true).optional(),
 });
 
@@ -1054,6 +1055,7 @@ export const AgentTurnViewSchema = z.object({
   callsBeforeFirstWrite: nullableCount,
   writeCount: nullableCount,
   redundantReadCount: nullableCount,
+  sameFileReadCount: nullableCount,
   duplicateCallCount: nullableCount,
   promptProvidedReadCount: nullableCount,
   pathProvidedReadCount: nullableCount,

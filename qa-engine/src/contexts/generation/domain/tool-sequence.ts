@@ -15,6 +15,8 @@ export interface ToolSequenceEntry {
   tool: string;
   target: string | null;
   scope?: string;
+  /** For a content read: the part of the file it asked for (`readWindowOf`); absent for the whole file. */
+  window?: string;
   denied?: true;
 }
 

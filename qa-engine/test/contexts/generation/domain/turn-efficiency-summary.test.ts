@@ -32,7 +32,7 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
   const metrics = buildTurnCallMetrics({
     sequence,
     buckets: [CALL_BUCKETS.CODE_READ, CALL_BUCKETS.WRITE],
-    redundantReadCount: 1,
+    redundantReadCount: 1, sameFileReadCount: 1,
     promptProvidedReadCount: 1,
     pathProvidedReadCount: 2,
     stepsUsed: 4,
@@ -70,7 +70,7 @@ test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence
   const metrics = buildTurnCallMetrics({
     sequence,
     buckets: [CALL_BUCKETS.CODE_READ, CALL_BUCKETS.CODE_READ],
-    redundantReadCount: 0,
+    redundantReadCount: 0, sameFileReadCount: 0,
     promptProvidedReadCount: 0,
     pathProvidedReadCount: 0,
     stepsUsed: null,

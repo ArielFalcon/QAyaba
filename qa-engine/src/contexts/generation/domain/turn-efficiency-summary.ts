@@ -42,6 +42,8 @@ export interface TurnCallMetrics {
   /** Calls made through a shell tool, whatever their command line did: the quantity the coarse classifier counts as commands. Held in memory for the turn's stats; not persisted. */
   commandCount: number;
   redundantReadCount: number;
+  /** Content reads of a file the turn's session had already read, whatever window either asked for, with no write to it in between: re-exploration, which `redundantReadCount` (the same window again) undercounts. */
+  sameFileReadCount: number;
   duplicateCallCount: number;
   promptProvidedReadCount: number;
   /** Content reads of a file the prompt listed by path as already rendered (even compactly). Counted by path, apart from the content-based `promptProvidedReadCount`. */
@@ -84,6 +86,7 @@ export interface BuildTurnCallMetricsInput {
   sequence: CallSequenceSummary;
   buckets: readonly CallBucket[];
   redundantReadCount: number;
+  sameFileReadCount: number;
   promptProvidedReadCount: number;
   pathProvidedReadCount: number;
   stepsUsed: number | null;
@@ -108,6 +111,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     writeCount: input.sequence.writeCount,
     commandCount: input.sequence.commandCount,
     redundantReadCount: input.redundantReadCount,
+    sameFileReadCount: input.sameFileReadCount,
     duplicateCallCount: input.sequence.repeatedCallCount,
     promptProvidedReadCount: input.promptProvidedReadCount,
     pathProvidedReadCount: input.pathProvidedReadCount,

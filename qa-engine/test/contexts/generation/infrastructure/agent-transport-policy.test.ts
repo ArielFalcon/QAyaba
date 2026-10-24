@@ -965,7 +965,7 @@ const SAMPLE_CALL_METRICS = {
   callsBeforeFirstWrite: 5,
   writeCount: 1,
   commandCount: 1,
-  redundantReadCount: 2,
+  redundantReadCount: 2, sameFileReadCount: 2,
   duplicateCallCount: 1,
   promptProvidedReadCount: 0,
   pathProvidedReadCount: 0,

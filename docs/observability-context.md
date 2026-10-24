@@ -169,7 +169,7 @@ These map naturally onto the GenAI conventions: `invoke_agent` / `chat` / `execu
 - **Model:** the requested model, the model that actually answered (the fallback can differ), provider, reasoning effort (`options.reasoningEffort` per role in `agents/opencode.json`).
 - **Tokens:** input, output, **reasoning**, cache read and cache write, per step and totalled. Old turns recorded only the last message's usage, which understates.
 - **Time:** time to first step response, **time to first tool call** (`timeToFirstCallMs`, already computed), time to first write, total duration, per-step durations.
-- **Work:** steps used against the stated cap; tool calls by family (read/grep/glob, serena, engram, playwright, write/edit, run_spec, authbrowser, task, todowrite); denied calls; duplicate and redundant reads; reads of files the prompt already provided.
+- **Work:** steps used against the stated cap; tool calls by family (read/grep/glob, serena, codegraph, playwright, write/edit, run_spec, authbrowser, task, todowrite); denied calls; duplicate and redundant reads (the same window of a file again); same-file re-reads (a file read again in any window, with no write to it in between); reads of files the prompt already provided.
 - **Ending:** completed / timeout / aborted / exhausted / no-verdict, and the parsed verdict shape (specs count, no-op kind `not-worth|unobservable|unspecified`).
 - **Context composition:** prompt bytes **per section** (the run prompt is assembled from about 25 conditional sections in `qa-engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts`), static-layer bytes, and **bytes of tool schemas offered**.
   - The tool schemas are about **60% of the initial context**. The generator is offered 66 tools, ~60 KB. **Serena: 0 symbol calls in 56 runs.**
@@ -205,7 +205,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 
 | Store | What | Gaps |
 |---|---|---|
-| SQLite `/app/data/qayaba.db` (`src/server/history.ts`) | `runs`, `run_outcomes`, `run_events`, `agent_turns` (toolSequence, callBuckets, tokens, timeToFirstCall, steps, writes, redundant reads, promptBytes), `learning_rules`, `context_maps`, … | No explorer, reviewer or sidekick per-call data in recent runs. No OpenCode retries, title calls, provider error classes or event-loop health |
+| SQLite `/app/data/qayaba.db` (`src/server/history.ts`) | `runs`, `run_outcomes`, `run_events`, `agent_turns` (toolSequence, callBuckets, tokens, timeToFirstCall, steps, writes, redundant and same-file reads, each read's window in toolSequence, promptBytes), `learning_rules`, `context_maps`, … | No explorer, reviewer or sidekick per-call data in recent runs. No OpenCode retries, title calls, provider error classes or event-loop health |
 | `gateSignals` on the run outcome (`qa-engine/src/shared-kernel/run-outcome.ts`) | sandbox (egress mode, denied), closedLoop, agentBrowser, coordination, noop kind, coverage… | On an unhandled error before an outcome existed, only a minimal sandbox-only outcome is now persisted |
 | `npm run probe-report -- <runId>` (`scripts/probe-report.ts`) | A per-run table of phases, turns, tools, tokens, cost, stitcher signals; JSON under `config/benchmarks/probe-results/` | A batch tool run after the fact |
 | `npm run efficiency-benchmark` | Step and call telemetry across runs | Never a gate |

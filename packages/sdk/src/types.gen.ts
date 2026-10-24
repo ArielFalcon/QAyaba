@@ -1349,6 +1349,7 @@ export interface components {
             callsBeforeFirstWrite: number | null;
             writeCount: number | null;
             redundantReadCount: number | null;
+            sameFileReadCount: number | null;
             duplicateCallCount: number | null;
             promptProvidedReadCount: number | null;
             pathProvidedReadCount: number | null;
@@ -1366,6 +1367,7 @@ export interface components {
                 tool: string;
                 target: string | null;
                 scope?: string;
+                window?: string;
                 /** @enum {boolean} */
                 denied?: true;
             }[] | null;

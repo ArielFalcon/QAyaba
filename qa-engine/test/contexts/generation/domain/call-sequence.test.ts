@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   summarizeCallSequence,
   detectRedundantReads,
+  detectSameFileRereads,
   readWindowOf,
   type CallRecord,
   type ReadWriteEvent,
@@ -213,4 +214,28 @@ test("reads of one path are redundant only when they asked for the same window",
   const read = (callId: string, window: string): ReadWriteEvent => ({ ...rw(callId, "read", "/a.ts", CALL_BUCKETS.CODE_READ), window });
   const redundant = detectRedundantReads([read("c1", "offset=0,limit=100"), read("c2", "offset=100,limit=100"), read("c3", "offset=100,limit=100"), read("c4", "")]);
   assert.deepEqual([...redundant], ["c3"]);
+});
+
+test("an offset of 1 is the top of the file for the native read, whose lines start at 1; Serena's 0-based start line 1 is a window", () => {
+  assert.equal(readWindowOf({ filePath: "/a.ts", offset: 1 }), readWindowOf({ filePath: "/a.ts" }));
+  assert.equal(readWindowOf({ filePath: "/a.ts", offset: "1", limit: 2000 }), readWindowOf({ filePath: "/a.ts", limit: 2000 }));
+  assert.notEqual(readWindowOf({ relative_path: "a.ts", start_line: 1 }), "");
+  const redundant = detectRedundantReads([
+    { ...rw("c1", "read", "/a.ts", CALL_BUCKETS.CODE_READ), window: readWindowOf({ filePath: "/a.ts" }) },
+    { ...rw("c2", "read", "/a.ts", CALL_BUCKETS.CODE_READ), window: readWindowOf({ filePath: "/a.ts", offset: 1 }) },
+  ]);
+  assert.deepEqual([...redundant], ["c2"]);
+});
+
+test("a re-read of a file already read is counted whatever window it asks for, and a write to that file starts it over", () => {
+  const reread = detectSameFileRereads([
+    rw("c1", "read", "/a.ts", CALL_BUCKETS.CODE_READ),
+    { ...rw("c2", "read", "/a.ts", CALL_BUCKETS.CODE_READ), window: "offset=200" },
+    rw("c3", "read", "/b.ts", CALL_BUCKETS.CODE_READ),
+    rw("c4", "write", "/a.ts", CALL_BUCKETS.WRITE),
+    rw("c5", "read", "/a.ts", CALL_BUCKETS.CODE_READ),
+    rw("c6", "grep", "/b.ts", CALL_BUCKETS.CODE_READ),
+    rw("c7", "read", "/b.ts", CALL_BUCKETS.CODE_READ),
+  ]);
+  assert.deepEqual([...reread].sort(), ["c2", "c7"]);
 });

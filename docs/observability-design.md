@@ -397,7 +397,7 @@ invoke_agent qa-generator               INTERNAL  one per prompt (turn)
 | Model | `gen_ai.provider.name`, `gen_ai.request.model` (what we asked, or the agent's configured model), `gen_ai.response.model` (**from `AssistantMessage.modelID/providerID`**, which today is discarded at `opencode-client.ts:573`), `gen_ai.request.reasoning.level` (the role's `reasoningEffort`), `qayaba.agent.fallback_used` |
 | Tokens | `gen_ai.usage.input_tokens`, `.output_tokens`, `.cache_read.input_tokens`, `.cache_write.input_tokens`, `.reasoning.output_tokens`, summed over steps. `qayaba.usage.source`=`steps\|final-message\|none` says how complete the sum is |
 | Time | `qayaba.agent.ms_to_first_step`, `qayaba.agent.ms_to_first_call` (existing `timeToFirstCallMs`), `.ms_to_first_write`, `qayaba.agent.reasoning_tokens_before_first_call` (F3) |
-| Work | `qayaba.agent.steps.used`, `.steps.limit` (live from `GET /agent`), `qayaba.agent.calls.<bucket>` per `CALL_BUCKETS`, `.calls.denied`, `.reads.redundant`, `.reads.prompt_provided`, `.writes` |
+| Work | `qayaba.agent.steps.used`, `.steps.limit` (live from `GET /agent`), `qayaba.agent.calls.<bucket>` per `CALL_BUCKETS`, `.calls.denied`, `.reads.redundant`, `.reads.same_file`, `.reads.prompt_provided`, `.writes` |
 | Limits | `qayaba.limit.applied` (the smallest that applied), `qayaba.limit.applied_ms`, `qayaba.limit.fired`, `qayaba.agent.end` (`completed\|exhausted\|timeout\|aborted`) |
 | Verdict | `qayaba.agent.verdict.specs`, `.noop_kind` (`not-worth\|unobservable\|unspecified`), `.parse` (`ok\|repaired\|unreadable`) |
 | Prompt | `qayaba.prompt.hash`, `qayaba.prompt.bytes`, `qayaba.prompt.section.<id>.bytes` and `.hash`, `qayaba.prompt.sections.dropped`, `qayaba.prompt.tools_offered.count` and `.bytes` (§5.6) |

@@ -323,7 +323,7 @@ const measuredTurn: AgentTurnRecord = {
   runId: "p1", sessionId: "sess-1", role: "qa-generator", round: 0, isRepair: false,
   ts: "2026-09-28T10:00:00.000Z", objective: null, promptText: "the prompt", outputText: "the output", promptBytes: 10,
   tokensInput: 100, tokensOutput: 50, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.01,
-  totalCalls: 31, stepsUsed: 50, maxSteps: 50, callsBeforeFirstWrite: 27, writeCount: 2, redundantReadCount: 6,
+  totalCalls: 31, stepsUsed: 50, maxSteps: 50, callsBeforeFirstWrite: 27, writeCount: 2, redundantReadCount: 6, sameFileReadCount: 6,
   duplicateCallCount: 4, promptProvidedReadCount: 3, pathProvidedReadCount: 2, exhausted: true,
   callBuckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, script_run: 3, memory: 0, subagent: 0, other: 2 },
   ended: "timeout",
@@ -335,7 +335,7 @@ const measuredTurn: AgentTurnRecord = {
 test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, null where unmeasured", async () => {
   const unmeasured: AgentTurnRecord = {
     ...measuredTurn, sessionId: "sess-2", totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null,
-    writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
+    writeCount: null, redundantReadCount: null, sameFileReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
     durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null, usageTotal: null,
   };
   const r = mkRes();
@@ -1380,7 +1380,7 @@ test("phase-0b: GET /api/runs/:id/turns returns 404 when the run is not found", 
 /* The efficiency fields a stored turn carries when nothing measured them (what getAgentTurns returns for an unmeasured turn). */
 const UNMEASURED_TURN_FIELDS = {
   totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null,
-  redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
+  redundantReadCount: null, sameFileReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null, ended: null,
   durationMs: null, timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: null, toolSequence: null, usageTotal: null,
 };
 

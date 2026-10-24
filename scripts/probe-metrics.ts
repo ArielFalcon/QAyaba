@@ -170,6 +170,8 @@ export interface ProbeTurn {
   usage: ProbeUsage;
   promptBytes: number | null;
   redundantReads: number | null;
+  /** Re-reads of a file already read, whatever window. */
+  sameFileReads: number | null;
   /** Reads of content the prompt already carried. */
   promptProvidedReads: number | null;
   /** Reads of a file the prompt listed by path. */
@@ -215,6 +217,7 @@ export function toProbeTurn(t: AgentTurnRecord, ctx: ReadingContext): ProbeTurn 
     usage: usageOf(t),
     promptBytes: t.promptBytes,
     redundantReads: t.redundantReadCount ?? null,
+    sameFileReads: t.sameFileReadCount ?? null,
     promptProvidedReads: t.promptProvidedReadCount ?? null,
     pathProvidedReads: t.pathProvidedReadCount ?? null,
     tools: summarizeTools(toolSequence, ctx),
@@ -256,6 +259,7 @@ export function turnFromCallMetrics(t: MeasuredTurnInput, ctx: ReadingContext): 
     usage: u ? { input: u.input, output: u.output, reasoning: u.reasoning, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite, cost: u.cost, source: "all-steps" } : NO_USAGE,
     promptBytes: t.promptBytes,
     redundantReads: m?.redundantReadCount ?? null,
+    sameFileReads: m?.sameFileReadCount ?? null,
     promptProvidedReads: m?.promptProvidedReadCount ?? null,
     pathProvidedReads: m?.pathProvidedReadCount ?? null,
     tools: summarizeTools(m?.toolSequence ?? null, ctx),
@@ -838,7 +842,7 @@ export function renderRunRow(r: ProbeReport): string {
   return `| ${cells.map((c) => cell(String(c))).join(" | ")} |`;
 }
 
-const TURN_COLUMNS = ["id", "role", "ended", "wall", "steps", "calls", "before 1st write (calls / time)", "to 1st call", "denied", "tokens in/out/reason/cache", "cost", "prompt B", "redundant / prompt-provided reads", "files read (outside diff dirs / outside brief)", "browser urls"] as const;
+const TURN_COLUMNS = ["id", "role", "ended", "wall", "steps", "calls", "before 1st write (calls / time)", "to 1st call", "denied", "tokens in/out/reason/cache", "cost", "prompt B", "redundant / same-file / prompt-provided reads", "files read (outside diff dirs / outside brief)", "browser urls"] as const;
 
 /** The header of the per-turn table. */
 export const TURN_TABLE_HEADER = `| ${TURN_COLUMNS.join(" | ")} |\n|${TURN_COLUMNS.map(() => "---").join("|")}|`;
@@ -853,7 +857,7 @@ export function renderTurnRows(r: ProbeReport): string[] {
       `${num(t.stepsUsed)}/${num(t.maxSteps)}`, num(t.calls),
       `${num(t.callsBeforeFirstWrite)} / ${secs(t.msToFirstWrite)}${t.writes === 0 ? " (no write)" : ""}`, secs(t.msToFirstCall), num(t.deniedCalls),
       `${kilo(t.usage.input)}/${kilo(t.usage.output)}/${kilo(t.usage.reasoning)}/${kilo(t.usage.cacheRead)}${partial}`, `${usd(t.usage.cost)}${partial}`,
-      num(t.promptBytes), `${num(t.redundantReads)} / ${num(t.promptProvidedReads)}`,
+      num(t.promptBytes), `${num(t.redundantReads)} / ${num(t.sameFileReads)} / ${num(t.promptProvidedReads)}`,
       tools === null ? NA : `${tools.distinctFilesRead} (${num(tools.filesReadOutsideDiffDirs)} / ${num(tools.filesReadOutsideBrief)})`,
       tools === null ? NA : tools.browserUrls.length === 0 ? "0" : `${tools.browserUrls.length}: ${tools.browserUrls.slice(0, 3).join(", ")}${tools.browserUrls.length > 3 ? ", …" : ""}`,
     ];

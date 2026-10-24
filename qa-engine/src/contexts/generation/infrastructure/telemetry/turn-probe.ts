@@ -346,6 +346,7 @@ export class TurnProbe {
             ...Object.fromEntries(Object.entries(calls).map(([bucket, n]) => [attrKey.agentCalls(bucket), n])),
             "qayaba.agent.calls.denied": metrics.deniedCallCount,
             "qayaba.agent.reads.redundant": metrics.redundantReadCount,
+            "qayaba.agent.reads.same_file": metrics.sameFileReadCount,
             "qayaba.agent.reads.prompt_provided": metrics.promptProvidedReadCount + metrics.pathProvidedReadCount,
             "qayaba.agent.writes": metrics.writeCount,
             ...(metrics.timeToFirstCallMs !== null ? { "qayaba.agent.ms_to_first_call": metrics.timeToFirstCallMs } : {}),

@@ -63,6 +63,8 @@ export interface AgentTurnRecord {
   callsBeforeFirstWrite?: number | null;
   writeCount?: number | null;
   redundantReadCount?: number | null;
+  /* Re-reads of a file already read in the session, whatever window, with no write to it in between. */
+  sameFileReadCount?: number | null;
   duplicateCallCount?: number | null;
   promptProvidedReadCount?: number | null;
   /* Content reads of a file the prompt listed by path as rendered; apart from the content-based promptProvidedReadCount. */
@@ -140,6 +142,7 @@ export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: 
   { name: "prompt_hash", type: "TEXT" },
   { name: "limit_applied", type: "TEXT" },
   { name: "limit_fired", type: "TEXT" },
+  { name: "same_file_read_count", type: "INTEGER" },
 ];
 
 const DELETE_MAX_AGE_DAYS = 30;
@@ -649,7 +652,7 @@ function ensureDb(): void {
        path_provided_read_count, ended,
        duration_ms, time_to_first_call_ms, time_to_first_write_ms, denied_call_count, tool_sequence, usage_total,
        model_requested, model_answered, provider, attempt, fallback_used, error_type,
-       section_sizes, section_hashes, prompt_hash, limit_applied, limit_fired)
+       section_sizes, section_hashes, prompt_hash, limit_applied, limit_fired, same_file_read_count)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
@@ -659,7 +662,7 @@ function ensureDb(): void {
        @pathProvidedReadCount, @ended,
        @durationMs, @timeToFirstCallMs, @timeToFirstWriteMs, @deniedCallCount, @toolSequence, @usageTotal,
        @modelRequested, @modelAnswered, @provider, @attempt, @fallbackUsed, @errorType,
-       @sectionSizes, @sectionHashes, @promptHash, @limitApplied, @limitFired)
+       @sectionSizes, @sectionHashes, @promptHash, @limitApplied, @limitFired, @sameFileReadCount)
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
@@ -1970,6 +1973,7 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
     callsBeforeFirstWrite: turn.callsBeforeFirstWrite ?? null,
     writeCount: turn.writeCount ?? null,
     redundantReadCount: turn.redundantReadCount ?? null,
+    sameFileReadCount: turn.sameFileReadCount ?? null,
     duplicateCallCount: turn.duplicateCallCount ?? null,
     promptProvidedReadCount: turn.promptProvidedReadCount ?? null,
     pathProvidedReadCount: turn.pathProvidedReadCount ?? null,
@@ -2028,6 +2032,7 @@ export function saveAgentTurnEvent(t: AgentTurnEvent): void {
     callsBeforeFirstWrite: t.callMetrics?.callsBeforeFirstWrite ?? null,
     writeCount: t.callMetrics?.writeCount ?? null,
     redundantReadCount: t.callMetrics?.redundantReadCount ?? null,
+    sameFileReadCount: t.callMetrics?.sameFileReadCount ?? null,
     duplicateCallCount: t.callMetrics?.duplicateCallCount ?? null,
     promptProvidedReadCount: t.callMetrics?.promptProvidedReadCount ?? null,
     pathProvidedReadCount: t.callMetrics?.pathProvidedReadCount ?? null,
@@ -2080,6 +2085,7 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
     callsBeforeFirstWrite: (r.calls_before_first_write as number | null) ?? null,
     writeCount: (r.write_count as number | null) ?? null,
     redundantReadCount: (r.redundant_read_count as number | null) ?? null,
+    sameFileReadCount: (r.same_file_read_count as number | null) ?? null,
     duplicateCallCount: (r.duplicate_call_count as number | null) ?? null,
     promptProvidedReadCount: (r.prompt_provided_read_count as number | null) ?? null,
     pathProvidedReadCount: (r.path_provided_read_count as number | null) ?? null,

@@ -2016,7 +2016,7 @@ const CALL_METRICS = {
   callsBeforeFirstWrite: 9,
   writeCount: 0,
   commandCount: 0,
-  redundantReadCount: 1,
+  redundantReadCount: 1, sameFileReadCount: 1,
   duplicateCallCount: 0,
   promptProvidedReadCount: 0,
   pathProvidedReadCount: 0,

@@ -4692,6 +4692,12 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "sameFileReadCount": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
           "duplicateCallCount": {
             "nullable": true,
             "type": "integer",
@@ -4769,6 +4775,9 @@
                   "type": "string"
                 },
                 "scope": {
+                  "type": "string"
+                },
+                "window": {
                   "type": "string"
                 },
                 "denied": {
@@ -4854,6 +4863,7 @@
           "callsBeforeFirstWrite",
           "writeCount",
           "redundantReadCount",
+          "sameFileReadCount",
           "duplicateCallCount",
           "promptProvidedReadCount",
           "pathProvidedReadCount",

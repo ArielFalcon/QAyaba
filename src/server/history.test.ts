@@ -713,7 +713,7 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
         callsBeforeFirstWrite: 27,
         writeCount: 2,
         commandCount: 1,
-        redundantReadCount: 6,
+        redundantReadCount: 6, sameFileReadCount: 6,
         duplicateCallCount: 4,
         promptProvidedReadCount: 3,
         pathProvidedReadCount: 2,
@@ -797,7 +797,7 @@ test("a turn that wrote nothing keeps its unknown time to first write and an emp
     runId,
     sessionId: "s-measured",
     callMetrics: {
-      totalCalls: 0, stepsUsed: 1, observationComplete: true, callsBeforeFirstWrite: 0, writeCount: 0, commandCount: 0, redundantReadCount: 0,
+      totalCalls: 0, stepsUsed: 1, observationComplete: true, callsBeforeFirstWrite: 0, writeCount: 0, commandCount: 0, redundantReadCount: 0, sameFileReadCount: 0,
       duplicateCallCount: 0, promptProvidedReadCount: 0, pathProvidedReadCount: 0,
       buckets: { code_read: 0, browser: 0, write: 0, validate_run: 0, script_run: 0, memory: 0, subagent: 0, other: 0 },
       timeToFirstCallMs: null, timeToFirstWriteMs: null, deniedCallCount: 0, toolSequence: [], usage: null,
@@ -827,7 +827,7 @@ test("saveAgentTurnEvent keeps how a turn ended, and a turn that never answered 
     ended: "timeout",
     stepBudget: { maxSteps: 50, exhausted: false },
     callMetrics: {
-      totalCalls: 31, stepsUsed: 12, observationComplete: true, callsBeforeFirstWrite: 31, writeCount: 0, commandCount: 0, redundantReadCount: 0,
+      totalCalls: 31, stepsUsed: 12, observationComplete: true, callsBeforeFirstWrite: 31, writeCount: 0, commandCount: 0, redundantReadCount: 0, sameFileReadCount: 0,
       duplicateCallCount: 0, promptProvidedReadCount: 0, pathProvidedReadCount: 0,
       buckets: { code_read: 20, browser: 6, write: 0, validate_run: 1, script_run: 4, memory: 0, subagent: 0, other: 0 },
       timeToFirstCallMs: 70_000, timeToFirstWriteMs: null, deniedCallCount: 0, toolSequence: [], usage: null,

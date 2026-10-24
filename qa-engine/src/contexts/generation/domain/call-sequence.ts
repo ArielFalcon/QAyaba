@@ -107,9 +107,14 @@ export interface ReadWriteEvent {
   window?: string;
 }
 
-/* The keys a read uses to ask for part of a file: the native tool's `offset`/`limit` and Serena's `start_line`/`end_line`. A start of 0 is the default (the top of the file), not a request for a window. */
+/*
+ * The keys a read uses to ask for part of a file: the native tool's `offset`/`limit` and Serena's `start_line`/`end_line`. A start
+ * at the top of the file is the default, not a request for a window: the native read numbers lines from 1 (and accepts 0), Serena
+ * from 0, so each start key names the values that mean the top.
+ */
 const WINDOW_START_KEYS = ["offset", "start_line"] as const;
 const WINDOW_SIZE_KEYS = ["limit", "end_line"] as const;
+const TOP_OF_FILE: Record<(typeof WINDOW_START_KEYS)[number], readonly number[]> = { offset: [0, 1], start_line: [0] };
 
 /** Which part of a file a read asked for, as a stable string: "" for the whole file. Two reads of one path are the same read only if their windows are the same. */
 export function readWindowOf(input: unknown): string {
@@ -119,7 +124,7 @@ export function readWindowOf(input: unknown): string {
   for (const key of [...WINDOW_START_KEYS, ...WINDOW_SIZE_KEYS]) {
     const value = record?.[key];
     if (typeof value !== "number" && typeof value !== "string") continue;
-    if ((WINDOW_START_KEYS as readonly string[]).includes(key) && Number(value) === 0) continue;
+    if (key in TOP_OF_FILE && TOP_OF_FILE[key as keyof typeof TOP_OF_FILE].includes(Number(value))) continue;
     parts.push(`${key}=${String(value)}`);
   }
   return parts.join(",");
@@ -160,3 +165,13 @@ export function detectRedundantReads(events: readonly ReadWriteEvent[]): Readonl
 
   return redundant;
 }
+
+/**
+ * Flags re-reads of a file: a content-read tool reading a path already read, whatever window either read asked for, with no write
+ * to that path in between. It measures re-exploration, which `detectRedundantReads` does not: a read of another window of a file is
+ * new content there and a re-read here. Writes clear it as they clear redundancy.
+ */
+export function detectSameFileRereads(events: readonly ReadWriteEvent[]): ReadonlySet<string> {
+  return detectRedundantReads(events.map(({ window: _window, ...event }) => event));
+}
+

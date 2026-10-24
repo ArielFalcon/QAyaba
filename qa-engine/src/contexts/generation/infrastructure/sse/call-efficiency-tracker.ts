@@ -27,6 +27,7 @@ import type { RawOpencodeEvent } from "./activity-mapper.ts";
 import { CALL_BUCKETS, bucketForTool, isShellTool, toolInputPath, type CallBucket } from "../../domain/tool-call-taxonomy.ts";
 import {
   detectRedundantReads,
+  detectSameFileRereads,
   isContentReadTool,
   readWindowOf,
   summarizeCallSequence,
@@ -285,6 +286,7 @@ function toSequenceEntry(call: TrackedCall): ToolSequenceEntry {
     tool: call.tool.slice(0, TOOL_TARGET_MAX_CHARS),
     target: call.target.target,
     ...(call.target.scope !== undefined ? { scope: call.target.scope } : {}),
+    ...(call.window && isContentReadTool(call.tool) ? { window: call.window.slice(0, TOOL_TARGET_MAX_CHARS) } : {}),
     ...(call.denied ? { denied: true as const } : {}),
   };
 }
@@ -585,6 +587,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     const duplicatesBefore = summarizeCallSequence(calls.slice(0, session.flushedCalls).map(toCallRecord)).repeatedCallCount;
 
     const redundant = detectRedundantReads(calls.map(toReadWriteEvent));
+    const rereads = detectSameFileRereads(calls.map(toReadWriteEvent));
     const promptIndex = indexPromptLines(promptText);
     const provided = new Set(providedPaths?.map((p) => resolve(session.cwd, p)));
     const newSteps = session.stepStarts.size - session.flushedSteps;
@@ -596,6 +599,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       sequence: { ...summarizeCallSequence(turnCalls.map(toCallRecord)), repeatedCallCount: duplicatesNow - duplicatesBefore },
       buckets: turnCalls.map((call) => call.bucket),
       redundantReadCount: turnCalls.filter((call) => redundant.has(call.callId)).length,
+      sameFileReadCount: turnCalls.filter((call) => rereads.has(call.callId)).length,
       promptProvidedReadCount: turnCalls.filter((call) => call.sample && isProvidedByPrompt(call.sample, promptIndex)).length,
       pathProvidedReadCount: turnCalls.filter((call) => isContentReadTool(call.tool) && call.path !== undefined && provided.has(call.path)).length,
       stepsUsed: session.stepsComplete && newSteps > 0 ? newSteps : null,
