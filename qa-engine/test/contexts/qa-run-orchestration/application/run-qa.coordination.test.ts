@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, type CoordinationGateSignal } from "@kernel/coordination.ts";
+import { COORDINATION_SIGNAL_MODE, DEFAULT_COORDINATION_SETTINGS, type CoordinationGateSignal } from "@kernel/coordination.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -18,7 +18,7 @@ import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../supp
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "coord-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
 
-const signalOf = (over: Partial<CoordinationGateSignal> = {}): CoordinationGateSignal => ({ mode: COORDINATION_MODE.LEAD_SIDEKICKS, flows: 0, delivered: 0, incomplete: 0, takeover: false, ...over });
+const signalOf = (over: Partial<CoordinationGateSignal> = {}): CoordinationGateSignal => ({ mode: COORDINATION_SIGNAL_MODE, flows: 0, delivered: 0, incomplete: 0, takeover: false, ...over });
 
 interface Rig {
   calls: string[];
@@ -92,35 +92,28 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
   return r;
 }
 
-const LEAD_SIDEKICKS = { coordinationSettings: { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS } };
-
-test("in the single mode the generation port sees exactly the calls a run without coordination makes, whatever is wired", async () => {
+test("a run with no coordinator wired generates in one lead turn, with no planning limits in the enrichment", async () => {
   const bare = rig();
   await new RunQaUseCase(bare.deps({ leadSidekicks: undefined, sidekickProvider: undefined })).run(INPUT);
-  for (const settings of [undefined, { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.SINGLE }]) {
-    const wired = rig();
-    await new RunQaUseCase(wired.deps(settings ? { coordinationSettings: settings } : {})).run(INPUT);
-    assert.deepEqual(wired.calls, bare.calls, "the same calls in the same order");
-    assert.deepEqual(wired.enrichments, bare.enrichments, "the same enrichment, with no planning limits in it");
-    assert.equal(wired.coordinated.length, 0);
-    assert.equal(wired.planned.length, 0);
-    assert.ok(wired.enrichments.every((e) => e.planning === undefined));
-  }
+  assert.equal(bare.coordinated.length, 0);
+  assert.equal(bare.planned.length, 0);
+  assert.deepEqual(bare.calls.filter((c) => c === "generate"), ["generate"]);
+  assert.ok(bare.enrichments.every((e) => e.planning === undefined));
 });
 
-test("a single-mode run records no coordination, and a coordinated one records what became of it", async () => {
-  const single = rig();
-  const plain = await new RunQaUseCase(single.deps()).run(INPUT);
+test("a run with no coordinator records no coordination, and a coordinated one records what became of it", async () => {
+  const bare = rig();
+  const plain = await new RunQaUseCase(bare.deps({ leadSidekicks: undefined })).run(INPUT);
   assert.equal(plain.outcome?.gateSignals.coordination, undefined);
 
   const coordinated = rig(() => ({ action: "single", signal: signalOf({ plan: "single", authoring: "authenticated-browser" }) }));
-  const out = await new RunQaUseCase(coordinated.deps(LEAD_SIDEKICKS)).run(INPUT);
+  const out = await new RunQaUseCase(coordinated.deps()).run(INPUT);
   assert.deepEqual(out.outcome?.gateSignals.coordination, signalOf({ plan: "single", authoring: "authenticated-browser" }));
 });
 
 test("a coordinated run hands the coordinator what the run knows: its identity, the grants, the login and the planning turn", async () => {
   const r = rig();
-  await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT);
+  await new RunQaUseCase(r.deps()).run(INPUT);
   const [input] = r.coordinated;
   assert.equal(input!.runId, "coord-run");
   assert.equal(input!.app, "demo");
@@ -129,7 +122,7 @@ test("a coordinated run hands the coordinator what the run knows: its identity, 
   assert.equal(input!.specRelDir, "e2e");
   assert.deepEqual(input!.facts, { hasLogin: true, provider: "opencode", plannerProvider: "opencode" });
   assert.ok(input!.closedLoop && input!.agentBrowser, "both grants");
-  assert.equal(input!.settings.mode, COORDINATION_MODE.LEAD_SIDEKICKS);
+  assert.deepEqual(input!.settings, DEFAULT_COORDINATION_SETTINGS);
   /* The planning closure asks the generation port, with the run's enrichment and the limits. */
   const planned = await input!.plan!({ maxFlows: 4, maxParallel: 2, budgetMs: 60_000 });
   assert.equal(planned.parsed, true);
@@ -141,22 +134,22 @@ test("a coordinated run hands the coordinator what the run knows: its identity, 
 test("the pages the grounding linked to the change reach the coordinator, and a run that linked none passes none", async () => {
   const grounded = rig();
   const preGenerationGrounding = { ground: async () => ({ changeRoutes: ["/order", "/upload-menu"] }) };
-  await new RunQaUseCase(grounded.deps({ ...LEAD_SIDEKICKS, preGenerationGrounding })).run(INPUT);
+  await new RunQaUseCase(grounded.deps({ preGenerationGrounding })).run(INPUT);
   assert.deepEqual(grounded.coordinated[0]!.changeRoutes, ["/order", "/upload-menu"]);
   const plain = rig();
-  await new RunQaUseCase(plain.deps({ ...LEAD_SIDEKICKS, preGenerationGrounding: { ground: async () => ({}) } })).run(INPUT);
+  await new RunQaUseCase(plain.deps({ preGenerationGrounding: { ground: async () => ({}) } })).run(INPUT);
   assert.equal(plain.coordinated[0]!.changeRoutes, undefined);
 });
 
 test("a generation that cannot plan is told to the coordinator as no planning turn", async () => {
   const r = rig();
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true }) } })).run(INPUT);
+  await new RunQaUseCase(r.deps({ generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true }) } })).run(INPUT);
   assert.equal(r.coordinated[0]!.plan, undefined);
 });
 
 test("a run with no login is told to the coordinator as one", async () => {
   const r = rig();
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, authContext: undefined })).run(INPUT);
+  await new RunQaUseCase(r.deps({ authContext: undefined })).run(INPUT);
   assert.equal(r.coordinated[0]!.facts.hasLogin, false);
 });
 
@@ -167,7 +160,7 @@ test("flows that were authored are the run's specs: the lead generates nothing, 
     proposals: [],
     signal: signalOf({ plan: "fanout", flows: 3, delivered: 2, incomplete: 1 }),
   }));
-  const out = await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT);
+  const out = await new RunQaUseCase(r.deps()).run(INPUT);
   assert.equal(r.calls.includes("generate"), false, "the lead did not generate");
   assert.ok(r.calls.indexOf("sweep") < r.calls.indexOf("validate"), "the probes of the flows' loops are swept before the gate sees the working copy");
   assert.ok(r.calls.indexOf("confine") < r.calls.indexOf("validate"));
@@ -179,7 +172,7 @@ test("flows that were authored are the run's specs: the lead generates nothing, 
 
 test("the lead authors the change itself when the coordinator hands it back, with the reason recorded", async () => {
   const r = rig(() => ({ action: "single", signal: signalOf({ downgrade: "too little time", takeover: true }) }));
-  const out = await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT);
+  const out = await new RunQaUseCase(r.deps()).run(INPUT);
   assert.equal(r.calls.filter((c) => c === "generate").length, 1);
   assert.equal(out.outcome?.gateSignals.coordination?.takeover, true);
   assert.equal(out.outcome?.gateSignals.coordination?.downgrade, "too little time");
@@ -187,7 +180,7 @@ test("the lead authors the change itself when the coordinator hands it back, wit
 
 test("a lead that declared a no-op in its plan ends the run as the declared no-op does: skipped, with its reason, and nothing is run", async () => {
   const r = rig(() => ({ action: "noop", reason: "docs only", signal: signalOf({ plan: "noop" }) }));
-  const out = await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT);
+  const out = await new RunQaUseCase(r.deps()).run(INPUT);
   assert.equal(out.decision.verdict, "skipped");
   assert.equal(out.note, "docs only");
   assert.equal(r.calls.includes("generate") || r.calls.includes("validate") || r.calls.includes("execute"), false);
@@ -196,49 +189,40 @@ test("a lead that declared a no-op in its plan ends the run as the declared no-o
 test("flows that decided nothing or ran out of time end the run on the class their end names, never as an empty result", async () => {
   for (const [end, errorClass] of [[GENERATION_END.UNDECIDED_EMPTY, "E-NO-DECISION"], [GENERATION_END.TIME_BUDGET, "E-TIME-BUDGET"]] as const) {
     const r = rig(() => ({ action: "fanout", aggregated: { end, specs: [], incompleteFlows: [], note: "nothing finished" }, proposals: [], signal: signalOf({ plan: "fanout", flows: 2 }) }));
-    const out = await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT);
+    const out = await new RunQaUseCase(r.deps()).run(INPUT);
     assert.equal(out.decision.verdict, "infra-error", end);
     assert.equal(out.errorClass, errorClass, end);
     assert.equal(r.calls.includes("execute"), false);
   }
 });
 
-test("a run's own choice of mode overrides the app's setting, in either direction", async () => {
-  const forcedSingle = rig();
-  await new RunQaUseCase(forcedSingle.deps(LEAD_SIDEKICKS)).run({ ...INPUT, coordinationMode: COORDINATION_MODE.SINGLE });
-  assert.equal(forcedSingle.coordinated.length, 0);
-  const forcedCoordinated = rig();
-  await new RunQaUseCase(forcedCoordinated.deps({ coordinationSettings: { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.SINGLE } })).run({ ...INPUT, coordinationMode: COORDINATION_MODE.LEAD_SIDEKICKS });
-  assert.equal(forcedCoordinated.coordinated.length, 1);
-});
-
-test("the lead/sidekick mode asks for nothing from a code run, a context run, a regression run or a login the lead still has to write", async () => {
+test("coordination asks for nothing from a code run, a context run, a regression run or a login the lead still has to write", async () => {
   const code = rig();
-  await new RunQaUseCase(code.deps({ ...LEAD_SIDEKICKS, config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: true } })).run({ ...INPUT, target: "code" });
+  await new RunQaUseCase(code.deps({ config: { needsReview: true, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: true } })).run({ ...INPUT, target: "code" });
   assert.equal(code.coordinated.length, 0, "code");
 
   const context = rig();
-  await new RunQaUseCase(context.deps({ ...LEAD_SIDEKICKS, generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "map" }) } })).run({ ...INPUT, mode: "context" });
+  await new RunQaUseCase(context.deps({ generation: { generate: async () => scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "map" }) } })).run({ ...INPUT, mode: "context" });
   assert.equal(context.coordinated.length, 0, "context");
 
   const regression = rig();
-  await new RunQaUseCase(regression.deps({ ...LEAD_SIDEKICKS, changeAnalysis: { classify: async () => ({ action: "regression", reason: "no source change", diff: "" }) } })).run(INPUT);
+  await new RunQaUseCase(regression.deps({ changeAnalysis: { classify: async () => ({ action: "regression", reason: "no source change", diff: "" }) } })).run(INPUT);
   assert.equal(regression.coordinated.length, 0, "regression");
 
   const unauthored = rig();
-  await new RunQaUseCase(unauthored.deps({ ...LEAD_SIDEKICKS, authSession: { prepare: async () => ({ unauthored: true }) } })).run(INPUT);
+  await new RunQaUseCase(unauthored.deps({ authSession: { prepare: async () => ({ unauthored: true }) } })).run(INPUT);
   assert.equal(unauthored.coordinated.length, 0, "a login still to write");
 });
 
 test("without the coordinator wired, the mode asks for nothing and the lead authors alone", async () => {
   const r = rig();
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, leadSidekicks: undefined })).run(INPUT);
+  await new RunQaUseCase(r.deps({ leadSidekicks: undefined })).run(INPUT);
   assert.equal(r.calls.filter((c) => c === "generate").length, 1);
 });
 
 test("a coordinator that fails costs the run only the coordination: the lead authors, and the failure is recorded", async () => {
   const r = rig(() => { throw new Error("workspace volume full"); });
-  const out = await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT);
+  const out = await new RunQaUseCase(r.deps()).run(INPUT);
   assert.equal(r.calls.filter((c) => c === "generate").length, 1);
   assert.equal(out.decision.verdict, "pass");
   assert.match(out.outcome?.gateSignals.coordination?.downgrade ?? "", /failed/);
@@ -246,7 +230,7 @@ test("a coordinator that fails costs the run only the coordination: the lead aut
 
 test("the end of the run's own time reaches the run as it does from any agent turn", async () => {
   const r = rig(() => { throw new RunDeadlineExceededError(60_000, "diff", "sidekick", "mid-turn"); });
-  const out = await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT);
+  const out = await new RunQaUseCase(r.deps()).run(INPUT);
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(out.errorClass, "E-TIME-BUDGET");
   assert.equal(r.calls.includes("generate"), false);
@@ -255,7 +239,7 @@ test("the end of the run's own time reaches the run as it does from any agent tu
 test("a run cancelled while its flows were being authored is a cancelled run, not a result", async () => {
   const controller = new AbortController();
   const r = rig(() => { controller.abort(); return { action: "fanout", aggregated: { end: GENERATION_END.DELIVERED, specs: ["flows/a.spec.ts"], incompleteFlows: [] }, proposals: [], signal: signalOf({ plan: "fanout" }) }; });
-  const out = await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT, controller.signal);
+  const out = await new RunQaUseCase(r.deps()).run(INPUT, controller.signal);
   assert.equal(r.calls.includes("validate"), false);
   assert.equal(out.decision.verdict, "infra-error");
 });
@@ -291,7 +275,7 @@ test("in a coordinated run the reviewer's corrections go to the lead's pass, not
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => delivered(kept.pass));
   kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
-  const result = await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, review: rejectingOnce(["flows/a.spec.ts never asserts the total"]) })).run(INPUT);
+  const result = await new RunQaUseCase(r.deps({ review: rejectingOnce(["flows/a.spec.ts never asserts the total"]) })).run(INPUT);
   assert.deepEqual(kept.seen.corrected, [[{ text: "flows/a.spec.ts never asserts the total" }]]);
   assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no regeneration of its own");
   assert.equal(kept.seen.released, 1);
@@ -304,7 +288,7 @@ test("a finding no flow was sent goes to a regeneration with only that finding",
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => delivered(kept.pass));
   kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [0] }));
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, review: rejectingOnce(["a loose finding"]) })).run(INPUT);
+  await new RunQaUseCase(r.deps({ review: rejectingOnce(["a loose finding"]) })).run(INPUT);
   const regen = r.enrichments.filter((e) => e.reviewCorrections !== undefined);
   assert.deepEqual(kept.seen.corrected, [[{ text: "a loose finding" }]], "the lead is asked first");
   assert.deepEqual(regen.map((e) => e.reviewCorrections), [["a loose finding"]]);
@@ -316,7 +300,7 @@ test("a pass whose flows delivered nothing is released at once and never asked t
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => ({ action: "fanout", aggregated: { end: GENERATION_END.UNDECIDED_EMPTY, specs: [], incompleteFlows: [], note: "nothing finished" }, proposals: [], signal: signalOf({ plan: "fanout", flows: 1 }), pass: kept.pass }));
   kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [] }));
-  await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT);
+  await new RunQaUseCase(r.deps()).run(INPUT);
   assert.equal(kept.seen.released, 1);
   assert.deepEqual(kept.seen.corrected, []);
 });
@@ -326,7 +310,7 @@ test("a pass is released however the run ends, a run that throws after coordinat
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => delivered(kept.pass));
   kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [] }));
-  await assert.rejects(new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, validation: { validate: async () => { throw new Error("validator down"); } } })).run(INPUT));
+  await assert.rejects(new RunQaUseCase(r.deps({ validation: { validate: async () => { throw new Error("validator down"); } } })).run(INPUT));
   assert.equal(kept.seen.released, 1);
 });
 
@@ -338,7 +322,6 @@ test("a pass is released once nothing can correct through it, before the run pub
   const release = kept.pass.release;
   kept.pass.release = async () => { r.calls.push("release"); await release(); };
   await new RunQaUseCase(r.deps({
-    ...LEAD_SIDEKICKS,
     execution: { execute: async () => ({ verdict: "fail", cases: [], logs: "boom" }) },
     publication: { publish: async () => (r.calls.push("publish"), { outcome: "issue" }) },
   })).run(INPUT);
@@ -359,7 +342,7 @@ test("corrections the lead's pass made are recorded even when the reviewer canno
   const review = { review: async () => (round++ === 0
     ? { approved: false, corrections: ["flows/a.spec.ts never asserts the total"], blockingCount: 1, parsed: true }
     : { approved: false, corrections: [], blockingCount: 0, parsed: false, unavailable: true }) };
-  const result = await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, review })).run(INPUT);
+  const result = await new RunQaUseCase(r.deps({ review })).run(INPUT);
   assert.equal(result.outcome?.errorClass, "E-REVIEWER-UNAVAILABLE");
   assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0 });
   assert.equal(kept.seen.released, 1);
@@ -383,7 +366,7 @@ test("in a coordinated run a failing execution goes to the lead's pass with each
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => delivered(kept.pass));
   kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
-  const result = await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([FAILED_A]) })).run(INPUT);
+  const result = await new RunQaUseCase(r.deps({ execution: failingOnce([FAILED_A]) })).run(INPUT);
   assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.EXECUTION]);
   assert.equal(kept.seen.corrected[0]?.length, 1);
   assert.equal(kept.seen.corrected[0]![0]!.spec, "flows/a.spec.ts", "the finding names the spec that failed");
@@ -398,7 +381,7 @@ test("a failing case no flow takes goes to the lead's regeneration with only tha
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => flowsAB(kept.pass));
   kept = keptPass(r, (findings) => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: findings.flatMap((f, i) => (f.spec === "flows/b.spec.ts" ? [i] : [])) }));
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([FAILED_A, FAILED_B]) })).run(INPUT);
+  await new RunQaUseCase(r.deps({ execution: failingOnce([FAILED_A, FAILED_B]) })).run(INPUT);
   assert.equal(kept.seen.corrected[0]?.length, 2, "the lead is asked about both");
   const regen = r.enrichments.filter((e) => e.fixCases !== undefined);
   assert.deepEqual(regen.map((e) => e.fixCases!.map((c) => c.name)), [[FAILED_B.name]]);
@@ -413,7 +396,7 @@ test("in a coordinated run the static gate's errors go to the lead's pass, one f
   const validation = { validate: async () => (checks++ === 0
     ? { ok: false, errors: ["flows/a.spec.ts(3,1): error TS2304: Cannot find name 'row'.", "flows/b.spec.ts(9,5): no-wait-for-timeout"] }
     : { ok: true, errors: [] }) };
-  const result = await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, validation })).run(INPUT);
+  const result = await new RunQaUseCase(r.deps({ validation })).run(INPUT);
   assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.STATIC_GATE]);
   const texts = kept.seen.corrected[0]!.map((f) => f.text);
   assert.equal(texts.length, 2);
@@ -432,7 +415,7 @@ test("in a coordinated run an uncovered change goes to the lead's pass, not to a
     measure: async () => (measures++ === 0 ? { status: "fail" as const, ratio: 0.2, uncovered: [{ file: "src/list.ts", lines: [4, 5] }] } : { status: "pass" as const, ratio: 0.9 }),
     blocks: (status: string) => status === "fail",
   };
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "enforce" } })).run(INPUT);
+  await new RunQaUseCase(r.deps({ objectiveSignal, config: { needsReview: false, shadow: false, onFailure: "github-issue", maxRetries: 2, isCode: false, coveragePolicyMode: "enforce" } })).run(INPUT);
   assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.COVERAGE]);
   assert.match(kept.seen.corrected[0]![0]!.text, /src\/list\.ts/);
   assert.equal(r.calls.filter((c) => c === "generate").length, 0);
@@ -449,7 +432,7 @@ test("in a coordinated run the pre-execution selector check goes to the lead's p
     specSources: [`await page.goto("/owners"); await page.getByTestId("ghost-id").click();`],
     routes: [{ route: "/owners", nodes: [], status: "captured" as const, settled: true, testIds: new Map<string, number>() }],
   });
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, preExecGrounding: { capture } })).run(INPUT);
+  await new RunQaUseCase(r.deps({ preExecGrounding: { capture } })).run(INPUT);
   assert.deepEqual(kept.seen.origins, [CORRECTION_ORIGIN.PRE_EXEC]);
   assert.match(kept.seen.corrected[0]![0]!.text, /ghost-id/);
   assert.equal(kept.seen.corrected[0]![0]!.spec, "flows/a.spec.ts");
@@ -458,7 +441,7 @@ test("in a coordinated run the pre-execution selector check goes to the lead's p
 
 test("a run the lead authored alone regenerates for a failing execution as it always did", async () => {
   const r = rig();
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([FAILED_A]) })).run(INPUT);
+  await new RunQaUseCase(r.deps({ execution: failingOnce([FAILED_A]) })).run(INPUT);
   const regen = r.enrichments.filter((e) => e.fixCases !== undefined);
   assert.deepEqual(regen.map((e) => e.fixCases!.map((c) => c.name)), [[FAILED_A.name]]);
 });
@@ -469,7 +452,7 @@ test("what no flow takes is told apart by position, not by text: two failures th
   r = rig(() => delivered(kept.pass));
   kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [1] }));
   const twin: QaCase = { name: "loads", status: "fail", detail: "timeout" };
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([{ ...twin, flow: "first" }, { ...twin, flow: "second" }]) })).run(INPUT);
+  await new RunQaUseCase(r.deps({ execution: failingOnce([{ ...twin, flow: "first" }, { ...twin, flow: "second" }]) })).run(INPUT);
   assert.equal(kept.seen.corrected[0]![0]!.text, kept.seen.corrected[0]![1]!.text, "the two findings read the same");
   const regen = r.enrichments.find((e) => e.fixCases !== undefined);
   assert.deepEqual(regen?.fixCases?.map((c) => c.flow), ["second"]);
@@ -483,7 +466,7 @@ test("a static-gate error that spans paragraphs stays one finding", async () => 
   let checks = 0;
   const error = "flows/a.spec.ts(3,1): error TS2322: Type 'string' is not assignable.\n\n  Expected number, received string.";
   const validation = { validate: async () => (checks++ === 0 ? { ok: false, errors: [error] } : { ok: true, errors: [] }) };
-  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, validation })).run(INPUT);
+  await new RunQaUseCase(r.deps({ validation })).run(INPUT);
   assert.equal(kept.seen.corrected[0]?.length, 1);
   assert.match(kept.seen.corrected[0]![0]!.text, /Expected number, received string/);
 });

@@ -62,17 +62,6 @@ describe("--agent-browser", () => {
   });
 });
 
-describe("--coordination", () => {
-  it("is the run's own choice of coordination mode and reaches the service, and is absent unless given", () => {
-    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "lead-sidekicks"]).coordinationMode, "lead-sidekicks");
-    assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "single"]).coordinationMode, "single");
-    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
-    assert.equal("coordinationMode" in plain, false);
-    assert.equal(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--coordination", "single"]), "e2e").coordinationMode, "single");
-    assert.equal("coordinationMode" in delegateRunInput(plain, "e2e"), false);
-  });
-});
-
 describe("--dom-pack", () => {
   it("is the run's own choice about the pre-generation pack's live-DOM capture and reaches the service as grounding, absent unless given", () => {
     assert.equal(parseArgs(["--app", "x", "--sha", "bbbb222", "--dom-pack", "on"]).domPack, true);

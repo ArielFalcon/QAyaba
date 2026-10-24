@@ -14,7 +14,7 @@ import { type RunMode, type RunPurpose, type TestTarget, type TriggerSource } fr
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import { type NoopKind } from "@kernel/noop-kind.ts";
-import { type CoordinationGateSignal, type CoordinationMode, type CoordinationSettings } from "@kernel/coordination.ts";
+import { type CoordinationGateSignal, type CoordinationSettings } from "@kernel/coordination.ts";
 import type { CoordinatedPass, LeadSidekicks } from "./coordination/lead-sidekicks.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { createRunSecretScope, withRunSecretScope } from "../../../shared-infrastructure/run-secret-redaction.ts";
@@ -348,8 +348,7 @@ export interface RunQaUseCaseDeps {
    */
   sidekickDevBaseUrl?: string;
   /**
-   * How this app's runs are coordinated. Absent: the single mode, as every run was before. A run's own
-   * choice (RunQaInput.coordinationMode) overrides the mode.
+   * The limits of this app's lead/sidekick coordination. Absent: the defaults.
    */
   coordinationSettings?: CoordinationSettings;
   /**
@@ -389,8 +388,6 @@ export interface RunQaInput {
   closedLoop?: boolean;
   /** The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
   agentBrowser?: boolean;
-  /** The run's own choice of coordination mode (an A/B arm), overriding the app's setting. Absent: the app's setting decides. */
-  coordinationMode?: CoordinationMode;
 }
 
 export interface RunQaResult {

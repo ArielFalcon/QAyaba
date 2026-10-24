@@ -53,7 +53,6 @@ export const ATTRIBUTES = {
 
   /* Configuration in effect for the run. */
   "qayaba.runtime": str("The agent runtime: opencode or codex."),
-  "qayaba.coordination.mode": str("single or lead-sidekicks."),
   "qayaba.closed_loop.enabled": bool("The run_spec closed loop is on."),
   "qayaba.agent_browser.enabled": bool("The authenticated agent browser is on."),
   "qayaba.coverage.policy": str("The change-coverage policy mode: off, signal or enforce."),

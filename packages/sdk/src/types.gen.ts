@@ -816,8 +816,6 @@ export interface components {
             commits?: number;
             closedLoop?: boolean;
             agentBrowser?: boolean;
-            /** @enum {string} */
-            coordinationMode?: "single" | "lead-sidekicks";
             campaign?: {
                 id: string;
                 variant: {
@@ -1590,8 +1588,6 @@ export interface components {
                 levers: {
                     closedLoop: boolean | null;
                     agentBrowser: boolean | null;
-                    /** @enum {string|null} */
-                    coordinationMode: "single" | "lead-sidekicks" | null;
                     /** @enum {string|null} */
                     captureMode: "off" | "metadata" | "full" | null;
                 };

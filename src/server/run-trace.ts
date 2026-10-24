@@ -44,7 +44,6 @@ export interface RunIdentity {
 /* The configuration a run started with, as the trace records it (the run's effectiveConfig carries the same facts). */
 export interface RunConfigInEffect {
   runtime: string | null;
-  coordinationMode: string | null;
   closedLoop: boolean | null;
   agentBrowser: boolean | null;
   coveragePolicy: string | null;
@@ -182,7 +181,6 @@ export class RunTrace {
   configInEffect(config: RunConfigInEffect): void {
     const attrs: Record<string, string | boolean> = {};
     if (config.runtime !== null) attrs["qayaba.runtime"] = config.runtime;
-    if (config.coordinationMode !== null) attrs["qayaba.coordination.mode"] = config.coordinationMode;
     if (config.closedLoop !== null) attrs["qayaba.closed_loop.enabled"] = config.closedLoop;
     if (config.agentBrowser !== null) attrs["qayaba.agent_browser.enabled"] = config.agentBrowser;
     if (config.coveragePolicy !== null) attrs["qayaba.coverage.policy"] = config.coveragePolicy;

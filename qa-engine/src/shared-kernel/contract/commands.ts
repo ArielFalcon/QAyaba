@@ -166,8 +166,6 @@ export const CreateRunInputSchema = z.object({
   closedLoop: z.boolean().optional(),
   /* The run's own choice about the authenticated agent browser (an A/B arm), overriding the app's qa.agentBrowser.enabled. Absent: the app's setting decides. */
   agentBrowser: z.boolean().optional(),
-  /* The run's own choice of coordination mode (an A/B arm), overriding the app's qa.coordination.mode: "single" (the lead authors the change alone) or "lead-sidekicks" (the lead plans, sidekicks author the flows in parallel). Absent: the app's setting decides. */
-  coordinationMode: z.enum(["single", "lead-sidekicks"]).optional(),
   /* The campaign this run is a replicate of. Absent: an ordinary run. */
   campaign: CampaignInputSchema.optional(),
   /* The content capture the run's trace may carry, capped by the server's QA_TELEMETRY_MAX_CAPTURE (default metadata). The applied value is in the run's effectiveConfig. */
@@ -612,7 +610,6 @@ export const EffectiveConfigSchema = z.object({
   levers: z.object({
     closedLoop: z.boolean().nullable(),
     agentBrowser: z.boolean().nullable(),
-    coordinationMode: z.enum(["single", "lead-sidekicks"]).nullable(),
     captureMode: CaptureModeSchema.nullable(),
   }),
   campaignFreeze: z.boolean().nullable(),

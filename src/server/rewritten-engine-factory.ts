@@ -1084,10 +1084,9 @@ export function buildRewrittenCompositionConfig(
    * `??`, not `||`: app.qa.explorer is a tri-state (true/false/unconfigured). An explicit
    * `explorer: false` must win over the services-length auto-detect, never be swallowed by it —
    * `||` treated false and unconfigured identically, silently ignoring an operator's opt-out.
-   * Without a recorded grounding, a lead-sidekicks app grounds without the explorer, as the run's effective config decides.
+   * A run's recorded grounding (its effective config) decides first; a server run always carries one.
    */
-  const shouldExplore =
-    grounding?.explorer ?? (resolveCoordinationSettings(app.qa.coordination).mode === "lead-sidekicks" ? false : (app.qa.explorer ?? (app.services?.length ?? 0) > 0));
+  const shouldExplore = grounding?.explorer ?? (app.qa.explorer ?? (app.services?.length ?? 0) > 0);
 
   const explorerBriefAdapter = new ExplorerBriefSessionAdapter(
     {
@@ -1289,7 +1288,7 @@ export function buildRewrittenCompositionConfig(
       : {}),
 
     execScope: execWiring.execScope,
-    /* How this app's runs are coordinated: its qa.coordination with every limit it left out defaulted. A run can override the mode. */
+    /* How this app's runs are coordinated: its qa.coordination with every limit it left out defaulted. */
     coordinationSettings: resolveCoordinationSettings(app.qa.coordination),
     /*
      * The lead/sidekick mode: the workspaces of a run's sidekicks lie beside the mirrors, on the volume the agents' runtime can open

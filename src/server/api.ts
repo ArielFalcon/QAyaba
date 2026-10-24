@@ -13,7 +13,6 @@ import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { RUN_MODES, RunMode, TestTarget, RunRecord, engineStatus } from "../types";
-import { isCoordinationMode, type CoordinationMode } from "@kernel/coordination";
 import { AppConfig } from "../orchestrator/config-loader";
 import { sanitizeText, RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { buildRunContext, buildLearningContext, buildRunChatContext } from "./chat";
@@ -112,7 +111,7 @@ export interface RunObservabilityRequest {
 
 export interface ApiDeps {
   queue: { readonly size: number };
-  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode, observability?: RunObservabilityRequest, grounding?: GroundingInput): string;
+  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, observability?: RunObservabilityRequest, grounding?: GroundingInput): string;
   loadApp(name: string): AppConfig;  /* throws if the app is not configured */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
@@ -565,12 +564,6 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   }
   const agentBrowser = typeof body.agentBrowser === "boolean" ? body.agentBrowser : undefined;
 
-  if (body.coordinationMode !== undefined && !isCoordinationMode(body.coordinationMode)) {
-    apiError(res, 400, "'coordinationMode' must be \"single\" or \"lead-sidekicks\"");
-    return true;
-  }
-  const coordinationMode = isCoordinationMode(body.coordinationMode) ? body.coordinationMode : undefined;
-
   let campaign: CampaignIdentity | undefined;
   if (body.campaign !== undefined) {
     const parsed = CampaignInputSchema.safeParse(body.campaign);
@@ -602,7 +595,7 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
 
   let id: string;
   try {
-    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, coordinationMode, observability, grounding);
+    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha, closedLoop, agentBrowser, observability, grounding);
   } catch (err) {
     if (err instanceof CampaignCaptureMismatchError) {
       apiError(res, 409, err.message);

@@ -342,13 +342,13 @@ export interface CompositionConfig {
   /* Per-run observer (RunRecord + event store live in the shell). Optional: absent → onStep() is a no-op. */
   observer?: ObserverPort;
 
-  /* Multi-agent coordination is ALWAYS wired (single operating mode; see wireBridges below). Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this. */
+  /* Multi-agent coordination is ALWAYS wired (see wireBridges below). Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this. */
   sidekickEscalatedModel?: string;
   /* Durable JSONL sink for coordination telemetry: events appended here survive process restarts so routing/cost signals can be analyzed offline. Absent -> memory-only. */
   coordinationTelemetryPath?: string;
-  /* How the app's runs are coordinated (qa.coordination, limits defaulted). Absent: the single mode, the lead authors alone. */
+  /* How the app's runs are coordinated (qa.coordination, limits defaulted). Absent: the defaults. */
   coordinationSettings?: CoordinationSettings;
-  /* What the lead/sidekick mode needs from the shell. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.leadSidekicks and a run in that mode is authored by its lead alone. */
+  /* What the lead/sidekick mode needs from the shell. Optional, no stub: absent (or a code target) omits RunQaUseCaseDeps.leadSidekicks and a run is authored by its lead alone. */
   delegation?: DelegationWiring;
 }
 
@@ -673,7 +673,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.suiteStore ? { suiteStore: cfg.telemetry ? new TracedSuiteStore(cfg.suiteStore, cfg.telemetry) : cfg.suiteStore } : {}),
     /* Absent coordination settings are omitted entirely: the run is in the single mode. */
     ...(cfg.coordinationSettings ? { coordinationSettings: cfg.coordinationSettings } : {}),
-    /* The lead/sidekick mode: wired for an e2e run whose shell gave it a place for the sidekicks' workspaces; whether a run uses it is the app's coordination mode or the run's own choice. The sidekicks share the reviewer's runtime, each with a session of its own. A run in the single mode (the default) asks it for nothing. */
+    /* The lead/sidekick mode: wired for an e2e run whose shell gave it a place for the sidekicks' workspaces. The sidekicks share the reviewer's runtime, each with a session of its own. A run with no coordinator wired is authored by its lead alone. */
     ...(() => {
       /* Process-lifetime store so the ledger of decisions outlives a run (not a fresh empty bag per composition). */
       const ledger = cfg.coordinationTelemetryPath

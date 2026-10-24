@@ -173,7 +173,7 @@ The harness pre-computes context so the agent does not have to rediscover it. An
 to the agent's behaviour must make it **consume** this context, not re-derive it:
 - **Pre-generation grounding** —
   `qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts`
-  (fail-open): explorer brief (blast radius; `qa.explorer`, default on when `services[]`, off in `lead-sidekicks` mode unless the run asks) on diff and manual runs,
+  (fail-open): explorer brief (blast radius; `qa.explorer`, off for an e2e run unless the run asks, since the lead explores the code graph itself) on diff and manual runs,
   context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
   capturable — `generation/infrastructure/context-pack.ts`), harness facts
   (`generation/domain/harness-facts.ts`), existing-suite manifest.
@@ -222,11 +222,9 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   of the run, calls are capped per run (`DEFAULT_CODE_GRAPH_TOOL_LIMITS`), and the capability is revoked when the run ends. A prompt
   of a `qa-generator` session the run did not grant hides the tools. Calls are spans (`qayaba.tool.codegraph`) and the run log
   counts them; Codex has none.
-- **Lead and sidekicks (`qa.coordination`)** — `mode: single` (default) is the lead authoring the change alone, exactly the call
-  sequence a run without this mode makes; `mode: lead-sidekicks` (the app's `qa.coordination`, or a run's own choice: `--coordination
-  single|lead-sidekicks`, `coordinationMode` on `POST /api/v1/runs`, the campaign's `--coordination`; the run's choice wins and is recorded
-  in the probe report) has the lead return a **plan** instead of specs (`GenerationPort.plan`, a read-only turn, `plan` in the generator's
-  verdict) and each flow authored by a sidekick in parallel. The lead grounds deterministically: no explorer runs, the plan turn's
+- **Lead and sidekicks (`qa.coordination`)** — the only coordination: every e2e run that generates has the lead return a **plan**
+  instead of specs (`GenerationPort.plan`, a read-only turn, `plan` in the generator's verdict) and each flow authored by a sidekick in parallel. A code run, a context run and a login still to be written never coordinate; `qa.coordination`
+  only sets the limits (a leftover `mode: lead-sidekicks` is ignored, `mode: single` is rejected at config load, a stored record may carry `mode: single`). The lead grounds deterministically: no explorer runs, the plan turn's
   diff names the app's own test files instead of showing them (`LanguageRegistry.isTestFile`), its session is denied Playwright
   (`LEAD_PLAN_DENIED_TOOLS`), and it explores with the code-graph tools. A diff over the prompt cap keeps every whole file section that fits
   (code before style sheets) and lists each one left out with its added and removed lines (`prompt-cap.ts`), and the plan turn is told the

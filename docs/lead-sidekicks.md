@@ -1,24 +1,21 @@
 # Lead and sidekicks
 
-An opt-in mode in which the lead plans a change's independent flows and sidekicks author them in
-parallel, each closing its own `run_spec` loop. Everything after generation (validation, execution,
-change-coverage, review, decide) is unchanged. The default is `single`: the lead authors the whole change in one
-turn, with exactly the session calls a run without this mode makes (pinned by a golden test).
+How every e2e run generates: the lead plans a change's independent flows and sidekicks author them in
+parallel, each closing its own `run_spec` loop. Lead + sidekicks is the only coordination mode; there is nothing to
+turn on. Everything after generation (validation, execution, change-coverage, review, decide) is unchanged. A code run,
+a context run and a login still to be written do not coordinate. When the plan is not admitted as a fan-out, no sidekick
+can author, or the coordination fails, the lead authors the whole change in one turn, and why is recorded in
+`gateSignals.coordination` (`downgrade`) and the probe report's "Coordination" section. Records stored before this was
+the only mode may carry `mode: single`.
 
-## Turning it on
+## Tuning it
 
-| Where | How |
-|---|---|
-| App | `qa.coordination` in `config/apps/<app>.yaml` |
-| One run | `npm run qa -- ... --coordination lead-sidekicks`, `coordinationMode` on `POST /api/v1/runs`, `--coordination` of the campaign |
-
-The run's own choice wins over the app's. The mode a run used, and why it was downgraded when it was, is in
-`gateSignals.coordination` and the probe report's "Coordination" section.
+`qa.coordination` in `config/apps/<app>.yaml` sets the limits. A leftover `mode: lead-sidekicks` is accepted and
+ignored; `mode: single` is rejected when the config loads.
 
 ```yaml
 qa:
   coordination:
-    mode: lead-sidekicks     # single (default) | lead-sidekicks
     maxParallel: 3           # flows authored at once (1-6)
     maxFlows: 6              # flows a plan may name (2-12)
     planBudgetMs: 180000     # the lead's planning turn
@@ -153,7 +150,7 @@ difference to look at, not a culprit.
 When the app's structural signal is on and the generator runs on OpenCode, the lead (not a sidekick) can query the code graph
 while it plans and reviews: `codegraph_search_graph` (find a symbol), `codegraph_trace_path` (its callers or callees) and
 `codegraph_get_code_snippet` (its source). The orchestrator serves each call on the run's own project, bounded and redacted
-(AGENTS.md, Code-graph tools). The tools are the lead's in `single` mode too.
+(AGENTS.md, Code-graph tools). The tools are the lead's when it authors alone too.
 
 ## The reviewer's corrections
 
@@ -212,7 +209,6 @@ leaves nothing behind).
   in them) and keep `QA_TOOLS_TOKEN` set: `run_spec` and `authbrowser_*` are served from the internal listener.
 - `src/integrations/fixtures/opencode-agent-list.json` was edited by hand to carry `run_spec` on `qa-sidekick`;
   re-record it from the pinned OpenCode build when convenient (its README says how).
-- To A/B the mode: `docs/efficiency-benchmark.md`, "Lead and sidekicks: A/B".
 
 ## Known limits
 

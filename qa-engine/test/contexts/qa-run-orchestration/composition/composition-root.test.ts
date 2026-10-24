@@ -24,7 +24,7 @@ import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { COORDINATION_MODE, resolveCoordinationSettings } from "@kernel/coordination.ts";
+import { resolveCoordinationSettings } from "@kernel/coordination.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import { NO_SPEC_SNAPSHOTS } from "@kernel/ports/spec-snapshot.port.ts";
 import { TracedCurriculumPort, TracedLearningPort } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-trace.ts";
@@ -1644,7 +1644,7 @@ test("wireBridges builds the agent browser port from cfg.agentBrowser and omits 
 test("wireBridges hands the use case the app's coordination settings, and omits them when the config has none", () => {
   const without = wireBridges(fakeConfig());
   assert.equal("coordinationSettings" in without, false);
-  const settings = resolveCoordinationSettings({ mode: COORDINATION_MODE.LEAD_SIDEKICKS });
+  const settings = resolveCoordinationSettings({ maxFlows: 3 });
   const wired = wireBridges(fakeConfig({ coordinationSettings: settings }));
   assert.deepEqual(wired.coordinationSettings, settings);
 });

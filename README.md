@@ -44,7 +44,7 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 | Capability | What it means |
 |---|---|
 | **Commit-aware testing** | Reads the diff and commit message to understand what changed. Skips style-only commits, writes targeted tests for features and fixes, runs regression-only for refactors. |
-| **Multi-agent coordination** | By default the lead agent authors the change alone. Opt in (`qa.coordination.mode: lead-sidekicks`, or per run) and the lead plans the independent flows while bounded sidekick agents author them in parallel, each in a workspace of its own and each closing its own run loop — all subject to the same quality gates. |
+| **Multi-agent coordination** | The lead agent plans the change's independent flows while bounded sidekick agents author them in parallel, each in a workspace of its own and each closing its own run loop — all subject to the same quality gates. |
 | **Provider-agnostic runtime** | Runs on OpenCode, Codex, or dual mode through one facade. Primary, reviewer, and chat models are configurable from the CLI or Dashboard. |
 | **Two-model review** | A different AI model reviews every generated test for value. Tests that click without asserting, use fragile selectors, or miss the actual change are rejected before they reach the suite. |
 | **Self-improving suite** | When tests pass and the reviewer approves, they are committed to the app's repository via PR with auto-merge. The suite grows with every deploy and never degrades into "green noise." |
@@ -70,8 +70,8 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 ```mermaid
 flowchart LR
     GH["GitHub push to DEV"] -->|webhook| O[Orchestrator]
-    O -->|"mode: single (default)"| LEAD[Lead Agent]
-    O -->|"mode: lead-sidekicks"| PL[Lead plans flows]
+    O --> PL[Lead plans flows]
+    PL -->|"plan not admitted / no sidekick"| LEAD[Lead authors alone]
     PL -->|"one workspace per flow"| SK[Sidekick Agents in parallel]
     LEAD -->|specs| V{{"Same deterministic gates\nstatic · execution · coverage"}}
     SK -->|"only the files each brief names"| V
@@ -114,7 +114,7 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 | **1. Deploy gate** | Waits until DEV reports the right commit SHA and is healthy. Skipped if no health endpoint is configured, or in code mode. |
 | **2. Classification** | Reads the commit message and diff. Conventional Commits like `style:` with no logic changes are skipped before spending a single token. |
 | **3. Retrieval** | Loads learned rules, structural patterns, and proven scenario archetypes from past runs — injects them into the agent prompt. |
-| **4. Coordination** | `single` (default): nothing happens here. `lead-sidekicks`: the lead is asked for a plan of independent flows, the orchestrator admits it (or downgrades to `single` with a recorded reason), and each flow is handed to a sidekick. |
+| **4. Coordination** | The lead is asked for a plan of independent flows, the orchestrator admits it (or downgrades to the lead authoring alone, with a recorded reason), and each flow is handed to a sidekick. |
 | **5. Generation** | The lead (or, in the lead/sidekick mode, one sidekick per flow, in parallel) reads the blast radius using semantic code navigation and writes tests into the repo. A flow that cannot be finished is handed back to the lead — a coordination hiccup can never void a run. |
 | **6. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
 | **7. Execution** | Runs tests against the live DEV URL (e2e) or the repo's own test runner (code mode). Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop, which owns retries, adjudication, and regression checks. |
@@ -127,7 +127,7 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 
 ### Multi-agent coordination
 
-Off unless an app asks for it (`qa.coordination.mode: lead-sidekicks`) or a run does (`--coordination lead-sidekicks`, `coordinationMode` on `POST /api/v1/runs`). The default, `single`, is the lead authoring the change alone, as every run did before. Details: [docs/lead-sidekicks.md](docs/lead-sidekicks.md).
+Every e2e run is coordinated this way; `qa.coordination` only tunes its limits. When a plan is not admitted or no sidekick can author, the lead authors the change alone and the reason is recorded. Details: [docs/lead-sidekicks.md](docs/lead-sidekicks.md).
 
 | Piece | Role |
 |---|---|

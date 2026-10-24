@@ -4,7 +4,7 @@
  * exits with the run's verdict.
  * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
  * [--target e2e|code] [--guidance "..."] [--closed-loop on|off]
- * [--agent-browser on|off] [--dom-pack on|off] [--coordination single|lead-sidekicks]
+ * [--agent-browser on|off] [--dom-pack on|off]
  * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
  * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
@@ -31,7 +31,6 @@ import { loadAppConfig } from "./orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "./orchestrator/schemas";
 import { RUN_MODES, RunMode, TestTarget } from "./types";
 import { runSucceeded } from "./cli-exit";
-import { isCoordinationMode, type CoordinationMode } from "@kernel/coordination";
 import { renderRunReport } from "./qa/value-report";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { defaultEnvStoreFs } from "./server/env-store";
@@ -93,7 +92,7 @@ function cliApiToken(): string | undefined {
  */
 /** The run handed to the service. Carries --base-sha so the delegated run's diff spans the same range the standalone CLI and the webhook use. */
 export function delegateRunInput(
-  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; coordinationMode?: CoordinationMode; domPack?: boolean },
+  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean },
   target: TestTarget,
 ): DelegateRunInput {
   return {
@@ -105,12 +104,11 @@ export function delegateRunInput(
     guidance: args.guidance,
     ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
     ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
-    ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}),
     ...(args.domPack !== undefined ? { grounding: { domPack: args.domPack } } : {}),
   };
 }
 
-async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; coordinationMode?: CoordinationMode; domPack?: boolean }): Promise<void> {
+async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean }): Promise<void> {
   const port = resolvePort(process.env);
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
@@ -197,7 +195,6 @@ async function main(): Promise<void> {
       trigger: "cli",
       ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}),
       ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}),
-      ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}),
       ...(args.domPack !== undefined ? { grounding: { domPack: args.domPack } } : {}),
     }, { runEvents, engineFactory: cliEngineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock });
     await queue.drain();
@@ -260,7 +257,7 @@ function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: Retur
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; coordinationMode?: CoordinationMode; domPack?: boolean; learning: boolean } {
+export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; closedLoop?: boolean; agentBrowser?: boolean; domPack?: boolean; learning: boolean } {
   const out: Record<string, string> = {};
   let learning = false;
   for (let i = 0; i < argv.length; i++) {
@@ -271,7 +268,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
   }
   if (!learning && (!out.app || !out.sha)) {
     console.error(
-      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off] [--coordination single|lead-sidekicks]`,
+      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--closed-loop on|off] [--agent-browser on|off] [--dom-pack on|off]`,
     );
     console.error('       npm run qa -- --app <app> --learning');
     process.exit(2);
@@ -295,19 +292,13 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     console.error('--agent-browser takes "on" or "off"');
     process.exit(2);
   }
-  /* The run's own choice of coordination mode; absent unless given, so the app's setting decides. */
-  const coordinationMode = isCoordinationMode(out.coordination) ? out.coordination : undefined;
-  if (out.coordination !== undefined && coordinationMode === undefined) {
-    console.error('--coordination takes "single" or "lead-sidekicks"');
-    process.exit(2);
-  }
   /* The run's own choice about the pre-generation context pack's live-DOM capture (an A/B arm); absent unless given, so the app's setting decides. */
   const domPack = out["dom-pack"] === "on" ? true : out["dom-pack"] === "off" ? false : undefined;
   if (out["dom-pack"] !== undefined && domPack === undefined) {
     console.error('--dom-pack takes "on" or "off"');
     process.exit(2);
   }
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(coordinationMode !== undefined ? { coordinationMode } : {}), ...(domPack !== undefined ? { domPack } : {}), learning };
+  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(domPack !== undefined ? { domPack } : {}), learning };
 }
 
 function showLearning(app: string): void {

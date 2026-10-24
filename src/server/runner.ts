@@ -25,7 +25,6 @@ import type { RunEventBody } from "../contract/events";
 import { Sha } from "@kernel/sha";
 import { RUN_PURPOSE, type RunPurpose } from "@kernel/run-mode";
 import { isUntrustedGitTreeError } from "@kernel/domain-error";
-import type { CoordinationMode } from "@kernel/coordination";
 import type { CampaignIdentity } from "@kernel/campaign";
 import { capCaptureMode, DEFAULT_CAPTURE_MODE, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { configInEffect, resolveRunConfig, type RunConfigEnvironment, type StoredRunConfig } from "./effective-config";
@@ -74,7 +73,6 @@ export interface RunRequest {
   purpose?: RunPurpose;  /* why the run was started, when it is not a change to test (login bootstrap) */
   closedLoop?: boolean;  /* the run's own choice about the run_spec loop (an A/B arm), overriding the app's setting */
   agentBrowser?: boolean;  /* the run's own choice about the authenticated agent browser (an A/B arm), overriding the app's setting */
-  coordinationMode?: CoordinationMode;  /* the run's own choice of coordination mode (an A/B arm), overriding the app's setting */
   grounding?: GroundingInput;  /* the run's own choice of grounding sources (an A/B arm), overriding the app's settings */
   /* The campaign replicate this run is. Stored and traced as data; never passed to the engine, so it cannot change what the run does. */
   campaign?: CampaignIdentity;
@@ -230,7 +228,6 @@ async function runViaRewrittenEngine(
     ...(req.purpose ? { purpose: req.purpose } : {}),
     ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}),
     ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}),
-    ...(req.coordinationMode !== undefined ? { coordinationMode: req.coordinationMode } : {}),
   };
   const outcome = await port.run(input, signal);
 

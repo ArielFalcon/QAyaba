@@ -11,7 +11,6 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveCoordinationSettings, type CoordinationMode } from "@kernel/coordination";
 import type { TestTarget } from "@kernel/run-mode";
 import { isCaptureMode, type CaptureMode } from "@kernel/telemetry/capture-mode";
 import { serviceTopologyWired, structuralSignalsMode, toolsApply } from "./run-config-gates";
@@ -40,7 +39,6 @@ export interface RunConfigEnvironment {
 export interface RunConfigRequest {
   closedLoop?: boolean | undefined;
   agentBrowser?: boolean | undefined;
-  coordinationMode?: CoordinationMode | undefined;
   grounding?: GroundingInput | undefined;
 }
 
@@ -58,20 +56,18 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
   const services = (app.services?.length ?? 0) > 0;
   const stitched = serviceTopologyWired(app);
   const requestedGrounding = request.grounding ?? {};
-  const coordinationMode = isCode ? null : (request.coordinationMode ?? resolveCoordinationSettings(app.qa.coordination).mode);
   return {
     levers: {
       closedLoop: tools ? env.toolsGranted && closedLoopAsked : null,
       agentBrowser: tools ? env.toolsGranted && agentBrowserAsked : null,
-      coordinationMode,
       captureMode,
     },
     campaignFreeze: env.campaignFrozen,
     runtime: env.runtime(),
     prompt: { staticHash: env.staticPromptHash() },
     grounding: {
-      /* A lead-sidekicks run grounds deterministically: the lead explores the code graph itself, so no explorer runs unless the run asks for one. */
-      explorer: requestedGrounding.explorer ?? (coordinationMode === "lead-sidekicks" ? false : (app.qa.explorer ?? services)),
+      /* An e2e run grounds deterministically: the lead explores the code graph itself, so no explorer runs unless the run asks for one. A code run keeps the app's setting. */
+      explorer: requestedGrounding.explorer ?? (isCode ? (app.qa.explorer ?? services) : false),
       /* The service-topology collaborator is one of the two advisory structural signals: it exists only for an app with services and declared boundaries. */
       stitcher: stitched ? (requestedGrounding.stitcher === false ? "off" : structuralMode) : null,
       structuralSignal: requestedGrounding.structuralSignal === false ? "off" : structuralMode,
@@ -87,7 +83,6 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
 export function configInEffect(config: StoredRunConfig): RunConfigInEffect {
   return {
     runtime: config.runtime,
-    coordinationMode: config.levers.coordinationMode,
     closedLoop: config.levers.closedLoop,
     agentBrowser: config.levers.agentBrowser,
     coveragePolicy: config.coverage.mode,
@@ -99,7 +94,7 @@ export function configInEffect(config: StoredRunConfig): RunConfigInEffect {
 }
 
 const NOT_RECORDED: StoredRunConfig = {
-  levers: { closedLoop: null, agentBrowser: null, coordinationMode: null, captureMode: null },
+  levers: { closedLoop: null, agentBrowser: null, captureMode: null },
   campaignFreeze: null,
   runtime: null,
   prompt: { staticHash: null },

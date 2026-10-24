@@ -205,8 +205,8 @@ test("the pipeline arm is sent as a replicate of the campaign: the label is the 
   const h = harness();
   assert.equal(await runCampaign(argv("--arms", "A,B", "--replicas", "2", "--closed-loop", "on"), h.deps), 0);
   assert.deepEqual(h.pipelineRequests.map((r) => r.campaign), [
-    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", coordination: "default", grounding: "default" }, replicate: 1 },
-    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", coordination: "default", grounding: "default" }, replicate: 2 },
+    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", grounding: "default" }, replicate: 1 },
+    { id: "camp", variant: { arm: "B", closedLoop: "on", agentBrowser: "default", grounding: "default" }, replicate: 2 },
   ]);
 });
 
@@ -550,17 +550,3 @@ test("--agent-browser on|off is the pipeline arm's own choice about the authenti
   assert.equal(await runCampaign(argv("--agent-browser", "maybe"), bad.deps), 2);
 });
 
-test("--coordination single|lead-sidekicks is the pipeline arm's own choice of coordination mode and is recorded; absent, the app's setting decides", async () => {
-  const on = harness();
-  await runCampaign(argv("--coordination", "lead-sidekicks"), on.deps);
-  assert.equal(on.pipelineRequests[0]!.coordinationMode, "lead-sidekicks");
-  assert.equal(recordOf(on).args.coordinationMode, "lead-sidekicks");
-  const off = harness();
-  await runCampaign(argv("--coordination", "single"), off.deps);
-  assert.equal(off.pipelineRequests[0]!.coordinationMode, "single");
-  const none = harness();
-  await runCampaign(argv(), none.deps);
-  assert.equal("coordinationMode" in none.pipelineRequests[0]!, false);
-  const bad = harness();
-  assert.equal(await runCampaign(argv("--coordination", "swarm"), bad.deps), 2);
-});

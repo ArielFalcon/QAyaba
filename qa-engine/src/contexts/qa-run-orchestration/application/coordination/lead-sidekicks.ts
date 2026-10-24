@@ -13,7 +13,7 @@ import { posix } from "node:path";
 import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { CoordinationGateSignal, CoordinationSettings, PlanningLimits } from "@kernel/coordination.ts";
-import { COORDINATION_MODE } from "@kernel/coordination.ts";
+import { COORDINATION_SIGNAL_MODE } from "@kernel/coordination.ts";
 import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
 import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowFailureFact, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, GeolocationHandle, LeadSessionHandle, PlanOutput } from "../ports/index.ts";
@@ -204,7 +204,7 @@ export class LeadSidekicks {
   }
 
   async coordinate(input: CoordinateInput): Promise<CoordinateResult> {
-    const base = { mode: COORDINATION_MODE.LEAD_SIDEKICKS, flows: 0, delivered: 0, incomplete: 0, takeover: false } as const;
+    const base = { mode: COORDINATION_SIGNAL_MODE, flows: 0, delivered: 0, incomplete: 0, takeover: false } as const;
     const single = (downgrade: string, extra: Partial<CoordinationGateSignal> = {}): CoordinateResult => {
       this.deps.log?.(`coordination: the change is authored by the lead as one piece of work (${downgrade})`);
       return { action: "single", signal: { ...base, downgrade, ...extra } };

@@ -2,7 +2,7 @@ import { CORRECTION_ORIGIN } from "@contexts/qa-run-orchestration/application/co
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, type PlanningLimits } from "@kernel/coordination.ts";
+import { DEFAULT_COORDINATION_SETTINGS, type PlanningLimits } from "@kernel/coordination.ts";
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import {
@@ -173,7 +173,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
 function input(r: Rig, over: Partial<CoordinateInput> = {}): CoordinateInput {
   return {
     runId: "run-1", app: "shop", objective: "the cart", mirrorDir: "/m", specDir: "/m/e2e", specRelDir: "e2e",
-    settings: { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS },
+    settings: DEFAULT_COORDINATION_SETTINGS,
     facts: { hasLogin: true, provider: "opencode", plannerProvider: "opencode" },
     closedLoop: r.closedLoop,
     agentBrowser: r.agentBrowser,
@@ -243,7 +243,7 @@ test("a lead on a runtime that cannot hold the planning turn to read-only, or on
 test("with the authenticated browser, a plan is never asked for more flows at once than the browser has pages, whatever the app allows", async () => {
   const r = rig();
   const seen: PlanningLimits[] = [];
-  const settings = { ...DEFAULT_COORDINATION_SETTINGS, mode: COORDINATION_MODE.LEAD_SIDEKICKS, maxParallel: MAX_SESSION_PAGES + 2 };
+  const settings = { ...DEFAULT_COORDINATION_SETTINGS, maxParallel: MAX_SESSION_PAGES + 2 };
   await r.coordinator.coordinate(input(r, { settings, plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
   assert.equal(seen[0]!.maxParallel, MAX_SESSION_PAGES);
 });

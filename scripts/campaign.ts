@@ -25,7 +25,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
-import type { CoordinationMode } from "@kernel/coordination.ts";
 import type { GroundingInput } from "@kernel/contract/commands.ts";
 import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "@kernel/campaign.ts";
 import { EXPERIMENT_COPIES_DIR, WARM_SNAPSHOTS_DIR } from "../src/paths.ts";
@@ -112,8 +111,6 @@ export interface PipelineRequest {
   closedLoop?: boolean;
   /** The run's own choice about the authenticated agent browser (an A/B), overriding the app's setting; absent: the app's setting decides. */
   agentBrowser?: boolean;
-  /** The run's own choice of coordination mode (an A/B), overriding the app's setting; absent: the app's setting decides. */
-  coordinationMode?: CoordinationMode;
   /** The run's own choice of grounding sources (an A/B), overriding the app's settings; absent: the app decides. */
   grounding?: GroundingInput;
   /** The campaign replicate this run is, sent with the request so the service stores it on the run. Labels only: they change nothing the run does. */
@@ -205,7 +202,7 @@ export interface CampaignDeps {
 /* ── the run ───────────────────────────────────────────────────────────────────────── */
 
 const USAGE = [
-  "usage: npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label> [--arms A,B] [--wall-cap-min <m>] [--closed-loop on|off] [--agent-browser on|off] [--coordination single|lead-sidekicks]",
+  "usage: npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label> [--arms A,B] [--wall-cap-min <m>] [--closed-loop on|off] [--agent-browser on|off]",
   "                           [--allow-non-shadow] [--skip-env-checks] [--dry-run]",
   "  EXPERIMENT ONLY. Runs every case --replicas times per arm (A: the plain agent, B: the pipeline), one run at a time against DEV, the arms",
   "  alternating order by replicate. Before each arm-run: idle queue, the case's cleanup, the warm snapshot seeded into the suite store. Delivered files are saved and",
@@ -214,7 +211,6 @@ const USAGE = [
   "  --wall-cap-min       wall cap per arm-run, equal for every arm (default 30)",
   "  --closed-loop        the pipeline arm's own choice about the run_spec loop, for an A/B of the loop (a diff case only: a cross-repo case enters through the webhook, which cannot carry it)",
   "  --agent-browser      the pipeline arm's own choice about the authenticated agent browser, for an A/B of the tools (a diff case only, like --closed-loop)",
-  "  --coordination       the pipeline arm's own choice of coordination mode (single: the lead authors alone; lead-sidekicks: the lead plans and sidekicks author in parallel), for an A/B of the mode (a diff case only, like --closed-loop)",
   "  --grounding          comma-separated explorer|stitcher|structuralSignal|curriculum=on|off, for an A/B of grounding sources (reuse the campaign label across invocations to compare variants)",
   "  --allow-non-shadow   run the pipeline on an app whose config is not shadow (a webhook cannot ask for shadow)",
   "  --skip-env-checks    do not require QA_CAMPAIGN_FREEZE in this process (the server was started with it another way)",
@@ -317,7 +313,7 @@ export async function runCampaign(argv: string[], deps: CampaignDeps): Promise<n
 
     record = {
       schema: 1, label: args.label, app: app.name, startedAt: deps.nowIso(), finishedAt: null, complete: false,
-      args: { replicas: args.replicas, arms: args.arms, wallCapMin: args.wallCapMin, warm: args.warm, casesPath: args.casesPath, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}) },
+      args: { replicas: args.replicas, arms: args.arms, wallCapMin: args.wallCapMin, warm: args.warm, casesPath: args.casesPath, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}) },
       environment: {
         campaignFreeze: deps.envFlags().campaignFreeze,
         appShadow: app.shadow, forcedShadow: args.arms.includes(ARM.PIPELINE),
@@ -370,7 +366,7 @@ function writeOutputs(deps: CampaignDeps, dir: string, record: CampaignRecord): 
  * The identity this arm-run has in the service: the campaign's label is the id, the arm and the levers it was given are the variant, the
  * replicate is the replicate. A label the service would refuse as an id sends no campaign (the run is then an ordinary run).
  */
-export function campaignOf(args: Pick<CampaignArguments, "label" | "closedLoop" | "agentBrowser" | "coordinationMode" | "grounding">, arm: Arm, replicate: number): CampaignIdentity | undefined {
+export function campaignOf(args: Pick<CampaignArguments, "label" | "closedLoop" | "agentBrowser" | "grounding">, arm: Arm, replicate: number): CampaignIdentity | undefined {
   if (!CAMPAIGN_ID_PATTERN.test(args.label)) return undefined;
   const lever = (value: boolean | undefined): string => (value === undefined ? "default" : value ? "on" : "off");
   const grounding = args.grounding === undefined
@@ -381,7 +377,7 @@ export function campaignOf(args: Pick<CampaignArguments, "label" | "closedLoop" 
       }).join("");
   return {
     id: args.label,
-    variant: { arm: armToken(arm), closedLoop: lever(args.closedLoop), agentBrowser: lever(args.agentBrowser), coordination: args.coordinationMode ?? "default", grounding },
+    variant: { arm: armToken(arm), closedLoop: lever(args.closedLoop), agentBrowser: lever(args.agentBrowser), grounding },
     replicate,
   };
 }
@@ -412,7 +408,7 @@ async function armRun(plan: Plan, deps: CampaignDeps, c: CampaignCase, arm: Arm,
   try {
     if (arm === ARM.PIPELINE) {
       const campaign = campaignOf(args, arm, replicate);
-      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth, ...(campaign ? { campaign } : {}), ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}), ...(args.grounding !== undefined ? { grounding: args.grounding } : {}) });
+      outcome = await deps.runPipeline({ app: app.name, kind: c.kind, sha: c.sha, ...service, shadow: true, capMs, ...groundTruth, ...(campaign ? { campaign } : {}), ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.grounding !== undefined ? { grounding: args.grounding } : {}) });
       /* Read right after the run and before anything restores the mirror: the files are the only evidence of what the pipeline accepted. */
       const delta = await deps.pipelineDelta(app, snapshot);
       if (pipelineAccepted(outcome.report, app) && !outcome.capped && !outcome.lost) files = delta.files;
@@ -613,7 +609,7 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       let runId: string | null = null;
       try {
         if (req.kind === CASE_KIND.DIFF) {
-          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true, ...(req.campaign ? { campaign: req.campaign } : {}), ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}), ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}), ...(req.coordinationMode !== undefined ? { coordinationMode: req.coordinationMode } : {}), ...(req.grounding !== undefined ? { grounding: req.grounding } : {}) }) });
+          const res = await api("/api/v1/runs", { method: "POST", body: JSON.stringify({ app: req.app, target: "e2e", mode: "diff", sha: req.sha, shadow: true, ...(req.campaign ? { campaign: req.campaign } : {}), ...(req.closedLoop !== undefined ? { closedLoop: req.closedLoop } : {}), ...(req.agentBrowser !== undefined ? { agentBrowser: req.agentBrowser } : {}), ...(req.grounding !== undefined ? { grounding: req.grounding } : {}) }) });
           const body = await json(res);
           if (!res.ok || typeof body.id !== "string") throw new Error(`the service rejected the run: ${typeof body.error === "string" ? body.error : `HTTP ${res.status}`}`);
           runId = body.id;

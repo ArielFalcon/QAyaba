@@ -5,7 +5,6 @@
 import { createServer, IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { qayabaRoot } from "./paths";
-import type { CoordinationMode } from "@kernel/coordination";
 import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "./server/queue";
@@ -376,13 +375,13 @@ process.on("unhandledRejection", (reason) => {
 });
 
 /* One path for the control API and the webhook; the trigger is what tells their runs apart in the trace. */
-function enqueueRunFrom(trigger: "api" | "webhook", app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, coordinationMode?: CoordinationMode, observability?: RunObservabilityRequest, grounding?: import("./contract/commands").GroundingInput): string {
+function enqueueRunFrom(trigger: "api" | "webhook", app: string, sha: string, target: string, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, observability?: RunObservabilityRequest, grounding?: import("./contract/commands").GroundingInput): string {
   if (shuttingDown) {
     console.warn(`[qa] rejecting run ${app}@${sha} — shutting down`);
     return "";
   }
 
-  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", trigger, triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(coordinationMode !== undefined ? { coordinationMode } : {}), ...(observability?.campaign ? { campaign: observability.campaign } : {}), ...(observability?.captureMode ? { captureMode: observability.captureMode } : {}), ...(grounding ? { grounding } : {}) }, runnerDeps());
+  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", trigger, triggerRepo, baseSha, ...(closedLoop !== undefined ? { closedLoop } : {}), ...(agentBrowser !== undefined ? { agentBrowser } : {}), ...(observability?.campaign ? { campaign: observability.campaign } : {}), ...(observability?.captureMode ? { captureMode: observability.captureMode } : {}), ...(grounding ? { grounding } : {}) }, runnerDeps());
 }
 
 const enqueueApiRun: ApiDeps["enqueue"] = (...args) => enqueueRunFrom("api", ...args);

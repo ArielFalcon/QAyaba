@@ -154,8 +154,3 @@ test("delegateRun sends the run's own choice about the agent browser, and nothin
   assert.equal("agentBrowser" in (await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff" })), false);
 });
 
-test("delegateRun sends the run's own choice of coordination mode, and nothing when it makes none", async () => {
-  assert.equal((await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff", coordinationMode: "single" })).coordinationMode, "single");
-  assert.equal((await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff", coordinationMode: "lead-sidekicks" })).coordinationMode, "lead-sidekicks");
-  assert.equal("coordinationMode" in (await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff" })), false);
-});

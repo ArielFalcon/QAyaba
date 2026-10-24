@@ -12,15 +12,15 @@ const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {
 
 test("the request's lever wins over the app's setting, and the app's setting decides when the request says nothing", () => {
   const configured = app({}, { closedLoop: { enabled: true }, agentBrowser: { enabled: false } });
-  assert.deepEqual(resolveRunConfig(configured, "e2e", {}, "metadata", env).levers, { closedLoop: true, agentBrowser: false, coordinationMode: "single", captureMode: "metadata" });
-  assert.deepEqual(resolveRunConfig(configured, "e2e", { closedLoop: false, agentBrowser: true, coordinationMode: "lead-sidekicks" }, "full", env).levers, { closedLoop: false, agentBrowser: true, coordinationMode: "lead-sidekicks", captureMode: "full" });
+  assert.deepEqual(resolveRunConfig(configured, "e2e", {}, "metadata", env).levers, { closedLoop: true, agentBrowser: false, captureMode: "metadata" });
+  assert.deepEqual(resolveRunConfig(configured, "e2e", { closedLoop: false, agentBrowser: true }, "full", env).levers, { closedLoop: false, agentBrowser: true, captureMode: "full" });
 });
 
 test("a lever that cannot take effect is not reported as applied", () => {
   const asked = { closedLoop: true, agentBrowser: true };
   assert.deepEqual(resolveRunConfig(app(), "e2e", asked, "metadata", { ...env, toolsGranted: false }).levers.closedLoop, false);
   const code = resolveRunConfig(app({ code: true, dev: undefined }), "code", asked, "metadata", env).levers;
-  assert.deepEqual([code.closedLoop, code.agentBrowser, code.coordinationMode], [null, null, null]);
+  assert.deepEqual([code.closedLoop, code.agentBrowser], [null, null]);
 });
 
 test("grounding and policy are what the run's app declares, with the engine's defaults where it declares nothing", () => {
@@ -29,18 +29,17 @@ test("grounding and policy are what the run's app declares, with the engine's de
   assert.deepEqual(plain.coverage, { mode: "signal", minRatio: 0.7 });
   assert.equal(plain.reflector, true);
   const stitched = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }, { structuralSignals: { mode: "off" }, changeCoverage: { mode: "enforce", minRatio: 0.9 } }), "e2e", {}, "metadata", env);
-  assert.deepEqual(stitched.grounding, { explorer: true, stitcher: null, structuralSignal: "off", curriculum: "learning", domPack: true });
+  assert.deepEqual(stitched.grounding, { explorer: false, stitcher: null, structuralSignal: "off", curriculum: "learning", domPack: true });
   assert.deepEqual(stitched.coverage, { mode: "enforce", minRatio: 0.9 });
   const withBoundaries = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }), "e2e", {}, "metadata", env);
   assert.equal(withBoundaries.grounding.stitcher, "signal");
 });
 
-test("a lead-sidekicks run grounds without the explorer, whatever the app declares, unless the run itself asks for it", () => {
+test("an e2e run grounds without the explorer, whatever the app declares, unless the run itself asks for it; a code run keeps the app's setting", () => {
   const withServices = app({ services: [{ repo: "o/s" }] }, { explorer: true });
-  assert.equal(resolveRunConfig(withServices, "e2e", { coordinationMode: "lead-sidekicks" }, "metadata", env).grounding.explorer, false);
-  assert.equal(resolveRunConfig(app({ services: [{ repo: "o/s" }] }, { coordination: { mode: "lead-sidekicks" } }), "e2e", {}, "metadata", env).grounding.explorer, false);
-  assert.equal(resolveRunConfig(withServices, "e2e", { coordinationMode: "lead-sidekicks", grounding: { explorer: true } }, "metadata", env).grounding.explorer, true);
-  assert.equal(resolveRunConfig(withServices, "e2e", { coordinationMode: "single" }, "metadata", env).grounding.explorer, true);
+  assert.equal(resolveRunConfig(withServices, "e2e", {}, "metadata", env).grounding.explorer, false);
+  assert.equal(resolveRunConfig(withServices, "e2e", { grounding: { explorer: true } }, "metadata", env).grounding.explorer, true);
+  assert.equal(resolveRunConfig(withServices, "code", {}, "metadata", env).grounding.explorer, true);
 });
 
 test("a run's grounding lever wins over the app's setting and the freeze still wins over the curriculum lever", () => {
@@ -67,7 +66,7 @@ test("domPack: the request wins over the app, the app applies when the request s
 
 test("parseStoredRunConfig of an old record without domPack reads it as null (kept parseable)", () => {
   const old = JSON.stringify({
-    levers: { closedLoop: null, agentBrowser: null, coordinationMode: null, captureMode: null },
+    levers: { closedLoop: null, agentBrowser: null, captureMode: null },
     campaignFreeze: null,
     runtime: null,
     prompt: { staticHash: null },

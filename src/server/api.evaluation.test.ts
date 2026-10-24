@@ -48,7 +48,7 @@ const extras: RunViewExtras = {
   budgets: { exhausted: false },
   campaign: { id: "ab-1", variant: { arm: "treatment" }, replicate: 2 },
   effectiveConfig: {
-    levers: { closedLoop: true, agentBrowser: false, coordinationMode: "single", captureMode: "metadata" },
+    levers: { closedLoop: true, agentBrowser: false, captureMode: "metadata" },
     campaignFreeze: true,
     runtime: "opencode",
     agents: { "qa-generator": { provider: "opencode-go", model: "m1", reasoningEffort: null, stepLimit: 50 } },
@@ -282,7 +282,7 @@ test("GET /runs/:id carries the campaign and the effectiveConfig exactly in the 
   const { json } = await call("GET", "/api/v1/runs/run-1");
   assert.deepEqual(json.campaign, { id: "ab-1", variant: { arm: "treatment" }, replicate: 2 });
   assert.deepEqual(Object.keys(json.effectiveConfig), ["levers", "campaignFreeze", "runtime", "agents", "prompt", "grounding", "coverage", "reflector"]);
-  assert.deepEqual(json.effectiveConfig.levers, { closedLoop: true, agentBrowser: false, coordinationMode: "single", captureMode: "metadata" });
+  assert.deepEqual(json.effectiveConfig.levers, { closedLoop: true, agentBrowser: false, captureMode: "metadata" });
 });
 
 test("POST /runs hands the campaign and the requested capture mode to the enqueue, and nothing else of them", async () => {
@@ -292,9 +292,9 @@ test("POST /runs hands the campaign and the requested capture mode to the enqueu
   const ok = await call("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", campaign, captureMode: "full" }), d);
   assert.equal(ok.status, 202);
   const args = seen[0] as unknown[];
-  assert.deepEqual(args[12], { campaign, captureMode: "full" });
+  assert.deepEqual(args[11], { campaign, captureMode: "full" });
   await call("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234" }), d);
-  assert.deepEqual((seen[1] as unknown[])[12], {});
+  assert.deepEqual((seen[1] as unknown[])[11], {});
 });
 
 test("POST /runs refuses a malformed campaign or capture mode with a 400 that carries schemaVersion", async () => {

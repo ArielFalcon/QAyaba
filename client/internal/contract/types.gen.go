@@ -474,24 +474,6 @@ func (e CreateRunInputCaptureMode) Valid() bool {
 	}
 }
 
-// Defines values for CreateRunInputCoordinationMode.
-const (
-	CreateRunInputCoordinationModeLeadSidekicks CreateRunInputCoordinationMode = "lead-sidekicks"
-	CreateRunInputCoordinationModeSingle        CreateRunInputCoordinationMode = "single"
-)
-
-// Valid indicates whether the value is a known member of the CreateRunInputCoordinationMode enum.
-func (e CreateRunInputCoordinationMode) Valid() bool {
-	switch e {
-	case CreateRunInputCoordinationModeLeadSidekicks:
-		return true
-	case CreateRunInputCoordinationModeSingle:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for CreateRunInputMode.
 const (
 	CreateRunInputModeComplete   CreateRunInputMode = "complete"
@@ -1221,24 +1203,6 @@ func (e RunDetailEffectiveConfigLeversCaptureMode) Valid() bool {
 	case RunDetailEffectiveConfigLeversCaptureModeMetadata:
 		return true
 	case RunDetailEffectiveConfigLeversCaptureModeOff:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for RunDetailEffectiveConfigLeversCoordinationMode.
-const (
-	RunDetailEffectiveConfigLeversCoordinationModeLeadSidekicks RunDetailEffectiveConfigLeversCoordinationMode = "lead-sidekicks"
-	RunDetailEffectiveConfigLeversCoordinationModeSingle        RunDetailEffectiveConfigLeversCoordinationMode = "single"
-)
-
-// Valid indicates whether the value is a known member of the RunDetailEffectiveConfigLeversCoordinationMode enum.
-func (e RunDetailEffectiveConfigLeversCoordinationMode) Valid() bool {
-	switch e {
-	case RunDetailEffectiveConfigLeversCoordinationModeLeadSidekicks:
-		return true
-	case RunDetailEffectiveConfigLeversCoordinationModeSingle:
 		return true
 	default:
 		return false
@@ -2135,11 +2099,10 @@ type CreateRunInput struct {
 		Replicate int               `json:"replicate"`
 		Variant   map[string]string `json:"variant"`
 	} `json:"campaign,omitempty"`
-	CaptureMode      *CreateRunInputCaptureMode      `json:"captureMode,omitempty"`
-	ClosedLoop       *bool                           `json:"closedLoop,omitempty"`
-	Commits          *int                            `json:"commits,omitempty"`
-	CoordinationMode *CreateRunInputCoordinationMode `json:"coordinationMode,omitempty"`
-	Grounding        *struct {
+	CaptureMode *CreateRunInputCaptureMode `json:"captureMode,omitempty"`
+	ClosedLoop  *bool                      `json:"closedLoop,omitempty"`
+	Commits     *int                       `json:"commits,omitempty"`
+	Grounding   *struct {
 		Curriculum       *bool `json:"curriculum,omitempty"`
 		DomPack          *bool `json:"domPack,omitempty"`
 		Explorer         *bool `json:"explorer,omitempty"`
@@ -2156,9 +2119,6 @@ type CreateRunInput struct {
 
 // CreateRunInputCaptureMode defines model for CreateRunInput.CaptureMode.
 type CreateRunInputCaptureMode string
-
-// CreateRunInputCoordinationMode defines model for CreateRunInput.CoordinationMode.
-type CreateRunInputCoordinationMode string
 
 // CreateRunInputMode defines model for CreateRunInput.Mode.
 type CreateRunInputMode string
@@ -2644,10 +2604,9 @@ type RunDetail struct {
 			StructuralSignal *string `json:"structuralSignal"`
 		} `json:"grounding"`
 		Levers struct {
-			AgentBrowser     *bool                                           `json:"agentBrowser"`
-			CaptureMode      *RunDetailEffectiveConfigLeversCaptureMode      `json:"captureMode"`
-			ClosedLoop       *bool                                           `json:"closedLoop"`
-			CoordinationMode *RunDetailEffectiveConfigLeversCoordinationMode `json:"coordinationMode"`
+			AgentBrowser *bool                                      `json:"agentBrowser"`
+			CaptureMode  *RunDetailEffectiveConfigLeversCaptureMode `json:"captureMode"`
+			ClosedLoop   *bool                                      `json:"closedLoop"`
 		} `json:"levers"`
 		Prompt struct {
 			StaticHash *string `json:"staticHash"`
@@ -2701,9 +2660,6 @@ type RunDetail struct {
 
 // RunDetailEffectiveConfigLeversCaptureMode defines model for RunDetail.EffectiveConfig.Levers.CaptureMode.
 type RunDetailEffectiveConfigLeversCaptureMode string
-
-// RunDetailEffectiveConfigLeversCoordinationMode defines model for RunDetail.EffectiveConfig.Levers.CoordinationMode.
-type RunDetailEffectiveConfigLeversCoordinationMode string
 
 // RunDetailEngineStatus defines model for RunDetail.EngineStatus.
 type RunDetailEngineStatus string

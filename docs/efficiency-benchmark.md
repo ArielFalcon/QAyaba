@@ -405,12 +405,12 @@ Three things make a single run of each arm a poor comparison, and the campaign r
 # once: the warm snapshot (see Warm start), with QA_CAMPAIGN_FREEZE=1 on the orchestrator
 cp config/benchmarks/campaign-cases.example.json config/benchmarks/campaign-cases.json   # gitignored: it names real commits
 docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> --dry-run
-docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> [--arms A,B] [--wall-cap-min 30] [--closed-loop on|off] [--agent-browser on|off] [--coordination single|lead-sidekicks]
+docker compose exec orchestrator npm run campaign -- --cases config/benchmarks/campaign-cases.json --replicas 3 --label camp-1 --warm <snapshot-label> [--arms A,B] [--wall-cap-min 30] [--closed-loop on|off] [--agent-browser on|off]
 ```
 
 `--arms` takes `A` (the plain agent), `A'` (the plain agent whose delivery is judged by the pipeline's acceptance) and `B` (the pipeline); the default stays `A,B`.
 `--closed-loop on|off` is the pipeline arm's own choice about the `run_spec` loop (see [The closed loop](#the-closed-loop-run_spec-ab)); a cross-repo case enters through
-the webhook, which cannot carry it, so the app's `qa.closedLoop` decides there. `--agent-browser on|off` is the same for the authenticated agent browser (see [The authenticated agent browser](#the-authenticated-agent-browser-ab)). `--coordination single|lead-sidekicks` is the same for the lead/sidekick mode (see [Lead and sidekicks](#lead-and-sidekicks-ab)); a cross-repo case enters through the webhook, so the app's `qa.coordination` decides there.
+the webhook, which cannot carry it, so the app's `qa.closedLoop` decides there. `--agent-browser on|off` is the same for the authenticated agent browser (see [The authenticated agent browser](#the-authenticated-agent-browser-ab)).
 
 The cases file is validated whole before anything runs (an unknown key is an error):
 
@@ -483,13 +483,12 @@ lines of its markdown): `blocks` counts the requests the guard refused (a write 
 of reads of the source before the first write, and the rubric score of the valid replicates; the browser adds DEV load (calls per run are capped at 150 by default, time per call at 30 s) and one Chromium process per run. The tools
 are hidden from the prompts of a session the run did not grant them (a per-prompt `tools` map), so the `off` arm carries no trace of them.
 
-### Lead and sidekicks: A/B
+### Lead and sidekicks
 
-`qa.coordination.mode` (or `--coordination lead-sidekicks` of the campaign / `npm run qa`, or `coordinationMode` on `POST /api/v1/runs`) has the lead plan the change's independent flows and sidekicks author them in
-parallel (`docs/lead-sidekicks.md`). It ships **`single`**: the A/B is two campaigns that differ only in `--coordination lead-sidekicks` and `--coordination single` (`--arms B`, same cases, same warm snapshot, the same
-`--closed-loop` and `--agent-browser` choices in both; the mode needs both for an app with a login, otherwise its sidekicks stay out and the run is the `single` one with the reason logged). The mode a run used is recorded in
-its probe report (`gateSignals.coordination { mode, plan, downgrade, flows, delivered, incomplete, takeover, authoring }`, the "Coordination" lines of its markdown), so an arm that was downgraded is visible and is not
-read as a result for the mode. Compare cost, wall time, steps and the rubric score of the valid replicates, and per flow: how many were delivered, how many came back to the lead, and the time between the plan and the
+Every e2e run is coordinated: the lead plans the change's independent flows and sidekicks author them in
+parallel (`docs/lead-sidekicks.md`). There is no coordination arm to choose. A sidekick needs the run's closed loop and/or authenticated browser for an app with a login; otherwise its sidekicks stay out and the lead authors alone, with the reason logged. The coordination a run
+used is recorded in its probe report (`gateSignals.coordination { mode, plan, downgrade, flows, delivered, incomplete, takeover, authoring }`, the "Coordination" lines of its markdown), so a run that was downgraded is visible and is not
+read as a result for the coordination. Compare cost, wall time, steps and the rubric score of the valid replicates, and per flow: how many were delivered, how many came back to the lead, and the time between the plan and the
 last flow. The sidekicks add DEV load (one `run_spec` loop per flow, serialized per test account by the lease) and a plan turn; the wall-clock win exists only when the flows are independent.
 
 ### Validity

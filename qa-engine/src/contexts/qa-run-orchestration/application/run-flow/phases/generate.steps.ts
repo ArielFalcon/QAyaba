@@ -2,7 +2,7 @@
 
 import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { relative } from "node:path";
-import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, effectiveCoordinationMode } from "@kernel/coordination.ts";
+import { COORDINATION_SIGNAL_MODE, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
 import { rethrowIfRunDeadline } from "../../../../../shared-kernel/run-deadline.ts";
@@ -24,10 +24,11 @@ import { afterGeneration, closedLoopSignal, geolocationEnrichment, loopClosedNow
 type Result = Promise<StepResult<RunState, RunQaResult>>;
 
 /*
- * The lead/sidekick mode: the lead is asked for a plan and its flows are authored by sidekicks, each in a workspace of its own.
- * What comes back is a generation like any other: the specs of the flows that delivered, a declared no-op, or an end that
- * names why nothing was finished. Undefined: the lead authors the change in one turn, as every run did before this mode.
- * The mode is the app's setting unless the run chose; a code run, a context run and a login still to be written never use it.
+ * Lead + sidekicks is how every e2e run generates: the lead is asked for a plan and its flows are authored by sidekicks, each in a
+ * workspace of its own. What comes back is a generation like any other: the specs of the flows that delivered, a declared no-op, or
+ * an end that names why nothing was finished. Undefined: the lead authors the change in one turn, because no coordinator is wired,
+ * the plan was not admitted as a fan-out, no sidekick can author, or coordination failed (the recorded signal says which).
+ * A code run, a context run and a login still to be written never coordinate.
  */
 async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<GenerationOutput | undefined> {
   const { deps, input, cfg, workspace, signal } = ctx;
@@ -36,8 +37,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   const { authSeedUnauthored } = state.setup;
   const { baseEnrichment } = state.grounding;
   const coordinationSettings = deps.coordinationSettings ?? DEFAULT_COORDINATION_SETTINGS;
-  const coordinationMode = effectiveCoordinationMode(coordinationSettings, input.coordinationMode);
-  if (coordinationMode !== COORDINATION_MODE.LEAD_SIDEKICKS || !deps.leadSidekicks) return undefined;
+  if (!deps.leadSidekicks) return undefined;
   if (!generating || cfg.isCode || input.mode === "context" || authSeedUnauthored) return undefined;
   let result: CoordinateResult;
   try {
@@ -48,7 +48,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       mirrorDir: workspace.mirrorDir,
       specDir: workspace.specDir,
       specRelDir: relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e",
-      settings: { ...coordinationSettings, mode: coordinationMode },
+      settings: coordinationSettings,
       facts: { hasLogin: Boolean(deps.authContext?.auth), provider: deps.sidekickProvider?.(), plannerProvider: deps.plannerProvider?.() },
       ...(closedLoop ? { closedLoop } : {}),
       ...(agentBrowser ? { agentBrowser } : {}),
@@ -66,7 +66,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   } catch (err) {
     rethrowIfRunDeadline(err);
     console.error(`[qa] coordination failed (the lead authors the change alone): ${err instanceof Error ? err.message : String(err)}`);
-    ctx.ends.recordCoordination({ mode: COORDINATION_MODE.LEAD_SIDEKICKS, downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
+    ctx.ends.recordCoordination({ mode: COORDINATION_SIGNAL_MODE, downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
     return undefined;
   }
   ctx.ends.recordCoordination(result.signal);

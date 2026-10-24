@@ -1971,23 +1971,6 @@ test("the runner hands the run's own choice about the agent browser to the engin
   }
 });
 
-test("the runner hands the run's own choice of coordination mode to the engine, and invents none", async () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "rewritten";
-  try {
-    const queue = new JobQueue();
-    const { port, calls } = fakePort({ verdict: "pass" });
-    enqueueTrackedRun(queue, { app: "runner-coord-on", sha: "def5678", target: "e2e", mode: "diff", source: "manual", coordinationMode: "lead-sidekicks" }, { loadApp: cfg, engineFactory: () => port });
-    enqueueTrackedRun(queue, { app: "runner-coord-off", sha: "def5678", target: "e2e", mode: "diff", source: "manual", coordinationMode: "single" }, { loadApp: cfg, engineFactory: () => port });
-    enqueueTrackedRun(queue, { app: "runner-coord-none", sha: "def5678", target: "e2e", mode: "diff", source: "manual" }, { loadApp: cfg, engineFactory: () => port });
-    await queue.drain();
-    assert.deepEqual(calls.map((c) => c.coordinationMode), ["lead-sidekicks", "single", undefined]);
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
-});
-
 test("a finished run records the furthest phase and the phase timings its outcome carried", async () => {
   const queue = new JobQueue();
   const { port } = fakePort({

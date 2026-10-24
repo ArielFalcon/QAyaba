@@ -329,7 +329,7 @@ export interface ProbeReport {
   closedLoop?: ClosedLoopGateSignal;
   /** How the authoring agents used the authenticated browser: calls, requests the guard refused, sessions lost and renewed. Absent when the run did not grant it. */
   agentBrowser?: AgentBrowserGateSignal;
-  /** How the run was coordinated when it asked for the lead/sidekick mode: what became of the plan, the flows delivered and left unfinished, and whether the lead took over. Absent for a run in the single mode. */
+  /** How the run was coordinated by the lead/sidekick coordination: what became of the plan, the flows delivered and left unfinished, and whether the lead took over. Absent for a run that coordinated nothing (a code run, or one stored before every e2e run was coordinated). */
   coordination?: CoordinationGateSignal;
   /** The reason a declared no-op named (`not-worth`, `unobservable`, or `unspecified` when it named none). Absent for a run that declared none. */
   noop?: { kind: NoopKind };
@@ -925,7 +925,7 @@ export function renderBrowserLines(reports: readonly ProbeReport[]): string[] {
   ];
 }
 
-/** How the runs asked for the lead/sidekick mode were coordinated: what became of each plan and its flows. A run in the single mode lists nothing. */
+/** How the runs were coordinated: what became of each plan and its flows. A run that recorded no coordination lists nothing. */
 export function renderCoordinationLines(reports: readonly ProbeReport[]): string[] {
   const used = reports.filter((r) => r.coordination !== undefined);
   if (used.length === 0) return [];

@@ -153,18 +153,18 @@ test("effectiveConfig records the levers, switches and grounding the run started
   const app = uniqueApp();
   const id = enqueueTrackedRun(
     queue,
-    request(app, { closedLoop: true, agentBrowser: false, coordinationMode: "single" }),
+    request(app, { closedLoop: true, agentBrowser: false }),
     deps(h, { run: async (i) => outcomeOf(i) }, {}, cfg(app, { explorer: true, changeCoverage: { mode: "enforce", minRatio: 0.8 }, structuralSignals: { mode: "signal" } })),
   );
   await queue.drain();
   const detail = buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!.effectiveConfig;
   assert.deepEqual(detail, {
-    levers: { closedLoop: true, agentBrowser: false, coordinationMode: "single", captureMode: "metadata" },
+    levers: { closedLoop: true, agentBrowser: false, captureMode: "metadata" },
     campaignFreeze: true,
     runtime: "opencode",
     agents: {},
     prompt: { staticHash: "sha256:feed" },
-    grounding: { explorer: true, stitcher: null, structuralSignal: "signal", curriculum: "frozen", domPack: true },
+    grounding: { explorer: false, stitcher: null, structuralSignal: "signal", curriculum: "frozen", domPack: true },
     coverage: { mode: "enforce", minRatio: 0.8 },
     reflector: false,
   });
@@ -208,7 +208,7 @@ test("a run that recorded no configuration answers every key as null", async () 
   await queue.drain();
   assert.equal(getRecord(id)?.verdict, "infra-error");
   const detail = buildRunViewExtras(id, defaultRunViewDeps(() => true, {}))!.effectiveConfig;
-  assert.deepEqual(detail.levers, { closedLoop: null, agentBrowser: null, coordinationMode: null, captureMode: "metadata" });
+  assert.deepEqual(detail.levers, { closedLoop: null, agentBrowser: null, captureMode: "metadata" });
   assert.deepEqual([detail.campaignFreeze, detail.runtime, detail.prompt.staticHash, detail.reflector], [null, null, null, null]);
   assert.deepEqual(detail.coverage, { mode: null, minRatio: null });
 });

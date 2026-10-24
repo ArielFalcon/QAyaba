@@ -2387,13 +2387,6 @@
           "agentBrowser": {
             "type": "boolean"
           },
-          "coordinationMode": {
-            "type": "string",
-            "enum": [
-              "single",
-              "lead-sidekicks"
-            ]
-          },
           "campaign": {
             "type": "object",
             "properties": {
@@ -5802,14 +5795,6 @@
                     "nullable": true,
                     "type": "boolean"
                   },
-                  "coordinationMode": {
-                    "nullable": true,
-                    "type": "string",
-                    "enum": [
-                      "single",
-                      "lead-sidekicks"
-                    ]
-                  },
                   "captureMode": {
                     "nullable": true,
                     "type": "string",
@@ -5823,7 +5808,6 @@
                 "required": [
                   "closedLoop",
                   "agentBrowser",
-                  "coordinationMode",
                   "captureMode"
                 ],
                 "additionalProperties": false

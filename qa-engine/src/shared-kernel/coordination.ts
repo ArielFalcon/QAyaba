@@ -1,16 +1,7 @@
-/* How a run is coordinated, as the layers around it share it: the mode an app or a run chooses, the limits of the lead/sidekick mode, and what a run records about it. */
+/* How a run is coordinated, as the layers around it share it: the limits of the lead/sidekick coordination and what a run records about it. */
 
-export const COORDINATION_MODE = {
-  /* The lead authors the whole change in one turn, as every run did before: no planning turn, no sidekick. The default, and the control arm of an A/B. */
-  SINGLE: "single",
-  /* The lead plans first; a plan of independent flows is authored by sidekicks in parallel, each closing its own run_spec loop, and the lead takes over what they cannot finish. */
-  LEAD_SIDEKICKS: "lead-sidekicks",
-} as const;
-export type CoordinationMode = (typeof COORDINATION_MODE)[keyof typeof COORDINATION_MODE];
-
-export function isCoordinationMode(value: unknown): value is CoordinationMode {
-  return value === COORDINATION_MODE.SINGLE || value === COORDINATION_MODE.LEAD_SIDEKICKS;
-}
+/* The value a run's coordination signal records as its mode: lead + sidekicks is the only coordination. Records stored before that carry "single" too, so readers treat the field as a string. */
+export const COORDINATION_SIGNAL_MODE = "lead-sidekicks" as const;
 
 /* The shapes of the plan a lead emits when it is asked for one. */
 /* The tools a lead's planning session is denied, plan and review alike: it plans from the Context Pack and the code graph, and DEV is read by the sidekicks that author the flows. */
@@ -47,7 +38,6 @@ export interface FlowBudgets {
 }
 
 export interface CoordinationSettings {
-  mode: CoordinationMode;
   /* The most flows that run at once. */
   maxParallel: number;
   /* The most flows a plan may name. */
@@ -58,7 +48,6 @@ export interface CoordinationSettings {
 }
 
 export const DEFAULT_COORDINATION_SETTINGS: CoordinationSettings = {
-  mode: COORDINATION_MODE.SINGLE,
   maxParallel: 3,
   maxFlows: 6,
   planBudgetMs: 180_000,
@@ -67,7 +56,8 @@ export const DEFAULT_COORDINATION_SETTINGS: CoordinationSettings = {
 
 /* What a run records about its coordination. Persist-only: no verdict, gate or retirement reads it back. */
 export interface CoordinationGateSignal {
-  mode: CoordinationMode;
+  /* COORDINATION_SIGNAL_MODE for a new run; a record stored earlier may carry another string ("single"). */
+  mode: string;
   /* What the lead's plan came to once admitted ("noop", "single" or "fanout"); absent when the run asked for no plan. */
   plan?: string;
   /* Why a plan that asked for a fan-out went back to the lead as one piece of work. */
@@ -88,7 +78,6 @@ export interface CoordinationGateSignal {
 
 /* The settings an app declared, with every limit it left out taken from the defaults. */
 export function resolveCoordinationSettings(configured?: {
-  mode?: CoordinationMode;
   maxParallel?: number;
   maxFlows?: number;
   planBudgetMs?: number;
@@ -96,7 +85,6 @@ export function resolveCoordinationSettings(configured?: {
 }): CoordinationSettings {
   const d = DEFAULT_COORDINATION_SETTINGS;
   return {
-    mode: configured?.mode ?? d.mode,
     maxParallel: configured?.maxParallel ?? d.maxParallel,
     maxFlows: configured?.maxFlows ?? d.maxFlows,
     planBudgetMs: configured?.planBudgetMs ?? d.planBudgetMs,
@@ -105,9 +93,4 @@ export function resolveCoordinationSettings(configured?: {
       codex: configured?.flowBudgetMs?.codex ?? d.flowBudgetMs.codex,
     },
   };
-}
-
-/* The mode a run uses: its own choice when it made one (an A/B arm), else the app's setting. */
-export function effectiveCoordinationMode(settings: Pick<CoordinationSettings, "mode">, override?: CoordinationMode): CoordinationMode {
-  return override ?? settings.mode;
 }

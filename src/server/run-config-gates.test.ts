@@ -46,5 +46,5 @@ test("effectiveConfig reports exactly what the predicates wire, for every combin
 
 test("a code-target run reports no tool levers even for an app not marked as code", () => {
   const c = resolveRunConfig(app(), "code", { closedLoop: true }, "metadata", env);
-  assert.deepEqual([c.levers.closedLoop, c.levers.agentBrowser, c.levers.coordinationMode], [null, null, null]);
+  assert.deepEqual([c.levers.closedLoop, c.levers.agentBrowser], [null, null]);
 });

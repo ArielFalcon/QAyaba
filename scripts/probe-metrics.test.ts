@@ -293,7 +293,7 @@ test("a pipeline report carries how the run was coordinated, and nothing when it
   assert.equal("coordination" in without, false);
 });
 
-test("the markdown names how a coordinated run's plan and flows came out, and a run in the single mode lists none", () => {
+test("the markdown names how a coordinated run's plan and flows came out, and a run that recorded no coordination lists none", () => {
   const delivered = buildPipelineReport({ runId: RUN_ID, record: undefined, outcome: outcome({ coordination: { mode: "lead-sidekicks", plan: "fanout", flows: 3, delivered: 2, incomplete: 1, takeover: false, authoring: "run-spec-only" } }), events: [], turns: [], changedFiles: null, specLines: new Map(), minRatio: 0.7 });
   const markdown = renderMarkdown([delivered]);
   assert.match(markdown, /Coordination/);

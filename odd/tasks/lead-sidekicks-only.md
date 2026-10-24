@@ -12,15 +12,17 @@ Branch: fix/failure-observation-conflict (single branch). Delivery: work-unit co
 
 ## Tasks
 
-- T0 commit step limits x5 (agents/opencode.json) — S6 prerequisite — inline — pending
-- T1 S1 — inline — pending
-- T2 S2 — inline — pending
-- T3 S3 — inline — pending
-- T4 S4 — inline — pending
-- T5 S5 — inline — pending (Risk item 3: config/API contract)
+- T0 commit step limits x5 (agents/opencode.json) — S6 prerequisite — inline — done 584afc14
+- T1 S1 — inline — done c37f6157
+- T2 S2 — inline — done 646753ca
+- T3 S3 — inline — done db489e27
+- T4 S4 — inline — done a57efbe2 (agent turns were already children of their phase span: verified on the R7 trace)
+- T5 S5 — delegated (context backstop: ~60 files after one compaction) — done (see git log; Risk item 3: config/API contract)
 - T6 S6 — inline — pending
 
 ## Log
 
 - L1 (2026-10-24) "Sí: arregla primero el flujo de lead + sidekicks (puntos 1-3 y la telemetría), luego elimina el modo single y relanza R7." Earlier: "si se debe quitar el modo single, la unica fuente de trabajo es lead + sidekick, asi se simplifica el codigo y se elimina complejidad innecesaria. Respecto al lint, no entiendo el error, por que pasa un lint que no puede corregir? esto se debe arreglar."
 - L2 Evidence (runs run-8442cd4-mvmulhz3-7eb60499 single pass 1 spec; run-8442cd4-mvmuxex5-99b5ae76 lead-sidekicks invalid): correction edit discarded on `needs-lead` (lead-sidekicks.ts:436); static-fix loop stops when the correction returns no specs (execute.steps.ts:127); home flow lost to an unreadable DelegationResult three times then dropped; diff cap 50k alphabetical (prompt-cap.ts:13), MAX_ROUTES 4 (dom-snapshot.ts:138); coverage never measured for this app (no source maps); decisive facts only in data/coordination-events.jsonl.
+- L3 (2026-10-24) T1-T4 committed; full suite 10568 pass, 5 known failures (all roles on one model). Sidekick turns stated no step limit and were classified against the orchestrator's baked opencode.json (60): now against the server's last listed cap.
+- L4 (2026-10-24) T5: `single` was an early return in coordinateFirstPass; removed with its config/API/CLI/campaign surface. `qa.coordination.mode: single` now fails config load; `coordinationMode` is gone from the contract (unknown body fields are ignored). gateSignals.coordination.mode kept as a string. Explorer grounding is now off for every e2e run unless the run asks (what lead-sidekicks apps already had). Gate: 10559 pass, 5 known failures.
