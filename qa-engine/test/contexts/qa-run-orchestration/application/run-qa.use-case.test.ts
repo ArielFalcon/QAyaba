@@ -19,7 +19,6 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import type { RecordMeasurement, SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
 import { CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import type { CoordinateInput } from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
-import { COORDINATION_SIGNAL_MODE } from "@kernel/coordination.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type {
@@ -8244,7 +8243,7 @@ async function coordinationReviewOutcome(opts: {
   });
   const telemetry = new CoordinationTelemetryRecorder();
   /* A coordinated run is the one that reports an outcome: the lead hands the change back to be authored in one piece. */
-  const leadSidekicks = { coordinate: async () => ({ action: "single" as const, signal: { mode: COORDINATION_SIGNAL_MODE, plan: "single", flows: 1, delivered: 0, incomplete: 0, takeover: false } }) };
+  const leadSidekicks = { coordinate: async () => ({ action: "lead" as const, signal: { plan: "lead", flows: 1, delivered: 0, incomplete: 0, takeover: false } }) };
   await new RunQaUseCase({
     ...ports,
     leadSidekicks,
@@ -9398,7 +9397,7 @@ test("an unobservable no-op declared while the pack shows more nodes than unchan
 
 test("a no-op the lead declares in its plan is recorded with the kind unspecified: a plan names no kind", async () => {
   const { ports, savedOutcomes } = stubPorts({});
-  const leadSidekicks = { coordinate: async () => ({ action: "noop" as const, reason: "nothing worth a test", signal: { mode: COORDINATION_SIGNAL_MODE, plan: "noop", flows: 0, delivered: 0, incomplete: 0, takeover: false } }) };
+  const leadSidekicks = { coordinate: async () => ({ action: "noop" as const, reason: "nothing worth a test", signal: { plan: "noop", flows: 0, delivered: 0, incomplete: 0, takeover: false } }) };
   const out = await new RunQaUseCase({
     ...ports,
     leadSidekicks,
@@ -9458,7 +9457,7 @@ test("a failure that reads empty, twice, a page the Context Pack read with resul
 test("the pages the Context Pack read with results reach the coordination as deterministic facts for every sidekick", async () => {
   const { ports } = stubPorts({ ground: async () => ({ packConfirmedDataRoutes: [{ path: "/owners/list", resultCount: 3 }] }) });
   const seen: CoordinateInput[] = [];
-  const leadSidekicks = { coordinate: async (coordinateInput: CoordinateInput) => { seen.push(coordinateInput); return { action: "single" as const, signal: { mode: COORDINATION_SIGNAL_MODE, plan: "single", flows: 1, delivered: 0, incomplete: 0, takeover: false } }; } };
+  const leadSidekicks = { coordinate: async (coordinateInput: CoordinateInput) => { seen.push(coordinateInput); return { action: "lead" as const, signal: { plan: "lead", flows: 1, delivered: 0, incomplete: 0, takeover: false } }; } };
   await new RunQaUseCase({
     ...ports,
     leadSidekicks,

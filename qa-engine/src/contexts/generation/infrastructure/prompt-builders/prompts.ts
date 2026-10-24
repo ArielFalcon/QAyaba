@@ -96,7 +96,7 @@ function renderLeadPlan(limits: PlanningLimits): string {
     `## ${PROMPT_HEADINGS.leadPlan}`,
     `This turn asks for a plan, not for specs: write no file. Close with ONLY a JSON object {"plan": ...} of one of these shapes.`,
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.NOOP}","reason":"<why nothing here is worth a test, or the element and the evidence showing the change cannot be observed on DEV in its current state>"}}`,
-    `- {"plan":{"kind":"${LEAD_PLAN_KIND.SINGLE}"}} when the change is one piece of work that you will author yourself.`,
+    `- {"plan":{"kind":"${LEAD_PLAN_KIND.LEAD}"}} when the change is one piece of work that you will author yourself.`,
     `- {"plan":{"kind":"${LEAD_PLAN_KIND.FANOUT}","flows":[{"id":"<short-slug>","objective":"<what the flow proves>","acceptance":["<an observable outcome>"],"routes":["/<path the flow visits>"]${locationField}}]}} when the change is several independent flows, each of which can be written and run without the others.`,
     `A fan-out names at most ${limits.maxFlows} flows, and ${limits.maxParallel} are written at once. A flow is one spec file named by its id; no two flows share a file or depend on each other's data.`,
     ...(limits.locations?.length ? [`A flow may name one of the app's locations; a flow without one inherits the run's.`] : []),

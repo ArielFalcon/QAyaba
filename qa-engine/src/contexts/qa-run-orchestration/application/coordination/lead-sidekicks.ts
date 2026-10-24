@@ -13,7 +13,6 @@ import { posix } from "node:path";
 import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import type { CoordinationGateSignal, CoordinationSettings, PlanningLimits } from "@kernel/coordination.ts";
-import { COORDINATION_SIGNAL_MODE } from "@kernel/coordination.ts";
 import { formatGeoLocation, type GeoLocation } from "@kernel/geolocation.ts";
 import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowFailureFact, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, GeolocationHandle, LeadSessionHandle, PlanOutput } from "../ports/index.ts";
@@ -103,7 +102,7 @@ export interface FlowProposals {
 
 export type CoordinateResult =
   /* The change is authored by the lead as one piece of work. */
-  | { action: "single"; signal: CoordinationGateSignal }
+  | { action: "lead"; signal: CoordinationGateSignal }
   /* The lead declared that nothing is worth a test. */
   | { action: "noop"; reason: string; signal: CoordinationGateSignal }
   /* The flows were authored; `aggregated` says how it ended, as a generation would. */
@@ -204,16 +203,16 @@ export class LeadSidekicks {
   }
 
   async coordinate(input: CoordinateInput): Promise<CoordinateResult> {
-    const base = { mode: COORDINATION_SIGNAL_MODE, flows: 0, delivered: 0, incomplete: 0, takeover: false } as const;
-    const single = (downgrade: string, extra: Partial<CoordinationGateSignal> = {}): CoordinateResult => {
+    const base = { flows: 0, delivered: 0, incomplete: 0, takeover: false } as const;
+    const leadAlone = (downgrade: string, extra: Partial<CoordinationGateSignal> = {}): CoordinateResult => {
       this.deps.log?.(`coordination: the change is authored by the lead as one piece of work (${downgrade})`);
-      return { action: "single", signal: { ...base, downgrade, ...extra } };
+      return { action: "lead", signal: { ...base, downgrade, ...extra } };
     };
 
-    if (!input.plan) return single("the generation cannot plan");
+    if (!input.plan) return leadAlone("the generation cannot plan");
     /* A plan is a read-only turn, and what keeps it so is a per-prompt tool denial that not every runtime has: on one that has none the lead would plan with its hands free in the run's working copy. */
     if (input.facts.plannerProvider !== "opencode") {
-      return single(`the lead plans on ${input.facts.plannerProvider ?? "a runtime the host cannot name"}, which cannot hold the planning turn to read-only; only OpenCode denies the write tools per prompt`);
+      return leadAlone(`the lead plans on ${input.facts.plannerProvider ?? "a runtime the host cannot name"}, which cannot hold the planning turn to read-only; only OpenCode denies the write tools per prompt`);
     }
     const authoring = sidekickAuthoring({
       hasLogin: input.facts.hasLogin,
@@ -221,14 +220,14 @@ export class LeadSidekicks {
       runSpecGranted: input.closedLoop !== undefined,
       browserGranted: input.agentBrowser !== undefined,
     });
-    if (authoring.mode === SIDEKICK_AUTHORING.EXCLUDED) return single(`no sidekick: ${authoring.reason}`, { authoring: SIDEKICK_AUTHORING.EXCLUDED });
+    if (authoring.mode === SIDEKICK_AUTHORING.EXCLUDED) return leadAlone(`no sidekick: ${authoring.reason}`, { authoring: SIDEKICK_AUTHORING.EXCLUDED });
     const authoringName = authoring.mode;
 
     const { settings } = input;
     const parallel = Math.min(settings.maxParallel, authoring.maxParallel ?? settings.maxParallel);
     const before = this.remaining(input);
     if (before !== undefined && before < settings.planBudgetMs + MIN_RESERVE_MS + MIN_FLOW_MS * 2) {
-      return single("too little of the run is left to plan and author in parallel", { authoring: authoringName });
+      return leadAlone("too little of the run is left to plan and author in parallel", { authoring: authoringName });
     }
 
     await this.sweep().catch((err: unknown) => console.error(`[qa] sweeping the delegation workspaces failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`));
@@ -243,7 +242,7 @@ export class LeadSidekicks {
     /* The lead's planning session, when the plan kept it: its review of the flows is asked there, and it ends with the pass. */
     let leadHanded = false;
     try {
-      if (planned.timedOut) return single("the planning turn ran out of its time", { authoring: authoringName });
+      if (planned.timedOut) return leadAlone("the planning turn ran out of its time", { authoring: authoringName });
       if (planned.noopReason !== undefined) {
         this.record(input, { kind: "proposal", action: "direct", reason: `plan: noop (${planned.noopReason})` });
         return { action: "noop", reason: planned.noopReason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
@@ -271,8 +270,8 @@ export class LeadSidekicks {
       );
       this.record(input, { kind: "proposal", action: admitted.kind === LEAD_PLAN_KIND.FANOUT ? "delegate" : "direct", reason: describePlan(admitted) });
       if (admitted.kind === LEAD_PLAN_KIND.NOOP) return { action: "noop", reason: admitted.reason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
-      if (admitted.kind === LEAD_PLAN_KIND.SINGLE) {
-        return single(admitted.downgrade ?? "the plan is one piece of work", { plan: LEAD_PLAN_KIND.SINGLE, authoring: authoringName });
+      if (admitted.kind === LEAD_PLAN_KIND.LEAD) {
+        return leadAlone(admitted.downgrade ?? "the plan is one piece of work", { plan: LEAD_PLAN_KIND.LEAD, authoring: authoringName });
       }
       const unvisited = (input.changeRoutes ?? []).filter((route) => !admitted.flows.some((flow) => flow.routes.some((visited) => visited === route || isPageOfTemplate(route, visited))));
       if (unvisited.length > 0) this.record(input, { kind: "router", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
@@ -318,7 +317,7 @@ export class LeadSidekicks {
       if (aggregated.end === GENERATION_END.UNDECIDED_EMPTY && (left === undefined || left > MIN_RESERVE_MS + MIN_FLOW_MS)) {
         this.record(input, { kind: "escalation", action: "lead-takeover", reason: `no flow finished or decided (${aggregated.note ?? "nothing to add up"})` });
         this.deps.log?.("coordination: no flow finished or decided; the lead takes the change over");
-        return { action: "single", signal: { ...signal, takeover: true, downgrade: "no flow finished or decided" } };
+        return { action: "lead", signal: { ...signal, takeover: true, downgrade: "no flow finished or decided" } };
       }
       /* With the lead's session the pass is kept open for the reviewer's corrections; its holder releases it. */
       if (how.lead && !input.signal?.aborted && aggregated.end === GENERATION_END.DELIVERED) {
@@ -753,7 +752,7 @@ export class LeadSidekicks {
 function describePlan(plan: AdmittedPlan): string {
   if (plan.kind === LEAD_PLAN_KIND.FANOUT) return `plan: fanout of ${plan.flows.length} flow(s), ${plan.parallel} at a time`;
   if (plan.kind === LEAD_PLAN_KIND.NOOP) return `plan: noop (${plan.reason})`;
-  return `plan: single${plan.downgrade ? ` (downgraded: ${plan.downgrade})` : ""}`;
+  return `plan: lead${plan.downgrade ? ` (downgraded: ${plan.downgrade})` : ""}`;
 }
 
 /* What a sidekick is told to do for one flow. The facts about its tools are the orchestrator's; the rest is the flow's own. */

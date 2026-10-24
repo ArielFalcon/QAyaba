@@ -1,11 +1,11 @@
-/* A run is authored by its lead alone unless its mode is lead-sidekicks. In the single mode nothing changes: no planning turn, no sidekick, the generation port sees the calls a run without coordination makes. In the lead-sidekicks mode the lead is asked for a plan and the coordinator authors the flows; what it hands back is read like any generation. */
+/* A run that generates asks its lead for a plan and the coordinator authors the flows; what it hands back is read like any generation. A run the coordinator hands back to the lead, or one with no coordinator wired, is authored by the lead alone. */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { COORDINATION_SIGNAL_MODE, DEFAULT_COORDINATION_SETTINGS, type CoordinationGateSignal } from "@kernel/coordination.ts";
+import { DEFAULT_COORDINATION_SETTINGS, type CoordinationGateSignal } from "@kernel/coordination.ts";
 import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -18,7 +18,7 @@ import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../supp
 const INPUT: RunQaInput = { app: "demo", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "coord-run" };
 const PASS: QaCase[] = [{ name: "a", status: "pass", file: "flows/a.spec.ts" }];
 
-const signalOf = (over: Partial<CoordinationGateSignal> = {}): CoordinationGateSignal => ({ mode: COORDINATION_SIGNAL_MODE, flows: 0, delivered: 0, incomplete: 0, takeover: false, ...over });
+const signalOf = (over: Partial<CoordinationGateSignal> = {}): CoordinationGateSignal => ({ flows: 0, delivered: 0, incomplete: 0, takeover: false, ...over });
 
 interface Rig {
   calls: string[];
@@ -31,7 +31,7 @@ interface Rig {
   deps(over?: Partial<RunQaUseCaseDeps>): RunQaUseCaseDeps;
 }
 
-function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => ({ action: "single", signal: signalOf({ downgrade: "x" }) })): Rig {
+function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => ({ action: "lead", signal: signalOf({ downgrade: "x" }) })): Rig {
   const ws = runWorkspace("qa-coord-");
   const calls: string[] = [];
   const r: Rig = { calls, enrichments: [], planned: [], coordinated: [], saved: [], validated: 0, ws, deps: undefined as never };
@@ -57,7 +57,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
       plan: async (_dir, _signal, _diff, enrichment): Promise<PlanOutput> => {
         calls.push("plan");
         r.planned.push(enrichment);
-        return { plan: { kind: "single" }, parsed: true, timedOut: false };
+        return { plan: { kind: "lead" }, parsed: true, timedOut: false };
       },
     }),
     review: { review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }) },
@@ -106,9 +106,9 @@ test("a run with no coordinator records no coordination, and a coordinated one r
   const plain = await new RunQaUseCase(bare.deps({ leadSidekicks: undefined })).run(INPUT);
   assert.equal(plain.outcome?.gateSignals.coordination, undefined);
 
-  const coordinated = rig(() => ({ action: "single", signal: signalOf({ plan: "single", authoring: "authenticated-browser" }) }));
+  const coordinated = rig(() => ({ action: "lead", signal: signalOf({ plan: "lead", authoring: "authenticated-browser" }) }));
   const out = await new RunQaUseCase(coordinated.deps()).run(INPUT);
-  assert.deepEqual(out.outcome?.gateSignals.coordination, signalOf({ plan: "single", authoring: "authenticated-browser" }));
+  assert.deepEqual(out.outcome?.gateSignals.coordination, signalOf({ plan: "lead", authoring: "authenticated-browser" }));
 });
 
 test("a coordinated run hands the coordinator what the run knows: its identity, the grants, the login and the planning turn", async () => {
@@ -171,7 +171,7 @@ test("flows that were authored are the run's specs: the lead generates nothing, 
 });
 
 test("the lead authors the change itself when the coordinator hands it back, with the reason recorded", async () => {
-  const r = rig(() => ({ action: "single", signal: signalOf({ downgrade: "too little time", takeover: true }) }));
+  const r = rig(() => ({ action: "lead", signal: signalOf({ downgrade: "too little time", takeover: true }) }));
   const out = await new RunQaUseCase(r.deps()).run(INPUT);
   assert.equal(r.calls.filter((c) => c === "generate").length, 1);
   assert.equal(out.outcome?.gateSignals.coordination?.takeover, true);
@@ -214,7 +214,7 @@ test("coordination asks for nothing from a code run, a context run, a regression
   assert.equal(unauthored.coordinated.length, 0, "a login still to write");
 });
 
-test("without the coordinator wired, the mode asks for nothing and the lead authors alone", async () => {
+test("without the coordinator wired, nothing is planned and the lead authors alone", async () => {
   const r = rig();
   await new RunQaUseCase(r.deps({ leadSidekicks: undefined })).run(INPUT);
   assert.equal(r.calls.filter((c) => c === "generate").length, 1);

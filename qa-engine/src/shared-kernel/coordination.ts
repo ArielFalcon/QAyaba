@@ -1,8 +1,5 @@
 /* How a run is coordinated, as the layers around it share it: the limits of the lead/sidekick coordination and what a run records about it. */
 
-/* The value a run's coordination signal records as its mode: lead + sidekicks is the only coordination. Records stored before that carry "single" too, so readers treat the field as a string. */
-export const COORDINATION_SIGNAL_MODE = "lead-sidekicks" as const;
-
 /* The shapes of the plan a lead emits when it is asked for one. */
 /* The tools a lead's planning session is denied, plan and review alike: it plans from the Context Pack and the code graph, and DEV is read by the sidekicks that author the flows. */
 export const LEAD_PLAN_DENIED_TOOLS: readonly string[] = ["playwright*", "authbrowser*"];
@@ -11,7 +8,7 @@ export const LEAD_PLAN_KIND = {
   /* Nothing is worth a test; the lead says why. */
   NOOP: "noop",
   /* The change is one piece of work: the lead authors it itself. */
-  SINGLE: "single",
+  LEAD: "lead",
   /* The change is several independent flows, each authored by a sidekick. */
   FANOUT: "fanout",
 } as const;
@@ -56,9 +53,7 @@ export const DEFAULT_COORDINATION_SETTINGS: CoordinationSettings = {
 
 /* What a run records about its coordination. Persist-only: no verdict, gate or retirement reads it back. */
 export interface CoordinationGateSignal {
-  /* COORDINATION_SIGNAL_MODE for a new run; a record stored earlier may carry another string ("single"). */
-  mode: string;
-  /* What the lead's plan came to once admitted ("noop", "single" or "fanout"); absent when the run asked for no plan. */
+  /* What the lead's plan came to once admitted ("noop", "lead" or "fanout"); absent when the run asked for no plan. */
   plan?: string;
   /* Why a plan that asked for a fan-out went back to the lead as one piece of work. */
   downgrade?: string;

@@ -211,17 +211,17 @@ test("a generation that cannot plan, a sidekick that cannot author and a run wit
   const plan = async (): Promise<PlanOutput> => { asked += 1; return { plan: FANOUT_PLAN, parsed: true, timedOut: false }; };
 
   const noPlan = await r.coordinator.coordinate(input(r, { plan: undefined }));
-  assert.equal(noPlan.action, "single");
+  assert.equal(noPlan.action, "lead");
 
   const codex = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: "codex", plannerProvider: "opencode" } }));
-  assert.equal(codex.action, "single");
+  assert.equal(codex.action, "lead");
   assert.equal(codex.signal.authoring, "excluded");
 
   const bare = await r.coordinator.coordinate(input(r, { plan, closedLoop: undefined, agentBrowser: undefined }));
-  assert.equal(bare.action, "single", "a login and neither run_spec nor the browser");
+  assert.equal(bare.action, "lead", "a login and neither run_spec nor the browser");
 
   const hurried = await r.coordinator.coordinate(input(r, { plan, deadline: { remainingMs: () => 60_000 } }));
-  assert.equal(hurried.action, "single");
+  assert.equal(hurried.action, "lead");
   assert.equal(asked, 0, "none of them paid for a planning turn");
   assert.equal(r.executed.length, 0);
   assert.equal(r.created.length, 0);
@@ -233,7 +233,7 @@ test("a lead on a runtime that cannot hold the planning turn to read-only, or on
   const plan = async (): Promise<PlanOutput> => { asked += 1; return { plan: FANOUT_PLAN, parsed: true, timedOut: false }; };
   for (const plannerProvider of ["codex", undefined] as const) {
     const outcome = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: "opencode", plannerProvider } }));
-    assert.equal(outcome.action, "single", String(plannerProvider));
+    assert.equal(outcome.action, "lead", String(plannerProvider));
     assert.ok(outcome.signal.downgrade && /read-only/.test(outcome.signal.downgrade), "the downgrade says why");
   }
   assert.equal(asked, 0, "no planning turn was paid for");
@@ -265,10 +265,10 @@ test("the planning turn is given the limits the plan is held to, and one that ra
   const r = rig();
   const seen: PlanningLimits[] = [];
   const timedOut = await r.coordinator.coordinate(input(r, { plan: async (p) => (seen.push(p), { parsed: false, timedOut: true }) }));
-  assert.equal(timedOut.action, "single");
+  assert.equal(timedOut.action, "lead");
   assert.deepEqual(seen[0], { maxFlows: DEFAULT_COORDINATION_SETTINGS.maxFlows, maxParallel: DEFAULT_COORDINATION_SETTINGS.maxParallel, budgetMs: DEFAULT_COORDINATION_SETTINGS.planBudgetMs });
   const nothing = await r.coordinator.coordinate(input(r, { plan: async () => ({ parsed: true, timedOut: false }) }));
-  assert.equal(nothing.action, "single");
+  assert.equal(nothing.action, "lead");
   assert.equal(nothing.signal.downgrade && /no-plan|plan/.test(nothing.signal.downgrade), true);
   assert.equal(r.executed.length, 0);
 });
@@ -284,11 +284,11 @@ test("a lead that declares a no-op, in the plan or beside it, ends the coordinat
 
 test("a plan that is one piece of work, or that cannot be admitted, goes back to the lead with its reason on the signal", async () => {
   const r = rig();
-  const single = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "single" }, parsed: true, timedOut: false }) }));
-  assert.equal(single.action, "single");
-  assert.equal(single.signal.plan, "single");
+  const alone = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
+  assert.equal(alone.action, "lead");
+  assert.equal(alone.signal.plan, "lead");
   const over = await r.coordinator.coordinate(input(r, { plan: async () => ({ plan: { kind: "fanout", flows: [] }, parsed: true, timedOut: false }) }));
-  assert.equal(over.action, "single");
+  assert.equal(over.action, "lead");
   assert.equal(over.signal.downgrade, "empty");
 });
 
@@ -541,7 +541,7 @@ test("the lead is never asked to review when the run has no room left for it", a
 });
 
 test("the lead's session ends however the plan comes out: a no-op, one piece of work, or a plan that cannot be admitted", async () => {
-  for (const planned of [{ kind: "noop", reason: "nothing" }, { kind: "single" }, { kind: "fanout", flows: [] }]) {
+  for (const planned of [{ kind: "noop", reason: "nothing" }, { kind: "lead" }, { kind: "fanout", flows: [] }]) {
     let disposed = 0;
     const r = rig();
     const plan = async (): Promise<PlanOutput> => ({ plan: planned, parsed: true, timedOut: false, lead: { ask: async () => ({ output: "", timedOut: false }), dispose: async () => { disposed += 1; } } });
@@ -554,7 +554,7 @@ test("flows that all finished nothing hand the change back to the lead while the
   const failing = { answers: { cart: [{ status: "failed" as const, summary: "x", filesChanged: [] }], login: [{ status: "failed" as const, summary: "y", filesChanged: [] }] }, hasFile: new Set<string>() };
   const roomy = rig(failing);
   const back = await roomy.coordinator.coordinate(input(roomy));
-  assert.equal(back.action, "single");
+  assert.equal(back.action, "lead");
   assert.equal(back.signal.takeover, true);
   assert.ok(roomy.events.some((e) => e.kind === "escalation" && e.action === "lead-takeover" && e.delegationId === undefined));
 

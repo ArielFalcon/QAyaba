@@ -87,7 +87,7 @@ export interface RunOutcome {
     closedLoop?: ClosedLoopGateSignal;
     /* How the authoring agents used the authenticated browser this run: calls, requests the guard refused, sessions lost and renewed. Absent when the run did not grant it. Persist-only: it reads nothing back into a verdict. */
     agentBrowser?: AgentBrowserGateSignal;
-    /* How the run was coordinated when it asked for the lead/sidekick mode: what became of the plan, how many flows were authored, delivered and left unfinished, and whether the lead took over. Absent for a run in the single mode. Persist-only: it reads nothing back into a verdict. */
+    /* How the run was coordinated: what became of the plan, how many flows were authored, delivered and left unfinished, and whether the lead took over. Absent for a run that did not coordinate (a code or context run). Persist-only: it reads nothing back into a verdict. */
     coordination?: CoordinationGateSignal;
     /* The reason a declared no-op named (`noop.kind` of its verdict, `unspecified` when it named none). Absent for a run that is not one. Persist-only: it reads nothing back into a verdict. */
     noop?: { kind: NoopKind };

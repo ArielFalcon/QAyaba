@@ -2,7 +2,7 @@
  * Which live code-graph right a session belongs to. The orchestrator learns an agent session's id only when the session opens
  * (the agent transport reports every session it opens for a run), so the right is bound to the id at that moment; the tools
  * endpoint then finds the run's graph by the session id the tool reports. Only the lead's own sessions are bound: the generator
- * role's sessions that name no flow (the plan, its review, a single-mode generation). A sidekick, the generator's session for a
+ * role's sessions that name no flow (the plan, its review, the lead's own generation). A sidekick, the generator's session for a
  * flow and every other role find nothing.
  */
 

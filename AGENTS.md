@@ -224,13 +224,13 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   counts them; Codex has none.
 - **Lead and sidekicks (`qa.coordination`)** — the only coordination: every e2e run that generates has the lead return a **plan**
   instead of specs (`GenerationPort.plan`, a read-only turn, `plan` in the generator's verdict) and each flow authored by a sidekick in parallel. A code run, a context run and a login still to be written never coordinate; `qa.coordination`
-  only sets the limits (a leftover `mode: lead-sidekicks` is ignored, `mode: single` is rejected at config load, a stored record may carry `mode: single`). The lead grounds deterministically: no explorer runs, the plan turn's
+  only sets the limits. The lead grounds deterministically: no explorer runs, the plan turn's
   diff names the app's own test files instead of showing them (`LanguageRegistry.isTestFile`), its session is denied Playwright
   (`LEAD_PLAN_DENIED_TOOLS`), and it explores with the code-graph tools. A diff over the prompt cap keeps every whole file section that fits
   (code before style sheets) and lists each one left out with its added and removed lines (`prompt-cap.ts`), and the plan turn is told the
   pages of the map the change is linked to (`PlanningLimits.changeRoutes`); a page no admitted flow visits is a `router` event. The plan is untrusted: `admitLeadPlan` keeps only what its shape and the
   run's limits allow (`maxFlows`, a deterministic spec path `e2e/flows/<slug>.spec.ts` per flow, the lead's own write lists ignored) and
-  downgrades to `single` with a recorded reason otherwise. Each sidekick works in a plain bounded copy of what the run may read
+  hands the change back to the lead (`lead`, the lead authors it alone) with a recorded reason otherwise. Each sidekick works in a plain bounded copy of what the run may read
   (`<mirrors>/.qa-delegations/<run>/<delegation>`, `DelegationWorkspacePort`); only the files its brief names (`writablePaths`) are taken
   back, through `spec-path-confinement`, and anything else it changed is listed as a proposal and never applied. Each brief carries
   the Live DOM of its flow's pages, cut from the run's Context Pack (`generation/domain/pack-pages.ts`). A pool of at most
@@ -260,7 +260,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   facts it routes to their flows and never rebuts; what no flow takes goes to the lead's own regeneration with only that evidence,
   and the run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
   whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
-  Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { mode, plan, downgrade, flows, delivered,
+  Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { plan, downgrade, flows, delivered,
   incomplete, takeover, authoring, review, corrections }`. `docs/lead-sidekicks.md`.
 - **Authoring location (`dev.geolocation`)** — the app declares a durable browser position (the suite, `run_spec` and the
   Context Pack run at it) and may declare named `places`. The run carries a mutable authoring location — the lead's, and one

@@ -342,8 +342,8 @@ export interface RunOutcome {
     closedLoop?: { calls: number; devWrites: number; closed: boolean };
     /* How the authoring agents used the authenticated browser this run; absent when it was not granted. */
     agentBrowser?: { calls: number; blocks: number; invalidations: number; renewals: number };
-    /* How the run was coordinated when it asked for the lead/sidekick mode; absent for a run in the single mode. */
-    coordination?: { mode: string; plan?: string; downgrade?: string; flows: number; delivered: number; incomplete: number; takeover: boolean; authoring?: string };
+    /* How the run was coordinated: what became of the lead's plan and its flows; absent for a run that did not coordinate (a code or context run). A record stored earlier may also carry a `mode`. */
+    coordination?: { plan?: string; downgrade?: string; flows: number; delivered: number; incomplete: number; takeover: boolean; authoring?: string };
     /* The reason a declared no-op named (`unspecified` when it named none); absent for a run that is not one. Persist-only. */
     noop?: { kind: "not-worth" | "unobservable" | "unspecified" };
 

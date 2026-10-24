@@ -1,17 +1,14 @@
 # Lead and sidekicks
 
 How every e2e run generates: the lead plans a change's independent flows and sidekicks author them in
-parallel, each closing its own `run_spec` loop. Lead + sidekicks is the only coordination mode; there is nothing to
-turn on. Everything after generation (validation, execution, change-coverage, review, decide) is unchanged. A code run,
+parallel, each closing its own `run_spec` loop. There is no other way a run generates and nothing to turn on. Everything after generation (validation, execution, change-coverage, review, decide) is unchanged. A code run,
 a context run and a login still to be written do not coordinate. When the plan is not admitted as a fan-out, no sidekick
 can author, or the coordination fails, the lead authors the whole change in one turn, and why is recorded in
-`gateSignals.coordination` (`downgrade`) and the probe report's "Coordination" section. Records stored before this was
-the only mode may carry `mode: single`.
+`gateSignals.coordination` (`downgrade`) and the probe report's "Coordination" section.
 
 ## Tuning it
 
-`qa.coordination` in `config/apps/<app>.yaml` sets the limits. A leftover `mode: lead-sidekicks` is accepted and
-ignored; `mode: single` is rejected when the config loads.
+`qa.coordination` in `config/apps/<app>.yaml` sets the limits.
 
 ```yaml
 qa:
@@ -29,7 +26,7 @@ signed-in app (see below); without either, they stay out and the lead authors al
 
 ## What a run does
 
-1. **Plan.** The lead is asked for a plan (a read-only turn): `single`, `noop` with a reason, or `fanout` with
+1. **Plan.** The lead is asked for a plan (a read-only turn): `lead` (one piece of work it authors itself), `noop` with a reason, or `fanout` with
    flows. A flow is an id, an objective, acceptance items, the routes it touches and, when the app declares
    `dev.geolocation`, an optional place it authors at. The turn is held to
    read-only by a per-prompt tool denial (the runtime's file tools and every editing tool of the code-navigation

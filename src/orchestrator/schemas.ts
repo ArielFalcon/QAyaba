@@ -311,17 +311,13 @@ export const AppConfigSchema = z
       /*
        * How a run is coordinated: the lead plans first, and a plan of independent flows is authored by sidekicks in parallel, each
        * closing its own run_spec loop, with the lead taking over what they cannot finish. Lead + sidekicks is the only coordination;
-       * `mode: lead-sidekicks` is accepted and ignored, any other `mode` is rejected. `maxParallel` flows run at once, a plan may name
+       * this block only sets its limits. `maxParallel` flows run at once, a plan may name
        * `maxFlows`, the planning turn takes at most `planBudgetMs`, and one flow at most `flowBudgetMs` for the runtime its sidekick
        * runs on. Needs the OpenCode runtime for the sidekicks and, for an app with a login, the run_spec loop or the authenticated
        * browser: without them the work stays with the lead.
        */
       coordination: z
         .object({
-          mode: z
-            .string()
-            .optional()
-            .refine((v) => v === undefined || v === "lead-sidekicks", { message: "lead + sidekicks is the only coordination mode: remove qa.coordination.mode (or set it to lead-sidekicks)" }),
           maxParallel: z.number().int().min(1).max(6).optional(),
           maxFlows: z.number().int().min(2).max(12).optional(),
           planBudgetMs: z.number().int().min(30_000).max(900_000).optional(),

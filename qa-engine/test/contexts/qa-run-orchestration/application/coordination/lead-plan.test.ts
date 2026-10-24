@@ -50,14 +50,14 @@ test("a no-op plan keeps the lead's reason and nothing else", () => {
 test("a no-op plan with no reason is no decision: the lead authors the change itself", () => {
   for (const raw of [{ kind: "noop" }, { kind: "noop", reason: "   " }]) {
     const plan = admitLeadPlan(raw, limits, deps);
-    assert.equal(plan.kind, LEAD_PLAN_KIND.SINGLE);
-    assert.equal(plan.kind === LEAD_PLAN_KIND.SINGLE ? plan.downgrade : undefined, PLAN_DOWNGRADE.MALFORMED);
+    assert.equal(plan.kind, LEAD_PLAN_KIND.LEAD);
+    assert.equal(plan.kind === LEAD_PLAN_KIND.LEAD ? plan.downgrade : undefined, PLAN_DOWNGRADE.MALFORMED);
   }
 });
 
-test("a single plan is a single plan, with nothing to report", () => {
-  const plan = admitLeadPlan({ kind: "single" }, limits, deps);
-  assert.deepEqual(plan, { kind: LEAD_PLAN_KIND.SINGLE });
+test("a plan the lead authors itself is admitted as it is, with nothing to report", () => {
+  const plan = admitLeadPlan({ kind: "lead" }, limits, deps);
+  assert.deepEqual(plan, { kind: LEAD_PLAN_KIND.LEAD });
 });
 
 test("a fan-out is admitted flow by flow, each with the spec file its slugged id names", () => {
@@ -92,8 +92,8 @@ test("an id that slugs to nothing still names a file, and two flows that slug al
   const unnamed = admitted(admitLeadPlan(fanout(flow("???"), flow("ok")), limits, deps));
   assert.match(unnamed[0]!.id, /^[a-z0-9-]+$/);
   const dup = admitLeadPlan(fanout(flow("Log In"), flow("log-in")), limits, deps);
-  assert.equal(dup.kind, LEAD_PLAN_KIND.SINGLE);
-  assert.equal(dup.kind === LEAD_PLAN_KIND.SINGLE ? dup.downgrade : undefined, PLAN_DOWNGRADE.DUPLICATE);
+  assert.equal(dup.kind, LEAD_PLAN_KIND.LEAD);
+  assert.equal(dup.kind === LEAD_PLAN_KIND.LEAD ? dup.downgrade : undefined, PLAN_DOWNGRADE.DUPLICATE);
 });
 
 test("more flows than the cap, no flows, a lone flow and an unreadable plan all go back to the lead, each with its reason", () => {
@@ -110,8 +110,8 @@ test("more flows than the cap, no flows, a lone flow and an unreadable plan all 
   ];
   for (const [name, raw, reason] of cases) {
     const plan = admitLeadPlan(raw, limits, deps);
-    assert.equal(plan.kind, LEAD_PLAN_KIND.SINGLE, name);
-    assert.equal(plan.kind === LEAD_PLAN_KIND.SINGLE ? plan.downgrade : undefined, reason, name);
+    assert.equal(plan.kind, LEAD_PLAN_KIND.LEAD, name);
+    assert.equal(plan.kind === LEAD_PLAN_KIND.LEAD ? plan.downgrade : undefined, reason, name);
   }
 });
 
@@ -180,8 +180,8 @@ test("a run with no deadline gives each flow the full time a flow may take", () 
 
 test("when the run has too little time left for a flow to do anything, the lead does the work", () => {
   const plan = admitLeadPlan(fanout(flow("a"), flow("b"), flow("c")), { ...limits, remainingMs: limits.reserveMs + limits.minFlowMs / 2 }, deps);
-  assert.equal(plan.kind, LEAD_PLAN_KIND.SINGLE);
-  assert.equal(plan.kind === LEAD_PLAN_KIND.SINGLE ? plan.downgrade : undefined, PLAN_DOWNGRADE.NO_TIME);
+  assert.equal(plan.kind, LEAD_PLAN_KIND.LEAD);
+  assert.equal(plan.kind === LEAD_PLAN_KIND.LEAD ? plan.downgrade : undefined, PLAN_DOWNGRADE.NO_TIME);
 });
 
 test("the run's tool calls are shared out among the flows, and a flow gets none it was not given", () => {
@@ -200,8 +200,8 @@ test("a run that was not granted run_spec or the browser gives its flows none", 
 
 test("when run_spec cannot give every flow a call, the lead does the work", () => {
   const plan = admitLeadPlan(fanout(...Array.from({ length: 5 }, (_, i) => flow(`f${i}`))), { ...limits, runSpecCalls: 3 }, deps);
-  assert.equal(plan.kind, LEAD_PLAN_KIND.SINGLE);
-  assert.equal(plan.kind === LEAD_PLAN_KIND.SINGLE ? plan.downgrade : undefined, PLAN_DOWNGRADE.NO_CALLS);
+  assert.equal(plan.kind, LEAD_PLAN_KIND.LEAD);
+  assert.equal(plan.kind === LEAD_PLAN_KIND.LEAD ? plan.downgrade : undefined, PLAN_DOWNGRADE.NO_CALLS);
 });
 
 test("no more flows run at once than the parallel limit or the flows themselves", () => {

@@ -2,7 +2,7 @@
 
 import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { relative } from "node:path";
-import { COORDINATION_SIGNAL_MODE, DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
+import { DEFAULT_COORDINATION_SETTINGS } from "@kernel/coordination.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { NOOP_KIND } from "@kernel/noop-kind.ts";
 import { rethrowIfRunDeadline } from "../../../../../shared-kernel/run-deadline.ts";
@@ -66,11 +66,11 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
   } catch (err) {
     rethrowIfRunDeadline(err);
     console.error(`[qa] coordination failed (the lead authors the change alone): ${err instanceof Error ? err.message : String(err)}`);
-    ctx.ends.recordCoordination({ mode: COORDINATION_SIGNAL_MODE, downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
+    ctx.ends.recordCoordination({ downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
     return undefined;
   }
   ctx.ends.recordCoordination(result.signal);
-  if (result.action === "single") return undefined;
+  if (result.action === "lead") return undefined;
   if (result.action === "noop") {
     /* A plan names no kind of no-op. */
     return { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason };
