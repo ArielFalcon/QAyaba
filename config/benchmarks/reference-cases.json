@@ -41,6 +41,42 @@
         "outcome": "either",
         "mustVerify": "Evidence-coherence case. While DEV lists 0 restaurants the end-of-list button cannot render, so the correct outcome is a reasoned no-op naming that the changed element is not observable on DEV now (not exhaustion, not a spec asserting a pre-existing same-label button). When DEV has restaurants: the end-of-list button reads 'Cambiar filtros' and navigates to /search keeping province/city. Record the DEV data state before each run."
       }
+    },
+    {
+      "id": "R5-missing-restaurant-state",
+      "kind": "diff",
+      "sha": "ab922ad43b47b0e8b7b7039632406e486469c5ba",
+      "expected": {
+        "outcome": "spec",
+        "mustVerify": "Opening the detail page of a restaurant that does not exist (/restaurantes/<province>/<city>/<unknown-slug>) shows the not-found state with its own heading and message and the 'Buscar restaurantes activos' action, which navigates to /search. The failed-load branch ('Reintentar', HTTP 503) is not observable on DEV without forcing a backend failure: a spec that simulates the failure or a reasoned omission is admissible, an invented assertion is not. The server status (404) is not observable on DEV today (the page is served as a client-rendered shell that answers 200), so a spec must not assert it. Independent of restaurant data and location."
+      }
+    },
+    {
+      "id": "R6-dynamic-cuisine-filter",
+      "kind": "diff",
+      "sha": "40371fa0db38f33fbd42df5ee6b6737c229174b0",
+      "expected": {
+        "outcome": "spec",
+        "mustVerify": "Broad change (63 files). In the search filters, the cuisine and price facets are derived from the restaurants that match the other active filters: a cuisine with no results under the other filters renders grayed and inert and moves after the available ones (catalog order kept within each group), a selected cuisine stays in place and can still be cleared, and the filter dialog offers clear buttons for cuisine and price. The facets depend on DEV's restaurant data: a spec must derive which cuisines are available from what the page shows, never from a hard-coded catalog. The list reorder animation (nmFlip) is not a functional assertion."
+      }
+    },
+    {
+      "id": "R7-form-action-hints",
+      "kind": "diff",
+      "sha": "8442cd4e042478b1c739d1938a800145af94bc0f",
+      "expected": {
+        "outcome": "either",
+        "mustVerify": "Broad change (78 files). A blocked action stays tappable (soft-disabled) and tapping it shows an action hint saying what is missing; in the order flow the hint takes the user to the missing field. Reachable on DEV only where the test account can open a flow with a blocked action (the order flow needs a restaurant with an orderable daily menu; merchant dialogs need a merchant account): a spec on a reachable flow, or a reasoned no-op naming the flows that are not reachable on DEV, is admissible. The iOS auto-zoom fix is not observable in a desktop browser and must not be asserted. A spec must not submit an order."
+      }
+    },
+    {
+      "id": "R8-first-time-intros",
+      "kind": "diff",
+      "sha": "c8a5582db5060e8c6d315e62068b0e228bca86dc",
+      "expected": {
+        "outcome": "either",
+        "mustVerify": "Upload-menu first-time intro from home and from the scanner: shown once, dismissed, and not shown again once seen; queued dialogs are deduplicated. Whether the intro was seen is persisted in the user's preferences, so on DEV it may already be marked seen for the test account: a spec must establish the precondition it asserts (a fresh state it can reach, or the seen state) and must not assume the intro appears. A reasoned no-op naming that the first-time state is not reachable for the test account is admissible."
+      }
     }
   ]
 }
