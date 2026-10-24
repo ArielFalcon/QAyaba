@@ -48,7 +48,8 @@ signed-in app (see below); without either, they stay out and the lead authors al
    (`<mirrors>/.qa-delegations/<run>/<delegation>`). Only the files its brief names (`writablePaths`) are copied
    back, through `spec-path-confinement`. Anything else it changed is listed as a proposal for the lead and never
    applied: the sidekick has no write authority over the watched repo or the shared suite.
-5. **Add up.** `aggregateFlowOutcomes` ends the coordinated pass as a generation ends: delivered specs, a declared
+5. **Review.** The lead judges the flows in its planning session and may revise, replace or drop them (below).
+6. **Add up.** `aggregateFlowOutcomes` ends the coordinated pass as a generation ends: delivered specs, a declared
    no-op, or an end that says why nothing was finished. The rest of the run reads it like any generation.
 
 If nothing could be coordinated (no plan, no time, nobody to author with) the lead authors the change alone.
@@ -83,38 +84,59 @@ Actions on one account are serialized; the lease can admit concurrent read-only 
 the egress proxy has no read-only mode today, so every action is exclusive in practice and flows queue behind
 each other on one account. The queue between runs stays sequential. Agent-declared tags never decide isolation.
 
-## Escalation
+## The lead's review
 
-Per flow, from what the orchestrator observed (the sidekick's status and the flow's `run_spec` ledger of spec hashes
-and statuses, not the sidekick's own account of its work): a flow whose file is not taken back gets another attempt
-while its time lasts, with the failure and the last `run_spec` status as feedback, on the escalated capability (and
-`COORDINATION_ESCALATED_MODEL` when set). A sidekick that asks for the lead (`needs-lead`), makes no progress between
-attempts or exhausts its time is handed back. A sidekick that writes nothing and says why (the change needs no test of
-its own) is a declined flow, not a failure. When every flow comes back empty and time remains, the lead takes over the
-whole change as one piece of work (`takeover` in the signal).
+Each flow is authored once. The lead is then asked to review the flows in its planning session, which the plan kept
+open (`PlanOutput.lead`), read-only like the plan, bounded by `planBudgetMs` and by what the run has left beyond its
+reserve; at most `MAX_REVIEW_TURNS` (3) turns, and revisions are ordered in every turn but the last (`lead-review.ts`).
+Per flow it is shown the objective and acceptance, what came of the flow, the sidekick's summary and concerns, the
+flow's `run_spec` facts (calls used, the last call's status and failure, whether the spec it holds now is the one that
+passed) and the spec it delivered, read through the confined reader and bounded. It answers per flow:
+
+- `accept`;
+- `revise`: its instruction goes to the SAME sidekick session, which is kept, with the flow's workspace, `run_spec`
+  loop and location, until the coordinated pass ends;
+- `replace`: the old session is ended and a fresh sidekick takes the flow from its brief and the instruction, on the
+  escalated capability (and `COORDINATION_ESCALATED_MODEL` when set);
+- `drop`: a flow that delivered nothing is settled with the lead's reason.
+
+The answer is untrusted, and the orchestrator's facts decide over it:
+
+- an `accept` of a spec that has not passed `run_spec` on its current bytes, while the flow can still run it and a turn
+  is left, is turned into a `revise` carrying the failure the orchestrator saw; on the last turn it stands and the run's
+  execution judges it;
+- an app defect is never sent back to be made green (`revise`/`replace` refused);
+- a delivered spec is never dropped: it is already in the working copy, and the run's execution and the reviewer judge it;
+- a flow the answer does not name, or an answer that cannot be read or runs out of its time, leaves the flows as they are.
+
+Every revision carries the orchestrator's facts beside the lead's instruction. A sidekick that writes nothing and says
+why (the change needs no test of its own) is a declined flow, not a failure. When every flow comes back empty and time
+remains, the lead takes over the whole change as one piece of work (`takeover` in the signal). The review is counted in
+`gateSignals.coordination.review { turns, accepted, revised, replaced, dropped, refused }` and each decision is a
+`router` event of the coordination telemetry.
 
 A `run_spec` call keeps the facts of each failing test in the ledger (`failures`: its error, redacted and bounded; the
 page it ended on, by pathname; the results the app's declared data state showed there; the server status; the runtime
-errors the page raised; whether the page was still changing). The flow's next step is decided from them by fixed rules,
-never by the sidekick's account (`classifyAuthoringFailure`, `authoring-failure.ts`, the fix loop's adjudicator rules):
+errors the page raised; whether the page was still changing). What a revision is told about them is decided by fixed
+rules, never by the sidekick's account (`classifyAuthoringFailure`, `authoring-failure.ts`, the fix loop's adjudicator rules):
 
 - **App defect** (an attributed 5xx, or a framework/uncaught runtime error): the spec is right to fail and is never sent
   back to be made green. When the sidekick still holds the bytes that showed it, they are taken back as they ran and the
   flow is delivered, so the run's own execution and fix loop report the defect; otherwise the flow ends on it.
-- **Page still loading**, **element not on the page**, **value mismatch**: the second attempt is told which, with what to
+- **Page still loading**, **element not on the page**, **value mismatch**: a revision is told which, with what to
   do about it (wait for the page's data; build the locator from the failure-point tree; take the expected value from the
   change and its contract, never from the page).
 
 The pages the run's Context Pack read with results (under the app's declared data state) are deterministic facts in
 every sidekick's brief. When a flow's empty read lands on one of them, the two reads disagree: the sidekick's decline is
-not taken, its next attempt is told both reads, and a conflict still open on the escalated attempt hands the flow to the
-lead (`observationConflictIn`, `orchestration-router.ts`). The two reads are not taken under the same conditions (the pack
+not taken, the flow is shown to the lead with the conflict, and any revision is told both reads (`observationConflictIn`). The two reads are not taken under the same conditions (the pack
 reads every route in one shared browser context and waits for the declared data state), so the conflict names a
 difference to look at, not a culprit.
 
 ## Cleanup
 
-Delegation workspaces are removed in a `finally` when the coordinated pass ends, and swept at the start of a
+Sidekick sessions, `run_spec` loops, flow locations and delegation workspaces are released, and the lead's session
+ended, in a `finally` when the coordinated pass ends, and swept at the start of a
 coordinated run and at orchestrator boot (a process killed mid-run leaves nothing behind).
 
 ## Operating it
@@ -127,9 +149,9 @@ coordinated run and at orchestrator boot (a process killed mid-run leaves nothin
 
 ## Known limits
 
-- A flow that fails gets a second attempt and then goes to the lead whole; there is no per-flow lead takeover turn
-  that keeps the sidekick's partial work, and sidekick proposals (changes outside the brief's file) are reported,
-  not consolidated.
+- The lead cannot drop a spec that reached the working copy, nor add a flow its plan did not name; sidekick proposals
+  (changes outside the brief's file) are reported, not consolidated.
+- The reviewer's corrections still go to a regeneration, not to the lead.
 - Read-only concurrency is unreachable until the proxy can enforce read-only access.
 - Each flow's `run_spec` and browser caps are shares of the run's; the shares are not reconciled with what the
   generator spends in the same run.

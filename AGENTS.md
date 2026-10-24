@@ -224,17 +224,21 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `run_spec` loop (`ClosedLoopHandle.openFlow`, the same `AccountLock` lease, its own caps and namespace) and, with a login, reads DEV
   through the orchestrator's authenticated browser with a share of the run's caps. What a sidekick may author with is
   `sidekickAuthoring`: authenticated browser, `run_spec` only, the plain browser for an app with no login (one flow at a time), or
-  excluded (a Codex sidekick, or a login with neither grant): the lead then authors alone and the log says why. A flow climbs the
-  escalation ladder (a second attempt, then the lead takes it back) on what the orchestrator saw of its `run_spec` calls, never on the
-  sidekick's word. The ledger keeps each failing test's facts, and fixed rules (`authoring-failure.ts`) decide the next step: an app
-  defect (5xx, uncaught runtime error) is never sent back to be made green (the bytes that showed it are delivered as they ran), and
-  the other kinds give the second attempt a specific instruction. The pages the Context Pack read with results reach every brief as
-  facts; a flow whose `run_spec` read one of them empty has its decline refused, is retried with both reads, and goes to the lead if
-  the conflict stays open. Flows that deliver are added up like a generation (`aggregateFlowOutcomes`), and the rest of the run (validate,
+  excluded (a Codex sidekick, or a login with neither grant): the lead then authors alone and the log says why. Each flow is authored
+  once; then the lead **reviews** the flows in its planning session (kept open by the plan, asked read-only, at most `MAX_REVIEW_TURNS`
+  turns inside the run's deadline and reserve; `lead-review.ts`): it sees each flow's objective, outcome, the sidekick's summary, the
+  `run_spec` facts and the delivered spec (through the confined reader), and answers per flow `accept`, `revise` (its instruction to the
+  SAME sidekick session, which is kept with its workspace and loop until the pass ends), `replace` (a fresh sidekick on the escalated
+  model) or `drop`. Its answer is untrusted and the orchestrator's facts decide over it: an `accept` of a spec that has not passed
+  `run_spec` on its current bytes is sent back while it can run and a turn is left; an app defect (5xx, uncaught runtime error, by the
+  fixed rules of `authoring-failure.ts`) is never sent back to be made green (the bytes that showed it are delivered as they ran); a
+  delivered spec is never dropped. Every revision carries the orchestrator's facts (the failure kind of the last `run_spec` call, and
+  the two reads when a flow's empty read contradicts a page the Context Pack read with results, which also refuses that flow's
+  decline). Flows that deliver are added up like a generation (`aggregateFlowOutcomes`), and the rest of the run (validate,
   execute, coverage, review, decide) is unchanged. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
   whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
   Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { mode, plan, downgrade, flows, delivered,
-  incomplete, takeover, authoring }`. `docs/lead-sidekicks.md`.
+  incomplete, takeover, authoring, review }`. `docs/lead-sidekicks.md`.
 - **Authoring location (`dev.geolocation`)** — the app declares a durable browser position (the suite, `run_spec` and the
   Context Pack run at it) and may declare named `places`. The run carries a mutable authoring location — the lead's, and one
   per flow of a plan — that the `set_geolocation` tool moves for the authenticated browser and the prompts; a plan may name a

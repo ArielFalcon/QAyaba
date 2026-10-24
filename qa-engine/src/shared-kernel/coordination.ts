@@ -75,6 +75,8 @@ export interface CoordinationGateSignal {
   takeover: boolean;
   /* What the sidekicks authored with ("authenticated-browser", "run-spec-only", "unauthenticated-browser", or why none ran). */
   authoring?: string;
+  /* The lead's review of the flows: its turns, the decisions admitted, and those the orchestrator refused. Absent when the lead reviewed nothing. */
+  review?: { turns: number; accepted: number; revised: number; replaced: number; dropped: number; refused: number };
 }
 
 /* The settings an app declared, with every limit it left out taken from the defaults. */

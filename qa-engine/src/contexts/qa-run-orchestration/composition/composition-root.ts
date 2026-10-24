@@ -663,6 +663,14 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
                 timers: systemTimers,
                 telemetry: coordinationTelemetry,
                 specFileFor: specFileForFlow,
+                /* What a sidekick wrote is untrusted: the lead's review reads it through the confined reader, and an unreadable spec is shown as none. */
+                readSpec: async (root, specFile) => {
+                  try {
+                    return readConfinedSpecFile(root, specFile);
+                  } catch {
+                    return undefined;
+                  }
+                },
                 ...(cfg.sidekickEscalatedModel ? { escalatedModel: cfg.sidekickEscalatedModel } : {}),
                 ...(cfg.delegation.deadline ? { deadline: cfg.delegation.deadline } : {}),
               }),
