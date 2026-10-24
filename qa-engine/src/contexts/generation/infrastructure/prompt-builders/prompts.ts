@@ -306,9 +306,25 @@ function explorerStepLimitLines(input: OpencodeRunInput): string[] {
 }
 
 /* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-generator.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
-const GROUNDING_UNCOVERED_ESCAPE =
+const groundingUncoveredEscape = (browser: LiveBrowser): string =>
   `If a route you must touch is NOT represented in the injected grounding above, you MUST still ` +
-  `browser_navigate that specific route before writing its selectors — never guess them.`;
+  `${browser.navigate} that specific route before writing its selectors — never guess them.`;
+
+/* The browser an authoring turn reads a page the prompt does not show with: the authenticated one when the run granted it (signed in as the test account), else the Playwright MCP. */
+interface LiveBrowser {
+  name: string;
+  navigate: string;
+  snapshot: string;
+  /* The plain Playwright MCP also reads console messages and network requests; the authenticated browser does not. */
+  runtimeSignals: boolean;
+}
+const liveBrowserOf = (input: Pick<OpencodeRunInput, "agentBrowser">): LiveBrowser =>
+  input.agentBrowser
+    ? { name: "the authenticated browser", navigate: "authbrowser_navigate", snapshot: "authbrowser_snapshot", runtimeSignals: false }
+    : { name: "the Playwright MCP", navigate: "browser_navigate", snapshot: "browser_snapshot", runtimeSignals: true };
+
+/* How a turn reads code the prompt does not provide: the order the shared rules give, so no prompt names a tool a role may not hold. */
+const CODE_TOOLS = "your code tools in the order AGENTS.md gives";
 
 function linkKindLabel(l: { transport: string; source: string }): string {
   if (l.source === "http-backend-resolver") return "BE→BE HTTP";
@@ -399,7 +415,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const isGenerationMode = input.mode !== "context";
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
   const isCode = input.target === "code";
-  /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not re-activate serena or re-skim the repo. */
+  /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not trace it again or re-skim the repo. */
   const isReGen = isGenerationMode && isReGenTurn(input);
   const isContinuation = isReGen && opts.continuation === true;
 
@@ -417,6 +433,10 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const packProvides = (fact: FactId): boolean => contextPackClaims.some((c) => c.kind === "provides" && c.fact === fact);
   /* A DOM tree is in the prompt when the pack carries a live DOM or a captured tree is injected: the tree is then the only selector source, and a regeneration fixes from it instead of re-navigating. A pack of contracts alone is not a tree. */
   const treeInPrompt = packProvides("dom-live") || hasFailureTree || hasLiveTree;
+  const browser = liveBrowserOf(input);
+  const GROUNDING_UNCOVERED_ESCAPE = groundingUncoveredEscape(browser);
+  /* A lead's planning turn opens no browser (its session is denied one): it plans from the pack and the code. */
+  const planningTurn = isGenerationMode && input.target === "e2e" && Boolean(input.planning) && !isReGen;
 
   const workingRulesLines: string[] = [
     `## ${PROMPT_HEADINGS.workingRules}`,
@@ -451,26 +471,31 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `- Test-data prefix: ${input.namespace}`,
           `- LIVE DEV URL: ${input.baseUrl ?? "(not provided — ABORT and report infra-error: no base URL)"}`,
           `  In the SPEC files, reach the app via the PW_BASE_URL env var (the orchestrator sets it at run time).`,
-          ...(packProvides("dom-live")
+          ...(planningTurn
+            ? [
+                `- This turn plans and opens no browser.${packProvides("dom-live") ? ` The "Live DOM" section is what DEV rendered for the pages it lists; a flow that visits another page names it, and its author reads it.` : " The authors of the flows read the pages they visit."}`,
+                `  Find what the change reaches (its callers and the pages that use it) with ${CODE_TOOLS}.`,
+              ]
+            : packProvides("dom-live")
             ? [
                 `- A Context Pack (live DOM${packProvides("api-operations") ? " + contracts" : ""}) was pushed into this prompt by the`,
                 `  orchestrator before this session started. Where the pack supplies the DOM for a route,`,
-                `  TRANSCRIBE selectors directly from the "Live DOM" section — do NOT use browser_navigate or`,
-                `  browser_snapshot on routes already covered in the pack.`,
-                `  For routes NOT covered in the pack (not listed in the DOM section), use the Playwright MCP`,
+                `  TRANSCRIBE selectors directly from the "Live DOM" section — do NOT use ${browser.navigate} or`,
+                `  ${browser.snapshot} on routes already covered in the pack.`,
+                `  For routes NOT covered in the pack (not listed in the DOM section), use ${browser.name}`,
                 `  to explore the live page before writing selectors.`,
               ]
             : treeInPrompt
             ? [
                 `- An injected a11y tree is provided below for the affected routes —`,
-                `  transcribe selectors from it; do NOT browser_navigate a route it covers. Use the Playwright`,
-                `  MCP only for a route NOT present in that tree.`,
+                `  transcribe selectors from it; do NOT ${browser.navigate} a route it covers. Use ${browser.name}`,
+                `  only for a route NOT present in that tree.`,
               ]
             : [
-                `- Playwright MCP is AVAILABLE and you MUST use it BEFORE writing any test: browser_navigate to`,
-                `  the LIVE DEV URL above, then browser_snapshot to read the ACTUAL DOM. Selectors MUST be verified`,
+                `- You MUST read the live page with ${browser.name} BEFORE writing any test: ${browser.navigate} to`,
+                `  the LIVE DEV URL above, then ${browser.snapshot} to read the ACTUAL DOM. Selectors MUST be verified`,
                 `  against the real DOM, NEVER invented from code analysis alone.`,
-                ...RUNTIME_SIGNALS_LINES,
+                ...(browser.runtimeSignals ? RUNTIME_SIGNALS_LINES : []),
               ]),
           /* Where the contract is, as a fact; the static layers own the rule for reading it. */
           ...(openapiHint ? [`- OpenAPI contract(s) for this repo: ${openapiHint}.`] : []),
@@ -669,17 +694,17 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
               ]),
             ]
           : [
-              `For each failure, use the Playwright MCP to explore the page and verify`,
+              `For each failure, use ${browser.name} to explore the page and verify`,
               `your fix BEFORE writing it:`,
               ...numbered([
                 ...readTestStep,
-                `Use browser_navigate + browser_snapshot to see the ACTUAL page structure`,
+                `Use ${browser.navigate} + ${browser.snapshot} to see the ACTUAL page structure`,
                 [
                   `Fix the ROOT CAUSE, guided by the error type:`,
                   `   - "strict mode violation" → scope the selector to a section first`,
                   `   - "locator.click: … not found" → the element doesn't exist; check role/label`,
                   `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
-                  `   - "NS_ERROR_…" / network error → the URL or route is wrong; verify with browser_navigate`,
+                  `   - "NS_ERROR_…" / network error → the URL or route is wrong; verify with ${browser.navigate}`,
                   `   - "locator resolved to N elements" → use .first() ONLY as last resort; prefer scoping`,
                 ].join("\n"),
                 FIX_STEPS.changeOnlyWhatIsBroken,
@@ -703,7 +728,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           ? `Re-verify against the injected grounding above (the DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
           : isCode
           ? `Where a fix concerns an assertion, re-verify it against the code under test before editing.`
-          : `Where a fix concerns a selector or an assertion, re-verify it against the live page with the Playwright MCP before editing.`,
+          : `Where a fix concerns a selector or an assertion, re-verify it against the live page with ${browser.name} before editing.`,
         ``,
 
         ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
@@ -752,9 +777,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         `## Re-generation turn — do NOT re-orient`,
         ``,
         blastRadiusGrounded
-          ? `Re-generation turn: the blast radius was already explored and distilled above. Do NOT re-activate`
-          : `Re-generation turn: do NOT re-activate`,
-        `serena, do NOT re-run find_referencing_symbols, do NOT re-skim the repository or re-read unchanged`,
+          ? `Re-generation turn: the blast radius was already explored and distilled above. Do NOT trace the`
+          : `Re-generation turn: do NOT trace the`,
+        `change's callers again, do NOT re-skim the repository or re-read unchanged`,
         blastRadiusGrounded
           ? `code. Work from the grounding already in this prompt and change only what the correction requires.`
           : `code. Change only what the correction requires.`,
@@ -767,7 +792,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         `## Continuation — same session`,
         ``,
         `The suite you wrote was run. The working rules, the grounding and the change are earlier in this session`,
-        `(or in its summary, if it was compacted): do NOT re-read them, do NOT re-activate serena, do NOT re-skim the`,
+        `(or in its summary, if it was compacted): do NOT re-read them, do NOT trace the change's callers again, do NOT re-skim the`,
         `repository and do NOT re-navigate a route you already explored. Change only what the signal below requires.`,
         `If something you need is no longer in this session, look up only that.`,
         GROUNDING_UNCOVERED_ESCAPE,
@@ -1076,7 +1101,7 @@ export function buildContextTask(input: OpencodeRunInput): string {
     ``,
     `## Procedure`,
     `1. Activate serena (activate_project) on the working directory.`,
-    `2. Find ALL Angular routing files (serena glob: **/*routes*.ts, **/app-routing*.ts).`,
+    `2. Find ALL Angular routing files (glob: **/*routes*.ts, **/app-routing*.ts).`,
     `   For each route definition (path + component), add an entry to routes.`,
     `3. Find ALL OpenAPI spec files${openapiHint ? ` (start with ${openapiHint})` : ""}.${input.services?.length ? " Include every microservice repo listed above (their staged contract snapshots are local paths you can read)." : ""}`,
     `   For each operation (operationId + method + path), add an entry to api.`,
@@ -1316,8 +1341,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
         ? `Audit and REGENERATE the entire E2E suite of ${input.repo} from scratch.`
         : `Analyze the WHOLE repository ${input.repo} and grow the E2E suite where it matters.`,
       ``,
-      `1. Read the existing tests in ${input.e2eRelDir}/ and the app code (use serena:`,
-      `   activate_project, get_symbols_overview, find_symbol, find_referencing_symbols) to`,
+      `1. Read the existing tests in ${input.e2eRelDir}/ and the app code (with ${CODE_TOOLS}) to`,
       `   build a COVERAGE + IMPORTANCE map: which user flows already have tests and which`,
       `   important/complex flows do NOT. Until real coverage instrumentation exists,`,
       `   estimate coverage by reading the existing specs and the code.`,
@@ -1340,7 +1364,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
       objective.text,
       ``,
       /* The listing supplies the suite; the read of it is declared only where nothing lists it. */
-      `Use serena to read the relevant code${guards.suiteListed ? "" : ` and the existing ${input.e2eRelDir}/ suite`}.`,
+      `Read the relevant code${guards.suiteListed ? "" : ` and the existing ${input.e2eRelDir}/ suite`} with ${CODE_TOOLS}.`,
       `Stay focused on the guidance; do not generate unrelated tests.`,
     ].join("\n");
     return {
@@ -1379,7 +1403,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
         ]),
     `## Scope budget (diff mode)`,
     `The blast radius IS your budget. ${sizeSentence(stat)} so keep it focused:`,
-    ...(guards.blastRadiusGrounded ? [] : [`- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`]),
+    ...(guards.blastRadiusGrounded ? [] : [`- Read ONLY the changed symbols and their direct callers/callees, with ${CODE_TOOLS}.`]),
     `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
     /* The listing supplies the suite; the read of it is declared only where nothing lists it. */
     ...(guards.suiteListed ? [] : [`- Read existing specs ONLY for the one or two flows this commit actually touches.`]),

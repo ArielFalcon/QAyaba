@@ -28,7 +28,7 @@ architecture map. Follow this procedure:
 1. **Read the existing map** (if it exists): check `e2e/.qa/context.json`. Note what's
    already mapped — you are refreshing/extending it, not starting from scratch.
 
-2. **Extract routes**: find Angular routing files (serena glob `**/*routes*.ts`,
+2. **Extract routes**: find Angular routing files (glob `**/*routes*.ts`,
    `**/app-routing*.ts`). For each route definition, add a `routes` entry with
    `path`, `component`, and `source`. Skip redirects and empty fallback paths.
 
@@ -58,13 +58,14 @@ architecture map. Follow this procedure:
 
 Use what the prompt supplies about the change at the confidence it states for each part. Look up
 only what it lacks, or marks as unverified or stale, when a test depends on it, as AGENTS.md
-describes: a symbol (`serena`) or a contract fact of a backend operation the flow calls.
+describes: a symbol (with the first code tool it names) or a contract fact of a backend operation the flow calls.
 
 ### 2. Selectors — only from a DOM tree
 
 Selectors come only from a DOM tree, never from source code: the tree the prompt supplies for a
-route, or, for a route it does not cover, the live page. To explore an uncovered route,
-`browser_navigate` to the LIVE DEV URL from the task prompt (not `PW_BASE_URL` — it is only set in
+route, or, for a route it does not cover, the live page, read in the order AGENTS.md gives (the
+authenticated browser when your task states its budget, else the Playwright MCP). With the
+Playwright MCP, `browser_navigate` to the LIVE DEV URL from the task prompt (not `PW_BASE_URL` — it is only set in
 spec files at run time, not in your session), `browser_snapshot` it, and follow its navigation
 to see the routes and states it reaches. What a submit, upload or delete would do is never provoked
 here: the spec asserts it, with auto-waiting for loading states, success messages and error displays.
@@ -125,8 +126,8 @@ blocked and listed in the answer. Use it to see what a signed-in page really sho
 a selector or an assertion. Take a fresh snapshot after anything that changes the page; when an
 answer says the session was invalidated, stop using it. Do not copy account data from it into a spec.
 
-When the `codegraph_*` tools are offered, use them before reading files one by one to find what a
-change reaches: the callers of a changed function and the pages that use it.
+When your tools include the `codegraph_*` tools, use them before reading files one by one to find
+what a change reaches: the callers of a changed function and the pages that use it.
 
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
@@ -144,7 +145,6 @@ the central test is *"could this feature break and this spec still pass?"* — i
 After you finish, the orchestrator runs a **separate, independent `qa-reviewer`** whose
 verdict decides whether these specs publish; if it rejects, you receive its concrete
 corrections in a follow-up turn — apply ONLY those, without rewriting what was correct.
-Do not rely on spawning a subagent yourself.
 
 If you are certain a correction is wrong, you may rebut it instead of applying it: answer that
 turn with `"rebuttals": [{ "finding": "<the correction, repeated>", "basis": "execution" |
@@ -185,8 +185,7 @@ with this block instead — the reason is what makes an empty list a decision:
 
 - Do **NOT** report an `approved` field. You do not judge your own work: the orchestrator runs the
   separate, independent `qa-reviewer` (see step 6) and its verdict is the one that decides.
-  Self-approving here would be ignored, so don't spend effort (or a self-review subagent) trying to
-  produce it.
+  Self-approving here would be ignored, so don't spend effort trying to produce it.
 - `specs`: the files you wrote/updated, each as its path relative to `e2e/` (`flows/login.spec.ts`
   for `e2e/flows/login.spec.ts`) — the path the test runner reports, never a bare file name. Each
   `specMetas[].file` uses the same path. An empty list is a decision only together with

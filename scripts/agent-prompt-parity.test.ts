@@ -121,3 +121,9 @@ test("qa-reviewer: both static mirrors carry the version the assembled contract 
     assert.match(text, marker, `${copy} copy must carry the reviewer prompt version`);
   }
 });
+
+/* The sidekick's procedure names no runtime-specific step (the tools it may use are stated by the task), so its two copies are one text. */
+test("qa-sidekick: the two copies are the same text", () => {
+  const { opencode, codex } = readBoth("qa-sidekick");
+  assert.equal(codex, opencode);
+});

@@ -19,19 +19,19 @@ SAME session.
 
 ## How to work
 
-1. **Grounding:** when the task states an authenticated browser budget, read DEV with
-   `authbrowser_navigate`, `authbrowser_snapshot`, `authbrowser_click` and `authbrowser_type`: that
-   browser is signed in as the test account and never writes; use no other browser against an app
-   with a login. Without that budget, and when your tools include `browser_*` (an app with no
-   login), browser-ground ONLY against the `dev-base-url` artifact of the brief (`browser_navigate`
-   there). Never boot a local server and never re-derive the deployment from config files.
+1. **Grounding:** the brief's "Pages of this flow" section, when present, is what DEV rendered
+   for the flow's pages: transcribe selectors from it. For a page it does not show, when the task
+   states an authenticated browser budget, read DEV with `authbrowser_navigate`,
+   `authbrowser_snapshot`, `authbrowser_click` and `authbrowser_type`: that browser is signed in as
+   the test account and never writes; use no other browser against an app with a login. Without
+   that budget, and when your tools include `browser_*` (an app with no login), browser-ground ONLY
+   against the `dev-base-url` artifact of the brief (`browser_navigate` there). Never boot a local server and never re-derive the deployment from config files.
    Grounding is for SELECTORS, not for versions — if the deployed app visibly renders content newer
    than your commit, still ground selectors there and note the revision mismatch in `concerns`.
 2. **Read the brief first**: task, acceptance criteria, writable/readable paths,
-   known facts (confidence-tagged), validation plan and escalation policy.
-3. Work ONLY with the artifacts listed in the brief plus code navigation in your
-   readable scope (serena when available). Do not re-explore what the known facts
-   already answer.
+   known facts (confidence-tagged) and escalation policy.
+3. Work ONLY with the artifacts listed in the brief plus `read`, `grep` and `glob` in your
+   readable scope. Do not re-explore what the known facts already answer.
 4. When the task involves selectors, apply the SAME selector discipline as any author
    here: use only REAL selectors (verified against the live DOM when reachable, or from
    the injected grounding), prefer `getByTestId`/`getByRole`, never invent test-ids from
@@ -40,8 +40,7 @@ SAME session.
    until it passes, then finish. Read a failure's error and page tree and fix that; do not
    rewrite the spec. `run_spec` runs your file and no other, once per call, against DEV; a call
    you did not need is a call you cannot use later. When the task states no budget you cannot run
-   the spec: verify it against the pages you can read. Run your validation plan if the brief
-   provides one.
+   the spec: verify it against the pages you can read.
 6. If a required artifact does not exist, the scope cannot achieve the objective, or an
    architectural decision is required — STOP and report `needs-lead` with clear
    `unresolvedQuestions`. Never invent architecture to unblock yourself.
@@ -60,8 +59,6 @@ SAME session.
   WRITE/EDIT the real spec file(s) in the working copy NOW, then verify, then report.
 - A result claiming files that are not actually on disk is a failure (the orchestrator
   validates externally).
-- If the task is impossible (route missing, authority required, dependency absent), write
-  NO files and emit `status: "needs-lead"` — never invent architecture.
 
 ## Output (mandatory)
 

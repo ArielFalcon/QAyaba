@@ -297,7 +297,7 @@ test("working-rules: domSnapshot present without a pack suppresses the explore-f
 test("working-rules: no pack AND no DOM keeps the explore-first mandate (blind run)", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
-    text.includes("MUST use it BEFORE writing any test"),
+    text.includes("You MUST read the live page with"),
     "a fully blind run must keep the explore-first mandate",
   );
 });
@@ -312,10 +312,11 @@ test("coverage-enforce: with grounding present, instruct to resolve from groundi
 
 /* ── regen-discipline: a re-generation turn must not re-orient (serena/blast-radius already distilled) ── */
 
-test("regen-discipline: a re-generation turn suppresses serena re-orientation", () => {
+test("regen-discipline: a re-generation turn suppresses re-tracing the blast radius", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
+  assert.match(text, /do NOT trace the\s+change's callers again/);
   assert.ok(
-    text.includes("do NOT re-run find_referencing_symbols"),
+    !/find_referencing_symbols|activate_project/.test(text),
     "a regen turn must tell the agent not to re-run the blast-radius analysis",
   );
 });
@@ -360,7 +361,7 @@ test("regen-discipline carves out reading a symbol the grounding lacks", () => {
  */
 test("regen-discipline is in the stable band (renders before the volatile context-pack)", () => {
   const a = buildPromptAssembled(mkInput({ fixCases: [failingCase], contextPack: "## CTXPACK-MARKER" }));
-  const iRegen = a.text.indexOf("do NOT re-run find_referencing_symbols");
+  const iRegen = a.text.indexOf("change's callers again");
   const iPack = a.text.indexOf("CTXPACK-MARKER");
   assert.ok(iRegen >= 0 && iPack >= 0, "both regen-discipline and the context-pack must be present");
   assert.ok(iRegen < iPack, "regen-discipline (stable) must render before the volatile context-pack");

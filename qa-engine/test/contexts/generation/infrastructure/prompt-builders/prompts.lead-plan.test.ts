@@ -109,3 +109,12 @@ test("a planning turn's diff leaves out the bodies of the app's own test files a
   assert.ok(planned.includes("src/app/cart/cart.service.spec.ts"));
   assert.ok(assemble({ diff }).text.includes(testBody));
 });
+
+test("a planning turn names no browser tool: its session is denied one, so it plans from the pack and the code", () => {
+  const BROWSER_TOOL = /\b(browser_navigate|browser_snapshot|authbrowser_navigate|authbrowser_snapshot)\b/;
+  const planning = assemble({ planning: PLANNING });
+  assert.doesNotMatch(planning.text, BROWSER_TOOL);
+  assert.doesNotMatch(planning.text, /Playwright MCP/);
+  /* The same input without a planning turn is an authoring turn, which reads the live page. */
+  assert.match(assemble().text, BROWSER_TOOL);
+});

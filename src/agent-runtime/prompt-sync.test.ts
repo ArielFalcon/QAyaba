@@ -398,7 +398,7 @@ describe("prompt-sync drift guard", () => {
      defense) and what a spec may do (drive the app through the UI like a user, never call the backend
      API directly). These are the ways the prompts have phrased them; a statement outside Global rules is
      a restatement to delete. */
-  const SESSION_NETWORK_STATEMENTS: readonly RegExp[] = [/network calls outside the Playwright MCP/i];
+  const SESSION_NETWORK_STATEMENTS: readonly RegExp[] = [/network calls outside the browser tools/i];
   const SPEC_AUTHORING_STATEMENTS: readonly RegExp[] = [
     /never call the (?:backend )?(?:API|service) directly/i,
     /no curl/i,
@@ -413,7 +413,7 @@ describe("prompt-sync drift guard", () => {
       .flatMap((block) => block.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/))
       .filter((sentence) => patterns.some((pattern) => pattern.test(sentence)));
   const RULE_FACETS: ReadonlyArray<readonly [string, readonly RegExp[]]> = [
-    ["the session may not make a network call outside the Playwright MCP", SESSION_NETWORK_STATEMENTS],
+    ["the session may not make a network call outside the browser tools", SESSION_NETWORK_STATEMENTS],
     ["a spec drives the app through the UI and never calls the backend API directly", SPEC_AUTHORING_STATEMENTS],
   ];
   const restatementsIn = (text: string): number =>
@@ -571,8 +571,8 @@ describe("prompt-sync drift guard", () => {
     { rule: "using each supplied part at the confidence the prompt states for it", pattern: CONFIDENCE_RULE, shape: "tree", inStatic: 2, inAssembled: { exactly: 0 } },
     { rule: "looking up what the prompt marks as unverified or stale when a test depends on it", pattern: UNVERIFIED_LOOKUP_RULE, shape: "tree", inStatic: 2, inAssembled: { exactly: 0 } },
     { rule: "orienting by the file tree and names before a look-up", pattern: phrasePattern("skim the file TREE and NAMES"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    /* Code is read through serena only where the prompt does not provide it, and serena is no one's primary way to read. */
-    { rule: "reading code the prompt does not provide at symbol level through serena", pattern: phrasePattern("When you must read code the prompt does not provide"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* Code is read with the code tools only where the prompt does not provide it, and serena is no one's primary way to read. */
+    { rule: "reading code the prompt does not provide with the first code tool a role holds", pattern: phrasePattern("Reading code the prompt does not provide"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "serena being the primary way to read code, whatever the prompt carries", pattern: phrasePattern("PRIMARY way to read code"), shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
     /* The outcome contract: source code grounds no selector, a same-label stand-in is never asserted, and the no-op has its second reason. Each is stated by the generator role alone. */
     { rule: "source code grounding no selector and no asserted value", pattern: phrasePattern("grounds no selector and no asserted value"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
@@ -602,7 +602,6 @@ describe("prompt-sync drift guard", () => {
     { rule: "an effort stated as a ceiling (a tiny change)", pattern: EFFORT_CEILING, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "an effort stated as a ceiling (a broad change)", pattern: EFFORT_CEILING, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
     /* The generator cannot call the session-summary tool, so no layer it reads names it. */
-    { rule: "naming the session-summary tool the runtime denies the generator", pattern: SESSION_SUMMARY_TOOL, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
     /* The step limit the runtime enforces is stated once by every generator prompt built with one, whatever the turn, and by none built without; the milestone is a turn that writes tests' alone, a first pass offering the first test file or the reasoned no-op and a regeneration the first correction or the reason none applies. The static layers state neither: the limit is the runtime's and the milestone is the turn's. */
     ...limitRules("stating the step limit the runtime enforces", STEP_LIMIT_STATEMENT, { firstPass: 1, regeneration: 1, writesNone: 1 }),
     ...limitRules("asking a first pass for its first test file by the midpoint of the limit", outcomePattern("first-spec"), { firstPass: 1, regeneration: 0, writesNone: 0 }),

@@ -48,7 +48,7 @@ export default [
   { path: "", component: OrdersPageComponent }
 ] satisfies Route[];
 ```
-Glob `**/*.routes.ts` with serena and read each. The export is the route array.
+Glob `**/*.routes.ts` and read each. The export is the route array.
 
 ### Lazy-loaded routes
 ```typescript
@@ -63,7 +63,7 @@ Follow the import to the child routes file. Include the parent path prefix in ch
 
 ## Extracting API operations (OpenAPI)
 
-Use serena glob to find OpenAPI specs: `**/openapi*.yaml`, `**/openapi*.json`, `**/swagger*.yaml`, `**/api-definition.yaml`.
+Glob for OpenAPI specs: `**/openapi*.yaml`, `**/openapi*.json`, `**/swagger*.yaml`, `**/api-definition.yaml`.
 
 For each operation, extract:
 - `operationId` → the stable identifier (e.g. `createOrder`)
