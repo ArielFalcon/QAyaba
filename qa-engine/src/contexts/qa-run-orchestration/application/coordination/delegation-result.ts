@@ -33,6 +33,8 @@ export interface DelegationResult {
   readonly acceptance: readonly AcceptanceReportEntry[];
   /** Set when the report is absent or malformed: every criterion without a kept entry is unverified. */
   readonly acceptanceReportDefect?: AcceptanceReportDefect;
+  /** The sidekick's claim, on a correction of a failing execution, that its test is right and the app or the environment is not. */
+  readonly testCorrect?: { readonly cause: "env" | "app"; readonly reason: string };
 }
 
 export function belongsToBrief(result: DelegationResult, delegationId: string, runId: string): boolean {

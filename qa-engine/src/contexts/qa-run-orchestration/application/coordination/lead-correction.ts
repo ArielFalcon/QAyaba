@@ -66,7 +66,7 @@ export function correctionPreamble(origin: CorrectionOrigin): string {
 const rebuttable = (origin: CorrectionOrigin): boolean => origin === CORRECTION_ORIGIN.REVIEW;
 
 /* One finding a correction turn routes: a verified blocking finding of the reviewer, or a fact one of the run's checks observed, with the spec it names when it names one. */
-export interface ReviewerFinding {
+export interface CorrectionFinding {
   text: string;
   spec?: string;
 }
@@ -88,6 +88,8 @@ export interface CorrectionOrder {
   instruction: string;
   /* The findings the flow is sent, verbatim. */
   findings: string[];
+  /* Their positions among the turn's findings, in the same order. */
+  indices: number[];
 }
 
 export interface CorrectionRebuttal {
@@ -101,19 +103,42 @@ export interface CorrectionAdmission {
   readable: boolean;
   orders: CorrectionOrder[];
   rebuttals: CorrectionRebuttal[];
-  /* Findings no flow was sent and the lead did not rebut. */
-  unrouted: string[];
+  /* The positions of the findings no flow was sent and the lead did not rebut. */
+  unrouted: number[];
   refused: Array<{ flowId?: string; finding?: number; reason: string }>;
 }
 
 export const DEFAULT_CORRECTION_INSTRUCTION = "Correct your spec for the findings above.";
 
-/* The flow a finding belongs to: the one whose spec its citation, or failing that its text, names. */
-export function flowOfFinding(finding: ReviewerFinding, flows: readonly FlowUnderCorrection[]): string | undefined {
+/* The characters a path is made of: a spec named in a text ends where they do. */
+const PATH_CHAR = /[A-Za-z0-9._\/-]/;
+const isPathChar = (c: string | undefined): boolean => c !== undefined && PATH_CHAR.test(c);
+
+/*
+ * Whether the text names this spec as a whole path, on its own or as the tail of a longer one (`e2e/flows/a.spec.ts`), and not
+ * as part of another name (`flows/a.spec.tsx`, `old-flows/a.spec.ts`). A full stop that ends a sentence ends the path too.
+ */
+function namesSpecIn(text: string, spec: string): boolean {
+  for (let at = text.indexOf(spec); at !== -1; at = text.indexOf(spec, at + 1)) {
+    const before = text[at - 1];
+    const end = at + spec.length;
+    const startsClean = before === undefined || before === "/" || !isPathChar(before);
+    const endsClean = !isPathChar(text[end]) || (text[end] === "." && !isPathChar(text[end + 1]));
+    if (startsClean && endsClean) return true;
+  }
+  return false;
+}
+
+/*
+ * The flow a finding belongs to: the one whose spec its citation names, or failing that the one spec its text names as a whole
+ * path. A text that names the specs of several flows belongs to none of them: the lead is asked where it goes.
+ */
+export function flowOfFinding(finding: CorrectionFinding, flows: readonly FlowUnderCorrection[]): string | undefined {
   const names = (path: string, spec: string): boolean => path === spec || path.endsWith(`/${spec}`);
   const cited = finding.spec?.replaceAll("\\", "/");
   if (cited) return flows.find((flow) => names(cited, flow.specFile))?.id;
-  return flows.find((flow) => finding.text.includes(flow.specFile))?.id;
+  const named = flows.filter((flow) => namesSpecIn(finding.text, flow.specFile));
+  return named.length === 1 ? named[0]!.id : undefined;
 }
 
 function cut(text: string, max: number): string {
@@ -121,7 +146,7 @@ function cut(text: string, max: number): string {
 }
 
 /* The correction turn's prompt: the flows, the findings numbered, and the answer it reads. */
-export function renderLeadCorrection(flows: readonly FlowUnderCorrection[], findings: readonly ReviewerFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
+export function renderLeadCorrection(flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): string {
   const owner = findings.map((finding) => flowOfFinding(finding, flows));
   const line = (index: number): string => `${index + 1}. ${scrub(findings[index]!.text)}`;
   const blocks = flows.flatMap((flow) => {
@@ -158,7 +183,7 @@ function textOf(value: unknown, max: number): string {
   return typeof value === "string" ? scrub(value).trim().slice(0, max) : "";
 }
 
-export function admitLeadCorrection(output: string, flows: readonly FlowUnderCorrection[], findings: readonly ReviewerFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
+export function admitLeadCorrection(output: string, flows: readonly FlowUnderCorrection[], findings: readonly CorrectionFinding[], origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW): CorrectionAdmission {
   const admission: CorrectionAdmission = { readable: false, orders: [], rebuttals: [], unrouted: [], refused: [] };
   const owner = findings.map((finding) => flowOfFinding(finding, flows));
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
@@ -212,8 +237,8 @@ export function admitLeadCorrection(output: string, flows: readonly FlowUnderCor
     }
     for (const i of indices) sent.add(i);
     const action = order?.action === REVIEW_ACTION.REPLACE || !flow.sessionOpen ? REVIEW_ACTION.REPLACE : REVIEW_ACTION.REVISE;
-    admission.orders.push({ flowId: flow.id, action, instruction: order?.instruction || DEFAULT_CORRECTION_INSTRUCTION, findings: indices.map((i) => findings[i]!.text) });
+    admission.orders.push({ flowId: flow.id, action, instruction: order?.instruction || DEFAULT_CORRECTION_INSTRUCTION, findings: indices.map((i) => findings[i]!.text), indices });
   }
-  admission.unrouted = findings.flatMap((finding, i) => (sent.has(i) || rebutted.has(i) ? [] : [finding.text]));
+  admission.unrouted = findings.flatMap((_, i) => (sent.has(i) || rebutted.has(i) ? [] : [i]));
   return admission;
 }

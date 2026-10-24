@@ -124,7 +124,18 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
     recommendation: recommendation as DelegationRecommendation,
     acceptance: acceptance.entries,
     ...(acceptance.defect ? { acceptanceReportDefect: acceptance.defect } : {}),
+    ...testCorrectOf(o.testCorrect),
   };
+}
+
+const MAX_CLAIM_CHARS = 600;
+
+/* A well-formed test-correct claim, its reason scrubbed and capped; nothing for any other shape. */
+function testCorrectOf(value: unknown): { testCorrect?: { cause: "env" | "app"; reason: string } } {
+  if (!value || typeof value !== "object") return {};
+  const { cause, reason } = value as { cause?: unknown; reason?: unknown };
+  if ((cause !== "env" && cause !== "app") || typeof reason !== "string" || reason.trim() === "") return {};
+  return { testCorrect: { cause, reason: scrub(reason).trim().slice(0, MAX_CLAIM_CHARS) } };
 }
 
 function failedResult(brief: DelegationBrief, summary: string): DelegationResult {

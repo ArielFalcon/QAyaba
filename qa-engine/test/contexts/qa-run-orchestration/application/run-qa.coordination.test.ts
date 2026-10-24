@@ -11,7 +11,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import type { CoordinateInput, CoordinateResult, CoordinatedPass, PassCorrection } from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
-import { CORRECTION_ORIGIN, type CorrectionOrigin, type ReviewerFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, GenerationEnrichment, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
@@ -252,8 +252,8 @@ test("a run cancelled while its flows were being authored is a cancelled run, no
 
 
 /* A coordinated pass kept open: it records what it was asked to correct and how many times it was released, and corrects as told. */
-function keptPass(r: Rig, answer: (findings: readonly ReviewerFinding[]) => PassCorrection) {
-  const seen = { corrected: [] as ReviewerFinding[][], origins: [] as CorrectionOrigin[], released: 0 };
+function keptPass(r: Rig, answer: (findings: readonly CorrectionFinding[]) => PassCorrection) {
+  const seen = { corrected: [] as CorrectionFinding[][], origins: [] as CorrectionOrigin[], released: 0 };
   const pass: CoordinatedPass = {
     correct: async (findings, origin = CORRECTION_ORIGIN.REVIEW) => {
       seen.corrected.push([...findings]);
@@ -293,7 +293,7 @@ test("a finding no flow was sent goes to a regeneration with only that finding",
   let r!: Rig;
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => delivered(kept.pass));
-  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: ["a loose finding"] }));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [0] }));
   await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, review: rejectingOnce(["a loose finding"]) })).run(INPUT);
   const regen = r.enrichments.filter((e) => e.reviewCorrections !== undefined);
   assert.deepEqual(kept.seen.corrected, [[{ text: "a loose finding" }]], "the lead is asked first");
@@ -387,7 +387,7 @@ test("a failing case no flow takes goes to the lead's regeneration with only tha
   let r!: Rig;
   let kept!: ReturnType<typeof keptPass>;
   r = rig(() => flowsAB(kept.pass));
-  kept = keptPass(r, (findings) => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: findings.filter((f) => f.spec === "flows/b.spec.ts").map((f) => f.text) }));
+  kept = keptPass(r, (findings) => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: findings.flatMap((f, i) => (f.spec === "flows/b.spec.ts" ? [i] : [])) }));
   await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([FAILED_A, FAILED_B]) })).run(INPUT);
   assert.equal(kept.seen.corrected[0]?.length, 2, "the lead is asked about both");
   const regen = r.enrichments.filter((e) => e.fixCases !== undefined);
@@ -451,4 +451,29 @@ test("a run the lead authored alone regenerates for a failing execution as it al
   await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([FAILED_A]) })).run(INPUT);
   const regen = r.enrichments.filter((e) => e.fixCases !== undefined);
   assert.deepEqual(regen.map((e) => e.fixCases!.map((c) => c.name)), [[FAILED_A.name]]);
+});
+
+test("what no flow takes is told apart by position, not by text: two failures that read the same regenerate only the one left", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [1] }));
+  const twin: QaCase = { name: "loads", status: "fail", detail: "timeout" };
+  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, execution: failingOnce([{ ...twin, flow: "first" }, { ...twin, flow: "second" }]) })).run(INPUT);
+  assert.equal(kept.seen.corrected[0]![0]!.text, kept.seen.corrected[0]![1]!.text, "the two findings read the same");
+  const regen = r.enrichments.find((e) => e.fixCases !== undefined);
+  assert.deepEqual(regen?.fixCases?.map((c) => c.flow), ["second"]);
+});
+
+test("a static-gate error that spans paragraphs stays one finding", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  let checks = 0;
+  const error = "flows/a.spec.ts(3,1): error TS2322: Type 'string' is not assignable.\n\n  Expected number, received string.";
+  const validation = { validate: async () => (checks++ === 0 ? { ok: false, errors: [error] } : { ok: true, errors: [] }) };
+  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, validation })).run(INPUT);
+  assert.equal(kept.seen.corrected[0]?.length, 1);
+  assert.match(kept.seen.corrected[0]![0]!.text, /Expected number, received string/);
 });

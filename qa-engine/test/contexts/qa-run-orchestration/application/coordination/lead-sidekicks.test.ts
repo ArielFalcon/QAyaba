@@ -1,3 +1,4 @@
+import { CORRECTION_ORIGIN } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -862,10 +863,10 @@ test("the lead's rebuttal comes back for the run to check, and a finding on a fl
   const second = await outcome.pass!.correct([{ text: "the login asserts only the URL", spec: "e2e/flows/login.spec.ts" }, { text: "a loose finding" }]);
   assert.equal(second.readable, false);
   assert.deepEqual(second.specs, ["flows/login.spec.ts"]);
-  assert.deepEqual(second.unrouted, ["a loose finding"]);
+  assert.deepEqual(second.unrouted, [1], "the loose finding, by its position");
   await outcome.pass!.release();
   const late = await outcome.pass!.correct([{ text: "anything", spec: "e2e/flows/cart.spec.ts" }]);
-  assert.deepEqual([late.specs, late.unrouted], [[], ["anything"]], "a released pass corrects nothing");
+  assert.deepEqual([late.specs, late.unrouted], [[], [0]], "a released pass corrects nothing");
 });
 
 test("a pass whose flows delivered nothing is not kept, even with the lead's session: everything ends with the coordination", async () => {
@@ -913,7 +914,41 @@ test("findings the lead sends to a flow when too little of the run is left for i
   const corrected = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
   await outcome.pass!.release();
   assert.deepEqual(corrected.specs, []);
-  assert.deepEqual(corrected.unrouted, ["the total is never asserted"]);
+  assert.deepEqual(corrected.unrouted, [0]);
   assert.equal(r.executed.some((e) => e.asked), false, "no sidekick was asked");
   assert.equal(outcome.pass!.tally().unrouted, 1);
+});
+
+test("a sidekick that holds its failing test right changes nothing and its claim comes back; beside a change, or on another origin, it does not", async () => {
+  const route = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", instruction: "fix the count" }] });
+  const claim = { cause: "app" as const, reason: "DEV returns 0 restaurants for a position the pack read 3 at" };
+  const r = rig({ answers: { cart: [{}, { testCorrect: claim }] } });
+  const lead = leadAnswering([ACCEPT_ALL, route, route]);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  r.script.hasFile.delete("cart");
+  const failing = [{ text: "test \"count\" in flows/cart.spec.ts failed: expected 3", spec: "flows/cart.spec.ts" }];
+  const untouched = await outcome.pass!.correct(failing, CORRECTION_ORIGIN.EXECUTION);
+  assert.deepEqual(untouched.specs, []);
+  assert.deepEqual(untouched.testCorrect, claim);
+  const asked = r.executed.filter((e) => e.asked && e.brief.delegationId === "run-1-flow-cart").at(-1)!;
+  assert.match(asked.opts.feedback!, /"testCorrect"/, "the sidekick is told how to claim it");
+  r.script.hasFile.add("cart");
+  const changed = await outcome.pass!.correct(failing, CORRECTION_ORIGIN.EXECUTION);
+  assert.deepEqual(changed.specs, ["flows/cart.spec.ts"]);
+  assert.equal(changed.testCorrect, undefined, "a claim beside a change is not one");
+  await outcome.pass!.release();
+});
+
+test("a correction hands back the source of every spec it took, as the working copy holds it", async () => {
+  const route = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", instruction: "assert the total" }] });
+  const r = rig();
+  r.deps.readSpec = async (_root, file) => `// ${file} as corrected`;
+  const lead = leadAnswering([ACCEPT_ALL, route]);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "flows/cart.spec.ts" }], CORRECTION_ORIGIN.EXECUTION);
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
+  assert.deepEqual(corrected.specSources, ["// flows/cart.spec.ts as corrected"]);
+  await outcome.pass!.release();
 });

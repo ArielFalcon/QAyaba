@@ -36,7 +36,7 @@ import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type Sideki
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
 import { scrub } from "./scrub.ts";
-import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type ReviewerFinding } from "./lead-correction.ts";
+import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
 const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
@@ -110,8 +110,16 @@ export type CoordinateResult =
 export interface PassCorrection {
   readable: boolean;
   specs: string[];
+  /* The source of each of `specs` as the working copy holds it, in the same order; absent when the pass cannot read specs. */
+  specSources?: string[];
   rebuttals: CorrectionRebuttal[];
-  unrouted: string[];
+  /* The positions, among the findings the turn was given, of those no flow was sent. */
+  unrouted: number[];
+  /*
+   * A sidekick's claim, on a correction of a failing execution, that its test is right and the app or the environment is not.
+   * Only when no flow put new bytes in the working copy: a claim beside a change is not one. A claim, never evidence.
+   */
+  testCorrect?: { cause: "env" | "app"; reason: string };
 }
 
 export interface CorrectionTally {
@@ -130,7 +138,7 @@ export interface CorrectionTally {
  */
 export interface CoordinatedPass {
   /* One correction turn over findings of one origin; the reviewer's when none is named. */
-  correct(findings: readonly ReviewerFinding[], origin?: CorrectionOrigin): Promise<PassCorrection>;
+  correct(findings: readonly CorrectionFinding[], origin?: CorrectionOrigin): Promise<PassCorrection>;
   tally(): CorrectionTally;
   release(): Promise<void>;
 }
@@ -626,11 +634,11 @@ export class LeadSidekicks {
   }
 
   /* One correction turn: the lead routes the findings, the orchestrator holds it to its facts, and each flow sent findings is corrected by its sidekick. */
-  private async correct(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, findings: readonly ReviewerFinding[], origin: CorrectionOrigin, tally: CorrectionTally, state: { released: boolean }): Promise<PassCorrection> {
+  private async correct(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, findings: readonly CorrectionFinding[], origin: CorrectionOrigin, tally: CorrectionTally, state: { released: boolean }): Promise<PassCorrection> {
     const { input } = context;
     const nothing = (why: string): PassCorrection => {
       this.record(input, { kind: "router", reason: `correction (${origin}): ${why}; the findings stand` });
-      return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((f) => f.text) };
+      return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((_, i) => i) };
     };
     if (state.released) return nothing("the pass was released");
     if (findings.length === 0) return { readable: true, specs: [], rebuttals: [], unrouted: [] };
@@ -658,7 +666,7 @@ export class LeadSidekicks {
     const stopped = state.released || input.signal?.aborted === true || (after !== undefined && after < MIN_FLOW_MS);
     const orders = stopped ? [] : admission.orders.filter((o) => live.has(o.flowId));
     /* A finding the lead sent to a flow that cannot take it now is not lost: it goes to a regeneration, as a finding no flow was sent. */
-    const untaken = admission.orders.filter((o) => !orders.includes(o)).flatMap((o) => o.findings);
+    const untaken = admission.orders.filter((o) => !orders.includes(o)).flatMap((o) => o.indices);
     tally.unrouted += untaken.length;
     if (untaken.length > 0) this.record(input, { kind: "router", reason: `correction (${origin}): ${untaken.length} finding(s) the flows could not take go to a regeneration` });
     for (const order of orders) {
@@ -669,10 +677,26 @@ export class LeadSidekicks {
     }
     const slots = orders.map((order) => ({ ...order, id: order.flowId, budgetMs: Math.min(live.get(order.flowId)!.flow.budgetMs, after ?? live.get(order.flowId)!.flow.budgetMs) }));
     for (const slot of slots) live.get(slot.flowId)!.taken = false;
+    /* A claim is read only from a turn this correction made: a flow whose turn failed keeps the result of an earlier one. */
+    const turnsBefore = new Map(slots.map((slot) => [slot.flowId, live.get(slot.flowId)!.turns]));
     const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.amend(live.get(slot.flowId)!, slot, origin, slot.budgetMs, context, signal));
     await this.settle(results, live, new Map());
     const specs = slots.flatMap((slot) => (live.get(slot.flowId)?.taken ? [live.get(slot.flowId)!.flow.specFile] : []));
-    return { readable: admission.readable, specs, rebuttals: admission.rebuttals, unrouted: [...admission.unrouted, ...untaken] };
+    const read = this.deps.readSpec;
+    const specSources = read ? await Promise.all(specs.map((spec) => read({ mirrorDir: input.mirrorDir, specDir: input.specDir }, spec).catch(() => undefined))) : undefined;
+    const claims = origin === CORRECTION_ORIGIN.EXECUTION && specs.length === 0 ? slots.flatMap((slot) => {
+      const entry = live.get(slot.flowId);
+      const claim = entry && entry.turns > turnsBefore.get(slot.flowId)! ? entry.last?.testCorrect : undefined;
+      return claim ? [claim] : [];
+    }) : [];
+    return {
+      readable: admission.readable,
+      specs,
+      ...(specSources && specSources.every((source) => source !== undefined) ? { specSources: specSources as string[] } : {}),
+      rebuttals: admission.rebuttals,
+      unrouted: [...admission.unrouted, ...untaken],
+      ...(claims.length > 0 ? { testCorrect: { cause: claims.every((c) => c.cause === "env") ? "env" : "app", reason: claims.map((c) => c.reason).join("; ") } } : {}),
+    };
   }
 
   /* One flow's correction: its workspace brought up to the working copy, then the findings and the lead's instruction to its sidekick. */
@@ -684,7 +708,10 @@ export class LeadSidekicks {
       `The lead's instruction: ${order.instruction}`,
       origin === CORRECTION_ORIGIN.REVIEW
         ? "Correct each finding in your spec without weakening an assertion; a finding you hold to be wrong goes in concerns, with the evidence."
-        : "Correct your spec for each finding without weakening an assertion; a failure you hold to be the app's or the environment's goes in concerns, with the evidence.",
+        : "Correct your spec for each finding without weakening an assertion.",
+      ...(origin === CORRECTION_ORIGIN.EXECUTION
+        ? [`If you hold the test right and the failure the app's or the environment's, change nothing and add to your result \`"testCorrect":{"cause":"app"|"env","reason":"<the evidence>"}\`. The orchestrator checks the claim against this run's evidence; it is never taken on your word.`]
+        : []),
     ].join("\n");
     return this.revise(entry, { flowId: order.flowId, action: order.action, instruction }, timeoutMs, context, signal);
   }

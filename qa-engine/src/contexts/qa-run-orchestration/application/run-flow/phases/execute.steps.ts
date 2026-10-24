@@ -12,7 +12,7 @@ import type { RunQaResult } from "../../run-qa.use-case.ts";
 import type { StepResult } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
-import { closedLoopSignal, loopClosedNow, regenerate } from "./generation-services.ts";
+import { closedLoopSignal, loopClosedNow, regenerate, staticGateFindings } from "./generation-services.ts";
 
 type Result = Promise<StepResult<RunState, RunQaResult>>;
 
@@ -136,7 +136,7 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
     const staticGateErrorDetail = stripAnsi(validation.errors.join("\n\n")).slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
     lastGenerated = await regenerate(state, ctx, signal, {
       fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
-    }, CORRECTION_ORIGIN.STATIC_GATE);
+    }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation.errors.map(stripAnsi)));
     await ctx.services.confinement.enforce();
     validation = await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx));
   }

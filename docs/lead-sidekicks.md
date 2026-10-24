@@ -178,7 +178,12 @@ the sidekick's instruction (`CORRECTION_ORIGIN`, `lead-correction.ts`):
 | `coverage` | the uncovered change lines, citing no flow |
 
 These are facts the run observed: the lead is not offered a rebuttal, and one it gives anyway is not taken. What no flow takes
-goes to the lead's own regeneration with only that evidence (the failure DOM stays with the failing cases it belongs to). The
+goes to the lead's own regeneration with only that evidence (the failure DOM stays with the failing cases it belongs to); the
+turn's findings are told apart by their position, never by their text. A finding that cites no spec belongs to the one flow whose
+spec its text names as a whole path; one that names several is the lead's to place. A correction hands back the source of every
+spec it took, for the fix loop's next post-failure selector check. On a failing execution a sidekick may answer, changing
+nothing, that its test is right and the app or the environment is not (`testCorrect`); the claim reaches the fix loop as a
+generator's does, only when no flow changed a spec, and is checked against the run's evidence there. The
 round's acceptance, contract check and budgets are the caller's, unchanged. A run without a pass regenerates as it always did.
 
 The pass is released as soon as the review ends, and in the run's `finally` however it ends. The corrections of every origin are
@@ -203,8 +208,6 @@ leaves nothing behind).
 
 - The lead cannot drop a spec that reached the working copy, nor add a flow its plan did not name; sidekick proposals
   (changes outside the brief's file) are reported, not consolidated.
-- A sidekick's correction in the fix loop hands back no spec sources, so the next round's post-failure selector check has
-  nothing to compare for those flows.
 - Read-only concurrency is unreachable until the proxy can enforce read-only access.
 - Each flow's `run_spec` and browser caps are shares of the run's; the shares are not reconciled with what the
   generator spends in the same run.

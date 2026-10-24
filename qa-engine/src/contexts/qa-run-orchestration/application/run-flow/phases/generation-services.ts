@@ -13,7 +13,7 @@ import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capabili
 import { mergeDeliveredSpecs } from "../../../domain/helpers/delivered-specs.ts";
 import type { GenerationEnrichment, GenerationOutput } from "../../ports/index.ts";
 import type { CoordinatedPass } from "../../coordination/lead-sidekicks.ts";
-import { CORRECTION_ORIGIN, type CorrectionOrigin, type ReviewerFinding } from "../../coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN, type CorrectionOrigin, type CorrectionFinding } from "../../coordination/lead-correction.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
 
@@ -91,40 +91,10 @@ export async function regenerateByLead(state: Readonly<RunState>, ctx: Workspace
 const MAX_FINDING_DETAIL_CHARS = 2_000;
 const cutDetail = (text: string): string => (text.length > MAX_FINDING_DETAIL_CHARS ? `${text.slice(0, MAX_FINDING_DETAIL_CHARS)} … (cut)` : text);
 
-/* What the static gate reported is one error block per file it refused: each is a finding of its own, so each reaches the flow it names. */
-const STATIC_GATE_CASE = "static-gate";
-
-type Correctable = "fixCases" | "selectorContradictions" | "coverageGap" | "contractFeedback";
-
-/* One finding a regeneration's evidence yields, and the piece of that evidence it stands for. */
-interface EvidenceFinding {
-  finding: ReviewerFinding;
-  from: Correctable;
-  index: number;
-}
-
-/* The findings a regeneration's evidence names, one per failing case, error block, contradiction, uncovered gap and contract delta. */
-function findingsOf(enrichment: GenerationEnrichment): EvidenceFinding[] {
-  const out: EvidenceFinding[] = [];
-  (enrichment.fixCases ?? []).forEach((c, index) => {
-    if (c.name === STATIC_GATE_CASE && !c.file) {
-      for (const block of (c.detail ?? "").split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean)) {
-        out.push({ finding: { text: `the static gate refused the spec: ${cutDetail(block)}` }, from: "fixCases", index });
-      }
-      return;
-    }
-    const text = `test "${c.name}"${c.file ? ` in ${c.file}` : ""} ${c.status === "flaky" ? "passed only on retry" : "failed"}${c.detail ? `: ${cutDetail(c.detail)}` : ""}`;
-    out.push({ finding: { text, ...(c.file ? { spec: c.file } : {}) }, from: "fixCases", index });
-  });
-  const attributed = enrichment.attributedSpecFiles ?? [];
-  (enrichment.selectorContradictions ?? []).forEach((text, index) => {
-    out.push({ finding: { text, ...(attributed.length === 1 ? { spec: attributed[0]! } : {}) }, from: "selectorContradictions", index });
-  });
-  if (enrichment.coverageGap) out.push({ finding: { text: enrichment.coverageGap }, from: "coverageGap", index: 0 });
-  (enrichment.contractFeedback ?? []).forEach((v, index) => {
-    out.push({ finding: { text: contractFindingText(v), spec: v.file }, from: "contractFeedback", index });
-  });
-  return out;
+/* One finding a regeneration's evidence yields, and the slice of that evidence it stands for: what the lead regenerates with when no flow takes it. */
+export interface EvidenceFinding {
+  finding: CorrectionFinding;
+  piece: Pick<GenerationEnrichment, "fixCases" | "selectorContradictions" | "coverageGap" | "contractFeedback">;
 }
 
 /* A contract delta the intent lock found, as a finding: the clause, what it held before and what it holds now. */
@@ -132,19 +102,48 @@ export function contractFindingText(v: { rule: string; file: string; clauseId: s
   return `the correction broke the test's contract (${v.rule}) in ${v.file}, clause ${v.clauseId}: it was ${JSON.stringify(v.before)} and is ${JSON.stringify(v.after)}`;
 }
 
-/* The evidence no flow took, as the lead's regeneration reads it: the rest of the enrichment kept, each correctable piece cut to what is left of it. */
-function leftoverOf(enrichment: GenerationEnrichment, findings: readonly EvidenceFinding[], unrouted: readonly string[]): GenerationEnrichment {
-  const left = new Set(unrouted);
-  const keeps = (from: Correctable, index: number): boolean => findings.some((f) => f.from === from && f.index === index && left.has(f.finding.text));
-  const { fixCases, selectorContradictions, coverageGap, contractFeedback, domSnapshot, attributedSpecFiles, ...rest } = enrichment;
-  const cases = (fixCases ?? []).filter((_, i) => keeps("fixCases", i));
-  const contradictions = (selectorContradictions ?? []).filter((_, i) => keeps("selectorContradictions", i));
-  const deltas = (contractFeedback ?? []).filter((_, i) => keeps("contractFeedback", i));
+/* The static gate's errors, one finding each, as the gate reported them: each names the file it refused. */
+export function staticGateFindings(errors: readonly string[]): EvidenceFinding[] {
+  return errors.map((error) => error.trim()).filter(Boolean).map((error) => ({
+    finding: { text: `the static gate refused the spec: ${cutDetail(error)}` },
+    piece: { fixCases: [{ name: "static-gate", status: "fail", detail: cutDetail(error) }] },
+  }));
+}
+
+/* The findings a regeneration's evidence names: one per failing case, contradiction and contract delta, and one for the uncovered gap. */
+function findingsOf(enrichment: GenerationEnrichment): EvidenceFinding[] {
+  const out: EvidenceFinding[] = [];
+  for (const c of enrichment.fixCases ?? []) {
+    const text = `test "${c.name}"${c.file ? ` in ${c.file}` : ""} ${c.status === "flaky" ? "passed only on retry" : "failed"}${c.detail ? `: ${cutDetail(c.detail)}` : ""}`;
+    out.push({ finding: { text, ...(c.file ? { spec: c.file } : {}) }, piece: { fixCases: [c] } });
+  }
+  const attributed = enrichment.attributedSpecFiles ?? [];
+  for (const text of enrichment.selectorContradictions ?? []) {
+    out.push({ finding: { text, ...(attributed.length === 1 ? { spec: attributed[0]! } : {}) }, piece: { selectorContradictions: [text] } });
+  }
+  if (enrichment.coverageGap) out.push({ finding: { text: enrichment.coverageGap }, piece: { coverageGap: enrichment.coverageGap } });
+  for (const v of enrichment.contractFeedback ?? []) {
+    out.push({ finding: { text: contractFindingText(v), spec: v.file }, piece: { contractFeedback: [v] } });
+  }
+  return out;
+}
+
+/*
+ * The evidence no flow took, as the lead's regeneration reads it: what the enrichment says beside the evidence, and the slices of
+ * the findings left. The failure DOM goes with the failing cases it was captured for, the attribution with the contradictions.
+ */
+function leftoverOf(enrichment: GenerationEnrichment, findings: readonly EvidenceFinding[], unrouted: readonly number[]): GenerationEnrichment {
+  const { fixCases: _cases, selectorContradictions: _contradictions, coverageGap: _gap, contractFeedback: _deltas, domSnapshot, attributedSpecFiles, ...rest } = enrichment;
+  const pieces = unrouted.map((i) => findings[i]!.piece);
+  const cases = pieces.flatMap((p) => p.fixCases ?? []);
+  const contradictions = pieces.flatMap((p) => p.selectorContradictions ?? []);
+  const deltas = pieces.flatMap((p) => p.contractFeedback ?? []);
+  const gap = pieces.find((p) => p.coverageGap)?.coverageGap;
   return {
     ...rest,
     ...(cases.length > 0 ? { fixCases: cases, ...(domSnapshot ? { domSnapshot } : {}) } : {}),
     ...(contradictions.length > 0 ? { selectorContradictions: contradictions, ...(attributedSpecFiles ? { attributedSpecFiles } : {}) } : {}),
-    ...(coverageGap && keeps("coverageGap", 0) ? { coverageGap } : {}),
+    ...(gap ? { coverageGap: gap } : {}),
     ...(deltas.length > 0 ? { contractFeedback: deltas } : {}),
   };
 }
@@ -152,8 +151,9 @@ function leftoverOf(enrichment: GenerationEnrichment, findings: readonly Evidenc
 /*
  * One regeneration over what the run has delivered so far; what it delivers joins that. In a run whose flows were authored by
  * sidekicks and whose pass is still open, the evidence goes to the lead first, which routes each finding to the flow whose spec it
- * names, as the reviewer's corrections are; what no flow takes goes to the lead's own regeneration with only that evidence. A run
- * the lead authored alone, or evidence that names nothing to correct, regenerates as it always did.
+ * names, as the reviewer's corrections are; what no flow takes goes to the lead's own regeneration with only that evidence. The
+ * findings are read from the enrichment unless the caller names them (the static gate's errors, which the lead alone reads as one
+ * case). A run the lead authored alone, or evidence that names nothing to correct, regenerates as it always did.
  */
 export async function regenerate(
   state: Readonly<RunState>,
@@ -161,9 +161,10 @@ export async function regenerate(
   regenerationSignal: AbortSignal | undefined,
   enrichment: GenerationEnrichment,
   origin: Exclude<CorrectionOrigin, typeof CORRECTION_ORIGIN.REVIEW>,
+  evidence?: readonly EvidenceFinding[],
 ): Promise<GenerationOutput> {
   const pass = ctx.trail.coordinatedPass;
-  const findings = pass ? findingsOf(enrichment) : [];
+  const findings = pass ? (evidence ?? findingsOf(enrichment)) : [];
   if (!pass || findings.length === 0) return regenerateByLead(state, ctx, regenerationSignal, enrichment);
   return correctThroughLead(state, ctx, pass, findings.map((f) => f.finding), regenerationSignal, origin, (unrouted) => leftoverOf(enrichment, findings, unrouted));
 }
@@ -178,24 +179,44 @@ export async function correctThroughLead(
   state: Readonly<RunState>,
   ctx: WorkspaceRunContext,
   pass: CoordinatedPass,
-  findings: readonly ReviewerFinding[],
+  findings: readonly CorrectionFinding[],
   regenerationSignal: AbortSignal | undefined,
   origin: CorrectionOrigin = CORRECTION_ORIGIN.REVIEW,
-  leftover: (unrouted: readonly string[]) => GenerationEnrichment = (unrouted) => ({ reviewCorrections: [...unrouted] }),
+  leftover: (unrouted: readonly number[]) => GenerationEnrichment = (unrouted) => ({ reviewCorrections: unrouted.map((i) => findings[i]!.text) }),
 ): Promise<GenerationOutput> {
   const corrected = await pass.correct(findings, origin);
   /* Recorded after every turn, so however the run ends from here what the lead routed is on its record. */
   ctx.ends.recordCorrections();
-  const byFlows = await afterGeneration(ctx, {
+  const byFlows = await afterGeneration<GenerationOutput>(ctx, {
     specs: corrected.specs,
+    ...(corrected.specSources ? { specSources: corrected.specSources } : {}),
     end: corrected.specs.length > 0 ? GENERATION_END.DELIVERED : GENERATION_END.UNDECIDED_EMPTY,
     reviewed: false,
     approved: true,
     parsed: corrected.readable,
-  } satisfies GenerationOutput);
+  });
   ctx.generation.delivered = mergeDeliveredSpecs(ctx.generation.delivered, byFlows, "sidekick");
   const regenerated = corrected.unrouted.length > 0 ? await regenerateByLead(state, ctx, regenerationSignal, leftover(corrected.unrouted)) : undefined;
   const rebuttals = [...corrected.rebuttals, ...(regenerated?.rebuttals ?? [])];
   const specs = [...new Set([...byFlows.specs, ...(regenerated?.specs ?? [])])];
-  return { ...(regenerated ?? byFlows), specs, end: specs.length > 0 ? GENERATION_END.DELIVERED : (regenerated?.end ?? byFlows.end), ...(rebuttals.length > 0 ? { rebuttals } : {}) };
+  const specSources = sourcesOf(specs, [byFlows, ...(regenerated ? [regenerated] : [])]);
+  /* A claim that the test is right stands only for a turn that changed no spec, the lead's regeneration included. */
+  const testCorrect = specs.length === 0 ? (regenerated?.testCorrect ?? corrected.testCorrect) : undefined;
+  const { testCorrect: _claim, specSources: _sources, ...base } = regenerated ?? byFlows;
+  return {
+    ...base,
+    specs,
+    end: specs.length > 0 ? GENERATION_END.DELIVERED : (regenerated?.end ?? byFlows.end),
+    ...(specSources ? { specSources } : {}),
+    ...(testCorrect ? { testCorrect } : {}),
+    ...(rebuttals.length > 0 ? { rebuttals } : {}),
+  };
+}
+
+/* The source of each spec, in order, from the generations that delivered them; absent when any one of them is unknown. */
+function sourcesOf(specs: readonly string[], outputs: readonly Pick<GenerationOutput, "specs" | "specSources">[]): string[] | undefined {
+  const known = new Map<string, string>();
+  for (const output of outputs) output.specs.forEach((spec, i) => { const source = output.specSources?.[i]; if (source !== undefined) known.set(spec, source); });
+  const sources = specs.map((spec) => known.get(spec));
+  return sources.every((source) => source !== undefined) ? (sources as string[]) : undefined;
 }

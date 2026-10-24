@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, flowOfFinding, renderLeadCorrection, type FlowUnderCorrection, type ReviewerFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
+import { CORRECTION_ORIGIN, DEFAULT_CORRECTION_INSTRUCTION, admitLeadCorrection, flowOfFinding, renderLeadCorrection, type FlowUnderCorrection, type CorrectionFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
 import { REVIEW_ACTION } from "@contexts/qa-run-orchestration/application/coordination/lead-review.ts";
 
 const flows: FlowUnderCorrection[] = [
   { id: "cart", objective: "the cart total", specFile: "flows/cart.spec.ts", sessionOpen: true, spec: "test('total', ...)" },
   { id: "login", objective: "sign in works", specFile: "flows/login.spec.ts", sessionOpen: false },
 ];
-const findings: ReviewerFinding[] = [
+const findings: CorrectionFinding[] = [
   { text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" },
   { text: "flows/login.spec.ts asserts only the URL" },
   { text: "a selector is a CSS class" },
@@ -44,7 +44,7 @@ test("a flow with findings the lead did not name is sent them with the orchestra
   assert.deepEqual(login.findings, ["flows/login.spec.ts asserts only the URL"]);
   assert.equal(login.instruction, DEFAULT_CORRECTION_INSTRUCTION);
   assert.equal(login.action, REVIEW_ACTION.REPLACE, "its sidekick's session is gone");
-  assert.deepEqual(admitted.unrouted, ["a selector is a CSS class"]);
+  assert.deepEqual(admitted.unrouted, [2], "the third finding, which cites no flow");
 });
 
 test("a finding that cites one flow is never moved to another", () => {
@@ -67,7 +67,7 @@ test("an unreadable answer still sends each flow its own findings, and leaves th
   const admitted = admitLeadCorrection("I think it is fine", flows, findings);
   assert.equal(admitted.readable, false);
   assert.deepEqual(admitted.orders.map((o) => o.flowId).sort(), ["cart", "login"]);
-  assert.deepEqual(admitted.unrouted, ["a selector is a CSS class"]);
+  assert.deepEqual(admitted.unrouted, [2], "the third finding, which cites no flow");
 });
 
 test("a fact the run observed is corrected, never rebutted: the prompt offers no rebuttal and one the lead gives anyway is not taken", () => {
@@ -79,4 +79,14 @@ test("a fact the run observed is corrected, never rebutted: the prompt offers no
   assert.deepEqual(admitted.rebuttals, []);
   assert.deepEqual(admitted.orders.map((o) => [o.flowId, o.findings]), [["cart", [observed[0]!.text]]], "the flow is sent the failure all the same");
   assert.deepEqual(renderLeadCorrection(flows, findings), renderLeadCorrection(flows, findings, CORRECTION_ORIGIN.REVIEW), "the reviewer's findings are the default");
+});
+
+test("a text names a flow only by its spec's whole path, and a text that names several flows belongs to none", () => {
+  const owner = (text: string) => flowOfFinding({ text }, flows);
+  assert.equal(owner("flows/cart.spec.ts(3,1): error TS2304: Cannot find name 'row'."), "cart");
+  assert.equal(owner("e2e/flows/cart.spec.ts: no-wait-for-timeout"), "cart", "the tail of a longer path");
+  assert.equal(owner("see flows/cart.spec.ts."), "cart", "a full stop ends the path");
+  assert.equal(owner("flows/cart.spec.tsx fails"), undefined, "another file's name");
+  assert.equal(owner("old-flows/cart.spec.ts fails"), undefined, "another directory's name");
+  assert.equal(owner("flows/cart.spec.ts and flows/login.spec.ts share a helper"), undefined, "the lead is asked where it goes");
 });
