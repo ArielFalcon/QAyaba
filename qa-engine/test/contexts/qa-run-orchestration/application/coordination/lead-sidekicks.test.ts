@@ -65,7 +65,7 @@ interface Rig {
   swept: number;
   events: CoordinationTelemetryEvent[];
   logs: string[];
-  flowLoops: Array<{ input: FlowLoopOpenInput; closed: number; ledger: FlowLedgerEntry[]; held?: string }>;
+  flowLoops: Array<{ input: FlowLoopOpenInput; closed: number; ledger: FlowLedgerEntry[] }>;
   shares: Array<[string, number]>;
   closedLoop: ClosedLoopHandle;
   agentBrowser: AgentBrowserHandle;
@@ -145,14 +145,13 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
   r.closedLoop = {
     limits: { maxCalls: 8, perCallMs: 60_000, maxDevWrites: 12 },
     openFlow: (input) => {
-      const entry: { input: FlowLoopOpenInput; closed: number; ledger: FlowLedgerEntry[]; held?: string } = { input, closed: 0, ledger: [] };
+      const entry: { input: FlowLoopOpenInput; closed: number; ledger: FlowLedgerEntry[] } = { input, closed: 0, ledger: [] };
       r.flowLoops.push(entry);
       const handle: FlowLoopHandle = {
         limits: { maxCalls: input.limits.maxCalls, perCallMs: 60_000, maxDevWrites: input.limits.maxDevWrites },
         signals: () => ({ calls: entry.ledger.length, devWrites: 0 }),
         ledger: () => entry.ledger,
         isClosed: async () => false,
-        holds: async (sha256) => entry.held === sha256,
         close: async () => { entry.closed += 1; },
       };
       return handle;
@@ -374,8 +373,23 @@ test("a flow whose sidekick did not deliver is not tried again on its own: witho
   assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => [f.id, f.kind]), [["cart", "failed"]]);
   assert.match(outcome.aggregated.incompleteFlows[0]!.reason ?? "", /no selector found/);
   assert.equal(r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart").length, 1);
-  assert.equal(r.collected.includes("cart"), false, "nothing is taken back from a sidekick that did not deliver");
+  assert.equal(outcome.aggregated.specs.includes("flows/cart.spec.ts"), false, "a sidekick that wrote nothing delivers nothing");
 });
+
+for (const ended of [
+  { status: "needs-lead" as const, summary: "could not verify the edit" },
+  { status: "failed" as const, summary: "the sidekick's answer could not be read" },
+]) {
+  test(`a spec a sidekick wrote is taken back though its turn ended ${ended.status}: the run's own checks judge it, not the sidekick's word`, async () => {
+    const r = rig({ answers: { cart: [{ ...ended, filesChanged: [], writes: true }] }, hasFile: new Set(["login"]) });
+    const outcome = await r.coordinator.coordinate(input(r));
+    assert.equal(outcome.action, "fanout");
+    if (outcome.action !== "fanout") return;
+    assert.ok(outcome.aggregated.specs.includes("flows/cart.spec.ts"), "the written spec reaches the working copy");
+    assert.deepEqual(outcome.aggregated.incompleteFlows, []);
+    assert.ok(r.events.some((e) => /flow cart turn 1: sidekick status=.*file taken back/.test(e.reason ?? "")));
+  });
+}
 
 test("a sidekick that asks for the lead is handed back with its question", async () => {
   const r = rig({ answers: { cart: [{ status: "needs-lead", summary: "needs the login decision", filesChanged: [], unresolvedQuestions: ["which login?"] }] }, hasFile: new Set(["login"]) });
@@ -500,7 +514,7 @@ test("a sidekick session that opens after its flow ran out of time is closed at 
   for (let i = 0; i < 5; i++) await settle();
   assert.equal(r.sessionsOpened, 3);
   assert.equal(r.sessionsDisposed.length, 3, "the late session was closed too");
-  assert.equal(r.collected.filter((f) => f === "cart").length, 0, "nothing is taken back from a flow after its pass ended");
+  assert.equal(r.collected.filter((f) => f === "cart").length, 1, "only the first turn's workspace is read: nothing is taken back from a flow after its pass ended");
 });
 
 test("the lead is never asked to review when the run has no room left for it", async () => {
@@ -716,23 +730,20 @@ test("a sidekick that declines with no empty read of a page the Context Pack rea
   assert.deepEqual(outcome.aggregated.incompleteFlows.map((f) => f.id), []);
 });
 
-/* A cart flow whose sidekick did not deliver, after one run_spec call that failed with these facts; the bytes that ran are still the sidekick's when `held`. */
-function failedCartWith(failures: FlowLedgerEntry["failures"], held = false): Rig {
+/* A cart flow whose sidekick reported a failure after one run_spec call that failed with these facts. */
+function failedCartWith(failures: FlowLedgerEntry["failures"]): Rig {
   const r = rig({ answers: { cart: [{ status: "failed", summary: "the spec does not pass", filesChanged: [] }] }, hasFile: new Set(["login"]) });
   r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
     const handle = original(flowInput)!;
     const entry = r.flowLoops.at(-1)!;
-    if (flowInput.flowId === "cart") {
-      entry.ledger.push({ path: flowInput.specFile, sha256: "ran-bytes", status: "failed", devWrites: 0, failures });
-      if (held) entry.held = "ran-bytes";
-    }
+    if (flowInput.flowId === "cart") entry.ledger.push({ path: flowInput.specFile, sha256: "ran-bytes", status: "failed", devWrites: 0, failures });
     return handle;
   })(r.closedLoop.openFlow);
   return r;
 }
 
-test("a run_spec failure that shows the app at fault is never sent back to be made green: the spec that showed it is taken back as it ran", async () => {
-  const r = failedCartWith([{ detail: "expect(locator).toBeVisible() failed", httpStatus: 503 }], true);
+test("a run_spec failure that shows the app at fault is never sent back to be made green: the spec that showed it is taken back", async () => {
+  const r = failedCartWith([{ detail: "expect(locator).toBeVisible() failed", httpStatus: 503 }]);
   r.script.hasFile.add("cart");
   const outcome = await r.coordinator.coordinate(input(r));
   assert.equal(outcome.action, "fanout");
@@ -745,12 +756,12 @@ test("a run_spec failure that shows the app at fault is never sent back to be ma
 
 test("an uncaught page error is app evidence too, and with the bytes that showed it gone the flow ends on it, never sent back by the lead", async () => {
   const lead = leadWith([[{ flow: "cart", action: "revise", instruction: "make it pass" }], []]);
-  const r = failedCartWith([{ detail: "x", runtimeErrors: [{ type: "pageerror", text: "Cannot read properties of undefined" }] }], false);
+  const r = failedCartWith([{ detail: "x", runtimeErrors: [{ type: "pageerror", text: "Cannot read properties of undefined" }] }]);
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan }));
   assert.equal(outcome.action, "fanout");
   if (outcome.action !== "fanout") return;
   assert.equal(r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart").length, 1);
-  assert.equal(r.collected.includes("cart"), false);
+  assert.equal(outcome.aggregated.specs.includes("flows/cart.spec.ts"), false);
   const cart = outcome.aggregated.incompleteFlows.find((f) => f.id === "cart");
   assert.equal(cart?.kind, "failed");
   assert.match(cart?.reason ?? "", /app defect/);

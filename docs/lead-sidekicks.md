@@ -111,7 +111,9 @@ The answer is untrusted, and the orchestrator's facts decide over it:
   is left, is turned into a `revise` carrying the failure the orchestrator saw; on the last turn it stands and the run's
   execution judges it;
 - an app defect is never sent back to be made green (`revise`/`replace` refused);
-- a delivered spec is never dropped: it is already in the working copy, and the run's execution and the reviewer judge it;
+- a delivered spec is never dropped: it is already in the working copy, and the run's execution and the reviewer judge it.
+  A spec the sidekick wrote is taken back after every turn whatever the turn ended in (`needs-lead`, `failed`, an answer
+  that could not be read): its status is its word, the bytes are what the run judges;
 - a flow the answer does not name, or an answer that cannot be read or runs out of its time, leaves the flows as they are.
 
 Every revision carries the orchestrator's facts beside the lead's instruction. A sidekick that writes nothing and says
@@ -126,7 +128,7 @@ errors the page raised; whether the page was still changing). What a revision is
 rules, never by the sidekick's account (`classifyAuthoringFailure`, `authoring-failure.ts`, the fix loop's adjudicator rules):
 
 - **App defect** (an attributed 5xx, or a framework/uncaught runtime error): the spec is right to fail and is never sent
-  back to be made green. When the sidekick still holds the bytes that showed it, they are taken back as they ran and the
+  back to be made green. When the sidekick's workspace still holds a spec, it is taken back and the
   flow is delivered, so the run's own execution and fix loop report the defect; otherwise the flow ends on it.
 - **Page still loading**, **element not on the page**, **value mismatch**: a revision is told which, with what to
   do about it (wait for the page's data; build the locator from the failure-point tree; take the expected value from the

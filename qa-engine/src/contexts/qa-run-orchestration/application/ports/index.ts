@@ -356,8 +356,6 @@ export interface FlowLoopHandle {
   ledger(): readonly FlowLedgerEntry[];
   /** Whether the spec the sidekick holds now is the one whose last call passed. */
   isClosed(): Promise<boolean>;
-  /** Whether the spec the sidekick holds now has these bytes (their sha256). */
-  holds(sha256: string): Promise<boolean>;
   /** Revokes the flow's right and cleans the data of a call that was in flight. Never throws. */
   close(): Promise<void>;
 }

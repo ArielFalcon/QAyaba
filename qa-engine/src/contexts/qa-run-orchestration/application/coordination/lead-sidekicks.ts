@@ -439,7 +439,8 @@ export class LeadSidekicks {
     /* Whether the workspace shows the sidekick changed no file at all: its own list of what it changed is its word, this is what is on disk. */
     let workspaceUntouched = false;
     entry.refusal = undefined;
-    if (eligible && !signal.aborted && !entry.released) {
+    /* What the sidekick wrote is taken back whatever its turn ended in (an answer that could not be read included): its status is its word, and the run's static gate, execution and review judge the bytes. */
+    if (!signal.aborted && !entry.released) {
       const collected = await this.deps.workspaces.collect(entry.workspace, entry.request);
       copied = collected.copied.length > 0;
       entry.refusal = collected.refused[0] ? `${collected.refused[0].path}: ${collected.refused[0].reason}` : undefined;
@@ -458,31 +459,23 @@ export class LeadSidekicks {
     });
 
     entry.taken = copied;
-    if (copied) {
-      entry.delivered = true;
-      return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals };
-    }
     const { loop } = entry;
     const ledger = loop?.ledger() ?? [];
     const lastCall = ledger.at(-1);
     /* What the flow's last run_spec call met, from the facts the orchestrator kept of it. */
     const failure = lastCall?.status === "failed" ? classifyAuthoringFailure(lastCall.failures) : undefined;
     entry.failure = failure;
-    /* The app at fault: the spec is right to fail and is never sent back to be made green. The bytes that showed it are taken back as they ran, so the run's own execution reports the defect; with those bytes gone the flow ends on it. */
-    if (failure?.kind === AUTHORING_FAILURE.APP_DEFECT && lastCall && loop) {
-      const evidence = `app defect: ${failure.reason}`;
-      entry.appDefect = failure.reason;
-      if (!signal.aborted && !entry.released && (await loop.holds(lastCall.sha256))) {
-        const collected = await this.deps.workspaces.collect(entry.workspace, entry.request);
-        if (collected.copied.length > 0) {
-          entry.delivered = true;
-          entry.taken = true;
-          this.record(input, { kind: "delegation", action: "delegate", capability, reason: `flow ${flow.id}: ${evidence}; the spec that showed it is taken back as it ran`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
-          return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals: collected.proposalsTotal > 0 ? { flowId: flow.id, changes: collected.proposals, total: collected.proposalsTotal } : undefined };
-        }
-      }
-      this.record(input, { kind: "delegation", action: "delegate", capability, reason: `flow ${flow.id}: ${evidence}; the spec that showed it is no longer the sidekick's, and no attempt is made to make it pass`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
-      return this.keepDelivered(entry, { outcome: { id: flow.id, kind: FLOW_OUTCOME.FAILED, reason: `${evidence}; the spec that showed it is no longer in the workspace` }, proposals: undefined });
+    /* The app at fault: the spec is right to fail and is never sent back to be made green; the run's own execution reports the defect from the bytes taken back, and with no bytes the flow ends on it. */
+    const appDefect = failure?.kind === AUTHORING_FAILURE.APP_DEFECT ? `app defect: ${failure.reason}` : undefined;
+    if (appDefect) entry.appDefect = failure!.reason;
+    if (copied) {
+      entry.delivered = true;
+      if (appDefect) this.record(input, { kind: "delegation", action: "delegate", capability, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is taken back`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
+      return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals };
+    }
+    if (appDefect) {
+      this.record(input, { kind: "delegation", action: "delegate", capability, reason: `flow ${flow.id}: ${appDefect}; the spec that showed it is no longer the sidekick's, and no attempt is made to make it pass`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
+      return this.keepDelivered(entry, { outcome: { id: flow.id, kind: FLOW_OUTCOME.FAILED, reason: `${appDefect}; the spec that showed it is no longer in the workspace` }, proposals: undefined });
     }
     /* What the run knows beside what the sidekick says: the pages the Context Pack read with results, and the pages the flow's own run_spec calls read empty. */
     const evidence = [...(input.knownFacts ?? []), ...emptyReadEvidence(ledger)];

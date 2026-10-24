@@ -225,7 +225,6 @@ export class ClosedLoopPortAdapter implements ClosedLoopPort {
       signals: () => ({ calls: capability.calls, devWrites: capability.devWrites }),
       ledger: () => capability.ledger.map((e) => ({ path: e.path, sha256: e.sha256, status: e.status, devWrites: e.devWrites, ...(e.failures ? { failures: e.failures } : {}) })),
       isClosed: async () => loopClosed(capability.ledger, new Map([[only, currentSha256(workspace, only)]])),
-      holds: async (sha256) => currentSha256(workspace, only) === sha256,
       close: async () => {
         if (closed) return;
         closed = true;
