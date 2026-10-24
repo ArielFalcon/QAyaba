@@ -106,6 +106,11 @@ dev:
   #       # resultTextSelector: "[data-testid='result-count']"  # alternative: first integer in the text is the count
   #       locationSelector: "[data-testid='location-label']"    # the effective location the page shows
   #       timeoutMs: 8000       # how long to wait for readiness/result before deeming the state unconfirmed (1..15000)
+  # routeSamples:               # optional: a real page per route template of the context map, opened by the Context Pack
+  #                             # when no link the site shows fits the template (an app that navigates by script). Each
+  #                             # page must fill its template segment by segment; at most 32. A declared page that shows
+  #                             # what a page that cannot exist shows (deleted from DEV) is reported, not delivered.
+  #   "/restaurants/:province/:city/:slug": "/restaurants/madrid/madrid/casa-pepe"
 
 # e2e:
 #   # The app's test-id convention. Drives Playwright getByTestId, the DOM capture

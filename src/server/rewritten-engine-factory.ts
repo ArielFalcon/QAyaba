@@ -1194,7 +1194,7 @@ export function buildRewrittenCompositionConfig(
             exploreBrief: (args) => explorerBriefAdapter.explore(args),
           }
         : {}),
-      contextPackDeps: { ...defaultContextPackDeps, domDeps: captureDomDeps },
+      contextPackDeps: { ...defaultContextPackDeps, domDeps: captureDomDeps, ...(app.dev?.routeSamples ? { routeSamples: app.dev.routeSamples } : {}) },
       /*
        * The DB (history.ts's context_maps table) is the engine's source of truth for the
        * FE<->BE architecture map — it survives regardless of shadow. The repo file on disk is only a

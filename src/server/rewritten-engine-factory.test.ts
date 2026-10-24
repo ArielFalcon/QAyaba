@@ -957,6 +957,13 @@ test("the composed grounding domDeps carries the app's dev.dataState", () => {
   assert.deepEqual(domDeps.dataState, dataState, "the app's dataState reaches the composed DOM capture");
 });
 
+test("the composed Context Pack carries the app's dev.routeSamples", () => {
+  const routeSamples = { "/shops/:province/:city/:slug": "/shops/madrid/madrid/casa-pepe" };
+  const app: AppConfig = { ...cfg("factory-route-samples"), dev: { baseUrl: "https://dev", routeSamples } };
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.deepEqual(config.groundingCollaborators?.contextPackDeps?.routeSamples, routeSamples);
+});
+
 test("every DOM capture seam of an e2e app is the authDir-backed capture, never the inert default", () => {
   const app = cfg("factory-dom-capture-seams");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });

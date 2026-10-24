@@ -464,6 +464,30 @@ test("dev.geolocation accepts named places the authoring agent may pick, and ref
   );
 });
 
+test("dev.routeSamples accepts a page per route template, and refuses a page that does not fill its template, a key that is no template or too many", () => {
+  const routeSamples = { "/shops/:province/:city/:slug": "/shops/madrid/madrid/casa-pepe" };
+  const cfg = AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", routeSamples } });
+  assert.deepEqual(cfg.dev?.routeSamples, routeSamples);
+
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", routeSamples: { "/shops/:province/:city": "/stores/madrid/madrid" } } }),
+    /routeSamples/,
+  );
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", routeSamples: { "/shops/:province/:city": "/shops/madrid/madrid/extra" } } }),
+    /routeSamples/,
+  );
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", routeSamples: { "/about": "/about" } } }),
+    /routeSamples/,
+  );
+  const tooMany = Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`/r${i}/:id`, `/r${i}/1`]));
+  assert.throws(
+    () => AppConfigSchema.parse({ ...base, dev: { baseUrl: "https://dev.shop.io", routeSamples: tooMany } }),
+    /32|routeSamples/,
+  );
+});
+
 test("dev.dataState accepts per-route readiness/result/location selectors, and refuses a bad selector, a bad timeout or too many routes", () => {
   const dataState = {
     routes: {

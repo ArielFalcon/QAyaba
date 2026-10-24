@@ -10,7 +10,7 @@ import { classifyRoutes, ROUTE_REASON } from "../../../shared-kernel/route-captu
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import { rankRoutesWithRelevance } from "../domain/route-ranking.ts";
-import { instantiableTemplate, instantiateRoute } from "../domain/route-instantiation.ts";
+import { instantiableTemplate, instantiateRoute, isPageOfTemplate, missingSibling } from "../domain/route-instantiation.ts";
 import { changedValueFactIds, domItemIds, itemId } from "../domain/context-item-ids.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
 import { renderChangedValues, valuesWithMoreNodesThanLines, type ObservedPage } from "../domain/changed-values.ts";
@@ -141,6 +141,8 @@ export interface ContextPackDeps {
     changed?: ChangedElement[],
   ): Promise<string | undefined>;
   domDeps: CaptureDomDeps;
+  /* The app's declared page per route template (dev.routeSamples): opened when no link the site showed fits the template, for an app that navigates without links. App data, never inferred. */
+  routeSamples?: Readonly<Record<string, string>>;
   log?: (msg: string) => void;
 }
 
@@ -211,7 +213,22 @@ export const TEMPLATE_LEFT_OUT = {
   NO_PAGE_TO_LOOK_AT: `${ROUTE_REASON.TEMPLATE}: no page that could show a link to it was captured`,
   /* A link to a page of it was seen, but that page was not captured at its own address. */
   PAGE_NOT_CONFIRMED: `${ROUTE_REASON.TEMPLATE}: the page found for it could not be captured at its own address`,
+  /* The page the app declares for it (dev.routeSamples) shows what a page of it that cannot exist shows: the declared page is gone. */
+  DECLARED_PAGE_MISSING: `${ROUTE_REASON.TEMPLATE}: the page declared for it shows what a page that does not exist shows`,
 } as const;
+
+/* How alike a declared page's tree and its missing sibling's must be, as the share of their node lines in common, for the declared page to be read as missing. */
+const MISSING_PAGE_LIKENESS = 0.9;
+
+function likeness(a: readonly string[], b: readonly string[]): number {
+  const left = new Set(a);
+  const right = new Set(b);
+  const union = new Set([...left, ...right]).size;
+  if (union === 0) return 1;
+  let shared = 0;
+  for (const node of left) if (right.has(node)) shared++;
+  return shared / union;
+}
 
 /* The routes left out of the capture because they name no single page, or no page of them was found, each with why. They are not degraded pages: nothing was captured for them. */
 function renderNotCapturable(routes: readonly NotCaptured[]): string {
@@ -413,6 +430,32 @@ export async function buildContextPack(
   };
   /* What became of each template the run looked at: the page the links gave it, if any. A template behind the cut is never looked at. */
   const instanceOfTemplate = new Map<string, string | undefined>();
+  /* The declared pages that showed what their missing sibling shows: never delivered as a page of their template. */
+  const declaredMissing = new Set<string>();
+  /* Each declared page is rendered beside its sibling that cannot exist; one whose tree is that sibling's is the site's "nothing here" page, not a page of the template. A render that fails or reports either page not grounded settles nothing, and the declared page is kept. */
+  const declaredPagesShownMissing = async (declared: ReadonlyMap<string, string>, base: CaptureRoutesInput): Promise<string[]> => {
+    const pairs = [...declared]
+      .flatMap(([page, template]) => {
+        const sibling = missingSibling(template, page);
+        return sibling === undefined ? [] : [{ page, template, sibling }];
+      })
+      .slice(0, Math.floor(MAX_ROUTES / 2));
+    if (pairs.length === 0) return [];
+    const seen = new Map<string, CapturedPage>();
+    try {
+      await deps.captureDomForRoutes(pairs.flatMap((pair) => [pair.page, pair.sibling]), { ...base, onPages: (reported) => { for (const page of reported) seen.set(page.route, page); } }, deps.domDeps);
+    } catch (err) {
+      log(`[qa] context-pack: DOM capture of the declared template pages beside their missing siblings FAILED (${err instanceof Error ? err.message : String(err)}) — the declared pages are kept unchecked`);
+      return [];
+    }
+    return pairs
+      .filter(({ page, sibling }) => {
+        const shown = seen.get(page);
+        const missing = seen.get(sibling);
+        return shown?.grounded === true && missing?.grounded === true && likeness(shown.nodes ?? [], missing.nodes ?? []) >= MISSING_PAGE_LIKENESS;
+      })
+      .map(({ page }) => page);
+  };
   if (domPack && (firstPass.length > 0 || reachable) && input.e2eDir && input.baseUrl) {
     const base = { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute };
     try {
@@ -422,18 +465,29 @@ export async function buildContextPack(
       /* The cut, made on pages in rank order: a route that is a page, or the page the links give a template. The first capture's pages are rendered already and stay in the pack even when the cut leaves them out. */
       const cut = new Set<string>();
       const instances = new Map<string, string>();
+      /* The pages taken from dev.routeSamples because no link fit their template: what the site showed is live, a declared page may be gone. */
+      const declaredInstances = new Map<string, string>();
       for (const entry of classified) {
         if (cut.size >= MAX_ROUTES) break;
         /* A route that is a page and comes up before the cut is full is one of the first capture's: fewer than a cut's worth of pages came before it. */
         if (entry.reason === undefined) {
           cut.add(entry.route);
         } else if (isTemplate(entry)) {
-          const instance = instantiateRoute(entry.route, links);
+          const linked = instantiateRoute(entry.route, links);
+          const declared = deps.routeSamples?.[entry.route];
+          const instance = linked ?? (declared !== undefined && isPageOfTemplate(entry.route, declared) ? declared : undefined);
           instanceOfTemplate.set(entry.route, instance);
           if (instance === undefined) continue;
           cut.add(instance);
-          if (!firstPass.includes(instance) && !instances.has(instance)) instances.set(instance, entry.route);
+          if (!firstPass.includes(instance) && !instances.has(instance)) {
+            instances.set(instance, entry.route);
+            if (linked === undefined) declaredInstances.set(instance, entry.route);
+          }
         }
+      }
+      for (const page of await declaredPagesShownMissing(declaredInstances, base)) {
+        instances.delete(page);
+        declaredMissing.add(page);
       }
       if (instances.size > 0) {
         try {
@@ -509,6 +563,7 @@ export async function buildContextPack(
     if (!isTemplate(entry) || !instanceOfTemplate.has(entry.route)) return entry.reason;
     const instance = instanceOfTemplate.get(entry.route);
     if (instance === undefined) return anyPageGrounded ? TEMPLATE_LEFT_OUT.NO_LINK : TEMPLATE_LEFT_OUT.NO_PAGE_TO_LOOK_AT;
+    if (declaredMissing.has(instance)) return TEMPLATE_LEFT_OUT.DECLARED_PAGE_MISSING;
     return grounded(instance) ? undefined : TEMPLATE_LEFT_OUT.PAGE_NOT_CONFIRMED;
   };
   const notCaptured: NotCaptured[] = domPack

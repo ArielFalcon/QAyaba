@@ -1043,7 +1043,7 @@ interface Call {
 function siteWithLinks(
   linksOf: Record<string, string[]>,
   calls: Call[],
-  options: { failSecond?: boolean; redirectAdvisory?: string; ungrounded?: readonly string[]; silentFrom?: number } = {},
+  options: { failSecond?: boolean; redirectAdvisory?: string; ungrounded?: readonly string[]; silentFrom?: number; nodesOf?: (route: string) => string[] } = {},
 ): ContextPackDeps {
   return {
     captureDomForRoutes: async (routes, input) => {
@@ -1052,7 +1052,7 @@ function siteWithLinks(
       if (options.failSecond && calls.length > 1) throw new Error("browser gone");
       /* A capture that renders nothing (a timed-out or unreadable run) answers no text and tells nobody of any page. */
       if (options.silentFrom !== undefined && calls.length >= options.silentFrom) return undefined;
-      onPages?.([...routes, ...linkSeeds].map((route) => ({ route, grounded: !(options.ungrounded ?? []).includes(route), links: linksOf[route] ?? [] })));
+      onPages?.([...routes, ...linkSeeds].map((route) => ({ route, grounded: !(options.ungrounded ?? []).includes(route), links: linksOf[route] ?? [], nodes: options.nodesOf?.(route) ?? [`button: on ${route}`] })));
       if (routes.length === 0) return undefined;
       const blocks = routes.map((route) => `route ${route}${instanceOf.has(route) ? ` (instance of ${instanceOf.get(route)})` : ""}:\n  button: on ${route}`);
       return [...blocks, ...(options.redirectAdvisory && calls.length === 1 ? [`### ${PACK_HEADINGS.redirected} (ADVISORY)\nintro\n${options.redirectAdvisory}`] : [])].join("\n\n");
@@ -1115,6 +1115,74 @@ test("buildContextPack: a template no link of the site fits is listed as left ou
   assert.ok(listed.includes(LIST_TEMPLATE) && /no link/i.test(listed), listed);
   assert.ok(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("button: on /a"));
   assert.ok(logs.some((message) => message.includes(LIST_TEMPLATE)));
+});
+
+test("buildContextPack: a template no link fits is captured at the page the app declares for it, and is not listed as left out", async () => {
+  const calls: Call[] = [];
+  const deps = { ...siteWithLinks({ "/a": ["/about"] }, calls), routeSamples: { [LIST_TEMPLATE]: "/shops/madrid/madrid" } };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  const opened = calls.find((call) => call.instanceOf.size > 0);
+  assert.deepEqual(opened?.routes, ["/shops/madrid/madrid"]);
+  assert.equal(opened?.instanceOf.get("/shops/madrid/madrid"), LIST_TEMPLATE);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("button: on /shops/madrid/madrid"));
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.notCapturable), "");
+});
+
+/* A site whose every page of the shops template shows the same "nothing here" tree, except the one that exists. */
+const missingShopTree = (existing: string) => (route: string): string[] =>
+  route.startsWith("/shops/") && route !== existing ? ["heading: Not found", "button: Back"] : [`heading: ${route}`, "button: Order", "button: Back"];
+
+test("buildContextPack: a declared page that shows what a page that cannot exist shows is not delivered as its template, and says why", async () => {
+  const calls: Call[] = [];
+  const logs: string[] = [];
+  const deps = {
+    ...siteWithLinks({ "/a": [] }, calls, { nodesOf: missingShopTree("/shops/madrid/sevilla") }),
+    routeSamples: { [LIST_TEMPLATE]: "/shops/madrid/madrid" },
+    log: (message: string) => logs.push(message),
+  };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.equal(calls.some((call) => call.instanceOf.size > 0), false, "the declared page is not captured as a page of its template");
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("/shops/madrid/madrid"), false);
+  const line = sectionOf(result.text, PACK_HEADINGS.notCapturable).split("\n").find((entry) => entry.includes(LIST_TEMPLATE)) ?? "";
+  assert.ok(line.includes(TEMPLATE_LEFT_OUT.DECLARED_PAGE_MISSING), line);
+  assert.ok(logs.some((message) => message.includes(LIST_TEMPLATE) && message.includes(TEMPLATE_LEFT_OUT.DECLARED_PAGE_MISSING)));
+});
+
+test("buildContextPack: a declared page whose tree is not the one a page that cannot exist shows is captured as its template", async () => {
+  const calls: Call[] = [];
+  const deps = {
+    ...siteWithLinks({ "/a": [] }, calls, { nodesOf: missingShopTree("/shops/madrid/madrid") }),
+    routeSamples: { [LIST_TEMPLATE]: "/shops/madrid/madrid" },
+  };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("button: on /shops/madrid/madrid"));
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.notCapturable), "");
+});
+
+test("buildContextPack: a page a link of the site gave is not compared with a page that cannot exist", async () => {
+  const calls: Call[] = [];
+  const deps = {
+    ...siteWithLinks({ "/a": ["/shops/madrid/madrid"] }, calls, { nodesOf: missingShopTree("/shops/none/none") }),
+    routeSamples: { [LIST_TEMPLATE]: "/shops/madrid/madrid" },
+  };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.equal(calls.length, 2, "the first capture and the template's page, nothing more");
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("button: on /shops/madrid/madrid"));
+});
+
+test("buildContextPack: a link the site showed is opened before the page the app declares for the same template", async () => {
+  const calls: Call[] = [];
+  const deps = { ...siteWithLinks({ "/a": ["/shops/sevilla/sevilla"] }, calls), routeSamples: { [LIST_TEMPLATE]: "/shops/madrid/madrid" } };
+  await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.deepEqual(calls[1]!.routes, ["/shops/sevilla/sevilla"]);
+});
+
+test("buildContextPack: a declared page that does not fill its template is not opened, and the template stays left out for want of a link", async () => {
+  const calls: Call[] = [];
+  const deps = { ...siteWithLinks({ "/a": [] }, calls), routeSamples: { [LIST_TEMPLATE]: "/stores/madrid/madrid" } };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.equal(calls.length, 1, "nothing to open, so no second capture");
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes(TEMPLATE_LEFT_OUT.NO_LINK));
 });
 
 test("buildContextPack: a template behind the cut is not opened and stays in the list of routes left out", async () => {

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { LoginPathSchema } from "../../qa-engine/src/shared-kernel/login-path";
 import { MAX_PLACES, MAX_PLACE_NAME_CHARS, PLACE_NAME_PATTERN } from "../../qa-engine/src/shared-kernel/geolocation";
 import { mutatingEntryError, routePatternError } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard";
+import { isPageOfTemplate } from "../../qa-engine/src/contexts/generation/domain/route-instantiation";
 import { compileEgressPolicy, EgressPolicyError, originOf } from "../../qa-engine/src/shared-infrastructure/egress/egress-policy";
 
 /*
@@ -170,6 +171,22 @@ export const AppConfigSchema = z
                 }),
               )
               .refine((routes) => Object.keys(routes).length <= 32, { error: "at most 32 data-state routes are allowed" }),
+          })
+          .optional(),
+        /*
+         * A real page per route template of the context map (`/shops/:province/:city/:slug` → `/shops/madrid/madrid/casa-pepe`),
+         * which the Context Pack opens when no link the site shows fits the template: an app that navigates by script exposes no
+         * link to its detail pages. Each page must fill its template segment by segment. App data, never inferred.
+         */
+        routeSamples: z
+          .record(z.string().min(1).max(512), z.string().min(1).max(512))
+          .superRefine((samples, ctx) => {
+            if (Object.keys(samples).length > 32) ctx.addIssue({ code: "custom", message: "at most 32 routeSamples are allowed" });
+            for (const [template, page] of Object.entries(samples)) {
+              if (!isPageOfTemplate(template, page)) {
+                ctx.addIssue({ code: "custom", path: [template], message: `routeSamples: ${JSON.stringify(page)} is not a page of the route template ${JSON.stringify(template)}` });
+              }
+            }
           })
           .optional(),
       })

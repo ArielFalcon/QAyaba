@@ -338,7 +338,11 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `generation/domain/route-instantiation.ts` matches those same-origin pathnames to the template segment by
   segment (a template needs at least one literal segment), the cut is made on pages in rank order, not on
   templates, and the pages found are captured in a second pass labelled with both address and template. A
-  template counts as opened only when the capture grounded its page at its own address; otherwise it is
+  template no link fits is opened at the page the app declares for it (`dev.routeSamples`, a real page that
+  fills the template segment by segment; a link the site showed comes first), for an app that navigates by
+  script. A declared page is first rendered beside its sibling that cannot exist (its last parameter replaced by
+  `qayaba-no-such-page`); one whose tree is that sibling's is the site's "nothing here" page, gone from DEV, and is
+  listed as not capturable with why instead of delivered. A template counts as opened only when the capture grounded its page at its own address; otherwise it is
   listed as not capturable, with why. The explorer is shown the map's route paths so its brief names pages
   by them.
 - **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: deterministic

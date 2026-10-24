@@ -74,6 +74,24 @@ export function instantiateRoute(template: string, links: readonly string[]): st
   return undefined;
 }
 
+/** Whether `path` is itself a page of `template`: a plain path of the template's own length whose segments fill it. A page the app's config declares for a template is taken only on these terms. */
+export function isPageOfTemplate(template: string, path: string): boolean {
+  return instantiateRoute(template, [path]) === path;
+}
+
+/* A segment value no page of any site is named by. */
+export const MISSING_PAGE_SEGMENT = "qayaba-no-such-page";
+
+/** The page of `template` beside `page` that cannot exist: `page` with its last parameter replaced by a value no page has. Undefined when `page` is not a page of `template`. */
+export function missingSibling(template: string, page: string): string | undefined {
+  const segments = templateSegments(template);
+  if (segments === undefined || !isPageOfTemplate(template, page)) return undefined;
+  const parts = page.split("/").filter((part) => part !== "");
+  const last = segments.map((segment) => segment.parameter).lastIndexOf(true);
+  parts[last] = MISSING_PAGE_SEGMENT;
+  return `/${parts.join("/")}`;
+}
+
 /**
  * The pathnames of the links a page showed that lead to the site's own origin, in page order, once each, and bounded. The hrefs come from the page, so each is checked here: what is not a string, not an address, on another origin or too long is skipped, and a query or hash is no part of the path.
  */
