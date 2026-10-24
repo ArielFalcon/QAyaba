@@ -145,7 +145,13 @@ export class GenerateTestsUseCase {
       timedOut = true;
     }
     if (timedOut) return { parsed: false, timedOut: true, ...(turn ? { turn } : {}) };
-    const deliverable = this.ports.verdicts.parseGenerator(output, `${input.mirrorDir}/${input.e2eRelDir}`);
+    let deliverable: ReturnType<GenerationPorts["verdicts"]["parseGenerator"]>;
+    try {
+      deliverable = this.ports.verdicts.parseGenerator(output, `${input.mirrorDir}/${input.e2eRelDir}`);
+    } catch (err) {
+      await dispose();
+      throw err;
+    }
     /* Only a plan has a next turn to ask: anything else ends the session here. */
     if (!deliverable.plan) await dispose();
     const lead: LeadSession | undefined = deliverable.plan

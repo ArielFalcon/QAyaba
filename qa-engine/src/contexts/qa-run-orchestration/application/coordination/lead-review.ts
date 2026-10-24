@@ -3,7 +3,7 @@
  * orchestrator saw of the flow's run_spec calls and the spec the sidekick wrote, and answers per flow: accept it, send an
  * instruction to the same sidekick (revise), start a fresh sidekick on it (replace), or drop it. The answer is the lead's word and
  * is admitted here against the orchestrator's facts, which decide over it: a spec that has not passed run_spec on its current
- * bytes is not accepted while it can still be run and a review turn is left; an app defect is never sent back to be made green;
+ * bytes is not accepted while a review turn is left (when its last call failed, even with no call left to run it again); an app defect is never sent back to be made green;
  * a delivered spec is not dropped (it is already in the working copy, and the run's execution and the reviewer judge it).
  * Pure: no clock, no file, no model.
  */
@@ -179,8 +179,10 @@ export function admitLeadReview(output: string, flows: readonly FlowUnderReview[
           refuse(flow.id, action, "nothing was delivered to accept");
           break;
         }
+        /* Sent back: a spec whose last call failed, or one the flow can still run that has not passed on its current bytes. */
+        const lastFailed = flow.runSpec?.lastStatus === "failed";
         const canRun = flow.runSpec !== undefined && flow.runSpec.calls < flow.runSpec.maxCalls;
-        if (flow.verified || flow.appDefect !== undefined || !canRun) {
+        if (flow.verified || flow.appDefect !== undefined || !(lastFailed || canRun)) {
           admission.accepted.push(flow.id);
           break;
         }

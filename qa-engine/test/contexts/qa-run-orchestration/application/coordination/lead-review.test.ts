@@ -72,8 +72,8 @@ test("an accept of a spec that has not passed run_spec on its current bytes is s
   assert.equal(late.refused.length, 1, "the gap is recorded");
 });
 
-test("a spec that can no longer be run is accepted as it is", () => {
-  const spent = flow({ verified: false, runSpec: { calls: 8, maxCalls: 8, lastStatus: "failed" } });
+test("a spec changed after its last passing call, with no call left to run it again, is accepted as it is", () => {
+  const spent = flow({ verified: false, runSpec: { calls: 8, maxCalls: 8, lastStatus: "passed" } });
   const admitted = admitLeadReview(answer([{ flow: "cart", action: "accept" }]), [spent], { revisionsAllowed: true });
   assert.deepEqual(admitted.orders, []);
   assert.deepEqual(admitted.accepted, ["cart"]);
@@ -131,4 +131,11 @@ test("the lead's instruction is bounded and scrubbed before it reaches a sidekic
   const instruction = admitted.orders[0]!.instruction;
   assert.ok(instruction.length <= 1200);
   assert.ok(!instruction.includes("sk-ant-api03-aaaa"));
+});
+
+test("an accept of a spec whose last run_spec call failed is sent back even when the flow has no call left, while a review turn is left", () => {
+  const failing = flow({ verified: false, runSpec: { calls: 8, maxCalls: 8, lastStatus: "failed", lastFailure: "expected 3, got 0" } });
+  const admitted = admitLeadReview(answer([{ flow: "cart", action: "accept" }]), [failing], { revisionsAllowed: true });
+  assert.equal(admitted.orders[0]?.action, REVIEW_ACTION.REVISE);
+  assert.match(admitted.orders[0]!.instruction, /expected 3, got 0/);
 });

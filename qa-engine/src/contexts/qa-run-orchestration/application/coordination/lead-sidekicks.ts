@@ -119,6 +119,8 @@ interface LiveFlow {
   last?: DelegationResult;
   /* Whether a turn of the flow ever put its spec in the working copy: those bytes stay there whatever a later turn does. */
   delivered: boolean;
+  /* Set when the pass released the flow: a turn that answers after it changes nothing and leaves nothing open. */
+  released?: boolean;
   appDefect?: string;
   failure?: AuthoringFailure;
   conflict?: string;
@@ -274,7 +276,7 @@ export class LeadSidekicks {
           reports.set(result.id, this.keepDelivered(live.get(result.id), { outcome: { id: result.id, kind: FLOW_OUTCOME.TIMED_OUT }, proposals: undefined }));
           break;
         case FLOW_RESULT.ABORTED:
-          reports.set(result.id, { outcome: { id: result.id, kind: FLOW_OUTCOME.FAILED, reason: "the run was cancelled" }, proposals: undefined });
+          reports.set(result.id, this.keepDelivered(live.get(result.id), { outcome: { id: result.id, kind: FLOW_OUTCOME.FAILED, reason: "the run was cancelled" }, proposals: undefined }));
           break;
         case FLOW_RESULT.THREW:
           /* The run's own time spent ends the run, not a flow. */
@@ -300,6 +302,11 @@ export class LeadSidekicks {
       writablePaths: flow.writablePaths,
     };
     const workspace = await this.deps.workspaces.create(request);
+    /* A flow stopped while its workspace was being made: the pass may already have released what it holds. */
+    if (signal.aborted) {
+      await this.deps.workspaces.dispose(workspace);
+      throw new Error(`flow ${flow.id} was stopped before it started`);
+    }
     const geolocation = input.geolocation?.openFlow(delegationId, flow.location);
     const entry: LiveFlow = { flow, delegationId, workspace, request, capability: "sidekick-standard", turns: 0, delivered: false, ...(geolocation ? { geolocation } : {}) };
     live.set(flow.id, entry);
@@ -334,6 +341,11 @@ export class LeadSidekicks {
       denyTools: sidekickDeniedTools(context.mode, entry.loop !== undefined),
       ...(feedback ? { feedback } : {}),
     });
+    /* A session that opened after its flow was stopped or released belongs to nobody: it is closed at once. */
+    if (signal.aborted || entry.released) {
+      await session.dispose().catch(() => {});
+      throw new Error(`flow ${entry.flow.id}'s session opened after the flow was stopped`);
+    }
     entry.session = session;
     return session.first;
   }
@@ -366,7 +378,7 @@ export class LeadSidekicks {
     /* Whether the workspace shows the sidekick changed no file at all: its own list of what it changed is its word, this is what is on disk. */
     let workspaceUntouched = false;
     entry.refusal = undefined;
-    if (eligible && !signal.aborted) {
+    if (eligible && !signal.aborted && !entry.released) {
       const collected = await this.deps.workspaces.collect(entry.workspace, entry.request);
       copied = collected.copied.length > 0;
       entry.refusal = collected.refused[0] ? `${collected.refused[0].path}: ${collected.refused[0].reason}` : undefined;
@@ -398,7 +410,7 @@ export class LeadSidekicks {
     if (failure?.kind === AUTHORING_FAILURE.APP_DEFECT && lastCall && loop) {
       const evidence = `app defect: ${failure.reason}`;
       entry.appDefect = failure.reason;
-      if (!signal.aborted && (await loop.holds(lastCall.sha256))) {
+      if (!signal.aborted && !entry.released && (await loop.holds(lastCall.sha256))) {
         const collected = await this.deps.workspaces.collect(entry.workspace, entry.request);
         if (collected.copied.length > 0) {
           entry.delivered = true;
@@ -434,7 +446,16 @@ export class LeadSidekicks {
       const room = this.room(input);
       if (room !== undefined && room < MIN_FLOW_MS) break;
       const underReview = await Promise.all(flows.map((flow) => this.underReview(flow, live.get(flow.id), reports.get(flow.id)!, input)));
-      const answer = await lead.ask(renderLeadReview(underReview, { turn, maxTurns: MAX_REVIEW_TURNS }), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
+      let answer: { output: string; timedOut: boolean };
+      try {
+        answer = await lead.ask(renderLeadReview(underReview, { turn, maxTurns: MAX_REVIEW_TURNS }), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
+      } catch (err) {
+        /* The run's own time spent ends the run; any other failure of the lead's turn leaves the flows as they are. */
+        if (isRunDeadlineError(err)) throw err;
+        tally.turns += 1;
+        this.record(input, { kind: "router", reason: `review turn ${turn}: the lead's turn failed (${err instanceof Error ? err.message : String(err)}); the flows stand as they are` });
+        break;
+      }
       tally.turns += 1;
       if (answer.timedOut) {
         this.record(input, { kind: "router", reason: `review turn ${turn}: the lead ran out of its time; the flows stand as they are` });
@@ -531,6 +552,7 @@ export class LeadSidekicks {
 
   /* Everything a flow held, released: its session, its loop, its location and its workspace. Never throws. */
   private async release(entry: LiveFlow): Promise<void> {
+    entry.released = true;
     await this.closeSession(entry);
     if (entry.loop) await entry.loop.close().catch(() => {});
     entry.geolocation?.close();
@@ -580,6 +602,8 @@ function emptyReadEvidence(ledger: readonly FlowLedgerEntry[]): EvidenceRef[] {
   return [...new Set(paths)].map(evidenceFromEmptyRead);
 }
 
+const MAX_FACTS_CHARS = 2_000;
+
 /* What the orchestrator adds to an instruction of the lead's: what it saw of the flow's last run_spec call, the kind of failure it met, and the reads that disagree. */
 function orchestratorFacts(entry: LiveFlow): string {
   const lastRun = entry.loop?.ledger().at(-1)?.status;
@@ -590,7 +614,7 @@ function orchestratorFacts(entry: LiveFlow): string {
     entry.conflict ? `- Two reads of the same page disagree: ${entry.conflict}. An empty read there is no evidence that DEV has no data, so it is no reason to decline the flow or to assert that the page is empty.` : "",
     entry.refusal ? `- The file could not be taken back: ${entry.refusal}` : "",
   ].filter(Boolean);
-  return facts.length > 0 ? ["Facts the orchestrator observed:", ...facts].join("\n") : "";
+  return facts.length > 0 ? ["Facts the orchestrator observed:", ...facts].join("\n").slice(0, MAX_FACTS_CHARS) : "";
 }
 
 /* The last failing test of a run_spec call, in one line. */

@@ -466,6 +466,35 @@ test("a review that cannot be read, or that runs out of its time, leaves the flo
   }
 });
 
+test("a review turn that fails leaves the flows as they are: what was delivered stays delivered", async () => {
+  const r = rig();
+  const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false, lead: { ask: async () => { throw new Error("provider down"); }, dispose: async () => {} } });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.equal(outcome.aggregated.specs.length, 2);
+  assert.equal(outcome.signal.review?.turns, 1);
+  assert.equal(r.disposed.length, 2);
+});
+
+test("a sidekick session that opens after its flow ran out of time is closed at once, never left behind", async () => {
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  const lead = leadWith([[{ flow: "cart", action: "replace", instruction: "again" }], []]);
+  const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }, { hold, writes: true }] }, hasFile: new Set(["login"]) });
+  const pending = new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, settings: { ...DEFAULT_COORDINATION_SETTINGS, flowBudgetMs: { opencode: 100_000, codex: 100_000 } } }));
+  for (let i = 0; i < 20; i++) await settle();
+  r.timers.advance(100_000);
+  await settle();
+  r.timers.advance(DEFAULT_ABORT_GRACE);
+  await pending;
+  release();
+  for (let i = 0; i < 5; i++) await settle();
+  assert.equal(r.sessionsOpened, 3);
+  assert.equal(r.sessionsDisposed.length, 3, "the late session was closed too");
+  assert.equal(r.collected.filter((f) => f === "cart").length, 0, "nothing is taken back from a flow after its pass ended");
+});
+
 test("the lead is never asked to review when the run has no room left for it", async () => {
   const lead = leadWith([[{ flow: "cart", action: "accept" }]]);
   const r = rig();
