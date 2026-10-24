@@ -513,7 +513,7 @@ export function stallMs(): number {
  * names and not patterns.
  */
 export const NO_TOOLS: Readonly<Record<string, false>> = Object.fromEntries(
-  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "codegraph*", "serena*", "engram*", "playwright*"].map((name) => [name, false as const]),
+  ["*", "bash", "read", "write", "edit", "patch", "glob", "grep", "list", "webfetch", "task", "todowrite", "todoread", "run_spec", "authbrowser*", "set_geolocation", "codegraph*", "serena*", "playwright*"].map((name) => [name, false as const]),
 );
 
 /*

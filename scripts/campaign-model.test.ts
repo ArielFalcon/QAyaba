@@ -57,17 +57,16 @@ test("arguments default to both arms and a 30 minute cap, and the safety overrid
   assert.equal(parsed.args.wallCapMin, 30);
   assert.equal(parsed.args.allowNonShadow, false);
   assert.equal(parsed.args.skipEnvChecks, false);
-  assert.equal(parsed.args.engramIsolated, false);
   assert.equal(parsed.args.dryRun, false);
   assert.equal(parsed.args.replicas, 3);
 });
 
 test("the arms, the cap and the overrides are read from the command line", () => {
-  const parsed = parseArguments(argv("--arms", "B", "--wall-cap-min", "12.5", "--allow-non-shadow", "--skip-env-checks", "--engram-isolated", "--dry-run"));
+  const parsed = parseArguments(argv("--arms", "B", "--wall-cap-min", "12.5", "--allow-non-shadow", "--skip-env-checks", "--dry-run"));
   assert.ok(parsed.ok);
   assert.deepEqual(parsed.args.arms, ["B"]);
   assert.equal(parsed.args.wallCapMin, 12.5);
-  assert.ok(parsed.args.allowNonShadow && parsed.args.skipEnvChecks && parsed.args.engramIsolated && parsed.args.dryRun);
+  assert.ok(parsed.args.allowNonShadow && parsed.args.skipEnvChecks && parsed.args.dryRun);
 });
 
 test("bad arguments are refused with a reason", () => {

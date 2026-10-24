@@ -17,21 +17,20 @@
    Empirical grounding (done in-slice, not assumed): started a real `opencode serve` (v1.17.13,
    closest available to the pinned 1.17.7) against an isolated probe config and used
    `opencode debug agent <name>` to inspect the RESOLVED agent. Confirmed a controlled A/B: an agent
-   with `"engram*": false` in `tools` resolves to a `{ permission: "engram*", action: "deny",
+   with a `"<server>*": false` key in `tools` resolves to a `{ permission: "<server>*", action: "deny",
    pattern: "*" }` rule; an otherwise-identical agent without that key has no such rule. So the
    `tools` map's keys are NOT restricted to the built-in tool names — arbitrary string keys
-   (including glob-shaped ones like `engram*`) compile into real permission-deny rules. Separately,
-   probing the real MCP servers directly (raw JSON-RPC `tools/list` against `engram mcp
-   --tools=agent`, and against `npx @playwright/mcp`) showed NEITHER server's tools are prefixed
-   with its own server name: engram exposes `mem_save`, `mem_search`, etc.; Playwright MCP exposes
+   (including glob-shaped ones like `serena*`) compile into real permission-deny rules. Separately,
+   probing the real Playwright MCP server directly (raw JSON-RPC `tools/list` against
+   `npx @playwright/mcp`) showed its tools are not prefixed with its own server name: it exposes
    `browser_navigate`, `browser_click`, etc. Serena's tool names are documented in this repo's own
    prompts (`agents/AGENTS.md`, `agents/agent/*.md`) as `find_symbol`, `get_symbols_overview`,
    `find_referencing_symbols`, `activate_project`, etc. — same unprefixed convention. What the
    server itself lists is not what the runtime reports: OpenCode namespaces an MCP tool with its
-   server name, and the run telemetry (`run_events` tool names) shows the memory server's tools as
-   `engram_mem_judge`, never `mem_judge`. So the config uses BELT-AND-BRACES: both the wildcard key
-   (`"engram*": false`, verified to compile) AND the enumerated per-tool names (`mem_save: false`,
-   `browser_navigate: false`, `find_symbol: false`, etc.) — harmless if one form turns out
+   server name, and the run telemetry (`run_events` tool names) shows them as
+   `playwright_browser_navigate`, never `browser_navigate`. So the config uses BELT-AND-BRACES: both the
+   wildcard key (`"playwright*": false`, verified to compile) AND the enumerated per-tool names
+   (`browser_navigate: false`, `find_symbol: false`, etc.) — harmless if one form turns out
    redundant, safe if only one form is honored. An agent that holds a server but is deliberately
    denied some of its tools has no wildcard to lean on, so it names the runtime's prefixed id
    (the load-bearing denial) and the bare twin; DELIBERATE_MCP_TOOL_DENIALS lists exactly those.
@@ -46,8 +45,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentConfig } from "@opencode-ai/sdk";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
-import { CODE_GRAPH_AGENT, CODE_GRAPH_TOOLS } from "../../qa-engine/src/shared-kernel/code-graph-tools";
 import { AGENT_BROWSER_TOOLS } from "../../qa-engine/src/shared-kernel/agent-browser";
+import { CODE_GRAPH_AGENT, CODE_GRAPH_TOOLS } from "../../qa-engine/src/shared-kernel/code-graph-tools";
 import { AGENT_BROWSER_AGENTS } from "../../qa-engine/src/contexts/test-execution/domain/agent-browser-capability";
 import { NO_TOOLS } from "./opencode-client";
 import type { AgentRole } from "../agent-runtime/types";
@@ -56,35 +55,14 @@ import type { AgentRole } from "../agent-runtime/types";
    authoritative test execution or carries a git-write capability:
    serena — read-only code navigation
    playwright — LIVE DEV *exploration* while authoring (NOT the authoritative suite run)
-   engram — persistent memory
+   No memory server: no role keeps a memory across runs (see the test that pins it).
  */
-const MCP_ALLOWLIST = new Set(["serena", "engram", "playwright"]);
+const MCP_ALLOWLIST = new Set(["serena", "playwright"]);
 
-/* Real, unprefixed MCP tool names per server (empirically confirmed for engram/playwright via raw
+/* Real, unprefixed MCP tool names per server (empirically confirmed for playwright via raw
    JSON-RPC `tools/list`; sourced from this repo's own Serena prompt references for serena — see the
    header comment). These are the enumeration half of the belt-and-braces denial.
  */
-const ENGRAM_TOOL_NAMES = [
-  "mem_save",
-  "mem_search",
-  "mem_context",
-  "mem_session_summary",
-  "mem_get_observation",
-  "mem_save_prompt",
-  "mem_current_project",
-  "mem_update",
-  "mem_review",
-  "mem_pin",
-  "mem_unpin",
-  "mem_suggest_topic_key",
-  "mem_session_start",
-  "mem_session_end",
-  "mem_capture_passive",
-  "mem_compare",
-  "mem_judge",
-  "mem_doctor",
-];
-
 const PLAYWRIGHT_TOOL_NAMES = [
   "browser_close",
   "browser_resize",
@@ -148,20 +126,10 @@ const SERENA_TOOL_NAMES = [
 
 const MCP_TOOL_NAMES_BY_SERVER: Record<string, string[]> = {
   serena: SERENA_TOOL_NAMES,
-  engram: ENGRAM_TOOL_NAMES,
   playwright: PLAYWRIGHT_TOOL_NAMES,
 };
 
 type ToolDenials = Readonly<Record<string, Readonly<Record<string, string>>>>;
-
-const MEMORY_MAINTENANCE_REASON =
-  "Resolving a conflict between memories is not the generator's job: a judgment it files stays pending, " +
-  "pending judgments accumulate, and a memory-maintenance process is the place that owns them.";
-
-const SESSION_SUMMARY_REASON =
-  "A session summary closes a session an agent owns, and a pipeline role has none. The memory server's own " +
-  "instructions call the summary mandatory before an agent says it is done, which competes with the role's " +
-  "verdict as its last action and spends a step of a hard cap. The denial is runtime config, not prompt wording.";
 
 const ARBITRARY_CODE_REASON =
   "It runs code of the agent's own choosing in the page or in the browser process. Live DEV is observed while " +
@@ -193,16 +161,8 @@ const AUTHORING_EXECUTION_DENIALS: Readonly<Record<string, string>> = {
    allowed-server checks.
  */
 const DELIBERATE_MCP_TOOL_DENIALS: ToolDenials = {
-  "qa-generator": {
-    engram_mem_judge: MEMORY_MAINTENANCE_REASON,
-    engram_mem_compare: MEMORY_MAINTENANCE_REASON,
-    engram_mem_session_summary: SESSION_SUMMARY_REASON,
-    ...AUTHORING_EXECUTION_DENIALS,
-  },
+  "qa-generator": AUTHORING_EXECUTION_DENIALS,
   "qa-sidekick": AUTHORING_EXECUTION_DENIALS,
-  "qa-explorer": {
-    engram_mem_session_summary: SESSION_SUMMARY_REASON,
-  },
 };
 
 const BUILTIN_TOOL_KEYS = new Set([
@@ -344,6 +304,19 @@ test("every declared MCP server is on the agent allowlist (catches a new tool su
   }
 });
 
+/* No role carries a memory from one run to the next. A memory the agent writes holds what it believed, with no
+   SHA, no expiry and no check against DEV: beliefs about DEV's data and a hypothesis a failing run had not yet
+   tested came back in later runs as facts and outranked what the Context Pack read live. What a run may reuse
+   reaches it from the orchestrator (the suite store, the governed learning ledger, the Context Pack). */
+test("no role keeps a memory across runs: no memory server is declared and no agent names one", () => {
+  const { agents, mcpServers } = loadAgentConfig();
+  assert.equal(mcpServers.includes("engram"), false, "opencode.json must not declare the engram memory server");
+  for (const [name, agent] of Object.entries(agents)) {
+    const memoryKeys = Object.keys(agentTools(agent)).filter((key) => /^(engram|mem_)/.test(key));
+    assert.deepEqual(memoryKeys, [], `agent "${name}" still names memory tools`);
+  }
+});
+
 /* Belt-and-braces denial check: for a role that must NOT reach a given MCP server, both the
    wildcard key (`"<server>*": false`) AND every enumerated real tool name for that server must be
    explicitly denied (`false`) in the agent's `tools` map. This is deliberately redundant — whichever
@@ -476,12 +449,12 @@ test("the run-Q&A assistant is tool-less: no fs/shell tools and NO MCP at all", 
   for (const cap of ["write", "edit", "bash", "read"]) {
     assert.notEqual(tools[cap], true, `qa-assistant must not have ${cap}`);
   }
-  /* The assistant holds NO MCP — not even engram. Its own prompt (agents/agent/qa-assistant.md:
+  /* The assistant holds NO MCP. Its own prompt (agents/agent/qa-assistant.md:
      "You have no tools — do not read files, run commands, or call any MCP") and the orchestrator's
      chat context builder (src/server/chat.ts buildRunChatContext: "You have NO tools") both declare
      it tool-less; the run outcomes / learning rules / curriculum it answers about are injected
-     deterministically as TEXT by chat.ts, so it never needs mem_search. An engram grant would
-     contradict the prompt contract and widen the surface for no functional reason.
+     deterministically as TEXT by chat.ts, and an MCP grant would contradict the
+     prompt contract and widen the surface for no functional reason.
    */
   for (const server of MCP_ALLOWLIST) assertMcpServerDenied("qa-assistant", tools, server);
 });
@@ -495,7 +468,7 @@ test("the reflector is tool-less: no fs/shell tools and NO MCP at all (a pure fa
   for (const cap of ["write", "edit", "bash", "read"]) {
     assert.notEqual(tools[cap], true, `qa-reflector must not have ${cap}`);
   }
-  /* Unlike the chat assistant, the reflector holds NO MCP at all — not even engram. Reflection is a
+  /* The reflector holds NO MCP at all. Reflection is a
      pure transform of the provided failure context into a rule; any recall/memory access would make
      it non-deterministic and let it touch state beyond the prompt.
    */
@@ -537,9 +510,9 @@ test("every role maps to an agent that opencode.json declares", () => {
   }
 });
 
-test("qa-explorer and qa-proposer keep serena (and engram for explorer) but deny playwright", () => {
-  /* These two are read-only (no write/edit/bash) but ARE designed to hold serena — and engram for
-     the explorer — per the design intent; only playwright (browser driving) is out of scope for
+test("qa-explorer and qa-proposer keep serena but deny playwright", () => {
+  /* These two are read-only (no write/edit/bash) but ARE designed to hold serena per the design
+     intent; only playwright (browser driving) is out of scope for
      both, since neither navigates a live app.
    */
   const { agents } = loadAgentConfig();
@@ -550,16 +523,14 @@ test("qa-explorer and qa-proposer keep serena (and engram for explorer) but deny
 
   const explorerTools = agentTools(explorer);
   assertMcpServerAllowed("qa-explorer", explorerTools, "serena");
-  assertMcpServerAllowed("qa-explorer", explorerTools, "engram");
   assertMcpServerDenied("qa-explorer", explorerTools, "playwright");
 
   const proposerTools = agentTools(proposer);
   assertMcpServerAllowed("qa-proposer", proposerTools, "serena");
-  assertMcpServerDenied("qa-proposer", proposerTools, "engram");
   assertMcpServerDenied("qa-proposer", proposerTools, "playwright");
 });
 
-test("qa-generator keeps serena+engram+playwright as the test author, minus the memory-conflict tools", () => {
+test("qa-generator keeps serena+playwright as the test author", () => {
   const { agents } = loadAgentConfig();
   const generator = agents["qa-generator"];
   assert.ok(generator, "expected a qa-generator agent");
@@ -567,14 +538,6 @@ test("qa-generator keeps serena+engram+playwright as the test author, minus the 
   assert.equal(tools.write, true, "qa-generator must have write");
   assert.equal(tools.edit, true, "qa-generator must have edit");
   for (const server of MCP_ALLOWLIST) assertMcpServerAllowed("qa-generator", tools, server);
-  /* Recalling and saving memory stays open under both ids; only judging and comparing memories is denied. */
-  for (const tool of ["mem_search", "mem_save", "mem_get_observation", "mem_context"]) {
-    assert.notEqual(tools[tool], false, `qa-generator must keep "${tool}"`);
-    assert.notEqual(tools[`engram_${tool}`], false, `qa-generator must keep "engram_${tool}"`);
-  }
-  for (const tool of ["engram_mem_judge", "engram_mem_compare", "mem_judge", "mem_compare"]) {
-    assert.equal(tools[tool], false, `qa-generator must deny "${tool}"`);
-  }
 });
 
 /* The generator has no shell at all. A command allow-list is not an execution boundary: even the suite listing
@@ -793,21 +756,6 @@ test("the Playwright tools that run code or push a file are denied to every role
   assert.ok(checked >= 2, `expected the generator and the sidekick, got ${checked} role(s)`);
 });
 
-test("the generator and the explorer are denied the session summary under both tool ids, and still recall and save memory", () => {
-  const { agents } = loadAgentConfig();
-  for (const name of ["qa-generator", "qa-explorer"]) {
-    const tools = agentTools(agents[name]);
-    for (const id of ["engram_mem_session_summary", "mem_session_summary"]) {
-      assert.equal(tools[id], false, `${name} must deny "${id}". ${SESSION_SUMMARY_REASON}`);
-    }
-    /* One tool is denied, not the memory: recalling and saving stay open under both ids. */
-    for (const tool of ["mem_search", "mem_save", "mem_get_observation", "mem_context"]) {
-      assert.notEqual(tools[tool], false, `${name} must keep "${tool}"`);
-      assert.notEqual(tools[`engram_${tool}`], false, `${name} must keep "engram_${tool}"`);
-    }
-  }
-});
-
 test("every agent that holds an MCP server denies exactly the tools its exemption list names", () => {
   const { agents } = loadAgentConfig();
   let checked = 0;
@@ -822,28 +770,30 @@ test("every agent that holds an MCP server denies exactly the tools its exemptio
   /* Meaningfulness guard: agents do hold servers, and the exemption lists are exercised. */
   assert.ok(checked >= 5, `expected >=5 (agent, held server) pairs checked, got ${checked}`);
   assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-generator"] ?? {}).length > 0);
-  assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-explorer"] ?? {}).length > 0);
+  assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-sidekick"] ?? {}).length > 0);
 });
 
 test("the exemption list of a held server is enforced both ways", () => {
   const denied = {
-    engram_mem_judge: false,
-    engram_mem_compare: false,
-    engram_mem_session_summary: false,
-    mem_judge: false,
-    mem_compare: false,
-    mem_session_summary: false,
+    playwright_browser_run_code_unsafe: false,
+    playwright_browser_evaluate: false,
+    playwright_browser_file_upload: false,
+    playwright_browser_drop: false,
+    browser_run_code_unsafe: false,
+    browser_evaluate: false,
+    browser_file_upload: false,
+    browser_drop: false,
   };
   const allowed = (tools: Record<string, unknown>, denials?: ToolDenials) =>
-    assertMcpServerAllowed("qa-generator", tools, "engram", denials);
+    assertMcpServerAllowed("qa-generator", tools, "playwright", denials);
   const exact = (tools: Record<string, unknown>, denials?: ToolDenials) =>
-    assertDeniedToolsAreTheExemptionList("qa-generator", tools, "engram", denials);
+    assertDeniedToolsAreTheExemptionList("qa-generator", tools, "playwright", denials);
 
   allowed(denied);
   exact(denied);
 
   /* The denial removed while the exemption stays. */
-  const withoutPrefixedDenial = { ...denied, engram_mem_judge: true };
+  const withoutPrefixedDenial = { ...denied, playwright_browser_evaluate: true };
   assert.throws(() => allowed(withoutPrefixedDenial), /deliberately denies/);
   assert.throws(() => exact(withoutPrefixedDenial));
 
@@ -852,19 +802,18 @@ test("the exemption list of a held server is enforced both ways", () => {
   assert.throws(() => exact(denied, {}));
 
   /* A denial nobody listed. */
-  const withStrayDenial = { ...denied, engram_mem_save: false };
+  const withStrayDenial = { ...denied, playwright_browser_navigate: false };
   assert.throws(() => allowed(withStrayDenial), /denies its prefixed tool/);
   assert.throws(() => exact(withStrayDenial));
 });
 
-test("qa-maintainer keeps serena+engram but denies playwright (never drives a browser)", () => {
+test("qa-maintainer keeps serena but denies playwright (never drives a browser)", () => {
   const { agents } = loadAgentConfig();
   const maintainer = agents["qa-maintainer"];
   assert.ok(maintainer, "expected a qa-maintainer agent");
   const tools = agentTools(maintainer);
   assert.equal(tools.write, true, "qa-maintainer must have write");
   assertMcpServerAllowed("qa-maintainer", tools, "serena");
-  assertMcpServerAllowed("qa-maintainer", tools, "engram");
   assertMcpServerDenied("qa-maintainer", tools, "playwright");
 });
 
@@ -923,29 +872,6 @@ test("the run_spec tool file exists and its package is installed in the agents i
   assert.match(dockerfile, /npm ci/, "the tool's package is installed in the image, not taken from a host folder");
 });
 
-test("the code-graph tools are off for every agent by the global tools map and on for the lead alone", () => {
-  const raw = loadRawConfig();
-  const globalTools = (raw.tools ?? {}) as Record<string, unknown>;
-  for (const tool of CODE_GRAPH_TOOLS) assert.equal(globalTools[tool], false, `the global default switches ${tool} off`);
-  const { agents } = loadAgentConfig();
-  const on = Object.entries(agents)
-    .filter(([, agent]) => CODE_GRAPH_TOOLS.every((tool) => agentTools(agent)[tool] === true))
-    .map(([name]) => name);
-  assert.deepEqual(on, [CODE_GRAPH_AGENT]);
-  for (const [name, agent] of Object.entries(agents)) {
-    if (name === CODE_GRAPH_AGENT) continue;
-    for (const [key, value] of Object.entries(agentTools(agent))) {
-      for (const tool of CODE_GRAPH_TOOLS) assert.ok(!(value === true && keyCovers(key, tool)), `${name} must not enable ${tool} (via "${key}")`);
-    }
-  }
-});
-
-test("a prompt that asks for no tool at all denies the code-graph tools, and their tool file and client exist", () => {
-  for (const tool of CODE_GRAPH_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["codegraph*"] === false, true, tool);
-  assert.ok(existsSync(join(process.cwd(), "agents", "tool", "codegraph.ts")));
-  assert.ok(existsSync(join(process.cwd(), "agents", "lib", "codegraph-client.mjs")));
-});
-
 /* Whether a tools-map key switches the named tool: the exact name, or a wildcard whose prefix the name starts with. */
 function keyCovers(key: string, name: string): boolean {
   return key === name || (key.endsWith("*") && name.startsWith(key.slice(0, -1)));
@@ -992,6 +918,29 @@ test("a prompt that asks for no tool at all denies the browser tools too", () =>
 test("the browser tool file exists, where the tools directory of the config puts it", () => {
   assert.ok(existsSync(join(process.cwd(), "agents", "tool", "authbrowser.ts")), "the file whose exports are the four tools exists");
   assert.ok(existsSync(join(process.cwd(), "agents", "lib", "authbrowser-client.mjs")), "and so does the client it calls through");
+});
+
+test("the code-graph tools are off for every agent by the global tools map and on for the lead alone", () => {
+  const raw = loadRawConfig();
+  const globalTools = (raw.tools ?? {}) as Record<string, unknown>;
+  for (const tool of CODE_GRAPH_TOOLS) assert.equal(globalTools[tool], false, `the global default switches ${tool} off`);
+  const { agents } = loadAgentConfig();
+  const on = Object.entries(agents)
+    .filter(([, agent]) => CODE_GRAPH_TOOLS.every((tool) => agentTools(agent)[tool] === true))
+    .map(([name]) => name);
+  assert.deepEqual(on, [CODE_GRAPH_AGENT]);
+  for (const [name, agent] of Object.entries(agents)) {
+    if (name === CODE_GRAPH_AGENT) continue;
+    for (const [key, value] of Object.entries(agentTools(agent))) {
+      for (const tool of CODE_GRAPH_TOOLS) assert.ok(!(value === true && keyCovers(key, tool)), `${name} must not enable ${tool} (via "${key}")`);
+    }
+  }
+});
+
+test("a prompt that asks for no tool at all denies the code-graph tools, and their tool file and client exist", () => {
+  for (const tool of CODE_GRAPH_TOOLS) assert.equal(NO_TOOLS[tool] === false || NO_TOOLS["codegraph*"] === false, true, tool);
+  assert.ok(existsSync(join(process.cwd(), "agents", "tool", "codegraph.ts")));
+  assert.ok(existsSync(join(process.cwd(), "agents", "lib", "codegraph-client.mjs")));
 });
 
 test("the location tool is off for every agent by the global tools map and on for the two authoring roles alone", () => {

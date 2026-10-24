@@ -3,7 +3,7 @@
  *
  *   npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label>
  *                       [--arms A,B] [--wall-cap-min <m>] [--allow-non-shadow] [--skip-env-checks]
- *                       [--engram-isolated] [--dry-run]
+ *                       [--dry-run]
  *
  * Arm A is the plain agent (scripts/baseline-agent.ts), arm B the pipeline (the service's API, or its webhook for a
  * cross-repo case). The campaign runs every case of the cases file `--replicas` times for each arm, ONE run at a time against
@@ -18,8 +18,7 @@
  * reviewer rejection it accepts regenerated specs that never ran, and a rejected run's files are kept apart. The result is a JSON, a markdown table and a rubric.csv of the valid candidates for the owner
  * to score 0-3 (scripts/campaign-report.ts).
  *
- * Run it inside the orchestrator container. It does not make the agents' memory (engram) comparable between replicates:
- * see docs/efficiency-benchmark.md, "Campaigns".
+ * Run it inside the orchestrator container.
  */
 import { createHmac } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, lstatSync } from "node:fs";
@@ -207,7 +206,7 @@ export interface CampaignDeps {
 
 const USAGE = [
   "usage: npm run campaign -- --cases <cases.json> --replicas <n> --label <l> --warm <snapshot-label> [--arms A,B] [--wall-cap-min <m>] [--closed-loop on|off] [--agent-browser on|off] [--coordination single|lead-sidekicks]",
-  "                           [--allow-non-shadow] [--skip-env-checks] [--engram-isolated] [--dry-run]",
+  "                           [--allow-non-shadow] [--skip-env-checks] [--dry-run]",
   "  EXPERIMENT ONLY. Runs every case --replicas times per arm (A: the plain agent, B: the pipeline), one run at a time against DEV, the arms",
   "  alternating order by replicate. Before each arm-run: idle queue, the case's cleanup, the warm snapshot seeded into the suite store. Delivered files are saved and",
   "  re-run twice without retry; fake-looking specs are never valid. Writes config/benchmarks/campaigns/<label>/{campaign.json,campaign.md,rubric.csv}.",
@@ -219,7 +218,6 @@ const USAGE = [
   "  --grounding          comma-separated explorer|stitcher|structuralSignal|curriculum=on|off, for an A/B of grounding sources (reuse the campaign label across invocations to compare variants)",
   "  --allow-non-shadow   run the pipeline on an app whose config is not shadow (a webhook cannot ask for shadow)",
   "  --skip-env-checks    do not require QA_CAMPAIGN_FREEZE in this process (the server was started with it another way)",
-  "  --engram-isolated    attest that the agents' engram data is isolated for this campaign (recorded; the runner cannot do it)",
   "  --dry-run            check everything and print the plan; run nothing",
   "run inside the orchestrator container.",
 ].join("\n");
@@ -312,7 +310,6 @@ export async function runCampaign(argv: string[], deps: CampaignDeps): Promise<n
     out(`[campaign] ${args.label}: app ${app.name}, ${cases.cases.length} case(s) x ${args.replicas} replicate(s) x arm(s) ${args.arms.join(",")}, wall cap ${args.wallCapMin} min, warm snapshot ${snapshot.label}`);
     for (const c of cases.cases) out(`[campaign] case ${c.id}: ${c.kind} ${c.sha.slice(0, 7)}${c.serviceRepo ? ` of ${c.serviceRepo}` : ""}, expects ${c.expected.outcome}${c.cleanup ? `, cleanup ${c.cleanup.spec}` : ""}`);
     for (let rep = 1; rep <= args.replicas; rep++) out(`[campaign] replicate ${rep}: ${armOrder(rep, args.arms).join(" -> ")}`);
-    if (!args.engramIsolated) out("[campaign] NOTE: the agents' engram memory is not isolated by this runner and carries over between replicates (docs/efficiency-benchmark.md, 'Campaigns'); pass --engram-isolated only if you isolated it.");
     if (args.dryRun) {
       out("[campaign] dry run: nothing was started");
       return 0;
@@ -322,7 +319,7 @@ export async function runCampaign(argv: string[], deps: CampaignDeps): Promise<n
       schema: 1, label: args.label, app: app.name, startedAt: deps.nowIso(), finishedAt: null, complete: false,
       args: { replicas: args.replicas, arms: args.arms, wallCapMin: args.wallCapMin, warm: args.warm, casesPath: args.casesPath, ...(args.closedLoop !== undefined ? { closedLoop: args.closedLoop } : {}), ...(args.agentBrowser !== undefined ? { agentBrowser: args.agentBrowser } : {}), ...(args.coordinationMode !== undefined ? { coordinationMode: args.coordinationMode } : {}) },
       environment: {
-        campaignFreeze: deps.envFlags().campaignFreeze, engramIsolated: args.engramIsolated,
+        campaignFreeze: deps.envFlags().campaignFreeze,
         appShadow: app.shadow, forcedShadow: args.arms.includes(ARM.PIPELINE),
       },
       snapshot: { label: snapshot.label, createdAt: snapshot.manifest.createdAt, warm: true },

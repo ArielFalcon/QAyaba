@@ -43,7 +43,7 @@ Two Docker services share a `mirrors` volume, which holds the working copies of 
                 │ Basic auth (OPENCODE_SERVER_PASSWORD)                                       │ tool callbacks
 ┌───────────────┴──────────────── agents (supervisor :4097, opencode serve :4096 pinned 1.17.7, codex exec) ──────────┐
 │ OpenCode sessions per agent turn ──► provider "opencode-go" (one shared monthly quota)                              │
-│ MCP servers per session: serena (code symbols), engram (agent memory), @playwright/mcp (browser)                    │
+│ MCP servers per session: serena (code symbols), @playwright/mcp (browser)                                           │
 │ Custom tools: agents/tool/run_spec.ts, agents/tool/authbrowser.ts → POST to orchestrator :459                       │
 │ OpenCode's own log: ~/.local/share/opencode/log/opencode.log (provider stream errors, retries, cancels)             │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

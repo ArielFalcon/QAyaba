@@ -115,13 +115,12 @@ test("arms are keyed by their labels in key order", () => {
   assert.equal(armKey({}), "(no variant)");
 });
 
-test("the markdown names the arms, the interval, the assessment and the engram confound, and warns when the campaign is incomplete", () => {
+test("the markdown names the arms, the interval and the assessment, and warns when the campaign is incomplete", () => {
   const cmp = compareCampaign([...arm("control", [0.1, 0.2, 0.15]), ...arm("treatment", [0.8, 0.9, 0.85])], opts);
   const md = renderComparisonMarkdown(cmp, { complete: false });
   assert.match(md, /# Campaign c/);
   assert.match(md, /arm=control \(baseline\)/);
   assert.match(md, /\| lift \|/);
-  assert.match(md, /engram/);
   assert.match(md, /not complete/);
   assert.doesNotMatch(renderComparisonMarkdown(cmp, { complete: true }), /not complete/);
 });

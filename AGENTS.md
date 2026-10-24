@@ -38,7 +38,7 @@ auto-merge**. Failures open an Issue. The suite lives in git and improves run af
 |---|---|
 | `qa-engine/src/` | The engine: bounded contexts (`change-analysis`, `generation`, `test-execution`, `objective-signal`, `cross-run-learning`, `qa-run-orchestration`, …), hexagonal. New engine logic goes here. |
 | `src/` | The permanent shell around the engine (see [Boundary](#boundary-qa-engine--src)). |
-| `agents/` | `agents` container: OpenCode config (`opencode.json`), prompts (`AGENTS.md`, `agent/*.md`, `skill/`), MCPs (Serena, engram). |
+| `agents/` | `agents` container: OpenCode config (`opencode.json`), prompts (`AGENTS.md`, `agent/*.md`, `skill/`), MCPs (Serena, Playwright). |
 | `agent/` | Provider-neutral prompt mirror consumed by the Codex runtime (`roles/`, `skills/`). Keep it in sync with `agents/`. |
 | `config/apps/` | Watched-app YAMLs (gitignored user data; template: `example.yaml`). `config/e2e/` is the seed copied into a repo's `e2e/`. |
 | `client/` | Go TUI. `web/` web console. `packages/sdk` + `contract/openapi.json` the API contract. |
@@ -347,8 +347,10 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   by them.
 - **Cross-run learning** — `qa-engine/src/contexts/cross-run-learning/`: deterministic
   rule fold, rule governance, curriculum, and the `qa-reflector` pass (distils
-  `candidate`/`low`-confidence rules only; flaky/infra verdicts excluded). engram holds
-  agent memory across runs. **The reflector is OFF by default** (`QA_REFLECTOR_ENABLED=true`
+  `candidate`/`low`-confidence rules only; flaky/infra verdicts excluded). No agent keeps a memory of its own across
+  runs: an agent memory held what the agent believed, with no SHA, no expiry and no check against DEV,
+  and later runs read those beliefs as facts over what the Context Pack read live; what a run reuses
+  comes from the orchestrator (the suite store, this ledger, the Context Pack). **The reflector is OFF by default** (`QA_REFLECTOR_ENABLED=true`
   turns it back on; `src/server/reflector-switch.ts`): it was handed a fragment of a run without its
   real error text and invented a cause from a false-positive gate signal, and the resulting rule
   told a shell-less generator to run `tsc`. With it off, no reflection is asked of an agent, and the
@@ -377,9 +379,7 @@ linted against assembled prompts (prompt-contract lint) and size-budgeted.
 The static layers are **consume-first**: use what the prompt supplies at the confidence it
 states and look up only what it lacks; to change a flow, find its existing spec, read it, and
 update it. The generator is done once its specs are written or it has decided nothing is worth a
-test, and the verdict is its last action. engram's `mem_session_summary` is denied to the
-generator and explorer by runtime config, not prompt wording: per agent in `agents/opencode.json`,
-and for every Codex role as `disabled_tools` in `agents/agent-supervisor.mjs`.
+test, and the verdict is its last action.
 
 `qa-maintainer` self-repairs THIS repo via fix PRs; auto-deploy only with
 `SELF_MAINTAINER_AUTOMERGE="true"`, behind `src/server/merge-guard.ts` (read its
@@ -387,8 +387,8 @@ threat-model header first) and a canary-before-promote hot-swap.
 
 ### Persistence & onboarding
 
-- The suite's source of truth is **git** (app repo `e2e/`). engram (`engram-data`
-  volume) is the only non-regenerable data; Serena index and mirrors are caches.
+- The suite's source of truth is **git** (app repo `e2e/`). Run history and the learning ledger
+  (`qa-data` volume) are the only non-regenerable data; Serena index and mirrors are caches.
 - Onboarding an app = `config/apps/<app>.yaml` + `.env`. `${VARS}` expand from the env.
 - **Suite store** (`qa-engine/src/contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts`,
   `data/suites/<app>/` in the qa-data volume, never mounted into the agents container): the accepted

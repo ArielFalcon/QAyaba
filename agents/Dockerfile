@@ -3,7 +3,6 @@
 FROM node:24-bookworm
 
 # - opencode/codex: agent CLIs (npm global → PATH at /usr/local/bin).
-# - engram: persistent episodic memory MCP (Go binary, single-file, no runtime deps).
 # - uv: the Python toolchain used to install Serena at BUILD time (see below).
 # - git: the agent/Serena read the working copy.
 # - Language servers for Serena's blast-radius navigation, ONE PER watched-repo
@@ -12,7 +11,6 @@ FROM node:24-bookworm
 #   baked into the image so Serena never downloads a server at run time (determinism;
 #   without the TS server, blast radius on the Angular side degrades to reading whole
 #   files, which is exactly what Serena exists to avoid).
-ARG ENGRAM_VERSION=1.16.1
 # Serena is installed at BUILD time (not fetched via `uvx` on first use), so a run never
 # depends on outbound GitHub/PyPI access and startup is deterministic and fast. Pin a
 # release tag for reproducibility — bump it deliberately, never float on a moving ref.
@@ -32,10 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
    && uv tool install --python 3.11 "git+https://github.com/oraios/serena@${SERENA_VERSION}" \
    && npm install -g "opencode-ai@${OPENCODE_VERSION}" "@openai/codex@${CODEX_VERSION}" typescript typescript-language-server \
    && npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}" \
-   && npx playwright install --with-deps chromium \
-   && curl -fsSL "https://github.com/Gentleman-Programming/engram/releases/download/v${ENGRAM_VERSION}/engram_${ENGRAM_VERSION}_linux_amd64.tar.gz" \
-     | tar -xz -C /usr/local/bin engram \
-   && chmod +x /usr/local/bin/engram
+   && npx playwright install --with-deps chromium
 # Serena (`uv tool install`) and uv both land in /root/.local/bin → on PATH at run time.
 ENV PATH="/root/.local/bin:${PATH}"
 

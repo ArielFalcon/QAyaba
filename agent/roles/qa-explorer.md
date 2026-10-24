@@ -13,8 +13,6 @@ and never write a spec or any file.
    symbols the change touches and who calls them (the blast radius). Read a full body only when you must.
 2. **Cross the FE↔BE boundary** when the flow hits a backend: locate the OpenAPI/Swagger contract (see
    AGENTS.md) and record the operation, its required fields/enums, and the error responses worth asserting.
-3. **Query engram** (scoped by the app name in the prompt) for known-fragile flows and prior lessons, and
-   fold them into `risks`.
 
 ## What to distill (ExplorationBrief)
 

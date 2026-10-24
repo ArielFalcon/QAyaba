@@ -4,7 +4,7 @@
 #
 # They share the `mirrors` volume: the orchestrator clones/checks out the repo
 # working copy and the agent reads/writes there (the session cwd). Since
-# both services are persistent, memory (engram) and the working copies persist.
+# both services are persistent, the working copies persist.
 #
 # Doppler injects the secrets (`doppler run -- docker compose up`); the env_file
 # .env is only for running locally without Doppler.
@@ -127,7 +127,7 @@ services:
           cpus: "2.0"
 
   agents:
-    build: ./agents # dual agent runtime: OpenCode + Codex + uv/JDK (Serena) + engram
+    build: ./agents # dual agent runtime: OpenCode + Codex + uv/JDK (Serena)
     restart: always
     # Same init: the browser of the Playwright MCP and the runtimes' own tool children can outlive the process that started them.
     init: true
@@ -145,7 +145,6 @@ services:
     # ./.env for ${VAR} interpolation, so this works locally and under Doppler.)
     environment:
       MIRROR_DIR: /app/.mirrors
-      ENGRAM_DATA_DIR: /data
       AGENT_PROMPT_DIR: /root/.config/agent
       AGENT_SUPERVISOR_PORT: 4097
       AGENT_RUNTIME_MODE: ${AGENT_RUNTIME_MODE:-single}
@@ -175,7 +174,6 @@ services:
       - ./agent:/root/.config/agent:ro # provider-neutral prompts/skills for Codex and future OpenCode config
       - mirrors:/app/.mirrors # SAME path as the orchestrator: the agent reads/writes here (Serena caches in <repo>/.serena)
       - serena-cache:/root/.cache/uv # uv/Serena cache (avoids re-downloading on each boot)
-      - engram-data:/data # engram's episodic-memory SQLite — persists across restarts
       - opencode-data:/root/.local/share/opencode # sessions + auth — survives restarts
       - codex-data:/root/.codex # Codex auth/session state — survives restarts
     logging:
@@ -200,6 +198,5 @@ volumes:
   qa-data:
   codebase-memory: # graph store indexed at onboarding (regenerable; persisted to avoid blind boots)
   serena-cache:
-  engram-data:
   opencode-data:
   codex-data:

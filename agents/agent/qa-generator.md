@@ -58,8 +58,7 @@ architecture map. Follow this procedure:
 
 Use what the prompt supplies about the change at the confidence it states for each part. Look up
 only what it lacks, or marks as unverified or stale, when a test depends on it, as AGENTS.md
-describes: a symbol (`serena`), an operational fact (`engram`), or a contract fact of a backend
-operation the flow calls.
+describes: a symbol (`serena`) or a contract fact of a backend operation the flow calls.
 
 ### 2. Selectors — only from a DOM tree
 
@@ -159,8 +158,7 @@ holds. A rebuttal it cannot check withdraws nothing.
 Once your specs are written, or you have declared a no-op, you are DONE generating. Spend the rest of
 the turn on ONE thing: the closing JSON verdict below. Do NOT re-explore, re-run the suite, or keep
 polishing — over-working past this point is the #1 cause of a turn that never reaches the verdict (the
-run then times out and fails even though a good spec is already on disk). Any engram save (AGENTS.md
-Protocol 3) is one quick `mem_save`. The verdict is your LAST action.
+run then times out and fails even though a good spec is already on disk). The verdict is your LAST action.
 
 ## Final output
 

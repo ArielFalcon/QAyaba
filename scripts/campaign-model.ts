@@ -149,8 +149,6 @@ export interface CampaignArguments {
   allowNonShadow: boolean;
   /** Skip the check that this process sees QA_CAMPAIGN_FREEZE on (for a server started with it by other means). */
   skipEnvChecks: boolean;
-  /** The operator attests that the agents' engram data is isolated for the campaign (docs/efficiency-benchmark.md). */
-  engramIsolated: boolean;
   /** Check everything and print the plan; start nothing and spend nothing. */
   dryRun: boolean;
   /** The pipeline arm's own choice about the run_spec loop (an A/B), overriding the app's setting. Absent: the app's setting decides. */
@@ -169,7 +167,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
   const values: Record<string, string> = {};
   const flags = new Set<string>();
   const valued = new Set(["--cases", "--replicas", "--label", "--arms", "--wall-cap-min", "--warm", "--closed-loop", "--agent-browser", "--coordination", "--grounding"]);
-  const boolean = new Set(["--allow-non-shadow", "--skip-env-checks", "--engram-isolated", "--dry-run"]);
+  const boolean = new Set(["--allow-non-shadow", "--skip-env-checks", "--dry-run"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (valued.has(a)) {
@@ -209,7 +207,7 @@ export function parseArguments(argv: readonly string[]): ParsedArguments {
     ok: true,
     args: {
       casesPath: values["--cases"]!, replicas, label: values["--label"]!, arms: arms as Arm[], wallCapMin, warm: values["--warm"]!,
-      allowNonShadow: flags.has("--allow-non-shadow"), skipEnvChecks: flags.has("--skip-env-checks"), engramIsolated: flags.has("--engram-isolated"), dryRun: flags.has("--dry-run"),
+      allowNonShadow: flags.has("--allow-non-shadow"), skipEnvChecks: flags.has("--skip-env-checks"), dryRun: flags.has("--dry-run"),
       ...(values["--closed-loop"] !== undefined ? { closedLoop: values["--closed-loop"] === "on" } : {}),
       ...(values["--agent-browser"] !== undefined ? { agentBrowser: values["--agent-browser"] === "on" } : {}),
       ...(isCoordinationMode(values["--coordination"]) ? { coordinationMode: values["--coordination"] } : {}),

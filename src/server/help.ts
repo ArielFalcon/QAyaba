@@ -185,7 +185,7 @@ Runs are sequential (one at a time against DEV). App-specific config lives in co
 - Tests use namespaced data (prefix: qa-bot-<sha>) — never depend on real data
 - One run at a time against DEV (sequential queue)
 - The service needs Docker for production; qayaba TUI is host-only (Node + tsx)
-- engram memory is disabled by default (enabled: false in opencode.json)
+- No agent keeps a memory between runs: what a run reuses comes from the orchestrator (suite store, learning ledger, Context Pack)
 `.trim();
 
 export function buildHelpContext(): string {

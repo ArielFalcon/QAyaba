@@ -184,12 +184,8 @@ describe("prompt-sync drift guard", () => {
       const content = readFile(rel);
       assert.ok(
         /ledger-bypassing/i.test(content) && /learned habit/i.test(content),
-        `${rel} must reject a spec comment citing engram/memory as the source of a test-authoring ` +
-          `habit (the governed ledger, not engram, owns test-authoring rules).`,
-      );
-      assert.ok(
-        /engram/i.test(content),
-        `${rel} anti-pattern catalog must reference engram by name so the reviewer recognizes the bypass pattern.`,
+        `${rel} must reject a spec comment citing a remembered habit as the source of a test-authoring ` +
+          `rule (the governed ledger owns test-authoring rules).`,
       );
     }
   });
@@ -518,12 +514,8 @@ describe("prompt-sync drift guard", () => {
   /* The generator has no shell, so a code run says who compiles and runs its tests, and names no compile command for it to run. */
   const ORCHESTRATOR_COMPILES = phrasePattern("the orchestrator compiles and runs the tests");
   const COMPILE_COMMAND = /cargo check --tests|mvn -B test-compile/gi;
-  /* Engram's tool for ending a session. The runtime denies it to the generator and the explorer, so no prompt either reads names it. */
-  const SESSION_SUMMARY_TOOL = /\bmem_session_summary\b/g;
-  /* Memory is scoped to the run's mode by a topic-key prefix, and to its app by the project parameter. */
-  const TOPIC_KEY_PREFIX_RULE = /prefix (?:every |all )?`?topic_key/gi;
-  /* A directive to search or consult memory. Only the static layers say when memory is consulted; an assembled prompt scopes the calls and starts none. */
-  const MEMORY_SEARCH_DIRECTIVE = /\b(?:search|query|consult|recall|look up)\b[^.\n]*\b(?:memory|engram)\b/gi;
+  /* No role keeps a memory across runs: no layer names the memory server or one of its tools. */
+  const MEMORY_SERVER = /\bengram\b|\bmem_[a-z_]+\b|\btopic_key\b/gi;
   /* The words the builder renders the statement of the limit and each outcome of a milestone with, so the pins read the production table and re-type no wording. */
   const STEP_LIMIT_STATEMENT = new RegExp(`^## ${PROMPT_HEADINGS.stepLimit}$`, "gm");
   const outcomePattern = (outcome: MilestoneOutcome): RegExp => phrasePattern(MILESTONE_OUTCOME_PHRASES[outcome]);
@@ -566,7 +558,8 @@ describe("prompt-sync drift guard", () => {
     { rule: "the selector priority", pattern: /STARTS WITH the configured testIdAttribute name/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the dynamic DOM caveat", pattern: /STATIC snapshot of initial load/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "not re-navigating a route the tree covers", pattern: /(?:do not|never)[^.\n]*(?:re-navigate|browser_navigate|browser_snapshot)/gi, shape: "tree", inStatic: 0, inAssembled: { atLeast: 1 } },
-    { rule: "the engram topic key prefix", pattern: TOPIC_KEY_PREFIX_RULE, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "a memory that outlives the run", pattern: MEMORY_SERVER, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
+    { rule: "a memory that outlives the run (code)", pattern: MEMORY_SERVER, shape: "code", inStatic: 0, inAssembled: { exactly: 0 } },
     /* The verdict ends the turn: the static stop rule is the only owner, whether the specs are written or the no-op is decided. */
     { rule: "the verdict being the last action (e2e)", pattern: LAST_ACTION_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the verdict being the last action (code)", pattern: LAST_ACTION_RULE, shape: "code", inStatic: 1, inAssembled: { exactly: 0 } },
@@ -578,14 +571,6 @@ describe("prompt-sync drift guard", () => {
     { rule: "using each supplied part at the confidence the prompt states for it", pattern: CONFIDENCE_RULE, shape: "tree", inStatic: 2, inAssembled: { exactly: 0 } },
     { rule: "looking up what the prompt marks as unverified or stale when a test depends on it", pattern: UNVERIFIED_LOOKUP_RULE, shape: "tree", inStatic: 2, inAssembled: { exactly: 0 } },
     { rule: "orienting by the file tree and names before a look-up", pattern: phrasePattern("skim the file TREE and NAMES"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "consulting memory only for an operational fact the prompt lacks", pattern: phrasePattern("Consult it only for an operational fact the prompt lacks"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "saving an operational lesson only when this run learned a new one", pattern: phrasePattern("only when this run learned a new one"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "the project parameter on every engram call", pattern: phrasePattern("Always include the `project` parameter"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    /* What engram may hold has one owner, the shared layer's memory protocol: operational lessons only, a test-authoring rule being the governed learning ledger's. No role prompt restates it, and the generator role's closing step only points at it. */
-    { rule: "keeping engram to operational context, never test-authoring rules", pattern: phrasePattern("OPERATIONAL context only"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "forbidding a test-authoring rule in engram", pattern: phrasePattern("Do NOT save a test-authoring rule"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "naming the governed learning ledger the owner of test-authoring rules", pattern: phrasePattern("governed learning ledger"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
-    { rule: "an engram write of a test-authoring habit being a bypass of a ledger veto", pattern: phrasePattern("a governance bypass"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     /* Code is read through serena only where the prompt does not provide it, and serena is no one's primary way to read. */
     { rule: "reading code the prompt does not provide at symbol level through serena", pattern: phrasePattern("When you must read code the prompt does not provide"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "serena being the primary way to read code, whatever the prompt carries", pattern: phrasePattern("PRIMARY way to read code"), shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
@@ -754,20 +739,14 @@ describe("prompt-sync drift guard", () => {
       ...extra,
     } as Parameters<typeof buildPrompt>[0]);
 
-  it("every assembled generator prompt scopes the memory calls to the app and the topic keys to the mode once, starts no memory search, and no generator or explorer prompt names the session-summary tool", () => {
+  it("no assembled generator or explorer prompt names a memory that outlives the run", () => {
     assert.deepEqual([...new Set(GENERATOR_SHAPES.map(({ mode }) => mode))], [...RUN_MODES], "every run mode is built");
     for (const shape of GENERATOR_SHAPES) {
-      const where = `${shape.mode}/${shape.target}`;
-      const prompt = generatorPromptFor(shape);
-      assert.ok(countOf(prompt, /\bmem_save\b/g) >= 1, `${where}: the memory rule is in the prompt this scan reads`);
-      assert.equal(countOf(prompt, MEMORY_SEARCH_DIRECTIVE), 0, `${where}: directs a memory search`);
-      assert.equal(countOf(prompt, SESSION_SUMMARY_TOOL), 0, `${where}: names the session-summary tool`);
-      assert.equal(countOf(prompt, new RegExp(`\\bproject="${assembledInput.appName}"`, "g")), 1, `${where}: scopes the memory calls to the app once`);
-      assert.equal(countOf(prompt, TOPIC_KEY_PREFIX_RULE), 1, `${where}: scopes the topic keys to the mode once`);
+      assert.equal(countOf(generatorPromptFor(shape), MEMORY_SERVER), 0, `${shape.mode}/${shape.target}: names a memory`);
     }
     for (const mode of ["diff", "manual"] as const) {
       const explorer = buildExplorerPrompt({ ...assembledInput, mode, guidance: "cover the coupon form" } as Parameters<typeof buildExplorerPrompt>[0]);
-      assert.equal(countOf(explorer, SESSION_SUMMARY_TOOL), 0, `explorer ${mode}: names the session-summary tool`);
+      assert.equal(countOf(explorer, MEMORY_SERVER), 0, `explorer ${mode}: names a memory`);
     }
   });
 

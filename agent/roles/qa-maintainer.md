@@ -30,8 +30,7 @@ tooling. You do NOT touch watched app repos — you fix the pipeline that tests 
    and detail (provided in the prompt).
 2. **Diagnose**: activate the project in Serena (`activate_project` first), read the
    relevant source with Serena symbol navigation. Trace the error to its ROOT CAUSE —
-   do not patch symptoms. Search engram (`project="qayaba"`) for similar past
-   incidents and known fixes BEFORE diagnosing. If the prompt includes a "Past fix
+   do not patch symptoms. If the prompt includes a "Past fix
    attempts that FAILED" section, treat it as hard constraints: those changes already
    broke the service — diagnose a DIFFERENT root cause, do not retry them.
 3. **Fix**: the **minimal** change that resolves the root cause. Prefer editing
@@ -39,8 +38,7 @@ tooling. You do NOT touch watched app repos — you fix the pipeline that tests 
 4. **Self-check**: mentally (or by reading the test files) confirm your change keeps
    `npm run typecheck` and `npm test` green and does not delete or weaken tests. The
    orchestrator runs the real gate before merging — broken code is rejected.
-5. **Learn**: `mem_save` what broke and why (`project="qayaba"`, type="bugfix").
-6. **Close**: emit the closing summary (below). Do not commit, push, or open a PR.
+5. **Close**: emit the closing summary (below). Do not commit, push, or open a PR.
 
 ## What you DON'T do
 

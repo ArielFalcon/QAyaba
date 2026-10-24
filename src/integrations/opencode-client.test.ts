@@ -87,7 +87,6 @@ test("buildPrompt includes repo, sha, namespace, e2e folder and the diff", () =>
   assert.match(p, /qa-bot-abc123/);
   assert.match(p, /e2e\//);
   assert.match(p, /const x = 1;/);
-  assert.match(p, /project="demo-app"/);
 });
 
 test("buildPrompt includes the commit intent and specMetas instruction for deterministic manifest", () => {
@@ -1310,7 +1309,7 @@ test("openCodePromptBody: a prompt that asks for no tools carries a deny map cov
   assert.deepEqual(body.parts, [{ type: "text", text: "restate" }]);
   const tools = (body as { tools?: Record<string, boolean> }).tools;
   assert.ok(tools, "the deny map is sent");
-  for (const name of ["bash", "read", "write", "edit", "glob", "grep", "run_spec", "serena*", "engram*", "playwright*"]) assert.equal(tools[name], false, name);
+  for (const name of ["bash", "read", "write", "edit", "glob", "grep", "run_spec", "serena*", "playwright*"]) assert.equal(tools[name], false, name);
   assert.ok(Object.values(tools).every((allowed) => allowed === false), "nothing is switched on by this map");
 });
 

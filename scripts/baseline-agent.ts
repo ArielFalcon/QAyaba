@@ -197,7 +197,7 @@ export const PERMISSION_PROBES: readonly PermissionProbe[] = [
   probe("webfetch", "https://example.com", "deny"), probe("websearch", "anything", "deny"), probe("task", "anything", "deny"),
   ...BASELINE_BROWSER_TOOLS.map((tool) => probe(tool, "*", "allow")),
   probe("playwright_browser_run_code_unsafe", "*", "deny"), probe("playwright_browser_evaluate", "*", "deny"), probe("playwright_browser_file_upload", "*", "deny"), probe("playwright_browser_drop", "*", "deny"),
-  probe("serena_find_symbol", "*", "deny"), probe("engram_mem_save", "*", "deny"),
+  probe("serena_find_symbol", "*", "deny"),
   probe("external_directory", "/etc/passwd", "deny"), probe("doom_loop", "*", "deny"),
 ];
 

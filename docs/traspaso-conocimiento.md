@@ -28,7 +28,7 @@ El sistema se divide en dos capas separadas por una sola frontera HTTP:
 | Capa | Naturaleza | Responsabilidad |
 |------|------------|-----------------|
 | **Orquestador** | Determinista, infraestructura en Node.js | Webhook, cola secuencial, gate de despliegue, working copy, ejecución de tests, publicación de PRs/Issues, ledger de aprendizaje |
-| **Agente de IA** | No determinista, motor de IA vía OpenCode | Genera tests, navega código con LSP (Serena), revisa calidad, escribe specs, persiste memoria en Engram |
+| **Agente de IA** | No determinista, motor de IA vía OpenCode | Genera tests, navega código con LSP (Serena), revisa calidad, escribe specs |
 
 Ambas capas comparten un volumen de trabajo para los repositorios (working copies). El orquestador nunca deja que el agente escriba directamente en el repo vigilado: el agente escribe en el working copy, y el orquestador (solo él) hace git push, abre PRs y mergea.
 

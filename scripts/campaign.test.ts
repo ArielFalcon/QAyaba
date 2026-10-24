@@ -403,19 +403,6 @@ test("every arm-run is written as it finishes, with the files the arm delivered 
   assert.ok(h.written.has("/campaigns/camp/dup/B-1/result.json"));
   assert.ok(h.saved.has("/campaigns/camp/dup/B-1/files"));
   assert.equal(recordOf(h).complete, true);
-  assert.equal(recordOf(h).environment.engramIsolated, false);
-});
-
-test("the operator's attestation that engram was isolated is recorded", async () => {
-  const h = harness();
-  await runCampaign(argv("--engram-isolated"), h.deps);
-  assert.equal(recordOf(h).environment.engramIsolated, true);
-});
-
-test("a campaign without that attestation says out loud that the agents' memory carries over", async () => {
-  const h = harness();
-  await runCampaign(argv(), h.deps);
-  assert.ok(h.lines.some((l) => /engram/i.test(l)));
 });
 
 /* ── the re-run's Playwright config ── */

@@ -17,7 +17,7 @@ function record(results: ArmRunResult[]): CampaignRecord {
   return {
     schema: 1, label: "camp", app: "demo", startedAt: "2026-10-12T10:00:00.000Z", finishedAt: "2026-10-12T12:00:00.000Z", complete: true,
     args: { replicas: 2, arms: ["A", "B"], wallCapMin: 30, warm: "warm-1", casesPath: "cases.json" },
-    environment: { campaignFreeze: true, engramIsolated: false, appShadow: true, forcedShadow: true },
+    environment: { campaignFreeze: true, appShadow: true, forcedShadow: true },
     snapshot: { label: "warm-1", createdAt: "2026-10-11T10:00:00.000Z", warm: true },
     cases: [{ id: "dup-address", kind: "diff", sha: "abc1234", expected: { outcome: "spec", mustVerify: "a duplicate address shows the refusal" } }],
     results,
@@ -63,13 +63,6 @@ test("the markdown carries one row per arm-run with its verdict, validity and fl
   assert.ok(text.includes("tautological-expect"), "the flag is named");
   assert.ok(text.includes("n/a"), "unknown figures are n/a");
   assert.ok(text.includes("warm-1"), "the snapshot is named");
-});
-
-test("the markdown says what the campaign could not isolate", () => {
-  const text = renderMarkdown(record([result()]));
-  assert.ok(/engram/i.test(text), "agent memory carry-over is stated");
-  const attested = renderMarkdown({ ...record([result()]), environment: { ...record([]).environment, engramIsolated: true } });
-  assert.notEqual(text, attested);
 });
 
 test("an invalid replicate is marked with why, so it is not read as the arm's result", () => {

@@ -42,16 +42,13 @@ test("buildCodexExecArgs throws on an invalid sandbox (surfaced as a 400, never 
   assert.throws(() => buildCodexExecArgs({ cwd: "/repo", sandbox: "nope" }), /sandbox must be/);
 });
 
-// ─── T-P0-2: ensureCodexConfig() — supervisor writes 3-field config.toml at boot ───
-// AC0.1.1: produces TOML containing [mcp_servers.serena], [mcp_servers.engram],
-//          [mcp_servers.playwright] with command/args/env matching opencode.json defs.
-//          The engram block MUST contain env.ENGRAM_DATA_DIR = resolved value,
-//          NOT the literal {env:ENGRAM_DATA_DIR} placeholder.
+// ─── T-P0-2: ensureCodexConfig() — supervisor writes config.toml at boot ───
+// AC0.1.1: produces TOML containing [mcp_servers.serena] and [mcp_servers.playwright]
+//          with command/args matching opencode.json defs, and no memory server.
 // AC0.1.2: second call is byte-identical (idempotent) and throws nothing.
-test("ensureCodexConfig: produces TOML with the three expected MCP server blocks", () => {
+test("ensureCodexConfig: produces TOML with the expected MCP server blocks and no memory server", () => {
   const codexHome = mkdtempSync(join(tmpdir(), "codex-test-"));
-  const env = { ENGRAM_DATA_DIR: "/data" };
-  ensureCodexConfig(codexHome, env);
+  ensureCodexConfig(codexHome, {});
 
   const content = readFileSync(join(codexHome, "config.toml"), "utf8");
 
@@ -64,22 +61,8 @@ test("ensureCodexConfig: produces TOML with the three expected MCP server blocks
     "serena args must match opencode.json definition"
   );
 
-  // engram block
-  assert.ok(content.includes("[mcp_servers.engram]"), "must have [mcp_servers.engram]");
-  assert.ok(content.includes('command = "engram"'), "engram command must be 'engram'");
-  assert.ok(
-    content.includes('"mcp"') && content.includes('"--tools=agent"'),
-    "engram args must include mcp --tools=agent"
-  );
-  // CRITICAL: env must be RESOLVED value "/data", NOT the literal placeholder
-  assert.ok(
-    content.includes('ENGRAM_DATA_DIR = "/data"'),
-    `engram env.ENGRAM_DATA_DIR must be the resolved value "/data", not the placeholder. Got:\n${content}`
-  );
-  assert.ok(
-    !content.includes("{env:ENGRAM_DATA_DIR}"),
-    "config.toml must NOT contain the literal {env:ENGRAM_DATA_DIR} placeholder"
-  );
+  // no role keeps a memory across runs
+  assert.ok(!content.includes("[mcp_servers.engram]"), "must not declare the engram memory server");
 
   // playwright block
   assert.ok(content.includes("[mcp_servers.playwright]"), "must have [mcp_servers.playwright]");
@@ -93,7 +76,7 @@ test("ensureCodexConfig: produces TOML with the three expected MCP server blocks
 
 test("ensureCodexConfig: second call is byte-identical (idempotent) and throws nothing", () => {
   const codexHome = mkdtempSync(join(tmpdir(), "codex-idempotent-"));
-  const env = { ENGRAM_DATA_DIR: "/data" };
+  const env = {};
 
   ensureCodexConfig(codexHome, env);
   const first = readFileSync(join(codexHome, "config.toml"), "utf8");
@@ -107,7 +90,7 @@ test("ensureCodexConfig: second call is byte-identical (idempotent) and throws n
 
 test("ensureCodexConfig: preserves existing auth content in the file (survives codex-data volume)", () => {
   const codexHome = mkdtempSync(join(tmpdir(), "codex-auth-"));
-  const env = { ENGRAM_DATA_DIR: "/data" };
+  const env = {};
 
   // Pre-seed auth content that should survive a re-run
   const configPath = join(codexHome, "config.toml");
@@ -148,18 +131,6 @@ function disabledToolsOf(tableLines) {
   return line === undefined ? undefined : JSON.parse(line.slice(line.indexOf("=") + 1));
 }
 
-// Governance: no pipeline role closes a session, and the memory server's own instructions call the
-// session summary mandatory before an agent says it is done. Codex has one config.toml for every role,
-// so the denial is made on the engram server itself. The pinned Codex (0.139.0) offers the model no
-// tool its `disabled_tools` lists.
-test("ensureCodexConfig: the engram table disables the session summary", () => {
-  const codexHome = mkdtempSync(join(tmpdir(), "codex-disabled-"));
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
-
-  const tables = mcpTables(readFileSync(join(codexHome, "config.toml"), "utf8"));
-  assert.deepEqual(disabledToolsOf(tables.engram), ["mem_session_summary"]);
-});
-
 // Governance: a role that authors against live DEV observes it; it never runs code of its own choosing
 // in the page, pushes a file into the app or opens a shell through a tool server. OpenCode denies these per
 // agent in opencode.json; Codex has one config.toml for every role, so the same tools are disabled on the
@@ -172,7 +143,7 @@ test("ensureCodexConfig: the playwright and serena tables disable the tools open
   const deniedBare = (server, tool) => generator.tools[tool] === false && generator.tools[`${server}_${tool}`] === false;
 
   const codexHome = mkdtempSync(join(tmpdir(), "codex-authoring-"));
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+  ensureCodexConfig(codexHome, {});
   const tables = mcpTables(readFileSync(join(codexHome, "config.toml"), "utf8"));
 
   const playwright = disabledToolsOf(tables.playwright) ?? [];
@@ -187,10 +158,10 @@ test("ensureCodexConfig: the playwright and serena tables disable the tools open
   for (const tool of serena) assert.ok(deniedBare("serena", tool), `Codex disables "${tool}" but opencode.json does not deny it to the generator`);
 });
 
-test("ensureCodexConfig: a config.toml written before the denial is upgraded in place, with one engram table", () => {
+test("ensureCodexConfig: a memory server left by an earlier boot is removed, and the auth content survives", () => {
   const codexHome = mkdtempSync(join(tmpdir(), "codex-upgrade-"));
   const configPath = join(codexHome, "config.toml");
-  // What a codex-data volume holds from an earlier boot: auth, and an engram table with no disabled tools.
+  // What a codex-data volume holds from an earlier boot: auth, and the engram table every role used to get.
   writeFileSync(
     configPath,
     '[auth]\napi_key = "sk-test-value"\n\n' +
@@ -198,11 +169,11 @@ test("ensureCodexConfig: a config.toml written before the denial is upgraded in 
     "utf8",
   );
 
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+  ensureCodexConfig(codexHome, {});
 
   const after = readFileSync(configPath, "utf8");
-  assert.equal(after.split("[mcp_servers.engram]").length - 1, 1, "the old engram table must be replaced, not duplicated");
-  assert.deepEqual(disabledToolsOf(mcpTables(after).engram), ["mem_session_summary"]);
+  assert.equal(mcpTables(after).engram, undefined, "the old engram table must be gone");
+  assert.ok(mcpTables(after).serena, "the current servers must be written");
   assert.ok(after.includes('api_key = "sk-test-value"'), "the auth content must survive the upgrade");
 });
 
@@ -341,7 +312,7 @@ test("ensureCodexConfig forgets any project trust, so a repo's own .codex config
     '[auth]\nmethod = "chatgpt"\n\n[projects."/app/.mirrors/acme__shop"]\ntrust_level = "trusted"\n\n[mcp_servers.old]\ncommand = "x"\n',
     "utf8",
   );
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+  ensureCodexConfig(codexHome, {});
   const content = readFileSync(join(codexHome, "config.toml"), "utf8");
   assert.ok(!content.includes("trust_level"), "a trusted project would load its .codex/config.toml (MCP servers, hooks)");
   assert.ok(content.includes("[auth]"), "the rest of the file is preserved");
@@ -352,7 +323,7 @@ test("ensureCodexConfig forgets any project trust, so a repo's own .codex config
 // writes for every Codex role names no such server, and no tool of the authenticated browser.
 test("ensureCodexConfig: the Codex config holds nothing of the authenticated browser", () => {
   const codexHome = mkdtempSync(join(tmpdir(), "codex-authbrowser-"));
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+  ensureCodexConfig(codexHome, {});
   const content = readFileSync(join(codexHome, "config.toml"), "utf8");
   assert.doesNotMatch(content, /authbrowser/i);
   assert.doesNotMatch(content, /QA_TOOLS/);
@@ -370,21 +341,21 @@ const configOf = (codexHome) => readFileSync(join(codexHome, "config.toml"), "ut
 
 test("ensureCodexConfig: without QA_AGENT_OTLP_ENDPOINT the config holds nothing about telemetry, a blank value counts as unset, and an existing file is rewritten as it always was", () => {
   const plain = seed();
-  ensureCodexConfig(plain, { ENGRAM_DATA_DIR: "/data" });
+  ensureCodexConfig(plain, {});
   assert.doesNotMatch(configOf(plain), /otel|trace_exporter/i);
 
   const blank = seed();
-  ensureCodexConfig(blank, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: "  " });
+  ensureCodexConfig(blank, { QA_AGENT_OTLP_ENDPOINT: "  " });
   assert.equal(configOf(blank), configOf(plain));
 
   const existing = seed('[auth]\napi_key = "sk-test-value"\n\n[otel]\nenvironment = "mine"\n');
-  ensureCodexConfig(existing, { ENGRAM_DATA_DIR: "/data" });
+  ensureCodexConfig(existing, {});
   assert.match(configOf(existing), /\[otel\]\nenvironment = "mine"/, "an operator's own telemetry table is theirs");
 });
 
 test("ensureCodexConfig: with an endpoint, traces go to it over OTLP/HTTP, nothing goes anywhere else, and prompts are not logged", () => {
   const codexHome = seed();
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
+  ensureCodexConfig(codexHome, { QA_AGENT_OTLP_ENDPOINT: OTLP });
   const toml = configOf(codexHome);
   assert.match(toml, /^\[otel\]$/m);
   assert.match(toml, /^log_user_prompt = false$/m);
@@ -396,7 +367,7 @@ test("ensureCodexConfig: with an endpoint, traces go to it over OTLP/HTTP, nothi
 
 test("ensureCodexConfig: the telemetry block is written once, survives a second boot byte for byte and keeps the rest of the file", () => {
   const codexHome = seed('[auth]\napi_key = "sk-test-value"\n');
-  const env = { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP };
+  const env = { QA_AGENT_OTLP_ENDPOINT: OTLP };
   ensureCodexConfig(codexHome, env);
   const first = configOf(codexHome);
   ensureCodexConfig(codexHome, env);
@@ -407,24 +378,24 @@ test("ensureCodexConfig: the telemetry block is written once, survives a second 
 
 test("ensureCodexConfig: a boot without the endpoint takes the block it wrote earlier out again and leaves the rest as it was", () => {
   const codexHome = seed('[auth]\napi_key = "sk-test-value"\n');
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+  ensureCodexConfig(codexHome, { QA_AGENT_OTLP_ENDPOINT: OTLP });
+  ensureCodexConfig(codexHome, {});
   const toml = configOf(codexHome);
   assert.doesNotMatch(toml, /otel|trace_exporter/i);
-  assert.ok(toml.includes('api_key = "sk-test-value"') && toml.includes("[mcp_servers.engram]"));
+  assert.ok(toml.includes('api_key = "sk-test-value"') && toml.includes("[mcp_servers.serena]"));
 });
 
 test("ensureCodexConfig: an endpoint that is not a plain http(s) address is not written, whatever it tries to add to the file", () => {
   for (const endpoint of ["ftp://collector:4319", "collector-agents:4319", "http://user:pw@collector:4319", 'http://x"\n[projects."/"]\ntrust_level = "trusted"', "http://", "not a url"]) {
     const codexHome = seed();
-    ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: endpoint });
+    ensureCodexConfig(codexHome, { QA_AGENT_OTLP_ENDPOINT: endpoint });
     assert.doesNotMatch(configOf(codexHome), /otel|trace_exporter|trusted/i, endpoint);
   }
 });
 
 test("ensureCodexConfig: an operator's own [otel] table wins over the endpoint, which would otherwise define the table twice", () => {
   const codexHome = seed('[otel]\nenvironment = "mine"\n');
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
+  ensureCodexConfig(codexHome, { QA_AGENT_OTLP_ENDPOINT: OTLP });
   const toml = configOf(codexHome);
   assert.equal(toml.match(/^\[otel\]$/gm).length, 1);
   assert.doesNotMatch(toml, /trace_exporter/);
@@ -433,13 +404,13 @@ test("ensureCodexConfig: an operator's own [otel] table wins over the endpoint, 
 test("ensureCodexConfig: an operator's telemetry configuration in any spelling wins over the endpoint", () => {
   for (const own of ["[ otel ]\nenvironment = \"mine\"\n", "[otel.exporter]\nx = 1\n", "[ otel . trace_exporter ]\nx = 1\n", "otel = { environment = \"mine\" }\n", "otel.environment = \"mine\"\n", "  otel . environment = \"mine\"\n", '"otel".environment = "mine"\n', "[[otel]]\n"]) {
     const codexHome = seed(own);
-    ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
+    ensureCodexConfig(codexHome, { QA_AGENT_OTLP_ENDPOINT: OTLP });
     assert.doesNotMatch(configOf(codexHome), /BEGIN qayaba-otel|v1\/traces/, own);
   }
 });
 
 test("ensureCodexConfig: a key that only starts with otel, or a table of another name, does not stop the endpoint", () => {
   const codexHome = seed('otelish = 1\n[oteldata]\nx = 1\n');
-  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data", QA_AGENT_OTLP_ENDPOINT: OTLP });
+  ensureCodexConfig(codexHome, { QA_AGENT_OTLP_ENDPOINT: OTLP });
   assert.match(configOf(codexHome), /v1\/traces/);
 });

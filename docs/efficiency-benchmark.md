@@ -227,7 +227,7 @@ docker compose exec orchestrator npm run baseline-agent -- --app <app> --sha <sh
 | Isolation | a throwaway clone of the app's mirror at the commit, under `<mirrors>/.baseline/<label>` (the mirror pruning never touches that directory). The clone has no remote, the real mirror is only read, and nothing is pushed. The commit must already be in the mirror (the pipeline fetched it on its first run of that commit). `--keep-copy` keeps the copy; otherwise it is removed at the end |
 | Suite and dependencies | the pipeline's own setup step (`buildSetupAdapter().setup`): the `config/e2e` seed when the repo has no `e2e/`, the managed fixtures, and the dependency install |
 | The agent | `qa-baseline`, defined in an `opencode.json` at the root of the copy. The server resolves its configuration per session directory, so the agent exists only there, with no entry in `agents/opencode.json`. The agents service ignores a directory's own `opencode.json` (a watched repo could re-grant itself a shell), so this arm needs it started with `AGENT_ALLOW_PROJECT_CONFIG=true` (`docker compose up -d agents`) and the variable removed again afterwards; the runner stops before any session when the server resolves no `qa-baseline`. Model, step cap and temperature are the generator's, read from `agents/opencode.json` and cross-checked against what the server resolves for `qa-generator` (a stale copy stops the run) |
-| Tools | read, glob, grep, list, edit/write, the Playwright browser's navigate, snapshot, click and type, and a shell that can only run `npx playwright test*`. No web fetch, no sub-agent, no serena or engram; `doom_loop` and `external_directory` denied; `.env` files unreadable. Before any session the runner asks the server for the rules it resolved and checks a set of probes against them (a shell command outside Playwright, a code-running browser tool, a web fetch...); a mismatch stops the run before a token is spent |
+| Tools | read, glob, grep, list, edit/write, the Playwright browser's navigate, snapshot, click and type, and a shell that can only run `npx playwright test*`. No web fetch, no sub-agent, no serena; `doom_loop` and `external_directory` denied; `.env` files unreadable. Before any session the runner asks the server for the rules it resolved and checks a set of probes against them (a shell command outside Playwright, a code-running browser tool, a web fetch...); a mismatch stops the run before a token is spent |
 | Prompt | the commit message, `git show --stat` and the full diff (cut at 200 000 characters, redacted by the engine's sanitizer), after five or six lines: write Playwright tests under `e2e/` for this change against the live DEV site, run them with `npx playwright test` and iterate, or say NOOP and why, prefix created data with the app's `qa.testDataPrefix`. If the automatic login did not work for the app the prompt says so and names `npx playwright test --project=setup` |
 | Authentication | the same login the pipeline's harness makes, in the orchestrator (the credentials never enter a file the agent can read): a session in an orchestrator-side directory beside the copy, which a small wrapper around the repo's own `playwright.config.ts` injects with the non-secret `PW_*` values. The wrapper also points Playwright at the headless shell the agents container has, because that container carries the MCP server's browsers, not the build the project's Playwright pins. The basic-auth credentials (`DEV_ENV_*`) are in the environment of both containers; the test account (`DEV_TEST_*`) is not in the agents container: when the automatic login fails the agent is told to fix `auth.setup.ts`, which the harness runs after it finishes |
 | Timeout | `--timeout-min` is a wall-clock limit on the session; at the limit the session is aborted and whatever it wrote is judged |
@@ -442,7 +442,7 @@ Output, in `config/benchmarks/campaigns/<label>/` (gitignored), rewritten after 
 
 | File | Holds |
 |---|---|
-| `campaign.json` | the record: conditions (freeze, shadow, engram attestation), the snapshot, and one entry per case x arm x replicate |
+| `campaign.json` | the record: conditions (freeze, shadow), the snapshot, and one entry per case x arm x replicate |
 | `campaign.md` | the per arm-run table (verdict, whether the outcome was the expected one, valid, valid / delivered specs, fake-pass flags, USD, wall, wall without the change-coverage phase (where the value oracle runs), steps, cold/warm, whether the replicate is invalid and why) and a per case x arm summary with medians over comparable replicates and the figures that were measured |
 | `rubric.csv` | one row per **valid, comparable** arm-run, with what the case says the spec must verify and where the files are, and an empty `score_0_3` column for the owner |
 | `<case>/<arm>-<n>/files/` | every file the arm delivered (specs and helpers). For B, only when its run was accepted; a rejected run's files are in `rejected/` |
@@ -531,15 +531,8 @@ Unset, blank, `0` and `false` keep today's behavior; any other value stops the c
 variable. Run history, the run's own outcome and the agent turns are recorded as always, and a context-mode run still
 stores the map it builds.
 
-**Agent memory (engram) is not isolated by this switch.** The generator and the explorer hold engram tools by design and
-the data lives in the `engram-data` volume, which only the agents container mounts, as one SQLite file shared by every
-project. The orchestrator (where the campaign runs) can neither see it nor restore a single project of it (`engram import`
-only merges, and `engram export` is all-or-nothing), and a per-run tool switch would have to cross the agent transport
-and the Codex supervisor. To keep memory out of the comparison, give the campaign its own engram data directory instead:
-stop the agents container, point its `ENGRAM_DATA_DIR` at a fresh or pre-copied directory, and start it again before the
-campaign; the campaign JSON records `engramIsolated: false` (and the markdown says so) unless you pass `--engram-isolated`
-to attest that you did. Neither an engram tool switch nor a snapshot/restore of the app's engram project is implemented, because the
-runner cannot reach the data and a per-run tool switch is not wired through the agent transport.
+No agent keeps a memory of its own across runs, so nothing an agent wrote in one replicate reaches the next: what a run
+reuses comes from the orchestrator, which this switch freezes.
 
 ## Success criteria and guardrails
 

@@ -97,7 +97,7 @@ Receives webhooks, manages the sequential queue, clones repos, runs Playwright a
 ### Agent Runtime
 **OpenCode, Codex, or dual mode** behind one provider-neutral facade.
 
-The primary (lead) agent reads code via Serena and writes Playwright specs. In the lead/sidekick mode the lead plans and a dedicated sidekick agent authors each flow in a workspace of its own — it may only write the one file its brief names, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. Engram provides persistent episodic memory across runs. `qayaba agent` or the Dashboard's Agent Runtime screen selects provider, role assignments, models, and API keys.
+The primary (lead) agent reads code via Serena and writes Playwright specs. In the lead/sidekick mode the lead plans and a dedicated sidekick agent authors each flow in a workspace of its own — it may only write the one file its brief names, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. `qayaba agent` or the Dashboard's Agent Runtime screen selects provider, role assignments, models, and API keys.
 
 </td>
 </tr>
@@ -284,7 +284,7 @@ The coordination sidekick runs on its own role (`sidekick`) with the same base m
 | OpenCode compatibility prompts | `agents/agent/*.md` | Kept during migration |
 | Playwright authoring skills | `agent/skills/playwright-authoring/` | Login, geolocation, mobile, uploads |
 | Quality review criteria | `agent/skills/test-value-review/` | False-positive pattern catalog |
-| MCP servers (Serena, Engram, Playwright) | `agents/opencode.json` and agent container | Code navigation + persistent memory |
+| MCP servers (Serena, Playwright) | `agents/opencode.json` and agent container | Code navigation + live DEV exploration |
 | Multi-agent coordination | `qa.coordination` in the app YAML (default `single`) | The lead/sidekick mode (`qa-sidekick`), durable telemetry at `data/coordination-events.jsonl`, per-flow time budgets. Opt in per app or per run. |
 | Docker images | `Dockerfile`, `agents/Dockerfile` | Both services build from these |
 | Control-plane API token | `data/.api_token` (auto-generated on first boot; in the container, `/app/data/.api_token` in the `qa-data` volume, never in the host's `config/`, which the sandboxed agent code must not reach) | The machine credential — protects the API (`Bearer` auth on every non-public route). On the same machine the `qayaba` console auto-loads it from `$QA_API_TOKEN`, or from this file when the service runs on the host; people sign in with GitHub instead (see below). Set `QA_API_TOKEN` to pin your own. An earlier version's `config/.api_token` is removed at the next start and a new token is generated (its value may have been readable by agent code), so clients must discover the token again. |

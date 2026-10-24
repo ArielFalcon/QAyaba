@@ -74,7 +74,7 @@ export function codexExecEnv(env = process.env) {
 export function redactForResponse(msg) {
   if (typeof msg !== "string") return msg;
   let out = msg;
-  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "OPENCODE_SERVER_PASSWORD", "QA_TOOLS_TOKEN"]) {
+  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "DEEPSEEK_API_KEY", "OPENCODE_SERVER_PASSWORD", "QA_TOOLS_TOKEN"]) {
     const value = process.env[name];
     if (value && value.length >= 6 && out.includes(value)) out = out.split(value).join("[REDACTED_CREDENTIAL]");
   }
@@ -544,13 +544,6 @@ function codexOtelToml(tracesUrl) {
 // server registry in opencode.json (referenced by key, not by line).
 // Translation rules:
 //   - opencode `command` array → TOML `command` = head, `args` = tail
-//   - opencode `environment` object → TOML `env` table, with `{env:X}` placeholders
-//     RESOLVED from process.env at config-gen time (supervisor side, NOT the agent)
-//
-// CRITICAL: ENGRAM_DATA_DIR is NOT in CODEX_EXEC_ENV_EXACT and does NOT match the
-// /^(?:DEV_|AGENT_)/ prefix, so `codex exec` children do NOT inherit it from the
-// supervisor env. Without an explicit `env` in config.toml, engram boots pointing at
-// the wrong data dir (memory silently broken). This function fixes that gap.
 //
 // Idempotent: if config.toml already exists, existing content (e.g. [auth] from the
 // codex-data volume) is preserved; only the [mcp_servers.*] sections are replaced/added.
@@ -561,25 +554,16 @@ function codexOtelToml(tracesUrl) {
 // explicit MCP flag in buildCodexExecArgs.
 //
 // @param {string} codexHome - path to $CODEX_HOME (e.g. /root/.codex)
-// @param {Record<string,string|undefined>} [env] - environment to resolve {env:X} from
+// @param {Record<string,string|undefined>} [env] - environment the telemetry endpoint is read from
 export function ensureCodexConfig(codexHome, env = process.env) {
-  // Resolve an {env:X} placeholder from the supplied env map.
-  function resolveEnvPlaceholder(value) {
-    const match = /^\{env:([^}]+)\}$/.exec(value);
-    if (!match) return value;
-    return env[match[1]] ?? "";
-  }
-
   // MCP server definitions (mirroring the top-level "mcp" server registry in opencode.json).
-  // Each entry: { command: string[], environment?: Record<string,string>, disabledTools?: string[] }
+  // Each entry: { command: string[], disabledTools?: string[] }
   //
   // `disabledTools` becomes the server's `disabled_tools`: Codex does not offer those tools to the model.
   // OpenCode denies per agent in opencode.json `tools{}`; Codex has ONE config.toml for every role, so a
-  // disabled tool is disabled for all Codex roles. engram's `mem_session_summary` is disabled because no
-  // pipeline role has a session to close, and the server's own instructions call the summary mandatory
-  // before an agent says it is done, which competes with the role's verdict as its last action.
+  // disabled tool is disabled for all Codex roles.
   //
-  // The same list disables, for every Codex role, the tools that run code of the agent's own choosing in
+  // The list disables, for every Codex role, the tools that run code of the agent's own choosing in
   // the browser (`browser_run_code_unsafe`, `browser_evaluate`), push a file from its disk into the live app
   // (`browser_file_upload`, `browser_drop`) or open a shell through the code-navigation server
   // (`execute_shell_command`). A role that authors against live DEV observes it (navigate, snapshot, click,
@@ -610,12 +594,6 @@ export function ensureCodexConfig(codexHome, env = process.env) {
       disabledTools: ["execute_shell_command"],
     },
     {
-      name: "engram",
-      command: ["engram", "mcp", "--tools=agent"],
-      environment: { ENGRAM_DATA_DIR: "{env:ENGRAM_DATA_DIR}" },
-      disabledTools: ["mem_session_summary"],
-    },
-    {
       name: "playwright",
       command: ["npx", "@playwright/mcp", "--browser", "chromium", "--headless"],
       disabledTools: BROWSER_CODE_AND_FILE_TOOLS,
@@ -634,13 +612,6 @@ export function ensureCodexConfig(codexHome, env = process.env) {
     mcpToml += `[mcp_servers.${server.name}]\n`;
     mcpToml += `command = ${JSON.stringify(cmd)}\n`;
     mcpToml += `args = ${tomlStringArray(args)}\n`;
-    if (server.environment) {
-      // Inline TOML table for env: { KEY = "resolved_value", ... }
-      const resolvedPairs = Object.entries(server.environment)
-        .map(([k, v]) => `${k} = ${JSON.stringify(resolveEnvPlaceholder(v))}`)
-        .join(", ");
-      mcpToml += `env = { ${resolvedPairs} }\n`;
-    }
     if (server.disabledTools) {
       mcpToml += `disabled_tools = ${tomlStringArray(server.disabledTools)}\n`;
     }

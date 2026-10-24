@@ -399,7 +399,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const isGenerationMode = input.mode !== "context";
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
   const isCode = input.target === "code";
-  const memTarget = input.mode === "context" ? "context" : input.target;
   /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not re-activate serena or re-skim the repo. */
   const isReGen = isGenerationMode && isReGenTurn(input);
   const isContinuation = isReGen && opts.continuation === true;
@@ -476,8 +475,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           /* Where the contract is, as a fact; the static layers own the rule for reading it. */
           ...(openapiHint ? [`- OpenAPI contract(s) for this repo: ${openapiHint}.`] : []),
         ]),
-    /* Scoping only: the static layers own when to consult memory and what to save. The generator and the explorer are denied engram's session-summary tool, so it is not named. */
-    `- engram memory: scoped per app AND per mode (e2e, code, or context). Use project="${input.appName}" on ALL mem_save, mem_search, and mem_context calls. Prefix every topic_key with "${memTarget}/" so each mode's memory lives in its own namespace (e.g. topic_key="context/angular-routes" or "e2e/checkout-flow"). When searching, include "${memTarget}" in the query text to filter results to this mode. Never save or search without the mode prefix.`,
   ];
   const workingRulesContent = workingRulesLines.join("\n");
   const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode && !treeInPrompt ? [claim.directs("use-runtime-signals")] : [];
