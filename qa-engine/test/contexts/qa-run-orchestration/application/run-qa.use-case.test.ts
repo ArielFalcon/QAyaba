@@ -89,6 +89,7 @@ function stubPorts(overrides: Partial<{
   generate: GenerationPort["generate"];
   review: ReviewPort["review"];
   validate: ValidationPort["validate"];
+  autofix: NonNullable<ValidationPort["autofix"]>;
   execute: ExecutionPort["execute"];
   measure: ObjectiveSignalPort["measure"];
   blocks: ObjectiveSignalPort["blocks"];
@@ -126,6 +127,7 @@ function stubPorts(overrides: Partial<{
   };
   const validation: ValidationPort = {
     validate: overrides.validate ?? (async () => ({ ok: true, errors: [] })),
+    ...(overrides.autofix ? { autofix: overrides.autofix } : {}),
   };
   const execution: ExecutionPort = {
     execute: overrides.execute ?? (async () => ({ verdict: "pass", cases: [], logs: "" })),
@@ -3319,7 +3321,7 @@ test("the static-fix loop is bounded — a static gate that never recovers resol
   assert.equal(generateCallCount, 1 + MAX_STATIC_FIX_ROUNDS, "one repair regeneration per round on top of the initial generate()");
 });
 
-test("the static-fix loop stops as soon as a repair produces no specs (nothing left to repair)", async () => {
+test("a repair that delivers nothing does not end the static-fix rounds while the run still has delivered specs to repair", async () => {
   let validateCallCount = 0;
   let generateCallCount = 0;
   const { ports } = stubPorts({
@@ -3331,11 +3333,47 @@ test("the static-fix loop stops as soon as a repair produces no specs (nothing l
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "static-repair-stops-on-empty-repair" });
+  const out = await useCase.run({ ...baseInput, runId: "static-repair-continues-after-empty-repair" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(generateCallCount, 2, "the initial generation plus the one repair, which came back empty: no further repair is attempted");
-  assert.equal(validateCallCount, 2, "one initial validate() plus the re-validate after that single repair");
+  assert.equal(generateCallCount, 1 + MAX_STATIC_FIX_ROUNDS, "every repair round runs: the spec the first pass delivered is still there to repair");
+  assert.equal(validateCallCount, 1 + MAX_STATIC_FIX_ROUNDS);
+});
+
+test("the linter's own fixes are applied to the delivered specs before an agent turn is spent on the static gate", async () => {
+  let validateCallCount = 0;
+  let generateCallCount = 0;
+  const fixedFor: string[][] = [];
+  const { ports } = stubPorts({
+    validate: async () => { validateCallCount++; return validateCallCount === 1 ? { ok: false, errors: ["[lint] a.spec.ts 3:5 error prefer-web-first-assertions"] } : { ok: true, errors: [] }; },
+    autofix: async (_dir, run) => { fixedFor.push([...(run.deliveredSpecs ?? [])]); return ["a.spec.ts"]; },
+    generate: async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "static-gate-lint-fixes" });
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.deepEqual(fixedFor, [["a.spec.ts"]], "the fixes are asked for the delivered specs");
+  assert.equal(generateCallCount, 1, "no repair turn: the fixes cleared the gate");
+  assert.equal(validateCallCount, 2, "the gate runs again on what the fixes made");
+  assert.equal(out.gateSignals.retries, 0);
+});
+
+test("errors the linter's fixes leave still go to a repair turn", async () => {
+  let validateCallCount = 0;
+  let generateCallCount = 0;
+  const { ports } = stubPorts({
+    validate: async () => { validateCallCount++; return validateCallCount <= 2 ? { ok: false, errors: ["[typecheck] TS2322"] } : { ok: true, errors: [] }; },
+    autofix: async () => ["a.spec.ts"],
+    generate: async () => { generateCallCount++; return scriptedGeneration({ specs: ["a.spec.ts"], approved: true }); },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "static-gate-lint-fixes-not-enough" });
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(generateCallCount, 2, "one repair turn for what the fixes left");
 });
 
 test("a generation with no specs never reaches validation: its end closes the run before the static gate", async () => {

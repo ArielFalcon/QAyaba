@@ -92,6 +92,10 @@ export class SpecSnapshotValidationPort implements ValidationPort {
     return result;
   }
 
+  async autofix(specDir: string, run: ValidationRunInfo): Promise<string[]> {
+    return (await this.inner.autofix?.(specDir, run)) ?? [];
+  }
+
   private capture(specDir: string, run: ValidationRunInfo | undefined): void {
     try {
       const runId = activeExecScope()?.runId;

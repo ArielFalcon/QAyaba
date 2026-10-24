@@ -919,3 +919,54 @@ test("validateCodeProject: secrets in the compile output are sanitized before th
   assert.equal(r.ok, false);
   assert.doesNotMatch(r.errors[0]!, /AKIAIOSFODNN7EXAMPLE/);
 });
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   The linter's own fixes: computed by the linter without writing, written by the orchestrator
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+import { fixLintedSpecs as _fixLintedSpecs } from "@contexts/test-execution/infrastructure/static-gate.checks.ts";
+
+/* A stand-in linter: prints noise on stderr and, on stdout, a report fixing every spec it is named plus a file it was not. */
+function lintFixRig(report?: string): { dir: string; linter: readonly [string, readonly string[]]; dispose(): void } {
+  const root = _mkdtempSync(_join(_tmpdir(), "qa-lint-fix-"));
+  const dir = _join(root, "e2e");
+  _mkdirSync(_join(dir, "flows"), { recursive: true });
+  _writeFileSync(_join(dir, "flows", "a.spec.ts"), "broken a\n");
+  _writeFileSync(_join(dir, "flows", "b.spec.ts"), "broken b\n");
+  _writeFileSync(_join(dir, "auth.setup.ts"), "seed\n");
+  const script = _join(root, "linter.mjs");
+  _writeFileSync(script, report !== undefined
+    ? `process.stdout.write(${JSON.stringify(report)});`
+    : [
+      `const named = process.argv.slice(process.argv.indexOf("--") + 1);`,
+      `console.error("npm warn exec noise");`,
+      `const fixed = named.map((f) => ({ filePath: process.cwd() + "/" + f, output: "fixed " + f + "\\n" }));`,
+      `fixed.push({ filePath: process.cwd() + "/auth.setup.ts", output: "rewritten\\n" }, { filePath: process.cwd() + "/flows/b.spec.ts" });`,
+      `process.stdout.write(JSON.stringify(fixed)); process.exit(1);`,
+    ].join("\n"));
+  return { dir, linter: [process.execPath, [script]], dispose: () => _rmSync(root, { recursive: true, force: true }) };
+}
+
+test("the linter's fixes are written to the named specs only, from its report on stdout", async () => {
+  const r = lintFixRig();
+  try {
+    const fixed = await _fixLintedSpecs(r.dir, ["flows/a.spec.ts"], sharedTestExec(), r.linter);
+    assert.deepEqual(fixed, ["flows/a.spec.ts"]);
+    assert.equal(_readFileSync(_join(r.dir, "flows", "a.spec.ts"), "utf8"), "fixed flows/a.spec.ts\n");
+    assert.equal(_readFileSync(_join(r.dir, "flows", "b.spec.ts"), "utf8"), "broken b\n", "a spec it was not named is not touched");
+    assert.equal(_readFileSync(_join(r.dir, "auth.setup.ts"), "utf8"), "seed\n", "a file outside the named specs is never written");
+  } finally {
+    r.dispose();
+  }
+});
+
+test("a linter report that cannot be read fixes nothing, and nothing is asked for a path outside the suite", async () => {
+  const r = lintFixRig("not json");
+  try {
+    assert.deepEqual(await _fixLintedSpecs(r.dir, ["flows/a.spec.ts"], sharedTestExec(), r.linter), []);
+    assert.equal(_readFileSync(_join(r.dir, "flows", "a.spec.ts"), "utf8"), "broken a\n");
+    assert.deepEqual(await _fixLintedSpecs(r.dir, ["../x.spec.ts", "/abs.spec.ts", "auth.setup.ts"], sharedTestExec(), r.linter), []);
+  } finally {
+    r.dispose();
+  }
+});

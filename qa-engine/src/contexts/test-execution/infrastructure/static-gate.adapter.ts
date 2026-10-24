@@ -6,6 +6,8 @@ export interface StaticGateChecks {
   listTests(specDir: string): Promise<CheckResult>;
   checkManifest(specDir: string): Promise<CheckResult>;
   validateAll(specDir: string): Promise<ValidationResult>;
+  /** The linter's own fixes for the named specs; returns the specs rewritten. */
+  autofix?(specDir: string, specs: readonly string[]): Promise<string[]>;
 }
 
 export class StaticGateAdapter implements StaticGatePort {
@@ -15,4 +17,5 @@ export class StaticGateAdapter implements StaticGatePort {
   listTests(specDir: string): Promise<CheckResult> { return this.checks.listTests(specDir); }
   checkManifest(specDir: string): Promise<CheckResult> { return this.checks.checkManifest(specDir); }
   validateAll(specDir: string): Promise<ValidationResult> { return this.checks.validateAll(specDir); }
+  autofix(specDir: string, specs: readonly string[]): Promise<string[]> { return this.checks.autofix?.(specDir, specs) ?? Promise.resolve([]); }
 }

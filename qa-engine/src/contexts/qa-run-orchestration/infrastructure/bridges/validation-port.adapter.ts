@@ -5,7 +5,7 @@ import type { CodeValidationStrategy } from "@contexts/test-execution/infrastruc
 import type { TestTarget } from "@kernel/run-mode.ts";
 
 export interface ValidationPortStrategies {
-  e2e: StaticGateAdapter;
+  e2e: Pick<StaticGateAdapter, "validateAll"> & Partial<Pick<StaticGateAdapter, "autofix">>;
   code: CodeValidationStrategy;
 }
 
@@ -25,5 +25,11 @@ export class ValidationPortAdapter implements ValidationPort {
         ? await this.strategies.code.validate(specDir, changedFiles)
         : await this.strategies.e2e.validateAll(specDir);
     return { ok: result.ok, errors: result.errors, infra: result.infra };
+  }
+
+  /* Only the e2e gate has a linter with fixes of its own. */
+  async autofix(specDir: string, run: ValidationRunInfo): Promise<string[]> {
+    if (this.ctx.target === "code" || !this.strategies.e2e.autofix) return [];
+    return await this.strategies.e2e.autofix(specDir, run.deliveredSpecs ?? []);
   }
 }

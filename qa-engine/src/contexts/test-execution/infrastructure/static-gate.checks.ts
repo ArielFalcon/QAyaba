@@ -1,7 +1,7 @@
 /* Never a fifth duplicate copy (process-kill.adapter.ts's own header: "the ONE killTree"). 2. */
 
-import { lstatSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
@@ -9,7 +9,7 @@ import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandb
 import { redactByValue } from "../../../shared-infrastructure/run-secret-redaction.ts";
 import type { ExecCommandClass, ExecSandboxPort } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import type { SandboxProfile } from "../../../shared-infrastructure/process-sandbox/exec-env.ts";
-import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { CheckResult, ValidationResult } from "../application/ports/index.ts";
 import {
   detectCodeProject,
@@ -120,6 +120,7 @@ export function runCheck(
   exec: ExecSandboxPort,
   profile: SandboxProfile = "offline",
   commandClass?: ExecCommandClass,
+  opts: { stdoutOnly?: boolean } = {},
 ): Promise<CheckResult> {
   return new Promise((resolve) => {
     /* The launcher starts the child detached, as the leader of its own process group, so killTree can reap grandchildren (npx forks the real tool as a child of the child). */
@@ -139,11 +140,60 @@ export function runCheck(
     child.stdout!.setEncoding("utf8");
     child.stderr!.setEncoding("utf8");
     child.stdout!.on("data", (d: string) => out.append(d));
-    child.stderr!.on("data", (d: string) => out.append(d));
+    child.stderr!.on("data", (d: string) => { if (!opts.stdoutOnly) out.append(d); });
     child.on("error", (e) => settle({ ok: false, output: String(e), infra: true }));
     /* The check's output goes back to the agent as feedback: the run's secrets are taken out by value where it enters. */
     child.on("close", (code) => settle({ ok: code === 0, output: redactByValue(out.text()), infra: code === null ? true : undefined }));
   });
+}
+
+/* The linter the fixes come from: ESLint, as the static gate runs it. A test names a stand-in. */
+export const ESLINT_COMMAND: readonly [string, readonly string[]] = ["npx", ["eslint"]];
+
+/* ESLint's own fixes for the named specs. They are computed in the sandbox with `--fix-dry-run`, because the sandbox uid writes nothing of the mirror, and the orchestrator writes each fixed text through the confined writer, for the named specs only. A linter that cannot run, an answer that cannot be read (a report cut by the output bound included) or a spec that cannot be written fixes nothing. Returns the specs rewritten. */
+export async function fixLintedSpecs(
+  specDir: string,
+  specs: readonly string[],
+  exec: ExecSandboxPort,
+  linter: readonly [string, readonly string[]] = ESLINT_COMMAND,
+  timeoutMs: number = DEFAULT_VALIDATE_CHECK_TIMEOUT_MS,
+): Promise<string[]> {
+  const named = [...new Set(specs.filter((s) => s.endsWith(".spec.ts") && !isAbsolute(s) && !s.split("/").includes("..")))];
+  if (named.length === 0) return [];
+  const res = await runCheck(linter[0], [...linter[1], "--fix-dry-run", "--format", "json", "--", ...named], specDir, timeoutMs, exec, "offline", "eslint", { stdoutOnly: true });
+  if (res.infra) return [];
+  let report: unknown;
+  try {
+    report = JSON.parse(res.output);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(report)) return [];
+  const root: SpecRoot = { mirrorDir: specDir, specDir };
+  /* The linter names files by the directory as its process sees it, which may be the resolved one. */
+  const bases = [specDir, realOrSelf(specDir)];
+  const fixed: string[] = [];
+  for (const entry of report) {
+    const { filePath, output } = (entry ?? {}) as { filePath?: unknown; output?: unknown };
+    if (typeof filePath !== "string" || typeof output !== "string") continue;
+    const rel = bases.map((base) => relative(base, filePath).split(sep).join("/")).find((candidate) => named.includes(candidate));
+    if (rel === undefined || fixed.includes(rel)) continue;
+    try {
+      writeOwnedSpecFile(root, rel, output);
+      fixed.push(rel);
+    } catch (err) {
+      console.error(`[qa] the linter's fix of ${rel} was not written: ${readFailureReason(err)}`);
+    }
+  }
+  return fixed;
+}
+
+function realOrSelf(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return dir;
+  }
 }
 
 /* The manifest check reads a file; it starts nothing. */

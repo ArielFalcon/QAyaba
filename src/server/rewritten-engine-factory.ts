@@ -141,6 +141,7 @@ import {
 import {
   validateSpecs,
   createValidateDeps,
+  fixLintedSpecs,
   validateCodeProject,
   createCodeValidateDeps,
 } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks";
@@ -711,6 +712,7 @@ export function buildAcceptanceHarness(input: AcceptanceHarnessInput): Acceptanc
     listTests: validateDeps.listTests,
     checkManifest: validateDeps.checkManifest,
     validateAll: (specDir) => validateSpecs(specDir, validateDeps),
+    autofix: (specDir, specs) => fixLintedSpecs(specDir, specs, exec),
   });
   const refuseCode = (): never => {
     throw new Error("the acceptance harness has no code target");
@@ -990,6 +992,7 @@ export function buildRewrittenCompositionConfig(
     listTests: validateDeps.listTests,
     checkManifest: validateDeps.checkManifest,
     validateAll: (specDir) => validateSpecs(specDir, validateDeps),
+    autofix: (specDir, specs) => fixLintedSpecs(specDir, specs, exec),
   });
   /* Code-target Filter B: compile-feedback before execution. */
   const codeValidate = new CodeValidationStrategy((repoDir, opts) => validateCodeProject(repoDir, createCodeValidateDeps(exec), opts));

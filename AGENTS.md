@@ -119,7 +119,9 @@ is the only engine; webhook (`src/index.ts`) and CLI (`src/cli.ts`) both enter t
    execute a spec it wrote while it authors; a run whose every delivered spec was seen passing in its final bytes
    skips the static-fix rounds, the pre-exec corrective regeneration and the fix loop's regeneration.
 6. **Validate** — `tsc` + ESLint (`eslint-plugin-playwright`) + `playwright --list` +
-   manifest. Fail → `invalid`.
+   manifest. A failure first gets ESLint's own fixes on the delivered specs (computed in the sandbox with
+   `--fix-dry-run`, written by the orchestrator through the confined writer); what they leave goes to at most
+   `MAX_STATIC_FIX_ROUNDS` repair turns, run while the run has delivered specs to repair. Still failing → `invalid`.
 7. **Execute** — Playwright against DEV → `pass`/`fail`/`flaky` (pass only on retry =
    flaky → quarantine). DEV down → `infra-error`.
 8. **Change-coverage** — did the green run exercise the diff's changed lines? (below)

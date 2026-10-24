@@ -226,7 +226,7 @@ export interface CompositionConfig {
   reviewTimeoutMs?: number;
 
   validationStrategies: {
-    e2e: Pick<StaticGateAdapter, "validateAll">;
+    e2e: Pick<StaticGateAdapter, "validateAll"> & Partial<Pick<StaticGateAdapter, "autofix">>;
     code: Pick<CodeValidationStrategy, "validate">;
   };
 
@@ -404,7 +404,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
 
   const staticValidation = new ValidationPortAdapter(
     {
-      e2e: cfg.validationStrategies.e2e as StaticGateAdapter,
+      e2e: cfg.validationStrategies.e2e,
       code: cfg.validationStrategies.code as CodeValidationStrategy,
     },
     { target: cfg.target },

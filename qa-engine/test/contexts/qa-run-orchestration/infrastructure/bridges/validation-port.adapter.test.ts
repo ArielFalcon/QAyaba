@@ -106,3 +106,15 @@ test("validate() threads changedFiles through to the code strategy", async () =>
 
   assert.deepEqual(captured, ["src/orders.ts"]);
 });
+
+test("autofix() asks the e2e gate's linter for the run's delivered specs, and a code target has none", async () => {
+  const asked: Array<[string, readonly string[]]> = [];
+  const checks = { ...fakeChecks({ ok: true, errors: [], infra: false }), autofix: async (dir: string, specs: readonly string[]) => { asked.push([dir, specs]); return [...specs]; } };
+  const code = new CodeValidationStrategy(async () => { throw new Error("not called"); });
+  const e2e = new ValidationPortAdapter({ e2e: new StaticGateAdapter(checks), code }, { target: "e2e" });
+  assert.deepEqual(await e2e.autofix("/m/e2e", { deliveredSpecs: ["flows/a.spec.ts"] }), ["flows/a.spec.ts"]);
+  assert.deepEqual(asked, [["/m/e2e", ["flows/a.spec.ts"]]]);
+  const codeTarget = new ValidationPortAdapter({ e2e: new StaticGateAdapter(checks), code }, { target: "code" });
+  assert.deepEqual(await codeTarget.autofix("/m", { deliveredSpecs: ["x.test.ts"] }), []);
+  assert.equal(asked.length, 1);
+});

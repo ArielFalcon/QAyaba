@@ -116,15 +116,18 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
   const validateChangedFiles = state.classification.intent?.changedFiles ?? [];
   deps.observer?.onStep("validate");
   let validation = await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx));
+  if (generating) validation = await withLinterFixes(validation, ctx, validateChangedFiles);
   let lastGenerated = state.generation.generated;
   let retries = state.execution.retries;
   let staticFixRounds = 0;
+  /* What the rounds repair: the specs the run has delivered, or those the last generation reported; a repair that returned nothing leaves the delivered ones to repair. */
+  const hasDelivered = () => ctx.generation.delivered.length > 0 || lastGenerated.specs.length > 0;
   /* The same reasoning: a failing gate on a spec the generator saw pass ends the run invalid instead of rewriting the spec. */
-  const staticFixRetired = !validation.ok && !validation.infra && generating && lastGenerated.specs.length > 0 && (await loopClosedNow(ctx));
+  const staticFixRetired = !validation.ok && !validation.infra && generating && hasDelivered() && (await loopClosedNow(ctx));
   if (staticFixRetired) {
     deps.observer?.onEvent({ type: "log.line", level: "info", text: "[qa] the static gate failed, but every delivered spec was seen passing through run_spec: no static-fix rounds" });
   }
-  while (!staticFixRetired && !validation.ok && !validation.infra && generating && lastGenerated.specs.length > 0 && staticFixRounds < MAX_STATIC_FIX_ROUNDS) {
+  while (!staticFixRetired && !validation.ok && !validation.infra && generating && hasDelivered() && staticFixRounds < MAX_STATIC_FIX_ROUNDS) {
     /* Cancel mid-repair must stop before burning another generate()+validate() round-trip. */
     if (signal?.aborted) {
       return { end: await ctx.ends.aborted(workspace.mirrorDir) };
@@ -138,7 +141,7 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
       fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
     }, CORRECTION_ORIGIN.STATIC_GATE, staticGateFindings(validation.errors.map(stripAnsi)));
     await ctx.services.confinement.enforce();
-    validation = await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx));
+    validation = await withLinterFixes(await deps.validation.validate(workspace.specDir, validateChangedFiles, deliveredNow(ctx)), ctx, validateChangedFiles);
   }
   const execution = { ...state.execution, validation, lastGenerated, retries };
 
@@ -160,6 +163,17 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
     };
   }
   return { update: { execution } };
+}
+
+/* The linter's own fixes, applied to the delivered specs before an agent turn is spent on the static gate; the gate runs again on what they made, and only what they leave goes to a repair turn. */
+async function withLinterFixes(validation: Awaited<ReturnType<WorkspaceRunContext["deps"]["validation"]["validate"]>>, ctx: WorkspaceRunContext, changedFiles: string[]): Promise<typeof validation> {
+  const { deps, workspace } = ctx;
+  const run = deliveredNow(ctx);
+  if (validation.ok || validation.infra || !deps.validation.autofix || run.deliveredSpecs.length === 0) return validation;
+  const fixed = await deps.validation.autofix(workspace.specDir, run);
+  if (fixed.length === 0) return validation;
+  deps.observer?.onEvent({ type: "log.line", level: "info", text: `[qa] the linter fixed ${fixed.length} delivered spec(s); the static gate runs again on them` });
+  return await deps.validation.validate(workspace.specDir, changedFiles, run);
 }
 
 /* Mid-run DEV pre-flight: a DEV that is down ends the run before the specs run. */

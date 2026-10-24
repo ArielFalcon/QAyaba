@@ -602,6 +602,11 @@ export interface ValidationPort {
    * `infra` is optional: a validation failure may be infrastructure, not a code defect.
    */
   validate(specDir: string, changedFiles?: string[], run?: ValidationRunInfo): Promise<{ ok: boolean; errors: string[]; infra?: boolean }>;
+  /**
+   * Applies the linter's own fixes to the delivered specs (`run.deliveredSpecs`) and returns
+   * the specs it rewrote. Absent, or a target with no linter fixes: nothing is rewritten.
+   */
+  autofix?(specDir: string, run: ValidationRunInfo): Promise<string[]>;
 }
 /**
  * Optional execute bag. Also accepts a bare AbortSignal (normalized to
