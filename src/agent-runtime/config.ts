@@ -24,10 +24,11 @@ export interface PublicAgentConfig {
 const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["assignments"], string>> = {
   opencode: {
     /* Must match agents/opencode.json qa-generator. */
-    primary: "opencode-go/minimax-m3.1-flash-free",
-    /* Must match qa-reviewer and differ from primary — two models guarantee independent judgment. */
-    reviewer: "opencode/deepseek-v4.1-flash-free",
-    chat: "opencode/deepseek-v4.1-flash-free",
+    primary: "deepseek-api/deepseek-v4.1-flash",
+    /* Must match qa-reviewer and differ from primary — two models guarantee independent judgment.
+       shortcut: temporarily equal to primary (one provider available); validateAgentRuntimeConfig flags it, restore a distinct reviewer model when a second one is available. */
+    reviewer: "deepseek-api/deepseek-v4.1-flash",
+    chat: "deepseek-api/deepseek-v4.1-flash",
   },
   codex: {
     primary: "gpt-5.4",

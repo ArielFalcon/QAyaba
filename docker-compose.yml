@@ -158,6 +158,8 @@ services:
       OPENCODE_PRINT_LOGS: "true"
       OPENCODE_LOG_LEVEL: ${OPENCODE_LOG_LEVEL:-INFO}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+      # Direct DeepSeek provider (agents/opencode.json `provider.deepseek-api`).
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       # Required by `opencode serve` (port 4096 is open to every container on the network); see the orchestrator entry.
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       # run_spec and authbrowser_* tools (agents/tool/): where the orchestrator's internal endpoint is, and the service token it requires.

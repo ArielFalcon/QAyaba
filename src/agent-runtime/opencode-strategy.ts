@@ -44,8 +44,7 @@ interface OpenCodeRuntimeStrategyOptions {
 
 /* Used only when opencode.json is missing; keep aligned with agents/opencode.json. */
 const FALLBACK_MODELS: AgentModelInfo[] = [
-  { id: "opencode-go/minimax-m3.1-flash-free", label: "MiniMax M3.1 Flash Free" },
-  { id: "opencode/deepseek-v4.1-flash-free", label: "DeepSeek V4.1 Flash Free" },
+  { id: "deepseek-api/deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" },
 ];
 
 export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
