@@ -8,7 +8,7 @@ import {
   extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
   buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE,
-  formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed,
+  formatDomCapture, formatRedirectAdvisory, dataStateUnconfirmed, captureTimeoutMs, CAPTURE_ROUTE_READ_MS,
   type CapturedPage, type CaptureDataState, type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
 } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
@@ -1823,4 +1823,70 @@ test("one page with huge or foreign links does not stop the capture of the other
     assert.equal(snaps.length, 2, "the output stayed within its bound, so both pages were read");
     assert.deepEqual(snaps[0]?.links, ["/shops/madrid/madrid"]);
   });
+});
+
+/* A stand-in browser whose result element never appears: a read waits for the time it is given (Playwright's own default when none) and then fails. */
+function withAbsentResultBrowser<T>(body: (e2eDir: string) => Promise<T>): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "absent-result-browser-"));
+  const module = join(root, "node_modules", "playwright");
+  mkdirSync(module, { recursive: true });
+  writeFileSync(join(module, "index.js"), `
+let current = "";
+const waitThenFail = (opts) => new Promise((_resolve, reject) => setTimeout(() => reject(new Error("timeout")), opts && opts.timeout !== undefined ? opts.timeout : 30000));
+const page = {
+  on() {},
+  goto: async (url) => { current = url; },
+  waitForLoadState: async () => {},
+  waitForSelector: async (_selector, opts) => waitThenFail(opts),
+  url: () => current,
+  locator: () => ({ ariaSnapshot: async () => '- link "Home"', count: async () => 0, first: () => ({ innerText: (opts) => waitThenFail(opts) }) }),
+  evaluate: async () => [],
+};
+exports.chromium = { launch: async () => ({ newContext: async () => ({ newPage: async () => page }), close: async () => {} }) };
+`);
+  return body(root).finally(() => rmSync(root, { recursive: true, force: true }));
+}
+
+test("a data-state wait ends at its declared timeout when the element it reads never appears", { timeout: 20_000 }, async () => {
+  await withAbsentResultBrowser(async (e2eDir) => {
+    const dataState: CaptureDataState = { routes: { "/restaurantes/*": { resultTextSelector: ".count", locationSelector: ".where", timeoutMs: 200 } } };
+    const snaps = await createCaptureDomDeps(sharedTestExec(), undefined, undefined, undefined, dataState).render(e2eDir, "http://dev.example", ["/restaurantes/madrid"]);
+    assert.equal(snaps[0]?.dataState, true);
+    assert.equal(snaps[0]?.resultCount, undefined);
+    assert.ok((snaps[0]?.ms ?? Infinity) < 5_000, `the read took ${snaps[0]?.ms}ms, not the browser's default wait`);
+  });
+});
+
+test("a data-state key with parameters matches the pages that fill it segment by segment, and no deeper page", { timeout: 30_000 }, async () => {
+  await withFakeBrowser([], async (e2eDir) => {
+    const dataState: CaptureDataState = { routes: { "/restaurantes/:province/:city": { resultTextSelector: ".count", timeoutMs: 100 } } };
+    const snaps = await createCaptureDomDeps(sharedTestExec(), undefined, undefined, undefined, dataState).render(e2eDir, "http://dev.example", ["/restaurantes/madrid/madrid", "/restaurantes/madrid/madrid/casa-pepe"]);
+    assert.equal(snaps[0]?.dataState, true);
+    assert.equal(snaps[0]?.resultCount, 11);
+    assert.equal(snaps[1]?.error, undefined);
+    assert.equal(snaps[1]?.dataState, undefined, "a page one segment deeper is not a page of the key");
+  });
+});
+
+test("a DOM capture cut before it ends keeps the pages it finished and says which it did not", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write(JSON.stringify({ route: '/a', yaml: '- button \\\"Save\\\"' }) + '\\n' + '{\"route\":\"/b\",\"yaml\":'); setTimeout(() => process.kill(process.pid, 'SIGKILL'), 50);";
+  await withStandInNode(script, async (root) => {
+    const warned = mock.method(console, "warn", () => {});
+    try {
+      const snaps = await createCaptureDomDeps(sharedTestExec(), 20_000).render(root, "http://localhost", ["/a", "/b"]);
+      assert.deepEqual(snaps.map((snap) => snap.route), ["/a"]);
+      assert.ok((snaps[0]?.nodes ?? []).length > 0);
+      assert.ok(warned.mock.calls.some((c) => String(c.arguments[0]).includes("/b")), "the run names the page the capture did not finish");
+    } finally {
+      warned.mock.restore();
+    }
+  });
+});
+
+test("a capture is given time for a read of every page, and for the wait and second read of each page a data state matches", () => {
+  const dataState: CaptureDataState = { routes: { "/restaurantes": { resultTextSelector: ".count", timeoutMs: 10_000 } } };
+  const plain = captureTimeoutMs(["/home"], dataState);
+  const matched = captureTimeoutMs(["/restaurantes"], dataState);
+  assert.ok(captureTimeoutMs(["/home", "/user"]) - captureTimeoutMs(["/home"]) >= CAPTURE_ROUTE_READ_MS);
+  assert.ok(matched - plain >= 10_000 + CAPTURE_ROUTE_READ_MS, `${matched} vs ${plain}`);
 });

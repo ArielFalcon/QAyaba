@@ -434,29 +434,31 @@ export async function buildContextPack(
   const instanceOfTemplate = new Map<string, string | undefined>();
   /* The declared pages that showed what their missing sibling shows: never delivered as a page of their template. */
   const declaredMissing = new Set<string>();
-  /* Each declared page is rendered beside its sibling that cannot exist; one whose tree is that sibling's is the site's "nothing here" page, not a page of the template. A render that fails or reports either page not grounded settles nothing, and the declared page is kept. */
-  const declaredPagesShownMissing = async (declared: ReadonlyMap<string, string>, base: CaptureRoutesInput): Promise<string[]> => {
+  /* Each declared page is rendered beside its sibling that cannot exist; one whose tree is that sibling's is the site's "nothing here" page, not a page of the template. A render that fails or reports either page not grounded settles nothing, and the declared page is kept. A declared page that render did not ground is not opened again: the capture would spend the same wait on it. */
+  const checkDeclaredPages = async (declared: ReadonlyMap<string, string>, base: CaptureRoutesInput): Promise<{ missing: string[]; ungrounded: string[] }> => {
     const pairs = [...declared]
       .flatMap(([page, template]) => {
         const sibling = missingSibling(template, page);
         return sibling === undefined ? [] : [{ page, template, sibling }];
       })
       .slice(0, Math.floor(MAX_ROUTES / 2));
-    if (pairs.length === 0) return [];
+    if (pairs.length === 0) return { missing: [], ungrounded: [] };
     const seen = new Map<string, CapturedPage>();
     try {
       await deps.captureDomForRoutes(pairs.flatMap((pair) => [pair.page, pair.sibling]), { ...base, onPages: (reported) => { for (const page of reported) seen.set(page.route, page); } }, deps.domDeps);
     } catch (err) {
       log(`[qa] context-pack: DOM capture of the declared template pages beside their missing siblings FAILED (${err instanceof Error ? err.message : String(err)}) — the declared pages are kept unchecked`);
-      return [];
+      return { missing: [], ungrounded: [] };
     }
-    return pairs
+    const missing = pairs
       .filter(({ page, sibling }) => {
         const shown = seen.get(page);
         const missing = seen.get(sibling);
         return shown?.grounded === true && missing?.grounded === true && likeness(shown.nodes ?? [], missing.nodes ?? []) >= MISSING_PAGE_LIKENESS;
       })
       .map(({ page }) => page);
+    const ungrounded = pairs.filter(({ page }) => seen.get(page)?.grounded !== true).map(({ page }) => page);
+    return { missing, ungrounded };
   };
   if (domPack && (firstPass.length > 0 || reachable) && input.e2eDir && input.baseUrl) {
     const base = { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute, maxRoutes: routeCap };
@@ -487,10 +489,12 @@ export async function buildContextPack(
           }
         }
       }
-      for (const page of await declaredPagesShownMissing(declaredInstances, base)) {
+      const checked = await checkDeclaredPages(declaredInstances, base);
+      for (const page of checked.missing) {
         instances.delete(page);
         declaredMissing.add(page);
       }
+      for (const page of checked.ungrounded) instances.delete(page);
       if (instances.size > 0) {
         try {
           await capture([...instances.keys()], { ...base, instanceOf: instances });

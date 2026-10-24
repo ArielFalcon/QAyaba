@@ -262,10 +262,20 @@ let failedRequests: { url: string; errorText: string; resourceType: string }[] =
 let dataInFlight = 0;
 let lastDataAt = 0;
 function isDataRequest(r: { resourceType(): string }): boolean { try { const t = r.resourceType(); return t === 'fetch' || t === 'xhr'; } catch { return false; } }
-// The app's declared data state for a pathname: an exact key first, then a key ending "/*" (its prefix
-// and its root) — the same matching the Context Pack's capture applies to dev.dataState.
+// The app's declared data state for a pathname: an exact key first, then a key with parameters
+// ("/shops/:city") the pathname fills segment by segment, then a key ending "/*" (its prefix and its
+// root) — the same matching the Context Pack's capture applies to dev.dataState.
+function fillsDataStateTemplate(key: string, pathname: string): boolean {
+  const keyParts = key.split('/').filter((part) => part !== '');
+  if (!keyParts.some((part) => part.startsWith(':'))) return false;
+  const parts = pathname.split('/').filter((part) => part !== '');
+  return keyParts.length === parts.length && keyParts.every((part, i) => (part.startsWith(':') ? part.length > 1 : part === parts[i]));
+}
 function matchDataState(routes: Record<string, { resultSelector?: string; resultTextSelector?: string }>, pathname: string): { resultSelector?: string; resultTextSelector?: string } | undefined {
   if (Object.prototype.hasOwnProperty.call(routes, pathname)) return routes[pathname];
+  for (const key of Object.keys(routes)) {
+    if (fillsDataStateTemplate(key, pathname)) return routes[key];
+  }
   for (const key of Object.keys(routes)) {
     if (key.endsWith('/*') && (pathname === key.slice(0, -2) || pathname.startsWith(key.slice(0, -1)))) return routes[key];
   }

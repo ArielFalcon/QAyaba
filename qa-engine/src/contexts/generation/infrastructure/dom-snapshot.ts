@@ -13,6 +13,7 @@ import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { MAX_LINK_LENGTH, MAX_LINKS_PER_PAGE, sameOriginPathnames } from "../domain/route-instantiation.ts";
 import { loggableRoutes } from "./loggable-route.ts";
+import { dataStateRouteFor } from "../domain/data-state-route.ts";
 
 const processKill = new ProcessKillAdapter();
 
@@ -121,7 +122,7 @@ export interface CaptureDomDeps {
   readonly dataState?: CaptureDataState;
 }
 
-/* The app's declared data-state readiness/result/location selectors, keyed by route path. A key ending `/*` names a prefix and its root; a key is selected by final pathname first, then requested route, then the `/*` prefix. */
+/* The app's declared data-state readiness/result/location selectors, keyed by route path. A key with parameters (`/shops/:city`) names the pages that fill it segment by segment and a key ending `/*` a prefix and its root; a page is matched by its final pathname first, then the route asked for, each against an exact key, then a key with parameters, then a prefix (`dataStateRouteFor`). */
 export interface CaptureDataState {
   routes: Record<string, {
     readySelector?: string;
@@ -728,11 +729,28 @@ export function mergeAttrs(nodes: string[], rawAttrs: RawAttr[]): NodeAttr[] {
   return out;
 }
 
-const RENDER_BASE_TIMEOUT_MS = 20_000;
-const RENDER_PER_ROUTE_TIMEOUT_MS = 15_000;
-const RENDER_MAX_TIMEOUT_MS = 200_000;
-const renderTimeoutFor = (routeCount: number): number =>
-  Math.min(RENDER_BASE_TIMEOUT_MS + Math.max(1, routeCount) * RENDER_PER_ROUTE_TIMEOUT_MS, RENDER_MAX_TIMEOUT_MS);
+/* The waits of one read of a route in the capture script: opening it, letting its requests go quiet, and a data state's wait when none is declared (a retry waits at most RETRY_DATA_STATE_WAIT_MS). */
+const NAVIGATION_TIMEOUT_MS = 10_000;
+const SETTLE_TIMEOUT_MS = 5_000;
+const DEFAULT_DATA_STATE_WAIT_MS = 8_000;
+const RETRY_DATA_STATE_WAIT_MS = 2_000;
+/* One read of a route at its slowest: opened, settled, and its tree, attributes, links and probes read. */
+export const CAPTURE_ROUTE_READ_MS = NAVIGATION_TIMEOUT_MS + SETTLE_TIMEOUT_MS + 5_000;
+/* The browser's start and the session's context, before the first route. */
+const CAPTURE_START_MS = 20_000;
+const CAPTURE_MAX_TIMEOUT_MS = 200_000;
+
+/* How long a capture of `routes` may run before it is killed: a read of every route, plus, for a route a data state matches, its wait and a second read with the retry's wait. Bounded; a capture cut short keeps the routes it finished. */
+export function captureTimeoutMs(routes: readonly string[], dataState?: CaptureDataState): number {
+  const perRoute = routes.map((route) => {
+    const state = dataState ? dataStateRouteFor(dataState.routes, route) : undefined;
+    if (state === undefined) return CAPTURE_ROUTE_READ_MS;
+    const wait = state.timeoutMs ?? DEFAULT_DATA_STATE_WAIT_MS;
+    return CAPTURE_ROUTE_READ_MS + wait + CAPTURE_ROUTE_READ_MS + Math.min(wait, RETRY_DATA_STATE_WAIT_MS);
+  });
+  const total = perRoute.length === 0 ? CAPTURE_ROUTE_READ_MS : perRoute.reduce((sum, ms) => sum + ms, 0);
+  return Math.min(CAPTURE_START_MS + total, CAPTURE_MAX_TIMEOUT_MS);
+}
 
 /* The longest a link's whole address may be for the script to report it: the pathname the orchestrator keeps is held to MAX_LINK_LENGTH, so this leaves room for the origin and a query. */
 const MAX_HREF_CHARS = MAX_LINK_LENGTH * 4;
@@ -743,7 +761,6 @@ const { baseUrl, routes, probe: probeInput } = JSON.parse(process.env.PW_CAPTURE
 const probe = Array.isArray(probeInput) ? probeInput.filter(function(p) { return typeof p === "string"; }) : [];
 const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
 (async () => {
-  const out = [];
   let browser;
   try {
     browser = await chromium.launch();
@@ -784,23 +801,34 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         if (parsed && parsed.routes && typeof parsed.routes === "object") stateRoutes = parsed.routes;
       }
     } catch(_e) { stateRoutes = null; }
-    /* Select the data-state settings for a page: its final pathname first, then the route asked for, then a key ending "/*" (a prefix and its root). */
-    function matchState(pathname, requested) {
-      if (!stateRoutes) return null;
-      if (pathname && Object.prototype.hasOwnProperty.call(stateRoutes, pathname)) return stateRoutes[pathname];
-      if (requested && Object.prototype.hasOwnProperty.call(stateRoutes, requested)) return stateRoutes[requested];
-      if (pathname) {
-        const keys = Object.keys(stateRoutes);
-        for (let i = 0; i < keys.length; i++) {
-          const key = keys[i];
-          if (key.endsWith('/*')) {
-            const prefix = key.slice(0, -1);
-            const root = key.slice(0, -2);
-            if (pathname === root || pathname.startsWith(prefix)) return stateRoutes[key];
-          }
-        }
+    /* Whether a pathname fills a key with parameters segment by segment (the orchestrator's fillsDataStateTemplate). */
+    function fillsTemplate(key, path) {
+      const keyParts = key.split('/').filter(function(part) { return part !== ''; });
+      if (!keyParts.some(function(part) { return part.charAt(0) === ':'; })) return false;
+      const parts = path.split('/').filter(function(part) { return part !== ''; });
+      if (keyParts.length !== parts.length) return false;
+      for (let i = 0; i < keyParts.length; i++) {
+        if (keyParts[i].charAt(0) === ':') { if (keyParts[i].length < 2) return false; }
+        else if (keyParts[i] !== parts[i]) return false;
+      }
+      return true;
+    }
+    /* The data-state settings of one path (the orchestrator's dataStateRouteFor): an exact key, then a key with parameters, then a key ending "/*" (a prefix and its root). */
+    function stateFor(path) {
+      if (!path) return null;
+      if (Object.prototype.hasOwnProperty.call(stateRoutes, path)) return stateRoutes[path];
+      const keys = Object.keys(stateRoutes);
+      for (let i = 0; i < keys.length; i++) if (fillsTemplate(keys[i], path)) return stateRoutes[keys[i]];
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        if (key.endsWith('/*') && (path === key.slice(0, -2) || path.startsWith(key.slice(0, -1)))) return stateRoutes[key];
       }
       return null;
+    }
+    /* Select the data-state settings for a page: its final pathname first, then the route asked for. */
+    function matchState(pathname, requested) {
+      if (!stateRoutes) return null;
+      return stateFor(pathname) || stateFor(requested);
     }
     /* The same unconfirmed rule the orchestrator applies: a declared data state whose result stayed empty, or whose readiness never appeared. */
     function unconfirmed(entry) {
@@ -813,9 +841,9 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
       currentRouteErrors = [];
       const routeStartedAt = Date.now();
       try {
-        await page.goto(new URL(route, baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: 10000 });
+        await page.goto(new URL(route, baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: ${NAVIGATION_TIMEOUT_MS} });
         let settled = false;
-        try { await page.waitForLoadState("networkidle", { timeout: 5000 }); settled = true; } catch (_settle) {}
+        try { await page.waitForLoadState("networkidle", { timeout: ${SETTLE_TIMEOUT_MS} }); settled = true; } catch (_settle) {}
         const finalUrl = page.url();
         let pathname = null;
         try { pathname = new URL(finalUrl).pathname; } catch(_e) { pathname = null; }
@@ -827,8 +855,10 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         let dataState = false;
         if (settings) {
           dataState = true;
-          const waitMs = retry ? Math.min(settings.timeoutMs || 8000, 2000) : (settings.timeoutMs || 8000);
+          const waitMs = retry ? Math.min(settings.timeoutMs || ${DEFAULT_DATA_STATE_WAIT_MS}, ${RETRY_DATA_STATE_WAIT_MS}) : (settings.timeoutMs || ${DEFAULT_DATA_STATE_WAIT_MS});
           const deadline = Date.now() + waitMs;
+          /* Every read of the data state waits only for what is left of its wait: a read with no time of its own would wait the browser's default for an element the page never shows. */
+          const left = function() { return Math.max(1, deadline - Date.now()); };
           if (settings.readySelector) {
             const left = deadline - Date.now();
             if (left <= 0) ready = false;
@@ -843,7 +873,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
               while (true) {
                 try {
                   if (settings.resultTextSelector) {
-                    const text = await page.locator(settings.resultTextSelector).first().innerText();
+                    const text = await page.locator(settings.resultTextSelector).first().innerText({ timeout: left() });
                     const m = (text || "").match(/-?\\d+/);
                     count = m ? parseInt(m[0], 10) : undefined;
                   } else {
@@ -859,7 +889,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
           }
           if (settings.locationSelector) {
             try {
-              const raw = await page.locator(settings.locationSelector).first().innerText();
+              const raw = await page.locator(settings.locationSelector).first().innerText({ timeout: left() });
               const cleaned = (raw || "").replace(/\\s+/g, " ").trim().slice(0, 200);
               if (cleaned) effectiveLocation = cleaned;
             } catch(_e) {}
@@ -995,13 +1025,13 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         return entry;
       } catch (e) { return { route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors, ms: Date.now() - routeStartedAt }; }
     }
+    /* Each route is written as one JSON line as soon as it is read, so a capture killed at its time limit keeps the routes it finished. */
     for (const route of routes) {
       const first = await readRoute(route, false);
-      if (first.dataState === true && unconfirmed(first)) out.push(await readRoute(route, true));
-      else out.push(first);
+      const entry = first.dataState === true && unconfirmed(first) ? await readRoute(route, true) : first;
+      await new Promise(function(r) { process.stdout.write(JSON.stringify(entry) + "\\n", r); });
     }
   } catch (e) { process.stderr.write(String(e)); } finally { if (browser) await browser.close().catch(() => {}); }
-  process.stdout.write(JSON.stringify(out));
 })();`;
 }
 
@@ -1049,6 +1079,25 @@ function repeatedFrom(value: unknown): RepeatedName[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+/* The routes the capture script wrote, one JSON object per line (an earlier script wrote one array, still read). A line cut by a kill is not a route; output with no readable line throws, and the capture reports it unparseable. */
+function captureLines(text: string): unknown[] {
+  const entries: unknown[] = [];
+  let unreadable = 0;
+  for (const line of text.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (Array.isArray(parsed)) entries.push(...parsed);
+      else if (parsed !== null && typeof parsed === "object") entries.push(parsed);
+      else unreadable++;
+    } catch {
+      unreadable++;
+    }
+  }
+  if (entries.length === 0 && unreadable > 0) throw new Error("no readable route in the capture output");
+  return entries;
+}
+
 /* What one run of the capture script came to, told to the optional observer once the script is done (or has failed, in which case there are no snapshots): the snapshots it returned, the routes it was asked for, and how much it printed. Read-only; it never changes what the capture returns. */
 export interface DomCaptureReport {
   asked: readonly string[];
@@ -1090,7 +1139,7 @@ export function createCaptureDomDeps(
           /* The result is the JSON on stdout; stderr is never read, and left piped it would block the script once the OS pipe buffer fills. */
           stdio: ["ignore", "pipe", "ignore"],
         });
-        const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length + (dataState ? 2 : 0)));
+        const timer = setTimeout(() => processKill.killTree(child), captureTimeoutMs(routes, dataState));
         let finished = false;
         /* Bound to the run's async context now, so the observer sees the run's open phase and secrets from the child's event callbacks. */
         const notify = observer ? AsyncResource.bind((report: DomCaptureReport) => observer(report)) : undefined;
@@ -1118,7 +1167,10 @@ export function createCaptureDomDeps(
           if (finished) return;
           try {
             /* The page decides what it shows, and it can show the account's password: the run's secrets are taken out of the document by value before it is read (a JSON-escaped spelling of each is replaced too). */
-            const raw = JSON.parse(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown }>;
+            const raw = captureLines(redactByValue(stdout.text())) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; hrefs?: unknown; repeated?: unknown; absent?: unknown; ms?: unknown; dataState?: unknown; ready?: unknown; resultExpected?: unknown; resultCount?: unknown; effectiveLocation?: unknown; captureAttempts?: unknown }>;
+            const read = new Set(raw.map((r) => r.route));
+            const unread = routes.filter((route) => !read.has(route));
+            if (unread.length > 0) console.warn(`[qa] WARNING: DOM capture ended before it read ${unread.length} route(s) [${loggableRoutes(unread)}] — those routes are not grounded.`);
             done(raw.map((r) => {
               if (r.error) {
                 const errored: RouteSnapshot = { route: r.route, error: r.error };

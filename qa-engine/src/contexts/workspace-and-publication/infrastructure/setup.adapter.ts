@@ -78,6 +78,7 @@ const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
   "e0bf2a9c97e3e51bb9ba8b13098a1c2d5d36f119c6529fc409d3f6ad2664a15c",
   "70c791658e6a2ac48fda2dc2c8a351f293b59f18ccaf34025a4db98da930cd88",
   "d57ac04b566df2349291620c06b8b6464de63bc0099dc2eb52656715bae30b39",
+  "aed0623048ad9fa291c2e7826527a4b7cb7bd872907e3c4e8d6e46d7aff5f41a",
 ]);
 
 /*
@@ -183,10 +184,20 @@ let failedRequests: { url: string; errorText: string; resourceType: string }[] =
 let dataInFlight = 0;
 let lastDataAt = 0;
 function isDataRequest(r: { resourceType(): string }): boolean { try { const t = r.resourceType(); return t === 'fetch' || t === 'xhr'; } catch { return false; } }
-// The app's declared data state for a pathname: an exact key first, then a key ending "/*" (its prefix
-// and its root) — the same matching the Context Pack's capture applies to dev.dataState.
+// The app's declared data state for a pathname: an exact key first, then a key with parameters
+// ("/shops/:city") the pathname fills segment by segment, then a key ending "/*" (its prefix and its
+// root) — the same matching the Context Pack's capture applies to dev.dataState.
+function fillsDataStateTemplate(key: string, pathname: string): boolean {
+  const keyParts = key.split('/').filter((part) => part !== '');
+  if (!keyParts.some((part) => part.startsWith(':'))) return false;
+  const parts = pathname.split('/').filter((part) => part !== '');
+  return keyParts.length === parts.length && keyParts.every((part, i) => (part.startsWith(':') ? part.length > 1 : part === parts[i]));
+}
 function matchDataState(routes: Record<string, { resultSelector?: string; resultTextSelector?: string }>, pathname: string): { resultSelector?: string; resultTextSelector?: string } | undefined {
   if (Object.prototype.hasOwnProperty.call(routes, pathname)) return routes[pathname];
+  for (const key of Object.keys(routes)) {
+    if (fillsDataStateTemplate(key, pathname)) return routes[key];
+  }
   for (const key of Object.keys(routes)) {
     if (key.endsWith('/*') && (pathname === key.slice(0, -2) || pathname.startsWith(key.slice(0, -1)))) return routes[key];
   }

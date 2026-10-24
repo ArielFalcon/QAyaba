@@ -1158,6 +1158,15 @@ test("buildContextPack: a declared page that shows what a page that cannot exist
   assert.ok(logs.some((message) => message.includes(LIST_TEMPLATE) && message.includes(TEMPLATE_LEFT_OUT.DECLARED_PAGE_MISSING)));
 });
 
+test("buildContextPack: a declared page the check beside its missing sibling could not capture is not opened again, and says why", async () => {
+  const calls: Call[] = [];
+  const deps = { ...siteWithLinks({ "/a": [] }, calls, { silentFrom: 2 }), routeSamples: { [LIST_TEMPLATE]: "/shops/madrid/madrid" } };
+  const result = await buildContextPack({ routes: [LIST_TEMPLATE, "/a"], ...PACK_INPUT }, deps);
+  assert.equal(calls.length, 2, "the first capture and the check, not a third capture of the same page");
+  const line = sectionOf(result.text, PACK_HEADINGS.notCapturable).split("\n").find((entry) => entry.includes(LIST_TEMPLATE)) ?? "";
+  assert.ok(line.includes(TEMPLATE_LEFT_OUT.PAGE_NOT_CONFIRMED), line);
+});
+
 test("buildContextPack: a declared page whose tree is not the one a page that cannot exist shows is captured as its template", async () => {
   const calls: Call[] = [];
   const deps = {

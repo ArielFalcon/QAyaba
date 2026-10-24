@@ -100,7 +100,9 @@ dev:
   #     empty: { latitude: 0, longitude: 0 }
   # dataState:                  # optional: capture-time data-state readiness — tells the Context Pack when a page's data has
   #   routes:                   # settled so an empty tree is not read as truth. Selectors are app data, never engine facts.
-  #     "/restaurants":         # a route path; a key ending "/*" names a prefix and its root (e.g. "/restaurants/*")
+  #     "/restaurants":         # a route path; a key with parameters names the pages that fill it segment by segment
+  #                             # ("/restaurants/:province/:city"), a key ending "/*" a prefix and its root ("/restaurants/*");
+  #                             # an exact key wins, then a key with parameters, then a prefix
   #       readySelector: "[data-testid='restaurant-list']"   # must appear for the page to be ready
   #       resultSelector: "[data-testid='restaurant-card']"  # count results (0 is unconfirmed → captured once more)
   #       # resultTextSelector: "[data-testid='result-count']"  # alternative: first integer in the text is the count
