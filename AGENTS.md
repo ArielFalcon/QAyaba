@@ -216,7 +216,7 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   `get_code_snippet`) that POST to the same internal listener (`/internal/codegraph`, `QA_TOOLS_TOKEN`). The orchestrator admits
   the query (`qa-run-orchestration/domain/code-graph-query.ts`: known keys, bounded values, no free graph query, nothing that
   indexes or deletes), binds it to the run's own project (the graph holds every app's code and is never mounted into the agents
-  container) and runs the codebase-memory CLI; the answer is redacted and cut. `CodeGraphToolRegistry` binds the lead's sessions
+  container) and runs the codebase-memory CLI; the answer is redacted string by string (a secret JSON escapes is still found) and cut by its structure, so it stays JSON. `CodeGraphToolRegistry` binds the lead's sessions
   of the run, calls are capped per run (`DEFAULT_CODE_GRAPH_TOOL_LIMITS`), and the capability is revoked when the run ends. A prompt
   of a `qa-generator` session the run did not grant hides the tools. Calls are spans (`qayaba.tool.codegraph`) and the run log
   counts them; Codex has none.

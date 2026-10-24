@@ -3,8 +3,9 @@
  * orchestrator only, and the store holds every app's code), so the lead never reaches it: it asks through the tools endpoint and
  * the orchestrator runs the query on the run's own project, resolved here from the app's mirror, inside the run's scope, under
  * the run's limits. A run whose app is not in the graph, or whose lead runs on a runtime that cannot call a custom tool, is
- * granted nothing. The answer is the graph's JSON, passed through the run's redaction and cut to a size the prompt can take;
- * a query the graph cannot answer is a failed call, with nothing of the CLI's own output.
+ * granted nothing. The answer is the graph's JSON, redacted value by value (a secret inside a JSON string is escaped there, so
+ * the text alone would hide it from a redaction by value) and cut by its structure to a size the prompt can take, so what the
+ * lead reads is still JSON; a query the graph cannot answer is a failed call, with nothing of the CLI's own output.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -55,9 +56,8 @@ export class CodeGraphToolsPortAdapter implements CodeGraphToolsPort {
         counts.failed += 1;
         return { ok: false, code: "failed", message: "the code graph could not answer this query; check the symbol's name with codegraph_search_graph" };
       }
-      const clean = this.deps.redact ? this.deps.redact(stdout) : stdout;
-      const truncated = clean.length > limits.maxAnswerChars;
-      return { ok: true, result: truncated ? clean.slice(0, limits.maxAnswerChars) : clean, truncated, callsLeft: limits.maxCalls - counts.calls };
+      const { result, truncated } = shapeAnswer(stdout, limits.maxAnswerChars, this.deps.redact);
+      return { ok: true, result, truncated, callsLeft: limits.maxCalls - counts.calls };
     };
     this.deps.registry.register({
       runId: input.runId,
@@ -85,4 +85,64 @@ export class CodeGraphToolsPortAdapter implements CodeGraphToolsPort {
       },
     };
   }
+}
+
+const CUT_MARK = " … (cut)";
+/* A bound on the cutting passes: each one drops an entry or halves a string, so an answer of any size fits well within it. */
+const MAX_CUT_PASSES = 10_000;
+
+/* Every string of a JSON value, keys included, through the redaction. */
+function redactJson(value: unknown, redact: (text: string) => string): unknown {
+  if (typeof value === "string") return redact(value);
+  if (Array.isArray(value)) return value.map((item) => redactJson(item, redact));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [redact(key), redactJson(item, redact)]));
+  return value;
+}
+
+/* The longest array with entries left, or failing that the longest string, anywhere in the value: what the next pass cuts. */
+function largest(value: unknown): { array?: unknown[]; holder?: Record<string, unknown> | unknown[]; key?: string | number; length: number } {
+  let best: { array?: unknown[]; holder?: Record<string, unknown> | unknown[]; key?: string | number; length: number } = { length: 0 };
+  let bestString: typeof best = { length: 0 };
+  const visit = (node: unknown, holder?: Record<string, unknown> | unknown[], key?: string | number): void => {
+    if (typeof node === "string" && holder !== undefined && node.length > bestString.length) bestString = { holder, key: key!, length: node.length };
+    if (Array.isArray(node)) {
+      if (node.length > 0 && node.length >= best.length) best = { array: node, length: node.length };
+      node.forEach((item, i) => visit(item, node, i));
+    } else if (node && typeof node === "object") {
+      for (const [k, item] of Object.entries(node)) visit(item, node as Record<string, unknown>, k);
+    }
+  };
+  visit(value);
+  return best.array && best.length > 1 ? best : bestString.length > CUT_MARK.length * 2 ? bestString : best;
+}
+
+/*
+ * The graph's answer as the lead is shown it: redacted, and at most `max` characters. A JSON answer stays JSON: its longest
+ * list loses entries from its end, then its longest string is halved, until it fits. An answer that is not JSON is redacted
+ * and cut as text.
+ */
+export function shapeAnswer(stdout: string, max: number, redact?: (text: string) => string): { result: string; truncated: boolean } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    const clean = redact ? redact(stdout) : stdout;
+    return clean.length > max ? { result: clean.slice(0, max), truncated: true } : { result: clean, truncated: false };
+  }
+  const value = redact ? redactJson(parsed, redact) : parsed;
+  let text = JSON.stringify(value);
+  let truncated = false;
+  for (let pass = 0; text.length > max && pass < MAX_CUT_PASSES; pass++) {
+    const target = largest(value);
+    if (target.array && target.array.length > 1) target.array.pop();
+    else if (target.holder !== undefined && target.key !== undefined) {
+      const current = (target.holder as Record<string | number, unknown>)[target.key] as string;
+      (target.holder as Record<string | number, unknown>)[target.key] = `${current.slice(0, Math.floor(current.length / 2))}${CUT_MARK}`;
+    } else if (target.array) target.array.pop();
+    else break;
+    truncated = true;
+    text = JSON.stringify(value);
+  }
+  /* A value nothing more can be cut from (a single long key, say) is cut as text: never more than the lead's share. */
+  return text.length > max ? { result: text.slice(0, max), truncated: true } : { result: text, truncated };
 }

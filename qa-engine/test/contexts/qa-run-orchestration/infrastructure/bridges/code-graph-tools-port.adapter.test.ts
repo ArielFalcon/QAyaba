@@ -77,3 +77,41 @@ test("a graph that cannot answer is a failed call with no detail of its own, and
   assert.equal(cut.result.length, 50);
   assert.match(cut.result, /^z+$/, "the answer passes the run's redaction");
 });
+
+/* A redaction by value, as the run's secret scope does it. */
+const SECRET = 'pa"ss\\word';
+const byValue = (text: string) => text.split(SECRET).join("[redacted]");
+
+async function answerTo(stdout: string, maxAnswerChars = 12_000) {
+  const a = adapter({ answer: { code: 0, stdout, stderr: "" }, maxAnswerChars, redact: byValue });
+  await a.port.open({ runId: "r1" });
+  a.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
+  const answer = await a.registry.find("lead")!.call(request());
+  assert.ok(answer.ok);
+  return answer as Extract<typeof answer, { ok: true }>;
+}
+
+test("a secret inside a JSON string is redacted though the JSON escapes it", async () => {
+  const stdout = JSON.stringify({ results: [{ name: "Login", source: `const password = '${SECRET}';` }] });
+  assert.ok(!stdout.includes(SECRET), "the JSON text holds the secret only escaped");
+  const answer = await answerTo(stdout);
+  assert.ok(!answer.result.includes("pa\\\"ss"), "nothing of the escaped secret is left");
+  assert.match(answer.result, /\[redacted\]/);
+  assert.deepEqual(JSON.parse(answer.result).results[0].name, "Login");
+});
+
+test("a JSON answer too long for the lead is cut by its structure and is still JSON", async () => {
+  const stdout = JSON.stringify({ total: 40, results: Array.from({ length: 40 }, (_, i) => ({ name: `Symbol${i}`, file: `src/s${i}.ts` })) });
+  const answer = await answerTo(stdout, 400);
+  assert.equal(answer.truncated, true);
+  assert.ok(answer.result.length <= 400);
+  const parsed = JSON.parse(answer.result);
+  assert.equal(parsed.total, 40);
+  assert.ok(parsed.results.length > 0 && parsed.results.length < 40, "entries are dropped from the end");
+  assert.equal(parsed.results[0].name, "Symbol0");
+
+  const snippet = JSON.stringify({ name: "big", source: "x".repeat(5_000) });
+  const cut = await answerTo(snippet, 300);
+  assert.equal(cut.truncated, true);
+  assert.match(JSON.parse(cut.result).source, /… \(cut\)$/);
+});
