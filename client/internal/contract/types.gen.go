@@ -252,6 +252,21 @@ func (e AgentTurnViewToolSequenceDenied) Valid() bool {
 	}
 }
 
+// Defines values for ApiErrorSchemaVersion.
+const (
+	ApiErrorSchemaVersionN1 ApiErrorSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the ApiErrorSchemaVersion enum.
+func (e ApiErrorSchemaVersion) Valid() bool {
+	switch e {
+	case ApiErrorSchemaVersionN1:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AppAuthInputKind.
 const (
 	AppAuthInputKindForm AppAuthInputKind = "form"
@@ -282,6 +297,93 @@ func (e AppViewAuthKind) Valid() bool {
 	case AppViewAuthKindForm:
 		return true
 	case AppViewAuthKindMtls:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CampaignRunsRunsEvaluationStatus.
+const (
+	CampaignRunsRunsEvaluationStatusComplete CampaignRunsRunsEvaluationStatus = "complete"
+	CampaignRunsRunsEvaluationStatusFailed   CampaignRunsRunsEvaluationStatus = "failed"
+	CampaignRunsRunsEvaluationStatusPending  CampaignRunsRunsEvaluationStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the CampaignRunsRunsEvaluationStatus enum.
+func (e CampaignRunsRunsEvaluationStatus) Valid() bool {
+	switch e {
+	case CampaignRunsRunsEvaluationStatusComplete:
+		return true
+	case CampaignRunsRunsEvaluationStatusFailed:
+		return true
+	case CampaignRunsRunsEvaluationStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CampaignRunsRunsStatus.
+const (
+	CampaignRunsRunsStatusDone     CampaignRunsRunsStatus = "done"
+	CampaignRunsRunsStatusEnqueued CampaignRunsRunsStatus = "enqueued"
+	CampaignRunsRunsStatusRunning  CampaignRunsRunsStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the CampaignRunsRunsStatus enum.
+func (e CampaignRunsRunsStatus) Valid() bool {
+	switch e {
+	case CampaignRunsRunsStatusDone:
+		return true
+	case CampaignRunsRunsStatusEnqueued:
+		return true
+	case CampaignRunsRunsStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CampaignRunsRunsVerdict.
+const (
+	CampaignRunsRunsVerdictFail       CampaignRunsRunsVerdict = "fail"
+	CampaignRunsRunsVerdictFlaky      CampaignRunsRunsVerdict = "flaky"
+	CampaignRunsRunsVerdictInfraError CampaignRunsRunsVerdict = "infra-error"
+	CampaignRunsRunsVerdictInvalid    CampaignRunsRunsVerdict = "invalid"
+	CampaignRunsRunsVerdictPass       CampaignRunsRunsVerdict = "pass"
+	CampaignRunsRunsVerdictSkipped    CampaignRunsRunsVerdict = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the CampaignRunsRunsVerdict enum.
+func (e CampaignRunsRunsVerdict) Valid() bool {
+	switch e {
+	case CampaignRunsRunsVerdictFail:
+		return true
+	case CampaignRunsRunsVerdictFlaky:
+		return true
+	case CampaignRunsRunsVerdictInfraError:
+		return true
+	case CampaignRunsRunsVerdictInvalid:
+		return true
+	case CampaignRunsRunsVerdictPass:
+		return true
+	case CampaignRunsRunsVerdictSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CampaignRunsSchemaVersion.
+const (
+	CampaignRunsSchemaVersionN1 CampaignRunsSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the CampaignRunsSchemaVersion enum.
+func (e CampaignRunsSchemaVersion) Valid() bool {
+	switch e {
+	case CampaignRunsSchemaVersionN1:
 		return true
 	default:
 		return false
@@ -345,6 +447,45 @@ func (e CreateAppInputTarget) Valid() bool {
 	case CreateAppInputTargetCode:
 		return true
 	case CreateAppInputTargetE2e:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateRunInputCaptureMode.
+const (
+	CreateRunInputCaptureModeFull     CreateRunInputCaptureMode = "full"
+	CreateRunInputCaptureModeMetadata CreateRunInputCaptureMode = "metadata"
+	CreateRunInputCaptureModeOff      CreateRunInputCaptureMode = "off"
+)
+
+// Valid indicates whether the value is a known member of the CreateRunInputCaptureMode enum.
+func (e CreateRunInputCaptureMode) Valid() bool {
+	switch e {
+	case CreateRunInputCaptureModeFull:
+		return true
+	case CreateRunInputCaptureModeMetadata:
+		return true
+	case CreateRunInputCaptureModeOff:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateRunInputCoordinationMode.
+const (
+	CreateRunInputCoordinationModeLeadSidekicks CreateRunInputCoordinationMode = "lead-sidekicks"
+	CreateRunInputCoordinationModeSingle        CreateRunInputCoordinationMode = "single"
+)
+
+// Valid indicates whether the value is a known member of the CreateRunInputCoordinationMode enum.
+func (e CreateRunInputCoordinationMode) Valid() bool {
+	switch e {
+	case CreateRunInputCoordinationModeLeadSidekicks:
+		return true
+	case CreateRunInputCoordinationModeSingle:
 		return true
 	default:
 		return false
@@ -423,6 +564,21 @@ func (e CreateRunResultMode) Valid() bool {
 	}
 }
 
+// Defines values for CreateRunResultSchemaVersion.
+const (
+	CreateRunResultSchemaVersionN1 CreateRunResultSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the CreateRunResultSchemaVersion enum.
+func (e CreateRunResultSchemaVersion) Valid() bool {
+	switch e {
+	case CreateRunResultSchemaVersionN1:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateRunResultTarget.
 const (
 	CreateRunResultTargetCode CreateRunResultTarget = "code"
@@ -435,6 +591,81 @@ func (e CreateRunResultTarget) Valid() bool {
 	case CreateRunResultTargetCode:
 		return true
 	case CreateRunResultTargetE2e:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EvaluationCatalogSchemaVersion.
+const (
+	EvaluationCatalogSchemaVersionN1 EvaluationCatalogSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the EvaluationCatalogSchemaVersion enum.
+func (e EvaluationCatalogSchemaVersion) Valid() bool {
+	switch e {
+	case EvaluationCatalogSchemaVersionN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EvaluationCatalogScoresDataType.
+const (
+	EvaluationCatalogScoresDataTypeBOOLEAN     EvaluationCatalogScoresDataType = "BOOLEAN"
+	EvaluationCatalogScoresDataTypeCATEGORICAL EvaluationCatalogScoresDataType = "CATEGORICAL"
+	EvaluationCatalogScoresDataTypeNUMERIC     EvaluationCatalogScoresDataType = "NUMERIC"
+)
+
+// Valid indicates whether the value is a known member of the EvaluationCatalogScoresDataType enum.
+func (e EvaluationCatalogScoresDataType) Valid() bool {
+	switch e {
+	case EvaluationCatalogScoresDataTypeBOOLEAN:
+		return true
+	case EvaluationCatalogScoresDataTypeCATEGORICAL:
+		return true
+	case EvaluationCatalogScoresDataTypeNUMERIC:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EvaluationCatalogScoresPolarity.
+const (
+	EvaluationCatalogScoresPolarityHigherBetter EvaluationCatalogScoresPolarity = "higher_better"
+	EvaluationCatalogScoresPolarityLowerBetter  EvaluationCatalogScoresPolarity = "lower_better"
+	EvaluationCatalogScoresPolarityNone         EvaluationCatalogScoresPolarity = "none"
+)
+
+// Valid indicates whether the value is a known member of the EvaluationCatalogScoresPolarity enum.
+func (e EvaluationCatalogScoresPolarity) Valid() bool {
+	switch e {
+	case EvaluationCatalogScoresPolarityHigherBetter:
+		return true
+	case EvaluationCatalogScoresPolarityLowerBetter:
+		return true
+	case EvaluationCatalogScoresPolarityNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EvaluationCatalogScoresStatus.
+const (
+	Calibrated   EvaluationCatalogScoresStatus = "calibrated"
+	Experimental EvaluationCatalogScoresStatus = "experimental"
+)
+
+// Valid indicates whether the value is a known member of the EvaluationCatalogScoresStatus enum.
+func (e EvaluationCatalogScoresStatus) Valid() bool {
+	switch e {
+	case Calibrated:
+		return true
+	case Experimental:
 		return true
 	default:
 		return false
@@ -464,25 +695,25 @@ func (e LearningRuleViewConfidence) Valid() bool {
 
 // Defines values for LearningRuleViewStatus.
 const (
-	Active     LearningRuleViewStatus = "active"
-	Candidate  LearningRuleViewStatus = "candidate"
-	Deprecated LearningRuleViewStatus = "deprecated"
-	Pending    LearningRuleViewStatus = "pending"
-	Superseded LearningRuleViewStatus = "superseded"
+	LearningRuleViewStatusActive     LearningRuleViewStatus = "active"
+	LearningRuleViewStatusCandidate  LearningRuleViewStatus = "candidate"
+	LearningRuleViewStatusDeprecated LearningRuleViewStatus = "deprecated"
+	LearningRuleViewStatusPending    LearningRuleViewStatus = "pending"
+	LearningRuleViewStatusSuperseded LearningRuleViewStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the LearningRuleViewStatus enum.
 func (e LearningRuleViewStatus) Valid() bool {
 	switch e {
-	case Active:
+	case LearningRuleViewStatusActive:
 		return true
-	case Candidate:
+	case LearningRuleViewStatusCandidate:
 		return true
-	case Deprecated:
+	case LearningRuleViewStatusDeprecated:
 		return true
-	case Pending:
+	case LearningRuleViewStatusPending:
 		return true
-	case Superseded:
+	case LearningRuleViewStatusSuperseded:
 		return true
 	default:
 		return false
@@ -705,6 +936,30 @@ func (e PublicAgentConfigValidationDowngradeProvider) Valid() bool {
 	}
 }
 
+// Defines values for QaCaseNetworkClass.
+const (
+	Backend QaCaseNetworkClass = "backend"
+	Dns     QaCaseNetworkClass = "dns"
+	Egress  QaCaseNetworkClass = "egress"
+	Other   QaCaseNetworkClass = "other"
+)
+
+// Valid indicates whether the value is a known member of the QaCaseNetworkClass enum.
+func (e QaCaseNetworkClass) Valid() bool {
+	switch e {
+	case Backend:
+		return true
+	case Dns:
+		return true
+	case Egress:
+		return true
+	case Other:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for QaCaseStatus.
 const (
 	QaCaseStatusFail  QaCaseStatus = "fail"
@@ -720,6 +975,60 @@ func (e QaCaseStatus) Valid() bool {
 	case QaCaseStatusFlaky:
 		return true
 	case QaCaseStatusPass:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RegradeJobSchemaVersion.
+const (
+	RegradeJobSchemaVersionN1 RegradeJobSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the RegradeJobSchemaVersion enum.
+func (e RegradeJobSchemaVersion) Valid() bool {
+	switch e {
+	case RegradeJobSchemaVersionN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RegradeJobStatus.
+const (
+	RegradeJobStatusComplete RegradeJobStatus = "complete"
+	RegradeJobStatusFailed   RegradeJobStatus = "failed"
+	RegradeJobStatusPending  RegradeJobStatus = "pending"
+	RegradeJobStatusRunning  RegradeJobStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the RegradeJobStatus enum.
+func (e RegradeJobStatus) Valid() bool {
+	switch e {
+	case RegradeJobStatusComplete:
+		return true
+	case RegradeJobStatusFailed:
+		return true
+	case RegradeJobStatusPending:
+		return true
+	case RegradeJobStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RegradeStartedSchemaVersion.
+const (
+	RegradeStartedSchemaVersionN1 RegradeStartedSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the RegradeStartedSchemaVersion enum.
+func (e RegradeStartedSchemaVersion) Valid() bool {
+	switch e {
+	case RegradeStartedSchemaVersionN1:
 		return true
 	default:
 		return false
@@ -854,25 +1163,25 @@ func (e ReportInsightIntent) Valid() bool {
 
 // Defines values for ReportInsightUnit.
 const (
-	Count   ReportInsightUnit = "count"
-	Ms      ReportInsightUnit = "ms"
-	Percent ReportInsightUnit = "percent"
-	Ratio   ReportInsightUnit = "ratio"
-	Score   ReportInsightUnit = "score"
+	ReportInsightUnitCount   ReportInsightUnit = "count"
+	ReportInsightUnitMs      ReportInsightUnit = "ms"
+	ReportInsightUnitPercent ReportInsightUnit = "percent"
+	ReportInsightUnitRatio   ReportInsightUnit = "ratio"
+	ReportInsightUnitScore   ReportInsightUnit = "score"
 )
 
 // Valid indicates whether the value is a known member of the ReportInsightUnit enum.
 func (e ReportInsightUnit) Valid() bool {
 	switch e {
-	case Count:
+	case ReportInsightUnitCount:
 		return true
-	case Ms:
+	case ReportInsightUnitMs:
 		return true
-	case Percent:
+	case ReportInsightUnitPercent:
 		return true
-	case Ratio:
+	case ReportInsightUnitRatio:
 		return true
-	case Score:
+	case ReportInsightUnitScore:
 		return true
 	default:
 		return false
@@ -897,18 +1206,222 @@ func (e RoleAssignmentProvider) Valid() bool {
 	}
 }
 
+// Defines values for RunDetailEffectiveConfigLeversCaptureMode.
+const (
+	RunDetailEffectiveConfigLeversCaptureModeFull     RunDetailEffectiveConfigLeversCaptureMode = "full"
+	RunDetailEffectiveConfigLeversCaptureModeMetadata RunDetailEffectiveConfigLeversCaptureMode = "metadata"
+	RunDetailEffectiveConfigLeversCaptureModeOff      RunDetailEffectiveConfigLeversCaptureMode = "off"
+)
+
+// Valid indicates whether the value is a known member of the RunDetailEffectiveConfigLeversCaptureMode enum.
+func (e RunDetailEffectiveConfigLeversCaptureMode) Valid() bool {
+	switch e {
+	case RunDetailEffectiveConfigLeversCaptureModeFull:
+		return true
+	case RunDetailEffectiveConfigLeversCaptureModeMetadata:
+		return true
+	case RunDetailEffectiveConfigLeversCaptureModeOff:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunDetailEffectiveConfigLeversCoordinationMode.
+const (
+	RunDetailEffectiveConfigLeversCoordinationModeLeadSidekicks RunDetailEffectiveConfigLeversCoordinationMode = "lead-sidekicks"
+	RunDetailEffectiveConfigLeversCoordinationModeSingle        RunDetailEffectiveConfigLeversCoordinationMode = "single"
+)
+
+// Valid indicates whether the value is a known member of the RunDetailEffectiveConfigLeversCoordinationMode enum.
+func (e RunDetailEffectiveConfigLeversCoordinationMode) Valid() bool {
+	switch e {
+	case RunDetailEffectiveConfigLeversCoordinationModeLeadSidekicks:
+		return true
+	case RunDetailEffectiveConfigLeversCoordinationModeSingle:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunDetailEngineStatus.
+const (
+	RunDetailEngineStatusError   RunDetailEngineStatus = "error"
+	RunDetailEngineStatusSuccess RunDetailEngineStatus = "success"
+)
+
+// Valid indicates whether the value is a known member of the RunDetailEngineStatus enum.
+func (e RunDetailEngineStatus) Valid() bool {
+	switch e {
+	case RunDetailEngineStatusError:
+		return true
+	case RunDetailEngineStatusSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunDetailMode.
+const (
+	RunDetailModeComplete   RunDetailMode = "complete"
+	RunDetailModeContext    RunDetailMode = "context"
+	RunDetailModeDiff       RunDetailMode = "diff"
+	RunDetailModeExhaustive RunDetailMode = "exhaustive"
+	RunDetailModeManual     RunDetailMode = "manual"
+)
+
+// Valid indicates whether the value is a known member of the RunDetailMode enum.
+func (e RunDetailMode) Valid() bool {
+	switch e {
+	case RunDetailModeComplete:
+		return true
+	case RunDetailModeContext:
+		return true
+	case RunDetailModeDiff:
+		return true
+	case RunDetailModeExhaustive:
+		return true
+	case RunDetailModeManual:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunDetailSchemaVersion.
+const (
+	RunDetailSchemaVersionN1 RunDetailSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the RunDetailSchemaVersion enum.
+func (e RunDetailSchemaVersion) Valid() bool {
+	switch e {
+	case RunDetailSchemaVersionN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunDetailStatus.
+const (
+	RunDetailStatusDone     RunDetailStatus = "done"
+	RunDetailStatusEnqueued RunDetailStatus = "enqueued"
+	RunDetailStatusRunning  RunDetailStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the RunDetailStatus enum.
+func (e RunDetailStatus) Valid() bool {
+	switch e {
+	case RunDetailStatusDone:
+		return true
+	case RunDetailStatusEnqueued:
+		return true
+	case RunDetailStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunDetailTarget.
+const (
+	RunDetailTargetCode RunDetailTarget = "code"
+	RunDetailTargetE2e  RunDetailTarget = "e2e"
+)
+
+// Valid indicates whether the value is a known member of the RunDetailTarget enum.
+func (e RunDetailTarget) Valid() bool {
+	switch e {
+	case RunDetailTargetCode:
+		return true
+	case RunDetailTargetE2e:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunDetailVerdict.
+const (
+	RunDetailVerdictFail       RunDetailVerdict = "fail"
+	RunDetailVerdictFlaky      RunDetailVerdict = "flaky"
+	RunDetailVerdictInfraError RunDetailVerdict = "infra-error"
+	RunDetailVerdictInvalid    RunDetailVerdict = "invalid"
+	RunDetailVerdictPass       RunDetailVerdict = "pass"
+	RunDetailVerdictSkipped    RunDetailVerdict = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the RunDetailVerdict enum.
+func (e RunDetailVerdict) Valid() bool {
+	switch e {
+	case RunDetailVerdictFail:
+		return true
+	case RunDetailVerdictFlaky:
+		return true
+	case RunDetailVerdictInfraError:
+		return true
+	case RunDetailVerdictInvalid:
+		return true
+	case RunDetailVerdictPass:
+		return true
+	case RunDetailVerdictSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunEvaluationSchemaVersion.
+const (
+	RunEvaluationSchemaVersionN1 RunEvaluationSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the RunEvaluationSchemaVersion enum.
+func (e RunEvaluationSchemaVersion) Valid() bool {
+	switch e {
+	case RunEvaluationSchemaVersionN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RunEvaluationStatus.
+const (
+	RunEvaluationStatusComplete RunEvaluationStatus = "complete"
+	RunEvaluationStatusFailed   RunEvaluationStatus = "failed"
+	RunEvaluationStatusPending  RunEvaluationStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the RunEvaluationStatus enum.
+func (e RunEvaluationStatus) Valid() bool {
+	switch e {
+	case RunEvaluationStatusComplete:
+		return true
+	case RunEvaluationStatusFailed:
+		return true
+	case RunEvaluationStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RunRecordEngineStatus.
 const (
-	RunRecordEngineStatusError   RunRecordEngineStatus = "error"
-	RunRecordEngineStatusSuccess RunRecordEngineStatus = "success"
+	Error   RunRecordEngineStatus = "error"
+	Success RunRecordEngineStatus = "success"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordEngineStatus enum.
 func (e RunRecordEngineStatus) Valid() bool {
 	switch e {
-	case RunRecordEngineStatusError:
+	case Error:
 		return true
-	case RunRecordEngineStatusSuccess:
+	case Success:
 		return true
 	default:
 		return false
@@ -944,19 +1457,19 @@ func (e RunRecordMode) Valid() bool {
 
 // Defines values for RunRecordStatus.
 const (
-	Done     RunRecordStatus = "done"
-	Enqueued RunRecordStatus = "enqueued"
-	Running  RunRecordStatus = "running"
+	RunRecordStatusDone     RunRecordStatus = "done"
+	RunRecordStatusEnqueued RunRecordStatus = "enqueued"
+	RunRecordStatusRunning  RunRecordStatus = "running"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordStatus enum.
 func (e RunRecordStatus) Valid() bool {
 	switch e {
-	case Done:
+	case RunRecordStatusDone:
 		return true
-	case Enqueued:
+	case RunRecordStatusEnqueued:
 		return true
-	case Running:
+	case RunRecordStatusRunning:
 		return true
 	default:
 		return false
@@ -1011,18 +1524,114 @@ func (e RunRecordVerdict) Valid() bool {
 	}
 }
 
+// Defines values for ScoreDataType.
+const (
+	ScoreDataTypeBOOLEAN     ScoreDataType = "BOOLEAN"
+	ScoreDataTypeCATEGORICAL ScoreDataType = "CATEGORICAL"
+	ScoreDataTypeNUMERIC     ScoreDataType = "NUMERIC"
+)
+
+// Valid indicates whether the value is a known member of the ScoreDataType enum.
+func (e ScoreDataType) Valid() bool {
+	switch e {
+	case ScoreDataTypeBOOLEAN:
+		return true
+	case ScoreDataTypeCATEGORICAL:
+		return true
+	case ScoreDataTypeNUMERIC:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ScorePolarity.
+const (
+	ScorePolarityHigherBetter ScorePolarity = "higher_better"
+	ScorePolarityLowerBetter  ScorePolarity = "lower_better"
+	ScorePolarityNone         ScorePolarity = "none"
+)
+
+// Valid indicates whether the value is a known member of the ScorePolarity enum.
+func (e ScorePolarity) Valid() bool {
+	switch e {
+	case ScorePolarityHigherBetter:
+		return true
+	case ScorePolarityLowerBetter:
+		return true
+	case ScorePolarityNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ScoreSource.
+const (
+	Deterministic ScoreSource = "deterministic"
+	Human         ScoreSource = "human"
+	LlmJudge      ScoreSource = "llm_judge"
+)
+
+// Valid indicates whether the value is a known member of the ScoreSource enum.
+func (e ScoreSource) Valid() bool {
+	switch e {
+	case Deterministic:
+		return true
+	case Human:
+		return true
+	case LlmJudge:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TelemetryHealthMode.
+const (
+	Local TelemetryHealthMode = "local"
+	Off   TelemetryHealthMode = "off"
+)
+
+// Valid indicates whether the value is a known member of the TelemetryHealthMode enum.
+func (e TelemetryHealthMode) Valid() bool {
+	switch e {
+	case Local:
+		return true
+	case Off:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TelemetryHealthSchemaVersion.
+const (
+	N1 TelemetryHealthSchemaVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the TelemetryHealthSchemaVersion enum.
+func (e TelemetryHealthSchemaVersion) Valid() bool {
+	switch e {
+	case N1:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpdateAppInputTarget.
 const (
-	Code UpdateAppInputTarget = "code"
-	E2e  UpdateAppInputTarget = "e2e"
+	UpdateAppInputTargetCode UpdateAppInputTarget = "code"
+	UpdateAppInputTargetE2e  UpdateAppInputTarget = "e2e"
 )
 
 // Valid indicates whether the value is a known member of the UpdateAppInputTarget enum.
 func (e UpdateAppInputTarget) Valid() bool {
 	switch e {
-	case Code:
+	case UpdateAppInputTargetCode:
 		return true
-	case E2e:
+	case UpdateAppInputTargetE2e:
 		return true
 	default:
 		return false
@@ -1077,6 +1686,21 @@ func (e GetAppTrendsParamsFormat) Valid() bool {
 	case GetAppTrendsParamsFormatCsv:
 		return true
 	case GetAppTrendsParamsFormatJson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetRunEvaluationParamsVersions.
+const (
+	All GetRunEvaluationParamsVersions = "all"
+)
+
+// Valid indicates whether the value is a known member of the GetRunEvaluationParamsVersions enum.
+func (e GetRunEvaluationParamsVersions) Valid() bool {
+	switch e {
+	case All:
 		return true
 	default:
 		return false
@@ -1215,6 +1839,7 @@ type AgentTurnView struct {
 	Role                    string              `json:"role"`
 	Round                   int                 `json:"round"`
 	RunId                   *string             `json:"runId"`
+	SameFileReadCount       *int                `json:"sameFileReadCount"`
 	SessionId               string              `json:"sessionId"`
 	StepsUsed               *int                `json:"stepsUsed"`
 	TimeToFirstCallMs       *int                `json:"timeToFirstCallMs"`
@@ -1229,6 +1854,7 @@ type AgentTurnView struct {
 		Scope  *string                          `json:"scope,omitempty"`
 		Target *string                          `json:"target"`
 		Tool   string                           `json:"tool"`
+		Window *string                          `json:"window,omitempty"`
 	} `json:"toolSequence"`
 	TotalCalls *int   `json:"totalCalls"`
 	Ts         string `json:"ts"`
@@ -1249,6 +1875,15 @@ type AgentTurnViewEnded string
 
 // AgentTurnViewToolSequenceDenied defines model for AgentTurnView.ToolSequence.Denied.
 type AgentTurnViewToolSequenceDenied bool
+
+// ApiError defines model for ApiError.
+type ApiError struct {
+	Error         string                `json:"error"`
+	SchemaVersion ApiErrorSchemaVersion `json:"schemaVersion"`
+}
+
+// ApiErrorSchemaVersion defines model for ApiError.SchemaVersion.
+type ApiErrorSchemaVersion float32
 
 // AppAuthInput defines model for AppAuthInput.
 type AppAuthInput struct {
@@ -1359,6 +1994,33 @@ type AskResponse struct {
 	Answer string `json:"answer"`
 }
 
+// CampaignRuns defines model for CampaignRuns.
+type CampaignRuns struct {
+	CampaignId string `json:"campaignId"`
+	Complete   bool   `json:"complete"`
+	Runs       []struct {
+		EvaluationStatus CampaignRunsRunsEvaluationStatus `json:"evaluationStatus"`
+		Id               string                           `json:"id"`
+		Replicate        int                              `json:"replicate"`
+		Status           CampaignRunsRunsStatus           `json:"status"`
+		Variant          map[string]string                `json:"variant"`
+		Verdict          *CampaignRunsRunsVerdict         `json:"verdict,omitempty"`
+	} `json:"runs"`
+	SchemaVersion CampaignRunsSchemaVersion `json:"schemaVersion"`
+}
+
+// CampaignRunsRunsEvaluationStatus defines model for CampaignRuns.Runs.EvaluationStatus.
+type CampaignRunsRunsEvaluationStatus string
+
+// CampaignRunsRunsStatus defines model for CampaignRuns.Runs.Status.
+type CampaignRunsRunsStatus string
+
+// CampaignRunsRunsVerdict defines model for CampaignRuns.Runs.Verdict.
+type CampaignRunsRunsVerdict string
+
+// CampaignRunsSchemaVersion defines model for CampaignRuns.SchemaVersion.
+type CampaignRunsSchemaVersion float32
+
 // ChatEntry defines model for ChatEntry.
 type ChatEntry struct {
 	Role string `json:"role"`
@@ -1465,9 +2127,25 @@ type CreateAppResult struct {
 
 // CreateRunInput defines model for CreateRunInput.
 type CreateRunInput struct {
-	App      string               `json:"app"`
-	BaseSha  *string              `json:"baseSha,omitempty"`
-	Commits  *int                 `json:"commits,omitempty"`
+	AgentBrowser *bool   `json:"agentBrowser,omitempty"`
+	App          string  `json:"app"`
+	BaseSha      *string `json:"baseSha,omitempty"`
+	Campaign     *struct {
+		Id        string            `json:"id"`
+		Replicate int               `json:"replicate"`
+		Variant   map[string]string `json:"variant"`
+	} `json:"campaign,omitempty"`
+	CaptureMode      *CreateRunInputCaptureMode      `json:"captureMode,omitempty"`
+	ClosedLoop       *bool                           `json:"closedLoop,omitempty"`
+	Commits          *int                            `json:"commits,omitempty"`
+	CoordinationMode *CreateRunInputCoordinationMode `json:"coordinationMode,omitempty"`
+	Grounding        *struct {
+		Curriculum       *bool `json:"curriculum,omitempty"`
+		DomPack          *bool `json:"domPack,omitempty"`
+		Explorer         *bool `json:"explorer,omitempty"`
+		Stitcher         *bool `json:"stitcher,omitempty"`
+		StructuralSignal *bool `json:"structuralSignal,omitempty"`
+	} `json:"grounding,omitempty"`
 	Guidance *string              `json:"guidance,omitempty"`
 	Mode     CreateRunInputMode   `json:"mode"`
 	Ref      *string              `json:"ref,omitempty"`
@@ -1475,6 +2153,12 @@ type CreateRunInput struct {
 	Shadow   *bool                `json:"shadow,omitempty"`
 	Target   CreateRunInputTarget `json:"target"`
 }
+
+// CreateRunInputCaptureMode defines model for CreateRunInput.CaptureMode.
+type CreateRunInputCaptureMode string
+
+// CreateRunInputCoordinationMode defines model for CreateRunInput.CoordinationMode.
+type CreateRunInputCoordinationMode string
 
 // CreateRunInputMode defines model for CreateRunInput.Mode.
 type CreateRunInputMode string
@@ -1484,16 +2168,20 @@ type CreateRunInputTarget string
 
 // CreateRunResult defines model for CreateRunResult.
 type CreateRunResult struct {
-	App    string                `json:"app"`
-	Id     string                `json:"id"`
-	Mode   CreateRunResultMode   `json:"mode"`
-	Sha    string                `json:"sha"`
-	Status string                `json:"status"`
-	Target CreateRunResultTarget `json:"target"`
+	App           string                       `json:"app"`
+	Id            string                       `json:"id"`
+	Mode          CreateRunResultMode          `json:"mode"`
+	SchemaVersion CreateRunResultSchemaVersion `json:"schemaVersion"`
+	Sha           string                       `json:"sha"`
+	Status        string                       `json:"status"`
+	Target        CreateRunResultTarget        `json:"target"`
 }
 
 // CreateRunResultMode defines model for CreateRunResult.Mode.
 type CreateRunResultMode string
+
+// CreateRunResultSchemaVersion defines model for CreateRunResult.SchemaVersion.
+type CreateRunResultSchemaVersion float32
 
 // CreateRunResultTarget defines model for CreateRunResult.Target.
 type CreateRunResultTarget string
@@ -1522,6 +2210,37 @@ type ErrorClassCount struct {
 	Multiplier    *float32 `json:"multiplier"`
 	PreviousCount int      `json:"previousCount"`
 }
+
+// EvaluationCatalog defines model for EvaluationCatalog.
+type EvaluationCatalog struct {
+	Phases        []string                       `json:"phases"`
+	SchemaVersion EvaluationCatalogSchemaVersion `json:"schemaVersion"`
+	Scores        []struct {
+		Categories    *[]string                       `json:"categories,omitempty"`
+		DataType      EvaluationCatalogScoresDataType `json:"dataType"`
+		GraderVersion string                          `json:"graderVersion"`
+		Name          string                          `json:"name"`
+		Polarity      EvaluationCatalogScoresPolarity `json:"polarity"`
+		Range         *struct {
+			Max *float32 `json:"max,omitempty"`
+			Min float32  `json:"min"`
+		} `json:"range,omitempty"`
+		Status   *EvaluationCatalogScoresStatus `json:"status,omitempty"`
+		Suffixes *[]string                      `json:"suffixes,omitempty"`
+	} `json:"scores"`
+}
+
+// EvaluationCatalogSchemaVersion defines model for EvaluationCatalog.SchemaVersion.
+type EvaluationCatalogSchemaVersion float32
+
+// EvaluationCatalogScoresDataType defines model for EvaluationCatalog.Scores.DataType.
+type EvaluationCatalogScoresDataType string
+
+// EvaluationCatalogScoresPolarity defines model for EvaluationCatalog.Scores.Polarity.
+type EvaluationCatalogScoresPolarity string
+
+// EvaluationCatalogScoresStatus defines model for EvaluationCatalog.Scores.Status.
+type EvaluationCatalogScoresStatus string
 
 // FlakyTrend defines model for FlakyTrend.
 type FlakyTrend struct {
@@ -1737,14 +2456,24 @@ type PublicAgentConfigValidationDowngradeProvider string
 
 // QaCase defines model for QaCase.
 type QaCase struct {
-	Detail     *string      `json:"detail,omitempty"`
-	DurationMs *float32     `json:"durationMs,omitempty"`
-	Flow       *string      `json:"flow,omitempty"`
-	Name       string       `json:"name"`
-	Objective  *string      `json:"objective,omitempty"`
-	Reason     *string      `json:"reason,omitempty"`
-	Status     QaCaseStatus `json:"status"`
+	Detail        *string             `json:"detail,omitempty"`
+	DurationMs    *float32            `json:"durationMs,omitempty"`
+	Flow          *string             `json:"flow,omitempty"`
+	Name          string              `json:"name"`
+	NetworkClass  *QaCaseNetworkClass `json:"networkClass,omitempty"`
+	NetworkErrors *[]struct {
+		ErrorText    *string `json:"errorText,omitempty"`
+		ResourceType *string `json:"resourceType,omitempty"`
+		Status       *int    `json:"status,omitempty"`
+		Url          string  `json:"url"`
+	} `json:"networkErrors,omitempty"`
+	Objective *string      `json:"objective,omitempty"`
+	Reason    *string      `json:"reason,omitempty"`
+	Status    QaCaseStatus `json:"status"`
 }
+
+// QaCaseNetworkClass defines model for QaCase.NetworkClass.
+type QaCaseNetworkClass string
 
 // QaCaseStatus defines model for QaCase.Status.
 type QaCaseStatus string
@@ -1757,6 +2486,45 @@ type QueueStatus struct {
 		Id  string `json:"id"`
 	} `json:"running"`
 }
+
+// RegradeJob defines model for RegradeJob.
+type RegradeJob struct {
+	Failed []struct {
+		Error string `json:"error"`
+		RunId string `json:"runId"`
+	} `json:"failed"`
+	FinishedAt    *string                 `json:"finishedAt,omitempty"`
+	Graded        int                     `json:"graded"`
+	JobId         string                  `json:"jobId"`
+	Runs          int                     `json:"runs"`
+	SchemaVersion RegradeJobSchemaVersion `json:"schemaVersion"`
+	StartedAt     string                  `json:"startedAt"`
+	Status        RegradeJobStatus        `json:"status"`
+}
+
+// RegradeJobSchemaVersion defines model for RegradeJob.SchemaVersion.
+type RegradeJobSchemaVersion float32
+
+// RegradeJobStatus defines model for RegradeJob.Status.
+type RegradeJobStatus string
+
+// RegradeRequest defines model for RegradeRequest.
+type RegradeRequest struct {
+	CampaignId *string   `json:"campaignId,omitempty"`
+	Graders    *[]string `json:"graders,omitempty"`
+	RunIds     *[]string `json:"runIds,omitempty"`
+	Since      *string   `json:"since,omitempty"`
+}
+
+// RegradeStarted defines model for RegradeStarted.
+type RegradeStarted struct {
+	JobId         string                      `json:"jobId"`
+	Runs          int                         `json:"runs"`
+	SchemaVersion RegradeStartedSchemaVersion `json:"schemaVersion"`
+}
+
+// RegradeStartedSchemaVersion defines model for RegradeStarted.SchemaVersion.
+type RegradeStartedSchemaVersion float32
 
 // RepoInfo defines model for RepoInfo.
 type RepoInfo struct {
@@ -1839,6 +2607,137 @@ type RoleAssignment struct {
 // RoleAssignmentProvider defines model for RoleAssignment.Provider.
 type RoleAssignmentProvider string
 
+// RunDetail defines model for RunDetail.
+type RunDetail struct {
+	Activity *[]AgentActivity `json:"activity,omitempty"`
+	App      string           `json:"app"`
+	At       string           `json:"at"`
+	Budgets  struct {
+		Exhausted bool    `json:"exhausted"`
+		Limit     *string `json:"limit,omitempty"`
+		Role      *string `json:"role,omitempty"`
+	} `json:"budgets"`
+	Campaign *struct {
+		Id        string            `json:"id"`
+		Replicate int               `json:"replicate"`
+		Variant   map[string]string `json:"variant"`
+	} `json:"campaign,omitempty"`
+	Cases           []QaCase `json:"cases"`
+	Decision        *string  `json:"decision"`
+	EffectiveConfig struct {
+		Agents map[string]struct {
+			Model           *string `json:"model"`
+			Provider        *string `json:"provider"`
+			ReasoningEffort *string `json:"reasoningEffort"`
+			StepLimit       *int    `json:"stepLimit"`
+		} `json:"agents"`
+		CampaignFreeze *bool `json:"campaignFreeze"`
+		Coverage       struct {
+			MinRatio *float32 `json:"minRatio"`
+			Mode     *string  `json:"mode"`
+		} `json:"coverage"`
+		Grounding struct {
+			Curriculum       *string `json:"curriculum"`
+			DomPack          *bool   `json:"domPack"`
+			Explorer         *bool   `json:"explorer"`
+			Stitcher         *string `json:"stitcher"`
+			StructuralSignal *string `json:"structuralSignal"`
+		} `json:"grounding"`
+		Levers struct {
+			AgentBrowser     *bool                                           `json:"agentBrowser"`
+			CaptureMode      *RunDetailEffectiveConfigLeversCaptureMode      `json:"captureMode"`
+			ClosedLoop       *bool                                           `json:"closedLoop"`
+			CoordinationMode *RunDetailEffectiveConfigLeversCoordinationMode `json:"coordinationMode"`
+		} `json:"levers"`
+		Prompt struct {
+			StaticHash *string `json:"staticHash"`
+		} `json:"prompt"`
+		Reflector *bool   `json:"reflector"`
+		Runtime   *string `json:"runtime"`
+	} `json:"effectiveConfig"`
+	EngineStatus  *RunDetailEngineStatus `json:"engineStatus,omitempty"`
+	Failed        *int                   `json:"failed,omitempty"`
+	FurthestPhase *string                `json:"furthestPhase"`
+	Id            string                 `json:"id"`
+	Logs          []string               `json:"logs"`
+	Mode          RunDetailMode          `json:"mode"`
+	Note          *string                `json:"note,omitempty"`
+	ParentRunId   *string                `json:"parentRunId,omitempty"`
+	Passed        *int                   `json:"passed,omitempty"`
+	Phases        []struct {
+		DurationMs float32 `json:"durationMs"`
+		Name       string  `json:"name"`
+	} `json:"phases"`
+	Ref           *string                `json:"ref,omitempty"`
+	Retrying      *bool                  `json:"retrying,omitempty"`
+	SchemaVersion RunDetailSchemaVersion `json:"schemaVersion"`
+	Sha           string                 `json:"sha"`
+	SpecCounts    struct {
+		Generated int  `json:"generated"`
+		Passed    *int `json:"passed"`
+		Valid     *int `json:"valid"`
+	} `json:"specCounts"`
+	Specs         *[]SpecRecord   `json:"specs,omitempty"`
+	Status        RunDetailStatus `json:"status"`
+	Step          *string         `json:"step,omitempty"`
+	StepDetail    *string         `json:"stepDetail,omitempty"`
+	StepStartedAt *string         `json:"stepStartedAt,omitempty"`
+	Target        RunDetailTarget `json:"target"`
+	Telemetry     *struct {
+		TraceId  string  `json:"traceId"`
+		TraceUrl *string `json:"traceUrl,omitempty"`
+	} `json:"telemetry"`
+	TriggerRepo *string `json:"triggerRepo,omitempty"`
+	Usage       struct {
+		CacheReadTokens  float32 `json:"cacheReadTokens"`
+		CacheWriteTokens float32 `json:"cacheWriteTokens"`
+		CostUsd          float32 `json:"costUsd"`
+		InputTokens      float32 `json:"inputTokens"`
+		OutputTokens     float32 `json:"outputTokens"`
+		ReasoningTokens  float32 `json:"reasoningTokens"`
+	} `json:"usage"`
+	Verdict *RunDetailVerdict `json:"verdict,omitempty"`
+}
+
+// RunDetailEffectiveConfigLeversCaptureMode defines model for RunDetail.EffectiveConfig.Levers.CaptureMode.
+type RunDetailEffectiveConfigLeversCaptureMode string
+
+// RunDetailEffectiveConfigLeversCoordinationMode defines model for RunDetail.EffectiveConfig.Levers.CoordinationMode.
+type RunDetailEffectiveConfigLeversCoordinationMode string
+
+// RunDetailEngineStatus defines model for RunDetail.EngineStatus.
+type RunDetailEngineStatus string
+
+// RunDetailMode defines model for RunDetail.Mode.
+type RunDetailMode string
+
+// RunDetailSchemaVersion defines model for RunDetail.SchemaVersion.
+type RunDetailSchemaVersion float32
+
+// RunDetailStatus defines model for RunDetail.Status.
+type RunDetailStatus string
+
+// RunDetailTarget defines model for RunDetail.Target.
+type RunDetailTarget string
+
+// RunDetailVerdict defines model for RunDetail.Verdict.
+type RunDetailVerdict string
+
+// RunEvaluation defines model for RunEvaluation.
+type RunEvaluation struct {
+	RunId         string                     `json:"runId"`
+	SchemaVersion RunEvaluationSchemaVersion `json:"schemaVersion"`
+	Scores        []Score                    `json:"scores"`
+	Status        RunEvaluationStatus        `json:"status"`
+	TraceId       *string                    `json:"traceId"`
+}
+
+// RunEvaluationSchemaVersion defines model for RunEvaluation.SchemaVersion.
+type RunEvaluationSchemaVersion float32
+
+// RunEvaluationStatus defines model for RunEvaluation.Status.
+type RunEvaluationStatus string
+
 // RunRecord defines model for RunRecord.
 type RunRecord struct {
 	Activity      *[]AgentActivity       `json:"activity,omitempty"`
@@ -1885,6 +2784,42 @@ type RunRecordVerdict string
 type RunReportView struct {
 	Current   ReportView  `json:"current"`
 	Evolution *ReportView `json:"evolution"`
+}
+
+// Score defines model for Score.
+type Score struct {
+	Comment       *string       `json:"comment,omitempty"`
+	DataType      ScoreDataType `json:"dataType"`
+	GraderVersion string        `json:"graderVersion"`
+	JudgeModel    *string       `json:"judgeModel,omitempty"`
+	Name          string        `json:"name"`
+	ObservationId *string       `json:"observationId,omitempty"`
+	Polarity      ScorePolarity `json:"polarity"`
+	Source        ScoreSource   `json:"source"`
+	Value         Score_Value   `json:"value"`
+}
+
+// ScoreDataType defines model for Score.DataType.
+type ScoreDataType string
+
+// ScorePolarity defines model for Score.Polarity.
+type ScorePolarity string
+
+// ScoreSource defines model for Score.Source.
+type ScoreSource string
+
+// ScoreValue0 defines model for .
+type ScoreValue0 = float32
+
+// ScoreValue1 defines model for .
+type ScoreValue1 = bool
+
+// ScoreValue2 defines model for .
+type ScoreValue2 = string
+
+// Score_Value defines model for Score.Value.
+type Score_Value struct {
+	union json.RawMessage
 }
 
 // ScorecardView defines model for ScorecardView.
@@ -1937,6 +2872,45 @@ type SpecRecord struct {
 	Name      string  `json:"name"`
 	Objective *string `json:"objective,omitempty"`
 }
+
+// TelemetryHealth defines model for TelemetryHealth.
+type TelemetryHealth struct {
+	CampaignFreeze    bool `json:"campaignFreeze"`
+	DroppedAttributes int  `json:"droppedAttributes"`
+	Host              *struct {
+		BlockedLoops   int      `json:"blockedLoops"`
+		EventLoopP99Ms *float32 `json:"eventLoopP99Ms,omitempty"`
+		LastSuspendAt  *string  `json:"lastSuspendAt,omitempty"`
+		LastSuspendMs  *float32 `json:"lastSuspendMs,omitempty"`
+		Suspends       int      `json:"suspends"`
+		Zombies        *int     `json:"zombies,omitempty"`
+	} `json:"host,omitempty"`
+	Ledger struct {
+		Ok          bool `json:"ok"`
+		Spans       int  `json:"spans"`
+		WriteErrors int  `json:"writeErrors"`
+	} `json:"ledger"`
+	Mode TelemetryHealthMode `json:"mode"`
+	Otlp struct {
+		Configured   bool    `json:"configured"`
+		Dropped      int     `json:"dropped"`
+		LastError    *string `json:"lastError,omitempty"`
+		LastExportAt *string `json:"lastExportAt,omitempty"`
+	} `json:"otlp"`
+	SchemaVersion TelemetryHealthSchemaVersion `json:"schemaVersion"`
+	ScoreSink     struct {
+		Configured   bool    `json:"configured"`
+		Faults       *int    `json:"faults,omitempty"`
+		LastError    *string `json:"lastError,omitempty"`
+		LastExportAt *string `json:"lastExportAt,omitempty"`
+	} `json:"scoreSink"`
+}
+
+// TelemetryHealthMode defines model for TelemetryHealth.Mode.
+type TelemetryHealthMode string
+
+// TelemetryHealthSchemaVersion defines model for TelemetryHealth.SchemaVersion.
+type TelemetryHealthSchemaVersion float32
 
 // TrendWindow defines model for TrendWindow.
 type TrendWindow struct {
@@ -2060,6 +3034,14 @@ type ListRunsParams struct {
 	Limit *int   `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetRunEvaluationParams defines parameters for GetRunEvaluation.
+type GetRunEvaluationParams struct {
+	Versions *GetRunEvaluationParamsVersions `form:"versions,omitempty" json:"versions,omitempty"`
+}
+
+// GetRunEvaluationParamsVersions defines parameters for GetRunEvaluation.
+type GetRunEvaluationParamsVersions string
+
 // StreamRunEventsParams defines parameters for StreamRunEvents.
 type StreamRunEventsParams struct {
 	LastEventID *string `json:"Last-Event-ID,omitempty"`
@@ -2099,6 +3081,9 @@ type ProposeBoundariesJSONRequestBody = ProposeBoundariesInput
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
+
+// RegradeJSONRequestBody defines body for Regrade for application/json ContentType.
+type RegradeJSONRequestBody = RegradeRequest
 
 // HelpJSONRequestBody defines body for Help for application/json ContentType.
 type HelpJSONRequestBody = AskRequest
@@ -2196,6 +3181,94 @@ func (t OnboardingJobStatus_ResolvedProfile) MarshalJSON() ([]byte, error) {
 }
 
 func (t *OnboardingJobStatus_ResolvedProfile) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsScoreValue0 returns the union data inside the Score_Value as a ScoreValue0
+func (t Score_Value) AsScoreValue0() (ScoreValue0, error) {
+	var body ScoreValue0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromScoreValue0 overwrites any union data inside the Score_Value as the provided ScoreValue0
+func (t *Score_Value) FromScoreValue0(v ScoreValue0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeScoreValue0 performs a merge with any union data inside the Score_Value, using the provided ScoreValue0
+func (t *Score_Value) MergeScoreValue0(v ScoreValue0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsScoreValue1 returns the union data inside the Score_Value as a ScoreValue1
+func (t Score_Value) AsScoreValue1() (ScoreValue1, error) {
+	var body ScoreValue1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromScoreValue1 overwrites any union data inside the Score_Value as the provided ScoreValue1
+func (t *Score_Value) FromScoreValue1(v ScoreValue1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeScoreValue1 performs a merge with any union data inside the Score_Value, using the provided ScoreValue1
+func (t *Score_Value) MergeScoreValue1(v ScoreValue1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsScoreValue2 returns the union data inside the Score_Value as a ScoreValue2
+func (t Score_Value) AsScoreValue2() (ScoreValue2, error) {
+	var body ScoreValue2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromScoreValue2 overwrites any union data inside the Score_Value as the provided ScoreValue2
+func (t *Score_Value) FromScoreValue2(v ScoreValue2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeScoreValue2 performs a merge with any union data inside the Score_Value, using the provided ScoreValue2
+func (t *Score_Value) MergeScoreValue2(v ScoreValue2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Score_Value) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Score_Value) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
