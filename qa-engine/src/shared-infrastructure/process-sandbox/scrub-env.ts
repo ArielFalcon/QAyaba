@@ -2,6 +2,8 @@
 
 /* Secret FAMILIES that must never reach untrusted code (prefix match). Defense-in-depth: the allowlist is the real gate, but blocking secrets explicitly guards against an allowlist entry widening to one. */
 const BLOCKED_ENV_PREFIX = /^(?:GITHUB_TOKEN|GH_TOKEN|OPENCODE_API_KEY|OPENCODE_SERVER_PASSWORD|WEBHOOK_SECRET|QA_API_TOKEN|DOPPLER_|LANGFUSE_|AWS_|AZURE_|GCP_|GOOGLE_APPLICATION_CREDENTIALS|NPM_TOKEN|NODE_AUTH_TOKEN)/;
+/* Any provider's API key, whatever the provider is named: a model provider added in config brings its key with it. */
+const BLOCKED_ENV_SUFFIX = /_API_KEY$/;
 
 /* Allowed exact var names (OS + language essentials that are single vars, not families). */
 const ALLOWED_ENV_EXACT = new Set([
@@ -35,7 +37,7 @@ export function scrubEnvFrom(source: NodeJS.ProcessEnv, opts?: ScrubEnvOptions):
   const dropped: string[] = [];
   for (const [key, value] of Object.entries(source)) {
     if (value === undefined) continue;
-    if (BLOCKED_ENV_PREFIX.test(key)) continue;
+    if (BLOCKED_ENV_PREFIX.test(key) || BLOCKED_ENV_SUFFIX.test(key)) continue;
     if (
       ALLOWED_ENV_EXACT.has(key) ||
       ALLOWED_ENV_PREFIX.test(key) ||

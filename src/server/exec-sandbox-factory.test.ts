@@ -43,7 +43,7 @@ test("the run's and the scripts' launchers refuse agent code when the boot check
 });
 
 /* An operator script's suite lives in a throwaway copy under the mirrors volume, which boot closes to root: the scripts' launcher opens the mirror a child runs in to the sandbox group, as a run's does, or the sandbox uid cannot reach the suite it installs or runs. */
-test("the scripts' launcher opens the mirror a child runs in to the sandbox group, and its scope seals the mirrors", async () => {
+test("the scripts' launcher opens the mirror a child runs in to the sandbox group, and its scope closes that mirror and no other", async () => {
   const dir = mkdtempSync(join(tmpdir(), "exec-factory-"));
   try {
     const mirrors = join(dir, "mirrors");
@@ -52,7 +52,7 @@ test("the scripts' launcher opens the mirror a child runs in to the sandbox grou
     const calls: string[] = [];
     const mirrorOps = {
       lstat: () => ({ isDirectory: () => true, uid: 0 }),
-      readdir: () => [".baseline"],
+      readdir: () => [".baseline", "live-app"],
       chown: (path: string, uid: number, gid: number) => { calls.push(`chown ${path} ${uid}:${gid}`); },
       chmod: (path: string, mode: number) => { calls.push(`chmod ${path} ${mode.toString(8)}`); },
     };
@@ -60,12 +60,15 @@ test("the scripts' launcher opens the mirror a child runs in to the sandbox grou
     const sandbox = { uid: process.getuid?.() ?? 1002, gid: process.getgid?.() ?? 1002, home: dir };
     const script = buildScriptExec(env, sandbox, undefined, { mirrorRoot: mirrors, mirrorOps });
     await script.scoped({ runId: "r" }, async () => {
-      assert.ok(calls.includes(`chmod ${mirrors} 711`), "the scope seals the mirrors when it opens");
-      const scope = { runId: "r", workDir: dir, egress: { dev: [], install: [] }, report: newSandboxReport() };
-      const child = script.exec.spawn("true", [], { cwd: copy, profile: "offline", scope });
+      const child = script.exec.spawn("true", [], { cwd: copy, profile: "offline" });
       await new Promise((resolve) => child.on("close", resolve));
     });
-    assert.ok(calls.includes(`chown ${join(mirrors, ".baseline")} 0:${sandbox.gid}`), "the copy's mirror is opened to the sandbox group");
+    const baseline = join(mirrors, ".baseline");
+    assert.ok(calls.includes(`chown ${baseline} 0:${sandbox.gid}`), "the copy's mirror is opened to the sandbox group");
+    assert.ok(calls.includes(`chown ${baseline} 0:0`), "the scope closes the mirror it opened");
+    /* A live run may have its own mirror open beside the script: the script's scope never seals it. */
+    assert.ok(!calls.some((c) => c.includes("live-app")), "another mirror is left as it is");
+    assert.ok(!calls.includes(`chmod ${mirrors} 711`), "the script does not seal the whole volume");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

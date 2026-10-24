@@ -5,7 +5,7 @@ import { activeRunSecretScope } from "../run-secret-redaction.ts";
 import { newSandboxReport, withExecScope, type ExecScopePort, type RunScope } from "./exec-scope.ts";
 import { SandboxUnavailableError, type EgressGate } from "./exec-sandbox.ts";
 import { openRunWorkDir, removeRunWorkDir } from "./exec-workdir.ts";
-import { sealMirrors, type MirrorFsOps } from "./mirror-access.ts";
+import { closeMirror, sealMirrors, type MirrorFsOps } from "./mirror-access.ts";
 import { SandboxResidueError, type SandboxReaper } from "./sandbox-reaper.ts";
 import type { Sandbox } from "./sandbox.ts";
 
@@ -22,6 +22,11 @@ export interface ExecScopeProviderDeps {
   /* The mirrors volume: every mirror is sealed to root alone when a run opens its scope and again when it ends, so none stays open to the sandbox group (and one created since boot is closed). */
   mirrorRoot?: string;
   mirrorOps?: MirrorFsOps;
+  /*
+   * Whether the scope seals every mirror (a run: none stays open, one created since boot included) or closes only the mirrors its own
+   * children were given (a script, which may run beside a live run whose mirror must stay open). Default: every mirror.
+   */
+  mirrorSeal?: "all" | "own";
   /* The egress filter, prepared for the run's origins before its first child. */
   egressGate?: EgressGate;
   /* Ends every process the sandbox uid still has when the scope opens (an earlier run's) and when it closes (this run's). Absent: nothing is reaped. */
@@ -49,7 +54,7 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
         }
       }
       await deps.egressGate?.prepare?.([...deps.egress.dev, ...deps.egress.install]);
-      sealAll();
+      if (deps.mirrorSeal !== "own") sealAll();
       const workDir = openRunWorkDir(deps.workRoot, runId, deps.sandbox);
       const scope: RunScope = {
         runId,
@@ -76,11 +81,23 @@ export function createExecScopeProvider(deps: ExecScopeProviderDeps): ExecScopeP
           }
           removeRunWorkDir(workDir);
           /* The mirrors the run opened to the sandbox's group go back to root alone. */
-          sealAll();
+          if (deps.mirrorSeal !== "own") sealAll();
+          else closeOwnMirrors(scope.openedMirrors, deps.mirrorOps);
         },
       };
     },
   };
+}
+
+/* Closes the mirrors one scope's children were given, and no other. A fault is said; the next run's scope seals every mirror. */
+function closeOwnMirrors(opened: ReadonlySet<string> | undefined, ops: MirrorFsOps | undefined): void {
+  for (const dir of opened ?? []) {
+    try {
+      closeMirror(dir, ops);
+    } catch (err) {
+      console.warn(`[qa] WARNING: a mirror could not be closed (${err instanceof Error ? err.message : String(err)}); the next run's scope seals it.`);
+    }
+  }
 }
 
 export function defaultWorkRoot(tmp: string): string {

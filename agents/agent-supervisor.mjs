@@ -74,7 +74,7 @@ export function codexExecEnv(env = process.env) {
 export function redactForResponse(msg) {
   if (typeof msg !== "string") return msg;
   let out = msg;
-  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", "OPENCODE_API_KEY", "DEEPSEEK_API_KEY", "OPENCODE_SERVER_PASSWORD", "QA_TOOLS_TOKEN"]) {
+  for (const name of ["CODEX_API_KEY", "OPENAI_API_KEY", ...OPENCODE_PROVIDER_KEYS, "OPENCODE_SERVER_PASSWORD", "QA_TOOLS_TOKEN"]) {
     const value = process.env[name];
     if (value && value.length >= 6 && out.includes(value)) out = out.split(value).join("[REDACTED_CREDENTIAL]");
   }
@@ -82,6 +82,9 @@ export function redactForResponse(msg) {
 }
 
 const children = new Map();
+// The keys OpenCode can run on: its own gateway's, and every provider key agents/opencode.json reads ({env:NAME}).
+export const OPENCODE_PROVIDER_KEYS = ["OPENCODE_API_KEY", "DEEPSEEK_API_KEY"];
+
 const state = new Map(PROVIDERS.map((provider) => [provider, {
   provider,
   status: "stopped",
@@ -89,7 +92,7 @@ const state = new Map(PROVIDERS.map((provider) => [provider, {
 }]));
 
 function hasKey(provider) {
-  return provider === "opencode" ? Boolean(process.env.OPENCODE_API_KEY) : Boolean(process.env.CODEX_API_KEY);
+  return provider === "opencode" ? OPENCODE_PROVIDER_KEYS.some((name) => Boolean(process.env[name])) : Boolean(process.env.CODEX_API_KEY);
 }
 
 function selectedProviders() {
@@ -99,7 +102,7 @@ function selectedProviders() {
     ? "codex"
     : process.env.AGENT_SINGLE_PROVIDER === "opencode"
       ? "opencode"
-      : process.env.OPENCODE_API_KEY
+      : hasKey("opencode")
         ? "opencode"
         : process.env.CODEX_API_KEY
           ? "codex"

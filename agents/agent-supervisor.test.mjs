@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig, openCodeServerEnv, qaToolsEnv, commandFor, redactForResponse, codexExecEnv } from "./agent-supervisor.mjs";
+import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig, openCodeServerEnv, qaToolsEnv, commandFor, redactForResponse, codexExecEnv, OPENCODE_PROVIDER_KEYS } from "./agent-supervisor.mjs";
 
 // Importing agent-supervisor.mjs must NOT start the HTTP server (it is main-guarded). If it did, the
 // listening socket would keep this process alive and node:test would hang instead of exiting — so
@@ -413,4 +413,23 @@ test("ensureCodexConfig: a key that only starts with otel, or a table of another
   const codexHome = seed('otelish = 1\n[oteldata]\nx = 1\n');
   ensureCodexConfig(codexHome, { QA_AGENT_OTLP_ENDPOINT: OTLP });
   assert.match(configOf(codexHome), /v1\/traces/);
+});
+
+// OpenCode runs on any provider its config reads a key for: the supervisor counts every one of them as configuring
+// the runtime, and masks every one of them in its answers, so a provider added to opencode.json is never left out.
+test("every provider key opencode.json reads configures the OpenCode runtime and is masked in answers", () => {
+  const config = readFileSync(new URL("./opencode.json", import.meta.url), "utf8");
+  const read = [...config.matchAll(/\{env:([A-Z0-9_]+)\}/g)].map((m) => m[1]).filter((name) => name.endsWith("_API_KEY"));
+  assert.ok(read.length > 0, "opencode.json reads at least one provider key");
+  for (const name of read) {
+    assert.ok(OPENCODE_PROVIDER_KEYS.includes(name), `${name} configures the OpenCode runtime`);
+    const before = process.env[name];
+    process.env[name] = "provider-key-value-123456";
+    try {
+      assert.equal(redactForResponse("failed with provider-key-value-123456"), "failed with [REDACTED_CREDENTIAL]", `${name} is masked`);
+    } finally {
+      if (before === undefined) delete process.env[name];
+      else process.env[name] = before;
+    }
+  }
 });

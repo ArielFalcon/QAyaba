@@ -72,7 +72,7 @@ export interface ScriptExec {
   scoped<T>(scope: { runId: string; authDir?: string; devOrigins?: readonly string[]; installOrigins?: readonly string[] }, fn: () => Promise<T>): Promise<T>;
 }
 
-/* The mirrors volume the scripts' copies live in (MIRROR_DIR): the mirror a script's child runs in is opened to the sandbox group as a run's is, and every scope seals the mirrors when it opens and when it closes. Unset: no mirror is touched. */
+/* The mirrors volume the scripts' copies live in (MIRROR_DIR): the mirror a script's child runs in is opened to the sandbox group as a run's is, and the scope closes only the mirrors it opened, so a live run's mirror stays open. Unset: no mirror is touched. */
 export interface ScriptMirrors {
   mirrorRoot?: string;
   mirrorOps?: MirrorFsOps;
@@ -97,6 +97,8 @@ export function buildScriptExec(env: NodeJS.ProcessEnv, sandbox: Sandbox | null,
         egress: { dev: scope.devOrigins ?? [], install: scope.installOrigins ?? [] },
         ...(egress ? { egressGate: egress } : {}),
         ...mirrorDeps,
+        /* A script may run beside a live run: it closes only the mirrors it opened, never the run's. */
+        mirrorSeal: "own",
         ...(reaper ? { reaper } : {}),
       }).open({ runId: scope.runId });
       try {

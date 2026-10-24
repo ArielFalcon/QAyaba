@@ -117,3 +117,15 @@ test("scrubEnvFrom drops the Langfuse project keys even if a caller widens the a
   const out = scrubEnvFrom({ PATH: "/usr/bin", LANGFUSE_PUBLIC_KEY: "pk-lf-x", LANGFUSE_SECRET_KEY: "sk-lf-x" }, { extraAllowed: /^LANGFUSE_/, quiet: true });
   assert.deepEqual(out, { PATH: "/usr/bin" });
 });
+
+test("scrubEnv drops any provider's API key, whatever the provider is named, even if extraAllowed would match", () => {
+  const key = "SOMEPROVIDER_API_KEY";
+  const saved = process.env[key];
+  process.env[key] = "provider-secret";
+  try {
+    assert.equal(key in scrubEnv({ extraAllowed: /^SOMEPROVIDER_/ }), false);
+  } finally {
+    if (saved === undefined) delete process.env[key];
+    else process.env[key] = saved;
+  }
+});
