@@ -876,3 +876,44 @@ test("a pass whose flows delivered nothing is not kept, even with the lead's ses
   assert.equal(lead.disposed(), 1);
   assert.equal(r.disposed.length, 2);
 });
+
+test("a run stopped while a kept sidekick session answers a revision closes that session and ends the coordination", async () => {
+  const controller = new AbortController();
+  const never = new Promise<void>(() => {});
+  const lead = leadWith([[{ flow: "cart", action: "revise", instruction: "assert the total" }], []]);
+  const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }, { hold: never }] }, hasFile: new Set(["login"]) });
+  const pending = new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, signal: controller.signal }));
+  for (let i = 0; i < 50 && !r.executed.some((e) => e.asked); i++) await settle();
+  assert.ok(r.executed.some((e) => e.asked), "the revision was asked");
+  controller.abort();
+  const outcome = await pending;
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  const cart = r.executed.find((e) => !e.asked && e.brief.delegationId === "run-1-flow-cart")!;
+  assert.ok(r.sessionsDisposed.includes(cart.session), "the session answering the revision is closed");
+});
+
+test("findings the lead sends to a flow when too little of the run is left for it come back unrouted", async () => {
+  let left = 3_600_000;
+  const outputs = [ACCEPT_ALL, JSON.stringify({ corrections: [{ flow: "cart", action: "revise", instruction: "assert the total" }] })];
+  let turn = 0;
+  const plan: CoordinateInput["plan"] = async () => ({
+    plan: FANOUT_PLAN, parsed: true, timedOut: false,
+    lead: {
+      ask: async () => {
+        const output = outputs[Math.min(turn++, outputs.length - 1)]!;
+        if (turn === 2) left = MIN_FLOW_MS - 1;
+        return { output, timedOut: false };
+      },
+      dispose: async () => {},
+    },
+  });
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan, closedLoop: undefined, deadline: { remainingMs: () => left } }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
+  await outcome.pass!.release();
+  assert.deepEqual(corrected.specs, []);
+  assert.deepEqual(corrected.unrouted, ["the total is never asserted"]);
+  assert.equal(r.executed.some((e) => e.asked), false, "no sidekick was asked");
+  assert.equal(outcome.pass!.tally().unrouted, 1);
+});

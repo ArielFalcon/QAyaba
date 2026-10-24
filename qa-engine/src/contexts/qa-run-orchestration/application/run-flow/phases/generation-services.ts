@@ -100,6 +100,8 @@ export async function correctThroughLead(
   regenerationSignal: AbortSignal | undefined,
 ): Promise<GenerationOutput> {
   const corrected = await pass.correct(findings);
+  /* Recorded after every turn, so however the run ends from here what the lead routed is on its record. */
+  ctx.ends.recordCorrections();
   const byFlows = await afterGeneration(ctx, {
     specs: corrected.specs,
     end: corrected.specs.length > 0 ? GENERATION_END.DELIVERED : GENERATION_END.UNDECIDED_EMPTY,

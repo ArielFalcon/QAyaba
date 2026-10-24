@@ -318,3 +318,38 @@ test("a pass is released however the run ends, a run that throws after coordinat
   await assert.rejects(new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, validation: { validate: async () => { throw new Error("validator down"); } } })).run(INPUT));
   assert.equal(kept.seen.released, 1);
 });
+
+test("a pass is released once nothing can correct through it, before the run publishes, even when the review never runs", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [] }));
+  const release = kept.pass.release;
+  kept.pass.release = async () => { r.calls.push("release"); await release(); };
+  await new RunQaUseCase(r.deps({
+    ...LEAD_SIDEKICKS,
+    execution: { execute: async () => ({ verdict: "fail", cases: [], logs: "boom" }) },
+    publication: { publish: async () => (r.calls.push("publish"), { outcome: "issue" }) },
+  })).run(INPUT);
+  assert.equal(kept.seen.released, 1);
+  assert.ok(r.calls.includes("publish"), "the run published");
+  assert.ok(r.calls.indexOf("release") < r.calls.indexOf("publish"), "released before publishing");
+});
+
+test("corrections the lead's pass made are recorded even when the reviewer cannot be reached afterwards", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const correct = kept.pass.correct;
+  /* A correction that changes code, not only a comment, so the next round is judged by the model. */
+  kept.pass.correct = async (findings) => { const out = await correct(findings); r.ws.write("flows/a.spec.ts", "export const total = 1;\n"); return out; };
+  let round = 0;
+  const review = { review: async () => (round++ === 0
+    ? { approved: false, corrections: ["flows/a.spec.ts never asserts the total"], blockingCount: 1, parsed: true }
+    : { approved: false, corrections: [], blockingCount: 0, parsed: false, unavailable: true }) };
+  const result = await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, review })).run(INPUT);
+  assert.equal(result.outcome?.errorClass, "E-REVIEWER-UNAVAILABLE");
+  assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0 });
+  assert.equal(kept.seen.released, 1);
+});

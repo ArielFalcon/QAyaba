@@ -394,7 +394,6 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
        * justified, and publishing would ignore the finding: the engine reports that it could not settle it.
        */
       if (settled.disputed.length > 0) {
-        ends.recordCorrections();
         return { end: await ends.reviewDisputed(settled.disputed, reviewCases.filter((c) => c.status === "pass").length, await exitFacts()) };
       }
       reviewerApproved = false;
@@ -431,11 +430,6 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
     }
   }
   if (lastReviewOutcome !== undefined) annotateReviewPhase(ctx, reviewStats, lastCorrectionClass, lastReviewOutcome);
-  /* The review is over: the coordinated pass has nothing left to correct, and what the lead routed is recorded with the coordination. */
-  if (ctx.trail.coordinatedPass) {
-    ends.recordCorrections();
-    await ends.closeCoordinatedPass();
-  }
   return {
     update: {
       execution: { ...state.execution, retries, run },
@@ -529,4 +523,9 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
     console.error(`[telemetry] the stale-coverage counter could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
   }
   return { update: { coverage: { ...state.coverage, coverageStale: true, valueStale } } };
+}
+
+/* The coordinated pass is kept only for the reviewer's corrections: once the review is over, or did not run, nothing can correct through it, and its sessions, workspaces and loops are released. Nothing when the run held none. */
+export async function releaseCoordinatedPass(_state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+  await ctx.ends.closeCoordinatedPass();
 }

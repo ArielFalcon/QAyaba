@@ -393,7 +393,7 @@ export class LeadSidekicks {
     });
     /* A session that opened after its flow was stopped or released belongs to nobody: it is closed at once. */
     if (signal.aborted || entry.released) {
-      await session.dispose().catch(() => {});
+      await session.dispose().catch((err: unknown) => console.error(`[qa] closing flow ${entry.flow.id}'s late session failed: ${err instanceof Error ? err.message : String(err)}`));
       throw new Error(`flow ${entry.flow.id}'s session opened after the flow was stopped`);
     }
     entry.session = session;
@@ -550,13 +550,38 @@ export class LeadSidekicks {
   private async revise(entry: LiveFlow, order: ReviewOrder, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
     const instruction = [order.instruction, orchestratorFacts(entry)].filter(Boolean).join("\n");
     if (order.action === REVIEW_ACTION.REVISE && entry.session) {
-      const result = await entry.session.ask(instruction, { timeoutMs: Math.max(1, timeoutMs) });
+      const result = await this.untilStopped(entry, entry.session.ask(instruction, { timeoutMs: Math.max(1, timeoutMs) }), signal);
       return this.assess(entry, context, result, signal);
     }
     await this.closeSession(entry);
     entry.capability = "sidekick-escalated";
     const result = await this.openSession(entry, context, signal, timeoutMs, instruction);
     return this.assess(entry, context, result, signal);
+  }
+
+  /*
+   * A follow-up turn in a session kept open, ended with its flow: the session's own signal belonged to the turn that opened it, so
+   * a stop of the run (or of this flow's slot) closes the session, which ends the turn, and the flow is stopped.
+   */
+  private async untilStopped<T>(entry: LiveFlow, turn: Promise<T>, signal: AbortSignal): Promise<T> {
+    if (signal.aborted) {
+      await this.closeSession(entry);
+      throw new Error(`flow ${entry.flow.id} was stopped before its follow-up turn`);
+    }
+    let onAbort: (() => void) | undefined;
+    const stopped = new Promise<never>((_resolve, reject) => {
+      onAbort = () => {
+        void this.closeSession(entry);
+        reject(new Error(`flow ${entry.flow.id} was stopped during its follow-up turn`));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([turn, stopped]);
+    } finally {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+      turn.catch(() => undefined);
+    }
   }
 
   /* A flow as the lead's review is shown it: the orchestrator's facts first, the sidekick's word beside them. */
@@ -628,7 +653,12 @@ export class LeadSidekicks {
     tally.unrouted += admission.unrouted.length;
     for (const r of admission.refused) this.record(input, { kind: "router", reason: `correction: ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
     const after = this.room(input);
-    const orders = state.released || input.signal?.aborted || (after !== undefined && after < MIN_FLOW_MS) ? [] : admission.orders.filter((o) => live.has(o.flowId));
+    const stopped = state.released || input.signal?.aborted === true || (after !== undefined && after < MIN_FLOW_MS);
+    const orders = stopped ? [] : admission.orders.filter((o) => live.has(o.flowId));
+    /* A finding the lead sent to a flow that cannot take it now is not lost: it goes to a regeneration, as a finding no flow was sent. */
+    const untaken = admission.orders.filter((o) => !orders.includes(o)).flatMap((o) => o.findings);
+    tally.unrouted += untaken.length;
+    if (untaken.length > 0) this.record(input, { kind: "router", reason: `correction: ${untaken.length} finding(s) the flows could not take go to a regeneration` });
     for (const order of orders) {
       tally.routed += order.findings.length;
       if (order.action === REVIEW_ACTION.REVISE) tally.revised += 1;
@@ -640,7 +670,7 @@ export class LeadSidekicks {
     const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.amend(live.get(slot.flowId)!, slot, slot.budgetMs, context, signal));
     await this.settle(results, live, new Map());
     const specs = slots.flatMap((slot) => (live.get(slot.flowId)?.taken ? [live.get(slot.flowId)!.flow.specFile] : []));
-    return { readable: admission.readable, specs, rebuttals: admission.rebuttals, unrouted: admission.unrouted };
+    return { readable: admission.readable, specs, rebuttals: admission.rebuttals, unrouted: [...admission.unrouted, ...untaken] };
   }
 
   /* One flow's correction: its workspace brought up to the working copy, then the findings and the lead's instruction to its sidekick. */
@@ -680,7 +710,7 @@ export class LeadSidekicks {
   private async release(entry: LiveFlow): Promise<void> {
     entry.released = true;
     await this.closeSession(entry);
-    if (entry.loop) await entry.loop.close().catch(() => {});
+    if (entry.loop) await entry.loop.close().catch((err: unknown) => console.error(`[qa] closing flow ${entry.flow.id}'s run_spec loop failed: ${err instanceof Error ? err.message : String(err)}`));
     entry.geolocation?.close();
     await this.deps.workspaces.dispose(entry.workspace);
   }
