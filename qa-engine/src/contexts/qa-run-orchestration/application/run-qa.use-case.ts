@@ -20,7 +20,8 @@ import type { AgentBrowserGateSignal } from "@kernel/agent-browser.ts";
 import type { GeolocationFacts } from "@kernel/geolocation.ts";
 import { NOOP_KIND, type NoopKind } from "@kernel/noop-kind.ts";
 import { COORDINATION_MODE, DEFAULT_COORDINATION_SETTINGS, effectiveCoordinationMode, type CoordinationGateSignal, type CoordinationMode, type CoordinationSettings } from "@kernel/coordination.ts";
-import type { CoordinateResult, LeadSidekicks } from "./coordination/lead-sidekicks.ts";
+import type { CoordinateResult, CoordinatedPass, LeadSidekicks } from "./coordination/lead-sidekicks.ts";
+import type { ReviewerFinding } from "./coordination/lead-correction.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
@@ -173,7 +174,7 @@ import { WallClockBudget } from "../domain/wall-clock-budget.ts";
 import type { CoordinationTelemetryPort } from "./coordination/coordination-telemetry.ts";
 import { evidenceFromPackDataRoutes } from "./coordination/evidence-from.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
-import { filterReviewFindings } from "../domain/review-finding-filter.service.ts";
+import { citedSpec, filterReviewFindings } from "../domain/review-finding-filter.service.ts";
 import { verifyRebuttals, findingKey, refKey, type DisputedFinding, type RebuttalEvidence, type ReviewRebuttal } from "../domain/review-rebuttals.service.ts";
 import type { ContractFeedback } from "../domain/contract-feedback.ts";
 import { changeTokens, EMPTY_TOKEN_SET, type ChangeTokenSet } from "@contexts/objective-signal/domain/change-tokens.ts";
@@ -594,6 +595,8 @@ interface RunTrail {
   codeGraphTools?: CodeGraphToolsHandle;
   /** The authoring location, once opened: closed by runInScope however the run ends. */
   geolocation?: GeolocationHandle;
+  /** The coordinated pass kept open for the reviewer's corrections: released by runInScope however the run ends. */
+  coordinatedPass?: CoordinatedPass;
 }
 
 /* The probes the generator left in the working copy could not be removed. */
@@ -654,6 +657,7 @@ export class RunQaUseCase {
       throw err;
     } finally {
       phases.close();
+      await this.closeCoordinatedPass(trail);
       await this.closeClosedLoop(trail);
       await this.closeAgentBrowser(trail);
       this.closeCodeGraphTools(trail);
@@ -791,6 +795,21 @@ export class RunQaUseCase {
     } catch (err) {
       console.error(`[qa] closing the agent browser failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  /* What the lead routed of the reviewer's corrections, recorded with the run's coordination. */
+  private recordCorrections(input: RunQaInput, trail: RunTrail): void {
+    const corrections = trail.coordinatedPass?.tally();
+    const coordination = this.coordinationOf.get(input);
+    if (coordination && corrections && corrections.turns > 0) this.coordinationOf.set(input, { ...coordination, corrections });
+  }
+
+  /* Releases the coordinated pass: the lead's session and every flow's session, workspace, loop and location. A fault is said and never changes how the run ended. */
+  private async closeCoordinatedPass(trail: RunTrail): Promise<void> {
+    const pass = trail.coordinatedPass;
+    if (!pass) return;
+    trail.coordinatedPass = undefined;
+    await pass.release().catch((err: unknown) => console.error(`[qa] releasing the coordinated pass failed (the run's result stands): ${err instanceof Error ? err.message : String(err)}`));
   }
 
   /* Revokes the lead's code-graph tools and says what the run made of them. A fault is said and never changes how the run ended. */
@@ -1554,6 +1573,27 @@ export class RunQaUseCase {
     };
 
     /*
+     * The reviewer's corrections in a coordinated run: the lead routes them to the sidekicks of its flows, which correct their specs
+     * in their own sessions; a finding no flow was sent goes to a regeneration, as in a run the lead authored alone. What both
+     * deliver joins the run's delivery and goes through the round's acceptance like any regeneration.
+     */
+    const correctThroughLead = async (pass: CoordinatedPass, findings: readonly ReviewerFinding[], regenerationSignal: AbortSignal | undefined): Promise<GenerationOutput> => {
+      const corrected = await pass.correct(findings);
+      const byFlows = await afterGeneration({
+        specs: corrected.specs,
+        end: corrected.specs.length > 0 ? GENERATION_END.DELIVERED : GENERATION_END.UNDECIDED_EMPTY,
+        reviewed: false,
+        approved: true,
+        parsed: corrected.readable,
+      });
+      delivered = mergeDeliveredSpecs(delivered, byFlows, "sidekick");
+      const regenerated = corrected.unrouted.length > 0 ? await regenerate(regenerationSignal, { reviewCorrections: corrected.unrouted }) : undefined;
+      const rebuttals = [...corrected.rebuttals, ...(regenerated?.rebuttals ?? [])];
+      const specs = [...new Set([...byFlows.specs, ...(regenerated?.specs ?? [])])];
+      return { ...(regenerated ?? byFlows), specs, end: specs.length > 0 ? GENERATION_END.DELIVERED : (regenerated?.end ?? byFlows.end), ...(rebuttals.length > 0 ? { rebuttals } : {}) };
+    };
+
+    /*
      * The lead/sidekick mode: the lead is asked for a plan and its flows are authored by sidekicks, each in a workspace of its own.
      * What comes back is a generation like any other: the specs of the flows that delivered, a declared no-op, or an end that
      * names why nothing was finished. Undefined: the lead authors the change in one turn, as every run did before this mode.
@@ -1600,6 +1640,11 @@ export class RunQaUseCase {
         return { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason };
       }
       const { aggregated } = result;
+      /* Kept open for the reviewer's corrections only when the flows delivered: nothing else reaches a review. */
+      if (result.pass) {
+        if (aggregated.end === GENERATION_END.DELIVERED) trail.coordinatedPass = result.pass;
+        else await result.pass.release().catch((err: unknown) => console.error(`[qa] releasing the coordinated pass failed: ${err instanceof Error ? err.message : String(err)}`));
+      }
       if (aggregated.end !== GENERATION_END.DELIVERED) {
         return { specs: [], end: aggregated.end, reviewed: false, approved: true, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) };
       }
@@ -2628,6 +2673,8 @@ export class RunQaUseCase {
          */
         let filteredReviewFindings = 0;
         let advisoryReviewFindings = 0;
+        /* The spec each verified finding's citation names, for routing it to the flow that owns that spec. */
+        let blockingSpecs = new Map<string, string>();
         if (cfg.reviewLoopIntegrity && decidedBy === "model" && reviewResult.corrections.length > 0) {
           const findings = reviewResult.corrections.map((text, index) => ({
             text,
@@ -2638,6 +2685,10 @@ export class RunQaUseCase {
             inScopeSpecs: new Set(reviewCases.map((c) => c.file ?? c.name)),
             executedSpecs: new Set(run.cases.map((c) => c.file).filter((file): file is string => !!file)),
           });
+          blockingSpecs = new Map(findings.flatMap((f) => {
+            const spec = f.citation ? citedSpec(f.citation.ref) : undefined;
+            return spec !== undefined && filtered.blocking.includes(f.text) ? [[f.text, spec] as const] : [];
+          }));
           filteredReviewFindings = filtered.dropped.length;
           advisoryReviewFindings = filtered.advisory.length;
           if (filtered.dropped.length > 0 || filtered.advisory.length > 0) {
@@ -2776,10 +2827,15 @@ export class RunQaUseCase {
         for (let attempt = 0; ; attempt++) {
           /* A refused attempt's files were restored, so its delivery must not survive into the next one. */
           delivered = deliveredBefore;
-          regen = await regenerate(signal, {
-            reviewCorrections: reviewResult.corrections,
-            ...(contractFeedback ? { contractFeedback } : {}),
-          });
+          regen = trail.coordinatedPass
+            ? await correctThroughLead(trail.coordinatedPass, [
+                ...reviewResult.corrections.map((text) => ({ text, ...(blockingSpecs.has(text) ? { spec: blockingSpecs.get(text)! } : {}) })),
+                ...(contractFeedback ?? []).map((v) => ({ text: `the correction broke the test's contract (${v.rule}) in ${v.file}, clause ${v.clauseId}: it was ${JSON.stringify(v.before)} and is ${JSON.stringify(v.after)}`, spec: v.file })),
+              ], signal)
+            : await regenerate(signal, {
+                reviewCorrections: reviewResult.corrections,
+                ...(contractFeedback ? { contractFeedback } : {}),
+              });
           await enforceConfinement();
           const changed = await suiteChangedFiles(snapshot, regen.specs);
           changedSpecFiles = acceptanceScope(changed);
@@ -2841,6 +2897,7 @@ export class RunQaUseCase {
            * justified, and publishing would ignore the finding: the engine reports that it could not settle it.
            */
           if (settled.disputed.length > 0) {
+            this.recordCorrections(input, trail);
             return await this.reviewDisputedResult(cfg, input, settled.disputed, reviewCases.filter((c) => c.status === "pass").length, {
               static: validation.ok,
               retries,
@@ -2906,6 +2963,12 @@ export class RunQaUseCase {
         correctionClass: reviewerApproved ? "none" : correctionClassOf(finalReviewerCorrections),
         ...(reviewStats.rebuttals > 0 ? { rebuttals: { received: reviewStats.rebuttals, withdrawn: reviewStats.rebuttalWithdrawn } } : {}),
       };
+    }
+
+    /* The review is over: the coordinated pass has nothing left to correct, and what the lead routed is recorded with the coordination. */
+    if (trail.coordinatedPass) {
+      this.recordCorrections(input, trail);
+      await this.closeCoordinatedPass(trail);
     }
 
     /*

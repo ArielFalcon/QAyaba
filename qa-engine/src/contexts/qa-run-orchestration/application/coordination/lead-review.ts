@@ -108,7 +108,7 @@ export function renderLeadReview(flows: readonly FlowUnderReview[], turn: { turn
 }
 
 /* The first JSON object in the text, string- and escape-aware. */
-function firstJsonObject(text: string): unknown {
+export function firstJsonObject(text: string): unknown {
   const start = text.indexOf("{");
   if (start < 0) return undefined;
   let depth = 0;

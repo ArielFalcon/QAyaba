@@ -40,7 +40,8 @@ export interface FilteredReviewFindings {
 const SPEC_PATH = /([\w./-]+\.spec\.ts)/;
 
 /** The spec a citation names, or undefined when it names none. A contract ref is `<spec>#<clause>`. */
-function citedSpec(ref: string): string | undefined {
+/* The spec a citation's reference names, when it names one. */
+export function citedSpec(ref: string): string | undefined {
   return SPEC_PATH.exec(ref)?.[1];
 }
 

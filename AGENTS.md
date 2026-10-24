@@ -247,10 +247,15 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   delivered spec is never dropped. Every revision carries the orchestrator's facts (the failure kind of the last `run_spec` call, and
   the two reads when a flow's empty read contradicts a page the Context Pack read with results, which also refuses that flow's
   decline). Flows that deliver are added up like a generation (`aggregateFlowOutcomes`), and the rest of the run (validate,
-  execute, coverage, review, decide) is unchanged. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
+  execute, coverage, review, decide) goes on as for any generation, with the pass kept open (`CoordinatedPass`: the lead's session and
+  every flow's session, workspace, loop and location) until the review ends. The reviewer's verified corrections go to the lead
+  (`lead-correction.ts`), which routes each to the flow whose spec it cites (revise in the same sidekick session, replace with a fresh
+  one) or rebuts it; the orchestrator's facts decide over its answer (a finding that cites a flow goes to it and to no other), the
+  workspace is refreshed from the working copy first, a finding no flow took goes to a regeneration, and the result goes through the
+  round's acceptance and rebuttal check like any regeneration. The run releases the pass after the review and in its `finally`. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
   whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
   Workspaces are removed in a `finally` and swept at boot. `gateSignals.coordination { mode, plan, downgrade, flows, delivered,
-  incomplete, takeover, authoring, review }`. `docs/lead-sidekicks.md`.
+  incomplete, takeover, authoring, review, corrections }`. `docs/lead-sidekicks.md`.
 - **Authoring location (`dev.geolocation`)** — the app declares a durable browser position (the suite, `run_spec` and the
   Context Pack run at it) and may declare named `places`. The run carries a mutable authoring location — the lead's, and one
   per flow of a plan — that the `set_geolocation` tool moves for the authenticated browser and the prompts; a plan may name a

@@ -328,6 +328,9 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-plan.ts",
   "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts",
   "qa-engine/src/contexts/qa-run-orchestration/application/coordination/sidekick-authoring.ts",
+  /* What the lead's review and its routing of the reviewer's corrections may decide, and the orchestrator's facts that decide over them. */
+  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-review.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/application/coordination/lead-correction.ts",
   "agents/lib/run-spec-client.mjs",
   /* What the lead may ask of the code graph and on which project: the admitted queries, the registry that binds a session, the adapter that runs the CLI on the run's project, the tool and its client. A fix that loosened them could let an agent query another app's code or run a free graph query. */
   "qa-engine/src/shared-kernel/code-graph-tools.ts",

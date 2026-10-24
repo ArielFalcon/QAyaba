@@ -145,11 +145,34 @@ while it plans and reviews: `codegraph_search_graph` (find a symbol), `codegraph
 `codegraph_get_code_snippet` (its source). The orchestrator serves each call on the run's own project, bounded and redacted
 (AGENTS.md, Code-graph tools). The tools are the lead's in `single` mode too.
 
+## The reviewer's corrections
+
+A pass whose flows delivered, with the lead's planning session, is not closed when the coordination ends: the run keeps it
+(`CoordinatedPass`) through validation, execution and the independent review. When the reviewer rejects a round with verified
+findings, the run asks the lead, in the same planning session, instead of regenerating alone (`lead-correction.ts`):
+
+1. The lead is shown each flow that a finding cites (by the spec its citation names, or its text), with the spec as the working
+   copy holds it, and the findings that cite no flow, numbered.
+2. It answers per flow `revise` (the same sidekick session) or `replace` (a fresh sidekick on the escalated model), naming which
+   loose findings go with it, and per finding a rebuttal with its basis (`execution` and a test of this run, or `contract` and a
+   clause).
+3. The orchestrator's facts decide: a flow is always sent the findings that cite it, a finding that cites one flow is never moved
+   to another, a flow with findings the lead ignored is sent them with the orchestrator's own instruction, and a closed session is
+   replaced. An answer that cannot be read still sends each flow its own findings.
+4. Each flow's workspace is refreshed from the working copy (the run may have changed the spec since), then its sidekick gets the
+   findings verbatim, the lead's instruction and the orchestrator's facts. Only a change made after the refresh comes back.
+5. Findings no flow took go to a regeneration with only those findings. Everything delivered goes through the round's acceptance,
+   and the lead's rebuttals through the same check as a generator's.
+
+The pass is released as soon as the review ends, and in the run's `finally` however it ends. The corrections are recorded as
+`gateSignals.coordination.corrections { turns, routed, unrouted, revised, replaced, rebutted }`.
+
 ## Cleanup
 
 Sidekick sessions, `run_spec` loops, flow locations and delegation workspaces are released, and the lead's session
-ended, in a `finally` when the coordinated pass ends, and swept at the start of a
-coordinated run and at orchestrator boot (a process killed mid-run leaves nothing behind).
+ended, when the coordinated pass ends: in the coordination's `finally`, or, for a pass kept for the reviewer's corrections, when
+the run releases it. They are also swept at the start of a coordinated run and at orchestrator boot (a process killed mid-run
+leaves nothing behind).
 
 ## Operating it
 

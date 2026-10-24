@@ -35,6 +35,8 @@ import { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
+import { scrub } from "./scrub.ts";
+import { admitLeadCorrection, renderLeadCorrection, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type ReviewerFinding } from "./lead-correction.ts";
 
 /* The flow's slice of the Context Pack, as a brief field, or nothing when the pack did not read its pages. */
 const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
@@ -102,7 +104,34 @@ export type CoordinateResult =
   /* The lead declared that nothing is worth a test. */
   | { action: "noop"; reason: string; signal: CoordinationGateSignal }
   /* The flows were authored; `aggregated` says how it ended, as a generation would. */
-  | { action: "fanout"; aggregated: AggregatedFlows; proposals: FlowProposals[]; signal: CoordinationGateSignal };
+  | { action: "fanout"; aggregated: AggregatedFlows; proposals: FlowProposals[]; signal: CoordinationGateSignal; pass?: CoordinatedPass };
+
+/* What one correction turn came to: the specs taken back into the working copy, the lead's rebuttals, and the findings no flow was sent. */
+export interface PassCorrection {
+  readable: boolean;
+  specs: string[];
+  rebuttals: CorrectionRebuttal[];
+  unrouted: string[];
+}
+
+export interface CorrectionTally {
+  turns: number;
+  routed: number;
+  unrouted: number;
+  revised: number;
+  replaced: number;
+  rebutted: number;
+}
+
+/*
+ * A coordinated pass kept open after it delivered: the lead's planning session and every flow's sidekick session, workspace, loop
+ * and location, for the reviewer's corrections. Whoever holds it releases it, however the run ends.
+ */
+export interface CoordinatedPass {
+  correct(findings: readonly ReviewerFinding[]): Promise<PassCorrection>;
+  tally(): CorrectionTally;
+  release(): Promise<void>;
+}
 
 interface FlowContext {
   input: CoordinateInput;
@@ -128,6 +157,8 @@ interface LiveFlow {
   last?: DelegationResult;
   /* Whether a turn of the flow ever put its spec in the working copy: those bytes stay there whatever a later turn does. */
   delivered: boolean;
+  /* Whether the flow's last turn put its spec in the working copy. */
+  taken?: boolean;
   /* Set when the pass released the flow: a turn that answers after it changes nothing and leaves nothing open. */
   released?: boolean;
   appDefect?: string;
@@ -196,6 +227,7 @@ export class LeadSidekicks {
       ...(locations.length > 0 ? { locations } : {}),
     });
     /* The lead's planning session, when the plan kept it: its review of the flows is asked there, and it ends with the pass. */
+    let leadHanded = false;
     try {
       if (planned.timedOut) return single("the planning turn ran out of its time", { authoring: authoringName });
       if (planned.noopReason !== undefined) {
@@ -228,9 +260,12 @@ export class LeadSidekicks {
       if (admitted.kind === LEAD_PLAN_KIND.SINGLE) {
         return single(admitted.downgrade ?? "the plan is one piece of work", { plan: LEAD_PLAN_KIND.SINGLE, authoring: authoringName });
       }
-      return await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName });
+      const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName });
+      /* A pass kept open holds the lead's session from here on. */
+      if (result.action === "fanout" && result.pass) leadHanded = true;
+      return result;
     } finally {
-      await planned.lead?.dispose().catch((err: unknown) => console.error(`[qa] closing the lead's session failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (!leadHanded) await planned.lead?.dispose().catch((err: unknown) => console.error(`[qa] closing the lead's session failed: ${err instanceof Error ? err.message : String(err)}`));
     }
   }
 
@@ -239,6 +274,7 @@ export class LeadSidekicks {
     const context: FlowContext = { input, mode: how.mode };
     const live = new Map<string, LiveFlow>();
     const reports = new Map<string, FlowReport>();
+    let handed = false;
     try {
       const results = await this.dispatcher.run(flows, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (flow, signal) => this.author(flow, context, live, signal));
       await this.settle(results, live, reports);
@@ -268,9 +304,14 @@ export class LeadSidekicks {
         this.deps.log?.("coordination: no flow finished or decided; the lead takes the change over");
         return { action: "single", signal: { ...signal, takeover: true, downgrade: "no flow finished or decided" } };
       }
+      /* With the lead's session the pass is kept open for the reviewer's corrections; its holder releases it. */
+      if (how.lead && !input.signal?.aborted && aggregated.end === GENERATION_END.DELIVERED) {
+        handed = true;
+        return { action: "fanout", aggregated, proposals, signal, pass: this.passOf(how.lead, flows, parallel, context, live) };
+      }
       return { action: "fanout", aggregated, proposals, signal };
     } finally {
-      for (const entry of live.values()) await this.release(entry);
+      if (!handed) for (const entry of live.values()) await this.release(entry);
     }
   }
 
@@ -406,6 +447,7 @@ export class LeadSidekicks {
       ...(failureClass ? { failureClass } : {}),
     });
 
+    entry.taken = copied;
     if (copied) {
       entry.delivered = true;
       return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals };
@@ -424,6 +466,7 @@ export class LeadSidekicks {
         const collected = await this.deps.workspaces.collect(entry.workspace, entry.request);
         if (collected.copied.length > 0) {
           entry.delivered = true;
+          entry.taken = true;
           this.record(input, { kind: "delegation", action: "delegate", capability, reason: `flow ${flow.id}: ${evidence}; the spec that showed it is taken back as it ran`, delegationId, attempt, failureClass: AUTHORING_FAILURE.APP_DEFECT });
           return { outcome: { id: flow.id, kind: FLOW_OUTCOME.DELIVERED, specs: [flow.specFile] }, proposals: collected.proposalsTotal > 0 ? { flowId: flow.id, changes: collected.proposals, total: collected.proposalsTotal } : undefined };
         }
@@ -537,6 +580,79 @@ export class LeadSidekicks {
       sessionOpen: entry?.session !== undefined,
       ...(spec !== undefined ? { spec } : {}),
     };
+  }
+
+  /* The pass, kept open: corrections are asked of the lead's planning session and carried out by the flows' sidekicks. */
+  private passOf(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>): CoordinatedPass {
+    const tally: CorrectionTally = { turns: 0, routed: 0, unrouted: 0, revised: 0, replaced: 0, rebutted: 0 };
+    const state = { released: false };
+    return {
+      correct: (findings) => this.correct(lead, flows, parallel, context, live, findings, tally, state),
+      tally: () => ({ ...tally }),
+      release: async () => {
+        if (state.released) return;
+        state.released = true;
+        for (const entry of live.values()) await this.release(entry);
+        await lead.dispose().catch((err: unknown) => console.error(`[qa] closing the lead's session failed: ${err instanceof Error ? err.message : String(err)}`));
+      },
+    };
+  }
+
+  /* One correction turn: the lead routes the reviewer's findings, the orchestrator holds it to its facts, and each flow sent findings is corrected by its sidekick. */
+  private async correct(lead: LeadSessionHandle, flows: AdmittedFlow[], parallel: number, context: FlowContext, live: Map<string, LiveFlow>, findings: readonly ReviewerFinding[], tally: CorrectionTally, state: { released: boolean }): Promise<PassCorrection> {
+    const { input } = context;
+    const nothing = (why: string): PassCorrection => {
+      this.record(input, { kind: "router", reason: `correction: ${why}; the findings stand` });
+      return { readable: false, specs: [], rebuttals: [], unrouted: findings.map((f) => f.text) };
+    };
+    if (state.released) return nothing("the pass was released");
+    if (findings.length === 0) return { readable: true, specs: [], rebuttals: [], unrouted: [] };
+    const room = this.room(input);
+    if (room !== undefined && room < MIN_FLOW_MS) return nothing("too little of the run is left");
+    const under: FlowUnderCorrection[] = await Promise.all(flows.filter((flow) => live.has(flow.id)).map(async (flow) => {
+      const spec = this.deps.readSpec ? await this.deps.readSpec({ mirrorDir: input.mirrorDir, specDir: input.specDir }, flow.specFile).catch(() => undefined) : undefined;
+      return { id: flow.id, objective: flow.objective, specFile: flow.specFile, sessionOpen: live.get(flow.id)!.session !== undefined, ...(spec !== undefined ? { spec } : {}) };
+    }));
+    let output = "";
+    try {
+      const answer = await lead.ask(renderLeadCorrection(under, findings), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
+      if (answer.timedOut) this.record(input, { kind: "router", reason: "correction: the lead ran out of its time; each flow is sent its own findings" });
+      else output = answer.output;
+    } catch (err) {
+      if (isRunDeadlineError(err)) throw err;
+      this.record(input, { kind: "router", reason: `correction: the lead's turn failed (${err instanceof Error ? err.message : String(err)}); each flow is sent its own findings` });
+    }
+    tally.turns += 1;
+    const admission = admitLeadCorrection(output, under, findings);
+    tally.rebutted += admission.rebuttals.length;
+    tally.unrouted += admission.unrouted.length;
+    for (const r of admission.refused) this.record(input, { kind: "router", reason: `correction: ${r.flowId ? `flow ${r.flowId} ` : ""}${r.finding ? `finding ${r.finding} ` : ""}not taken: ${r.reason}` });
+    const after = this.room(input);
+    const orders = state.released || input.signal?.aborted || (after !== undefined && after < MIN_FLOW_MS) ? [] : admission.orders.filter((o) => live.has(o.flowId));
+    for (const order of orders) {
+      tally.routed += order.findings.length;
+      if (order.action === REVIEW_ACTION.REVISE) tally.revised += 1;
+      else tally.replaced += 1;
+      this.record(input, { kind: "router", reason: `correction: flow ${order.flowId} ${order.action} with ${order.findings.length} finding(s)`, delegationId: live.get(order.flowId)!.delegationId });
+    }
+    const slots = orders.map((order) => ({ ...order, id: order.flowId, budgetMs: Math.min(live.get(order.flowId)!.flow.budgetMs, after ?? live.get(order.flowId)!.flow.budgetMs) }));
+    for (const slot of slots) live.get(slot.flowId)!.taken = false;
+    const results = await this.dispatcher.run(slots, { maxParallel: parallel, ...(input.signal ? { signal: input.signal } : {}) }, (slot, signal) => this.amend(live.get(slot.flowId)!, slot, slot.budgetMs, context, signal));
+    await this.settle(results, live, new Map());
+    const specs = slots.flatMap((slot) => (live.get(slot.flowId)?.taken ? [live.get(slot.flowId)!.flow.specFile] : []));
+    return { readable: admission.readable, specs, rebuttals: admission.rebuttals, unrouted: admission.unrouted };
+  }
+
+  /* One flow's correction: its workspace brought up to the working copy, then the findings and the lead's instruction to its sidekick. */
+  private async amend(entry: LiveFlow, order: CorrectionOrder, timeoutMs: number, context: FlowContext, signal: AbortSignal): Promise<FlowReport> {
+    await this.deps.workspaces.refresh(entry.workspace, entry.request).catch((err: unknown) => console.error(`[qa] refreshing flow ${entry.flow.id}'s workspace failed (it corrects the bytes it has): ${err instanceof Error ? err.message : String(err)}`));
+    const instruction = [
+      "The independent reviewer judged your spec after the run executed it. These findings are verified by the orchestrator:",
+      ...order.findings.map((finding) => `- ${scrub(finding)}`),
+      `The lead's instruction: ${order.instruction}`,
+      "Correct each finding in your spec without weakening an assertion; a finding you hold to be wrong goes in concerns, with the evidence.",
+    ].join("\n");
+    return this.revise(entry, { flowId: order.flowId, action: order.action, instruction }, timeoutMs, context, signal);
   }
 
   /* What the run can still spend on flows and the lead's turns: what is left of it less what it keeps for what follows. Undefined: no deadline. */

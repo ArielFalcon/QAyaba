@@ -54,6 +54,7 @@ interface Rig {
   timers: FakeTimers;
   /* Every sidekick turn: a session opened on the brief, or a follow-up asked in an open one (`asked`). */
   executed: Array<{ brief: DelegationBrief; opts: SidekickExecuteOpts; asked?: boolean; session: number }>;
+  refreshed: string[];
   sessionsOpened: number;
   sessionsDisposed: number[];
   created: string[];
@@ -82,7 +83,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
   const timers = new FakeTimers();
   const clock = { now: 1_000_000 };
   const script: Script = { answers: {}, hasFile: new Set(["cart", "login"]), proposals: {}, ...scriptOver };
-  const r = { timers, executed: [], sessionsOpened: 0, sessionsDisposed: [], created: [], disposed: [], collected: [], staged: [], swept: 0, events: [], logs: [], flowLoops: [], shares: [], script, clock } as unknown as Rig;
+  const r = { timers, executed: [], sessionsOpened: 0, sessionsDisposed: [], created: [], disposed: [], refreshed: [], collected: [], staged: [], swept: 0, events: [], logs: [], flowLoops: [], shares: [], script, clock } as unknown as Rig;
   const flowOf = (delegationId: string): string => delegationId.replace(/^.*-flow-/, "");
   const workspaces: DelegationWorkspacePort = {
     create: async (request: DelegationWorkspaceRequest): Promise<DelegationWorkspace> => {
@@ -97,6 +98,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
       const total = script.proposals[flow] ?? 0;
       return { copied: has ? [...request.writablePaths] : [], refused: [], proposals: Array.from({ length: Math.min(total, 5) }, (_, i) => ({ path: `src/p${i}.ts`, kind: "modified" as const, bytes: 1 })), proposalsTotal: total };
     },
+    refresh: async (_ws, request) => { r.refreshed.push(request.delegationId); return [...request.writablePaths]; },
     dispose: async (ws) => { r.disposed.push(ws.dir); },
     sweepAll: async () => { r.swept += 1; return 0; },
   };
@@ -388,6 +390,7 @@ test("the lead reviews every flow in its planning session: what it asked for, wh
   const r = rig();
   r.deps.readSpec = async (_root, file) => `// ${file}\ntest('works', async () => {});`;
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
   assert.equal(outcome.action, "fanout");
   assert.equal(lead.asked.length, 1);
   for (const expected of ["`cart`", "the cart total", "`login`", "sign in works", "// flows/cart.spec.ts", "Outcome: delivered", "run_spec: not available"]) assert.ok(lead.asked[0]!.includes(expected), expected);
@@ -399,6 +402,7 @@ test("a revise reaches the same sidekick session with the lead's instruction and
   const lead = leadWith([[{ flow: "cart", action: "revise", instruction: "Assert the total row, not the count." }], [{ flow: "cart", action: "accept" }]]);
   const r = rig({ answers: { cart: [{ status: "failed", summary: "no selector found", filesChanged: [] }, { writes: true }] }, hasFile: new Set(["login"]) });
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
   assert.equal(outcome.action, "fanout");
   if (outcome.action !== "fanout") return;
   const cart = r.executed.filter((e) => e.brief.delegationId === "run-1-flow-cart");
@@ -471,6 +475,7 @@ test("a review turn that fails leaves the flows as they are: what was delivered 
   const r = rig();
   const plan = async (): Promise<PlanOutput> => ({ plan: FANOUT_PLAN, parsed: true, timedOut: false, lead: { ask: async () => { throw new Error("provider down"); }, dispose: async () => {} } });
   const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
   assert.equal(outcome.action, "fanout");
   if (outcome.action !== "fanout") return;
   assert.equal(outcome.aggregated.specs.length, 2);
@@ -488,7 +493,8 @@ test("a sidekick session that opens after its flow ran out of time is closed at 
   r.timers.advance(100_000);
   await settle();
   r.timers.advance(DEFAULT_ABORT_GRACE);
-  await pending;
+  const outcome = await pending;
+  if (outcome.action === "fanout") await outcome.pass?.release();
   release();
   for (let i = 0; i < 5; i++) await settle();
   assert.equal(r.sessionsOpened, 3);
@@ -500,7 +506,8 @@ test("the lead is never asked to review when the run has no room left for it", a
   const lead = leadWith([[{ flow: "cart", action: "accept" }]]);
   const r = rig();
   let calls = 0;
-  await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, deadline: { remainingMs: () => (++calls <= 2 ? 3_600_000 : MIN_FLOW_MS) } }));
+  const done = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, deadline: { remainingMs: () => (++calls <= 2 ? 3_600_000 : MIN_FLOW_MS) } }));
+  if (done.action === "fanout") await done.pass?.release();
   assert.equal(lead.asked.length, 0);
   assert.equal(lead.disposed(), 1);
 });
@@ -774,4 +781,98 @@ test("each sidekick's brief carries the Live DOM of its own flow's pages from th
   assert.ok(brief("cart").pages?.includes("button \"Checkout\""));
   assert.ok(!brief("cart").pages?.includes("Email"));
   assert.equal(brief("login").pages, undefined, "a flow whose pages the pack did not read gets no slice");
+});
+
+/* A lead whose planning session answers each turn with these raw outputs in order (the last repeats). */
+function leadAnswering(outputs: string[]): { plan: CoordinateInput["plan"]; asked: string[]; disposed: () => number } {
+  const asked: string[] = [];
+  let disposed = 0;
+  return {
+    asked,
+    disposed: () => disposed,
+    plan: async () => ({
+      plan: FANOUT_PLAN,
+      parsed: true,
+      timedOut: false,
+      lead: {
+        ask: async (text: string) => {
+          asked.push(text);
+          return { output: outputs[Math.min(asked.length - 1, outputs.length - 1)]!, timedOut: false };
+        },
+        dispose: async () => { disposed += 1; },
+      },
+    }),
+  };
+}
+
+const ACCEPT_ALL = JSON.stringify({ review: [{ flow: "cart", action: "accept" }, { flow: "login", action: "accept" }] });
+
+test("a pass that delivered with the lead's session is kept open, and its release ends every session, workspace and the lead's session once", async () => {
+  const lead = leadAnswering([ACCEPT_ALL]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  assert.equal(outcome.action, "fanout");
+  if (outcome.action !== "fanout") return;
+  assert.ok(outcome.pass, "the pass is handed to the run");
+  assert.equal(lead.disposed(), 0);
+  assert.deepEqual(r.disposed, [], "the workspaces outlive the coordination");
+  assert.deepEqual(r.sessionsDisposed, [], "the sidekick sessions outlive the coordination");
+  await outcome.pass!.release();
+  await outcome.pass!.release();
+  assert.equal(lead.disposed(), 1);
+  assert.deepEqual([...r.disposed].sort(), ["/w/run-1-flow-cart", "/w/run-1-flow-login"]);
+  assert.equal(r.sessionsDisposed.length, 2);
+});
+
+test("a plan without the lead's session hands no pass, and everything ends with the coordination", async () => {
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r));
+  assert.equal(outcome.action === "fanout" ? outcome.pass : undefined, undefined);
+  assert.equal(r.disposed.length, 2);
+});
+
+test("the reviewer's findings are routed by the lead in its planning session and corrected by the same sidekick, on its refreshed workspace", async () => {
+  const correction = JSON.stringify({ corrections: [{ flow: "cart", action: "revise", instruction: "assert the total, not the heading" }] });
+  const lead = leadAnswering([ACCEPT_ALL, correction]);
+  const r = rig();
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const corrected = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
+  assert.match(lead.asked[1]!, /the total is never asserted/);
+  const asked = r.executed.find((e) => e.asked && e.brief.delegationId === "run-1-flow-cart")!;
+  assert.match(asked.opts.feedback!, /the total is never asserted/);
+  assert.match(asked.opts.feedback!, /assert the total, not the heading/);
+  assert.equal(r.executed.filter((e) => e.asked).every((e) => e.session === r.executed.find((x) => !x.asked && x.brief.delegationId === e.brief.delegationId)!.session), true, "the same session");
+  assert.deepEqual(r.refreshed, ["run-1-flow-cart"]);
+  assert.deepEqual(corrected.specs, ["flows/cart.spec.ts"]);
+  assert.deepEqual(corrected.unrouted, []);
+  assert.equal(outcome.pass!.tally().revised, 1);
+  await outcome.pass!.release();
+});
+
+test("the lead's rebuttal comes back for the run to check, and a finding on a flow goes to it even when the lead's answer cannot be read", async () => {
+  const rebut = JSON.stringify({ rebuttals: [{ finding: 1, basis: "execution", ref: "cart › total", reason: "the total is asserted" }] });
+  const r = rig();
+  const lead = leadAnswering([ACCEPT_ALL, rebut, "not json"]);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined }));
+  if (outcome.action !== "fanout") return assert.fail("fanout expected");
+  const first = await outcome.pass!.correct([{ text: "the total is never asserted", spec: "e2e/flows/cart.spec.ts" }]);
+  assert.deepEqual(first.rebuttals, [{ finding: "the total is never asserted", basis: "execution", ref: "cart › total", reason: "the total is asserted" }]);
+  assert.deepEqual(first.specs, [], "a rebutted finding is sent to nobody");
+  const second = await outcome.pass!.correct([{ text: "the login asserts only the URL", spec: "e2e/flows/login.spec.ts" }, { text: "a loose finding" }]);
+  assert.equal(second.readable, false);
+  assert.deepEqual(second.specs, ["flows/login.spec.ts"]);
+  assert.deepEqual(second.unrouted, ["a loose finding"]);
+  await outcome.pass!.release();
+  const late = await outcome.pass!.correct([{ text: "anything", spec: "e2e/flows/cart.spec.ts" }]);
+  assert.deepEqual([late.specs, late.unrouted], [[], ["anything"]], "a released pass corrects nothing");
+});
+
+test("a pass whose flows delivered nothing is not kept, even with the lead's session: everything ends with the coordination", async () => {
+  const lead = leadAnswering([JSON.stringify({ review: [] })]);
+  const r = rig({ hasFile: new Set(), answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }], login: [{ status: "failed", summary: "x", filesChanged: [] }] } });
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, deadline: { remainingMs: () => 1_000_000 } }));
+  assert.equal(outcome.action === "fanout" ? outcome.pass : undefined, undefined);
+  assert.equal(lead.disposed(), 1);
+  assert.equal(r.disposed.length, 2);
 });

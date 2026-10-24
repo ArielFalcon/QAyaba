@@ -158,6 +158,25 @@ export class FsDelegationWorkspaceAdapter implements DelegationWorkspacePort {
     };
   }
 
+  async refresh(workspace: DelegationWorkspace, request: DelegationWorkspaceRequest): Promise<string[]> {
+    const prefix = `${request.specRelDir.replace(/\/+$/, "")}/`;
+    const baseline = this.baselines.get(workspace.dir) ?? new Map<string, string>();
+    const refreshed: string[] = [];
+    for (const path of request.writablePaths) {
+      const normalized = path.replaceAll("\\", "/");
+      if (!normalized.startsWith(prefix) || normalized.split("/").includes("..")) continue;
+      const rel = normalized.slice(prefix.length);
+      if (rel === "" || rel.endsWith("/")) continue;
+      const read = readOwnedSpecFile({ mirrorDir: request.mirrorDir, specDir: request.specDir }, rel, MAX_SPEC_SOURCE_BYTES);
+      if (!("bytes" in read)) continue;
+      writeOwnedSpecFile({ mirrorDir: workspace.dir, specDir: workspace.specDir }, rel, read.bytes);
+      baseline.set(normalized, sha256(read.bytes));
+      refreshed.push(normalized);
+    }
+    this.baselines.set(workspace.dir, baseline);
+    return refreshed;
+  }
+
   async dispose(workspace: DelegationWorkspace): Promise<void> {
     this.baselines.delete(workspace.dir);
     try {

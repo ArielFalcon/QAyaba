@@ -313,3 +313,30 @@ test("creating a workspace again for the same delegation starts from a clean one
     assert.equal(second.dir, first.dir);
     assert.equal(existsSync(join(second.dir, "e2e/flows/stale.spec.ts")), false);
   }));
+
+test("refreshing brings the working copy's current writable files into the workspace, and only a change made after it goes back", () =>
+  withFixture(async (f) => {
+    const adapter = adapterOf(f);
+    const workspace = await adapter.create(f.request);
+    put(workspace.dir, "e2e/flows/login.spec.ts", "// the sidekick's first bytes\n");
+    await adapter.collect(workspace, f.request);
+    put(f.mirrorDir, "e2e/flows/login.spec.ts", "// corrected in the working copy since\n");
+    assert.deepEqual(await adapter.refresh(workspace, f.request), ["e2e/flows/login.spec.ts"]);
+    assert.equal(readFileSync(join(workspace.dir, "e2e/flows/login.spec.ts"), "utf8"), "// corrected in the working copy since\n");
+    assert.deepEqual((await adapter.collect(workspace, f.request)).copied, [], "unchanged since the refresh: nothing goes back");
+    put(workspace.dir, "e2e/flows/login.spec.ts", "// the sidekick's correction\n");
+    assert.deepEqual((await adapter.collect(workspace, f.request)).copied, ["e2e/flows/login.spec.ts"]);
+    assert.equal(readFileSync(join(f.mirrorDir, "e2e/flows/login.spec.ts"), "utf8"), "// the sidekick's correction\n");
+  }));
+
+test("refreshing reads the working copy strictly: a writable file that is a link there is not followed, and none outside the spec directory is reached", () =>
+  withFixture(async (f) => {
+    put(f.base, "secret.txt", "secret\n");
+    symlinkSync(join(f.base, "secret.txt"), join(f.specDir, "flows/login.spec.ts"));
+    const adapter = adapterOf(f);
+    const workspace = await adapter.create(f.request);
+    assert.deepEqual(await adapter.refresh(workspace, f.request), []);
+    assert.equal(existsSync(join(workspace.dir, "e2e/flows/login.spec.ts")) && readFileSync(join(workspace.dir, "e2e/flows/login.spec.ts"), "utf8").includes("secret"), false);
+    const outside = { ...f.request, writablePaths: ["src/app.ts"] };
+    assert.deepEqual(await adapter.refresh(await adapter.create(outside), outside), []);
+  }));

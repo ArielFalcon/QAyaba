@@ -10,7 +10,8 @@ import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { RunQaUseCase, type RunQaInput, type RunQaUseCaseDeps } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
-import type { CoordinateInput, CoordinateResult } from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
+import type { CoordinateInput, CoordinateResult, CoordinatedPass, PassCorrection } from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
+import type { ReviewerFinding } from "@contexts/qa-run-orchestration/application/coordination/lead-correction.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, GenerationEnrichment, PlanOutput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { scriptedGeneration } from "../../../support/generation-output.ts";
 import { generationOnDisk, runWorkspace, type RunWorkspace } from "../../../support/run-workspace.ts";
@@ -249,3 +250,71 @@ test("a run cancelled while its flows were being authored is a cancelled run, no
   assert.equal(out.decision.verdict, "infra-error");
 });
 
+
+/* A coordinated pass kept open: it records what it was asked to correct and how many times it was released, and corrects as told. */
+function keptPass(r: Rig, answer: (findings: readonly ReviewerFinding[]) => PassCorrection) {
+  const seen = { corrected: [] as ReviewerFinding[][], released: 0 };
+  const pass: CoordinatedPass = {
+    correct: async (findings) => {
+      seen.corrected.push([...findings]);
+      const out = answer(findings);
+      for (const spec of out.specs) r.ws.write(spec, `// corrected ${spec}\n`);
+      return out;
+    },
+    tally: () => ({ turns: seen.corrected.length, routed: seen.corrected.flat().length, unrouted: 0, revised: seen.corrected.length, replaced: 0, rebutted: 0 }),
+    release: async () => void (seen.released += 1),
+  };
+  return { pass, seen };
+}
+
+/* A reviewer that rejects its first round with these findings and approves the next. */
+function rejectingOnce(corrections: string[]) {
+  let round = 0;
+  return { review: async () => (round++ === 0 ? { approved: false, corrections, blockingCount: corrections.length, parsed: true } : { approved: true, corrections: [], blockingCount: 0, parsed: true }) };
+}
+
+const delivered = (pass: CoordinatedPass): CoordinateResult => ({ action: "fanout", aggregated: { end: GENERATION_END.DELIVERED, specs: ["flows/a.spec.ts"], incompleteFlows: [] }, proposals: [], signal: signalOf({ plan: "fanout", flows: 1, delivered: 1 }), pass });
+
+test("in a coordinated run the reviewer's corrections go to the lead's pass, not to a regeneration, and the pass is released once the review ends", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: ["flows/a.spec.ts"], rebuttals: [], unrouted: [] }));
+  const result = await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, review: rejectingOnce(["flows/a.spec.ts never asserts the total"]) })).run(INPUT);
+  assert.deepEqual(kept.seen.corrected, [[{ text: "flows/a.spec.ts never asserts the total" }]]);
+  assert.equal(r.calls.filter((c) => c === "generate").length, 0, "no regeneration of its own");
+  assert.equal(kept.seen.released, 1);
+  assert.equal(result.outcome?.verdict, "pass");
+  assert.deepEqual(result.outcome?.gateSignals.coordination?.corrections, { turns: 1, routed: 1, unrouted: 0, revised: 1, replaced: 0, rebutted: 0 });
+});
+
+test("a finding no flow was sent goes to a regeneration with only that finding", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: ["a loose finding"] }));
+  await new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, review: rejectingOnce(["a loose finding"]) })).run(INPUT);
+  const regen = r.enrichments.filter((e) => e.reviewCorrections !== undefined);
+  assert.deepEqual(kept.seen.corrected, [[{ text: "a loose finding" }]], "the lead is asked first");
+  assert.deepEqual(regen.map((e) => e.reviewCorrections), [["a loose finding"]]);
+  assert.equal(kept.seen.released, 1);
+});
+
+test("a pass whose flows delivered nothing is released at once and never asked to correct", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => ({ action: "fanout", aggregated: { end: GENERATION_END.UNDECIDED_EMPTY, specs: [], incompleteFlows: [], note: "nothing finished" }, proposals: [], signal: signalOf({ plan: "fanout", flows: 1 }), pass: kept.pass }));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [] }));
+  await new RunQaUseCase(r.deps(LEAD_SIDEKICKS)).run(INPUT);
+  assert.equal(kept.seen.released, 1);
+  assert.deepEqual(kept.seen.corrected, []);
+});
+
+test("a pass is released however the run ends, a run that throws after coordinating included", async () => {
+  let r!: Rig;
+  let kept!: ReturnType<typeof keptPass>;
+  r = rig(() => delivered(kept.pass));
+  kept = keptPass(r, () => ({ readable: true, specs: [], rebuttals: [], unrouted: [] }));
+  await assert.rejects(new RunQaUseCase(r.deps({ ...LEAD_SIDEKICKS, validation: { validate: async () => { throw new Error("validator down"); } } })).run(INPUT));
+  assert.equal(kept.seen.released, 1);
+});
