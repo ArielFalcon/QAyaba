@@ -154,7 +154,7 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 | T7 | S13 | delegated (writer reason: parallel unit with T5/T6, disjoint surface; worktree) | item 2 (agent tool surface invariant) — own commit | done — `explore` replaces the three actions (admission, endpoint, adapter, tool file, client); answer redacted then cut at file boundaries; agent-list fixture re-recorded in the agents container; codegraph smoke 14/14 in the image; independent verifier: no blockers (L29) | `56c2ae43` |
 | T8 | S14, S15 | inline | item 3 (prompt contract) | done — sidekick proof path (S15) and the change dossier in `static-signal` behind `grounding.dossier` / `qa.structuralSignals.dossier` (off by default, the T9 lever); prompt-contract matrix: 0 findings, no baseline re-record needed (L31) | `03af259f`, `98b031a2` |
 | T9 | S16 | per-action workers (long runs) | item 6 | pending — the ablation rounds; the verdict per default in the Log | |
-| T10 | S17 | inline | item 5 | done — codebase-memory-mcp removed from the image, compose, entrypoint, file boundary, engine and tests; CI gate green, live `sandbox:smoke` 22+5 green (L32) | T10 commit (L32) |
+| T10 | S17 | inline | item 5 | done — codebase-memory-mcp removed from the image, compose, entrypoint, file boundary, engine and tests; CI gate green, live `sandbox:smoke` 22+5 green (L32) | `dcff6a7c` |
 
 Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10.
 - Every task is inline. No unit has a writer reason: each depends on the one before it (T6's backend path uses T5's operation keys).
@@ -344,3 +344,6 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
     - **A2:** the Go client types lack `dossier`.
     - Both are fixed in the next commit. A3-A5 are minor and need no change.
   - **Remaining:** `.env.example` (user-owned, uncommitted) may still name `CBM_CACHE_DIR`.
+  - **A1 and A2 fixed:**
+    - **A1:** the adapter now reports `providedFiles` only when the rendered block holds the dossier heading. The regression test uses a multi-byte dossier over the byte budget.
+    - **A2:** ran `make gen`, which adds `Dossier` to the Go client's types. `go vet` and `go test` are green.

@@ -223,3 +223,18 @@ test("a block of co-change files alone carries no dossier", () => {
   const text = renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "a.ts", couplingScore: 0.5, coChanges: 3 }], dossier: EXPLORED });
   assert.equal(text.includes(DOSSIER_HEADING), false);
 });
+
+test("a dossier the block's byte budget cannot hold is left out, and so are the files it would have shown", async () => {
+  const wide = ["**`src/Foo.java`** — 1 symbol", "```java", `3\tString s = "${"é".repeat(7_800)}";`, "```"].join("\n");
+  const adapter = new StructuralSignalPortAdapter(
+    fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol, caller]) }),
+    fakeCoChange(),
+    "/repo",
+    { explore: fakeExplore(wide) },
+  );
+
+  const result = await adapter.render("/repo", changed);
+
+  assert.equal(result.text.includes(DOSSIER_HEADING), false);
+  assert.equal("providedFiles" in result, false, "a file the prompt does not show is not counted as provided");
+});

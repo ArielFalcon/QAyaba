@@ -6,7 +6,7 @@ import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 import type { CoupledFile, ImpactBudget, ImpactedSymbol } from "@kernel/code/index.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import type { StructuralSignalPort, StructuralSignalResult } from "../../application/ports/index.ts";
-import { hasSymbolBlocks, renderBlastRadiusSignal } from "./blast-radius-signal.ts";
+import { DOSSIER_HEADING, hasSymbolBlocks, renderBlastRadiusSignal } from "./blast-radius-signal.ts";
 import { shapeExploreAnswer } from "./code-graph-tools-port.adapter.ts";
 import { isExploreTerm } from "../../domain/code-graph-query.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
@@ -99,11 +99,14 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
     const impacted = reached.symbols.filter((s) => s.depth === 0).map(ref);
     const callers = reached.symbols.filter((s) => s.depth > 0).map(ref);
     const dossier = await this.dossierOf(reached.symbols);
+    const text = renderBlastRadiusSignal({ impacted, callers, coupled, ...(dossier ? { dossier: dossier.text } : {}) });
+    /* The renderer leaves out a dossier the block's byte budget cannot hold: its files are provided only when the text shows them. */
+    const shown = dossier !== undefined && text.includes(DOSSIER_HEADING);
     return {
-      text: renderBlastRadiusSignal({ impacted, callers, coupled, ...(dossier ? { dossier: dossier.text } : {}) }),
+      text,
       hasSymbols: hasSymbolBlocks({ impacted, callers }),
       ...(reached.indexedSha !== undefined ? { indexedSha: reached.indexedSha } : {}),
-      ...(dossier ? { providedFiles: dossier.files } : {}),
+      ...(shown ? { providedFiles: dossier.files } : {}),
     };
   }
 }
