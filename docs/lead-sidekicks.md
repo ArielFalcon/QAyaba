@@ -28,7 +28,10 @@ signed-in app (see below); without either, they stay out and the lead authors al
 
 1. **Plan.** The lead is asked for a plan (a read-only turn): `lead` (one piece of work it authors itself), `noop` with a reason, or `fanout` with
    flows. A flow is an id, an objective, acceptance items, the routes it touches and, when the app declares
-   `dev.geolocation`, an optional place it authors at. The turn is held to
+   `dev.geolocation`, an optional place it authors at. A route segment that holds a stand-in for a value (`<run>`, `{city}`)
+   is kept as a parameter, and a flow that names no route visits the site-relative paths its objective and acceptance name; a
+   route names a map page when it fills the template segment by segment (`/shops/madrid/:slug` for `/shops/:province/:slug`),
+   which decides both the Live DOM its brief carries and the change pages it visits. The turn is held to
    read-only by a per-prompt tool denial (the runtime's file tools and every editing tool of the code-navigation
    server); a lead on a runtime that has no such denial is not asked for a plan and the change stays with it as one
    piece of work, with the reason recorded. The lead grounds deterministically: it

@@ -1,10 +1,12 @@
 /*
  * The part of a run's Context Pack one flow needs: the Live DOM of the pages it visits, under the section's own head. A sidekick
  * authors one flow; the trees of every other page would only crowd its brief. A page is the flow's when its address, or the map
- * template it was opened from, is one the flow names (a trailing slash and a query aside). Whole pages only, within a bound, and the pages the
+ * template it was opened from, is one the flow names (a trailing slash and a query aside), or when the flow names another page of
+ * that template, or one with a stand-in for a value (`namesTemplatePage`). Whole pages only, within a bound, and the pages the
  * bound leaves out are counted. Pure.
  */
 import { PACK_HEADINGS } from "./prompt-headings.ts";
+import { namesTemplatePage } from "./route-instantiation.ts";
 
 export const MAX_FLOW_PACK_CHARS = 12_000;
 
@@ -36,7 +38,10 @@ export function packPagesFor(pack: string | undefined, routes: readonly string[]
   }
   const mine = pages.filter(([first]) => {
     const [, route, template] = PAGE_LINE.exec(first!)!;
-    return wanted.has(normalized(route!)) || (template !== undefined && wanted.has(normalized(template)));
+    if (wanted.has(normalized(route!))) return true;
+    if (template === undefined) return false;
+    const opened = normalized(template);
+    return wanted.has(opened) || [...wanted].some((name) => namesTemplatePage(opened, name));
   });
   if (mine.length === 0) return undefined;
   const kept: string[] = [...head];

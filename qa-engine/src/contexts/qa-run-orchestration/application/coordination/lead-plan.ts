@@ -109,13 +109,25 @@ function strings(value: unknown, max: number, maxItems: number): string[] {
   return value.map((item) => text(item, max)).filter((item) => item !== "").slice(0, maxItems);
 }
 
+/* A segment that holds a stand-in for a value (`qa-bot-<run>-missing`, `{city}`) names a page of no fixed address: it is kept as a parameter. */
+const PLACEHOLDER = /<[^<>/]*>|\{[^{}/]*\}/;
+const STAND_IN = ":value";
+
 function routesOf(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value
+  const routes = value
     .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter((item) => item.length <= MAX_ROUTE_CHARS && ROUTE.test(item))
-    .slice(0, MAX_ROUTES);
+    .map((item) => item.trim().split("/").map((segment) => (PLACEHOLDER.test(segment) ? STAND_IN : segment)).join("/"))
+    .filter((item) => item.length <= MAX_ROUTE_CHARS && ROUTE.test(item));
+  return [...new Set(routes)].slice(0, MAX_ROUTES);
+}
+
+/* A site-relative path the text names: it starts a word or follows an opening quote or bracket, and runs to a space, a quote, a bracket, a comma or a semicolon; a full stop, colon or mark that ends a sentence is not part of it. */
+const PATH_IN_TEXT = /(?:^|[\s(["'`\u201c\u00ab])(\/[^\s"'`()[\],;\u201d\u00bb]+)/g;
+
+/* The paths a flow's own words name, for a flow whose plan named no route: the pages it says it opens are the pages it visits. */
+function pathsIn(texts: readonly string[]): string[] {
+  return texts.flatMap((text) => [...text.matchAll(PATH_IN_TEXT)].map((match) => match[1]!.replace(/[.:!?]+$/, ""))).filter((path) => path !== "/" && !path.startsWith("//"));
 }
 
 interface RawFlow {
@@ -137,11 +149,13 @@ function rawFlowOf(value: unknown, places: Readonly<Record<string, GeoLocation>>
   const objective = text(value.objective, MAX_OBJECTIVE_CHARS);
   if (objective === "") return undefined;
   const location = locationOf(value.location, places);
+  const acceptance = strings(value.acceptance, MAX_ACCEPTANCE_CHARS, MAX_ACCEPTANCE_ITEMS);
+  const named = routesOf(value.routes);
   return {
     id: slugOf(scrub(typeof value.id === "string" ? value.id : "")),
     objective,
-    acceptance: strings(value.acceptance, MAX_ACCEPTANCE_CHARS, MAX_ACCEPTANCE_ITEMS),
-    routes: routesOf(value.routes),
+    acceptance,
+    routes: named.length > 0 ? named : routesOf(pathsIn([objective, ...acceptance])),
     ...(location !== undefined ? { location } : {}),
   };
 }

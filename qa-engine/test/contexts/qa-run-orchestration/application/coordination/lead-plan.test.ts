@@ -210,3 +210,23 @@ test("no more flows run at once than the parallel limit or the flows themselves"
   const six = admitLeadPlan(fanout(...Array.from({ length: 6 }, (_, i) => flow(`f${i}`))), limits, deps);
   assert.equal(six.kind === LEAD_PLAN_KIND.FANOUT ? six.parallel : undefined, limits.maxParallel);
 });
+
+test("a route that holds a placeholder for a value is kept with that segment as a parameter, instead of dropped", () => {
+  const flows = admitted(admitLeadPlan(fanout(flow("a", { routes: ["/shops/madrid/qa-bot-<run>-missing", "/shops/{city}/menu", "/a b"] }), flow("b")), limits, deps));
+  assert.deepEqual(flows[0]!.routes, ["/shops/madrid/:value", "/shops/:value/menu"]);
+});
+
+test("a flow that names no route visits the paths its objective and acceptance name", () => {
+  const flows = admitted(
+    admitLeadPlan(
+      fanout(
+        flow("a", { routes: [], objective: "the detail of a missing shop (e.g. /shops/madrid/x) explains it", acceptance: ["opening /shops/madrid/qa-bot-<run>-missing/menu shows the empty state", "its button lands on /search.", "see e2e/flows/a.spec.ts and https://dev.example/abs"] }),
+        flow("b", { routes: ["/b"], acceptance: ["also /elsewhere"] }),
+      ),
+      limits,
+      deps,
+    ),
+  );
+  assert.deepEqual(flows[0]!.routes, ["/shops/madrid/x", "/shops/madrid/:value/menu", "/search"]);
+  assert.deepEqual(flows[1]!.routes, ["/b"], "a flow that named its routes keeps exactly those");
+});

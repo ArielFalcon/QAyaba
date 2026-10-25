@@ -6,6 +6,7 @@ import {
   MAX_LINKS_PER_PAGE,
   instantiableTemplate,
   instantiateRoute,
+  namesTemplatePage,
   sameOriginPathnames,
 } from "@contexts/generation/domain/route-instantiation.ts";
 import { classifyRoute } from "@kernel/route-capturability.ts";
@@ -91,4 +92,14 @@ test("sameOriginPathnames: is bounded in how many links it keeps and how long on
   assert.deepEqual(sameOriginPathnames([`${BASE}${longest}`], BASE), [longest], "a path of exactly the bound is kept");
   const long = `${BASE}/${"x".repeat(MAX_LINK_LENGTH + 1)}`;
   assert.deepEqual(sameOriginPathnames([long, `${BASE}/short`], BASE), ["/short"]);
+});
+
+test("a route names a template's page when each of the template's parameters is filled by a value or a parameter, and each literal is the same", () => {
+  const template = "/shops/:province/:city/:slug";
+  assert.equal(namesTemplatePage(template, "/shops/madrid/centro/el-bar"), true);
+  assert.equal(namesTemplatePage(template, "/shops/:p/:c/:shopSlug"), true);
+  assert.equal(namesTemplatePage(template, "/shops/madrid/centro/:slug"), true, "a page of a known city whose shop is a stand-in");
+  assert.equal(namesTemplatePage(template, "/shops/madrid/centro/:slug/menu"), false, "another length is another page");
+  assert.equal(namesTemplatePage(template, "/bars/madrid/centro/:slug"), false, "a literal of the template is never a different text");
+  assert.equal(namesTemplatePage("/shops/menu/:slug", "/shops/:section/:slug"), false, "a parameter does not fill a literal of the template");
 });

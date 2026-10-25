@@ -58,3 +58,9 @@ test("a flow that names a page with a query is given that page, and a heading of
   assert.ok(!slice.includes("Another section"));
   assert.ok(!slice.includes("not a page line"));
 });
+
+test("a flow that names a page of a template with a stand-in value is given the pages the pack opened for that template", () => {
+  assert.ok(packPagesFor(pack, ["/shops/madrid/:city"])?.includes("Shops in Centro"));
+  assert.ok(packPagesFor(pack, ["/shops/barcelona/gracia"])?.includes("Shops in Centro"), "another page of the same template");
+  assert.equal(packPagesFor(pack, ["/shops/madrid"]), undefined);
+});

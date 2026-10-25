@@ -79,7 +79,7 @@ export function isPageOfTemplate(template: string, path: string): boolean {
   return instantiateRoute(template, [path]) === path;
 }
 
-/** Whether `route` names the page `template` names: the same text, a page of the template, or the same template with its parameters called or spelled otherwise (`/shops/:province/:shopSlug` for `/shops/:province/:slug`). */
+/** Whether `route` names the page `template` names: the same text, a page of the template, or a route of the template's length whose segments fill it, a template parameter taking a value or a parameter of any name (`/shops/:province/:shopSlug` or `/shops/madrid/:slug` for `/shops/:province/:slug`) and a literal only the same text. */
 export function namesTemplatePage(template: string, route: string): boolean {
   if (route === template || isPageOfTemplate(template, route)) return true;
   const wanted = templateSegments(template);
@@ -87,7 +87,7 @@ export function namesTemplatePage(template: string, route: string): boolean {
   if (wanted === undefined || given === undefined || wanted.length !== given.length) return false;
   return wanted.every((segment, index) => {
     const other = given[index]!;
-    return segment.parameter ? other.parameter : !other.parameter && other.text === segment.text;
+    return segment.parameter || (!other.parameter && other.text === segment.text);
   });
 }
 
