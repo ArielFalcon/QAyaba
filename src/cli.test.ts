@@ -84,3 +84,28 @@ describe("--dom-pack", () => {
     }
   });
 });
+
+describe("--structural-signal and --dossier", () => {
+  it("are the run's own choices about the structural block and its change dossier and reach the service as grounding, absent unless given", () => {
+    const both = parseArgs(["--app", "x", "--sha", "bbbb222", "--structural-signal", "on", "--dossier", "on"]);
+    assert.equal(both.structuralSignal, true);
+    assert.equal(both.dossier, true);
+    assert.deepEqual(delegateRunInput(both, "e2e").grounding, { structuralSignal: true, dossier: true });
+    assert.deepEqual(delegateRunInput(parseArgs(["--app", "x", "--sha", "bbbb222", "--structural-signal", "off", "--dom-pack", "on"]), "e2e").grounding, { structuralSignal: false, domPack: true });
+    const plain = parseArgs(["--app", "x", "--sha", "bbbb222"]);
+    assert.equal("structuralSignal" in plain || "dossier" in plain, false);
+  });
+
+  it("reject any value other than on or off", () => {
+    const exit = mock.method(process, "exit", () => { throw new Error("process.exit called"); });
+    const error = mock.method(console, "error", () => {});
+    try {
+      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--structural-signal", "bogus"]));
+      assert.throws(() => parseArgs(["--app", "x", "--sha", "bbbb222", "--dossier", "yes"]));
+      assert.equal(exit.mock.callCount(), 2);
+    } finally {
+      exit.mock.restore();
+      error.mock.restore();
+    }
+  });
+});
