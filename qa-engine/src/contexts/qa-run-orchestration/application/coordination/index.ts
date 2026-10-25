@@ -33,11 +33,9 @@ export {
 export { SIDEKICK_AUTHORITY, type SidekickAuthority } from "./authority.ts";
 export {
   createDelegationBrief,
-  DEFAULT_ESCALATION_POLICY,
   type ArtifactReference,
   type DelegationBrief,
   type DelegationScope,
-  type EscalationPolicy,
   type ValidationStep,
 } from "./delegation-brief.ts";
 export {

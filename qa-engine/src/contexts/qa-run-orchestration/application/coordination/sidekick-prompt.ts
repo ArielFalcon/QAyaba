@@ -49,13 +49,6 @@ export function renderSidekickBrief(brief: DelegationBrief): {
           ...brief.validationPlan.map((v) => `- ${v.id}: ${scrub(v.description)}`),
         ].join("\n");
 
-  const escalation = [
-    "## Escalation policy",
-    `- onNeedsLead: ${brief.escalationPolicy.onNeedsLead}`,
-    `- onNoProgress: ${brief.escalationPolicy.onNoProgress}`,
-    `- onBudgetExhausted: ${brief.escalationPolicy.onBudgetExhausted}`,
-  ].join("\n");
-
   const task = [
     "## Task",
     `delegationId: ${brief.delegationId}`,
@@ -82,7 +75,6 @@ export function renderSidekickBrief(brief: DelegationBrief): {
     ...(brief.proofs?.length ? { proofs: ["## How the change reaches this flow's pages (from the run's call graph)", ...brief.proofs.map((proof) => `- ${scrub(proof)}`)].join("\n") } : {}),
     artifacts,
     validation,
-    escalation,
     contract,
   };
   const text = Object.values(sections).join("\n\n");

@@ -1,10 +1,7 @@
 /* DelegationBrief / DelegationResult contracts and frozen sidekick authority. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  createDelegationBrief,
-  DEFAULT_ESCALATION_POLICY,
-} from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
+import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
 import {
   belongsToBrief,
   DELEGATION_RECOMMENDATIONS,
@@ -19,7 +16,7 @@ const scope = {
   allowedCommands: ["npm test"],
 };
 
-test("createDelegationBrief freezes SIDEKICK_AUTHORITY and default escalation", () => {
+test("createDelegationBrief freezes SIDEKICK_AUTHORITY", () => {
   const brief = createDelegationBrief({
     delegationId: "d1",
     runId: "r1",
@@ -33,7 +30,6 @@ test("createDelegationBrief freezes SIDEKICK_AUTHORITY and default escalation", 
   assert.equal(brief.authority.canChangeAcceptanceCriteria, false);
   assert.equal(brief.authority.canExpandScope, false);
   assert.equal(brief.authority.canChallengeBrief, true);
-  assert.deepEqual(brief.escalationPolicy, DEFAULT_ESCALATION_POLICY);
   assert.deepEqual(brief.knownFacts, []);
   assert.deepEqual(brief.artifactRefs, []);
   assert.deepEqual(brief.validationPlan, []);

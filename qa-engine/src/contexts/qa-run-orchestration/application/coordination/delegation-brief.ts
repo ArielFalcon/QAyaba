@@ -19,18 +19,6 @@ export interface ValidationStep {
   readonly description: string;
 }
 
-export interface EscalationPolicy {
-  readonly onNeedsLead: "takeover";
-  readonly onNoProgress: "escalate";
-  readonly onBudgetExhausted: "abort";
-}
-
-export const DEFAULT_ESCALATION_POLICY: EscalationPolicy = {
-  onNeedsLead: "takeover",
-  onNoProgress: "escalate",
-  onBudgetExhausted: "abort",
-};
-
 export interface DelegationBrief {
   readonly delegationId: string;
   readonly runId: string;
@@ -42,7 +30,6 @@ export interface DelegationBrief {
   readonly artifactRefs: readonly ArtifactReference[];
   readonly validationPlan: readonly ValidationStep[];
   readonly authority: SidekickAuthority;
-  readonly escalationPolicy: EscalationPolicy;
   /* The Live DOM of the flow's pages, cut from the run's Context Pack. */
   readonly pages?: string;
   /* How the change reaches the flow's pages, as the call graph proved it (`route: step > step`). */
@@ -75,7 +62,6 @@ export function createDelegationBrief(input: {
     artifactRefs: input.artifactRefs ?? [],
     validationPlan: (input.validationPlan ?? []).map((step) => ({ ...step, description: scrub(step.description) })),
     authority: SIDEKICK_AUTHORITY,
-    escalationPolicy: DEFAULT_ESCALATION_POLICY,
     ...(input.pages ? { pages: scrub(input.pages) } : {}),
     ...(input.proofs?.length ? { proofs: input.proofs.map(scrub) } : {}),
   };

@@ -39,13 +39,18 @@ test("resolveCapabilityRole maps lead→primary and sidekicks→dedicated sideki
   assert.equal(resolveCapabilityRole("sidekick-escalated"), "sidekick");
 });
 
-test("renderSidekickBrief includes authority, scope, validation and escalation — not a lead transcript", () => {
+test("the sidekick prompt carries no escalation policy block", () => {
+  const { text } = renderSidekickBrief(brief());
+  assert.equal(text.includes("Escalation policy"), false);
+  assert.doesNotMatch(text, /onNeedsLead|onNoProgress|onBudgetExhausted/);
+});
+
+test("renderSidekickBrief includes authority, scope and validation — not a lead transcript", () => {
   const { text, sectionSizes } = renderSidekickBrief(brief());
   assert.match(text, /write smoke spec/);
   assert.match(text, /checkout completes/);
   assert.match(text, /canExpandScope:\s*false/);
   assert.match(text, /e2e\/specs\//);
-  assert.match(text, /onNeedsLead/);
   assert.equal(text.includes("LEAD TRANSCRIPT"), false);
   assert.ok(Object.keys(sectionSizes).length > 0);
 });
