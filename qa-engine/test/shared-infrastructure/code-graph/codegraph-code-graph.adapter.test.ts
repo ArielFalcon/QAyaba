@@ -367,6 +367,31 @@ test("a store the engine writes in WAL mode is cached after the reader checked i
   }
 });
 
+test("a touched module-level constant seeds the walk, and the code that references it is reached from it", async () => {
+  const h = harness();
+  try {
+    const store = join(h.root, "constant.db");
+    copyFileSync(STORE, store);
+    const db = new DatabaseSync(store);
+    db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES ('constant:cents', 'constant', 'CENTS', 'CENTS', ?, 'typescript', 4, 4, 0, 0, 0)").run(FORMAT);
+    const formatMoney = (db.prepare("SELECT id FROM nodes WHERE name = 'formatMoney' AND kind = 'function'").get() as { id: string }).id;
+    db.prepare("INSERT INTO edges (source, target, kind) VALUES (?, 'constant:cents', 'references')").run(formatMoney);
+    db.close();
+    h.engine.store = store;
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT], new Map([[FORMAT, new Set([4])]])), BUDGET);
+
+    assert.ok(report.ok);
+    const at = (depth: number) => report.value.symbols.filter((s) => s.depth === depth).map((s) => s.symbol);
+    assert.deepEqual(at(0), ["CENTS"]);
+    assert.deepEqual(at(1), ["formatMoney"]);
+    assert.ok(at(2).length > 0, "the walk goes on from the code that references the constant");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("a handler route the engine names for any verb (ANY, ALL) is a backend route, not a page named after its verb", async () => {
   const h = harness();
   try {

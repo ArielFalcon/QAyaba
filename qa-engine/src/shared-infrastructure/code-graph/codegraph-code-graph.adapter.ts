@@ -55,8 +55,12 @@ interface StoreRoute {
 /* A handler route: its verb (ANY and ALL are the engine's names for a handler that serves every verb) and its path. */
 const HTTP_ROUTE = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|ANY|ALL) (\S+)$/;
 
+/* Module-level values the reader lists beside the code that runs: a touched one seeds the walk only where no code holds the line. */
+const VALUE_KINDS: ReadonlySet<string> = new Set(["constant", "variable"]);
+
 /*
- * The seeds of a change: for each touched line, the innermost symbol whose range holds it; when the diff was not read at all,
+ * The seeds of a change: for each touched line, the innermost symbol whose range holds it, or the module-level value declared
+ * there when no code does; when the diff was not read at all,
  * every symbol of each changed file (its classes and every function and method in them, so the callers of a method are
  * reached, not only the users of its class). A line between symbols seeds nothing, and neither does a changed file the read
  * diff has no line for: a change of mode alone or a pure rename edits no symbol, so it must not spend the budget on all of
@@ -68,7 +72,9 @@ export function selectSeeds(symbols: readonly StoreSymbol[], changedFiles: reado
   for (const s of symbols) (byFile.get(s.file) ?? byFile.set(s.file, []).get(s.file)!).push(s);
   const seeds = new Map<string, StoreSymbol>();
   for (const file of changedFiles) {
-    const inFile = byFile.get(file) ?? [];
+    const all = byFile.get(file) ?? [];
+    const inFile = all.filter((s) => !VALUE_KINDS.has(s.kind));
+    const values = all.filter((s) => VALUE_KINDS.has(s.kind));
     if (touched === undefined) {
       for (const s of inFile) seeds.set(s.id, s);
       continue;
@@ -81,6 +87,7 @@ export function selectSeeds(symbols: readonly StoreSymbol[], changedFiles: reado
         if (s.startLine > line || s.endLine < line) continue;
         if (!best || s.endLine - s.startLine < best.endLine - best.startLine) best = s;
       }
+      best ??= values.find((s) => s.startLine <= line && s.endLine >= line);
       if (best) seeds.set(best.id, best);
     }
   }

@@ -23,6 +23,8 @@ const EXTRACTION_VERSION = "27";
 
 /* What a seed, a caller or a page anchor can be: code that runs or holds code. Fields, constants, imports and files are not. */
 const CALLABLE_KINDS = ["function", "method", "class", "component", "interface"];
+/* Module-level values: a change to one seeds the walk, and the code that references it is its caller. */
+const VALUE_KINDS = ["constant", "variable"];
 /* Where a method's behaviour lives for whoever references the type: its class (a route references the component, not its method). */
 const CONTAINER_KINDS = ["class", "component", "interface"];
 const MAX_FILES = 2000;
@@ -80,10 +82,10 @@ function symbolRow(row) {
 }
 
 function symbolsOf(db, files) {
-  const kinds = CALLABLE_KINDS.map(() => "?").join(",");
-  const stmt = db.prepare(`SELECT id, name, kind, file_path, start_line, end_line FROM nodes WHERE file_path = ? AND kind IN (${kinds})`);
+  const seedKinds = [...CALLABLE_KINDS, ...VALUE_KINDS];
+  const stmt = db.prepare(`SELECT id, name, kind, file_path, start_line, end_line FROM nodes WHERE file_path = ? AND kind IN (${seedKinds.map(() => "?").join(",")})`);
   const out = [];
-  for (const file of files) for (const row of stmt.all(file, ...CALLABLE_KINDS)) out.push(symbolRow(row));
+  for (const file of files) for (const row of stmt.all(file, ...seedKinds)) out.push(symbolRow(row));
   return out.sort(byPosition);
 }
 
@@ -118,7 +120,8 @@ function find(db, symbols) {
 function walk(db, seeds, cutSeeds, depth, maxNodes) {
   const node = db.prepare("SELECT id, name, kind, file_path, start_line FROM nodes WHERE id = ?");
   /* Ordered by position, so that when the budget cuts a walk it keeps the same nodes on every run. */
-  const callers = db.prepare("SELECT DISTINCT e.source AS id, s.file_path, s.start_line, s.name FROM edges e JOIN nodes s ON s.id = e.source WHERE e.target = ? AND (e.kind IN ('calls', 'instantiates') OR (e.kind = 'references' AND s.kind = 'route')) ORDER BY s.file_path, s.start_line, s.name, s.id");
+  /* A caller calls or instantiates the node; a route references its page; code that runs references a module-level value it reads. */
+  const callers = db.prepare(`SELECT DISTINCT e.source AS id, s.file_path, s.start_line, s.name FROM edges e JOIN nodes s ON s.id = e.source JOIN nodes t ON t.id = e.target WHERE e.target = ? AND (e.kind IN ('calls', 'instantiates') OR (e.kind = 'references' AND (s.kind = 'route' OR (t.kind IN (${VALUE_KINDS.map(() => "?").join(",")}) AND s.kind IN (${CALLABLE_KINDS.map(() => "?").join(",")}))))) ORDER BY s.file_path, s.start_line, s.name, s.id`);
   const containers = db.prepare(`SELECT e.source AS id, s.file_path, s.start_line, s.name FROM edges e JOIN nodes s ON s.id = e.source WHERE e.target = ? AND e.kind = 'contains' AND s.kind IN (${CONTAINER_KINDS.map(() => "?").join(",")}) ORDER BY s.file_path, s.start_line, s.name, s.id`);
   const reached = new Map();
   let truncated = false;
@@ -152,7 +155,7 @@ function walk(db, seeds, cutSeeds, depth, maxNodes) {
   let frontier = withContainer(seedRows.sort(byPosition).map((r) => r.id).filter((id) => add(id, 0)), 0);
   for (let d = 1; d <= depth && frontier.length > 0 && !truncated; d++) {
     const next = [];
-    for (const id of [...frontier].sort((a, b) => byPosition(reached.get(a), reached.get(b)))) for (const { id: caller } of callers.all(id)) if (add(caller, d, refOf(id))) next.push(caller);
+    for (const id of [...frontier].sort((a, b) => byPosition(reached.get(a), reached.get(b)))) for (const { id: caller } of callers.all(id, ...VALUE_KINDS, ...CALLABLE_KINDS)) if (add(caller, d, refOf(id))) next.push(caller);
     frontier = withContainer(next, d);
   }
   const nodes = [...reached.values()].sort((a, b) => a.depth - b.depth || byPosition(a, b));
