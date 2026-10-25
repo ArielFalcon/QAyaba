@@ -462,10 +462,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:76-136`,
       /* Setup: the caps, the strict copy of the seed (the mark of a project last) and the wiring of the real strict calls, the entries of .qa that are removed when they are not ordinary, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
       `${PUB_INFRA}/setup.adapter.ts:24-26`,
-      `${PUB_INFRA}/setup.adapter.ts:317-369`,
-      `${PUB_INFRA}/setup.adapter.ts:379-382`,
-      `${PUB_INFRA}/setup.adapter.ts:432-625`,
-      `${PUB_INFRA}/setup.adapter.ts:629-630`,
+      `${PUB_INFRA}/setup.adapter.ts:513-565`,
+      `${PUB_INFRA}/setup.adapter.ts:575-578`,
+      `${PUB_INFRA}/setup.adapter.ts:629-824`,
+      `${PUB_INFRA}/setup.adapter.ts:828-829`,
       /* The login's stock check: a strict read whose refusal fails the login. */
       `${ORCH}/infrastructure/auth-session.adapter.ts:84-84`,
       `${ORCH}/infrastructure/auth-session.adapter.ts:272-278`,

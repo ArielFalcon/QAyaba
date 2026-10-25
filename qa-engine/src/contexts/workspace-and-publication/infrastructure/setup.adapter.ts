@@ -136,6 +136,51 @@ function withCaptureFixture(src: string): string | undefined {
   return src.slice(0, typeEnd) + FAILURE_CAPTURE_FIXTURE_TYPE + src.slice(typeEnd, fixtureAt) + FAILURE_CAPTURE_FIXTURE + src.slice(fixtureAt);
 }
 
+/*
+ * The seed's source-map code, between its markers: it finds each covered script's map and fetches it through
+ * the browser context, so the run's DEV gate credentials reach it. The current block is read from the seed;
+ * a repo's copy that is still byte-for-byte an earlier shipped revision is upgraded in place, and an edited
+ * copy is left as it is. Add the outgoing block's hash whenever the seed's block changes.
+ */
+export const SOURCE_MAPS_MARKER = ">>> qa-source-maps (system-owned: do not edit) >>>";
+const SOURCE_MAPS_END_MARKER = "// <<< qa-source-maps <<<\n";
+const EARLIER_SOURCE_MAPS_BLOCKS: ReadonlySet<string> = new Set([]);
+
+/*
+ * The one revision shipped without markers, which fetched maps without the gate's credentials, known by its
+ * first line, length and sha256, and the call site it shipped with. Both are replaced together, or neither.
+ */
+const UNMARKED_SOURCE_MAPS_BLOCK = {
+  firstLine: "// system-owned: do not edit. For each script, parse its `//# sourceMappingURL=` and attach the\n",
+  length: 1436,
+  sha256: "a67dae36486178822a9f28e3cd9f734fd6849734fbaf951abb502e69b6bb39de",
+  call: "await attachSourceMaps(entries as unknown as CoverageEntry[]);",
+} as const;
+const SOURCE_MAPS_CALL = "await attachSourceMaps(entries as unknown as CoverageEntry[], page.request);";
+
+/* The marked block of `src` (from its opening marker's line through its closing marker line), or undefined. */
+function sourceMapsBlockOf(src: string): { start: number; end: number } | undefined {
+  const marker = onlyIndexOf(src, `// ${SOURCE_MAPS_MARKER}`);
+  if (marker === -1) return undefined;
+  const end = src.indexOf(SOURCE_MAPS_END_MARKER, marker);
+  return end === -1 ? undefined : { start: marker, end: end + SOURCE_MAPS_END_MARKER.length };
+}
+
+/* `src` with the seed's current source-map block `current` in place of a shipped earlier one; otherwise as it is. */
+function withCurrentSourceMaps(src: string, current: string): string {
+  const marked = sourceMapsBlockOf(src);
+  if (marked) {
+    const block = src.slice(marked.start, marked.end);
+    return block !== current && EARLIER_SOURCE_MAPS_BLOCKS.has(sha256(block)) ? src.slice(0, marked.start) + current + src.slice(marked.end) : src;
+  }
+  const { firstLine, length, sha256: unmarkedHash, call } = UNMARKED_SOURCE_MAPS_BLOCK;
+  const at = onlyIndexOf(src, firstLine);
+  if (at === -1 || sha256(src.slice(at, at + length)) !== unmarkedHash) return src;
+  const callAt = onlyIndexOf(src, call);
+  if (callAt < at + length) return src;
+  return src.slice(0, at) + current + src.slice(at + length, callAt) + SOURCE_MAPS_CALL + src.slice(callAt + call.length);
+}
+
 /* Where `needle` is in `text` when it is there exactly once; -1 otherwise. */
 function onlyIndexOf(text: string, needle: string): number {
   const at = text.indexOf(needle);
@@ -553,6 +598,7 @@ export class SetupAdapter {
     if (!this.hasProject(e2eDir)) this.bootstrap(e2eDir);
     this.ensureSpecDir(e2eDir);
     this.ensureFailureCapture(e2eDir);
+    this.ensureSourceMaps(e2eDir);
     this.ensureAuthSetup(e2eDir);
     this.ensureSessionGitignore(e2eDir);
     this.ensurePlaywrightEnvKeys(e2eDir);
@@ -653,6 +699,22 @@ export class SetupAdapter {
       console.warn(`[qa] WARNING: ${join(e2eDir, FIXTURES_FILE)} has no failure-capture fixture and setup could not add one (its test.extend is not the seed's, or its capture block was edited); the capture's hooks reach only the first spec file each worker loads, so a later spec's failed attempts run without a failure capture.`);
     }
     const out = withFixture ?? withBlock;
+    if (out !== src) this.writeProject(e2eDir, FIXTURES_FILE, out);
+  }
+
+  /**
+   * Puts the seed's current source-map code in place of a copy that is still byte-for-byte a shipped earlier
+   * revision, its call site included. A copy someone edited, or a fixtures.ts not from the seed, is left as it is.
+   */
+  ensureSourceMaps(e2eDir: string): void {
+    const seedPath = join(this.deps.seedDir, FIXTURES_FILE);
+    if (!this.deps.fs.exists(seedPath)) return;
+    const seed = this.deps.fs.read(seedPath);
+    const block = sourceMapsBlockOf(seed);
+    if (!block) return;
+    const src = this.readProjectText(e2eDir, FIXTURES_FILE);
+    if (src === undefined) return;
+    const out = withCurrentSourceMaps(src, seed.slice(block.start, block.end));
     if (out !== src) this.writeProject(e2eDir, FIXTURES_FILE, out);
   }
 
