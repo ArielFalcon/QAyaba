@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Hexagonal QA engine — built in parallel to src/, switched in via PIPELINE_ENGINE.",
+  "description": "Hexagonal QA engine: the run pipeline, its ports and its adapters.",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },

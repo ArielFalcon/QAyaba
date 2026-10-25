@@ -1357,14 +1357,9 @@ test("qa.structuralSignals mode 'signal' still supplies serviceTopology when ser
 
 test("createRewrittenEngineFactory forwards its 4th (observer) argument to buildRewrittenCompositionConfig on every call", () => {
   const app = cfg("factory-observer-e2e");
-  /* createRewrittenEngineFactory reads PIPELINE_ENGINE via buildProduction internally (env
-     defaults to process.env) — mirrors this file's own established pattern (e.g. the
-     "createRewrittenEngineFactory's port throws..." test below) of passing env explicitly so the
-     ambient process.env never leaks into the assertion.
-   */
-  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps, env: { PIPELINE_ENGINE: "rewritten" } });
+  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
   const observer = { onStep: () => {}, onEvent: () => {} };
-  /* buildProduction(env, cfg) constructs a RewrittenOrchestratorAdapter wrapping RunQaUseCase —
+  /* buildProduction(cfg) constructs a RewrittenOrchestratorAdapter wrapping RunQaUseCase —
      the adapter has no public read-back of its own deps, so this test asserts the OBSERVABLE
      consequence: the factory call itself never throws when an observer is supplied (proving the
      4th argument's type threads correctly end-to-end), matching this suite's own "construction
@@ -1854,41 +1849,24 @@ test("buildRewrittenCompositionConfig wires config.sanitize to the REAL sanitize
   assert.ok(!redacted.includes("ghs_supersecretvalue"), "a real token-shaped secret must be redacted, not passed through verbatim");
 });
 
-/* createRewrittenEngineFactory is the RunnerDeps.engineFactory seam. selectEngine always
-   resolves to "rewritten"; PIPELINE_ENGINE="legacy" is accepted-but-ignored. These tests set
-   PIPELINE_ENGINE=rewritten around the factory(...) call to exercise the documented calling contract.
- */
+/* createRewrittenEngineFactory is the RunnerDeps.engineFactory seam; these tests exercise its documented calling contract. */
 
 test("createRewrittenEngineFactory returns a factory whose output satisfies RunPipelinePort (has a run() fn)", () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "rewritten";
-  try {
-    const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
-    const port = factory(cfg("factory-port-shape"), "qa-bot-abc1234-runA", { mode: "diff" });
-    assert.equal(typeof port.run, "function", "the returned RunPipelinePort must expose run()");
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
+  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+  const port = factory(cfg("factory-port-shape"), "qa-bot-abc1234-runA", { mode: "diff" });
+  assert.equal(typeof port.run, "function", "the returned RunPipelinePort must expose run()");
 });
 
 test("createRewrittenEngineFactory never calls getAgentDeps during construction (lazy — only real generation/review calls .open())", () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "rewritten";
-  try {
-    let calls = 0;
-    const factory = createRewrittenEngineFactory({
-      getAgentDeps: () => {
-        calls++;
-        return stubAgentDeps();
-      },
-    });
-    factory(cfg("factory-lazy-agent"), "qa-bot-abc1234-runA", { mode: "diff" });
-    assert.equal(calls, 0, "constructing the factory + composing the port must not eagerly open an agent session");
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
+  let calls = 0;
+  const factory = createRewrittenEngineFactory({
+    getAgentDeps: () => {
+      calls++;
+      return stubAgentDeps();
+    },
+  });
+  factory(cfg("factory-lazy-agent"), "qa-bot-abc1234-runA", { mode: "diff" });
+  assert.equal(calls, 0, "constructing the factory + composing the port must not eagerly open an agent session");
 });
 
 /* withUsageSink/withStallWatchdog/withSessionRegistration existed and were fully unit-tested, but
@@ -1899,48 +1877,41 @@ test("createRewrittenEngineFactory never calls getAgentDeps during construction 
  */
 
 test("createRewrittenEngineFactory wraps deps.getAgentDeps() so a session opened with descriptor.runId registers for SSE (activityRouter.sessionMap())", async () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "rewritten";
-  try {
-    let openedSessionId: string | undefined;
-    const rawGetAgentDeps = (): AgentDeps => ({
-      open: async (_agent, _cwd, _opts) => {
-        openedSessionId = "factory-sse-session-1";
-        return { id: openedSessionId, prompt: async () => "output", dispose: async () => {} };
-      },
-    });
-    const app = cfg("factory-sse-registration");
-    const config = buildRewrittenCompositionConfig(
-      app,
-      {
-        getAgentDeps: () =>
-          withUsageSink(
-            withStallWatchdog(
-              withSessionRegistration(rawGetAgentDeps(), { register: registerRunSession, unregister: unregisterRunSession }),
-              { stallMs: 180_000 },
-            ),
+  let openedSessionId: string | undefined;
+  const rawGetAgentDeps = (): AgentDeps => ({
+    open: async (_agent, _cwd, _opts) => {
+      openedSessionId = "factory-sse-session-1";
+      return { id: openedSessionId, prompt: async () => "output", dispose: async () => {} };
+    },
+  });
+  const app = cfg("factory-sse-registration");
+  const config = buildRewrittenCompositionConfig(
+    app,
+    {
+      getAgentDeps: () =>
+        withUsageSink(
+          withStallWatchdog(
+            withSessionRegistration(rawGetAgentDeps(), { register: registerRunSession, unregister: unregisterRunSession }),
+            { stallMs: 180_000 },
           ),
-      },
-      "qa-bot-abc1234-runSSE",
-      { mode: "diff" },
-    );
+        ),
+    },
+    "qa-bot-abc1234-runSSE",
+    { mode: "diff" },
+  );
 
-    /* Exercise the SAME seam a real review call uses: runtimeAdapter.openSession -> deps.open with a
-       descriptor carrying runId (mirrors ReviewPortAdapter's own openSession call shape).
-     */
-    const session = await config.reviewRuntime.runtime.openSession("reviewer", "/mirrors/org/app", {
-      descriptor: { runId: "run-sse-1", role: "qa-reviewer" },
-    });
+  /* Exercise the SAME seam a real review call uses: runtimeAdapter.openSession -> deps.open with a
+     descriptor carrying runId (mirrors ReviewPortAdapter's own openSession call shape).
+   */
+  const session = await config.reviewRuntime.runtime.openSession("reviewer", "/mirrors/org/app", {
+    descriptor: { runId: "run-sse-1", role: "qa-reviewer" },
+  });
 
-    assert.ok(openedSessionId, "the raw AgentDeps.open must have been reached through the wrap chain");
-    assert.equal(activityRouter.sessionMap().get(openedSessionId!), "run-sse-1", "the session must be registered in the SAME activityRouter the SSE stream reads from");
+  assert.ok(openedSessionId, "the raw AgentDeps.open must have been reached through the wrap chain");
+  assert.equal(activityRouter.sessionMap().get(openedSessionId!), "run-sse-1", "the session must be registered in the SAME activityRouter the SSE stream reads from");
 
-    await session.dispose();
-    assert.equal(activityRouter.sessionMap().has(openedSessionId!), false, "dispose must unregister the session (no leaked SSE mapping)");
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
+  await session.dispose();
+  assert.equal(activityRouter.sessionMap().has(openedSessionId!), false, "dispose must unregister the session (no leaked SSE mapping)");
 });
 
 /*
@@ -2115,59 +2086,37 @@ test("only the final step's text is read as the generator's verdict, through the
 });
 
 test("createRewrittenEngineFactory's engineFactory (not just buildRewrittenCompositionConfig directly) composes the SAME wrap chain end-to-end", () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "rewritten";
-  try {
-    let getAgentDepsCalls = 0;
-    const factory = createRewrittenEngineFactory({
-      getAgentDeps: () => {
-        getAgentDepsCalls++;
-        return stubAgentDeps();
-      },
-    });
-    const port = factory(cfg("factory-wrap-chain"), "qa-bot-abc1234-runWrap", { mode: "diff" });
-    assert.equal(typeof port.run, "function");
-    /* Construction must stay lazy (mirrors the pre-existing "never calls getAgentDeps during
-       construction" test above) — the wrap itself must not defeat that laziness.
-     */
-    assert.equal(getAgentDepsCalls, 0, "wrapping getAgentDeps must not eagerly invoke the underlying factory");
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
-});
-
-test("createRewrittenEngineFactory's returned closure never throws when PIPELINE_ENGINE is 'legacy' (Plan 7.6 — accepted-but-ignored, no legacy branch remains to reject it)", () => {
-  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps, env: { PIPELINE_ENGINE: "legacy" } });
-  assert.doesNotThrow(() => factory(cfg("factory-legacy-guard"), "qa-bot-abc1234-runA", { mode: "diff" }));
+  let getAgentDepsCalls = 0;
+  const factory = createRewrittenEngineFactory({
+    getAgentDeps: () => {
+      getAgentDepsCalls++;
+      return stubAgentDeps();
+    },
+  });
+  const port = factory(cfg("factory-wrap-chain"), "qa-bot-abc1234-runWrap", { mode: "diff" });
+  assert.equal(typeof port.run, "function");
+  /* Construction must stay lazy (mirrors the pre-existing "never calls getAgentDeps during
+     construction" test above) — the wrap itself must not defeat that laziness.
+   */
+  assert.equal(getAgentDepsCalls, 0, "wrapping getAgentDeps must not eagerly invoke the underlying factory");
 });
 
 test("createRewrittenEngineFactory's returned closure threads the namespace argument into branch for two consecutive calls with different namespaces", () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "rewritten";
-  try {
-    const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
-    const app = cfg("factory-closure-namespace");
-    /* Both calls build a REAL RunPipelinePort via buildProduction — we cannot read `.branch` off
-       the port itself, but buildRewrittenCompositionConfig (already pinned above) proves the config
-       it builds carries branch=namespace; this test proves the FACTORY CLOSURE's own arity accepts
-       and threads a second, distinct namespace argument without throwing (the composition succeeds
-       for both), which is the observable contract at the createRewrittenEngineFactory seam.
-     */
-    const portRun1 = factory(app, "qa-bot-abc1234-runA", { mode: "diff" });
-    const portRun2 = factory(app, "qa-bot-abc1234-runB", { mode: "diff" });
-    assert.equal(typeof portRun1.run, "function");
-    assert.equal(typeof portRun2.run, "function");
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
+  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+  const app = cfg("factory-closure-namespace");
+  /* Both calls build a REAL RunPipelinePort via buildProduction — we cannot read `.branch` off
+     the port itself, but buildRewrittenCompositionConfig (already pinned above) proves the config
+     it builds carries branch=namespace; this test proves the FACTORY CLOSURE's own arity accepts
+     and threads a second, distinct namespace argument without throwing (the composition succeeds
+     for both), which is the observable contract at the createRewrittenEngineFactory seam.
+   */
+  const portRun1 = factory(app, "qa-bot-abc1234-runA", { mode: "diff" });
+  const portRun2 = factory(app, "qa-bot-abc1234-runB", { mode: "diff" });
+  assert.equal(typeof portRun1.run, "function");
+  assert.equal(typeof portRun2.run, "function");
 });
 
-/* ── PIPELINE_ENGINE dispatch integration — with a REAL engineFactory (not a fake port) ────────────
-   of PIPELINE_ENGINE, using the REAL production factory (not just a fake port, as runner.test.ts
-   already pins for the dispatch seam itself).
- */
+/* ── Dispatch integration with the REAL production factory (runner.test.ts pins the seam with a fake port) ── */
 
 test("engineFactory (real production factory) is invoked and drives the run to completion", async () => {
   const queue = new JobQueue();
@@ -2234,36 +2183,29 @@ test("buildRewrittenCompositionConfig's coverage collector for a code:true app r
   await assert.doesNotReject(() => config.objectiveSignal.collector.collect("/tmp/does-not-exist/e2e", "qa-bot-def5678-run2"));
 });
 
-test("PIPELINE_ENGINE=legacy (stale operator setting) — the real factory is still invoked (accepted-but-ignored, no fallback to a different code path)", async () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "legacy";
-  try {
-    const queue = new JobQueue();
-    let factoryInvoked = false;
-    const realFactory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
-    const id = enqueueTrackedRun(
-      queue,
-      { app: "factory-dispatch-legacy", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
-      {
-        loadApp: cfg,
-        engineFactory: (appConfig, namespace, run) => {
-          factoryInvoked = true;
-          return realFactory(appConfig, namespace, run);
-        },
+test("the runner reaches the real factory and never bypasses it", async () => {
+  const queue = new JobQueue();
+  let factoryInvoked = false;
+  const realFactory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "factory-dispatch-legacy", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    {
+      loadApp: cfg,
+      engineFactory: (appConfig, namespace, run) => {
+        factoryInvoked = true;
+        return realFactory(appConfig, namespace, run);
       },
-    );
-    await queue.drain();
-    const r = getRecord(id)!;
-    /* stubAgentDeps.open() always throws, so a REAL run through the real factory genuinely fails —
-       the assertion of interest is that the factory was reached at all (never bypassed), not the
-       verdict shape of a deliberately-broken agent stub.
-     */
-    assert.equal(r.status, "done");
-    assert.equal(factoryInvoked, true, "PIPELINE_ENGINE=legacy no longer selects a different code path");
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
+    },
+  );
+  await queue.drain();
+  const r = getRecord(id)!;
+  /* stubAgentDeps.open() always throws, so a REAL run through the real factory genuinely fails —
+     the assertion of interest is that the factory was reached at all (never bypassed), not the
+     verdict shape of a deliberately-broken agent stub.
+   */
+  assert.equal(r.status, "done");
+  assert.equal(factoryInvoked, true, "the runner must reach the engine factory");
 });
 
 /* The factory wires REAL durable persistence and REAL learning by default — production never
@@ -3003,20 +2945,13 @@ test("retrieval: the best-proven active rules are retrieved when the ledger hold
 });
 
 test("createRewrittenEngineFactory's produced CompositionConfig carries the SAME real runHistory/learningRepo wiring", () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "rewritten";
-  try {
-    const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
-    /* buildRewrittenCompositionConfig is exercised directly above (createRewrittenEngineFactory just
-       closes over it + buildProduction) — this test proves the PUBLIC factory seam (the one index.ts
-       and cli.ts actually call) produces a real RunPipelinePort without throwing during construction.
-     */
-    const app = cfg("factory-dispatch-real-history");
-    assert.doesNotThrow(() => factory(app, "qa-bot-abc1234-run1", { mode: "diff" }), "constructing the port must not eagerly touch the DB or throw");
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
+  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+  /* buildRewrittenCompositionConfig is exercised directly above (createRewrittenEngineFactory just
+     closes over it + buildProduction) — this test proves the PUBLIC factory seam (the one index.ts
+     and cli.ts actually call) produces a real RunPipelinePort without throwing during construction.
+   */
+  const app = cfg("factory-dispatch-real-history");
+  assert.doesNotThrow(() => factory(app, "qa-bot-abc1234-run1", { mode: "diff" }), "constructing the port must not eagerly touch the DB or throw");
 });
 
 /* ── Cross-repo composition threading (bug fix) ────────────────────────────────────────────────────
@@ -3347,32 +3282,18 @@ test("cross-repo: triggerRepo === app.repo takes the same-repo path (no service-
 /* 6. createRewrittenEngineFactory forwards triggerRepo through to buildRewrittenCompositionConfig. */
 
 test("createRewrittenEngineFactory's returned closure accepts and threads a run.triggerRepo argument without throwing", () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "rewritten";
-  try {
-    const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
-    const app: AppConfig = { ...cfg("factory-crossrepo-closure"), services: [{ repo: "org/orders-svc" }] };
-    assert.doesNotThrow(() => factory(app, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/orders-svc" }));
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
+  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+  const app: AppConfig = { ...cfg("factory-crossrepo-closure"), services: [{ repo: "org/orders-svc" }] };
+  assert.doesNotThrow(() => factory(app, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/orders-svc" }));
 });
 
 test("createRewrittenEngineFactory's returned closure propagates the undeclared-triggerRepo throw (guard reachable at the closure seam, not just via buildRewrittenCompositionConfig directly)", () => {
-  const prev = process.env.PIPELINE_ENGINE;
-  process.env.PIPELINE_ENGINE = "rewritten";
-  try {
-    const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
-    const app: AppConfig = { ...cfg("factory-crossrepo-closure-throw"), services: [{ repo: "org/orders-svc" }] };
-    assert.throws(
-      () => factory(app, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/evil-repo" }),
-      /trigger repo org\/evil-repo is not a declared service of app factory-crossrepo-closure-throw/,
-    );
-  } finally {
-    if (prev === undefined) delete process.env.PIPELINE_ENGINE;
-    else process.env.PIPELINE_ENGINE = prev;
-  }
+  const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
+  const app: AppConfig = { ...cfg("factory-crossrepo-closure-throw"), services: [{ repo: "org/orders-svc" }] };
+  assert.throws(
+    () => factory(app, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/evil-repo" }),
+    /trigger repo org\/evil-repo is not a declared service of app factory-crossrepo-closure-throw/,
+  );
 });
 
 /* this fix): a context-mode run mirrors EVERY declared app.services[] entry (read-only, each at its

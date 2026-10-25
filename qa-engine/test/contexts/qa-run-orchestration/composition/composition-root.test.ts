@@ -1,4 +1,4 @@
-/* buildProduction wires a RewrittenOrchestratorAdapter regardless of PIPELINE_ENGINE.
+/* buildProduction wires the run pipeline from the composition config alone.
    buildShadow(cfg) always wires the engine with the SHADOW publication path (no PR/Issue side
    effect) and a read-only history snapshot (no persistence to a real store). This suite supplies
    fake collaborators (repo/mirror/coverage/etc.) rather than booting real git/Playwright/Stryker —
@@ -14,7 +14,6 @@ import {
   type CompositionConfig,
 } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
 import { RewrittenOrchestratorAdapter } from "@contexts/qa-run-orchestration/infrastructure/rewritten-orchestrator.adapter.ts";
-import { PIPELINE_ENGINE } from "@contexts/qa-run-orchestration/composition/pipeline-engine-flag.ts";
 import { Sha } from "@kernel/sha.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -187,25 +186,15 @@ test("the pre-exec grounding reads the suite through the confined reader, anchor
   }
 });
 
-/* ── buildProduction: always wires the rewritten engine ───────────────────────────────────────── */
+/* ── buildProduction: wires the run pipeline ───────────────────────────────────────── */
 
-test("buildProduction returns a RewrittenOrchestratorAdapter when PIPELINE_ENGINE is absent", () => {
-  const port = buildProduction({}, fakeConfig());
-  assert.ok(port instanceof RewrittenOrchestratorAdapter);
-});
-
-test("buildProduction returns a RewrittenOrchestratorAdapter even when PIPELINE_ENGINE='legacy' (accepted-but-ignored)", () => {
-  const port = buildProduction({ [PIPELINE_ENGINE]: "legacy" }, fakeConfig());
-  assert.ok(port instanceof RewrittenOrchestratorAdapter);
-});
-
-test("buildProduction returns a RewrittenOrchestratorAdapter when PIPELINE_ENGINE='rewritten'", () => {
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, fakeConfig());
+test("buildProduction wires a pipeline from the composition config alone", () => {
+  const port = buildProduction(fakeConfig());
   assert.ok(port instanceof RewrittenOrchestratorAdapter);
 });
 
 test("buildProduction(rewritten) drives a full run end-to-end through the 11 wired ports (green-pr shape)", async () => {
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, fakeConfig());
+  const port = buildProduction(fakeConfig());
 
   const outcome = await port.run({
     app: "app",
@@ -237,7 +226,7 @@ test("buildProduction wires cfg.reflectorPort through to RunQaUseCase — a stat
     },
   });
 
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
@@ -252,7 +241,7 @@ test("buildProduction wires cfg.reflectorPort through to RunQaUseCase — a stat
 });
 
 test("buildProduction omits reflector entirely when cfg.reflectorPort is absent — no behavior change on a green pass", async () => {
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, fakeConfig());
+  const port = buildProduction(fakeConfig());
 
   const outcome = await port.run({
     app: "app",
@@ -283,7 +272,7 @@ test("buildProduction wires cfg.processAudit through to RunQaUseCase — a stati
     },
   });
 
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
@@ -298,7 +287,7 @@ test("buildProduction wires cfg.processAudit through to RunQaUseCase — a stati
 });
 
 test("buildProduction omits processAudit entirely when cfg.processAudit is absent — no behavior change on a green pass", async () => {
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, fakeConfig());
+  const port = buildProduction(fakeConfig());
 
   const outcome = await port.run({
     app: "app",
@@ -326,7 +315,7 @@ test("buildProduction wires cfg.contextMapCapture through to RunQaUseCase — a 
     },
   });
 
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
   const outcome = await port.run({
     app: "app",
     sha: Sha.of("abc1234"),
@@ -342,7 +331,7 @@ test("buildProduction wires cfg.contextMapCapture through to RunQaUseCase — a 
 
 test("buildProduction omits contextMapCapture entirely when cfg.contextMapCapture is absent — no behavior change on a clean context-mode pass", async () => {
   const cfg = fakeConfig({ mode: "context" });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -358,7 +347,7 @@ test("buildProduction omits contextMapCapture entirely when cfg.contextMapCaptur
 
 /* ── buildShadow: always rewritten, shadow-log publication, no side effects ──────────────────── */
 
-test("buildShadow always returns a RewrittenOrchestratorAdapter regardless of PIPELINE_ENGINE", () => {
+test("buildShadow always returns a RewrittenOrchestratorAdapter", () => {
   const port = buildShadow(fakeConfig());
   assert.ok(port instanceof RewrittenOrchestratorAdapter);
 });
@@ -419,7 +408,7 @@ test("buildShadow reads a pre-run history snapshot (read-only) — never persist
 
 test("buildProduction(rewritten) selects NullDeployGateAdapter when versionUrl is absent (static/code target)", async () => {
   const cfg = fakeConfig({ versionUrl: undefined });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   /* No versionUrl -> NullDeployGateAdapter (always ok(true)) -> the entry gate never blocks. */
   const outcome = await port.run({
@@ -439,7 +428,7 @@ test("buildProduction(rewritten) selects the real DeployGatePortAdapter when ver
     versionUrl: "https://dev.example.com/version",
     versionPoll: async () => ({ serving: true }),
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -471,7 +460,7 @@ test("buildProduction(rewritten) threads testIdAttribute into the ExecutionPortA
       code: { run: async () => ({ verdict: "pass", cases: [], logs: "" }) },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   await port.run({
     app: "app",
@@ -500,7 +489,7 @@ test("buildProduction(rewritten) wires setupCollaborators.e2e into the run when 
       code: async () => { throw new Error("must not be called for target 'e2e'"); },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -525,7 +514,7 @@ test("buildProduction(rewritten) wires setupCollaborators.code into the run when
       code: async () => { setupCalled = true; },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -552,7 +541,7 @@ test("buildProduction(rewritten) composes specDir as the bare mirrorDir for a co
       code: async (specDir) => { capturedSpecDir = specDir; },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -581,7 +570,7 @@ test("buildProduction(rewritten) dispatches ValidationPort to the code strategy 
       code: { run: async () => { executeCalled = true; return { verdict: "pass", cases: [], logs: "" }; } },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -614,7 +603,7 @@ test("buildProduction(rewritten) threads cfg.target:'code' onto ReviewInput.targ
       verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   await port.run({
     app: "app",
@@ -648,7 +637,7 @@ test("buildProduction(rewritten) threads cfg.reviewTimeoutMs onto ReviewPortAdap
       verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   await port.run({
     app: "app",
@@ -677,7 +666,7 @@ test("buildProduction(rewritten) with absent cfg.reviewTimeoutMs omits timeoutMs
       verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   await port.run({
     app: "app",
@@ -699,7 +688,7 @@ test("buildProduction(rewritten) surfaces infra-error when a wired setup collabo
       code: async () => {},
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -715,7 +704,7 @@ test("buildProduction(rewritten) surfaces infra-error when a wired setup collabo
 
 test("buildProduction(rewritten) runs without setupCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig(); /* fakeConfig()'s base never supplies setupCollaborators */
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -740,7 +729,7 @@ test("buildProduction(rewritten) surfaces infra-error when the real deploy gate 
     deployGateTimeoutMs: 20,
     deployGateIntervalMs: 5,
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -815,7 +804,7 @@ test("buildProduction(rewritten) wires groundingCollaborators.buildContextPack i
       },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -842,7 +831,7 @@ test("buildProduction(rewritten) does NOT wire grounding on the code target, eve
     },
     setupCollaborators: { e2e: async () => {}, code: async () => {} },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -881,7 +870,7 @@ test("buildProduction(rewritten) wires structuralSignal when the code graph and 
       },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -916,7 +905,7 @@ test("buildProduction(rewritten): a graph that knows only co-change files for th
       },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   await port.run({
     app: "app",
@@ -944,7 +933,7 @@ test("buildProduction(rewritten) leaves structuralSignal undefined when the code
       },
     },
   }); /* fakeConfig()'s base never supplies a code graph */
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -978,7 +967,7 @@ test("buildProduction(rewritten) degrades structuralSignal to no section when th
       },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1040,7 +1029,7 @@ test("buildProduction(rewritten) wires serviceLinks when a serviceTopology colla
         },
       },
     });
-    const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+    const port = buildProduction(cfg);
 
     const outcome = await port.run({
       app: "app",
@@ -1071,7 +1060,7 @@ test("buildProduction(rewritten) leaves serviceLinks undefined when serviceTopol
       },
     },
   }); /* fakeConfig()'s base never supplies serviceTopology */
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1107,7 +1096,7 @@ test("buildProduction(rewritten) threads cfg.triggerService into OpencodeRunInpu
       },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1134,7 +1123,7 @@ test("buildProduction(rewritten) leaves OpencodeRunInput.service entirely absent
       },
     },
   }); /* fakeConfig()'s base never supplies triggerService */
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1165,7 +1154,7 @@ async function stagedRootsSeenByThePack(overrides: Partial<CompositionConfig>): 
     },
     ...overrides,
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
   await port.run({ app: "app", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "composition-root-staged-roots" });
   assert.ok(seen.length > 0, "the pre-generation grounding must have built a context pack");
   return "stagedRoots" in seen[0]! ? seen[0]!.stagedRoots : "absent";
@@ -1230,7 +1219,7 @@ test("buildProduction(rewritten) threads cfg.services into OpencodeRunInput.serv
       },
     },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1260,7 +1249,7 @@ test("buildProduction(rewritten) leaves OpencodeRunInput.services entirely absen
       },
     },
   }); /* fakeConfig()'s base never supplies services */
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1278,7 +1267,7 @@ test("buildProduction(rewritten) leaves OpencodeRunInput.services entirely absen
 
 test("buildProduction(rewritten) runs without groundingCollaborators/reviewDomGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig({ target: "e2e", isCode: false }); /* fakeConfig()'s base never supplies either */
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1321,7 +1310,7 @@ test("buildProduction(rewritten) wires preExecGrounding into the run when target
         },
       },
     });
-    const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+    const port = buildProduction(cfg);
 
     const outcome = await port.run({
       app: "app",
@@ -1349,7 +1338,7 @@ test("buildProduction(rewritten) does NOT wire preExecGrounding on the code targ
     },
     setupCollaborators: { e2e: async () => {}, code: async () => {} },
   });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1366,7 +1355,7 @@ test("buildProduction(rewritten) does NOT wire preExecGrounding on the code targ
 
 test("buildProduction(rewritten) runs without preExecGroundingCollaborators (absent -> no-op, backward compatible)", async () => {
   const cfg = fakeConfig({ target: "e2e", isCode: false }); /* fakeConfig()'s base never supplies it */
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({
     app: "app",
@@ -1424,7 +1413,7 @@ test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in
         ],
       },
     });
-    const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+    const port = buildProduction(cfg);
 
     const outcome = await port.run({
       app: "app",
@@ -1477,7 +1466,7 @@ const diffVcs = {
 test("buildProduction(rewritten) indexes the repo through cfg.codeGraph and the structural signal reads that same instance", async () => {
   const { calls, codeGraph } = recordingCodeGraph();
   const cfg = fakeConfig({ mode: "diff", codeGraph, coChange: quietCoChange, vcs: diffVcs });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   const outcome = await port.run({ ...diffRun, runId: "composition-root-graph-shared" });
 
@@ -1488,7 +1477,7 @@ test("buildProduction(rewritten) indexes the repo through cfg.codeGraph and the 
 test("buildProduction(rewritten) still indexes without the co-change history, but builds no structural signal", async () => {
   const { calls, codeGraph } = recordingCodeGraph();
   const cfg = fakeConfig({ mode: "diff", codeGraph, vcs: diffVcs });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const port = buildProduction(cfg);
 
   await port.run({ ...diffRun, runId: "composition-root-graph-no-cochange" });
 

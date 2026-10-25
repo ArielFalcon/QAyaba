@@ -21,9 +21,6 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      # Accepted but ignored: a stale PIPELINE_ENGINE=legacy only emits a one-time deprecation
-      # warning. It does not select a different engine.
-      PIPELINE_ENGINE: ${PIPELINE_ENGINE:-}
       # Agent provider override for the ORCHESTRATOR process (src/agent-runtime/config.ts honors
       # it; provider selection happens host-side, not in the agents supervisor). This environment
       # entry beats the env_file (.env) value, so the host env controls the provider per boot;

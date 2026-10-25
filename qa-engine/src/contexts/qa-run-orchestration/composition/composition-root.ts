@@ -1,4 +1,4 @@
-/* Composition root: the only qa-engine module allowed to import concrete adapters from sibling contexts (arch-lint VCS-write gate). Wires qa-run-orchestration ports to real bridge adapters. PIPELINE_ENGINE is consulted only so a stale operator value gets a deprecation warning, never a different code path.
+/* Composition root: the only qa-engine module allowed to import concrete adapters from sibling contexts (arch-lint VCS-write gate). Wires qa-run-orchestration ports to real bridge adapters.
 buildShadow always uses this engine with shadow-log publication and in-memory history — zero side effects on the watched repo or production history. */
 
 import { join, relative, sep } from "node:path";
@@ -23,7 +23,6 @@ import type { CodeGraphToolRegistry } from "../infrastructure/code-graph-tool-re
 import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
-import { selectEngine } from "./pipeline-engine-flag.ts";
 import { SidekickExecutor } from "../application/coordination/sidekick-executor.ts";
 import { LeadSidekicks } from "../application/coordination/lead-sidekicks.ts";
 import { systemTimers } from "../application/coordination/fan-out-dispatcher.ts";
@@ -760,14 +759,7 @@ function recordedReviewerIndependence(cfg: CompositionConfig): { reviewerIndepen
   }
 }
 
-export interface BuildProductionOptions {}
-
-export function buildProduction(
-  env: Record<string, string | undefined>,
-  cfg: CompositionConfig,
-  _options: BuildProductionOptions = {},
-): RunPipelinePort {
-  selectEngine(env);
+export function buildProduction(cfg: CompositionConfig): RunPipelinePort {
   return new RewrittenOrchestratorAdapter(wireBridges(cfg));
 }
 

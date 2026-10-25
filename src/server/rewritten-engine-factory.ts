@@ -1673,13 +1673,12 @@ export function engineAgentDeps(deps: Pick<RewrittenEngineFactoryDeps, "getAgent
 export function createRewrittenEngineFactory(
   deps: RewrittenEngineFactoryDeps,
 ): (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort, previousNamespace?: string) => RunPipelinePort {
-  const env = deps.env ?? process.env;
   const wrappedDeps: RewrittenEngineFactoryDeps = {
     ...deps,
     getAgentDeps: (turn) => engineAgentDeps(deps, turn),
   };
   return (appConfig: AppConfig, namespace: string, run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string; runId?: string; grounding?: GroundingInput | EffectiveConfig["grounding"] }, observer?: ObserverPort): RunPipelinePort => {
     const cfg = buildRewrittenCompositionConfig(appConfig, wrappedDeps, namespace, run, observer);
-    return buildProduction(env, cfg);
+    return buildProduction(cfg);
   };
 }

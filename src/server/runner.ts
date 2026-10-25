@@ -33,7 +33,6 @@ import { RunTrace, SYSTEM_CLOCK, markEnqueued, type RunFacts, type RunIdentity, 
 import { guardTelemetry } from "@kernel/telemetry/guarded-telemetry";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { selectEngine } from "@contexts/qa-run-orchestration/composition/pipeline-engine-flag";
 import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 
 type RunStepEvent = Extract<RunEventBody, { type: "step.changed" }>;
@@ -478,7 +477,6 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
       if (appConfig.qa.shadow !== undefined) trace.shadow(appConfig.qa.shadow);
       const resolvedRunConfig = recordRunConfig(record.id, appConfig, req, captureMode, runConfigEnv, trace);
 
-      selectEngine(process.env);
       if (!deps.engineFactory) {
         throw new Error(
           "enqueueTrackedRun: RunnerDeps.engineFactory is required. " +
