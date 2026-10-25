@@ -480,3 +480,11 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
   - It is invalidated when a route declaration changes, a named file is deleted, or an API spec changes.
   - The front-to-back links of a modified page are treated as unverified and dropped from the map the run receives.
   - Implemented in `context-map-validity.ts` (`pages-modified` with `unverifiedRoutes`) and in the factory's `mapFitsRun`. Per the owner's rule, the DEV pair restarts from zero on the rebuilt image.
+- **L40 (2026-10-25)** DEV runs on image `8eeb1366`.
+  - c428f2dc: skipped. Its change reaches 8 pages through `CHEAP_PERCENTILE`, a hub, so the capture fell back to `/home` and `/login*`.
+  - f303da2c: pass, 7 tests over `/home`, `/map` and `/search`; the graph proved `/map` and `/search`.
+  - R11 (ab922ad4, `--base-sha 157337b8`): fail. It ran with no map: the map was stale and the 6 h heal window skipped the rebuild. The one failing spec is the fault-injection "Reintentar" flow.
+  - Owner decisions:
+    - "Si, así": rebuild the map inside the run, with no 6 h window, once per commit (32ad7f4b, 5edb0e0a).
+    - "La que recomiendas": the pages a hub reaches order the DOM capture after every change page and before the rest, and are never change pages.
+  - The owner chose R11 to replace c428f2dc in the DEV pair.
