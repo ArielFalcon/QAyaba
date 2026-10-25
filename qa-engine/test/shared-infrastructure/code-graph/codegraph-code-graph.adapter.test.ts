@@ -348,6 +348,25 @@ test("the same change walked twice in a run reads the index once; another change
   }
 });
 
+test("a store the engine writes in WAL mode is cached after the reader checked it", async () => {
+  const h = harness();
+  try {
+    const store = join(h.root, "wal.db");
+    copyFileSync(STORE, store);
+    const db = new DatabaseSync(store);
+    db.exec("PRAGMA journal_mode=WAL");
+    db.close();
+    h.engine.store = store;
+
+    const built = await h.adapter.syncTo(h.mirror, h.sha);
+
+    assert.equal(built.outcome, "built");
+    assert.notEqual(h.cache.meta("org__shop"), undefined, "the reader's read-only open leaves an empty log, which does not keep the store from the cache");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("a handler route the engine names for any verb (ANY, ALL) is a backend route, not a page named after its verb", async () => {
   const h = harness();
   try {

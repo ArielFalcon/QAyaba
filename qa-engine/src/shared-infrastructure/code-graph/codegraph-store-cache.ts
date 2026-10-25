@@ -156,6 +156,17 @@ export class CodegraphStoreCache {
     }
   }
 
+  /* Whether a write-ahead log beside the store may hold frames the store lacks: anything there but an empty regular file. */
+  private pendingLog(path: string): boolean {
+    try {
+      const st = lstatSync(path);
+      return !st.isFile() || st.size > 0;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw e;
+    }
+  }
+
   /* The age and the holder's token of a lock or claim file, or undefined when it is not there. */
   private statOrUndefined(path: string): { holder: string; mtimeMs: number } | undefined {
     try {
@@ -200,8 +211,8 @@ export class CodegraphStoreCache {
    * Publishes the workspace's store. The store was written by the sandbox uid, so it is read like any file the sandbox can
    * plant: no link, no pipe, a regular file of bounded size (the confined reader). The workspace itself lies in a directory
    * the sandbox owns, so it must still be the directory the orchestrator built (`identity`, taken right after the export):
-   * a link or a replacement in its place is refused. A store whose write-ahead log is still beside it is not complete on
-   * its own and is refused.
+   * a link or a replacement in its place is refused. A store whose write-ahead log still holds frames is not complete on
+   * its own and is refused; the empty log a read-only open of a WAL-mode store leaves behind holds none.
    */
   publish(repoKey: string, workspace: string, identity: { dev: number; ino: number }, meta: StoreMeta): { published: true } | { published: false; reason: string } {
     let now;
@@ -212,7 +223,7 @@ export class CodegraphStoreCache {
     }
     if (!now.isDirectory() || now.dev !== identity.dev || now.ino !== identity.ino) return { published: false, reason: "the workspace was replaced" };
     const root = { mirrorDir: workspace, specDir: join(workspace, STORE_DIR) };
-    if (existsSync(join(workspace, STORE_DIR, `${STORE_FILE}-wal`))) return { published: false, reason: "the store still has a write-ahead log" };
+    if (this.pendingLog(join(workspace, STORE_DIR, `${STORE_FILE}-wal`))) return { published: false, reason: "the store still has a write-ahead log" };
     const probed = probeOwnedSpecFile(root, STORE_FILE);
     if (probed !== "file") return { published: false, reason: probed === "absent" ? "the workspace has no store" : probed.reason };
     const dir = this.ensureDir(repoKey);

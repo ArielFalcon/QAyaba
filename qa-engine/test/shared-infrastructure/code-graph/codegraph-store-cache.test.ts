@@ -77,6 +77,17 @@ test("a store whose write-ahead log is still beside it is refused", () => {
   }
 });
 
+test("an empty write-ahead log beside the store holds nothing pending, so the store is published", () => {
+  const { root, workspace, cache } = setup();
+  try {
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "store-bytes");
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db-wal"), "");
+    assert.deepEqual(cache.publish("org__app", workspace, identityOf(workspace), META), { published: true });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("metadata that does not name the engine, its version and the commit reads as nothing cached", () => {
   const { root, workspace, cache } = setup();
   try {
