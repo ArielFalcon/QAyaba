@@ -357,7 +357,6 @@ export const PROTECTED_PATHS: string[] = [
   ".dockerignore",
   "docker-compose.yml",
   "docker-compose.override.yml",
-  "docker-compose.telemetry.yml",
   "package.json",
   "package-lock.json",
 ];
