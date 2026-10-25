@@ -52,7 +52,8 @@ interface StoreRoute {
   target?: { file: string; symbol: string; kind: string };
 }
 
-const HTTP_ROUTE = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) (\S+)$/;
+/* A handler route: its verb (ANY and ALL are the engine's names for a handler that serves every verb) and its path. */
+const HTTP_ROUTE = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|ANY|ALL) (\S+)$/;
 
 /*
  * The seeds of a change: for each touched line, the innermost symbol whose range holds it; when the diff was not read at all,
@@ -99,8 +100,6 @@ export interface CodegraphCodeGraphDeps {
   /* A test file of a declared language, by its language's conventions: its routes and callers are not the app's. */
   isTestFile(file: string): boolean;
   now?: () => number;
-  /* The abort signal of the run the call is part of: it ends the engine's child processes when the run is aborted. Read at each call, so one adapter serves successive runs. */
-  signal?(): AbortSignal | undefined;
 }
 
 interface Indexed {
@@ -118,13 +117,16 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
   private readonly indexed = new Map<string, Indexed>();
   private readonly now: () => number;
   private readonly scopeKey: string;
+  private runSignal: AbortSignal | undefined;
 
   constructor(private readonly deps: CodegraphCodeGraphDeps) {
     this.now = deps.now ?? Date.now;
     this.scopeKey = scopeKeyOf(deps.scope);
   }
 
-  async syncTo(repoDir: string, sha: string): Promise<CodeGraphIndexRecord> {
+  async syncTo(repoDir: string, sha: string, signal?: AbortSignal): Promise<CodeGraphIndexRecord> {
+    /* One adapter per run: the signal the run's index build is given also bounds the run's later queries. */
+    this.runSignal = signal;
     const started = this.now();
     const repo = repoKeyOf(basename(repoDir));
     let workspace = "";
@@ -160,7 +162,6 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     const built = lstatSync(workspace);
     const identity = { dev: built.dev, ino: built.ino };
 
-    const signal = this.deps.signal?.();
     const lock = this.deps.cache?.lock(repo);
     try {
       const cached = lock ? this.deps.cache!.meta(repo) : undefined;
@@ -232,7 +233,7 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
   private async read<T>(repoDir: string, request: Record<string, unknown>): Promise<Result<{ value: T; sha: string }, CodeGraphUnavailable>> {
     const entry = this.indexOf(repoDir);
     if (!entry) return err({ reason: "the repo is not indexed in this run" });
-    const answer = await this.deps.engine.read<T>(entry.workspace, request, this.deps.signal?.());
+    const answer = await this.deps.engine.read<T>(entry.workspace, request, this.runSignal);
     if (!answer.ok) return err({ reason: answer.error.reason });
     return ok({ value: answer.value, sha: entry.sha });
   }
@@ -277,7 +278,7 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     const entry = this.indexOf(repoDir);
     if (!entry) return err({ reason: "the repo is not indexed in this run" });
     if (terms.length === 0) return err({ reason: "no term to explore" });
-    const answer = await this.deps.engine.explore(entry.workspace, terms, maxFiles, this.deps.signal?.());
+    const answer = await this.deps.engine.explore(entry.workspace, terms, maxFiles, this.runSignal);
     if (!answer.ok) return err({ reason: answer.error.reason });
     return ok({ text: answer.value, indexedSha: entry.sha });
   }

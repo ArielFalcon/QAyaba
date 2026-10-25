@@ -7290,6 +7290,20 @@ test("code-graph index: the run indexes workspace.mirrorDir at the run's SHA", a
   assert.equal(out.decision.verdict, "pass");
 });
 
+test("code-graph index: the run's abort signal reaches the index build", async () => {
+  const { ports } = stubPorts();
+  const signals: Array<AbortSignal | undefined> = [];
+  const codeGraph = fakeCodeGraph(async (repoDir, sha, signal) => {
+    signals.push(signal);
+    return indexRecord(repoDir, sha);
+  });
+  const controller = new AbortController();
+
+  await new RunQaUseCase({ ...ports, codeGraph, config: baseConfig }).run({ ...baseInput, runId: "graph-index-signal" }, controller.signal);
+
+  assert.deepEqual(signals, [controller.signal]);
+});
+
 test("code-graph index: codeGraphRepoDir is indexed instead of workspace.mirrorDir", async () => {
   const { ports } = stubPorts();
   const { calls, codeGraph } = recordingCodeGraph();

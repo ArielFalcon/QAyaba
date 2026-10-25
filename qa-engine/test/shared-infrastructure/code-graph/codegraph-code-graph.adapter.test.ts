@@ -66,7 +66,7 @@ interface Harness {
   adapter: CodegraphCodeGraphAdapter;
 }
 
-function harness(opts: { cache?: boolean; exclude?: string[]; root?: string; mirror?: string; signal?: AbortSignal } = {}): Harness {
+function harness(opts: { cache?: boolean; exclude?: string[]; root?: string; mirror?: string } = {}): Harness {
   const root = opts.root ?? mkdtempSync(join(tmpdir(), "cg-adapter-"));
   const mirror = opts.mirror ?? join(root, "org__shop");
   if (opts.mirror === undefined) {
@@ -91,7 +91,6 @@ function harness(opts: { cache?: boolean; exclude?: string[]; root?: string; mir
     sandbox: null,
     scope: { extensions: LanguageRegistry.extensions, manifests: LanguageRegistry.manifests, exclude: opts.exclude ?? [] },
     isTestFile: (f) => LanguageRegistry.isTestFile(f),
-    ...(opts.signal ? { signal: () => opts.signal } : {}),
   });
   return { root, mirror, sha: git(mirror, "rev-parse", "HEAD"), engine, cache, adapter };
 }
@@ -322,6 +321,28 @@ test("routes name a backend handler's verb and path and a frontend page's path, 
   }
 });
 
+test("a handler route the engine names for any verb (ANY, ALL) is a backend route, not a page named after its verb", async () => {
+  const h = harness();
+  try {
+    const store = join(h.root, "any-verb.db");
+    copyFileSync(STORE, store);
+    const db = new DatabaseSync(store);
+    const insert = db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES (?, 'route', ?, ?, ?, ?, ?, ?, 0, 0, 0)");
+    insert.run("route:api/Any.java:3:ANY:/api/any", "ANY /api/any", "ANY /api/any", "api/Any.java", "java", 3, 3);
+    insert.run("route:server/app.js:5:ALL:/api/all", "ALL /api/all", "ALL /api/all", "server/app.js", "javascript", 5, 5);
+    db.close();
+    h.engine.store = store;
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const routes = await h.adapter.routes(h.mirror);
+
+    assert.ok(routes.ok);
+    assert.deepEqual(routes.value.filter((r) => r.file === "api/Any.java" || r.file === "server/app.js").map((r) => [r.method, r.path]), [["ANY", "/api/any"], ["ALL", "/api/all"]]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("explore answers the engine's text for the terms, from the run's index, with its commit", async () => {
   const h = harness();
   try {
@@ -457,11 +478,11 @@ test("a sync that times out forgets the cached store, so the next run builds it 
   }
 });
 
-test("the run's abort signal reaches every engine process and store read", async () => {
+test("the abort signal the index build is given reaches every engine process and every store read of that run", async () => {
   const controller = new AbortController();
-  const h = harness({ signal: controller.signal });
+  const h = harness();
   try {
-    await h.adapter.syncTo(h.mirror, h.sha);
+    await h.adapter.syncTo(h.mirror, h.sha, controller.signal);
     await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT]), BUDGET);
     await h.adapter.explore(h.mirror, ["formatMoney"], 12);
 

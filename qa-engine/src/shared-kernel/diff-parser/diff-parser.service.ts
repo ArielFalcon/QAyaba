@@ -354,6 +354,13 @@ function diffGitPaths(rest: string): { base: string; head: string | null } | nul
   return { base, head: head === "" ? null : head };
 }
 
+/* The file a `diff --git` header line names (its b/ side, or its a/ side for a deletion), read as git quotes it; undefined for any other line. */
+export function diffGitHeaderPath(line: string): string | undefined {
+  if (!line.startsWith("diff --git ")) return undefined;
+  const paths = diffGitPaths(line.slice("diff --git ".length));
+  return paths ? (paths.head ?? paths.base) : undefined;
+}
+
 /* The b/ side of a header: quoted or not, without the prefix. */
 function unquoteSide(side: string): string {
   const text = side.startsWith('"') ? (readQuoted(side)?.text ?? side) : side;

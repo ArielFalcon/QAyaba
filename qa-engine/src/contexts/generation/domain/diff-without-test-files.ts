@@ -4,14 +4,13 @@
  * is the language registry's. Pure.
  */
 import { LanguageRegistry } from "@contexts/change-analysis/domain/language-id.ts";
-
-const FILE_HEADER = /^diff --git a\/\S+ b\/(\S+)/;
+import { diffGitHeaderPath } from "@kernel/diff-parser/diff-parser.service.ts";
 
 export function diffWithoutTestFiles(diff: string): { diff: string; testFiles: string[] } {
   const sections = diff.split(/^(?=diff --git )/m);
   const testFiles: string[] = [];
   const kept = sections.filter((section) => {
-    const path = FILE_HEADER.exec(section)?.[1];
+    const path = diffGitHeaderPath(section.split("\n", 1)[0]!);
     if (path === undefined || !LanguageRegistry.isTestFile(path)) return true;
     testFiles.push(path);
     return false;

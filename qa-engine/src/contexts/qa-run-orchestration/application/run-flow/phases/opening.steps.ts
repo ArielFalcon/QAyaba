@@ -94,7 +94,7 @@ export async function indexMirror(_state: Readonly<RunState>, ctx: WorkspaceRunC
 async function indexOne(ctx: WorkspaceRunContext, codeGraph: CodeGraphPort, repoDir: string, sha: string): Promise<void> {
   let record: CodeGraphIndexRecord;
   try {
-    record = await codeGraph.syncTo(repoDir, sha);
+    record = await codeGraph.syncTo(repoDir, sha, ctx.signal);
   } catch (err) {
     console.warn("[qa] code-graph indexing failed (non-blocking):", err);
     return;
