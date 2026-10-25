@@ -734,6 +734,46 @@ test("GET /api/health carries a telemetry summary without secrets, and omits it 
   assert.equal(JSON.parse(bare.body).telemetry, undefined);
 });
 
+const backendEntry = { status: "ok" as const, checkedAt: "2026-10-25T12:00:00.000Z" };
+const downBackends = {
+  ok: false,
+  loki: { status: "down" as const, reason: "Loki is ready but rejects writes (HTTP 500): Ingester is shutting down", checkedAt: "2026-10-25T12:00:00.000Z" },
+  tempo: backendEntry,
+  collector: backendEntry,
+};
+
+test("GET /api/v1/telemetry/health carries the verified backends, and still answers 200 when one is down", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => downBackends, peek: () => downBackends } }));
+  assert.equal(res.status, 200);
+  const body = TelemetryHealthSchema.parse(JSON.parse(res.body));
+  assert.equal(body.backends?.ok, false);
+  assert.equal(body.backends?.loki.status, "down");
+  assert.match(body.backends?.loki.reason ?? "", /Ingester is shutting down/);
+  const bare = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), bare, deps({ telemetryHealth: () => telemetryHealth }));
+  assert.equal(JSON.parse(bare.body).backends, undefined);
+});
+
+test("a backend probe that throws does not take the telemetry health down", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/telemetry/health"), res, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => { throw new Error("boom"); }, peek: () => undefined } }));
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).backends, undefined);
+});
+
+test("GET /api/health surfaces a degraded backend as a flag without its reason, and stays 200", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/health"), res, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => downBackends, peek: () => downBackends } }));
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.telemetry.backendsOk, false);
+  assert.ok(!res.body.includes("Ingester"));
+  const before = mkRes();
+  await handleApi(mkReq("GET", "/api/health"), before, deps({ telemetryHealth: () => telemetryHealth, backendHealth: { get: async () => downBackends, peek: () => undefined } }));
+  assert.equal("backendsOk" in JSON.parse(before.body).telemetry, false);
+});
+
 test("the telemetry health route is not a public control-plane route", async () => {
   const { isPublicControlPlaneRoute } = await import("./auth");
   assert.equal(isPublicControlPlaneRoute("GET", "/api/telemetry/health"), false);

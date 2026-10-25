@@ -491,6 +491,14 @@ export const AgentRestartResponseSchema = z.object({
   health: AgentProviderHealthSchema,
 });
 
+const BackendHealthSchema = z.object({
+  status: z.enum(["ok", "degraded", "down", "unconfigured"]),
+  reason: z.string().optional(),
+  checkedAt: z.string(),
+  diskUsedRatio: z.number().min(0).optional(),
+  lastDataAt: z.string().optional(),
+});
+
 /* GET /api/v1/telemetry/health (docs/observability-design.md §14). Counts and flags only. */
 export const TelemetryHealthSchema = z.object({
   schemaVersion: z.literal(1),
@@ -514,6 +522,15 @@ export const TelemetryHealthSchema = z.object({
     lastError: z.string().optional(),
   }),
   droppedAttributes: z.number().int().min(0),
+  /* Loki, Tempo and the collectors verified end to end (docs/telemetry-local.md); present once a probe has finished. */
+  backends: z
+    .object({
+      ok: z.boolean(),
+      loki: BackendHealthSchema,
+      tempo: BackendHealthSchema,
+      collector: BackendHealthSchema,
+    })
+    .optional(),
   /* Present when the process runs host health (docs/observability-design.md §7). */
   host: z
     .object({

@@ -7,7 +7,7 @@
  */
 
 import { describeSandboxHealth } from "./sandbox-health";
-import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
+import type { TelemetryBackendsHealth, TelemetryHealth } from "@kernel/telemetry/telemetry-health";
 import { CAMPAIGN_ID_PATTERN, type CampaignIdentity } from "@kernel/campaign";
 import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { IncomingMessage, ServerResponse } from "node:http";
@@ -137,6 +137,8 @@ export interface ApiDeps {
   telemetryHealth?: () => TelemetryHealth;
   /* Host health (suspends, blocked loops, event-loop p99, sandbox zombies), merged into GET /telemetry/health as `host`. */
   hostHealth?: () => NonNullable<TelemetryHealthView["host"]>;
+  /* Loki, Tempo and the collectors verified end to end (src/telemetry/backend-health.ts). `get` probes when its cache is stale; `peek` never waits. */
+  backendHealth?: { get(): Promise<TelemetryBackendsHealth | undefined>; peek(): TelemetryBackendsHealth | undefined };
   /* Read-only multi-agent coordination audit tail. Absent ⇒ the route returns 501. */
   coordinationEvents?: (filter?: { runId?: string; limit?: number }) => z.infer<typeof CoordinationEventsViewSchema>;
   /*
@@ -415,11 +417,18 @@ export async function handleApi(
     const sandbox = describeSandboxHealth(process.env);
     /* Public route: a flag and a count each, never an endpoint or an error text. */
     const telemetry = deps.telemetryHealth?.();
+    /* A degraded store never fails the route (the container stays up); it is a flag, with the reasons on the authenticated route. */
+    let backends: TelemetryBackendsHealth | undefined;
+    try {
+      backends = deps.backendHealth?.peek();
+    } catch {
+      backends = undefined;
+    }
     json(res, 200, {
       ok: true,
       openSessions: getOpenSessionCount(),
       sandbox,
-      ...(telemetry ? { telemetry: { mode: telemetry.mode, ledgerOk: telemetry.ledger.ok, otlpConfigured: telemetry.otlp.configured } } : {}),
+      ...(telemetry ? { telemetry: { mode: telemetry.mode, ledgerOk: telemetry.ledger.ok, otlpConfigured: telemetry.otlp.configured, ...(backends ? { backendsOk: backends.ok } : {}) } } : {}),
     });
     return true;
   }
@@ -435,7 +444,13 @@ export async function handleApi(
     } catch (err) {
       console.error(`[api] host health unavailable: ${err instanceof Error ? err.message : String(err)}`);
     }
-    contractJson(res, 200, TelemetryHealthSchema, { schemaVersion: 1, ...deps.telemetryHealth(), ...(host ? { host } : {}) });
+    let backends: TelemetryBackendsHealth | undefined;
+    try {
+      backends = await deps.backendHealth?.get();
+    } catch (err) {
+      console.error(`[api] backend health unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    contractJson(res, 200, TelemetryHealthSchema, { schemaVersion: 1, ...deps.telemetryHealth(), ...(backends ? { backends } : {}), ...(host ? { host } : {}) });
     return true;
   }
 

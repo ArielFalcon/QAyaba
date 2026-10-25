@@ -24,6 +24,27 @@ started. Its exporter then fails open (runs are unaffected; the loss shows in `/
 
 For production drop `docker-compose.override.yml`, as for the base stack.
 
+## Health: the stack is verified end to end
+
+`otlp.lastExportAt` only proves the trusted collector accepted a batch. The collector -> Loki/Tempo leg fails on its
+own (Loki's WAL disk guard once rejected every push for ~50 minutes while the export looked healthy), so
+`GET /api/v1/telemetry/health` also carries `backends`, probed from the orchestrator container over
+`telemetry-internal` (`src/telemetry/backend-health.ts`):
+
+| Backend | Checked | Not healthy when |
+|---|---|---|
+| Loki | `/ready`; one real push of a probe line (`job=qayaba-health-probe`); `/metrics` WAL disk; newest line of this service (informational) | not ready or the push is rejected: `down` (reason carries Loki's answer, e.g. `Ingester is shutting down`); the disk-full counter grew since the last probe, or WAL disk >= 85%: `degraded` |
+| Tempo | `/ready`; a search for this service's traces in the last 24 h (informational newest time) | not ready: `down`; search failing or spans discarded since the last probe: `degraded` |
+| Collector | its own metrics (`:8888`, trusted collector only) | unreachable: `down`; `otelcol_exporter_send_failed_*` grew since the last probe, or the exporter queue >= 90% full: `degraded` |
+
+Counters are lifetime values, so only growth between two probes counts; the first probe judges none. A quiet stack
+(no recent lines or traces) is healthy. Probes have a 3 s timeout, the result is cached 30 s and concurrent callers
+share one probe. `/api/health` shows `telemetry.backendsOk` (from the cache, never waiting; reasons stay on the
+authenticated route) and always answers 200: runs are never affected. Addresses come from
+`QA_TELEMETRY_LOKI_URL`, `QA_TELEMETRY_TEMPO_URL` and `QA_TELEMETRY_COLLECTOR_METRICS_URLS` (comma separated), set by
+the telemetry compose file; a backend without one is `unconfigured` and does not make the stack unhealthy. Applying
+this to a running stack needs the orchestrator and `collector` recreated (new env, new collector config).
+
 ## Environment variables (names only)
 
 | Name | Where | Purpose |

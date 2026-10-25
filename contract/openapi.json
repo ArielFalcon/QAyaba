@@ -5114,6 +5114,117 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "backends": {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              },
+              "loki": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "degraded",
+                      "down",
+                      "unconfigured"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "checkedAt": {
+                    "type": "string"
+                  },
+                  "diskUsedRatio": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "lastDataAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "checkedAt"
+                ],
+                "additionalProperties": false
+              },
+              "tempo": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "degraded",
+                      "down",
+                      "unconfigured"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "checkedAt": {
+                    "type": "string"
+                  },
+                  "diskUsedRatio": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "lastDataAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "checkedAt"
+                ],
+                "additionalProperties": false
+              },
+              "collector": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "degraded",
+                      "down",
+                      "unconfigured"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "checkedAt": {
+                    "type": "string"
+                  },
+                  "diskUsedRatio": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "lastDataAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "checkedAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "ok",
+              "loki",
+              "tempo",
+              "collector"
+            ],
+            "additionalProperties": false
+          },
           "host": {
             "type": "object",
             "properties": {

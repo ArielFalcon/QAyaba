@@ -64,6 +64,7 @@ import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/cod
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
 import { HostHealth } from "./telemetry/host-health";
+import { BackendHealthMonitor, resolveBackendHealthConfig, systemBackendFetch } from "./telemetry/backend-health";
 import { resolveSandbox } from "../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
 import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListener } from "./server/port";
 import { createToolsServer, resolveToolsListenHost, resolveToolsPort, resolveToolsToken } from "./server/tools-endpoint";
@@ -134,6 +135,8 @@ void langfuseSink?.ensureScoreConfigs();
 const runViewDeps = defaultRunViewDeps(() => telemetry.health().mode !== "off");
 const hostHealth = new HostHealth({ telemetry: telemetry.telemetry, ...(sandboxIdentity ? { sandboxUid: sandboxIdentity.uid } : {}) });
 hostHealth.start();
+/* Loki, Tempo and the collectors verified end to end; off with telemetry. Probe addresses come from QA_TELEMETRY_*_URL(S). */
+const backendHealth = telemetry.health().mode === "off" ? undefined : new BackendHealthMonitor({ config: resolveBackendHealthConfig(process.env), fetch: systemBackendFetch, now: () => Date.now() });
 /*
  * Durable backing lives in createDurableRunEventStore, shared with the CLI so every
  * trigger persists events identically: the live SSE stream survives a restart (e.g. the
@@ -673,6 +676,7 @@ const apiDeps: ApiDeps = {
   queue,
   telemetryHealth: () => ({ ...telemetry.health(), scoreSink: scoreSinkHealthOf(langfuseSink) }),
   hostHealth: () => hostHealth.snapshot(),
+  ...(backendHealth ? { backendHealth } : {}),
   enqueue: enqueueApiRun,
   loadApp: (name) => loadAppConfig(name),
   listApps: () => listAppConfigs(),

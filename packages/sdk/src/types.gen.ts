@@ -1432,6 +1432,33 @@ export interface components {
                 lastError?: string;
             };
             droppedAttributes: number;
+            backends?: {
+                ok: boolean;
+                loki: {
+                    /** @enum {string} */
+                    status: "ok" | "degraded" | "down" | "unconfigured";
+                    reason?: string;
+                    checkedAt: string;
+                    diskUsedRatio?: number;
+                    lastDataAt?: string;
+                };
+                tempo: {
+                    /** @enum {string} */
+                    status: "ok" | "degraded" | "down" | "unconfigured";
+                    reason?: string;
+                    checkedAt: string;
+                    diskUsedRatio?: number;
+                    lastDataAt?: string;
+                };
+                collector: {
+                    /** @enum {string} */
+                    status: "ok" | "degraded" | "down" | "unconfigured";
+                    reason?: string;
+                    checkedAt: string;
+                    diskUsedRatio?: number;
+                    lastDataAt?: string;
+                };
+            };
             host?: {
                 suspends: number;
                 lastSuspendAt?: string;

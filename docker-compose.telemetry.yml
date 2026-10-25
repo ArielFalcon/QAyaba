@@ -173,6 +173,10 @@ services:
     environment:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
       OTEL_SERVICE_NAME: qayaba-orchestrator
+      # Telemetry health verifies the stores end to end over telemetry-internal (src/telemetry/backend-health.ts).
+      QA_TELEMETRY_LOKI_URL: http://lgtm:3100
+      QA_TELEMETRY_TEMPO_URL: http://lgtm:3200
+      QA_TELEMETRY_COLLECTOR_METRICS_URLS: http://collector:8888/metrics
 
   agents:
     # The agents container is deliberately NOT on telemetry-internal: it can reach only collector-agents, over agent-otlp.

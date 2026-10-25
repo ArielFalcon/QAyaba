@@ -127,6 +127,19 @@ test("any collector reachable from the agents hosts only the agents receiver and
   }
 });
 
+test("the orchestrator verifies Loki, Tempo and the trusted collector over telemetry-internal, and the agent-facing collector exposes no metrics", () => {
+  const env = svc("orchestrator").environment ?? {};
+  assert.equal(env.QA_TELEMETRY_LOKI_URL, "http://lgtm:3100");
+  assert.equal(env.QA_TELEMETRY_TEMPO_URL, "http://lgtm:3200");
+  assert.equal(env.QA_TELEMETRY_COLLECTOR_METRICS_URLS, "http://collector:8888/metrics");
+  type Metrics = { level: string; readers?: Array<{ pull: { exporter: { prometheus: { host: string; port: number } } } }> };
+  const metricsOf = (c: Collector): Metrics => (c.service as unknown as { telemetry: { metrics: Metrics } }).telemetry.metrics;
+  assert.notEqual(metricsOf(trusted.config).level, "none");
+  assert.deepEqual(metricsOf(trusted.config).readers?.[0]?.pull.exporter.prometheus, { host: "0.0.0.0", port: 8888 });
+  assert.equal(metricsOf(untrusted.config).level, "none");
+  assert.equal(metricsOf(untrusted.config).readers, undefined);
+});
+
 test("the trusted collector hosts only the orchestrator receiver, on its own port", () => {
   assert.deepEqual(Object.keys(trusted.config.receivers), ["otlp/orchestrator"]);
   assert.equal(trusted.config.receivers["otlp/orchestrator"]?.protocols.http.endpoint, "0.0.0.0:4318");
