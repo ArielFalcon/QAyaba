@@ -151,7 +151,7 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 | T4 | S7, S8 | inline | item 3 (`CodeGraphPort` consumers) + item 6 | done — port re-backed on the store reader, one walk per change, co-change from git, dead methods and the old adapters removed, `seam-parity` updated; parity (S8) run offline from the base commit (L28) | `604efe78` |
 | T5 | S9 | inline | item 6 (only a live run proves a blast radius) | done — both keys (operationId reached; a reached handler whose route serves the link's operation, verb + path, parameters matching and a one-sided prefix tolerated), a changed handler counts (depth 0), the S8 budget; `MATCH_TIER` unchanged; HTTP links carry their contract operation (optional `operation`) | (L27) |
 | T6 | S10, S11, S12 | inline | item 3 (`changeRoutes` consumers: graders, lead review, DOM capture) + item 6 | pending — the reach join in route ranking, basis and proof per page, hub suppression, map/engine disagreement recorded; graders report per basis; metric baseline re-recorded with its reason | |
-| T7 | S13 | inline | item 2 (agent tool surface invariant) — own commit | pending — `explore` replaces the three actions in the domain admission, the proxy adapter and `agents/tool/codegraph.ts`; text cutting at file boundaries; the agent-list fixture re-recorded; a codegraph smoke added next to the `run_spec` and authbrowser smokes | |
+| T7 | S13 | delegated (writer reason: parallel unit with T5/T6, disjoint surface; worktree) | item 2 (agent tool surface invariant) — own commit | done — `explore` replaces the three actions (admission, endpoint, adapter, tool file, client); answer redacted then cut at file boundaries; agent-list fixture re-recorded in the agents container; codegraph smoke 14/14 in the image; independent verifier: no blockers (L29) | `56c2ae43` |
 | T8 | S14, S15 | inline | item 3 (prompt contract) | pending — the dossier in `static-signal` and the sidekick proof path; prompt-contract lint and `scripts/prompt-contract-baseline.json` re-recorded with `--allow-increase` and its reason | |
 | T9 | S16 | per-action workers (long runs) | item 6 | pending — the ablation rounds; the verdict per default in the Log | |
 | T10 | S17 | inline | item 5 | pending — the removal commit | |
@@ -273,4 +273,12 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
       - The walk's `maxNodes` budget is also spent on the test and route nodes it then drops; the budget is a cost bound, not an answer size.
     - Separate governance commit:
       - **(2)** The new security-critical files join `src/server/merge-guard.ts`'s protected list.
+- **L29** (2026-10-25) T7 (S13) is `56c2ae43`.
+  - **How it landed:** a delegated writer built it in a worktree and its commit was cherry-picked. `agents/opencode.json` (`codegraph_explore` denied globally, allowed for `qa-generator`) was amended into the same commit, so the tool surface changes atomically.
+  - **Fixture:** `src/integrations/fixtures/opencode-agent-list.json` was re-recorded against `opencode serve` 1.17.7 in the agents container, with an isolated HOME, `env -i` and a stripped config. The re-record also picked up the generator's and sidekick's step caps (250 and 300), which the previous recording predated, so the `opencode-agents` test now expects 250.
+  - **Smoke:** `agents/smoke/codegraph-tool.smoke.mjs` passes 14/14 in the agents image.
+  - **Verifier:** no blockers. Advisories:
+    - The answer shaper's fence tracking relies on the engine numbering every source line, which it does today.
+    - An empty answer is `ok` with empty text.
+    - `codebase-memory-client.ts` is dead code that T10 removes.
 
