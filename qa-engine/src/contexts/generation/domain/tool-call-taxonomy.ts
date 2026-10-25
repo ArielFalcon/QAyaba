@@ -95,8 +95,9 @@ export function kindForTool(tool: string): AgentActivityKind {
    server prefix ending in `_`. Native tools (read, grep, …) carry none. */
 
 /* Playwright MCP tools are all named browser_* (agents/opencode.json's qa-reviewer
-   permission block enumerates the full set: browser_navigate, browser_snapshot, …). */
-const BROWSER_TOOLS = /(^|_)browser_/i;
+   permission block enumerates the full set: browser_navigate, browser_snapshot, …), and the
+   orchestrator's authenticated browser tools authbrowser_* (navigate, snapshot, click, type). */
+const BROWSER_TOOLS = /(^|_)(auth)?browser_/i;
 
 /* Cross-session recall: engram's MCP tools (mem_search, mem_save, mem_get_observation, …)
    and Serena's own project-memory tools (read_memory, write_memory, list_memories,

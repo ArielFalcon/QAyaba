@@ -181,3 +181,7 @@ test("toolInputPath skips empty and non-string values and answers undefined when
   assert.equal(toolInputPath(undefined), undefined);
   assert.equal(toolInputPath(42), undefined);
 });
+
+test("bucketForTool counts the orchestrator's authenticated browser as browser use", () => {
+  for (const tool of ["authbrowser_navigate", "authbrowser_snapshot", "authbrowser_click", "authbrowser_type"]) assert.equal(bucketForTool(tool), CALL_BUCKETS.BROWSER, tool);
+});
