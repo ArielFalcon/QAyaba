@@ -126,6 +126,8 @@ export interface OpencodeRunInput {
   planning?: PlanningLimits;
   /* App login is declared but <e2eRelDir>/auth.setup.ts is still the stock seed and did not sign in: the generator must rewrite it before writing specs. Absent = nothing to rewrite. */
   authSeedUnauthored?: boolean;
+  /* The change pages a lead's admitted plan left unvisited, when the lead authors the change alone. Absent or empty = no section. */
+  unvisitedChangePages?: readonly string[];
   /* Static signal: deterministic pre-computed analysis rendered as a prompt section. Empty string or absent = no section added. Signal-only, fail-open. */
   staticSignal?: string;
   /* True when the static signal names symbols (impacted or callers): only then does it stand for an explored blast radius. Absent = a signal of co-change files alone (or no signal), which names no blast radius. */

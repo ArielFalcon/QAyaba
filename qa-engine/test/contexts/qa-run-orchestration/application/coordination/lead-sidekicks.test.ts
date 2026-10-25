@@ -186,14 +186,14 @@ function input(r: Rig, over: Partial<CoordinateInput> = {}): CoordinateInput {
 }
 
 /* A lead whose planning session answers its review turns with these answers in order (the last repeats), and records what it was asked. */
-function leadWith(answers: unknown[][]): { plan: CoordinateInput["plan"]; asked: string[]; disposed: () => number } {
+function leadWith(answers: unknown[][], plan: Record<string, unknown> = FANOUT_PLAN): { plan: CoordinateInput["plan"]; asked: string[]; disposed: () => number } {
   const asked: string[] = [];
   let disposed = 0;
   return {
     asked,
     disposed: () => disposed,
     plan: async () => ({
-      plan: FANOUT_PLAN,
+      plan,
       parsed: true,
       timedOut: false,
       lead: {
@@ -290,6 +290,45 @@ test("a plan that is a no-op or one piece of work is kept with why", async () =>
   const lead = rig();
   await lead.coordinator.coordinate(input(lead, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
   assert.deepEqual(lead.plans.map((p) => p.kind), ["lead"]);
+});
+
+test("a plan of one flow leaves the change to the lead with the change pages that flow does not visit", async () => {
+  const r = rig();
+  const plan = { kind: "fanout", flows: [{ id: "detail", objective: "the detail page", routes: ["/shops/madrid/:slug"] }] };
+  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/shops/:province/:slug", "/shops/:province/:slug/menu"], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  assert.equal(outcome.action, "lead");
+  assert.deepEqual(outcome.action === "lead" ? outcome.unvisited : undefined, ["/shops/:province/:slug/menu"]);
+  const reported = r.events.filter((e) => /change page/.test(e.reason ?? ""));
+  assert.equal(reported.length, 1);
+  assert.match(reported[0]!.reason, /1 of 2 change page\(s\) no flow visits: \/shops\/:province\/:slug\/menu$/);
+});
+
+test("a plan the lead authors alone leaves it every change page to visit, and a run with no change pages names none", async () => {
+  const lead = rig();
+  const alone = await lead.coordinator.coordinate(input(lead, { changeRoutes: ["/cart"], plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
+  assert.deepEqual(alone.action === "lead" ? alone.unvisited : null, ["/cart"]);
+  const bare = rig();
+  const none = await bare.coordinator.coordinate(input(bare, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
+  assert.equal(none.action === "lead" ? none.unvisited : null, undefined);
+});
+
+test("the lead's review names the change pages no flow visits and those no flow covers with a spec that passed run_spec", async () => {
+  const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
+  const lead = leadWith([[{ flow: "cart", action: "accept" }, { flow: "login", action: "accept" }]], plan);
+  const r = rig();
+  r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
+    const handle = original(flowInput)!;
+    r.flowLoops.at(-1)!.ledger.push({ path: flowInput.specFile, sha256: "b", status: flowInput.flowId === "cart" ? "passed" : "failed", devWrites: 0 });
+    return { ...handle, isClosed: async () => flowInput.flowId === "cart" };
+  })(r.closedLoop.openFlow);
+  const outcome = await new LeadSidekicks(r.deps).coordinate(input(r, { changeRoutes: ["/cart", "/login", "/orders"], plan: lead.plan }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  /* The flow blocks name no route: every change page is listed once, and a page the review flags is named a second time. */
+  const first = lead.asked[0]!;
+  const times = (page: string): number => first.split(page).length - 1;
+  assert.equal(times("/orders"), 2, "the page no flow visits");
+  assert.equal(times("/login"), 2, "the page whose only flow has not passed");
+  assert.equal(times("/cart"), 1, "a page a passing flow covers is not flagged");
 });
 
 test("a flow that names a change page by its template, whatever its parameters are called, visits it", async () => {

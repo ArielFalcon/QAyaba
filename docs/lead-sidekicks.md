@@ -41,7 +41,10 @@ signed-in app (see below); without either, they stay out and the lead authors al
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
    duplicates and more than `maxFlows`. A plan that cannot be admitted, or that names one flow, hands the change
-   back to the lead as one piece of work with the reason recorded (`downgrade`).
+   back to the lead as one piece of work with the reason recorded (`downgrade`). The change pages that plan left
+   unvisited (all of them when it named no flow, those its only flow does not name when it named one) are recorded as a
+   router event and stated in the lead's authoring turn (`unvisitedChangePages`, section `change-pages`): it covers each
+   one whose behaviour the change alters or says in its verdict why it needs no test.
 3. **Author.** Each sidekick's brief carries the Live DOM of its flow's pages (by address, or by the map template a
    page was opened from), cut from the run's Context Pack and bounded; a flow whose pages the pack did not read gets
    none. `FanOutDispatcher` runs at most `maxParallel` flows. Each has its own abort signal and time
@@ -101,7 +104,10 @@ open (`PlanOutput.lead`), read-only like the plan, bounded by `planBudgetMs` and
 reserve; at most `MAX_REVIEW_TURNS` (3) turns, and revisions are ordered in every turn but the last (`lead-review.ts`).
 Per flow it is shown the objective and acceptance, what came of the flow, the sidekick's summary and concerns, the
 flow's `run_spec` facts (calls used, the last call's status and failure, whether the spec it holds now is the one that
-passed) and the spec it delivered, read through the confined reader and bounded. It answers per flow:
+passed) and the spec it delivered, read through the confined reader and bounded. When the change is linked to pages of
+the app's map, the turn also names the change pages no flow visits and those whose visiting flows all ran `run_spec`
+and none holds a spec that passed it (`changePagesOf`); a page visited only by a flow without `run_spec` is not called
+unproven. It answers per flow:
 
 - `accept`;
 - `revise`: its instruction goes to the SAME sidekick session, which is kept, with the flow's workspace, `run_spec`

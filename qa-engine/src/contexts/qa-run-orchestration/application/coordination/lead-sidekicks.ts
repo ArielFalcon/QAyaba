@@ -20,7 +20,7 @@ import type { DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceR
 import { createDelegationBrief } from "./delegation-brief.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
-import { admitLeadReview, MAX_REVIEW_TURNS, renderLeadReview, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
+import { admitLeadReview, changePagesOf, MAX_REVIEW_TURNS, renderLeadReview, unvisitedBy, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
 import type { CoordinationTelemetryPort } from "./coordination-telemetry.ts";
 import { PLAN_SNAPSHOT_KIND, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import type { AgentCapability } from "./agent-capability.ts";
@@ -104,8 +104,8 @@ export interface FlowProposals {
 }
 
 export type CoordinateResult =
-  /* The change is authored by the lead as one piece of work. */
-  | { action: "lead"; signal: CoordinationGateSignal }
+  /* The change is authored by the lead as one piece of work. `unvisited`: the change pages the admitted plan left unvisited, which the lead's authoring turn is told. */
+  | { action: "lead"; signal: CoordinationGateSignal; unvisited?: string[] }
   /* The lead declared that nothing is worth a test. */
   | { action: "noop"; reason: string; signal: CoordinationGateSignal }
   /* The flows were authored; `aggregated` says how it ended, as a generation would. */
@@ -207,9 +207,9 @@ export class LeadSidekicks {
 
   async coordinate(input: CoordinateInput): Promise<CoordinateResult> {
     const base = { flows: 0, delivered: 0, incomplete: 0, takeover: false } as const;
-    const leadAlone = (downgrade: string, extra: Partial<CoordinationGateSignal> = {}): CoordinateResult => {
+    const leadAlone = (downgrade: string, extra: Partial<CoordinationGateSignal> = {}, unvisited?: string[]): CoordinateResult => {
       this.deps.log?.(`coordination: the change is authored by the lead as one piece of work (${downgrade})`);
-      return { action: "lead", signal: { ...base, downgrade, ...extra } };
+      return { action: "lead", signal: { ...base, downgrade, ...extra }, ...(unvisited?.length ? { unvisited } : {}) };
     };
 
     if (!input.plan) return leadAlone("the generation cannot plan");
@@ -279,10 +279,12 @@ export class LeadSidekicks {
       }
       if (admitted.kind === LEAD_PLAN_KIND.LEAD) {
         this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.LEAD, [], admitted.downgrade);
-        return leadAlone(admitted.downgrade ?? "the plan is one piece of work", { plan: LEAD_PLAN_KIND.LEAD, authoring: authoringName });
+        /* The lead authors in a turn of its own: it is told the change pages its plan did not visit, as a fan-out's review is. */
+        const unvisited = unvisitedBy(input.changeRoutes ?? [], admitted.routes ?? []);
+        this.reportUnvisited(input, unvisited);
+        return leadAlone(admitted.downgrade ?? "the plan is one piece of work", { plan: LEAD_PLAN_KIND.LEAD, authoring: authoringName }, unvisited);
       }
-      const unvisited = this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows);
-      if (unvisited.length > 0) this.record(input, { kind: "router", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
+      this.reportUnvisited(input, this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows));
       const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName });
       /* A pass kept open holds the lead's session from here on. */
       if (result.action === "fanout" && result.pass) leadHanded = true;
@@ -518,9 +520,10 @@ export class LeadSidekicks {
       const room = this.room(input);
       if (room !== undefined && room < MIN_FLOW_MS) break;
       const underReview = await Promise.all(flows.map((flow) => this.underReview(flow, live.get(flow.id), reports.get(flow.id)!, input)));
+      const changePages = changePagesOf(input.changeRoutes ?? [], flows.map((flow, i) => ({ routes: flow.routes, review: underReview[i]! })));
       let answer: { output: string; timedOut: boolean };
       try {
-        answer = await lead.ask(renderLeadReview(underReview, { turn, maxTurns: MAX_REVIEW_TURNS }), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
+        answer = await lead.ask(renderLeadReview(underReview, { turn, maxTurns: MAX_REVIEW_TURNS }, changePages), { timeoutMs: Math.min(input.settings.planBudgetMs, room ?? input.settings.planBudgetMs) });
       } catch (err) {
         /* The run's own time spent ends the run; any other failure of the lead's turn leaves the flows as they are. */
         if (isRunDeadlineError(err)) throw err;
@@ -770,13 +773,17 @@ export class LeadSidekicks {
         ...(outcome ? { outcome: { kind: outcome.kind, ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}), ...(outcome.specs ? { specs: [...outcome.specs] } : {}) } } : {}),
       };
     });
-    const unvisited = changeRoutes.filter((route) => !snapshotFlows.some((flow) => flow.visits.includes(route)));
+    const unvisited = unvisitedBy(changeRoutes, flows.flatMap((flow) => flow.routes));
     try {
       this.deps.planSnapshots?.record({ runId: input.runId, kind, ...(reason !== undefined ? { reason } : {}), changeRoutes, unvisited, flows: snapshotFlows, recordedAt: this.now() });
     } catch (err) {
       console.error(`[qa] the run's plan could not be kept (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
     return unvisited;
+  }
+
+  private reportUnvisited(input: CoordinateInput, unvisited: readonly string[]): void {
+    if (unvisited.length > 0) this.record(input, { kind: "router", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
   }
 
   private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "router"; action?: "direct" | "delegate" | "lead-takeover" | "escalate-sidekick" | "abort-human"; capability?: AgentCapability; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {

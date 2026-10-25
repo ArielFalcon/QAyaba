@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   admitLeadReview,
+  changePagesOf,
   MAX_SPEC_CHARS,
   renderLeadReview,
   REVIEW_ACTION,
@@ -138,4 +139,26 @@ test("an accept of a spec whose last run_spec call failed is sent back even when
   const admitted = admitLeadReview(answer([{ flow: "cart", action: "accept" }]), [failing], { revisionsAllowed: true });
   assert.equal(admitted.orders[0]?.action, REVIEW_ACTION.REVISE);
   assert.match(admitted.orders[0]!.instruction, /expected 3, got 0/);
+});
+
+test("the change pages no flow visits and those no passing flow covers are named; a page a passing flow visits is not", () => {
+  const pages = changePagesOf(["/cart", "/login", "/orders", "/shops/:city"], [
+    { routes: ["/cart"], review: flow() },
+    { routes: ["/login"], review: flow({ id: "login", verified: false, runSpec: { calls: 2, maxCalls: 8, lastStatus: "failed" } }) },
+    { routes: ["/shops/madrid"], review: flow({ id: "shops", runSpec: undefined, verified: false }) },
+  ]);
+  assert.deepEqual(pages, { routes: ["/cart", "/login", "/orders", "/shops/:city"], unvisited: ["/orders"], unproven: ["/login"] });
+});
+
+test("with every change page covered by a passing flow, or no change pages, there is nothing to name", () => {
+  assert.equal(changePagesOf(["/cart"], [{ routes: ["/cart"], review: flow() }]), undefined);
+  assert.equal(changePagesOf([], [{ routes: ["/cart"], review: flow() }]), undefined);
+});
+
+test("the review names the change pages left unvisited and unproven, and without them says nothing of change pages", () => {
+  const changePages = { routes: ["/cart", "/login", "/orders"], unvisited: ["/orders"], unproven: ["/login"] };
+  const text = renderLeadReview([flow()], { turn: 1, maxTurns: 3 }, changePages);
+  assert.ok(text.includes("/orders") && text.includes("/login"));
+  assert.ok(text.indexOf("/orders") !== text.indexOf("/login"));
+  assert.ok(!renderLeadReview([flow()], { turn: 1, maxTurns: 3 }).includes("/orders"));
 });

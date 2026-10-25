@@ -83,7 +83,8 @@ export interface AdmittedFlow {
 
 export type AdmittedPlan =
   | { kind: typeof LEAD_PLAN_KIND.NOOP; reason: string }
-  | { kind: typeof LEAD_PLAN_KIND.LEAD; downgrade?: PlanDowngrade }
+  /* `routes`: the pages the plan's only flow named, when a plan of one flow was left to the lead. */
+  | { kind: typeof LEAD_PLAN_KIND.LEAD; downgrade?: PlanDowngrade; routes?: string[] }
   | { kind: typeof LEAD_PLAN_KIND.FANOUT; flows: AdmittedFlow[]; parallel: number };
 
 function leadAlone(downgrade?: PlanDowngrade): AdmittedPlan {
@@ -185,7 +186,7 @@ export function admitLeadPlan(raw: unknown, limits: PlanLimits, deps: PlanDeps):
     flows.push(flow);
   }
   if (new Set(flows.map((flow) => flow.id)).size !== flows.length) return leadAlone(PLAN_DOWNGRADE.DUPLICATE);
-  if (flows.length < 2) return leadAlone(PLAN_DOWNGRADE.ONE_FLOW);
+  if (flows.length < 2) return { kind: LEAD_PLAN_KIND.LEAD, downgrade: PLAN_DOWNGRADE.ONE_FLOW, routes: flows[0]!.routes };
 
   const count = flows.length;
   const parallel = Math.min(limits.maxParallel, count);

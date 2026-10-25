@@ -26,19 +26,20 @@ type Result = Promise<StepResult<RunState, RunQaResult>>;
 /*
  * Lead + sidekicks is how every e2e run generates: the lead is asked for a plan and its flows are authored by sidekicks, each in a
  * workspace of its own. What comes back is a generation like any other: the specs of the flows that delivered, a declared no-op, or
- * an end that names why nothing was finished. Undefined: the lead authors the change in one turn, because no coordinator is wired,
+ * an end that names why nothing was finished. No generation: the lead authors the change in one turn, because no coordinator is wired,
  * the plan was not admitted as a fan-out, no sidekick can author, or coordination failed (the recorded signal says which).
- * A code run, a context run and a login still to be written never coordinate.
+ * A code run, a context run and a login still to be written never coordinate. `unvisitedChangePages`: the change pages an admitted plan
+ * left to the lead did not visit, which the lead's own turn is told.
  */
-async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<GenerationOutput | undefined> {
+async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunContext): Promise<{ generated?: GenerationOutput; unvisitedChangePages?: readonly string[] }> {
   const { deps, input, cfg, workspace, signal } = ctx;
   const { closedLoop, agentBrowser, geolocation } = ctx.trail;
   const { generating, intent: classificationIntent, diff: classificationDiff } = state.classification;
   const { authSeedUnauthored } = state.setup;
   const { baseEnrichment } = state.grounding;
   const coordinationSettings = deps.coordinationSettings ?? DEFAULT_COORDINATION_SETTINGS;
-  if (!deps.leadSidekicks) return undefined;
-  if (!generating || cfg.isCode || input.mode === "context" || authSeedUnauthored) return undefined;
+  if (!deps.leadSidekicks) return {};
+  if (!generating || cfg.isCode || input.mode === "context" || authSeedUnauthored) return {};
   let result: CoordinateResult;
   try {
     result = await deps.leadSidekicks.coordinate({
@@ -67,13 +68,13 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
     rethrowIfRunDeadline(err);
     console.error(`[qa] coordination failed (the lead authors the change alone): ${err instanceof Error ? err.message : String(err)}`);
     ctx.ends.recordCoordination({ downgrade: "coordination failed", flows: 0, delivered: 0, incomplete: 0, takeover: false });
-    return undefined;
+    return {};
   }
   ctx.ends.recordCoordination(result.signal);
-  if (result.action === "lead") return undefined;
+  if (result.action === "lead") return result.unvisited ? { unvisitedChangePages: result.unvisited } : {};
   if (result.action === "noop") {
     /* A plan names no kind of no-op. */
-    return { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason };
+    return { generated: { specs: [], end: GENERATION_END.DECLARED_NOOP, noopKind: NOOP_KIND.UNSPECIFIED, reviewed: false, approved: true, parsed: true, note: result.reason } };
   }
   const { aggregated } = result;
   /* Kept open for the reviewer's corrections only when the flows delivered: nothing else reaches a review. */
@@ -82,11 +83,11 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
     else await result.pass.release().catch((err: unknown) => console.error(`[qa] releasing the coordinated pass failed: ${err instanceof Error ? err.message : String(err)}`));
   }
   if (aggregated.end !== GENERATION_END.DELIVERED) {
-    return { specs: [], end: aggregated.end, reviewed: false, approved: true, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) };
+    return { generated: { specs: [], end: aggregated.end, reviewed: false, approved: true, parsed: true, ...(aggregated.note ? { note: aggregated.note } : {}) } };
   }
   const unfinished = aggregated.incompleteFlows.map((f) => `${f.id} (${f.kind})`).join(", ");
   if (unfinished) deps.observer?.onEvent({ type: "log.line", level: "warn", text: `coordination: ${aggregated.incompleteFlows.length} flow(s) did not finish: ${unfinished}` });
-  return await afterGeneration(ctx, { specs: aggregated.specs, end: GENERATION_END.DELIVERED, reviewed: false, approved: true, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) });
+  return { generated: await afterGeneration(ctx, { specs: aggregated.specs, end: GENERATION_END.DELIVERED, reviewed: false, approved: true, parsed: true, ...(unfinished ? { note: `flows that did not finish: ${unfinished}` } : {}) }) };
 }
 
 /*
@@ -111,13 +112,15 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
      * The coordination does not engage for such a run (coordinateFirstPass): sidekick output from the login wall is
      * not the session the suite will run with.
      */
-    const coordinatedFirstPass = await coordinateFirstPass(state, ctx);
+    const coordinated = await coordinateFirstPass(state, ctx);
+    const coordinatedFirstPass = coordinated.generated;
     if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir) };
     generated = coordinatedFirstPass
       ?? (await afterGeneration(ctx, await deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
         ...baseEnrichment,
         ...geolocationEnrichment(ctx),
         ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
+        ...(coordinated.unvisitedChangePages ? { unvisitedChangePages: coordinated.unvisitedChangePages } : {}),
       })));
     generation.delivered = mergeDeliveredSpecs(generation.delivered, generated, coordinatedFirstPass ? "sidekick" : "lead");
   }

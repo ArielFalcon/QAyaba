@@ -8,6 +8,7 @@
  * Pure: no clock, no file, no model.
  */
 
+import { namesTemplatePage } from "@contexts/generation/domain/route-instantiation.ts";
 import { FLOW_OUTCOME, type FlowOutcome } from "./flow-outcomes.ts";
 import { scrub } from "./scrub.ts";
 
@@ -90,8 +91,42 @@ function flowBlock(flow: FlowUnderReview): string {
   ].filter(Boolean).join("\n");
 }
 
-/* The review turn's prompt: the flows as the orchestrator knows them, and the answer it reads. */
-export function renderLeadReview(flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }): string {
+/* The change pages no route names: a route names a page when it is that page or one of its template's (`namesTemplatePage`). */
+export function unvisitedBy(changeRoutes: readonly string[], routes: readonly string[]): string[] {
+  return changeRoutes.filter((page) => !routes.some((route) => namesTemplatePage(page, route)));
+}
+
+/* The change pages a review names: those no flow visits, and those whose visiting flows all ran run_spec and none holds a spec that passed it. A page a flow without run_spec visits is not called unproven: nothing says so. */
+export interface ChangePages {
+  routes: readonly string[];
+  unvisited: string[];
+  unproven: string[];
+}
+
+export function changePagesOf(changeRoutes: readonly string[], flows: ReadonlyArray<{ routes: readonly string[]; review: FlowUnderReview }>): ChangePages | undefined {
+  const unvisited = unvisitedBy(changeRoutes, flows.flatMap((flow) => flow.routes));
+  const unproven = changeRoutes.filter((page) => {
+    const visiting = flows.filter((flow) => unvisitedBy([page], flow.routes).length === 0);
+    if (visiting.length === 0) return false;
+    return visiting.every(({ review }) => review.runSpec !== undefined && !(review.verified && review.outcome.kind === FLOW_OUTCOME.DELIVERED));
+  });
+  return unvisited.length > 0 || unproven.length > 0 ? { routes: [...changeRoutes], unvisited, unproven } : undefined;
+}
+
+function changePagesBlock(pages: ChangePages, last: boolean): string {
+  return [
+    "## Change pages",
+    `The change is linked to these pages of the app's map: ${pages.routes.join(", ")}.`,
+    pages.unvisited.length > 0 ? `No flow of your plan visits: ${pages.unvisited.join(", ")}.` : "",
+    pages.unproven.length > 0 ? `No flow that visits it holds a spec that passed run_spec: ${pages.unproven.join(", ")}.` : "",
+    last
+      ? "A page named here whose behaviour the change alters stays untested by this run."
+      : `A page named here whose behaviour the change alters is untested: "revise" the flow that should cover it, naming the page and what to assert there.`,
+  ].filter(Boolean).join("\n");
+}
+
+/* The review turn's prompt: the flows as the orchestrator knows them, the change pages no passing flow covers, and the answer it reads. */
+export function renderLeadReview(flows: readonly FlowUnderReview[], turn: { turn: number; maxTurns: number }, changePages?: ChangePages): string {
   const last = turn.turn >= turn.maxTurns;
   return [
     `## Review of the flows (turn ${turn.turn} of ${turn.maxTurns})`,
@@ -101,6 +136,7 @@ export function renderLeadReview(flows: readonly FlowUnderReview[], turn: { turn
       ? "This is the last review: each flow can only be accepted or dropped."
       : `"revise" sends your instruction to the same sidekick, which keeps what it learned; "replace" starts a fresh sidekick on the flow, for one that is stuck. Be specific: name the assertion, the page or the fact to fix.`,
     ...flows.map(flowBlock),
+    ...(changePages ? [changePagesBlock(changePages, last)] : []),
     "## Answer",
     `Answer with this JSON object and nothing else; a flow you do not name stays as it is. Actions: "${REVIEW_ACTION.ACCEPT}", "${REVIEW_ACTION.REVISE}" (needs an instruction), "${REVIEW_ACTION.REPLACE}", "${REVIEW_ACTION.DROP}" (a flow that delivered nothing, with a reason).`,
     '{"review":[{"flow":"<flow id>","action":"accept|revise|replace|drop","instruction":"<what to change>","reason":"<why>"}]}',

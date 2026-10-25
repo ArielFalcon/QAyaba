@@ -190,6 +190,8 @@ export interface GenerationEnrichment {
    * sign in, so the generator must author the login first. Set only when true.
    */
   authSeedUnauthored?: boolean;
+  /** The change pages the lead's admitted plan left unvisited, when the lead authors the change alone. */
+  unvisitedChangePages?: readonly string[];
   /**
    * Structured map from specDir/.qa/context.json. Distinct from contextPack
    * (assembled markdown). Absent when the json is missing/invalid (fail-open).
