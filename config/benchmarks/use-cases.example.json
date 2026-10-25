@@ -1,0 +1,37 @@
+{
+  "app": "my-app",
+  "changes": [
+    {
+      "sha": "0123456789abcdef0123456789abcdef01234567",
+      "base": "fedcba9876543210fedcba9876543210fedcba98",
+      "summary": "free text: what the change does, as a person who read the diff would say it",
+      "useCases": [
+        {
+          "id": "missing-item",
+          "description": "an unknown item shows the not-found state, and its call to action opens the search page",
+          "reachability": "dev",
+          "routes": ["/items/:slug"]
+        },
+        {
+          "id": "failed-load",
+          "description": "a failed load shows that error, and its retry action loads the item again",
+          "reachability": "fault-injection",
+          "routes": ["/items/:slug"],
+          "why": "only when the item request fails, which the site gives no way to provoke"
+        },
+        {
+          "id": "server-status",
+          "description": "the server answers 404 for an unknown item",
+          "reachability": "not-observable",
+          "routes": ["/items/:slug"],
+          "why": "the deployed site renders on the client and answers 200 for every page"
+        }
+      ]
+    },
+    {
+      "sha": "89abcdef0123456789abcdef0123456789abcdef",
+      "summary": "a change with no observable behaviour (tests, comments, formatting) has no use case",
+      "useCases": []
+    }
+  ]
+}

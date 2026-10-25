@@ -18,6 +18,9 @@ config/benchmarks/campaigns/
 # Ground truths name real files and routes of watched apps (user data) — only the neutral-placeholder
 # config/benchmarks/ground-truth.example.json ships tracked (see scripts/probe-metrics.ts).
 config/benchmarks/ground-truth/
+# The use cases of a watched app's changes (user data): only config/benchmarks/use-cases.example.json ships tracked
+# (scripts/label-run.ts, docs/observability-design.md §11.3).
+config/benchmarks/use-cases/
 # Watched-app configs are user data (real repo URLs, tokens-adjacent settings) — only the
 # neutral-placeholder example ships tracked. A fresh clone has no app configured (see
 # CLAUDE.md's Onboarding note and docs invariants).

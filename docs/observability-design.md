@@ -929,6 +929,13 @@ These follow Hamel Husain's evals practice.
 - **Human labels** use Langfuse annotation queues (OSS). `npm run langfuse:labels` imports them as `source=human` in `run_scores`
   (a label of a judge's name is typed by that judge's definition), so calibration does not depend on Langfuse
   being up.
+- **Labelling without Langfuse.** `npm run label -- --run <id> --show` prints what a person needs to judge a run: the flows of the plan
+  it kept, the tests it delivered with their result, the judges' critiques, and the use cases the **reference set** holds for its commit.
+  `npm run label -- --run <id> --name <score> --value <v>` keeps the label as the same `source=human` row the Langfuse import writes.
+  The reference set (`config/benchmarks/use-cases/<app>.json`, user data; the tracked `use-cases.example.json` shows the format) lists,
+  per change a person read, its use cases and each one's reachability: `dev` (a browser test reaches it with real data),
+  `fault-injection` (only when a request fails), `not-observable` (the deployed site does not show it) or `not-e2e`. A run is labelled
+  `use_case_coverage=pass` when its specs cover every `dev` use case of its change.
 - Judges: `spec_relevance`, `failure_root_cause` and `use_case_coverage`.
 - **`use_case_coverage`** (binary) asks whether the delivered specs cover every use case the diff introduces that a browser can reach
   on the live site without network mocks or injected faults. It reads the diff, the flows of the plan the run kept (`run_plans`:
