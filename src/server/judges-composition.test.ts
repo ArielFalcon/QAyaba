@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composeJudges } from "./judges-composition";
+import { JUDGE_NAMES } from "@contexts/evaluation/domain/judges";
 import { JobQueue } from "./queue";
 
 function repo(opts: { judgeModel?: string | null; withPrompt?: boolean } = {}): string {
@@ -26,7 +27,7 @@ test("with the switch off the judges are inactive, queue nothing, and still appe
     judges.service.scheduleForRun("any");
     assert.match(judges.service.unavailable() ?? "", /QA_JUDGES_ENABLED/);
     const catalog = judges.service.catalog();
-    assert.deepEqual(catalog.map((e) => e.name).sort(), ["failure_root_cause", "spec_relevance"]);
+    assert.deepEqual(catalog.map((e) => e.name).sort(), [...JUDGE_NAMES].sort());
     assert.ok(catalog.every((e) => e.status === "experimental" && e.graderVersion.endsWith("@4")));
   } finally {
     rmSync(root, { recursive: true, force: true });

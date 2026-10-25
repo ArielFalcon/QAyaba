@@ -13,6 +13,7 @@ export function judgeEvidence(over: Partial<JudgeEvidence> = {}): JudgeEvidence 
     diff: "diff --git a/src/a.ts b/src/a.ts\n+const a = 1;",
     specs: [{ path: "e2e/a.spec.ts", text: "test('a', async () => {});" }],
     failures: [{ name: "a works", message: "Timeout 5000ms exceeded" }],
+    plan: [],
     ...over,
   };
 }

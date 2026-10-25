@@ -902,7 +902,7 @@ These follow Hamel Husain's evals practice.
   that prompt version unless a regrade names the judge. Nothing is guessed.
 - **The prompt is pinned and versioned**: `agents/agent/qa-judge.md`, whose first line is `<!-- judge-prompt-version: N -->`. A score is
   stored under `graderVersion = judge-<name>@<N>` (so a regrade of the deterministic graders never deletes it) with `source=llm_judge`.
-- **When they run.** A finished **campaign** run is judged automatically (both judges); any other run only when a regrade names a judge
+- **When they run.** A finished **campaign** run is judged automatically (every judge); any other run only when a regrade names a judge
   (`POST /evaluations/regrade {graders: ["spec_relevance"]}`, which forces a re-ask). A request naming a judge while judges cannot run
   is a 400 with the reason. They never run for a pass in `failure_root_cause`, and never for a cancelled run.
 - **The judge is a new tool-less role, `qa-judge`**, in `agents/opencode.json`. Its `tools` deny everything (the same map as
@@ -927,9 +927,14 @@ These follow Hamel Husain's evals practice.
 - **Uncalibrated judges are `experimental` and gate nothing; neither do calibrated ones.** `calibrated` is information for a reader. The
   campaign report compares an LLM judge's score only when the catalog says `calibrated`.
 - **Human labels** use Langfuse annotation queues (OSS). `npm run langfuse:labels` imports them as `source=human` in `run_scores`
-  (a label of `spec_relevance` or `failure_root_cause` is typed by the judge's definition), so calibration does not depend on Langfuse
+  (a label of a judge's name is typed by that judge's definition), so calibration does not depend on Langfuse
   being up.
-- First judges: `spec_relevance` and `failure_root_cause`.
+- Judges: `spec_relevance`, `failure_root_cause` and `use_case_coverage`.
+- **`use_case_coverage`** (binary) asks whether the delivered specs cover every use case the diff introduces that a browser can reach
+  on the live site without network mocks or injected faults. It reads the diff, the flows of the plan the run kept (`run_plans`:
+  objective and acceptance, capped at `planBytes`) and the delivered specs, and it judges a run that delivered no spec too (a change
+  whose reachable use cases nothing covers fails). Its critique lists each use case as `covered`, `uncovered` or `unreachable`. A use
+  case reachable only by forcing a failure is `unreachable` here, because the generators may not mock the network.
 - **Not mirrored to Langfuse in this slice.** The score sink emits deterministic scores only; judge scores live in `run_scores` and the API.
 
 ---
@@ -1027,8 +1032,8 @@ ingest times.
 the contract above is unaffected:
 - `scores[].judgeModel` of `GET /runs/:id/evaluation`: the model that answered a `source=llm_judge` score. The prompt version is in its
   `graderVersion` (`judge-<name>@<promptVersion>`). Absent on every other score.
-- `scores[].status` of `GET /evaluations/catalog`: `experimental | calibrated`, on the judge entries only (`spec_relevance` BOOLEAN,
-  `failure_root_cause` CATEGORICAL with its closed set in `categories`), which follow the graders in the list and carry the grader version
+- `scores[].status` of `GET /evaluations/catalog`: `experimental | calibrated`, on the judge entries only (`spec_relevance` and `use_case_coverage`
+  BOOLEAN, `failure_root_cause` CATEGORICAL with its closed set in `categories`), which follow the graders in the list and carry the grader version
   of the prompt in force. `experimental` is every judge's default and the only value until a calibration passes (§11.3). **No gate reads
   it**, and an `llm_judge` score never decides a run, a PR or an Issue.
 - The judge entries are listed whenever the pinned judge prompt declares a version, whether or not judges are enabled. A consumer that

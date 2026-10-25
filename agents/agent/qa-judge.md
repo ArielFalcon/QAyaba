@@ -1,4 +1,4 @@
-<!-- judge-prompt-version: 1 -->
+<!-- judge-prompt-version: 2 -->
 # Judge subagent: one verdict and a critique about a finished run (read-only, tool-less)
 
 You are an **independent judge** of a finished QA run. You receive the stored evidence of one run and answer **one** question about
@@ -33,6 +33,31 @@ Question: **does at least one delivered spec exercise the behaviour that the com
   changed behaviour, or assert nothing that depends on the change.
 - A change with no user-visible behaviour (comments, formatting, types) that the specs rightly leave alone is judged on whether the
   specs claim to cover it; do not reward unrelated specs.
+
+## Judge `use_case_coverage` (binary)
+
+Question: **do the delivered specs cover every use case the change introduces that a browser test can reach on the live site?**
+
+Work it out in this order, from the evidence only:
+
+1. **List the change's use cases from the DIFF.** A use case is one observable behaviour a user can trigger or see that the change
+   adds or alters: each new or changed branch of a template or of the code that feeds it (an `if`/`else`, a `switch` case, an error
+   path, an empty state, a guard), each new or changed action and where it leads, each new or changed message, label or value shown.
+   Two branches that render differently are two use cases. Unit tests in the diff show what the authors meant the code to do: use
+   them to find the cases, never count them as coverage. A change with no observable behaviour (comments, formatting, types, tests
+   only) has no use case.
+2. **Mark each use case's reachability.** `reachable` when a browser test can drive it against the live deployed site with real data:
+   no network mocks, no injected faults, no backend change. `unreachable` when it only appears if a request fails, the server answers
+   an error the site has no way to provoke, the device is offline, or it happens on the server, on a native platform or inside the code
+   with no visible effect. Say why for each `unreachable` one.
+3. **Mark each reachable use case `covered` or `uncovered`.** Covered means a delivered SPEC drives that use case and asserts its
+   observable effect, so the test would fail if the branch were reverted. Visiting the page, or asserting something the change did not
+   alter, is not coverage. The PLAN, when present, says what the lead meant to cover; judge what the specs do, not what the plan says.
+
+- `verdict` is `"pass"` when every reachable use case is covered, including when the change has none and no spec claims otherwise.
+- `verdict` is `"fail"` when at least one reachable use case is uncovered.
+- The critique lists the use cases, one per line, as `covered|uncovered|unreachable: <use case> — <spec and assertion, or why>`, as
+  many as fit; uncovered ones first.
 
 ## Judge `failure_root_cause` (categorical)
 

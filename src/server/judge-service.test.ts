@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createJudgeService, type JudgeServiceDeps } from "./judge-service";
+import { JUDGE_NAMES } from "@contexts/evaluation/domain/judges";
 import type { JudgeBatchResult, JudgeWorkItem } from "@contexts/evaluation/application/run-judges.use-case";
 import type { CalibrationReport } from "@contexts/evaluation/domain/judge-calibration";
 
@@ -35,14 +36,14 @@ function fixture(over: Partial<JudgeServiceDeps> = {}, executed: Array<{ work: J
   return { service, idle, logs, flush, setYield: (v: boolean) => (yieldNow = v) };
 }
 
-test("a finished campaign run is handed to both judges as one low-priority job", async () => {
+test("a finished campaign run is handed to every judge as one low-priority job", async () => {
   const executed: Array<{ work: JudgeWorkItem[]; force: boolean }> = [];
   const { service, idle, flush } = fixture({}, executed);
   service.scheduleForRun("camp-1");
   assert.equal(idle.length, 1, "queued as idle work, not run inline");
   assert.equal(executed.length, 0);
   await flush();
-  assert.deepEqual(executed[0]?.work.map((w) => [w.runId, w.judge]), [["camp-1", "spec_relevance"], ["camp-1", "failure_root_cause"]]);
+  assert.deepEqual(executed[0]?.work.map((w) => [w.runId, w.judge]), JUDGE_NAMES.map((judge) => ["camp-1", judge]));
   assert.equal(executed[0]?.force, false);
 });
 
@@ -102,7 +103,7 @@ test("many requests become one queued job, and the same pair twice is judged onc
   service.scheduleForRun("camp-2");
   assert.equal(idle.length, 1);
   await flush();
-  assert.equal(executed.flatMap((e) => e.work).length, 4);
+  assert.equal(executed.flatMap((e) => e.work).length, 2 * JUDGE_NAMES.length);
 });
 
 test("a batch that yields to a waiting run queues the rest again behind it", async () => {

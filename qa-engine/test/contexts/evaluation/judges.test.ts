@@ -33,6 +33,7 @@ function ev(over: Partial<JudgeEvidence> = {}): JudgeEvidence {
     diff: "diff --git a/src/a.ts b/src/a.ts\n+const a = 1;",
     specs: [{ path: "e2e/a.spec.ts", text: "test('a', async () => {});" }],
     failures: [{ name: "a works", message: "Timeout 5000ms exceeded waiting for locator" }],
+    plan: [],
     ...over,
   };
 }
@@ -57,6 +58,7 @@ test("the root-cause judge is categorical over the pinned closed set and the rel
   assert.equal(rootCause.dataType, "CATEGORICAL");
   assert.deepEqual([...(rootCause.categories ?? [])].sort(), [...ROOT_CAUSE_CATEGORIES].sort());
   assert.ok(JUDGES.every((j) => j.dataType === "BOOLEAN" || (j.categories?.length ?? 0) > 1));
+  assert.equal(judgeDefinition("use_case_coverage").dataType, "BOOLEAN");
 });
 
 test("capUtf8 never splits a multi-byte character and says whether it cut", () => {
@@ -92,8 +94,31 @@ test("the root-cause judge needs a failed run with failure evidence", () => {
   assert.ok(buildJudgeInput("failure_root_cause", ev({ verdict: "infra-error", failures: [], errorClass: "E-SANDBOX" }), identity).ok);
 });
 
-test("a cancelled run is not judged by either judge", () => {
-  for (const name of ["spec_relevance", "failure_root_cause"] as const) assert.equal(buildJudgeInput(name, ev({ cancelled: true }), identity).ok, false, name);
+test("the use-case judge reads the diff, the plan's flows and the delivered specs, and judges a run that delivered none", () => {
+  const plan = [{ id: "cart", objective: "the cart shows the new total", acceptance: ["the total adds the delivery fee"] }];
+  const input = buildJudgeInput("use_case_coverage", ev({ plan }), identity);
+  assert.ok(input.ok);
+  assert.match(input.text, /src\/a\.ts/);
+  assert.match(input.text, /e2e\/a\.spec\.ts/);
+  assert.match(input.text, /<<<PLAN[\s\S]*cart[\s\S]*the total adds the delivery fee[\s\S]*PLAN>>>/);
+  const none = buildJudgeInput("use_case_coverage", ev({ specs: [], plan: [] }), identity);
+  assert.ok(none.ok, "a change whose use cases no spec covers is judged, not skipped");
+  assert.doesNotMatch(none.text, /<<<PLAN/);
+  const noDiff = buildJudgeInput("use_case_coverage", ev({ diff: undefined }), identity);
+  assert.equal(noDiff.ok, false);
+  if (!noDiff.ok) assert.match(noDiff.reason, /diff/);
+});
+
+test("the plan's text goes through the outbound sanitizer and is cut at its cap", () => {
+  const plan = [{ id: "cart", objective: "token SECRET-VALUE", acceptance: ["x".repeat(JUDGE_INPUT_CAPS.planBytes + 10)] }];
+  const input = buildJudgeInput("use_case_coverage", ev({ plan }), (t) => t.replaceAll("SECRET-VALUE", "[redacted]"));
+  assert.ok(input.ok);
+  assert.doesNotMatch(input.text, /SECRET-VALUE/);
+  assert.ok(input.truncated.includes("plan"));
+});
+
+test("a cancelled run is not judged by any judge", () => {
+  for (const name of ["spec_relevance", "failure_root_cause", "use_case_coverage"] as const) assert.equal(buildJudgeInput(name, ev({ cancelled: true }), identity).ok, false, name);
 });
 
 test("every piece of evidence goes through the outbound sanitizer before it enters the prompt", () => {

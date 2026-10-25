@@ -23,7 +23,7 @@ function snap(path: string, text: string, capturedAt: number, delivered = 1): Sp
   return { runId: "r", path, sha256: `${path}${capturedAt}`, text, bytes: text.length, capturedAt, delivered };
 }
 
-function deps(over: { record?: Partial<RunRecord> | null; turns?: AgentTurnRecord[]; snaps?: SpecSnapshotRow[]; cancelled?: boolean; errorClass?: string } = {}): JudgeEvidenceDeps {
+function deps(over: { record?: Partial<RunRecord> | null; turns?: AgentTurnRecord[]; snaps?: SpecSnapshotRow[]; cancelled?: boolean; errorClass?: string; plan?: string } = {}): JudgeEvidenceDeps {
   const record = over.record === null ? undefined : ({ id: "r", app: "a", mode: "diff", status: "done", verdict: "fail", cases: [], at: "2026-10-18T09:00:00.000Z", ...over.record } as RunRecord);
   return {
     getRecord: () => record,
@@ -32,6 +32,7 @@ function deps(over: { record?: Partial<RunRecord> | null; turns?: AgentTurnRecor
     getRunOutcome: () => (over.errorClass ? ({ errorClass: over.errorClass } as ReturnType<JudgeEvidenceDeps["getRunOutcome"]>) : undefined),
     getAgentTurns: () => over.turns ?? [],
     listSpecSnapshots: () => over.snaps ?? [],
+    getRunPlan: () => over.plan,
   };
 }
 
@@ -84,4 +85,11 @@ test("the error class and the cancelled flag travel with the evidence", () => {
   const evidence = new HistoryJudgeEvidence(deps({ errorClass: "E-SANDBOX", cancelled: true, record: { verdict: "infra-error" } })).load("r");
   assert.equal(evidence?.errorClass, "E-SANDBOX");
   assert.equal(evidence?.cancelled, true);
+});
+
+test("the judges read the flows of the plan the run kept, and a run that kept none or an unreadable one has none", () => {
+  const plan = JSON.stringify({ kind: "fanout", flows: [{ id: "cart", objective: "the cart total", acceptance: ["adds the fee", 3], routes: ["/cart"] }, { objective: "no id" }] });
+  assert.deepEqual(new HistoryJudgeEvidence(deps({ plan })).load("r")!.plan, [{ id: "cart", objective: "the cart total", acceptance: ["adds the fee"] }]);
+  assert.deepEqual(new HistoryJudgeEvidence(deps()).load("r")!.plan, []);
+  assert.deepEqual(new HistoryJudgeEvidence(deps({ plan: "{nope" })).load("r")!.plan, []);
 });

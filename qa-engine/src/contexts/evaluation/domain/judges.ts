@@ -3,8 +3,10 @@
  * file, no clock. A judge is a model's opinion about a finished run; it is recorded as a `source=llm_judge` score and it NEVER
  * gates anything, calibrated or not (calibration only changes the `status` a consumer reads).
  *
- * Two judges exist:
+ * Three judges exist:
  *  - `spec_relevance`: BINARY. Does a delivered spec exercise the behaviour the commit's diff changed?
+ *  - `use_case_coverage`: BINARY. Do the delivered specs cover every use case the diff introduces that a browser can reach on the live
+ *    site without mocking the network? Its critique lists each use case, covered or not, with the test that covers it.
  *  - `failure_root_cause`: CATEGORICAL over a pinned, closed set. One binary judge per category would multiply the model calls by
  *    eight for a question whose answer is one of eight; the closed set keeps the answer checkable (a category outside it is an
  *    unparseable answer, never a guess) and calibratable one-vs-rest (judge-calibration.ts).
@@ -16,7 +18,7 @@
 import type { Score, ScoreDataType, ScorePolarity } from "./score.ts";
 import { MAX_SCORE_COMMENT_CHARS } from "./grader-catalog.ts";
 
-export const JUDGE_NAMES = ["spec_relevance", "failure_root_cause"] as const;
+export const JUDGE_NAMES = ["spec_relevance", "failure_root_cause", "use_case_coverage"] as const;
 export type JudgeName = (typeof JUDGE_NAMES)[number];
 
 /* The closed set `failure_root_cause` answers from. Adding or removing a member changes the judge's meaning: bump the prompt version. */
@@ -33,6 +35,7 @@ export interface JudgeDefinition {
 export const JUDGES: readonly JudgeDefinition[] = [
   { name: "spec_relevance", dataType: "BOOLEAN", polarity: "higher_better" },
   { name: "failure_root_cause", dataType: "CATEGORICAL", polarity: "none", categories: ROOT_CAUSE_CATEGORIES },
+  { name: "use_case_coverage", dataType: "BOOLEAN", polarity: "higher_better" },
 ];
 
 export function isJudgeName(name: string): name is JudgeName {
@@ -89,6 +92,8 @@ export interface JudgeEvidence {
   specs: ReadonlyArray<{ path: string; text: string }>;
   /* The failure message of each failed case, as the run recorded it. */
   failures: ReadonlyArray<{ name: string; message: string }>;
+  /* The flows of the lead's plan as the run kept them (`run_plans`); empty when the run kept none. */
+  plan: ReadonlyArray<{ id: string; objective: string; acceptance: readonly string[] }>;
 }
 
 /* Byte caps of a judge prompt: the budget is per day, so the input of one call is bounded and says what it cut. */
@@ -98,6 +103,7 @@ export const JUDGE_INPUT_CAPS = {
   specsBytes: 24_000,
   failureBytes: 1_500,
   failures: 8,
+  planBytes: 4_000,
   totalBytes: 48_000,
 } as const;
 
@@ -132,20 +138,20 @@ export function buildJudgeInput(name: JudgeName, e: JudgeEvidence, sanitize: (te
   };
   try {
     const parts: string[] = [`judge: ${name}`, `run mode: ${e.mode}`];
-    if (name === "spec_relevance") {
+    if (name === "use_case_coverage") {
+      if (e.diff === undefined || e.diff.trim() === "") return { ok: false, reason: "the run held no commit diff" };
+      parts.push(fence("DIFF", clean("diff", e.diff, JUDGE_INPUT_CAPS.diffBytes)));
+      if (e.plan.length > 0) {
+        const plan = e.plan.map((flow) => [`flow ${flow.id}: ${flow.objective}`, ...flow.acceptance.map((a) => `  - ${a}`)].join("\n")).join("\n");
+        parts.push(fence("PLAN", clean("plan", plan, JUDGE_INPUT_CAPS.planBytes)));
+      }
+      parts.push(...specFences(e.specs, clean, sanitize, truncated));
+      if (e.specs.length === 0) parts.push("The run delivered no spec.");
+    } else if (name === "spec_relevance") {
       if (e.diff === undefined || e.diff.trim() === "") return { ok: false, reason: "the run held no commit diff" };
       if (e.specs.length === 0) return { ok: false, reason: "the run delivered no spec" };
       parts.push(fence("DIFF", clean("diff", e.diff, JUDGE_INPUT_CAPS.diffBytes)));
-      let budget: number = JUDGE_INPUT_CAPS.specsBytes;
-      for (const spec of e.specs) {
-        if (budget <= 0) {
-          truncated.push(`spec ${spec.path}`);
-          continue;
-        }
-        const body = clean(`spec ${spec.path}`, spec.text, Math.min(JUDGE_INPUT_CAPS.specBytes, budget));
-        budget -= Buffer.byteLength(body, "utf8");
-        parts.push(fence(`SPEC ${sanitize(spec.path)}`, body));
-      }
+      parts.push(...specFences(e.specs, clean, sanitize, truncated));
     } else {
       if (e.verdict === null || NOT_GRADABLE_VERDICTS.includes(e.verdict)) return { ok: false, reason: "the run did not fail" };
       if (e.failures.length === 0 && e.errorClass === null) return { ok: false, reason: "the run recorded no failure evidence" };
@@ -170,6 +176,22 @@ export function buildJudgeInput(name: JudgeName, e: JudgeEvidence, sanitize: (te
     /* A text the redaction refuses is never sent; the reason carries no part of it. */
     return { ok: false, reason: `the evidence could not be sanitized (${err instanceof Error ? err.name : "error"})` };
   }
+}
+
+/* The delivered specs as fenced evidence, within the specs' byte budget; a spec past the budget is named as cut. */
+function specFences(specs: JudgeEvidence["specs"], clean: (label: string, text: string, max: number) => string, sanitize: (text: string) => string, truncated: string[]): string[] {
+  const parts: string[] = [];
+  let budget: number = JUDGE_INPUT_CAPS.specsBytes;
+  for (const spec of specs) {
+    if (budget <= 0) {
+      truncated.push(`spec ${spec.path}`);
+      continue;
+    }
+    const body = clean(`spec ${spec.path}`, spec.text, Math.min(JUDGE_INPUT_CAPS.specBytes, budget));
+    budget -= Buffer.byteLength(body, "utf8");
+    parts.push(fence(`SPEC ${sanitize(spec.path)}`, body));
+  }
+  return parts;
 }
 
 /* ---- Output ------------------------------------------------------------------------------------------------------------ */

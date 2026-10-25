@@ -9,7 +9,7 @@ import type { JudgeEvidencePort } from "@contexts/evaluation/application/ports/j
 import type { JudgeEvidence } from "@contexts/evaluation/domain/judges";
 import { COMMIT_DIFF_HEADING } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
-import { getAgentTurns, getRecord, getRunFacts, getRunOutcome, getRunPhases, listSpecSnapshots, type AgentTurnRecord, type SpecSnapshotRow } from "./history";
+import { getAgentTurns, getRecord, getRunFacts, getRunOutcome, getRunPhases, getRunPlan, listSpecSnapshots, type AgentTurnRecord, type SpecSnapshotRow } from "./history";
 import type { RunRecord } from "../types";
 
 export interface JudgeEvidenceDeps {
@@ -19,6 +19,8 @@ export interface JudgeEvidenceDeps {
   getRunOutcome(id: string): { errorClass?: string | null } | undefined;
   getAgentTurns(id: string): AgentTurnRecord[];
   listSpecSnapshots(id: string): SpecSnapshotRow[];
+  /* The plan the run kept, as JSON (`run_plans`). */
+  getRunPlan(id: string): string | undefined;
 }
 
 export const defaultJudgeEvidenceDeps: JudgeEvidenceDeps = {
@@ -31,6 +33,7 @@ export const defaultJudgeEvidenceDeps: JudgeEvidenceDeps = {
   getRunOutcome,
   getAgentTurns,
   listSpecSnapshots,
+  getRunPlan,
 };
 
 const FENCE_OPEN = "```diff\n";
@@ -71,6 +74,23 @@ function deliveredSpecs(rows: readonly SpecSnapshotRow[]): Array<{ path: string;
   return [...newest.values()].sort((a, b) => a.path.localeCompare(b.path)).map((r) => ({ path: r.path, text: r.text }));
 }
 
+/* The flows of the plan the run kept: what each meant to cover. A plan that does not read as one is no plan. */
+export function planFlowsOf(raw: string | undefined): JudgeEvidence["plan"] {
+  if (raw === undefined) return [];
+  try {
+    const parsed = JSON.parse(raw) as { flows?: unknown };
+    if (!Array.isArray(parsed.flows)) return [];
+    return parsed.flows.flatMap((value: unknown) => {
+      const flow = value as { id?: unknown; objective?: unknown; acceptance?: unknown } | null;
+      if (!flow || typeof flow.id !== "string" || typeof flow.objective !== "string") return [];
+      const acceptance = Array.isArray(flow.acceptance) ? flow.acceptance.filter((a): a is string => typeof a === "string") : [];
+      return [{ id: flow.id, objective: flow.objective, acceptance }];
+    });
+  } catch {
+    return [];
+  }
+}
+
 export class HistoryJudgeEvidence implements JudgeEvidencePort {
   constructor(private readonly deps: JudgeEvidenceDeps = defaultJudgeEvidenceDeps) {}
 
@@ -88,6 +108,7 @@ export class HistoryJudgeEvidence implements JudgeEvidencePort {
       diff: diffOf(d.getAgentTurns(runId)),
       specs: deliveredSpecs(d.listSpecSnapshots(runId)),
       failures: record.cases.filter((c) => c.status === "fail").map((c) => ({ name: c.name, message: c.detail ?? "the case failed; no detail was recorded" })),
+      plan: planFlowsOf(d.getRunPlan(runId)),
     };
   }
 }
