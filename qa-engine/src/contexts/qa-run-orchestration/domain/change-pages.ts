@@ -74,7 +74,9 @@ function pageFiles(map: PageMap, pageRoutes: readonly GraphRoute[]): { files: Ma
     if (declared.length > 0) {
       files.set(entry.path, [...new Set([...(files.get(entry.path) ?? []), ...declared])]);
       const unknown = engine.filter((e) => !declared.some((d) => sameFile(d, e)));
-      for (const engineFile of unknown) disagreements.push({ route: entry.path, mapFiles: declared, engineFile });
+      for (const engineFile of unknown) {
+        if (!disagreements.some((d) => d.route === entry.path && d.engineFile === engineFile)) disagreements.push({ route: entry.path, mapFiles: declared, engineFile });
+      }
     } else if (engine.length > 0 && !files.has(entry.path)) {
       files.set(entry.path, engine);
     }
@@ -124,12 +126,12 @@ export function joinChangePages(input: ChangePagesInput): ChangePagesJoin {
         if (implementing.some((f) => sameFile(f, file))) proofs.push({ route, seed, proof: [...steps, `page ${route}`] });
       }
       if (!walk.handlers) continue;
-      for (const handler of input.handlerRoutes) {
-        if (handler.method === undefined || handler.target === undefined || keyOf(handler.target) !== keyOf(s)) continue;
-        for (const op of operations) {
-          if (op.operationId !== s.symbol && !routeServesOperation({ method: handler.method, path: handler.path }, { verb: op.method, path: op.path })) continue;
-          for (const route of joined.get(op.operationId) ?? []) proofs.push({ route, seed, proof: [...steps, `${op.method.toUpperCase()} ${op.path} (${op.operationId})`, `page ${route}`] });
-        }
+      /* S9's two keys: the symbol is named for the operationId (a generated contract interface yields no route node), or it is a handler whose route serves the operation. */
+      const handled = input.handlerRoutes.filter((h) => h.method !== undefined && h.target !== undefined && keyOf(h.target) === keyOf(s));
+      for (const op of operations) {
+        const served = op.operationId === s.symbol || handled.some((h) => routeServesOperation({ method: h.method!, path: h.path }, { verb: op.method, path: op.path }));
+        if (!served) continue;
+        for (const route of joined.get(op.operationId) ?? []) proofs.push({ route, seed, proof: [...steps, `${op.method.toUpperCase()} ${op.path} (${op.operationId})`, `page ${route}`] });
       }
     }
   }

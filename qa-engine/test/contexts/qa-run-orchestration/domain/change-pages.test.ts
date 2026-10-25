@@ -125,3 +125,15 @@ test("a route node that points at no symbol supplies no file: the file that decl
   assert.deepEqual(join.pages, []);
   assert.deepEqual(join.disagreements, []);
 });
+
+test("a reached symbol named for an operationId proves the pages feBe joins to it with no route node: a generated contract interface yields none", () => {
+  const impl = "api/src/main/java/demo/web/OrdersApiImpl.java";
+  const join = joinChangePages(input({ walks: [walk([sym(impl, "listOrders", 0)], { handlers: true })] }));
+  assert.deepEqual(join.pages, [{ route: "/orders", proof: [`${impl}::listOrders`, "GET /api/orders (listOrders)", "page /orders"] }]);
+});
+
+test("a map that lists a route twice reports one disagreement per engine file, not one per entry", () => {
+  const map = { routes: [{ path: "/orders", implementationFiles: [ORDERS] }, { path: "/orders", implementationFiles: [ORDERS] }] };
+  const pageRoutes: GraphRoute[] = [{ file: "web/src/app/app.routes.ts", line: 3, path: "/orders", target: { file: "web/src/app/orders/legacy.page.ts", symbol: "Legacy", kind: "class" } }];
+  assert.equal(joinChangePages(input({ map, pageRoutes })).disagreements.length, 1);
+});
