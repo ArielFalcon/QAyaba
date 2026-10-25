@@ -935,9 +935,9 @@ test("factory threads agentTimeout(mode) into CompositionConfig.agentTimeoutMs",
 });
 
 /* a9e7dfb wired PreGenerationGroundingPort/ReviewDomGroundingPort into composition-root.ts's
-   wireBridges() but the production factory never supplied groundingCollaborators/
-   reviewDomGroundingCollaborators. wireBridges() itself already falls back to `cfg.groundingCollaborators
-   ?? {}` (and the bridge adapters resolve an empty `{}` to the REAL buildContextPack/captureDom fns
+   wireAdapters() but the production factory never supplied groundingCollaborators/
+   reviewDomGroundingCollaborators. wireAdapters() itself already falls back to `cfg.groundingCollaborators
+   ?? {}` (and the adapters resolve an empty `{}` to the REAL buildContextPack/captureDom fns
    internally), so these were already functionally real — these tests pin that the factory now states
    that wiring EXPLICITLY (matching setupCollaborators' own visible-wiring precedent) rather than
    relying on an implicit fallback three files away, and that contextMap/prChangedFiles stay honestly
@@ -1027,14 +1027,14 @@ test("an e2e app with services[], one with an empty services[] and one with none
 test("buildCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {
   const app: AppConfig = { ...cfg("factory-grounding-code"), code: true, dev: undefined };
   const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  /* The factory's own mapping is target-agnostic here — wireBridges()'s `!cfg.isCode` guard is what
+  /* The factory's own mapping is target-agnostic here — wireAdapters()'s `!cfg.isCode` guard is what
      actually skips constructing both grounding ports for a code target (composition-root.ts), so
      asserting the factory's OWN output stays the same shape whether or not isCode is true is the
      faithful way to pin "the factory does not need its own target check — it already exists downstream".
    */
   assert.ok(config.groundingCollaborators?.contextPackDeps);
   assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps);
-  assert.equal(config.isCode, true, "isCode is what composition-root.ts's wireBridges() reads to skip both grounding ports on this target");
+  assert.equal(config.isCode, true, "isCode is what composition-root.ts's wireAdapters() reads to skip both grounding ports on this target");
 });
 
 /* `config.contextMap` stays absent at composition-BUILD time. The per-run read happens in
@@ -1052,7 +1052,7 @@ test("buildCompositionConfig leaves contextMap and prChangedFiles absent (no rea
 test("baseUrl and testIdAttribute reach the grounding phase via CompositionConfig's own top-level fields (not duplicated inside groundingCollaborators)", () => {
   const app: AppConfig = { ...cfg("factory-grounding-static-context"), e2e: { testIdAttribute: "data-cy" } };
   const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  /* composition-root.ts's wireBridges() builds PreGenerationGroundingStaticContext/
+  /* composition-root.ts's wireAdapters() builds PreGenerationGroundingStaticContext/
      ReviewDomGroundingStaticContext from cfg.baseUrl/cfg.testIdAttribute/cfg.mirrorDir/cfg.e2eRelDir
      directly — this factory only needs to keep supplying those top-level fields (already covered by
      the baseUrl/testIdAttribute tests above); this test pins that grounding relies on the SAME
@@ -1871,7 +1871,7 @@ test("createRunEngineFactory never calls getAgentDeps during construction (lazy 
 
 /* withUsageSink/withStallWatchdog/withSessionRegistration existed and were fully unit-tested, but
    nothing on the production path ever composed them onto the AgentDeps this factory hands to
-   wireBridges() — a session opened through the engine never registered for SSE, never
+   wireAdapters() — a session opened through the engine never registered for SSE, never
    tripped the stall watchdog, and never fed a usage sink. These tests prove the composition itself
    (the wrapper unit tests already pin each wrapper's own behavior in isolation).
  */
@@ -2209,7 +2209,7 @@ test("the runner reaches the real factory and never bypasses it", async () => {
 });
 
 /* The factory wires REAL durable persistence and REAL learning by default — production never
-   sets historyFilePath, so wireBridges() must not fall back to InMemoryRunHistoryAdapter, and
+   sets historyFilePath, so wireAdapters() must not fall back to InMemoryRunHistoryAdapter, and
    learningRepo must not fall back to StubLearningRepository (a provable no-op).
  */
 
@@ -2382,7 +2382,7 @@ test("historyLearningStore(appName).recordOutcome() — folding a step-budget ou
 
 /* above this one hand-builds `rulesRetrieved: [ruleId1, ruleId2]` directly with the real ids already
    known — none of them walk the REAL production seam that broke: LearningPortAdapter.retrieve()
-   (qa-engine's port bridge) projecting RetrievedRule[] from the SAME SqliteLearningRepository /
+   (qa-engine's port adapter) projecting RetrievedRule[] from the SAME SqliteLearningRepository /
    historyLearningStore this file already wires, then the caller deriving the persisted
    rulesRetrieved from THAT result exactly the way run-qa.use-case.ts does (`r.id`, post-fix — was
    rulesRetrieved -> fold) silently produced trigger TEXT instead of ids, so recordOutcome's by-id
@@ -2397,7 +2397,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
     "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter"
   );
   const { LearningPortAdapter } = await import(
-    "@contexts/qa-run-orchestration/infrastructure/bridges/learning-port.adapter"
+    "@contexts/qa-run-orchestration/infrastructure/adapters/learning-port.adapter"
   );
   const app = `factory-learning-ws1-1-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   /* Deliberately DIFFERENT from the rule's trigger text — if the chain regresses to persisting

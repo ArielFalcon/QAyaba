@@ -2,7 +2,7 @@
    buildShadow(cfg) always wires the engine with the SHADOW publication path (no PR/Issue side
    effect) and a read-only history snapshot (no persistence to a real store). This suite supplies
    fake collaborators (repo/mirror/coverage/etc.) rather than booting real git/Playwright/Stryker —
-   the composition root's job under test is "does it wire the ports to the right bridge classes",
+   the composition root's job under test is "does it wire the ports to the right adapter classes",
    not "does a real QA run pass end-to-end".
  */
 import { test } from "node:test";
@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import {
   buildProduction,
   buildShadow,
-  wireBridges,
+  wireAdapters,
   type CompositionConfig,
 } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
 import { RunPipelineAdapter } from "@contexts/qa-run-orchestration/infrastructure/run-pipeline.adapter.ts";
@@ -28,9 +28,9 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { resolveCoordinationSettings } from "@kernel/coordination.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
 import { NO_SPEC_SNAPSHOTS } from "@kernel/ports/spec-snapshot.port.ts";
-import { TracedCurriculumPort, TracedLearningPort } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-trace.ts";
-import { SpecSnapshotValidationPort } from "@contexts/qa-run-orchestration/infrastructure/bridges/spec-snapshot-validation.adapter.ts";
-import { TracedSuiteStore } from "@contexts/qa-run-orchestration/infrastructure/bridges/suite-store-trace.ts";
+import { TracedCurriculumPort, TracedLearningPort } from "@contexts/qa-run-orchestration/infrastructure/adapters/context-trace.ts";
+import { SpecSnapshotValidationPort } from "@contexts/qa-run-orchestration/infrastructure/adapters/spec-snapshot-validation.adapter.ts";
+import { TracedSuiteStore } from "@contexts/qa-run-orchestration/infrastructure/adapters/suite-store-trace.ts";
 import { SuiteStoreAdapter } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter.ts";
 /* ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
    SAME stub shapes run-pipeline.adapter.test.ts already uses for the 10-scenario parity
@@ -138,14 +138,14 @@ test("the review DOM grounding reads the delivered specs through the confined re
     writeFileSync(join(dir, "elsewhere", "e2e", "planted.spec.ts"), `await page.goto("/planted");`);
     symlinkSync(join(dir, "elsewhere"), join(mirror, "hop"));
     const captured: string[][] = [];
-    const bridges = wireBridges(fakeConfig({
+    const adapters = wireAdapters(fakeConfig({
       mirrorDir: mirror,
       baseUrl: "https://dev.example.com",
       reviewDomGroundingCollaborators: { captureDom: async (input) => { captured.push([...input.specContents]); return undefined; } },
     }));
 
-    await bridges.reviewDomGrounding!.capture(join(mirror, "e2e"), ["ok.spec.ts"]);
-    await bridges.reviewDomGrounding!.capture(join(mirror, "hop", "e2e"), ["planted.spec.ts"]);
+    await adapters.reviewDomGrounding!.capture(join(mirror, "e2e"), ["ok.spec.ts"]);
+    await adapters.reviewDomGrounding!.capture(join(mirror, "hop", "e2e"), ["planted.spec.ts"]);
 
     assert.deepEqual(captured, [[`await page.goto("/ok");`], [""]]);
   } finally {
@@ -166,14 +166,14 @@ test("the pre-exec grounding reads the suite through the confined reader, anchor
     writeFileSync(join(dir, "elsewhere", "e2e", "planted.spec.ts"), "// planted");
     symlinkSync(join(dir, "elsewhere"), join(mirror, "hop"));
     const fed: string[][] = [];
-    const bridges = wireBridges(fakeConfig({
+    const adapters = wireAdapters(fakeConfig({
       mirrorDir: mirror,
       baseUrl: "https://dev.example.com",
       preExecGroundingCollaborators: { captureRouteTrees: async (input) => { fed.push([...input.specContents]); return []; } },
     }));
 
-    const inside = await bridges.preExecGrounding!.capture(join(mirror, "e2e"));
-    const throughSymlinkedParent = await bridges.preExecGrounding!.capture(join(mirror, "hop", "e2e"));
+    const inside = await adapters.preExecGrounding!.capture(join(mirror, "e2e"));
+    const throughSymlinkedParent = await adapters.preExecGrounding!.capture(join(mirror, "hop", "e2e"));
 
     assert.equal(inside.specSources[inside.specFiles.indexOf("ok.spec.ts")], "// ok");
     assert.equal(inside.specSources[inside.specFiles.indexOf("leak.spec.ts")], "", "a symlink out of the mirror reads as empty");
@@ -209,7 +209,7 @@ test("buildProduction drives a full run end-to-end through the 11 wired ports (g
 });
 
 /* threads cfg.reflectorPort through to RunQaUseCaseDeps.reflector — not just that the config TYPE
-   accepts the field. wireBridges() is not exported, so this drives a real run through the public
+   accepts the field. wireAdapters() is not exported, so this drives a real run through the public
    buildProduction() entry point and observes the fake reflector's own call count, exactly the same
    black-box style the "shadow-log publication" test above uses for githubPr/githubIssue. ───────
  */
@@ -750,7 +750,7 @@ test("buildProduction surfaces infra-error when the real deploy gate never serve
    passed the whole gate). This test is the executable proof: a recording generationUseCase fake
    observes the actual input the adapter builds from its ctx.
  */
-test("wireBridges hardcodes needsReview:false into the generation ctx even when cfg.needsReview is true (single-reviewer architecture)", async () => {
+test("wireAdapters hardcodes needsReview:false into the generation ctx even when cfg.needsReview is true (single-reviewer architecture)", async () => {
   const seenNeedsReview: boolean[] = [];
   const cfg = fakeConfig({
     needsReview: true, /* the RunQaConfig knob — must NOT leak into the generation ctx */
@@ -846,7 +846,7 @@ test("buildProduction does NOT wire grounding on the code target, even when grou
   assert.equal(outcome.verdict, "pass");
 });
 
-/* Present -> wireBridges constructs a StructuralSignalPortAdapter over the supplied code graph and co-change history.
+/* Present -> wireAdapters constructs a StructuralSignalPortAdapter over the supplied code graph and co-change history.
    Absent -> the use-case's own structuralSignal dep stays undefined — NEVER a stub ok([])-shaped fake.
  */
 
@@ -983,16 +983,16 @@ test("buildProduction degrades structuralSignal to no section when the repo is n
   assert.equal(outcome.verdict, "pass");
 });
 
-/* The OPTIONAL serviceTopology collaborator: present -> wireBridges constructs a
+/* The OPTIONAL serviceTopology collaborator: present -> wireAdapters constructs a
    ServiceLinksPortAdapter over a REAL MirrorRegistryAdapter (DI, not a static call) and a real
    BoundaryProfileProviderPort. Absent -> serviceLinks stays undefined, NEVER a stub.
  */
 
-test("buildProduction wires serviceLinks when a serviceTopology collaborator is supplied — the REAL MirrorRegistryAdapter(mirrorRoot) encoding is exercised end-to-end (existsSync sees the SAME '__'-joined dir wireBridges constructs)", async () => {
+test("buildProduction wires serviceLinks when a serviceTopology collaborator is supplied — the REAL MirrorRegistryAdapter(mirrorRoot) encoding is exercised end-to-end (existsSync sees the SAME '__'-joined dir wireAdapters constructs)", async () => {
   const root = mkdtempSync(join(tmpdir(), "composition-service-links-"));
   try {
     /* MirrorRegistryAdapter's own formula: join(mirrorRoot, repo.replaceAll("/", "__")) — creating
-       dirs under exactly that encoding proves wireBridges constructed a REAL MirrorRegistryAdapter
+       dirs under exactly that encoding proves wireAdapters constructed a REAL MirrorRegistryAdapter
        (not a stub/bypass): if it were a static/wrong formula, the adapter's existsSync checks below
        would find nothing and short-circuit to {links:[],drift:[]} BEFORE ever calling forApp().
      */
@@ -1485,14 +1485,14 @@ test("buildProduction still indexes without the co-change history, but builds no
 });
 
 /* The run_spec loop is wired only when the shell hands the root its registry; the adapter it builds executes through the run's own execution and cleanup ports. */
-test("wireBridges builds the run_spec loop port from cfg.closedLoop and omits it when the config has none", async () => {
+test("wireAdapters builds the run_spec loop port from cfg.closedLoop and omits it when the config has none", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts");
   const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
-  const without = wireBridges(fakeConfig());
+  const without = wireAdapters(fakeConfig());
   assert.equal("closedLoop" in without, false);
 
   const registry = new ClosedLoopRegistry();
-  const wired = wireBridges(fakeConfig({
+  const wired = wireAdapters(fakeConfig({
     closedLoop: {
       registry,
       setting: { enabled: true, limits: { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 } },
@@ -1511,7 +1511,7 @@ test("wireBridges builds the run_spec loop port from cfg.closedLoop and omits it
 test("a code-target composition never gets the run_spec loop, whatever the config says", async () => {
   const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts");
   const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
-  const wired = wireBridges(fakeConfig({
+  const wired = wireAdapters(fakeConfig({
     isCode: true,
     target: "code",
     closedLoop: { registry: new ClosedLoopRegistry(), setting: { enabled: true, limits: { maxCalls: 3, perCallMs: 30_000, maxDevWrites: 5 } }, generatorRuntimeCanCall: () => true, account: "a", lock: new AccountLock(), redact: (t) => t },
@@ -1520,10 +1520,10 @@ test("a code-target composition never gets the run_spec loop, whatever the confi
 });
 
 /* The authenticated agent browser is wired only when the shell hands the root its registry, and only for an e2e app with a DEV url. */
-test("wireBridges builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
+test("wireAdapters builds the agent browser port from cfg.agentBrowser and omits it when the config has none", async () => {
   const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts");
   const { AccountLock } = await import("@contexts/test-execution/domain/account-lock.ts");
-  const without = wireBridges(fakeConfig({ baseUrl: "https://dev.example.com" }));
+  const without = wireAdapters(fakeConfig({ baseUrl: "https://dev.example.com" }));
   assert.equal("agentBrowser" in without, false);
 
   const wiring = {
@@ -1535,23 +1535,23 @@ test("wireBridges builds the agent browser port from cfg.agentBrowser and omits 
     lock: new AccountLock(),
     redact: (text: string) => text,
   };
-  const wired = wireBridges(fakeConfig({ baseUrl: "https://dev.example.com", agentBrowser: wiring }));
+  const wired = wireAdapters(fakeConfig({ baseUrl: "https://dev.example.com", agentBrowser: wiring }));
   assert.equal(await wired.agentBrowser!.open({ runId: "r1", app: "app", mode: "diff", specDir: "/m/e2e" }), undefined, "the port is there and applies its own conditions");
 
-  assert.equal("agentBrowser" in wireBridges(fakeConfig({ agentBrowser: wiring })), false, "an app with no DEV url has nothing to browse");
-  assert.equal("agentBrowser" in wireBridges(fakeConfig({ isCode: true, target: "code", baseUrl: "https://dev.example.com", agentBrowser: wiring })), false, "a code target never gets it");
+  assert.equal("agentBrowser" in wireAdapters(fakeConfig({ agentBrowser: wiring })), false, "an app with no DEV url has nothing to browse");
+  assert.equal("agentBrowser" in wireAdapters(fakeConfig({ isCode: true, target: "code", baseUrl: "https://dev.example.com", agentBrowser: wiring })), false, "a code target never gets it");
 });
 
 /* The lead's code-graph tool is wired from the run's explore port and the shell's registry, for an e2e app only. */
-test("wireBridges builds the lead's code-graph tool over cfg.codeExplore and omits it without the explore, the wiring or for a code target", async () => {
+test("wireAdapters builds the lead's code-graph tool over cfg.codeExplore and omits it without the explore, the wiring or for a code target", async () => {
   const { CodeGraphToolRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts");
   const explore = { explore: async () => ok({ text: "**Exploration: x**", indexedSha: "abc1234" }) };
   const wiring = { registry: new CodeGraphToolRegistry(), generatorRuntimeCanCall: () => true, redact: (text: string) => text };
-  assert.equal("codeGraphTools" in wireBridges(fakeConfig({ codeGraphTools: wiring })), false, "no explore, no tool");
-  assert.equal("codeGraphTools" in wireBridges(fakeConfig({ codeExplore: explore })), false, "no wiring, no tool");
-  assert.equal("codeGraphTools" in wireBridges(fakeConfig({ isCode: true, target: "code", codeExplore: explore, codeGraphTools: wiring })), false, "a code target never gets it");
+  assert.equal("codeGraphTools" in wireAdapters(fakeConfig({ codeGraphTools: wiring })), false, "no explore, no tool");
+  assert.equal("codeGraphTools" in wireAdapters(fakeConfig({ codeExplore: explore })), false, "no wiring, no tool");
+  assert.equal("codeGraphTools" in wireAdapters(fakeConfig({ isCode: true, target: "code", codeExplore: explore, codeGraphTools: wiring })), false, "a code target never gets it");
 
-  const wired = wireBridges(fakeConfig({ codeExplore: explore, codeGraphTools: wiring }));
+  const wired = wireAdapters(fakeConfig({ codeExplore: explore, codeGraphTools: wiring }));
   const handle = await wired.codeGraphTools!.open({ runId: "r1" });
   assert.ok(handle, "the port is there and, with a lead that can call a custom tool, grants the right");
   wiring.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
@@ -1560,26 +1560,26 @@ test("wireBridges builds the lead's code-graph tool over cfg.codeExplore and omi
   handle.close();
 });
 
-test("wireBridges hands the use case the app's coordination settings, and omits them when the config has none", () => {
-  const without = wireBridges(fakeConfig());
+test("wireAdapters hands the use case the app's coordination settings, and omits them when the config has none", () => {
+  const without = wireAdapters(fakeConfig());
   assert.equal("coordinationSettings" in without, false);
   const settings = resolveCoordinationSettings({ maxFlows: 3 });
-  const wired = wireBridges(fakeConfig({ coordinationSettings: settings }));
+  const wired = wireAdapters(fakeConfig({ coordinationSettings: settings }));
   assert.deepEqual(wired.coordinationSettings, settings);
 });
 
-test("wireBridges wires the lead/sidekick mode only for an e2e run whose shell named a place for the workspaces, and never the file-count proposer", () => {
+test("wireAdapters wires the lead/sidekick mode only for an e2e run whose shell named a place for the workspaces, and never the file-count proposer", () => {
   const delegation = { workspaceRoot: "/mirrors/.qa-delegations", sidekickProvider: () => "opencode" as const, plannerProvider: () => "opencode" as const };
-  const none = wireBridges(fakeConfig());
+  const none = wireAdapters(fakeConfig());
   assert.equal("leadSidekicks" in none, false);
   assert.equal("sidekickProvider" in none, false);
 
-  const wired = wireBridges(fakeConfig({ delegation }));
+  const wired = wireAdapters(fakeConfig({ delegation }));
   assert.equal(typeof wired.leadSidekicks?.coordinate, "function");
   assert.equal(wired.sidekickProvider?.(), "opencode");
   assert.equal(wired.plannerProvider?.(), "opencode");
 
-  const code = wireBridges(fakeConfig({ delegation, isCode: true }));
+  const code = wireAdapters(fakeConfig({ delegation, isCode: true }));
   assert.equal("leadSidekicks" in code, false);
 
   for (const deps of [none, wired, code]) {
@@ -1596,18 +1596,18 @@ test("wireBridges wires the lead/sidekick mode only for an e2e run whose shell n
 test("with a telemetry port the learning, curriculum and suite store ports are traced, and without one they are the plain adapters", () => {
   const curriculumPort = { select: async () => [], fold: async () => {} };
   const suiteStore = { restore: async () => ({ restored: 0, trackedWins: 0, overlaid: 0, authRestored: false }), fingerprint: async () => new Map(), capture: async () => ({ entries: 0, admitted: 0, dropped: 0, skipped: [] }), demoteAuth: async () => {} };
-  const traced = wireBridges(fakeConfig({ telemetry: new NoopTelemetry(), curriculumPort, suiteStore }));
+  const traced = wireAdapters(fakeConfig({ telemetry: new NoopTelemetry(), curriculumPort, suiteStore }));
   assert.ok(traced.learning instanceof TracedLearningPort);
   assert.ok(traced.curriculum instanceof TracedCurriculumPort);
   assert.ok(traced.suiteStore instanceof TracedSuiteStore);
-  const plain = wireBridges(fakeConfig({ curriculumPort, suiteStore }));
+  const plain = wireAdapters(fakeConfig({ curriculumPort, suiteStore }));
   assert.equal(plain.learning instanceof TracedLearningPort, false);
   assert.equal(plain.curriculum, curriculumPort);
   assert.equal(plain.suiteStore, suiteStore);
 });
 
 test("spec snapshots wrap the validation of an e2e run only, and only when a snapshot port is supplied", () => {
-  assert.ok(wireBridges(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS })).validation instanceof SpecSnapshotValidationPort);
-  assert.equal(wireBridges(fakeConfig()).validation instanceof SpecSnapshotValidationPort, false);
-  assert.equal(wireBridges(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS, isCode: true, target: "code" })).validation instanceof SpecSnapshotValidationPort, false);
+  assert.ok(wireAdapters(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS })).validation instanceof SpecSnapshotValidationPort);
+  assert.equal(wireAdapters(fakeConfig()).validation instanceof SpecSnapshotValidationPort, false);
+  assert.equal(wireAdapters(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS, isCode: true, target: "code" })).validation instanceof SpecSnapshotValidationPort, false);
 });

@@ -811,7 +811,7 @@ test("qa-maintainer keeps serena but denies playwright (never drives a browser)"
 });
 
 test("qa-reviewer's mode matches how it is actually invoked (direct prompt, not subagent delegation)", () => {
-  /* qa-engine review-port bridge) — no other opencode agent delegates to it, so the old
+  /* qa-engine review-port adapter) — no other opencode agent delegates to it, so the old
      "subagent" label mischaracterized the invocation path. The SDK's AgentConfig documents the
      mode union ("subagent" | "primary" | "all") without describing any semantic difference
      between "primary" and "all"; "all" was chosen as the least-restrictive option for a

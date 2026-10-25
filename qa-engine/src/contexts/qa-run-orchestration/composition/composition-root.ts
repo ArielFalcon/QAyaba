@@ -1,4 +1,4 @@
-/* Composition root: the only qa-engine module allowed to import concrete adapters from sibling contexts (arch-lint VCS-write gate). Wires qa-run-orchestration ports to real bridge adapters.
+/* Composition root: the only qa-engine module allowed to import concrete adapters from sibling contexts (arch-lint VCS-write gate). Wires qa-run-orchestration ports to real adapters.
 buildShadow always uses this engine with shadow-log publication and in-memory history — zero side effects on the watched repo or production history. */
 
 import { join, relative, sep } from "node:path";
@@ -9,15 +9,15 @@ import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.
 import type { ClosedLoopLimits } from "@kernel/closed-loop.ts";
 import type { CoordinationSettings } from "@kernel/coordination.ts";
 import type { ToolAttemptDirectory } from "@contexts/generation/domain/tool-link.ts";
-import { ClosedLoopPortAdapter } from "../infrastructure/bridges/closed-loop-port.adapter.ts";
+import { ClosedLoopPortAdapter } from "../infrastructure/adapters/closed-loop-port.adapter.ts";
 import type { ClosedLoopRegistry } from "../infrastructure/closed-loop-registry.ts";
 import type { AccountLock } from "@contexts/test-execution/domain/account-lock.ts";
-import { AgentBrowserPortAdapter } from "../infrastructure/bridges/agent-browser-port.adapter.ts";
-import { CodeGraphToolsPortAdapter } from "../infrastructure/bridges/code-graph-tools-port.adapter.ts";
-import { GeolocationPortAdapter } from "../infrastructure/bridges/geolocation-port.adapter.ts";
+import { AgentBrowserPortAdapter } from "../infrastructure/adapters/agent-browser-port.adapter.ts";
+import { CodeGraphToolsPortAdapter } from "../infrastructure/adapters/code-graph-tools-port.adapter.ts";
+import { GeolocationPortAdapter } from "../infrastructure/adapters/geolocation-port.adapter.ts";
 import type { GeolocationRegistry } from "../infrastructure/geolocation-registry.ts";
 import type { GeoLocation } from "@kernel/geolocation.ts";
-import { readAgentBrowserSession } from "../infrastructure/bridges/agent-browser-session-material.ts";
+import { readAgentBrowserSession } from "../infrastructure/adapters/agent-browser-session-material.ts";
 import type { AgentBrowserRegistry } from "../infrastructure/agent-browser-registry.ts";
 import type { CodeGraphToolRegistry } from "../infrastructure/code-graph-tool-registry.ts";
 import type { BrowserLauncherPort } from "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts";
@@ -28,40 +28,40 @@ import { LeadSidekicks } from "../application/coordination/lead-sidekicks.ts";
 import { systemTimers } from "../application/coordination/fan-out-dispatcher.ts";
 import { FsDelegationWorkspaceAdapter } from "../infrastructure/delegation-workspace.adapter.ts";
 import { specFileForFlow } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { getSharedCoordinationTelemetry } from "../infrastructure/bridges/coordination-telemetry-port.adapter.ts";
-import { SpecSnapshotValidationPort } from "../infrastructure/bridges/spec-snapshot-validation.adapter.ts";
-import { TracedCrossRepoImpactPort, TracedCurriculumPort, TracedLearningPort, TracedServiceLinksPort, TracedStructuralSignalPort, telemetryGroundingTrace } from "../infrastructure/bridges/context-trace.ts";
-import { TracedSuiteStore } from "../infrastructure/bridges/suite-store-trace.ts";
-import { TracedCoordinationTelemetry } from "../infrastructure/bridges/coordination-telemetry-trace.ts";
-import { TracedObjectiveSignalPort } from "../infrastructure/bridges/objective-signal-trace.ts";
+import { getSharedCoordinationTelemetry } from "../infrastructure/adapters/coordination-telemetry-port.adapter.ts";
+import { SpecSnapshotValidationPort } from "../infrastructure/adapters/spec-snapshot-validation.adapter.ts";
+import { TracedCrossRepoImpactPort, TracedCurriculumPort, TracedLearningPort, TracedServiceLinksPort, TracedStructuralSignalPort, telemetryGroundingTrace } from "../infrastructure/adapters/context-trace.ts";
+import { TracedSuiteStore } from "../infrastructure/adapters/suite-store-trace.ts";
+import { TracedCoordinationTelemetry } from "../infrastructure/adapters/coordination-telemetry-trace.ts";
+import { TracedObjectiveSignalPort } from "../infrastructure/adapters/objective-signal-trace.ts";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
 import { sanitizedPlanSnapshots, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 
-import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
-import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/bridges/generation-port.adapter.ts";
-import { ReviewPortAdapter, type ReviewPortRuntime } from "../infrastructure/bridges/review-port.adapter.ts";
-import { ValidationPortAdapter } from "../infrastructure/bridges/validation-port.adapter.ts";
-import { ExecutionPortAdapter } from "../infrastructure/bridges/execution-port.adapter.ts";
-import { ObjectiveSignalPortAdapter } from "../infrastructure/bridges/objective-signal-port.adapter.ts";
-import { PublicationPortAdapter, type GitHubPrCollaborator, type GitHubIssueCollaborator, type VcsPublishCollaborator } from "../infrastructure/bridges/publication-port.adapter.ts";
-import { LearningPortAdapter } from "../infrastructure/bridges/learning-port.adapter.ts";
-import { WorkspacePortAdapter, type CheckoutFn } from "../infrastructure/bridges/workspace-port.adapter.ts";
-import { DeployGatePortAdapter, NullDeployGateAdapter, type VersionPollFn } from "../infrastructure/bridges/deploy-gate-port.adapter.ts";
-import { InMemoryRunHistoryAdapter, FileRunHistoryAdapter } from "../infrastructure/bridges/run-history-port.adapter.ts";
-import { SetupPortAdapter, type SetupPortCollaborators } from "../infrastructure/bridges/setup-port.adapter.ts";
-import { CleanupPortAdapter, type CleanupPortCollaborators } from "../infrastructure/bridges/cleanup-port.adapter.ts";
-import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../infrastructure/bridges/pre-generation-grounding-port.adapter.ts";
-import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../infrastructure/bridges/review-dom-grounding-port.adapter.ts";
-import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../infrastructure/bridges/pre-exec-grounding-port.adapter.ts";
-import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "../infrastructure/bridges/structural-signal-port.adapter.ts";
-import { ChangePagesPortAdapter } from "../infrastructure/bridges/change-pages-port.adapter.ts";
+import { ChangeAnalysisPortAdapter } from "../infrastructure/adapters/change-analysis-port.adapter.ts";
+import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/adapters/generation-port.adapter.ts";
+import { ReviewPortAdapter, type ReviewPortRuntime } from "../infrastructure/adapters/review-port.adapter.ts";
+import { ValidationPortAdapter } from "../infrastructure/adapters/validation-port.adapter.ts";
+import { ExecutionPortAdapter } from "../infrastructure/adapters/execution-port.adapter.ts";
+import { ObjectiveSignalPortAdapter } from "../infrastructure/adapters/objective-signal-port.adapter.ts";
+import { PublicationPortAdapter, type GitHubPrCollaborator, type GitHubIssueCollaborator, type VcsPublishCollaborator } from "../infrastructure/adapters/publication-port.adapter.ts";
+import { LearningPortAdapter } from "../infrastructure/adapters/learning-port.adapter.ts";
+import { WorkspacePortAdapter, type CheckoutFn } from "../infrastructure/adapters/workspace-port.adapter.ts";
+import { DeployGatePortAdapter, NullDeployGateAdapter, type VersionPollFn } from "../infrastructure/adapters/deploy-gate-port.adapter.ts";
+import { InMemoryRunHistoryAdapter, FileRunHistoryAdapter } from "../infrastructure/adapters/run-history-port.adapter.ts";
+import { SetupPortAdapter, type SetupPortCollaborators } from "../infrastructure/adapters/setup-port.adapter.ts";
+import { CleanupPortAdapter, type CleanupPortCollaborators } from "../infrastructure/adapters/cleanup-port.adapter.ts";
+import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../infrastructure/adapters/pre-generation-grounding-port.adapter.ts";
+import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../infrastructure/adapters/review-dom-grounding-port.adapter.ts";
+import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../infrastructure/adapters/pre-exec-grounding-port.adapter.ts";
+import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "../infrastructure/adapters/structural-signal-port.adapter.ts";
+import { ChangePagesPortAdapter } from "../infrastructure/adapters/change-pages-port.adapter.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
-import { ServiceLinksPortAdapter } from "../infrastructure/bridges/service-links-port.adapter.ts";
+import { ServiceLinksPortAdapter } from "../infrastructure/adapters/service-links-port.adapter.ts";
 import { MirrorRegistryAdapter } from "@contexts/service-topology/infrastructure/mirror-registry.adapter.ts";
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/ports/index.ts";
-import { CrossRepoImpactPortAdapter } from "../infrastructure/bridges/cross-repo-impact-port.adapter.ts";
+import { CrossRepoImpactPortAdapter } from "../infrastructure/adapters/cross-repo-impact-port.adapter.ts";
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
 import type { ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
@@ -223,7 +223,7 @@ export interface CompositionConfig {
   /* The step limit the agent runtime enforces for a role this run, shared by every prompt of the run (the shell reads it once). It resolves undefined when the runtime enforces none for the role or cannot be read, and never rejects. Optional, no stub: absent, no prompt of the run states a step limit. */
   stepLimitFor?: StepLimitFor;
 
-  /* ReviewPort collaborator — the SAME 3 generation-owned primitives the bridge composes standalone. */
+  /* ReviewPort collaborator — the SAME 3 generation-owned primitives the adapter composes standalone. */
   reviewRuntime: {
     runtime: Pick<AgentRuntimePort, "openSession">;
     rendering: Pick<PromptRenderingPort, "renderReviewer">;
@@ -307,7 +307,7 @@ export interface CompositionConfig {
   reviewerApprovedForPublish?: boolean;
   coverageBlocksForPublish?: boolean;
   e2eChangedForPublish?: boolean;
-  /* Issue/PR-body sanitizer. Injected, never imported (qa-engine stays src/-free). Required: wireBridges throws if absent — no identity default. Shell composition supplies sanitizeText from src/orchestrator/sanitizer.ts. */
+  /* Issue/PR-body sanitizer. Injected, never imported (qa-engine stays src/-free). Required: wireAdapters throws if absent — no identity default. Shell composition supplies sanitizeText from src/orchestrator/sanitizer.ts. */
   sanitize?: (text: string) => string;
   /* Post-redaction fail-loud check on the "issue" route. Optional at the type; production composition always supplies RedactionPort.containsSecret alongside sanitize. */
   containsSecret?: (text: string) => boolean;
@@ -353,7 +353,7 @@ export interface CompositionConfig {
   /* Per-run observer (RunRecord + event store live in the shell). Optional: absent → onStep() is a no-op. */
   observer?: ObserverPort;
 
-  /* Multi-agent coordination is ALWAYS wired (see wireBridges below). Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this. */
+  /* Multi-agent coordination is ALWAYS wired (see wireAdapters below). Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this. */
   sidekickEscalatedModel?: string;
   /* Durable JSONL sink for coordination telemetry: events appended here survive process restarts so routing/cost signals can be analyzed offline. Absent -> memory-only. */
   coordinationTelemetryPath?: string;
@@ -373,9 +373,9 @@ function stagedRootsOf(workingCopyDir: string, e2eDir: string, stagedDir: string
   return [...new Set(roots)];
 }
 
-/* Bridge adapters from a CompositionConfig. buildShadow reuses this and swaps publication + runHistory. */
+/* adapters from a CompositionConfig. buildShadow reuses this and swaps publication + runHistory. */
 
-export function wireBridges(cfg: CompositionConfig): Omit<RunPipelineAdapterDeps, "publication" | "runHistory"> & {
+export function wireAdapters(cfg: CompositionConfig): Omit<RunPipelineAdapterDeps, "publication" | "runHistory"> & {
   publication: RunPipelineAdapterDeps["publication"];
   runHistory: RunPipelineAdapterDeps["runHistory"];
 } {
@@ -422,7 +422,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RunPipelineAdapterDeps
     },
     { target: cfg.target },
   );
-  /* The specs a run holds are kept as they stand at each validation (e2e only: a code run's spec directory is the whole repo). Requires the outbound sanitizer, which wireBridges demands below anyway. */
+  /* The specs a run holds are kept as they stand at each validation (e2e only: a code run's spec directory is the whole repo). Requires the outbound sanitizer, which wireAdapters demands below anyway. */
   const validation: ValidationPort = cfg.specSnapshots && !cfg.isCode && cfg.sanitize
     ? new SpecSnapshotValidationPort(staticValidation, { port: cfg.specSnapshots, sanitize: cfg.sanitize })
     : staticValidation;
@@ -760,11 +760,11 @@ function recordedReviewerIndependence(cfg: CompositionConfig): { reviewerIndepen
 }
 
 export function buildProduction(cfg: CompositionConfig): RunPipelinePort {
-  return new RunPipelineAdapter(wireBridges(cfg));
+  return new RunPipelineAdapter(wireAdapters(cfg));
 }
 
 export function buildShadow(cfg: CompositionConfig): RunPipelinePort {
   /* Strip historyFilePath and any runHistory override — a shadow run must never reach the durable store. */
   const shadowCfg: CompositionConfig = { ...cfg, shadow: true, historyFilePath: undefined, runHistory: undefined };
-  return new RunPipelineAdapter(wireBridges(shadowCfg));
+  return new RunPipelineAdapter(wireAdapters(shadowCfg));
 }

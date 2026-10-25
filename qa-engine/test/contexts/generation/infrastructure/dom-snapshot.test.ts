@@ -1518,7 +1518,7 @@ test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
 /* ── authDir is REQUIRED — no silent fallback to e2eDir ──────────────────────────────────────
    createCaptureDomDeps(sharedTestExec()) used to accept an OPTIONAL authDir and fall back to e2eDir when
    omitted — an omitted override at any of the three composition seams (pre-exec/review-dom
-   grounding bridges, the context-pack default deps) would silently put auth material back into the
+   grounding adapters, the context-pack default deps) would silently put auth material back into the
    agent-visible mirror. authDir is now a required parameter: a real (TypeScript) caller that forgets
    it gets a compile error, and — mirroring the same fail-closed constructor-guard pattern already
    established for PublicationPortAdapter (publication-port.adapter.test.ts) — a

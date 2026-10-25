@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
 import { evidenceFromChangeAnalysis } from "@contexts/qa-run-orchestration/application/coordination/evidence-from.ts";
-import { FileCoordinationTelemetryAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/coordination-telemetry-port.adapter.ts";
+import { FileCoordinationTelemetryAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/coordination-telemetry-port.adapter.ts";
 import { SidekickExecutor } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 

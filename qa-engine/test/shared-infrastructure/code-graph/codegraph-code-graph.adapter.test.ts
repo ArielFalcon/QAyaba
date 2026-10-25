@@ -19,7 +19,7 @@ import { LanguageRegistry } from "../../../src/contexts/change-analysis/domain/l
 import { BlastRadius } from "../../../src/shared-kernel/blast-radius.ts";
 import { Sha } from "../../../src/shared-kernel/sha.ts";
 import { closeGitDir, git } from "../process-sandbox/git-fixtures.ts";
-import { ChangePagesPortAdapter } from "../../../src/contexts/qa-run-orchestration/infrastructure/bridges/change-pages-port.adapter.ts";
+import { ChangePagesPortAdapter } from "../../../src/contexts/qa-run-orchestration/infrastructure/adapters/change-pages-port.adapter.ts";
 
 const FIXTURES = join(import.meta.dirname, "__fixtures__", "codegraph");
 const STORE = join(FIXTURES, "store.db");

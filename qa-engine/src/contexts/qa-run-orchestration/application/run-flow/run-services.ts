@@ -6,7 +6,7 @@
 
 import { listSpecFiles, listSuiteFiles, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { sha256Hex } from "../../../../shared-infrastructure/content-hash.ts";
-import { specSnapshotPort } from "../../infrastructure/bridges/spec-snapshot.adapter.ts";
+import { specSnapshotPort } from "../../infrastructure/adapters/spec-snapshot.adapter.ts";
 import { RegenerationAcceptance } from "../regeneration-acceptance.ts";
 import type { SpecSnapshot } from "../ports/spec-snapshot.port.ts";
 import type { ContractFeedback } from "../../domain/contract-feedback.ts";

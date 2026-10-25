@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
-import { wireBridges, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
+import { wireAdapters, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
 import { ConfinedPathError } from "../../src/shared-infrastructure/spec-path-confinement.ts";
 
 import { toStoredRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../../../src/server/run-history-sqlite-adapter.ts";
@@ -398,11 +398,11 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
         generationUseCase: { generate: async () => ({ specs, approved: true, reviewed: false, end: GENERATION_END.DELIVERED }) },
       });
 
-      const inside = await wireBridges(delivering(["flows/inside.spec.ts"])).generation.generate([], specDir);
+      const inside = await wireAdapters(delivering(["flows/inside.spec.ts"])).generation.generate([], specDir);
       assert.deepEqual(inside.specSources, ["// inside the spec directory\n"]);
 
       await assert.rejects(
-        wireBridges(delivering(["flows/leak.spec.ts"])).generation.generate([], specDir),
+        wireAdapters(delivering(["flows/leak.spec.ts"])).generation.generate([], specDir),
         (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/leak.spec.ts",
       );
     } finally {
@@ -411,7 +411,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
   });
 
   /* The limit each role runs under is read by the shell from the live runtime and handed to the engine as a
-     resolver; the composition root gives it to the bridges. Observed here at the use case and at the review prompt
+     resolver; the composition root gives it to the adapters. Observed here at the use case and at the review prompt
      rendering, the two places a prompt is built from. With no facade wired there is no resolver, and so no limit. */
   function facadeReporting(limits: StepLimits): AgentFacade {
     const assignment = { provider: "opencode" as const, model: S("model") };
@@ -428,7 +428,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
     const cfg = buildCompositionConfig(fakeAppConfig(), deps, S("namespace"), { mode: "diff" });
     const generated: OpencodeRunInput[] = [];
     const reviewed: ReviewInput[] = [];
-    const bridges = wireBridges({
+    const adapters = wireAdapters({
       ...cfg,
       generationUseCase: {
         generate: async (input) => {
@@ -448,8 +448,8 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
       },
     });
     const specDir = join(cfg.mirrorDir, cfg.e2eRelDir);
-    await bridges.generation.generate([], specDir);
-    await bridges.review.review(specDir, []);
+    await adapters.generation.generate([], specDir);
+    await adapters.review.review(specDir, []);
     assert.ok(generated[0] && reviewed[0], "both prompts were built");
     return { cfg, generation: generated[0], review: reviewed[0] };
   }
@@ -457,7 +457,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
   test("the step limit of each role crosses the composition root: the generator's reaches the generation input and the reviewer's the review input", async () => {
     const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ primary: 41, reviewer: 17 }) });
 
-    const dyingLayer = "buildCompositionConfig() -> wireBridges() (src/server/run-engine-factory.ts -> composition-root.ts)";
+    const dyingLayer = "buildCompositionConfig() -> wireAdapters() (src/server/run-engine-factory.ts -> composition-root.ts)";
     assert.notEqual(cfg.stepLimitFor, undefined, `stepLimitFor dropped at ${dyingLayer}`);
     assert.equal(generation.stepLimit, 41, `the generator's limit dropped at ${dyingLayer}`);
     assert.equal(review.stepLimit, 17, `the reviewer's limit dropped at ${dyingLayer}`);
@@ -546,7 +546,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
     try {
       const factsFor = async (app: AppConfig): Promise<unknown> => {
         const cfg = buildCompositionConfig(app, fakeFactoryDeps(), S("namespace"), { mode: "diff" });
-        const grounding = wireBridges(cfg).preGenerationGrounding;
+        const grounding = wireAdapters(cfg).preGenerationGrounding;
         assert.ok(grounding, "an e2e app is composed with a pre-generation grounding port");
         return (await grounding.ground(specDir)).harnessFacts;
       };

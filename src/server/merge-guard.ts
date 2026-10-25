@@ -170,8 +170,8 @@ export const PROTECTED_PATHS: string[] = [
    * generation/infrastructure/ prefix below; listed so narrowing that prefix cannot unprotect it.
    */
   "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
-  /* Also covered by the bridges/ prefix below; listed so narrowing that prefix cannot unprotect it. */
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter.ts",
+  /* Also covered by the adapters/ prefix below; listed so narrowing that prefix cannot unprotect it. */
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/publication-port.adapter.ts",
 
   "src/server/auth.ts",
   "src/server/github-auth.ts",
@@ -185,7 +185,7 @@ export const PROTECTED_PATHS: string[] = [
 
   "qa-engine/src/contexts/generation/infrastructure/",
 
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
 
   /*
    * The ShadowPublicationPort implementation — log-only, no-ops every PR/Issue/commit/push side
@@ -300,7 +300,7 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-kernel/process-sandbox/bounded-whole-output.ts",
 
   "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts",
-  /* What a suite's fixtures write into the mirror's dump folders is carried over only through this bridge (the sandbox uid cannot write the mirror), and only after the checks of the two sanitizers it uses. */
+  /* What a suite's fixtures write into the mirror's dump folders is carried over only through this adapter (the sandbox uid cannot write the mirror), and only after the checks of the two sanitizers it uses. */
   "qa-engine/src/contexts/test-execution/infrastructure/run-dump-bridge.ts",
   /* The authenticated agent browser: the route guard that decides every request its browser makes, the detector of a lost session, the capability and the call's use case, the host, launcher and DevTools bridge of the browser (which import no file API and hold the session in memory only), the sweep that ends a browser a restart left, the kernel types of its limits, the endpoint that serves its calls, and the tools and client the agents call it through. An autonomous fix that loosened any of them could let an agent write to DEV, reach a host the run does not declare or drive the browser around the guard, without touching a caller. */
   "qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts",
@@ -311,11 +311,11 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/",
   "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
   "qa-engine/src/shared-kernel/agent-browser.ts",
-  /* Which session holds the browser (the registry), the adapter that serves the calls and the one place a session is renewed: the bridges/ prefix covers the last two, and they are listed so that narrowing it cannot unprotect them, like the closed-loop twins below. */
+  /* Which session holds the browser (the registry), the adapter that serves the calls and the one place a session is renewed: the adapters/ prefix covers the last two, and they are listed so that narrowing it cannot unprotect them, like the closed-loop twins below. */
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-session-material.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/trusted-session-renewal.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-session-material.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/trusted-session-renewal.ts",
   /* The one place a prompt's tools are decided for the runtime: the denial of writes for a read-only turn, the tools a session's run denied it, and which sessions are granted the browser. A fix that loosened it would hand a planning turn or a sidekick tools its run withheld. */
   "src/integrations/opencode-client.ts",
   "src/server/tools-endpoint.ts",
@@ -327,7 +327,7 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts",
   "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/closed-loop-port.adapter.ts",
   "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
   "agents/tool/run_spec.ts",
@@ -343,12 +343,12 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-kernel/code-graph-tools.ts",
   "qa-engine/src/contexts/qa-run-orchestration/domain/code-graph-query.ts",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/code-graph-tools-port.adapter.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/code-graph-tools-port.adapter.ts",
   "agents/tool/codegraph.ts",
   "agents/lib/codegraph-client.mjs",
-  /* The spans a served call runs under and how its outcome is told: bridges/ covers them, and they are listed so that narrowing that prefix cannot unprotect them. */
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-trace.ts",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-outcome.ts",
+  /* The spans a served call runs under and how its outcome is told: adapters/ covers them, and they are listed so that narrowing that prefix cannot unprotect them. */
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-trace.ts",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-outcome.ts",
   /* 4. build/topology the canary cannot verify (image rebuild only) */
   ".github/",
   "Dockerfile",
@@ -398,7 +398,7 @@ export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/",
   "qa-engine/src/shared-infrastructure/egress/",
   "qa-engine/src/contexts/generation/infrastructure/",
-  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/",
 ];
 

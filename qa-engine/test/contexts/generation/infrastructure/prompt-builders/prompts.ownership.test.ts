@@ -8,7 +8,7 @@ import {
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
-import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
+import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/adapters/blast-radius-signal.ts";
 import { countDirectives, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { ArchitectureContext, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";

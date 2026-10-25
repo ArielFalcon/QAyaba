@@ -9,10 +9,10 @@
 // (composition-root.ts) is, per the plan's own design (§5.2), "the ONLY module that imports
 // concrete adapters" — it is where the REAL PublishDecisionService/GitHubPrAdapter/
 // GitHubIssueAdapter/ShadowLogAdapter instances are constructed and passed into the
-// PublicationPortAdapter bridge (which itself stays exempt-free — see its own header note on
+// PublicationPortAdapter (which itself stays exempt-free — see its own header note on
 // depending only on LOCAL structural interfaces). Every OTHER path under qa-run-orchestration/
-// (the bridges, the domain, the application layer) remains DENIED — only the single composition
-// file is excepted, so a future bridge/domain/use-case addition is still secure by default.
+// (the adapters, the domain, the application layer) remains DENIED — only the single composition
+// file is excepted, so a future adapter/domain/use-case addition is still secure by default.
 // Known limitation: dependency-cruiser may miss dynamic import() — flagged for manual audit.
 //
 // options.baseDir (judgment-day round-1): pinned to the repo root, NOT left to default to
@@ -104,7 +104,7 @@ module.exports = {
     },
     {
       // migration-tier-1-2, Slice 5 (corrected judgment-day round-1: the prior comment's "ONLY
-      // sanctioned src<->qa-engine bridge" framing was stale/inaccurate). The direction actually
+      // sanctioned src<->qa-engine adapter" framing was stale/inaccurate). The direction actually
       // enforced here is ONE-WAY: qa-engine/src/ may never import src/ (below). The OPPOSITE
       // direction — src/ importing qa-engine/src/ — is open by design (the shell consumes the
       // engine, not the reverse) and is NOT machine-enforced by this rule; src/server/

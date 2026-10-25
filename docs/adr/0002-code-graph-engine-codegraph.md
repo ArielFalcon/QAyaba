@@ -4,7 +4,7 @@
 - **Date:** 2026-10-25 (revised the same day after an architecture review; plan Log L16-L19)
 - **Deciders:** qayaba maintainers
 - **Supersedes:** the engine choice behind ADR-0001's `service-links` and structural-signal rows, and the phase-2/3/4 codebase-memory design in `docs/superpowers/qa-engine-codebase-memory-integration.md`. It does not supersede ADR-0001's measurement model; it uses it for acceptance.
-- **Related:** `odd/tasks/codegraph-migration.md` (the executable plan), `qa-engine/src/shared-kernel/ports/code-graph.port.ts`, `qa-engine/src/shared-infrastructure/code-graph/`, `qa-engine/src/contexts/service-topology/`, `qa-engine/src/contexts/generation/domain/route-ranking.ts`, `qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/code-graph-tools-port.adapter.ts`, `docs/agent-reference.md`, `docs/execution-sandbox.md`
+- **Related:** `odd/tasks/codegraph-migration.md` (the executable plan), `qa-engine/src/shared-kernel/ports/code-graph.port.ts`, `qa-engine/src/shared-infrastructure/code-graph/`, `qa-engine/src/contexts/service-topology/`, `qa-engine/src/contexts/generation/domain/route-ranking.ts`, `qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/code-graph-tools-port.adapter.ts`, `docs/agent-reference.md`, `docs/execution-sandbox.md`
 
 ## 1. Context
 

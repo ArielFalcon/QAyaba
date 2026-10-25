@@ -1226,7 +1226,7 @@ export function createCaptureDomDeps(
 }
 
 /**
- * An INERT placeholder for the three composition seams (pre-exec/review-dom grounding bridges,
+ * An INERT placeholder for the three composition seams (pre-exec/review-dom grounding adapters,
  * the context-pack default deps) that fall back to this when no captureDomDeps collaborator is
  * configured at all. It never touches the filesystem or spawns a process and never derives
  * credential paths from e2eDir. If it is ever actually invoked

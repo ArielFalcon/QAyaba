@@ -163,7 +163,7 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
   /* the logs→Issue containsSecret fail-loud call site — an autonomous fix could remove the guard
      that refuses to ship a secret-carrying Issue body.
    */
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/publication-port.adapter.ts"), true);
 });
 
 /* The adapter that actually WRITES auth material (storageState/client.p12/cert.pass)
@@ -265,7 +265,7 @@ test("isProtectedPath flags the test infrastructure an autonomous fix could weak
 
 /* assembled and sanitized — literally the directory the 4th and 5th unsanitized-prompt-site defects
    lived in (only sanitize-text.ts was protected; every sibling, including prompts.ts itself, was
-   not). qa-run-orchestration/infrastructure/bridges/ is the port-implementation layer wiring EVERY
+   not). qa-run-orchestration/infrastructure/adapters/ is the port-implementation layer wiring EVERY
    domain security boundary (write-confinement, publication, GitHub) into the use case — only
    publication-port.adapter.ts was protected. Per-file judgment on exactly this class of surface has
    now failed 5 times (the meta-lesson) — rather than add a partial, reasoned allowlist here too, both
@@ -273,13 +273,13 @@ test("isProtectedPath flags the test infrastructure an autonomous fix could weak
    human review. The residual is zero by construction, not by review, and needs no NOT_SECURITY_SENSITIVE
    entries at all.
  */
-test("isProtectedPath flags the whole generation/infrastructure and orchestration bridges surface", () => {
+test("isProtectedPath flags the whole generation/infrastructure and orchestration adapters surface", () => {
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/route-catalog.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/sse/call-efficiency-tracker.ts"), true);
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.ts"), true);
-  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/deploy-gate-port.adapter.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/execution-port.adapter.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/deploy-gate-port.adapter.ts"), true);
 });
 
 /* despite being squarely inside the secret/confinement/review boundary this module protects. */
@@ -365,9 +365,9 @@ test("isProtectedPath flags the authenticated agent browser: its guard, host, la
     "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-core.loader.ts",
     "qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep.ts",
     "qa-engine/src/shared-kernel/agent-browser.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-session-material.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/trusted-session-renewal.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-session-material.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/trusted-session-renewal.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/agent-browser-registry.ts",
     "src/integrations/opencode-client.ts",
     "src/server/tools-endpoint.ts",
@@ -387,7 +387,7 @@ test("isProtectedPath flags what a sidekick may do against DEV and in the workin
     "qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts",
     "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/closed-loop-registry.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/closed-loop-port.adapter.ts",
     "qa-engine/src/contexts/qa-run-orchestration/application/ports/delegation-workspace.port.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/delegation-workspace.adapter.ts",
     "agents/tool/run_spec.ts",
@@ -400,6 +400,21 @@ test("isProtectedPath flags what a sidekick may do against DEV and in the workin
     assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
     assert.equal(isProtectedPath(file), true, file);
   }
+});
+
+const ORCHESTRATION_ADAPTERS = "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/";
+
+test("every file under the orchestration adapters directory is protected or explicitly reviewed as not sensitive", () => {
+  assert.ok(existsSync(join(repoRoot, ORCHESTRATION_ADAPTERS)), "the adapters directory must exist");
+  assert.ok(SECURITY_SENSITIVE_SURFACE_ROOTS.includes(ORCHESTRATION_ADAPTERS), "the completeness walk must scan the adapters directory");
+  const unclassified = unclassifiedUnder(repoRoot, [ORCHESTRATION_ADAPTERS]);
+  assert.deepEqual(unclassified, [], `unclassified adapter file(s): ${JSON.stringify(unclassified)}`);
+});
+
+test("the abort race that moved to the domain is not protected while the adapters prefix is", () => {
+  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/domain/abort-race.ts"), false);
+  assert.ok(existsSync(join(repoRoot, "qa-engine/src/contexts/qa-run-orchestration/domain/abort-race.ts")));
+  assert.equal(isProtectedPath(`${ORCHESTRATION_ADAPTERS}publication-port.adapter.ts`), true);
 });
 
 test("every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {
@@ -430,7 +445,7 @@ test("a newly added file under the security-sensitive surface is flagged whateve
   }
 });
 
-/* generation/infrastructure/ and qa-run-orchestration/infrastructure/bridges/ must be in
+/* generation/infrastructure/ and qa-run-orchestration/infrastructure/adapters/ must be in
    SECURITY_SENSITIVE_SURFACE_ROOTS so the completeness walk scans them: narrowing the blanket
    generation/infrastructure/ prefix to per-file entries that skip ONE existing file must be caught.
  */
@@ -869,8 +884,8 @@ test("the real ledger store persists deploys on disk across reads, creating its 
 
 test("isProtectedPath flags the tool-call trace modules, the supervisor that mirrors Codex's env allowlist, and the compose file that holds the telemetry stack", () => {
   for (const file of [
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-trace.ts",
-    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-outcome.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-trace.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-outcome.ts",
     "agents/agent-supervisor.mjs",
     "docker-compose.yml",
   ]) {

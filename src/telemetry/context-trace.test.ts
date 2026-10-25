@@ -11,8 +11,8 @@ import {
   TracedServiceLinksPort,
   TracedStructuralSignalPort,
   telemetryGroundingTrace,
-} from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/context-trace";
-import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
+} from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/context-trace";
+import { PreGenerationGroundingPortAdapter } from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter";
 import type { ChangePagesPort, CrossRepoImpact, CurriculumPort, LearningPort, RetrievedRule, SelectedExemplar, ServiceLink, ServiceLinksPort, StructuralSignalPort } from "../../qa-engine/src/contexts/qa-run-orchestration/application/ports/index";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";

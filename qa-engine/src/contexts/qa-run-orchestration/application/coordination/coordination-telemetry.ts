@@ -1,6 +1,6 @@
 /* Coordination telemetry. Records the decisions of the lead/sidekick mode and what became of them, without owning pipeline verdicts. Token/cost aggregation stays on AgentRuntimePort (onUsage/onTurn) — this port never double-counts.
 Pure in-memory here by design: durable (JSONL) persistence is an infrastructure concern and lives
-in FileCoordinationTelemetryAdapter (infrastructure/bridges/coordination-telemetry-port.adapter.ts),
+in FileCoordinationTelemetryAdapter (infrastructure/adapters/coordination-telemetry-port.adapter.ts),
 which wraps CoordinationTelemetryRecorder below and implements the SAME CoordinationTelemetryPort. */
 import type { AgentCapability } from "./agent-capability.ts";
 import type { CoordinationAction } from "./coordination-decision.ts";

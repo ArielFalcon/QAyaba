@@ -429,7 +429,7 @@ The join is **in-process**:
 2. The telemetry decorator also binds `sessionID → live attempt span context`.
 3. `tools-endpoint.ts` resolves the session as it does today. The call then runs inside
    `AsyncLocalStorage.snapshot()`, taken when the loop opened during setup
-   (`bridges/closed-loop-port.adapter.ts:92`, `bridges/agent-browser-port.adapter.ts:90`).
+   (`adapters/closed-loop-port.adapter.ts:92`, `adapters/agent-browser-port.adapter.ts:90`).
    - That snapshot restores **every** store, OTel's context included. Ambient parenting would put
      every `run_spec` execution under the long-ended `setup` span.
    - So the port opens `qayaba.tool.run_spec` / `qayaba.tool.authbrowser` (kind SERVER) **inside**
@@ -1191,7 +1191,7 @@ until spike S0.4, and live in one function (`normalizeOpenCodeUsage`).
 
 **S2b status (tool callbacks).** Delivered: the registry lookup `sessionId -> live attempt span` (`AgentTurnTraces.attemptSpan`), the
 `qayaba.tool.run_spec` / `qayaba.tool.authbrowser` SERVER spans opened inside `inRunContext` with the attempt as explicit parent
-(`bridges/tool-call-trace.ts`), and a scope whose child-parent is the call's span (`withExecScopeParent`), so the launcher's
+(`adapters/tool-call-trace.ts`), and a scope whose child-parent is the call's span (`withExecScopeParent`), so the launcher's
 `qayaba.exec` spans are grandchildren of the attempt. Lease wait, namespace, spec path and sha256, outcome, refusal code, DEV-busy,
 co-temporal egress denials, browser action, guard block reasons, document status and session invalidation are attributes; no secret
 and no page content. The synthesized `execute_tool run_spec|authbrowser_*` span carries a span LINK to the server span, matched by
@@ -1240,7 +1240,7 @@ reliable, deterministic; trust over features; local operability on a Mac.
 
 An independent reviewer (fresh context) returned **APPROVE-WITH-CHANGES**, with 8 critical
 findings, 16 warnings and 11 suggestions. The load-bearing claims were re-verified in code
-(`AsyncLocalStorage.snapshot()` in the run_spec and browser bridges, `tail.then` inside `enqueue`, the `specs` table schema). Body sections were edited in place.
+(`AsyncLocalStorage.snapshot()` in the run_spec and browser adapters, `tail.then` inside `enqueue`, the `specs` table schema). Body sections were edited in place.
 
 | Finding | Resolution | Where |
 |---|---|---|

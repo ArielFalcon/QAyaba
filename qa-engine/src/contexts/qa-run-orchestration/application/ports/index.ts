@@ -540,7 +540,7 @@ export const REVIEWER_UNAVAILABLE_MARKER = "reviewer unavailable";
 /**
  * What one reviewer turn cost, as its own runtime reported it. Every figure is optional and absent
  * when the runtime did not report it: never a fabricated zero. `durationMs` is always measured by the
- * bridge. Persisted on the run's reviewer signal, never read back into the verdict.
+ * adapter. Persisted on the run's reviewer signal, never read back into the verdict.
  */
 export interface ReviewStats {
   durationMs: number;

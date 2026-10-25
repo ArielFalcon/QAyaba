@@ -3,13 +3,13 @@
    can read it for adjudicator Rules 2.5/2.6 and Lever-2:
    1. E2eExecutionStrategy.run() — runner result -> kernel QaCase (pinned in isolation by
    e2e-execution.strategy.test.ts).
-   2. ExecutionPortAdapter.execute() — the ExecutionPort bridge in front of the strategy (the
+   2. ExecutionPortAdapter.execute() — the ExecutionPort adapter in front of the strategy (the
    layer the FixLoop actually depends on).
    Imports ONLY qa-engine modules via @contexts/... aliases — no src/ import.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.ts";
+import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/execution-port.adapter.ts";
 import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy.ts";
 import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy.ts";
 

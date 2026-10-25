@@ -35,8 +35,8 @@ import { synthesizeReportSpans } from "@contexts/test-execution/infrastructure/r
 import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";
 import { SqlitePlanSnapshotAdapter } from "./plan-snapshot-sqlite.adapter";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
-import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
-import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
+import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter";
+import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/qa-run-orchestration/infrastructure/adapters/context-map-capture-port.adapter";
 import { Sha, shaMatches } from "@kernel/sha";
 import { DEFAULT_CLOSED_LOOP_LIMITS } from "@kernel/closed-loop";
 import { resolveCoordinationSettings } from "@kernel/coordination";
@@ -48,10 +48,10 @@ import type { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infra
 import { SandboxedChromiumLauncher } from "@contexts/test-execution/infrastructure/agent-browser/chromium-sandbox.launcher";
 import { loadPlaywrightChromium } from "@contexts/test-execution/infrastructure/agent-browser/playwright-core.loader";
 import { redactByValue } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
-import { ValidationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/validation-port.adapter";
-import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter";
-import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/objective-signal-port.adapter";
-import { ReviewPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter";
+import { ValidationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/validation-port.adapter";
+import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/execution-port.adapter";
+import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-port.adapter";
+import { ReviewPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/review-port.adapter";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service";
 import type { ExecutionPort, ObjectiveSignalPort, ReviewPort, ValidationPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { AgentRole } from "@kernel/agent-role";
@@ -98,7 +98,7 @@ import { CONFINEMENT_DENYLIST, WriteConfinementService } from "@contexts/workspa
 import { WriteConfinementAdapter } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter";
 import { MirrorGcAdapter } from "@contexts/workspace-and-publication/infrastructure/mirror-gc.adapter";
 import { SuiteStoreAdapter, gitListTracked } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
-import type { VcsPublishCollaborator } from "@contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter";
+import type { VcsPublishCollaborator } from "@contexts/qa-run-orchestration/infrastructure/adapters/publication-port.adapter";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage";
 
@@ -121,7 +121,7 @@ import {
 import { parseVerdict } from "../integrations/verdict-parse";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
 import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/ports/generation-ports";
-import { MultiRepoCheckoutAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/multi-repo-checkout.adapter";
+import { MultiRepoCheckoutAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/multi-repo-checkout.adapter";
 import { roleWindowBytes, setLiveModelWindows } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import type { RepairPort } from "@contexts/generation/application/generate-tests.use-case.ts";
 

@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
-import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
+import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/adapters/blast-radius-signal.ts";
 import { FixLoop } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
 import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
@@ -64,7 +64,7 @@ import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { attributableRules } from "@contexts/cross-run-learning/domain/rule-fold.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
-import { GenerationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
+import { GenerationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/generation-port.adapter.ts";
 import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 

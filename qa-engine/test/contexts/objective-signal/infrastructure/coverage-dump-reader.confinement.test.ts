@@ -18,7 +18,7 @@ import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastr
 import { NullValueOracleAdapter } from "@contexts/objective-signal/infrastructure/null-value-oracle.adapter.ts";
 import { DecideCoverageService } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
-import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/objective-signal-port.adapter.ts";
+import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-port.adapter.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";

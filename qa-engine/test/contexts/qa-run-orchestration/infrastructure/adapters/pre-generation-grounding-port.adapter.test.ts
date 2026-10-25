@@ -1,0 +1,927 @@
+/* buildContextPack is injected as a fake here (no real Playwright/browser) —
+   context-pack.ts's own test suite already covers its internal behavior.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { RunDeadlineExceededError } from "@kernel/run-deadline.ts";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  PreGenerationGroundingPortAdapter,
+  enumerateExistingSpecFiles,
+} from "@contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts";
+import { MAX_ROUTES } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+
+/* enumerateExistingSpecFiles: glob *.spec.ts (pure fs, real tmpdir).
+ */
+
+test("enumerateExistingSpecFiles: finds *.spec.ts files recursively, relative to the given dir", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-"));
+  try {
+    mkdirSync(join(dir, "flows"), { recursive: true });
+    writeFileSync(join(dir, "flows", "checkout.spec.ts"), "// spec");
+    writeFileSync(join(dir, "home.spec.ts"), "// spec");
+    writeFileSync(join(dir, "helper.ts"), "// not a spec");
+
+    const found = enumerateExistingSpecFiles(dir).sort();
+
+    assert.deepEqual(found, ["flows/checkout.spec.ts", "home.spec.ts"].sort());
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("enumerateExistingSpecFiles: installed packages and dot-directories are not the suite's specs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-skip-"));
+  try {
+    mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
+    mkdirSync(join(dir, "flows", "node_modules", "nested"), { recursive: true });
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    mkdirSync(join(dir, ".auth"), { recursive: true });
+    writeFileSync(join(dir, "node_modules", "pkg", "vendored.spec.ts"), "// vendored");
+    writeFileSync(join(dir, "flows", "node_modules", "nested", "deep.spec.ts"), "// vendored");
+    writeFileSync(join(dir, ".qa", "hidden.spec.ts"), "// hidden");
+    writeFileSync(join(dir, ".auth", "session.spec.ts"), "// hidden");
+    writeFileSync(join(dir, "flows", "checkout.spec.ts"), "// spec");
+    writeFileSync(join(dir, ".root-dotfile.spec.ts"), "// a file, not a directory");
+
+    const found = enumerateExistingSpecFiles(dir).sort();
+
+    assert.deepEqual(found, [".root-dotfile.spec.ts", "flows/checkout.spec.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("enumerateExistingSpecFiles: a missing directory yields [] (graceful, never throws)", () => {
+  const found = enumerateExistingSpecFiles("/nonexistent/path/for/sure/qa-grounding-test");
+  assert.deepEqual(found, []);
+});
+
+test("enumerateExistingSpecFiles: an empty directory yields []", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-empty-"));
+  try {
+    assert.deepEqual(enumerateExistingSpecFiles(dir), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The listing is of the suite's own specs, in a directory the agent writes into. A symbolic link planted there is never walked, whatever it points at: no name from outside is listed, nothing is listed twice, and a link back up cannot make the walk run away. */
+
+test("enumerateExistingSpecFiles: a symlink to a directory is not followed, whether it points outside the spec directory or inside it", () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-grounding-link-"));
+  try {
+    const dir = join(root, "e2e");
+    const outside = join(root, "outside");
+    mkdirSync(join(dir, "flows"), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(dir, "flows", "checkout.spec.ts"), "// spec");
+    writeFileSync(join(outside, "customer-export.spec.ts"), "// somewhere else");
+    symlinkSync(outside, join(dir, "hop"));
+    symlinkSync(join(dir, "flows"), join(dir, "alias"));
+
+    assert.deepEqual(enumerateExistingSpecFiles(dir), ["flows/checkout.spec.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("enumerateExistingSpecFiles: a symlink back up to an ancestor does not make the walk descend into itself", () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-grounding-loop-"));
+  try {
+    const dir = join(root, "e2e");
+    mkdirSync(join(dir, "flows"), { recursive: true });
+    writeFileSync(join(dir, "flows", "checkout.spec.ts"), "// spec");
+    symlinkSync(dir, join(dir, "flows", "up"));
+
+    assert.deepEqual(enumerateExistingSpecFiles(dir), ["flows/checkout.spec.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("enumerateExistingSpecFiles: a spec directory that is itself a symlink lists nothing, with or without a trailing separator", () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-grounding-rootlink-"));
+  try {
+    const real = join(root, "real");
+    mkdirSync(real);
+    writeFileSync(join(real, "home.spec.ts"), "// spec");
+    const link = join(root, "e2e");
+    symlinkSync(real, link);
+
+    assert.deepEqual(enumerateExistingSpecFiles(link), []);
+    assert.deepEqual(enumerateExistingSpecFiles(`${link}/`), []);
+    assert.deepEqual(enumerateExistingSpecFiles(real), ["home.spec.ts"], "the directory it points at is listed as itself");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/* A directory whose mode is 000 cannot be listed by an account that the mode binds: not by root, and not on a platform without modes. */
+const NO_MODE_RESTRICTIONS = process.platform === "win32" || process.getuid?.() === 0 ? "the account that runs the tests is not bound by directory modes, so the case that relies on them is not exercised" : false;
+
+test("enumerateExistingSpecFiles: a directory that cannot be listed contributes nothing and does not stop the scan of the others", { skip: NO_MODE_RESTRICTIONS }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-locked-"));
+  try {
+    mkdirSync(join(dir, "open"));
+    mkdirSync(join(dir, "locked"));
+    writeFileSync(join(dir, "open", "a.spec.ts"), "// spec");
+    writeFileSync(join(dir, "locked", "b.spec.ts"), "// spec");
+    chmodSync(join(dir, "locked"), 0o000);
+    try {
+      assert.deepEqual(enumerateExistingSpecFiles(dir), ["open/a.spec.ts"]);
+    } finally {
+      chmodSync(join(dir, "locked"), 0o755);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("enumerateExistingSpecFiles: a regular file given as the directory yields []", () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-grounding-notdir-"));
+  try {
+    writeFileSync(join(root, "e2e"), "not a directory");
+
+    assert.deepEqual(enumerateExistingSpecFiles(join(root, "e2e")), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/* ── PreGenerationGroundingPortAdapter.ground() ─────────────────────────────────────────────────── */
+
+test("ground(): existingSpecFiles is populated from the real filesystem enumeration", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-adapter-"));
+  try {
+    writeFileSync(join(dir, "existing.spec.ts"), "// spec");
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+    assert.deepEqual(result.existingSpecFiles, ["existing.spec.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* Filename alone invites duplicate flows as the suite grows, when the manifest ALREADY has flow/
+   objective metadata on disk (e2e/.qa/manifest.json, written by ManifestRepositoryPort.reconcile()
+   after every generation). existingSpecFiles is a plain string[] — so the manifest metadata is
+   folded INTO each entry's string rather than added as a new field: "path — flow: X, objective: Y"
+   when a manifest entry matches that file, plain "path" otherwise (no manifest, or no matching
+   entry — never fabricated).
+ */
+test("ground(): existingSpecFiles is enriched with flow/objective from e2e/.qa/manifest.json when present", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-manifest-"));
+  try {
+    writeFileSync(join(dir, "checkout.spec.ts"), "// spec");
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(
+      join(dir, ".qa", "manifest.json"),
+      JSON.stringify([
+        { id: "checkout", file: "checkout.spec.ts", flow: "checkout", objective: "verify the discounted total after cart re-query" },
+      ]),
+    );
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+    assert.deepEqual(result.existingSpecFiles, [
+      "checkout.spec.ts — flow: checkout, objective: verify the discounted total after cart re-query",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The manifest is read as it is on disk, so an entry written by hand, or by an older run, may lack a flow or an objective. The line says what the manifest holds and no more: a missing flow or objective is left out of it, never printed as the word "undefined". */
+test("ground(): a manifest entry that lacks a flow or an objective is folded without it, never as the word undefined", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-partial-manifest-"));
+  try {
+    for (const name of ["both", "flow-only", "objective-only", "neither"]) writeFileSync(join(dir, `${name}.spec.ts`), "// spec");
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(
+      join(dir, ".qa", "manifest.json"),
+      JSON.stringify([
+        { id: "both", file: "both.spec.ts", flow: "checkout", objective: "verify the total" },
+        { id: "flow-only", file: "flow-only.spec.ts", flow: "checkout" },
+        { id: "objective-only", file: "objective-only.spec.ts", objective: "verify the total" },
+        { id: "neither", file: "neither.spec.ts" },
+      ]),
+    );
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+    assert.deepEqual([...(result.existingSpecFiles ?? [])].sort(), [
+      "both.spec.ts — flow: checkout, objective: verify the total",
+      "flow-only.spec.ts — flow: checkout",
+      "neither.spec.ts",
+      "objective-only.spec.ts — objective: verify the total",
+    ]);
+    assert.ok(!(result.existingSpecFiles ?? []).some((line) => line.includes("undefined")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): existingSpecFiles stays a PLAIN filename when no manifest entry matches it (never fabricated)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-nomanifest-"));
+  try {
+    writeFileSync(join(dir, "orphan.spec.ts"), "// spec");
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(
+      join(dir, ".qa", "manifest.json"),
+      JSON.stringify([{ id: "other", file: "unrelated.spec.ts", flow: "other-flow", objective: "unrelated objective" }]),
+    );
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+    assert.deepEqual(result.existingSpecFiles, ["orphan.spec.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): an empty e2eDir omits existingSpecFiles entirely (never a fabricated empty marker)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-empty2-"));
+  try {
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+    assert.equal(result.existingSpecFiles, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): contextPack is populated from the injected buildContextPack result", async () => {
+  const capturedInputs: unknown[] = [];
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e", baseUrl: "https://dev.example.com", testIdAttribute: "data-cy" },
+    {
+      buildContextPack: async (input) => {
+        capturedInputs.push(input);
+        return { text: "## Context Pack\n\nsome content", domBytes: 10, contractBytes: 0 };
+      },
+    },
+  );
+
+  const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+  assert.equal(result.contextPack, "## Context Pack\n\nsome content");
+  assert.equal(capturedInputs.length, 1);
+  assert.equal((capturedInputs[0] as { baseUrl?: string }).baseUrl, "https://dev.example.com");
+  assert.equal((capturedInputs[0] as { testIdAttribute?: string }).testIdAttribute, "data-cy");
+});
+
+/* The pack's candidate routes come from the context map. This
+   adapter is the composition seam that already carries contextMap (the context-mode LLM pass runs
+   ONCE and persists context.json; every diff-mode run afterward reuses it deterministically, zero
+   LLM cost at runtime) — so it is the correct place to derive buildContextPack's new `routes` input.
+ */
+test("ground(): routes input is populated deterministically from contextMap.routes (no LLM)", async () => {
+  const capturedInputs: unknown[] = [];
+  const adapter = new PreGenerationGroundingPortAdapter(
+    {
+      e2eDir: "/mirrors/org/app/e2e",
+      baseUrl: "https://dev.example.com",
+      contextMap: {
+        builtAtSha: "abc1234",
+        routes: [{ path: "/checkout" }, { path: "/owners" }],
+        api: [],
+        feBe: [],
+      },
+    },
+    {
+      buildContextPack: async (input) => {
+        capturedInputs.push(input);
+        return { text: "## Context Pack\n\nsome content", domBytes: 10, contractBytes: 0 };
+      },
+    },
+  );
+
+  await adapter.ground("/tmp/qa-golden/e2e");
+
+  const captured = capturedInputs[0] as { routes?: string[] };
+  assert.deepEqual(captured.routes?.sort(), ["/checkout", "/owners"].sort());
+});
+
+test("ground(): routes input is absent when contextMap has no routes (never fabricated)", async () => {
+  const capturedInputs: unknown[] = [];
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e" },
+    {
+      buildContextPack: async (input) => {
+        capturedInputs.push(input);
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
+      },
+    },
+  );
+
+  await adapter.ground("/tmp/qa-golden/e2e");
+
+  const captured = capturedInputs[0] as { routes?: string[] };
+  assert.equal(captured.routes, undefined, "no contextMap -> no routes -> nothing fabricated");
+});
+
+/* `${specDir}/.qa/context.json` per-run off the REAL mirror (specDir is the FIRST argument, the run's
+   actual per-run workspace.specDir — see run-qa.use-case.ts's own call site), instead of relying
+   solely on the static ctx.contextMap (which stays permanently absent in production per
+   run-engine-factory.ts's own documented gap). A per-run read takes priority over the static
+   ctx value when present; a missing/invalid file degrades to the static ctx value (undefined in
+   production), matching today's always-absent behavior — never a crash. ──────────────────────────
+ */
+
+const VALID_CONTEXT_JSON = {
+  builtAtSha: "abc1234",
+  routes: [{ path: "/owners" }],
+  api: [{ operationId: "getOwners", method: "GET", path: "/api/owners" }],
+  feBe: [{ route: "/owners", operationId: "getOwners" }],
+};
+
+test("ground(): a committed valid e2e/.qa/context.json on the mirror populates contextMap from the per-run read", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-context-valid-"));
+  try {
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(join(dir, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
+    const capturedInputs: unknown[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        buildContextPack: async (input) => {
+          capturedInputs.push(input);
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+
+    await adapter.ground(dir);
+
+    const captured = capturedInputs[0] as { contextMap?: unknown };
+    assert.deepEqual(captured.contextMap, VALID_CONTEXT_JSON);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): a per-run contextMap read overrides a stale static ctx.contextMap when both are present", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-context-override-"));
+  try {
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(join(dir, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
+    const capturedInputs: unknown[] = [];
+    const staleContextMap = { builtAtSha: "stale0000", routes: [], api: [], feBe: [] };
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, contextMap: staleContextMap },
+      {
+        buildContextPack: async (input) => {
+          capturedInputs.push(input);
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+
+    await adapter.ground(dir);
+
+    const captured = capturedInputs[0] as { contextMap?: { builtAtSha?: string } };
+    assert.equal(captured.contextMap?.builtAtSha, "abc1234", "the real per-run read must win over a static/stale ctx value");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): a missing e2e/.qa/context.json degrades to contextMap absent — identical to today's always-absent behavior, never a crash", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-context-missing-"));
+  try {
+    const capturedInputs: unknown[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        buildContextPack: async (input) => {
+          capturedInputs.push(input);
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+
+    const result = await adapter.ground(dir);
+
+    const captured = capturedInputs[0] as { contextMap?: unknown };
+    assert.equal(captured.contextMap, undefined);
+    assert.equal(result.contextPack, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): an invalid e2e/.qa/context.json (dangling feBe link) degrades to contextMap absent, never throws", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-context-invalid-"));
+  try {
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(
+      join(dir, ".qa", "context.json"),
+      JSON.stringify({
+        builtAtSha: "abc1234",
+        routes: [{ path: "/owners" }],
+        api: [],
+        feBe: [{ route: "/owners", operationId: "ghost-op-not-declared-in-api" }],
+      }),
+    );
+    const capturedInputs: unknown[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        buildContextPack: async (input) => {
+          capturedInputs.push(input);
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+
+    await adapter.ground(dir);
+
+    const captured = capturedInputs[0] as { contextMap?: unknown };
+    assert.equal(captured.contextMap, undefined, "a dangling feBe link fails form-validation — degrade, never fabricate a half-valid map");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): malformed JSON in e2e/.qa/context.json degrades to contextMap absent, never throws", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-context-malformed-"));
+  try {
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(join(dir, ".qa", "context.json"), "{ not valid json");
+    const capturedInputs: unknown[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        buildContextPack: async (input) => {
+          capturedInputs.push(input);
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+
+    await adapter.ground(dir);
+
+    const captured = capturedInputs[0] as { contextMap?: unknown };
+    assert.equal(captured.contextMap, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): an injected loadContextMap collaborator overrides the real disk-read default (existence-level test seam)", async () => {
+  const capturedInputs: unknown[] = [];
+  const injected = { builtAtSha: "injected-sha", routes: [], api: [], feBe: [] };
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e" },
+    {
+      loadContextMap: () => injected,
+      buildContextPack: async (input) => {
+        capturedInputs.push(input);
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
+      },
+    },
+  );
+
+  await adapter.ground("/tmp/qa-golden/e2e");
+
+  const captured = capturedInputs[0] as { contextMap?: { builtAtSha?: string } };
+  assert.equal(captured.contextMap?.builtAtSha, "injected-sha");
+});
+
+test("ground(): a throwing loadContextMap collaborator is non-fatal — degrades to the static ctx value, never rejects", async () => {
+  const capturedInputs: unknown[] = [];
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e" },
+    {
+      loadContextMap: () => { throw new Error("disk read exploded"); },
+      buildContextPack: async (input) => {
+        capturedInputs.push(input);
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
+      },
+    },
+  );
+
+  const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+  const captured = capturedInputs[0] as { contextMap?: unknown };
+  assert.equal(captured.contextMap, undefined);
+  assert.equal(result.contextPack, undefined);
+});
+
+/* GroundingResult must carry the per-run contextMap object (not only feed it to
+   buildContextPack) so RunQaUseCase can thread it onto GenerationEnrichment → OpencodeRunInput.
+ */
+test("ground(): returned GroundingResult includes contextMap when a valid context.json exists", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-result-contextmap-"));
+  try {
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(join(dir, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground(dir);
+
+    assert.ok(result.contextMap, "returned GroundingResult.contextMap must be the object field, not a pack-text grep");
+    assert.deepEqual(result.contextMap, VALID_CONTEXT_JSON);
+    assert.equal(result.contextMap.api[0]?.operationId, "getOwners");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): returned GroundingResult omits contextMap when context.json is missing (fail-open, never fabricated)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-result-missing-"));
+  try {
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground(dir);
+
+    assert.equal(result.contextMap, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): returned GroundingResult omits contextMap for malformed JSON and invalid shape (fail-open, never throws)", async () => {
+  const malformedDir = mkdtempSync(join(tmpdir(), "qa-grounding-result-malformed-"));
+  const invalidDir = mkdtempSync(join(tmpdir(), "qa-grounding-result-shape-"));
+  try {
+    mkdirSync(join(malformedDir, ".qa"), { recursive: true });
+    writeFileSync(join(malformedDir, ".qa", "context.json"), "{ not valid json");
+    mkdirSync(join(invalidDir, ".qa"), { recursive: true });
+    writeFileSync(
+      join(invalidDir, ".qa", "context.json"),
+      JSON.stringify({
+        builtAtSha: "abc1234",
+        routes: [{ path: "/owners" }],
+        api: [],
+        feBe: [{ route: "/owners", operationId: "ghost-op-not-declared-in-api" }],
+      }),
+    );
+    const noopPack = { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) };
+
+    const malformed = await new PreGenerationGroundingPortAdapter({ e2eDir: malformedDir }, noopPack).ground(malformedDir);
+    const invalid = await new PreGenerationGroundingPortAdapter({ e2eDir: invalidDir }, noopPack).ground(invalidDir);
+
+    assert.equal(malformed.contextMap, undefined);
+    assert.equal(invalid.contextMap, undefined);
+  } finally {
+    rmSync(malformedDir, { recursive: true, force: true });
+    rmSync(invalidDir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): sequential calls with different specDirs do not leak contextMap", async () => {
+  const withMap = mkdtempSync(join(tmpdir(), "qa-grounding-noleak-a-"));
+  const withoutMap = mkdtempSync(join(tmpdir(), "qa-grounding-noleak-b-"));
+  try {
+    mkdirSync(join(withMap, ".qa"), { recursive: true });
+    writeFileSync(join(withMap, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: withMap },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const first = await adapter.ground(withMap);
+    const second = await adapter.ground(withoutMap);
+
+    assert.deepEqual(first.contextMap, VALID_CONTEXT_JSON);
+    assert.equal(second.contextMap, undefined, "a later specDir without context.json must not inherit the previous map");
+  } finally {
+    rmSync(withMap, { recursive: true, force: true });
+    rmSync(withoutMap, { recursive: true, force: true });
+  }
+});
+
+/* The adapter's static context is built ONCE at composition time (before any run's diff is known),
+   so the diff must be threaded through the ground() CALL itself — the use-case has classificationDiff
+   in scope at the grounding call site (see run-qa.use-case.ts). changedElements is derived
+   deterministically (DiffParserService.changedElements — pure, no I/O, no LLM) and forwarded to
+   buildContextPack's own changedElements input (already wired to captureDomForRoutes's [CHANGED]
+   annotation — see context-pack.test.ts's own coverage of that field).
+ */
+test("ground(): a diff arg derives changedElements and forwards them to buildContextPack", async () => {
+  const capturedInputs: unknown[] = [];
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e", baseUrl: "https://dev.example.com" },
+    {
+      buildContextPack: async (input) => {
+        capturedInputs.push(input);
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
+      },
+    },
+  );
+  const diff = [
+    "diff --git a/src/app/checkout.component.html b/src/app/checkout.component.html",
+    "--- a/src/app/checkout.component.html",
+    "+++ b/src/app/checkout.component.html",
+    "@@ -1,1 +1,2 @@",
+    '+<button data-testid="submit-order">Submit order</button>',
+  ].join("\n");
+
+  await adapter.ground("/tmp/qa-golden/e2e", undefined, diff);
+
+  const captured = capturedInputs[0] as { changedElements?: Array<{ testId?: string }> };
+  assert.ok(captured.changedElements?.some((e) => e.testId === "submit-order"), "the [CHANGED] signal must be derived from the diff and forwarded");
+});
+
+test("ground(): each changed element carries the containers its line sits in, read from the working copy", async () => {
+  const mirrorDir = mkdtempSync(join(tmpdir(), "grounding-scope-"));
+  try {
+    mkdirSync(join(mirrorDir, "src"), { recursive: true });
+    writeFileSync(join(mirrorDir, "src", "list.html"), ["<nm-panel>", "  <button>Submit order</button>", "</nm-panel>"].join("\n"));
+    const capturedInputs: unknown[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: join(mirrorDir, "e2e"), baseUrl: "https://dev.example.com", mirrorDir },
+      { buildContextPack: async (input) => { capturedInputs.push(input); return { text: undefined, domBytes: 0, contractBytes: 0 }; } },
+    );
+    const diff = ["diff --git a/src/list.html b/src/list.html", "--- a/src/list.html", "+++ b/src/list.html", "@@ -2,1 +2,1 @@", "-  <button>Send</button>", "+  <button>Submit order</button>"].join("\n");
+
+    await adapter.ground(join(mirrorDir, "e2e"), undefined, diff);
+
+    const captured = capturedInputs[0] as { changedElements?: Array<{ text?: string; scope?: string[] }> };
+    assert.deepEqual(captured.changedElements?.map((e) => [e.text, e.scope]), [["Submit order", ["nm-panel"]]]);
+  } finally {
+    rmSync(mirrorDir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): an absent diff arg leaves changedElements absent (byte-identical regression guard)", async () => {
+  const capturedInputs: unknown[] = [];
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e" },
+    {
+      buildContextPack: async (input) => {
+        capturedInputs.push(input);
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
+      },
+    },
+  );
+
+  await adapter.ground("/tmp/qa-golden/e2e");
+
+  const captured = capturedInputs[0] as { changedElements?: unknown[] };
+  assert.equal(captured.changedElements, undefined);
+});
+
+test("ground(): buildContextPack returning an empty pack (text: undefined) omits contextPack", async () => {
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e" },
+    { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+  );
+
+  const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+  assert.equal(result.contextPack, undefined);
+});
+
+test("ground(): a buildContextPack throw is non-fatal — ground() resolves with contextPack absent, never rejects", async () => {
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e" },
+    { buildContextPack: async () => { throw new Error("Playwright render crashed"); } },
+  );
+
+  const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+  assert.equal(result.contextPack, undefined);
+});
+
+test("ground(): existingSpecFiles enumeration failure is non-fatal — contextPack is still built", async () => {
+  /* e2eDir points at a path that cannot be read as a directory at all (a file, not a dir) — the
+     enumeration's own try/catch degrades to [] without throwing, and the pack build still runs.
+   */
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-file-"));
+  const filePath = join(dir, "not-a-dir");
+  writeFileSync(filePath, "not a directory");
+  try {
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: filePath },
+      { buildContextPack: async () => ({ text: "## Context Pack\n\nok", domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+    assert.equal(result.existingSpecFiles, undefined);
+    assert.equal(result.contextPack, "## Context Pack\n\nok");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): both existingSpecFiles enumeration and context-pack build failing resolves an EMPTY GroundingResult, never throws", async () => {
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/nonexistent/path/for/sure/qa-grounding-test" },
+    { buildContextPack: async () => { throw new Error("boom"); } },
+  );
+
+  const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+  assert.deepEqual(result, {});
+});
+
+test("ground(): an already-aborted signal skips capture entirely — resolves {} without calling buildContextPack", async () => {
+  let called = false;
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e" },
+    { buildContextPack: async () => { called = true; return { text: "should not be reached", domBytes: 0, contractBytes: 0 }; } },
+  );
+  const controller = new AbortController();
+  controller.abort();
+
+  const result = await adapter.ground("/tmp/qa-golden/e2e", controller.signal);
+
+  assert.deepEqual(result, {});
+  assert.equal(called, false);
+});
+
+test("ground(): an in-flight abort unblocks the caller promptly, even when buildContextPack never resolves", async () => {
+  const adapter = new PreGenerationGroundingPortAdapter(
+    { e2eDir: "/mirrors/org/app/e2e" },
+    { buildContextPack: () => new Promise(() => {}) }, /* never resolves — simulates a hung render */
+  );
+  const controller = new AbortController();
+
+  const groundPromise = adapter.ground("/tmp/qa-golden/e2e", controller.signal);
+  queueMicrotask(() => controller.abort());
+  const result = await groundPromise;
+
+  /* The adapter's own contract (never rejects) still holds — abort degrades to an empty result,
+     NOT a throw, so a caller without a signal?.aborted check after this call is not broken.
+   */
+  assert.equal(result.contextPack, undefined);
+});
+
+test("ground(): prChangedFiles is derived from the threaded diff when static ctx omits it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-prfiles-"));
+  try {
+    let seen: string[] | undefined;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        buildContextPack: async (input) => {
+          seen = input.prChangedFiles;
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+    await adapter.ground(dir, undefined, "diff --git a/src/app/checkout.ts b/src/app/checkout.ts\n+++ b/src/app/checkout.ts\n");
+    assert.deepEqual(seen, ["src/app/checkout.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): domPack:false reaches buildContextPack as false and skips route ranking + changed-element scopes, while the suite and harness facts still come through", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-dompacks-"));
+  try {
+    writeFileSync(join(dir, "home.spec.ts"), "// spec");
+    let seen: { domPack?: boolean; changedElements?: unknown; routes?: unknown } | undefined;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, testIdAttribute: "data-cy", domPack: false },
+      {
+        buildContextPack: async (input) => {
+          seen = { domPack: input.domPack, changedElements: input.changedElements, routes: input.routes };
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+    const result = await adapter.ground(dir, undefined, "diff --git a/src/app/checkout.ts b/src/app/checkout.ts\n+++ b/src/app/checkout.ts\n");
+    assert.equal(seen?.domPack, false, "the lever reaches the pack as false");
+    assert.equal(seen?.changedElements, undefined, "changed-element scopes are only for the pack's DOM capture");
+    assert.equal(seen?.routes, undefined, "no deterministic routes are ranked for a pack that carries no DOM");
+    assert.ok(result.existingSpecFiles?.length, "the existing suite listing still comes through");
+    assert.equal(result.harnessFacts?.testIdAttribute, "data-cy", "harness facts still come through");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* contextPack:false (context mode) skips the whole pack build — no context-pack/dom-capture spans —
+   but the context map and the harness facts its prompt reads still come through. */
+test("ground(): contextPack:false skips buildContextPack entirely but keeps contextMap and harness facts", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-contextpack-off-"));
+  try {
+    writeFileSync(join(dir, "home.spec.ts"), "// spec");
+    const map = { builtAtSha: "abc1234", routes: [{ path: "/owners" }], api: [], feBe: [] };
+    let built = false;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, testIdAttribute: "data-cy", contextPack: false },
+      {
+        loadContextMap: () => map,
+        buildContextPack: async () => { built = true; return { text: "## pack", domBytes: 10, contractBytes: 0 }; },
+      },
+    );
+    const result = await adapter.ground(dir, undefined, "diff --git a/pay.ts b/pay.ts\n");
+    assert.equal(built, false, "the context pack is never built in context mode");
+    assert.equal(result.contextPack, undefined, "no contextPack is emitted, so no delivered/discarded pack spans");
+    assert.deepEqual(result.contextMap, map, "the context map still comes through");
+    assert.equal(result.harnessFacts?.testIdAttribute, "data-cy", "harness facts still come through");
+    assert.ok(result.existingSpecFiles?.length, "the existing suite listing still comes through");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): contextPack:false emits no pack spans even when a trace collaborator is wired", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-contextpack-off-trace-"));
+  try {
+    const traced: string[] = [];
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, contextPack: false },
+      {
+        buildContextPack: async () => ({ text: "## pack", domBytes: 10, contractBytes: 0 }),
+        trace: { pack: () => traced.push("pack"), contextMap: () => traced.push("map") },
+        loadContextMap: () => ({ builtAtSha: "abc1234", routes: [], api: [], feBe: [] }),
+      },
+    );
+    const result = await adapter.ground(dir);
+    assert.equal(result.contextPack, undefined);
+    assert.equal(traced.includes("pack"), false, "the pack trace never fires without a pack");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* A cross-repo run compares the map's declared paths with the triggering service's changed files only where the service's snapshot was staged: the roots reach the pack exactly as the composition gave them, and a single-repo run sends none. An empty list is still a cross-repo run (no path can be under any root). */
+test("ground(): the staged roots of a cross-repo run reach the pack as given, and a single-repo run sends none", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-staged-roots-"));
+  try {
+    const seen: Array<{ stagedRoots?: string[] }> = [];
+    const collaborators = {
+      buildContextPack: async (input: { stagedRoots?: string[] }) => {
+        seen.push(input);
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
+      },
+    };
+    const roots = ["e2e/.qa/service-context/org__orders-svc", ".qa/service-context/org__orders-svc"];
+    const diff = "diff --git a/api/orders.yaml b/api/orders.yaml\n+++ b/api/orders.yaml\n";
+    await new PreGenerationGroundingPortAdapter({ e2eDir: dir, stagedRoots: roots }, collaborators).ground(dir, undefined, diff);
+    await new PreGenerationGroundingPortAdapter({ e2eDir: dir, stagedRoots: [] }, collaborators).ground(dir, undefined, diff);
+    await new PreGenerationGroundingPortAdapter({ e2eDir: dir }, collaborators).ground(dir, undefined, diff);
+
+    assert.deepEqual(seen[0]?.stagedRoots, roots);
+    assert.deepEqual(seen[1]?.stagedRoots, [], "no root to name is still a cross-repo run");
+    assert.equal("stagedRoots" in (seen[2] ?? {}), false, "a single-repo run sends no key at all");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The chain a run exercises through the port, with the real pack in the middle: the diff names the changed files, the map links one route to one of them, and the capture is offered that route first. */
+test("ground(): a route the map links to a file the diff changes is offered to the DOM capture ahead of the routes the file puts first", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-route-ranking-"));
+  try {
+    const captured: string[][] = [];
+    const paths = ["/a", "/b", "/c", "/d", "/e", "/f"];
+    const contextMap = { builtAtSha: "abc1234", routes: paths.map((path) => (path === "/f" ? { path, source: "src/pages/f.ts" } : { path })), api: [], feBe: [] };
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, baseUrl: "http://localhost:3000", contextMap },
+      {
+        contextPackDeps: {
+          captureDomForRoutes: async (routes) => {
+            captured.push(routes);
+            return "button: Pay";
+          },
+          domDeps: { render: async () => [] },
+          log: () => {},
+        },
+      },
+    );
+
+    await adapter.ground(dir, undefined, "diff --git a/src/pages/f.ts b/src/pages/f.ts\n+++ b/src/pages/f.ts\n");
+
+    assert.deepEqual(captured[0], ["/f", ...paths.slice(0, MAX_ROUTES - 1)], "the linked route first, the others in the order of the file");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

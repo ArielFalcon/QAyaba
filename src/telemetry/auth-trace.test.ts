@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuthSessionAdapter, type AuthSessionAdapterDeps } from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
 import { AuthPreconditionError, PRECONDITION_KIND } from "../../qa-engine/src/contexts/qa-run-orchestration/domain/auth-precondition";
-import { TracedSuiteStore, classifySkipReason, SKIP_CLASS } from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/suite-store-trace";
+import { TracedSuiteStore, classifySkipReason, SKIP_CLASS } from "../../qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/suite-store-trace";
 import { SKIP_REASON } from "@kernel/ports/suite-store.port";
 import { newSandboxReport, withExecScope, type RunScope } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-scope";
 import { DEMOTE_REASON, classifyDemoteReason, type SuiteStorePort } from "@kernel/ports/suite-store.port";

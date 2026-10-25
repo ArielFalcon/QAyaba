@@ -15,11 +15,11 @@ import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/a
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { AgentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
-import { ClosedLoopPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter";
-import { AgentBrowserPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter";
+import { ClosedLoopPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/closed-loop-port.adapter";
+import { AgentBrowserPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter";
 import { ClosedLoopRegistry } from "@contexts/qa-run-orchestration/infrastructure/closed-loop-registry";
 import { AgentBrowserRegistry } from "@contexts/qa-run-orchestration/infrastructure/agent-browser-registry";
-import type { ToolTraceWiring } from "@contexts/qa-run-orchestration/infrastructure/bridges/tool-call-trace";
+import type { ToolTraceWiring } from "@contexts/qa-run-orchestration/infrastructure/adapters/tool-call-trace";
 import { AccountLock } from "@contexts/test-execution/domain/account-lock";
 import type { AgentBrowserHostPort, PageState } from "@contexts/test-execution/application/ports/agent-browser.ports";
 import { ThrowingTelemetry } from "@kernel/telemetry/guarded-telemetry";

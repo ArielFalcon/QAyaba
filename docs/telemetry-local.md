@@ -73,7 +73,7 @@ metadata, with dots replaced by underscores):
 {service_name="qayaba-orchestrator"} | trace_id="..."   # copy the id from the run's trace in Tempo
 ```
 
-The orchestrator's console lines (`[qa] ...`, the grounding bridges' warnings) are exported only while a span is active
+The orchestrator's console lines (`[qa] ...`, the grounding adapters' warnings) are exported only while a span is active
 and under the run's capture mode: `off` sends nothing, `metadata` caps a line at 1 KB, `full` at 4 KB. Boot,
 `/api/health` polling and any line outside a span stay in docker's json-file log. Loki is a viewing aid: nothing reads it
 programmatically, and `runs.logs`/`run_events` remain the API's record.

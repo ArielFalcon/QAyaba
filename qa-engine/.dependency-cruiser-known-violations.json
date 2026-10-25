@@ -77,8 +77,8 @@
   {
     "type": "dependency",
     "from": "qa-engine/src/contexts/qa-run-orchestration/application/run-flow/run-services.ts",
-    "to": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/spec-snapshot.adapter.ts",
-    "unresolvedTo": "../../infrastructure/bridges/spec-snapshot.adapter.ts",
+    "to": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/spec-snapshot.adapter.ts",
+    "unresolvedTo": "../../infrastructure/adapters/spec-snapshot.adapter.ts",
     "dependencyTypes": [
       "local",
       "import"
@@ -857,7 +857,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/application/agent-browser.use-case.ts",
     "unresolvedTo": "@contexts/test-execution/application/agent-browser.use-case.ts",
     "dependencyTypes": [
@@ -874,7 +874,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/application/ports/agent-browser.ports.ts",
     "unresolvedTo": "@contexts/test-execution/application/ports/agent-browser.ports.ts",
     "dependencyTypes": [
@@ -892,7 +892,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/domain/account-lock.ts",
     "unresolvedTo": "@contexts/test-execution/domain/account-lock.ts",
     "dependencyTypes": [
@@ -909,7 +909,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/domain/agent-browser-capability.ts",
     "unresolvedTo": "@contexts/test-execution/domain/agent-browser-capability.ts",
     "dependencyTypes": [
@@ -926,7 +926,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/domain/agent-browser-route-guard.ts",
     "unresolvedTo": "@contexts/test-execution/domain/agent-browser-route-guard.ts",
     "dependencyTypes": [
@@ -943,7 +943,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
     "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-agent-browser.host.ts",
     "dependencyTypes": [
@@ -960,7 +960,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
     "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
     "dependencyTypes": [
@@ -978,7 +978,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/agent-browser-session-material.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/agent-browser-session-material.ts",
     "to": "qa-engine/src/contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
     "unresolvedTo": "@contexts/test-execution/infrastructure/agent-browser/playwright-types.ts",
     "dependencyTypes": [
@@ -996,7 +996,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/blast-radius-signal.ts",
     "to": "qa-engine/src/contexts/generation/domain/prompt-headings.ts",
     "unresolvedTo": "@contexts/generation/domain/prompt-headings.ts",
     "dependencyTypes": [
@@ -1013,7 +1013,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/blast-radius-signal.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
     "dependencyTypes": [
@@ -1030,7 +1030,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/change-analysis-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/change-analysis-port.adapter.ts",
     "to": "qa-engine/src/contexts/change-analysis/domain/commit-classification.ts",
     "unresolvedTo": "@contexts/change-analysis/domain/commit-classification.ts",
     "dependencyTypes": [
@@ -1047,7 +1047,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/closed-loop-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/application/ports/run-spec.ports.ts",
     "unresolvedTo": "@contexts/test-execution/application/ports/run-spec.ports.ts",
     "dependencyTypes": [
@@ -1065,7 +1065,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/closed-loop-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
     "unresolvedTo": "@contexts/test-execution/application/run-spec.use-case.ts",
     "dependencyTypes": [
@@ -1082,7 +1082,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/closed-loop-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/domain/account-lock.ts",
     "unresolvedTo": "@contexts/test-execution/domain/account-lock.ts",
     "dependencyTypes": [
@@ -1099,7 +1099,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/closed-loop-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/closed-loop-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/domain/run-spec-capability.ts",
     "unresolvedTo": "@contexts/test-execution/domain/run-spec-capability.ts",
     "dependencyTypes": [
@@ -1116,7 +1116,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/context-map-capture-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/application/ports/generation-ports.ts",
     "unresolvedTo": "@contexts/generation/application/ports/generation-ports.ts",
     "dependencyTypes": [
@@ -1134,7 +1134,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/context-trace.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/context-trace.ts",
     "to": "qa-engine/src/contexts/generation/domain/context-item-ids.ts",
     "unresolvedTo": "@contexts/generation/domain/context-item-ids.ts",
     "dependencyTypes": [
@@ -1151,7 +1151,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/context-trace.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/context-trace.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/context-pack.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/context-pack.ts",
     "dependencyTypes": [
@@ -1168,7 +1168,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/coordination-telemetry-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/coordination-telemetry-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
     "dependencyTypes": [
@@ -1185,7 +1185,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/coordination-telemetry-trace.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/coordination-telemetry-trace.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
     "dependencyTypes": [
@@ -1202,7 +1202,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/cross-repo-impact-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/cross-repo-impact-port.adapter.ts",
     "to": "qa-engine/src/contexts/service-topology/application/resolve-cross-repo-impact.use-case.ts",
     "unresolvedTo": "@contexts/service-topology/application/resolve-cross-repo-impact.use-case.ts",
     "dependencyTypes": [
@@ -1219,7 +1219,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/execution-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/infrastructure/code-execution.strategy.ts",
     "unresolvedTo": "@contexts/test-execution/infrastructure/code-execution.strategy.ts",
     "dependencyTypes": [
@@ -1237,7 +1237,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/execution-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.strategy.ts",
     "unresolvedTo": "@contexts/test-execution/infrastructure/e2e-execution.strategy.ts",
     "dependencyTypes": [
@@ -1255,7 +1255,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/generation-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/application/generate-tests.use-case.ts",
     "unresolvedTo": "@contexts/generation/application/generate-tests.use-case.ts",
     "dependencyTypes": [
@@ -1272,7 +1272,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/generation-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/application/ports/generation-ports.ts",
     "unresolvedTo": "@contexts/generation/application/ports/generation-ports.ts",
     "dependencyTypes": [
@@ -1290,7 +1290,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/generation-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/domain/generation-review.ts",
     "unresolvedTo": "@contexts/generation/domain/generation-review.ts",
     "dependencyTypes": [
@@ -1307,7 +1307,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/generation-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/domain/regen-turn.ts",
     "unresolvedTo": "@contexts/generation/domain/regen-turn.ts",
     "dependencyTypes": [
@@ -1324,7 +1324,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/generation-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/domain/suite-entry.ts",
     "unresolvedTo": "@contexts/generation/domain/suite-entry.ts",
     "dependencyTypes": [
@@ -1341,7 +1341,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/implementation-resources.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/implementation-resources.ts",
     "to": "qa-engine/src/contexts/change-analysis/domain/language-id.ts",
     "unresolvedTo": "@contexts/change-analysis/domain/language-id.ts",
     "dependencyTypes": [
@@ -1358,7 +1358,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/implementation-resources.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/implementation-resources.ts",
     "to": "qa-engine/src/contexts/generation/application/ports/generation-ports.ts",
     "unresolvedTo": "@contexts/generation/application/ports/generation-ports.ts",
     "dependencyTypes": [
@@ -1376,7 +1376,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/implementation-resources.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/implementation-resources.ts",
     "to": "qa-engine/src/contexts/generation/domain/declared-resources.ts",
     "unresolvedTo": "@contexts/generation/domain/declared-resources.ts",
     "dependencyTypes": [
@@ -1393,7 +1393,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/objective-signal-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-port.adapter.ts",
     "to": "qa-engine/src/contexts/objective-signal/domain/assemble-change-coverage.ts",
     "unresolvedTo": "@contexts/objective-signal/domain/assemble-change-coverage.ts",
     "dependencyTypes": [
@@ -1410,7 +1410,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/objective-signal-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/objective-signal-port.adapter.ts",
     "to": "qa-engine/src/contexts/objective-signal/domain/decide-coverage.service.ts",
     "unresolvedTo": "@contexts/objective-signal/domain/decide-coverage.service.ts",
     "dependencyTypes": [
@@ -1427,7 +1427,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-exec-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-exec-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/dom-snapshot.ts",
     "dependencyTypes": [
@@ -1444,7 +1444,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-exec-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-exec-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/route-catalog.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/route-catalog.ts",
     "dependencyTypes": [
@@ -1461,7 +1461,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/application/ports/generation-ports.ts",
     "unresolvedTo": "@contexts/generation/application/ports/generation-ports.ts",
     "dependencyTypes": [
@@ -1479,7 +1479,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/domain/harness-facts.ts",
     "unresolvedTo": "@contexts/generation/domain/harness-facts.ts",
     "dependencyTypes": [
@@ -1496,7 +1496,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/domain/route-ranking.ts",
     "unresolvedTo": "@contexts/generation/domain/route-ranking.ts",
     "dependencyTypes": [
@@ -1513,7 +1513,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/domain/suite-entry.ts",
     "unresolvedTo": "@contexts/generation/domain/suite-entry.ts",
     "dependencyTypes": [
@@ -1530,7 +1530,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/context-pack.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/context-pack.ts",
     "dependencyTypes": [
@@ -1547,7 +1547,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/manifest-fs.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/manifest-fs.ts",
     "dependencyTypes": [
@@ -1564,7 +1564,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
     "dependencyTypes": [
@@ -1581,7 +1581,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/review-dom-grounding-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/review-dom-grounding-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/dom-snapshot.ts",
     "dependencyTypes": [
@@ -1598,7 +1598,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/review-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/application/ports/generation-ports.ts",
     "unresolvedTo": "@contexts/generation/application/ports/generation-ports.ts",
     "dependencyTypes": [
@@ -1616,7 +1616,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/review-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/domain/prompt-facts.ts",
     "unresolvedTo": "@contexts/generation/domain/prompt-facts.ts",
     "dependencyTypes": [
@@ -1633,7 +1633,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/review-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/prompt-builders/prompts.ts",
     "dependencyTypes": [
@@ -1650,7 +1650,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/service-links-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/service-links-port.adapter.ts",
     "to": "qa-engine/src/contexts/service-topology/domain/index.ts",
     "unresolvedTo": "@contexts/service-topology/domain/index.ts",
     "dependencyTypes": [
@@ -1668,7 +1668,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/service-links-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/service-links-port.adapter.ts",
     "to": "qa-engine/src/contexts/service-topology/infrastructure/resolver-factory.ts",
     "unresolvedTo": "@contexts/service-topology/infrastructure/resolver-factory.ts",
     "dependencyTypes": [
@@ -1685,7 +1685,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/structural-signal-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/structural-signal-port.adapter.ts",
     "to": "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
     "unresolvedTo": "@contexts/generation/infrastructure/sanitize-text.ts",
     "dependencyTypes": [
@@ -1702,7 +1702,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-outcome.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-outcome.ts",
     "to": "qa-engine/src/contexts/test-execution/application/agent-browser.use-case.ts",
     "unresolvedTo": "@contexts/test-execution/application/agent-browser.use-case.ts",
     "dependencyTypes": [
@@ -1720,7 +1720,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-outcome.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-outcome.ts",
     "to": "qa-engine/src/contexts/test-execution/application/run-spec.use-case.ts",
     "unresolvedTo": "@contexts/test-execution/application/run-spec.use-case.ts",
     "dependencyTypes": [
@@ -1738,7 +1738,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/tool-call-trace.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-trace.ts",
     "to": "qa-engine/src/contexts/generation/domain/tool-link.ts",
     "unresolvedTo": "@contexts/generation/domain/tool-link.ts",
     "dependencyTypes": [
@@ -1756,7 +1756,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/trusted-session-renewal.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/trusted-session-renewal.ts",
     "to": "qa-engine/src/contexts/test-execution/application/ports/run-spec.ports.ts",
     "unresolvedTo": "@contexts/test-execution/application/ports/run-spec.ports.ts",
     "dependencyTypes": [
@@ -1774,7 +1774,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/validation-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/validation-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/infrastructure/code-validation.strategy.ts",
     "unresolvedTo": "@contexts/test-execution/infrastructure/code-validation.strategy.ts",
     "dependencyTypes": [
@@ -1792,7 +1792,7 @@
   },
   {
     "type": "dependency",
-    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/validation-port.adapter.ts",
+    "from": "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/validation-port.adapter.ts",
     "to": "qa-engine/src/contexts/test-execution/infrastructure/static-gate.adapter.ts",
     "unresolvedTo": "@contexts/test-execution/infrastructure/static-gate.adapter.ts",
     "dependencyTypes": [

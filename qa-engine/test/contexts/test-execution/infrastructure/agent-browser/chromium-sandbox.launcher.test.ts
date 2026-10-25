@@ -28,7 +28,7 @@ function setup(over: { exitCode?: number; connectFails?: boolean; connectHangs?:
     },
   };
   const connects: string[] = [];
-  const bridges: { pipe: unknown; closed: number }[] = [];
+  const pipes: { pipe: unknown; closed: number }[] = [];
   let browserClosed = 0;
   const browser: PwBrowser = { newContext: async () => { throw new Error("unused"); }, close: async () => { browserClosed += 1; } };
   const chromium: PlaywrightChromium = {
@@ -49,15 +49,15 @@ function setup(over: { exitCode?: number; connectFails?: boolean; connectHangs?:
     startSignal: () => over.startSignal ?? new AbortController().signal,
     startBridge: async (pipe) => {
       const record = { pipe, closed: 0 };
-      bridges.push(record);
+      pipes.push(record);
       return { url: "ws://127.0.0.1:41233/secret-path", close: async () => { record.closed += 1; } };
     },
   });
-  return { launcher, child, spawns, connects, killed, bridges, browserClosed: () => browserClosed };
+  return { launcher, child, spawns, connects, killed, pipes, browserClosed: () => browserClosed };
 }
 
 test("the browser runs through the execution launcher with the suite profile, a profile in the run's work dir and a pipe for the protocol", async () => {
-  const { launcher, spawns, connects, child, bridges } = setup();
+  const { launcher, spawns, connects, child, pipes } = setup();
   await launcher.launch();
   const spawn = spawns[0]!;
   assert.equal(spawn.cmd, "/ms-playwright/chromium/chrome");
@@ -69,7 +69,7 @@ test("the browser runs through the execution launcher with the suite profile, a 
   const profile = spawn.args.find((a) => a.startsWith("--user-data-dir="));
   assert.ok(profile?.startsWith("--user-data-dir=/work/"), "the profile lives in the run's work dir");
   assert.deepEqual(connects, ["ws://127.0.0.1:41233/secret-path"], "the orchestrator connects to the bridge, not to the browser");
-  const pipe = bridges[0]!.pipe as { toBrowser: unknown; fromBrowser: unknown };
+  const pipe = pipes[0]!.pipe as { toBrowser: unknown; fromBrowser: unknown };
   assert.equal(pipe.toBrowser, child.toBrowser);
   assert.equal(pipe.fromBrowser, child.fromBrowser);
 });
@@ -82,24 +82,24 @@ test("a lifetime wrapper sits in front of the browser so that it ends even if th
 });
 
 test("disposing closes the browser and the bridge and kills the whole process group, once", async () => {
-  const { launcher, killed, browserClosed, bridges } = setup();
+  const { launcher, killed, browserClosed, pipes } = setup();
   const launched = await launcher.launch();
   await launched.dispose();
   await launched.dispose();
   assert.equal(browserClosed(), 1);
-  assert.equal(bridges[0]!.closed, 1);
+  assert.equal(pipes[0]!.closed, 1);
   assert.equal(killed.length, 1);
 });
 
 test("a browser that exits before it is driven is a start failure that names the exit code and not its output", async () => {
-  const { launcher, killed, bridges } = setup({ exitCode: 139, connectHangs: true });
+  const { launcher, killed, pipes } = setup({ exitCode: 139, connectHangs: true });
   await assert.rejects(launcher.launch(), (err: unknown) => {
     assert.ok(err instanceof Error);
     assert.match(err.message, /139/);
     return true;
   });
   assert.equal(killed.length, 1);
-  assert.equal(bridges[0]!.closed, 1);
+  assert.equal(pipes[0]!.closed, 1);
 });
 
 test("a browser that never answers is killed when the start time is up", async () => {
@@ -113,10 +113,10 @@ test("a browser that never answers is killed when the start time is up", async (
 });
 
 test("a failed connection kills the browser it started and closes the bridge", async () => {
-  const { launcher, killed, bridges } = setup({ connectFails: true });
+  const { launcher, killed, pipes } = setup({ connectFails: true });
   await assert.rejects(launcher.launch(), /connect refused/);
   assert.equal(killed.length, 1);
-  assert.equal(bridges[0]!.closed, 1);
+  assert.equal(pipes[0]!.closed, 1);
 });
 
 test("a browser started without its pipe is killed at once", async () => {
