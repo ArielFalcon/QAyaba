@@ -122,7 +122,3 @@ export function rankRoutesWithRelevance(routes: readonly string[], map: Rankable
     })
     .sort((a, b) => a.rank - b.rank);
 }
-
-export function rankRoutesByChange(routes: readonly string[], map: RankableMap | undefined, change: RankingChange): string[] {
-  return rankRoutesWithRelevance(routes, map, change).map((entry) => entry.route);
-}

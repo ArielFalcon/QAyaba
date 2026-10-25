@@ -409,7 +409,6 @@ export const ConfirmBoundariesInputSchema = z.object({
 
 export const AgentProviderSchema = z.enum(["opencode", "codex"]);
 export const AgentModeSchema = z.enum(["single", "dual"]);
-export const AgentRoleSchema = z.enum(["primary", "reviewer", "chat", "worker", "workerCode", "maintainer"]);
 
 export const RoleAssignmentSchema = z.object({
   provider: AgentProviderSchema,
@@ -730,7 +729,6 @@ export type ProposeBoundariesInput = z.infer<typeof ProposeBoundariesInputSchema
 export type ConfirmBoundariesInput = z.infer<typeof ConfirmBoundariesInputSchema>;
 export type AgentProvider = z.infer<typeof AgentProviderSchema>;
 export type AgentMode = z.infer<typeof AgentModeSchema>;
-export type AgentRole = z.infer<typeof AgentRoleSchema>;
 export type RoleAssignment = z.infer<typeof RoleAssignmentSchema>;
 export type PublicAgentConfig = z.infer<typeof PublicAgentConfigSchema>;
 export type AgentConfigUpdate = z.infer<typeof AgentConfigUpdateSchema>;

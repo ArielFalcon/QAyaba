@@ -7,8 +7,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PreGenerationGroundingPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/pre-generation-grounding-port.adapter.ts";
 import { MAX_DECLARED_RESOURCE_SOURCE_BYTES } from "@contexts/qa-run-orchestration/infrastructure/adapters/implementation-resources.ts";
-import { rankRoutesByChange } from "@contexts/generation/domain/route-ranking.ts";
+import { rankRoutesWithRelevance } from "@contexts/generation/domain/route-ranking.ts";
+
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+
+const routesOf = (...args: Parameters<typeof rankRoutesWithRelevance>): string[] => rankRoutesWithRelevance(...args).map((entry) => entry.route);
 
 const PAGE_DIR = "src/app/restaurant-list";
 const PAGE = `${PAGE_DIR}/restaurant-list.page.ts`;
@@ -60,7 +63,7 @@ test("a template-only change ranks the route whose implementation file declares 
     const map = await groundedMap(mirror, mapWith([PAGE]));
 
     assert.deepEqual(filesOf(map), [PAGE, `${PAGE_DIR}/restaurant-list.page.html`, `${PAGE_DIR}/restaurant-list.page.scss`]);
-    assert.deepEqual(rankRoutesByChange(["/about", "/restaurants"], map, { changedFiles: [`${PAGE_DIR}/restaurant-list.page.html`] }), ["/restaurants", "/about"]);
+    assert.deepEqual(routesOf(["/about", "/restaurants"], map, { changedFiles: [`${PAGE_DIR}/restaurant-list.page.html`] }), ["/restaurants", "/about"]);
   });
 });
 
@@ -72,7 +75,7 @@ test("a file that only looks like a declared one by its name does not rank the r
 
     const map = await groundedMap(mirror, mapWith([PAGE]));
 
-    assert.deepEqual(rankRoutesByChange(["/about", "/restaurants"], map, { changedFiles: [`${PAGE_DIR}/restaurant-list.page.css`] }), ["/about", "/restaurants"]);
+    assert.deepEqual(routesOf(["/about", "/restaurants"], map, { changedFiles: [`${PAGE_DIR}/restaurant-list.page.css`] }), ["/about", "/restaurants"]);
   });
 });
 

@@ -1,8 +1,11 @@
 /* The order in which the pack offers the map's routes to the capture: the ones the run's changed files point at come first. The map is data read from a file, so each field can hold any shape; entries here are plain records and the map type is claimed once. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROUTE_LINK_FIELDS, rankRoutesByChange, rankRoutesWithRelevance } from "@contexts/generation/domain/route-ranking.ts";
+import { ROUTE_LINK_FIELDS, rankRoutesWithRelevance } from "@contexts/generation/domain/route-ranking.ts";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+
+/* The routes in rank order, without their relevance. */
+const routesOf = (...args: Parameters<typeof rankRoutesWithRelevance>): string[] => rankRoutesWithRelevance(...args).map((entry) => entry.route);
 
 const { implementationFiles: IMPLEMENTATION, source: SOURCE, spec: SPEC } = ROUTE_LINK_FIELDS;
 
@@ -29,7 +32,7 @@ test("routes come first by what links them to a changed file: implementation fil
   );
   const changedFiles = ["src/pages/cart.ts", "src/pages/orders.ts", "api/orders.yaml"];
 
-  const ranked = rankRoutesByChange(["/plain", "/by-spec", "/by-source", "/by-implementation"], map, { changedFiles });
+  const ranked = routesOf(["/plain", "/by-spec", "/by-source", "/by-implementation"], map, { changedFiles });
 
   assert.deepEqual(ranked, ["/by-implementation", "/by-source", "/by-spec", "/plain"]);
 });
@@ -37,7 +40,7 @@ test("routes come first by what links them to a changed file: implementation fil
 test("within a rank the routes keep the order of the file, and so do the routes nothing links", () => {
   const map = mapOf(FILE_ORDER.map((path) => route(path, path === "/z" || path === "/y" ? { [SOURCE]: "src/pages/cart.ts" } : {})));
 
-  assert.deepEqual(rankRoutesByChange(FILE_ORDER, map, { changedFiles: ["src/pages/cart.ts"] }), ["/z", "/y", "/m", "/b", "/a"]);
+  assert.deepEqual(routesOf(FILE_ORDER, map, { changedFiles: ["src/pages/cart.ts"] }), ["/z", "/y", "/m", "/b", "/a"]);
 });
 
 test("a route linked in several ways takes its best rank once, and no route is lost or repeated", () => {
@@ -47,7 +50,7 @@ test("a route linked in several ways takes its best rank once, and no route is l
     route("/y", { [SOURCE]: "src/pages/orders.ts" }),
   ]);
 
-  const ranked = rankRoutesByChange(["/x", "/both", "/y"], map, { changedFiles: ["src/pages/cart.ts", "src/pages/orders.ts"] });
+  const ranked = routesOf(["/x", "/both", "/y"], map, { changedFiles: ["src/pages/cart.ts", "src/pages/orders.ts"] });
 
   assert.deepEqual(ranked, ["/both", "/y", "/x"]);
 });
@@ -59,7 +62,7 @@ test("a route linked by its source and by a spec ranks with the source, ahead of
     [joins("/spec-only", "listOrders"), joins("/source-and-spec", "listOrders")],
   );
 
-  assert.deepEqual(rankRoutesByChange(["/spec-only", "/source-and-spec"], map, { changedFiles: ["src/pages/orders.ts", "api/orders.yaml"] }), ["/source-and-spec", "/spec-only"]);
+  assert.deepEqual(routesOf(["/spec-only", "/source-and-spec"], map, { changedFiles: ["src/pages/orders.ts", "api/orders.yaml"] }), ["/source-and-spec", "/spec-only"]);
 });
 
 test("a route that joins several operations is linked when any one of their specs changed", () => {
@@ -69,7 +72,7 @@ test("a route that joins several operations is linked when any one of their spec
     [joins("/orders", "listOrders"), joins("/orders", "getOrder")],
   );
 
-  assert.deepEqual(rankRoutesByChange(["/plain", "/orders"], map, { changedFiles: ["api/order-detail.yaml"] }), ["/orders", "/plain"]);
+  assert.deepEqual(routesOf(["/plain", "/orders"], map, { changedFiles: ["api/order-detail.yaml"] }), ["/orders", "/plain"]);
 });
 
 test("an operation's spec links the routes that join it and no other route", () => {
@@ -79,7 +82,7 @@ test("an operation's spec links the routes that join it and no other route", () 
     [joins("/c", "listOrders"), joins("/a", "listUsers")],
   );
 
-  assert.deepEqual(rankRoutesByChange(["/a", "/b", "/c"], map, { changedFiles: ["api/orders.yaml"] }), ["/c", "/a", "/b"]);
+  assert.deepEqual(routesOf(["/a", "/b", "/c"], map, { changedFiles: ["api/orders.yaml"] }), ["/c", "/a", "/b"]);
 });
 
 test("with nothing to match the order stays the file's, whatever the map declares", () => {
@@ -92,15 +95,15 @@ test("with nothing to match the order stays the file's, whatever the map declare
   const everythingLinked = mapOf(FILE_ORDER.map((path) => route(path, { [SOURCE]: "src/pages/cart.ts" })));
   const changed = { changedFiles: ["src/pages/cart.ts"] };
 
-  assert.deepEqual(rankRoutesByChange(FILE_ORDER, nothingDeclared, changed), FILE_ORDER, "a map that declares no link field");
-  assert.deepEqual(rankRoutesByChange(FILE_ORDER, otherFilesDeclared, changed), FILE_ORDER, "every link field naming a file that did not change");
-  assert.deepEqual(rankRoutesByChange(FILE_ORDER, everythingLinked, changed), FILE_ORDER, "every route linked to the same changed file");
-  assert.deepEqual(rankRoutesByChange(FILE_ORDER, everythingLinked, { changedFiles: [] }), FILE_ORDER, "no changed file");
-  assert.deepEqual(rankRoutesByChange(FILE_ORDER, everythingLinked, { changedFiles: ["", ".", "./", "/"] }), FILE_ORDER, "changed files that name nothing");
+  assert.deepEqual(routesOf(FILE_ORDER, nothingDeclared, changed), FILE_ORDER, "a map that declares no link field");
+  assert.deepEqual(routesOf(FILE_ORDER, otherFilesDeclared, changed), FILE_ORDER, "every link field naming a file that did not change");
+  assert.deepEqual(routesOf(FILE_ORDER, everythingLinked, changed), FILE_ORDER, "every route linked to the same changed file");
+  assert.deepEqual(routesOf(FILE_ORDER, everythingLinked, { changedFiles: [] }), FILE_ORDER, "no changed file");
+  assert.deepEqual(routesOf(FILE_ORDER, everythingLinked, { changedFiles: ["", ".", "./", "/"] }), FILE_ORDER, "changed files that name nothing");
   /* One route only: were every route linked alike, a promotion of all of them would leave the order as it was. */
   const lastNamesNothing = mapOf(FILE_ORDER.map((path) => route(path, path === "/a" ? { [SOURCE]: "./", [IMPLEMENTATION]: ["", "."] } : {})));
-  assert.deepEqual(rankRoutesByChange(FILE_ORDER, lastNamesNothing, { changedFiles: ["", "./", "src/pages/cart.ts"] }), FILE_ORDER, "a declared path that names nothing is not a changed file that names nothing");
-  assert.deepEqual(rankRoutesByChange(FILE_ORDER, undefined, changed), FILE_ORDER, "no map at all");
+  assert.deepEqual(routesOf(FILE_ORDER, lastNamesNothing, { changedFiles: ["", "./", "src/pages/cart.ts"] }), FILE_ORDER, "a declared path that names nothing is not a changed file that names nothing");
+  assert.deepEqual(routesOf(FILE_ORDER, undefined, changed), FILE_ORDER, "no map at all");
 });
 
 test("a route whose path, name or component only resembles a changed file is not promoted, nor one declared in a file beside it", () => {
@@ -111,7 +114,7 @@ test("a route whose path, name or component only resembles a changed file is not
     route("/sibling", { [SOURCE]: "src/pages/home.page.ts" }),
   ]);
 
-  const ranked = rankRoutesByChange(["/home", "/cart", "/src/pages/cart", "/sibling"], map, { changedFiles: ["src/pages/cart.page.ts"] });
+  const ranked = routesOf(["/home", "/cart", "/src/pages/cart", "/sibling"], map, { changedFiles: ["src/pages/cart.page.ts"] });
 
   assert.deepEqual(ranked, ["/home", "/cart", "/src/pages/cart", "/sibling"]);
 });
@@ -123,7 +126,7 @@ test("a path the map lists twice ranks by the best of its entries, wherever the 
     ["before the linked entry", [route("/dup"), linked]],
   ] as const) {
     const map = mapOf([route("/first"), ...entries]);
-    assert.deepEqual(rankRoutesByChange(["/first", "/dup"], map, { changedFiles: ["src/pages/cart.ts"] }), ["/dup", "/first"], `the bare entry stands ${where}`);
+    assert.deepEqual(routesOf(["/first", "/dup"], map, { changedFiles: ["src/pages/cart.ts"] }), ["/dup", "/first"], `the bare entry stands ${where}`);
   }
 });
 
@@ -132,14 +135,14 @@ test("a path the map lists twice with two different links ranks by the better of
   const byImplementation = route("/dup", { [IMPLEMENTATION]: ["src/pages/orders.ts"] });
   for (const entries of [[bySource, byImplementation], [byImplementation, bySource]]) {
     const map = mapOf([route("/by-source", { [SOURCE]: "src/pages/cart.ts" }), ...entries]);
-    assert.deepEqual(rankRoutesByChange(["/by-source", "/dup"], map, { changedFiles: ["src/pages/cart.ts", "src/pages/orders.ts"] }), ["/dup", "/by-source"]);
+    assert.deepEqual(routesOf(["/by-source", "/dup"], map, { changedFiles: ["src/pages/cart.ts", "src/pages/orders.ts"] }), ["/dup", "/by-source"]);
   }
 });
 
 test("a route absent from the map is not linked to anything", () => {
   const map = mapOf([route("/known", { [SOURCE]: "src/pages/cart.ts" })]);
 
-  assert.deepEqual(rankRoutesByChange(["/absent", "/known"], map, { changedFiles: ["src/pages/cart.ts"] }), ["/known", "/absent"]);
+  assert.deepEqual(routesOf(["/absent", "/known"], map, { changedFiles: ["src/pages/cart.ts"] }), ["/known", "/absent"]);
 });
 
 /* ── how a declared path meets a changed file ── */
@@ -149,38 +152,38 @@ const SPELLINGS = ["src/pages/cart.ts", "./src/pages/cart.ts", "/src/pages/cart.
 test("a path names the same file however it is spelled: separators, a leading dot or slash, doubled or dotted segments", () => {
   for (const spelling of SPELLINGS) {
     const declared = mapOf([route("/other"), route("/cart", { [SOURCE]: spelling })]);
-    assert.deepEqual(rankRoutesByChange(["/other", "/cart"], declared, { changedFiles: ["src/pages/cart.ts"] }), ["/cart", "/other"], `declared as ${spelling}`);
+    assert.deepEqual(routesOf(["/other", "/cart"], declared, { changedFiles: ["src/pages/cart.ts"] }), ["/cart", "/other"], `declared as ${spelling}`);
     const changed = mapOf([route("/other"), route("/cart", { [SOURCE]: "src/pages/cart.ts" })]);
-    assert.deepEqual(rankRoutesByChange(["/other", "/cart"], changed, { changedFiles: [spelling] }), ["/cart", "/other"], `changed as ${spelling}`);
+    assert.deepEqual(routesOf(["/other", "/cart"], changed, { changedFiles: [spelling] }), ["/cart", "/other"], `changed as ${spelling}`);
   }
 });
 
 test("in a single repo a file at the root names itself, and only itself", () => {
   const linked = mapOf([route("/other"), route("/home", { [SOURCE]: "routes.ts" })]);
-  assert.deepEqual(rankRoutesByChange(["/other", "/home"], linked, { changedFiles: ["routes.ts"] }), ["/home", "/other"]);
-  assert.deepEqual(rankRoutesByChange(["/other", "/home"], linked, { changedFiles: ["app.ts"] }), ["/other", "/home"]);
+  assert.deepEqual(routesOf(["/other", "/home"], linked, { changedFiles: ["routes.ts"] }), ["/home", "/other"]);
+  assert.deepEqual(routesOf(["/other", "/home"], linked, { changedFiles: ["app.ts"] }), ["/other", "/home"]);
 });
 
 test("a bare file name is never the suffix that links two paths, whichever of them is the bare one", () => {
   const declaredDeep = mapOf([route("/other"), route("/page", { [SOURCE]: "src/pages/index.ts" })]);
   const declaredBare = mapOf([route("/other"), route("/page", { [SOURCE]: "index.ts" })]);
 
-  assert.deepEqual(rankRoutesByChange(["/other", "/page"], declaredDeep, { changedFiles: ["index.ts"] }), ["/other", "/page"]);
-  assert.deepEqual(rankRoutesByChange(["/other", "/page"], declaredBare, { changedFiles: ["src/pages/index.ts"] }), ["/other", "/page"]);
+  assert.deepEqual(routesOf(["/other", "/page"], declaredDeep, { changedFiles: ["index.ts"] }), ["/other", "/page"]);
+  assert.deepEqual(routesOf(["/other", "/page"], declaredBare, { changedFiles: ["src/pages/index.ts"] }), ["/other", "/page"]);
 });
 
 test("a path re-rooted under a longer one links when the shorter spans two segments, whichever of them is the longer", () => {
   const declaredLonger = mapOf([route("/other"), route("/page", { [SOURCE]: "web/src/pages/cart.ts" })]);
   const declaredShorter = mapOf([route("/other"), route("/page", { [SOURCE]: "pages/cart.ts" })]);
 
-  assert.deepEqual(rankRoutesByChange(["/other", "/page"], declaredLonger, { changedFiles: ["src/pages/cart.ts"] }), ["/page", "/other"]);
-  assert.deepEqual(rankRoutesByChange(["/other", "/page"], declaredShorter, { changedFiles: ["web/src/pages/cart.ts"] }), ["/page", "/other"]);
+  assert.deepEqual(routesOf(["/other", "/page"], declaredLonger, { changedFiles: ["src/pages/cart.ts"] }), ["/page", "/other"]);
+  assert.deepEqual(routesOf(["/other", "/page"], declaredShorter, { changedFiles: ["web/src/pages/cart.ts"] }), ["/page", "/other"]);
 });
 
 test("a suffix has to start at a segment: the end of a longer name is not the same file", () => {
   const map = mapOf([route("/other"), route("/page", { [SOURCE]: "src/mypages/cart.ts" })]);
 
-  assert.deepEqual(rankRoutesByChange(["/other", "/page"], map, { changedFiles: ["pages/cart.ts"] }), ["/other", "/page"]);
+  assert.deepEqual(routesOf(["/other", "/page"], map, { changedFiles: ["pages/cart.ts"] }), ["/other", "/page"]);
 });
 
 /* ── a cross-repo run ── */
@@ -197,17 +200,17 @@ const crossRepo = (changedFiles: string[], stagedRoots: string[] = STAGED_ROOTS)
 test("on a cross-repo run a path under the service's staged root is compared with the service's changed files, whichever way the map names that root", () => {
   for (const root of STAGED_ROOTS) {
     assert.deepEqual(
-      rankRoutesByChange(["/other", "/orders"], specJoinedTo(`${root}/contracts/api/orders.yaml`), crossRepo(["api/orders.yaml"])),
+      routesOf(["/other", "/orders"], specJoinedTo(`${root}/contracts/api/orders.yaml`), crossRepo(["api/orders.yaml"])),
       ["/orders", "/other"],
       `a suffix of the path under ${root}`,
     );
     assert.deepEqual(
-      rankRoutesByChange(["/other", "/orders"], specJoinedTo(`${root}/api/orders.yaml`), crossRepo(["api/orders.yaml"])),
+      routesOf(["/other", "/orders"], specJoinedTo(`${root}/api/orders.yaml`), crossRepo(["api/orders.yaml"])),
       ["/orders", "/other"],
       `the whole path under ${root}`,
     );
     assert.deepEqual(
-      rankRoutesByChange(["/other", "/orders"], specJoinedTo(`${root}/api/orders.yaml`), crossRepo(["services/orders/api/orders.yaml"])),
+      routesOf(["/other", "/orders"], specJoinedTo(`${root}/api/orders.yaml`), crossRepo(["services/orders/api/orders.yaml"])),
       ["/orders", "/other"],
       `a changed path that is the longer one, under ${root}`,
     );
@@ -218,7 +221,7 @@ test("a staged root is read like any other path: separators, a leading dot and a
   const roots = [".\\e2e\\.qa\\service-context\\org__orders-svc\\"];
 
   assert.deepEqual(
-    rankRoutesByChange(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}/api/orders.yaml`), crossRepo(["api/orders.yaml"], roots)),
+    routesOf(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}/api/orders.yaml`), crossRepo(["api/orders.yaml"], roots)),
     ["/orders", "/other"],
   );
 });
@@ -232,23 +235,23 @@ test("on a cross-repo run a path outside the staged root is never compared, howe
   const routes = ["/other", "/by-source", "/by-implementation", "/orders"];
   const changedFiles = ["src/pages/orders.ts", "api/orders.yaml"];
 
-  assert.deepEqual(rankRoutesByChange(routes, map, crossRepo(changedFiles)), routes, "primary-repo paths never match the service's files");
-  assert.notDeepEqual(rankRoutesByChange(routes, map, { changedFiles }), routes, "the same map and files on a single-repo run do match");
+  assert.deepEqual(routesOf(routes, map, crossRepo(changedFiles)), routes, "primary-repo paths never match the service's files");
+  assert.notDeepEqual(routesOf(routes, map, { changedFiles }), routes, "the same map and files on a single-repo run do match");
 });
 
 test("on a cross-repo run a match of one path segment is no match, by equality or by suffix", () => {
   assert.deepEqual(
-    rankRoutesByChange(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}/routes.ts`), crossRepo(["routes.ts"])),
+    routesOf(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}/routes.ts`), crossRepo(["routes.ts"])),
     ["/other", "/orders"],
     "equality of a root-level file",
   );
   assert.deepEqual(
-    rankRoutesByChange(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}/contracts/openapi.yaml`), crossRepo(["openapi.yaml"])),
+    routesOf(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}/contracts/openapi.yaml`), crossRepo(["openapi.yaml"])),
     ["/other", "/orders"],
     "a bare file name as the suffix",
   );
   assert.deepEqual(
-    rankRoutesByChange(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}/openapi.yaml`), crossRepo(["contracts/openapi.yaml"])),
+    routesOf(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}/openapi.yaml`), crossRepo(["contracts/openapi.yaml"])),
     ["/other", "/orders"],
     "a bare file name as the longer path's suffix, the other way round",
   );
@@ -269,28 +272,28 @@ test("on a cross-repo run only the spec of a joined operation links a route: its
   const routes = ["/other", "/by-implementation", "/by-source", "/by-spec"];
   const changedFiles = ["src/pages/orders.ts", "api/orders.yaml"];
 
-  assert.deepEqual(rankRoutesByChange(routes, map, crossRepo(changedFiles)), ["/by-spec", "/other", "/by-implementation", "/by-source"]);
-  assert.deepEqual(rankRoutesByChange(routes, map, { changedFiles }), ["/by-implementation", "/by-source", "/by-spec", "/other"], "the same map and files on a single repo link all three");
+  assert.deepEqual(routesOf(routes, map, crossRepo(changedFiles)), ["/by-spec", "/other", "/by-implementation", "/by-source"]);
+  assert.deepEqual(routesOf(routes, map, { changedFiles }), ["/by-implementation", "/by-source", "/by-spec", "/other"], "the same map and files on a single repo link all three");
 });
 
 test("a service name the map declares links nothing: only declared paths count", () => {
   const map = mapOf([route("/other"), route("/orders")], [operation("listOrders", { service: "orders-svc" })], [joins("/orders", "listOrders")]);
   const changedFiles = ["services/orders-svc/api/orders.yaml"];
 
-  assert.deepEqual(rankRoutesByChange(["/other", "/orders"], map, crossRepo(changedFiles)), ["/other", "/orders"], "cross-repo");
-  assert.deepEqual(rankRoutesByChange(["/other", "/orders"], map, { changedFiles }), ["/other", "/orders"], "single repo");
+  assert.deepEqual(routesOf(["/other", "/orders"], map, crossRepo(changedFiles)), ["/other", "/orders"], "cross-repo");
+  assert.deepEqual(routesOf(["/other", "/orders"], map, { changedFiles }), ["/other", "/orders"], "single repo");
 });
 
 test("a cross-repo run whose staged root no path of the map can be under attributes nothing", () => {
   assert.deepEqual(
-    rankRoutesByChange(["/other", "/orders"], specJoinedTo("api/orders.yaml"), crossRepo(["api/orders.yaml"], [])),
+    routesOf(["/other", "/orders"], specJoinedTo("api/orders.yaml"), crossRepo(["api/orders.yaml"], [])),
     ["/other", "/orders"],
   );
 });
 
 test("a path that only starts like the staged root is not under it", () => {
   assert.deepEqual(
-    rankRoutesByChange(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}-other/api/orders.yaml`), crossRepo(["api/orders.yaml"])),
+    routesOf(["/other", "/orders"], specJoinedTo(`${ROOT_FROM_MIRROR}-other/api/orders.yaml`), crossRepo(["api/orders.yaml"])),
     ["/other", "/orders"],
   );
 });
@@ -326,7 +329,7 @@ test("a malformed link field is skipped, never thrown on, and the fields that ar
   );
   const routes = ["/string-list", "/mixed-list", "/object-list", "/number-source", "/null-source", "/array-source", "/spec-list", "/spec-number", "/dangling", "/valid"];
 
-  const ranked = rankRoutesByChange(routes, map, { changedFiles: ["src/pages/cart.ts"] });
+  const ranked = routesOf(routes, map, { changedFiles: ["src/pages/cart.ts"] });
 
   assert.deepEqual(ranked, ["/valid", ...routes.slice(0, -1)]);
 });
@@ -334,13 +337,13 @@ test("a malformed link field is skipped, never thrown on, and the fields that ar
 test("a changed file or a staged root that is not text is skipped, never thrown on, and the valid ones still count", () => {
   const notText = [3, null, undefined, { path: "src/pages/cart.ts" }, ["src/pages/cart.ts"]] as unknown as string[];
   const map = mapOf([route("/other"), route("/page", { [SOURCE]: "src/pages/cart.ts" })]);
-  assert.deepEqual(rankRoutesByChange(["/other", "/page"], map, { changedFiles: [...notText, "src/pages/cart.ts"] }), ["/page", "/other"], "a valid file among the others");
-  assert.deepEqual(rankRoutesByChange(["/other", "/page"], map, { changedFiles: notText }), ["/other", "/page"], "nothing valid to match");
+  assert.deepEqual(routesOf(["/other", "/page"], map, { changedFiles: [...notText, "src/pages/cart.ts"] }), ["/page", "/other"], "a valid file among the others");
+  assert.deepEqual(routesOf(["/other", "/page"], map, { changedFiles: notText }), ["/other", "/page"], "nothing valid to match");
 
   const spec = specJoinedTo(`${ROOT_FROM_MIRROR}/api/orders.yaml`);
   const crossRepoWith = (stagedRoots: unknown[]) => ({ changedFiles: ["api/orders.yaml"], stagedRoots: stagedRoots as string[] });
-  assert.deepEqual(rankRoutesByChange(["/other", "/orders"], spec, crossRepoWith([5, null, ROOT_FROM_MIRROR])), ["/orders", "/other"], "a valid root among the others");
-  assert.deepEqual(rankRoutesByChange(["/other", "/orders"], spec, crossRepoWith([5, null])), ["/other", "/orders"], "no valid root: still a cross-repo run, with nothing to attribute");
+  assert.deepEqual(routesOf(["/other", "/orders"], spec, crossRepoWith([5, null, ROOT_FROM_MIRROR])), ["/orders", "/other"], "a valid root among the others");
+  assert.deepEqual(routesOf(["/other", "/orders"], spec, crossRepoWith([5, null])), ["/other", "/orders"], "no valid root: still a cross-repo run, with nothing to attribute");
 });
 
 test("a map whose sections are not lists ranks nothing and throws nothing", () => {
@@ -350,11 +353,11 @@ test("a map whose sections are not lists ranks nothing and throws nothing", () =
     ["feBe", mapOf([route("/b")], [operation("op", { [SPEC]: "src/pages/cart.ts" })], 3)],
     ["all", mapOf(null, null, null)],
   ] as const) {
-    assert.doesNotThrow(() => rankRoutesByChange(["/a", "/b"], map, { changedFiles: ["src/pages/cart.ts"] }), name);
+    assert.doesNotThrow(() => routesOf(["/a", "/b"], map, { changedFiles: ["src/pages/cart.ts"] }), name);
   }
-  assert.deepEqual(rankRoutesByChange(["/b", "/a"], mapOf("nope"), { changedFiles: ["src/pages/cart.ts"] }), ["/b", "/a"]);
+  assert.deepEqual(routesOf(["/b", "/a"], mapOf("nope"), { changedFiles: ["src/pages/cart.ts"] }), ["/b", "/a"]);
   assert.deepEqual(
-    rankRoutesByChange(["/b", "/a"], mapOf([route("/b"), route("/a", { [SOURCE]: "src/pages/cart.ts" })], { not: "a list" }), { changedFiles: ["src/pages/cart.ts"] }),
+    routesOf(["/b", "/a"], mapOf([route("/b"), route("/a", { [SOURCE]: "src/pages/cart.ts" })], { not: "a list" }), { changedFiles: ["src/pages/cart.ts"] }),
     ["/a", "/b"],
     "the sections that hold are still read when another does not",
   );
@@ -364,7 +367,7 @@ test("ranking leaves the list it was given as it was", () => {
   const given = Object.freeze([...FILE_ORDER]);
   const map = mapOf(FILE_ORDER.map((path) => route(path, path === "/a" ? { [SOURCE]: "src/pages/cart.ts" } : {})));
 
-  const ranked = rankRoutesByChange(given, map, { changedFiles: ["src/pages/cart.ts"] });
+  const ranked = routesOf(given, map, { changedFiles: ["src/pages/cart.ts"] });
 
   assert.deepEqual(ranked, ["/a", "/m", "/z", "/b", "/y"]);
   assert.deepEqual(given, FILE_ORDER);
@@ -382,7 +385,7 @@ test("a page the call graph proved ranks after every page the map links and befo
 });
 
 test("a proven page the derived routes did not list is still offered, once", () => {
-  const ranked = rankRoutesByChange(["/a"], mapOf([route("/a"), route("/b")]), { changedFiles: ["x.ts"], graphPages: ["/b", "/b"] });
+  const ranked = routesOf(["/a"], mapOf([route("/a"), route("/b")]), { changedFiles: ["x.ts"], graphPages: ["/b", "/b"] });
   assert.deepEqual(ranked, ["/b", "/a"]);
 });
 
