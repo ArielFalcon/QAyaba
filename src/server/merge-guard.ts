@@ -230,6 +230,9 @@ export const PROTECTED_PATHS: string[] = [
   "scripts/mutate.ts",
   /* Runs each mutation preset's tests and hands Stryker their exit status. */
   "scripts/run-in-group.mjs",
+  /* The CI gate that keeps retired forms retired, and its allow-list: an autonomous fix must not weaken its own gate. */
+  "scripts/check-previous-forms.ts",
+  "scripts/previous-forms.allow.json",
   /*
    * Every TypeScript config decides what the typecheck gate (and the static gate on generated
    * specs) compiles; every dependency-cruiser config holds architecture rules such as the ban on VCS

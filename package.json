@@ -35,6 +35,7 @@
     "langfuse:labels": "tsx scripts/langfuse-labels.ts",
     "judge-calibrate": "tsx scripts/judge-calibrate.ts",
     "label": "tsx scripts/label-run.ts",
+    "previous-forms:check": "tsx scripts/check-previous-forms.ts",
     "arch:check": "depcruise --config qa-engine/.dependency-cruiser.cjs --ignore-known qa-engine/.dependency-cruiser-known-violations.json qa-engine/src",
     "seed:lint": "cd config/e2e && eslint ."
   },

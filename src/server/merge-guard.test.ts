@@ -478,6 +478,9 @@ test("isProtectedPath flags the gate-integrity surface (the fix must not weaken 
   assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts"), true);
   /* which spawns agent-authored specs (untrusted) exactly like code-execution.runner.ts above. */
   assert.equal(isProtectedPath("qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts"), true);
+  /* the previous-forms gate and its allow-list. */
+  assert.equal(isProtectedPath("scripts/check-previous-forms.ts"), true);
+  assert.equal(isProtectedPath("scripts/previous-forms.allow.json"), true);
   /* a non-test source file next to its tests is still editable (glob is a strict .test.ts suffix). */
   assert.equal(isProtectedPath("src/server/queue.ts"), false);
 });

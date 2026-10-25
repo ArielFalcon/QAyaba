@@ -1,0 +1,146 @@
+[
+  {
+    "rule": "claude-md",
+    "path": "AGENTS.md",
+    "contains": "CLAUDE.md",
+    "reason": "A watched repo's own CLAUDE.md is prompt text; the mention is the final state."
+  },
+  {
+    "rule": "codebase-memory",
+    "path": "docs/adr/0002-code-graph-engine-codegraph.md",
+    "contains": "codebase-memory",
+    "reason": "The ADR records the engine it superseded."
+  },
+  {
+    "rule": "claude-md",
+    "path": ".gitignore",
+    "contains": "CLAUDE.md",
+    "reason": "Pending edit of a file outside this phase's edit surface; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
+  },
+  {
+    "rule": "codex",
+    "path": "agents/agent-supervisor.test.mjs",
+    "contains": "codex",
+    "reason": "Pins that the retired provider and its route are refused."
+  },
+  {
+    "rule": "codex",
+    "path": "client/cmd/qayaba/main_test.go",
+    "contains": "--codex",
+    "reason": "Pins that the retired flags are gone."
+  },
+  {
+    "rule": "codex",
+    "path": "client/internal/ui/model_test.go",
+    "contains": "codex",
+    "reason": "Pins that the retired agent-screen rows are gone."
+  },
+  {
+    "rule": "codex",
+    "path": "src/orchestrator/schemas.test.ts",
+    "contains": "codex",
+    "reason": "Pins that the retired per-runtime budget key is stripped from an app config."
+  },
+  {
+    "rule": "dual-mode",
+    "path": "src/agent-runtime/config.test.ts",
+    "contains": "AGENT_RUNTIME_MODE",
+    "reason": "Pins that the retired mode variable is ignored."
+  },
+  {
+    "rule": "dual-mode",
+    "path": "src/server/agent-runtime.test.ts",
+    "contains": "AGENT_RUNTIME_MODE",
+    "reason": "Pins that the retired mode variable is not written."
+  },
+  {
+    "rule": "router-kind",
+    "path": "qa-engine/test/contract/coordination-event-kind.contract.test.ts",
+    "contains": "\"router\"",
+    "reason": "Pins that the retired event kind is not in the vocabulary."
+  },
+  {
+    "rule": "router-kind",
+    "path": "qa-engine/test/contract/coordination-seam.contract.test.ts",
+    "contains": "coordinationMode",
+    "reason": "Pins that the retired mode selector is gone from the composition."
+  },
+  {
+    "rule": "bridges",
+    "path": "AGENTS.md",
+    "contains": "bridges/",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
+  },
+  {
+    "rule": "codex",
+    "path": "AGENTS.md",
+    "contains": "Codex",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
+  },
+  {
+    "rule": "legacy",
+    "path": "AGENTS.md",
+    "contains": "legacy `maxSteps`",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
+  },
+  {
+    "rule": "rewritten-name",
+    "path": "AGENTS.md",
+    "contains": "rewritten-engine-factory",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
+  },
+  {
+    "rule": "codebase-memory",
+    "path": "AGENTS.md",
+    "contains": "codebase-memory",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
+  },
+  {
+    "rule": "dead-path",
+    "path": "AGENTS.md",
+    "contains": "rewritten-engine-factory.ts",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
+  },
+  {
+    "rule": "dead-path",
+    "path": "AGENTS.md",
+    "contains": "bridges/pre-generation",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
+  },
+  {
+    "rule": "dead-path",
+    "path": "AGENTS.md",
+    "contains": "adr/0001-grounding",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit."
+  },
+  {
+    "rule": "codex",
+    "path": ".env.example",
+    "contains": "CODEX",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit. (edit denied by the permission settings)"
+  },
+  {
+    "rule": "dual-mode",
+    "path": ".env.example",
+    "contains": "dual",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit. (edit denied by the permission settings)"
+  },
+  {
+    "rule": "dual-mode",
+    "path": ".env.example",
+    "contains": "AGENT_RUNTIME_MODE",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit. (edit denied by the permission settings)"
+  },
+  {
+    "rule": "codex",
+    "path": ".env.example",
+    "contains": "Codex",
+    "reason": "Pending edit of a file outside this phase's write authority; the replacement text is recorded in the arch-p1 Log (L10). Remove this entry with that edit. (edit denied by the permission settings)"
+  },
+  {
+    "rule": "codex",
+    "path": "AGENTS.md",
+    "contains": ".codex",
+    "reason": "The ADR records the engine it superseded."
+  }
+]

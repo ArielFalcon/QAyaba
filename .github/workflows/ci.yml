@@ -40,6 +40,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run arch:check
+      # Banned terms of retired forms and dead file references (scripts/check-previous-forms.ts).
+      - run: npm run previous-forms:check
       # The e2e seed (config/e2e/) must pass the lint it ships: every app's static gate runs it,
       # and a seed error lands on the agent as a fix round on harness files.
       - run: npm run seed:lint
