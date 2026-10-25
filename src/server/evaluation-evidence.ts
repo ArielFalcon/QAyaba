@@ -240,13 +240,14 @@ function deliveredSourcesOf(spans: readonly LedgerSpan[]): DeliveredContextSourc
 }
 
 /* The change-relevant route ids and their component/page groups, recorded on the route-ranking span (a Track A addition). */
-function relevantRoutesOf(spans: readonly LedgerSpan[]): { ids: string[]; groups: string[] } {
+function relevantRoutesOf(spans: readonly LedgerSpan[]): { ids: string[]; groups: string[]; basis?: string[] } {
   for (const span of spans) {
     if (span.name !== "qayaba.context.route-ranking") continue;
     const attrs = attrsOf(span);
     const ids = asStringArray(attrs["qayaba.context.relevant_ids"]);
     if (ids.length === 0) continue;
-    return { ids, groups: asStringArray(attrs["qayaba.context.relevant_groups"]) };
+    const basis = asStringArray(attrs["qayaba.context.relevant_basis"]);
+    return { ids, groups: asStringArray(attrs["qayaba.context.relevant_groups"]), ...(basis.length === ids.length ? { basis } : {}) };
   }
   return { ids: [], groups: [] };
 }
@@ -351,6 +352,7 @@ function contextOf(spans: readonly LedgerSpan[], turns: readonly AgentTurnRecord
     delivered,
     relevantIds: relevant.ids,
     relevantGroups: relevant.groups,
+    ...(relevant.basis ? { relevantBasis: relevant.basis } : {}),
     changedTestIds: changed.changedTestIds,
     changedElement: changed.changedElement,
     snapshots: snapshots.map((s) => ({ path: s.path, text: s.text })),

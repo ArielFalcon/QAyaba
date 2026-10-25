@@ -14,6 +14,7 @@ import type { NoopKind } from "@kernel/noop-kind.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
+import type { ChangePageBasis, ChangePagesJoin } from "@kernel/change-pages.ts";
 import type { Objective } from "@kernel/objective.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunEventBody } from "@kernel/run-event.ts";
@@ -833,8 +834,19 @@ export interface GroundingResult {
   changedValuesWithMoreNodes?: string[];
   /** The pages the pack read with results (> 0) under the app's declared data state, by pathname. Absent when it read none. */
   packConfirmedDataRoutes?: { path: string; resultCount: number }[];
-  /** The pages of the app's map the change's files are linked to, in rank order. Absent when none is. */
+  /** The pages of the app's map the change is linked to, in rank order: the map's own links, then the pages the call graph proved. Absent when none is. */
   changeRoutes?: string[];
+  /** Why each change page is one, parallel to `changeRoutes`. */
+  changeRouteBasis?: ChangePageBasis[];
+  /** What the change-page join over the call graph found (its proofs, hubs and disagreements). Absent when no index answered. */
+  changePages?: ChangePagesJoin;
+}
+
+/** What the change-page join needs beyond the map: the change, and on a cross-repo run the stitcher's links as they are. */
+export interface GroundingChange {
+  sha: string;
+  serviceLinks?: readonly ServiceLink[];
+  crossRepoImpact?: CrossRepoImpact | null;
 }
 /**
  * Pre-generate first-write grounding (DOM/route/context pack), run once after
@@ -849,7 +861,25 @@ export interface PreGenerationGroundingPort {
    * Optional `diff` (diff mode only) for deterministic [CHANGED] markers.
    * Absent is unchanged.
    */
-  ground(specDir: string, signal?: AbortSignal, diff?: string): Promise<GroundingResult>;
+  ground(specDir: string, signal?: AbortSignal, diff?: string, change?: GroundingChange): Promise<GroundingResult>;
+}
+
+export interface ChangePagesRequest {
+  map: ArchitectureContext;
+  sha: string;
+  changedFiles: readonly string[];
+  touchedLines?: ReadonlyMap<string, ReadonlySet<number>>;
+  /** The pages the map already links to the change: they keep the map's basis. */
+  linked: ReadonlySet<string>;
+  crossRepoImpact?: CrossRepoImpact | null;
+}
+
+/**
+ * The pages of the map the run's call graph proves the change reaches (S10-S12). Advisory: it only adds pages, ranked after
+ * the map's links, and never throws; undefined when no index could answer.
+ */
+export interface ChangePagesPort {
+  resolve(request: ChangePagesRequest): Promise<ChangePagesJoin | undefined>;
 }
 
 /**

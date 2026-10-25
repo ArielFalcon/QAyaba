@@ -150,7 +150,7 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 | T3 | S3, S4, S5, S6 | inline | item 2 (file boundary) + item 5 (new cache) | done — workspace export, store cache (lock, validate, publish through the confined reader, cursor in `meta.json`), sidecar retired, primary repo indexed on service runs, onboarding through the same path, provenance as the `qayaba.code_graph.index` span (L26) | `604efe78` |
 | T4 | S7, S8 | inline | item 3 (`CodeGraphPort` consumers) + item 6 | done — port re-backed on the store reader, one walk per change, co-change from git, dead methods and the old adapters removed, `seam-parity` updated; parity (S8) run offline from the base commit (L28) | `604efe78` |
 | T5 | S9 | inline | item 6 (only a live run proves a blast radius) | done — both keys (operationId reached; a reached handler whose route serves the link's operation, verb + path, parameters matching and a one-sided prefix tolerated), a changed handler counts (depth 0), the S8 budget; `MATCH_TIER` unchanged; HTTP links carry their contract operation (optional `operation`) | (L27) |
-| T6 | S10, S11, S12 | inline | item 3 (`changeRoutes` consumers: graders, lead review, DOM capture) + item 6 | pending — the reach join in route ranking, basis and proof per page, hub suppression, map/engine disagreement recorded; graders report per basis; metric baseline re-recorded with its reason | |
+| T6 | S10, S11, S12 | inline | item 3 (`changeRoutes` consumers: graders, lead review, DOM capture) + item 6 | done — the join (three proofs, hubs, cap, disagreements) in `qa-run-orchestration/domain/change-pages.ts`; graph pages rank after the map's links in the pack (so DOM capture, the plan, the lead review and the graders see them); basis per page on the route-ranking span; the join on `qayaba.code_graph.change_pages`; graph pages scored apart (L30) | (L30) |
 | T7 | S13 | delegated (writer reason: parallel unit with T5/T6, disjoint surface; worktree) | item 2 (agent tool surface invariant) — own commit | done — `explore` replaces the three actions (admission, endpoint, adapter, tool file, client); answer redacted then cut at file boundaries; agent-list fixture re-recorded in the agents container; codegraph smoke 14/14 in the image; independent verifier: no blockers (L29) | `56c2ae43` |
 | T8 | S14, S15 | inline | item 3 (prompt contract) | pending — the dossier in `static-signal` and the sidekick proof path; prompt-contract lint and `scripts/prompt-contract-baseline.json` re-recorded with `--allow-increase` and its reason | |
 | T9 | S16 | per-action workers (long runs) | item 6 | pending — the ablation rounds; the verdict per default in the Log | |
@@ -281,4 +281,27 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
     - The answer shaper's fence tracking relies on the engine numbering every source line, which it does today.
     - An empty answer is `ok` with empty text.
     - `codebase-memory-client.ts` is dead code that T10 removes.
+- **L30** (2026-10-25) T6 (S10-S12).
+  - **Where the join runs.** The join is computed inside the pre-generation grounding, before the context pack. That way the pages it proves enter route ranking and reach everything `changeRoutes` drives: the DOM capture, the lead's plan, the lead review's unvisited and unproven pages, the plan snapshot and the graders. To give the join the stitcher's links, the run now resolves the blast radius, the service links and the cross-repo impact before the grounding step. None of the three reads the grounding.
+  - **The join** (`qa-run-orchestration/domain/change-pages.ts`, pure) reads the walks the index answered:
+    - **Frontend proof:** a reached symbol lies in a page's implementation file. That file is the map's own, or the file of the symbol the engine's route node for the same path points at. The node's own file only declares the route, which is the map's `source`, so it never counts.
+    - **Backend proof:** a reached handler serves a map operation (by verb and path, or by its name matching the operationId), and `feBe` joins that operation to a page.
+    - **Across repos:** the walk starts at the frontend call site of each link the stitcher found reached. The proof opens with the link, and a link without a call-site symbol claims nothing (S11).
+  - **Bounds:**
+    - **Hubs:** a seed that reaches more than 4 pages adds none and is reported.
+    - **Cap:** the graph adds at most 6 pages, shortest proof first.
+    - **Map pages:** pages the map links keep the map's basis and take no slot.
+    - **Disagreements:** a page whose map files differ from the engine's target is reported. The map's files decide.
+  - **Record:**
+    - **Basis per change page:** `qayaba.context.relevant_basis`, parallel to `relevant_ids`, on the route-ranking span.
+    - **The join:** its pages, proofs, hubs, disagreements and omitted count go on a `qayaba.code_graph.change_pages` span.
+    - **Persistence:** none in the context map (L18.7).
+  - **Graders:** `plan_route_coverage` and `delivered_route_coverage` still grade every change page. The new `plan_graph_route_coverage` and `delivered_graph_route_coverage` grade the graph pages alone, so the ablation can tell graph pages from map pages. No metric baseline file exists; the baseline is T9's graph-off variant (L25), and the re-recorded numbers belong to T9.
+  - **Degradation:**
+    - Without an index (structural signals off, or a failed index) there is no join and the pages are the map's alone.
+    - With the DOM pack off or no context pack, `changeRoutes` behaves as before.
+  - **Verified on the recorded store:** a helper change proves `/orders` and `/profile` through the engine's route targets. A backend repository change proves `/orders` via `loadAll > findAll > listOrders > GET /api/orders (listOrders)`.
+  - **Mutation preset ranges** (`scripts/mutate.ts`) in `context-pack.ts` and the grounding adapter were shifted to the lines they covered before.
+  - **Checks:** the full CI gate is green. Full suite: 10 504 tests, 5 failures, all known at the base (the reviewer-differs-from-generator tests and the runtime-manager test).
+  - **Domain-join tests:** I wrote the code before these tests. I then checked them against 7 mutants (hub, linked, disagreement, engine fallback, handler gate, operationId key, cap), and every mutant was killed.
 

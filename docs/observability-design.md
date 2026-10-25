@@ -869,8 +869,9 @@ qa-engine/src/contexts/evaluation/
 | `change_coverage` | CATEGORICAL | `pass\|fail\|unknown` (unknown is its own class, never pass) | Existing signal |
 | `mutation_value` | NUMERIC | Killed / mutants, when the oracle ran | Existing |
 | `infra_error` | CATEGORICAL | `error_class` × sub-cause (deploy-unverified, egress-denied, quota, suspend, sandbox…) | |
-| `plan_route_coverage` | NUMERIC 0..1 | Change pages (the map pages the change is linked to) an admitted flow of the lead's plan visits / change pages; comment lists the unvisited | Read from `run_plans`; only a plan of flows with change pages. A flow visits a page when one of its routes names it, the same template under other parameter names included |
+| `plan_route_coverage` | NUMERIC 0..1 | Change pages (the map pages the change is linked to, plus the pages the call graph proved it reaches) an admitted flow of the lead's plan visits / change pages; comment lists the unvisited | Read from `run_plans`; only a plan of flows with change pages. A flow visits a page when one of its routes names it, the same template under other parameter names included |
 | `delivered_route_coverage` | NUMERIC 0..1 | Change pages visited by a flow whose delivered spec passed every case of the final execution / change pages; comment lists the unproven | Absent while a flow's result cannot be tied to its cases |
+| `plan_graph_route_coverage`, `delivered_graph_route_coverage` | NUMERIC 0..1 | The two scores above over the change pages the call graph proved alone (basis `graph` in the route ranking's `relevant_basis`), so graph pages are told from the map's | Only when the run recorded a basis for every change page and at least one is `graph` |
 | `flow_delivery_rate` | NUMERIC 0..1 | Flows that delivered a spec passing every case of the final execution / admitted flows; comment lists the others | Same condition |
 | `change_pages_grounded` | NUMERIC 0..1 | Change pages (the route ranking's `relevant_ids`) the delivered Context Pack holds a live element of (`dom:<page>#…`) / change pages; comment lists the others | Only with change pages and a delivered pack; silent when a page is missing and the pack's id list overflowed its cap. A page cut, not capturable or never rendered is not grounded |
 | `run_spec_final_agreement` | NUMERIC 0..1 | Delivered specs whose final bytes passed a `run_spec` call (same path and sha256) and passed the final execution / delivered specs whose final bytes passed `run_spec`; comment lists the unstable ones | Only when a delivered spec's final bytes passed `run_spec` and its cases can be tied to it in an executed run |
@@ -1115,7 +1116,7 @@ the contract above is unaffected:
 
 | Score | Polarity |
 |---|---|
-| `spec_validity_rate`, `spec_pass_rate`, `selector_stability`, `context_utilization[.<source>]`, `mutation_value`, `plan_route_coverage`, `delivered_route_coverage`, `flow_delivery_rate`, `change_pages_grounded`, `run_spec_final_agreement` | higher_better |
+| `spec_validity_rate`, `spec_pass_rate`, `selector_stability`, `context_utilization[.<source>]`, `mutation_value`, `plan_route_coverage`, `delivered_route_coverage`, `plan_graph_route_coverage`, `delivered_graph_route_coverage`, `flow_delivery_rate`, `change_pages_grounded`, `run_spec_final_agreement` | higher_better |
 | `empty_output_guard`, `approval_consistent`, `context_complete`, `noop_consistent`, `sidekick_report_consistent` (BOOLEAN, `true` = pass) | higher_better |
 | `auth_overhead`, `closed_loop_refusals`, `cost_per_useful_spec` | lower_better |
 | `furthest_phase` (ordinal by `phases`), `budget_exhaustion` (`none` is the clean value), `change_coverage` (`unknown` is its own class), `infra_error`, `step_intent_mix.<intent>` | none |

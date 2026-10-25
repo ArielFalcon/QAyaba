@@ -84,7 +84,7 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?
           truncatedItems: Math.max(0, trace.capturablePages - trace.rankedRoutes.length),
           freshness: mapProvenance?.(),
           ...(trace.relevantRoutes !== undefined && trace.relevantRoutes.length > 0
-            ? { attrs: { "qayaba.context.relevant_ids": trace.relevantRoutes.map(itemId.route), "qayaba.context.relevant_groups": trace.relevantGroups ?? [] } }
+            ? { attrs: { "qayaba.context.relevant_ids": trace.relevantRoutes.map(itemId.route), "qayaba.context.relevant_groups": trace.relevantGroups ?? [], ...(trace.relevantBasis?.length ? { "qayaba.context.relevant_basis": trace.relevantBasis } : {}) } }
             : {}),
         });
       }
@@ -95,6 +95,17 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?
         truncatedItems: trace?.omittedLines ?? 0,
         freshness: provenanceOf("live:dev", trace?.pages.length ?? 0),
       });
+    }),
+    changePages: (join) => safely(() => {
+      telemetry.startSpan("qayaba.code_graph.change_pages", {
+        attrs: {
+          "qayaba.code_graph.pages": join.pages.map((page) => itemId.route(page.route)),
+          "qayaba.code_graph.proofs": join.pages.map((page) => `${page.route}: ${page.proof.join(" > ")}`),
+          "qayaba.code_graph.hubs": join.hubs.map((hub) => `${hub.symbol}: ${hub.pages}`),
+          "qayaba.code_graph.disagreements": join.disagreements.map((d) => `${d.route}: ${d.engineFile}`),
+          "qayaba.code_graph.pages_omitted": join.omitted,
+        },
+      }).end();
     }),
   };
 }

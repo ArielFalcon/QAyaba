@@ -9,7 +9,8 @@ import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-
 import { classifyRoutes, ROUTE_REASON } from "../../../shared-kernel/route-capturability.ts";
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
-import { rankRoutesWithRelevance } from "../domain/route-ranking.ts";
+import { rankRoutesWithRelevance, type RankedRoute } from "../domain/route-ranking.ts";
+import type { ChangePageBasis } from "@kernel/change-pages.ts";
 import { instantiableTemplate, instantiateRoute, isPageOfTemplate, missingSibling } from "../domain/route-instantiation.ts";
 import { changedValueFactIds, domItemIds, itemId } from "../domain/context-item-ids.ts";
 import type { Omission } from "@kernel/telemetry/section-meta.ts";
@@ -61,6 +62,9 @@ export interface ContextPackInput {
   /* Cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it. Present (even empty) means prChangedFiles are the service's own files, so a route is ranked only by the spec of an operation it joins, under these roots. */
   stagedRoots?: string[];
 
+  /* Pages of the map the run's call graph proved the change reaches; they rank after the pages the map links (route ranking). Absent → the map's links alone. */
+  graphPages?: string[];
+
   /* false → no live-DOM capture, no route ranking, no redirect advisory, no "not capturable" list (an A/B arm; default true). Contracts and the pack header stay. */
   domPack?: boolean;
 }
@@ -73,6 +77,8 @@ export interface ContextPackTrace {
   relevantRoutes?: string[];
   /* The component/page each relevant route belongs to, parallel to `relevantRoutes`. */
   relevantGroups?: string[];
+  /* Why each relevant route is one (the map's link or the graph's proof), parallel to `relevantRoutes`. */
+  relevantBasis?: ChangePageBasis[];
   /* The routes that name a page, before the cut. */
   capturablePages: number;
   /* The pages the capture returned. */
@@ -361,11 +367,13 @@ export async function buildContextPack(
   let redirectSection = "";
   /* The derived routes are ranked by the change. With no changed file there is nothing to rank by. */
   const derivedRoutes = [...new Set(input.routes ?? [])];
-  const ranked = input.prChangedFiles
-    ? rankRoutesWithRelevance(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}) })
+  const ranked: RankedRoute[] = input.prChangedFiles
+    ? rankRoutesWithRelevance(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}), ...(input.graphPages?.length ? { graphPages: input.graphPages } : {}) })
     : derivedRoutes.map((route) => ({ route, rank: 0, relevant: false }));
   const deterministicRoutes = ranked.map((entry) => entry.route);
-  const relevantMapRoutes = ranked.filter((entry) => entry.relevant).map((entry) => entry.route);
+  const relevantRanked = ranked.flatMap((entry) => (entry.relevant && entry.basis !== undefined ? [{ route: entry.route, basis: entry.basis }] : []));
+  const relevantMapRoutes = relevantRanked.map((entry) => entry.route);
+  const relevantBasis = relevantRanked.map((entry) => entry.basis);
   const componentOf = new Map((input.contextMap?.routes ?? []).map((route) => [route.path, route.component ?? route.path]));
   /* A route named twice is counted once, and a route that names no page and no template of one is dropped, BEFORE the cut: neither may take the slot of a route behind it. A template stays in its place: it opens to a page through a link the site shows, and the cut is made on the pages, not on the templates. */
   const classified = classifyRoutes(deterministicRoutes);
@@ -573,6 +581,7 @@ export async function buildContextPack(
         rankedRoutes: firstPass,
         relevantRoutes: relevantMapRoutes,
         relevantGroups: relevantMapRoutes.map((route) => componentOf.get(route) ?? route),
+        relevantBasis,
         capturablePages,
         pages: [...pages.values()],
         pageDeliveries: [...deliveries.values()],

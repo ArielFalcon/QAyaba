@@ -160,6 +160,19 @@ test("a label-only change with no fact ids reads as an unknown changed element",
   assert.deepEqual(evidence.context?.changedTestIds, []);
 });
 
+test("why each relevant route is one is read back when it is recorded for every route, and left absent otherwise", async () => {
+  const ranking = (attrs: Record<string, unknown>) => ({ name: "qayaba.context.route-ranking", spanId: "rank", parentSpanId: null, attrs: JSON.stringify(attrs) });
+  const recorded = (await new HistoryEvidenceAdapter(
+    deps({ runSpans: () => [ranking({ "qayaba.context.relevant_ids": ["route:/a", "route:/b"], "qayaba.context.relevant_basis": ["implementation", "graph"] }), deliveredSpan("context-map", ["route:/a"])] }),
+  ).load("run-1"))!;
+  assert.deepEqual(recorded.context?.relevantBasis, ["implementation", "graph"]);
+
+  const partial = (await new HistoryEvidenceAdapter(
+    deps({ runSpans: () => [ranking({ "qayaba.context.relevant_ids": ["route:/a", "route:/b"], "qayaba.context.relevant_basis": ["graph"] }), deliveredSpan("context-map", ["route:/a"])] }),
+  ).load("run-1"))!;
+  assert.equal(partial.context?.relevantBasis, undefined);
+});
+
 test("the relevant routes and file reads are read back from the spans and the turns", async () => {
   const evidence = (await new HistoryEvidenceAdapter(
     deps({

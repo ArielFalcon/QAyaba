@@ -42,6 +42,8 @@ export interface ContextEvidence {
   relevantIds: string[];
   /* The component/page each relevant route belongs to, parallel to `relevantIds`; empty when the grouping was not recorded. */
   relevantGroups: string[];
+  /* Why each relevant route is one (implementation, source, spec or graph), parallel to `relevantIds`; absent when the run did not record it. */
+  relevantBasis?: string[];
   /* Test ids of the change's identifiable elements. Empty when the diff identified none (a label-only change). */
   changedTestIds: string[];
   /* present (an identified element was captured), absent (identified but no page showed it) or unknown (nothing identified). */

@@ -2,10 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gradeEvidence } from "@contexts/evaluation/domain/graders.ts";
-import type { PlanEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence.ts";
+import type { ContextEvidence, PlanEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence.ts";
 import { evidence } from "./evidence-fixtures.ts";
 
-const NAMES = ["plan_route_coverage", "delivered_route_coverage", "flow_delivery_rate"];
+const NAMES = ["plan_route_coverage", "delivered_route_coverage", "plan_graph_route_coverage", "delivered_graph_route_coverage", "flow_delivery_rate"];
 
 function plan(over: Partial<PlanEvidence> = {}): PlanEvidence {
   return {
@@ -53,4 +53,35 @@ test("a flow whose result cannot be told leaves what depends on it ungraded", ()
 
 test("a run that has not finished is not graded", () => {
   assert.equal(scores(plan(), { finished: false, verdict: null }).size, 0);
+});
+
+/* The route-ranking record of a run: each change page's id and why it is one. */
+function ranked(basis: Record<string, string>): ContextEvidence {
+  return {
+    delivered: [],
+    relevantIds: Object.keys(basis).map((route) => `route:${route}`),
+    relevantGroups: [],
+    relevantBasis: Object.values(basis),
+    changedTestIds: [],
+    changedElement: undefined,
+    snapshots: [],
+    toolSequence: [],
+    fileReads: undefined,
+    freshness: undefined,
+  };
+}
+
+test("the pages the call graph proved are also scored apart, so graph pages can be told from the map's", () => {
+  const s = scores(plan(), { context: ranked({ "/cart": "implementation", "/shops/:city": "graph", "/orders": "graph" }) });
+  assert.equal(s.get("plan_route_coverage")?.value, 2 / 3, "the whole set of change pages is still graded");
+  assert.equal(s.get("plan_graph_route_coverage")?.value, 1 / 2);
+  assert.match(String(s.get("plan_graph_route_coverage")?.comment), /\/orders/);
+  assert.equal(s.get("delivered_graph_route_coverage")?.value, 0);
+});
+
+test("without a graph page, or without a recorded basis, nothing is scored apart", () => {
+  const mapOnly = scores(plan(), { context: ranked({ "/cart": "implementation", "/shops/:city": "spec", "/orders": "source" }) });
+  assert.equal(mapOnly.has("plan_graph_route_coverage"), false);
+  assert.equal(mapOnly.has("delivered_graph_route_coverage"), false);
+  assert.equal(scores(plan()).has("plan_graph_route_coverage"), false);
 });

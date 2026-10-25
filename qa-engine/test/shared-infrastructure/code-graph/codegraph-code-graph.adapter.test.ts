@@ -18,6 +18,7 @@ import { LanguageRegistry } from "../../../src/contexts/change-analysis/domain/l
 import { BlastRadius } from "../../../src/shared-kernel/blast-radius.ts";
 import { Sha } from "../../../src/shared-kernel/sha.ts";
 import { closeGitDir, git } from "../process-sandbox/git-fixtures.ts";
+import { ChangePagesPortAdapter } from "../../../src/contexts/qa-run-orchestration/infrastructure/bridges/change-pages-port.adapter.ts";
 
 const FIXTURES = join(import.meta.dirname, "__fixtures__", "codegraph");
 const STORE = join(FIXTURES, "store.db");
@@ -350,4 +351,30 @@ test("selectSeeds takes the innermost symbol around a line, and a line between s
   assert.deepEqual(at([22]), []);
   assert.deepEqual(at([4, 26]), ["method", "after"]);
   assert.deepEqual(selectSeeds(symbols, ["a.ts"], undefined).map((s) => s.symbol), ["Cls", "method", "after"], "no lines: every symbol of the file");
+});
+
+test("over the recorded store the change's pages are proved through the engine's route nodes, from a frontend helper and from a backend repository", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const pages = new ChangePagesPortAdapter({ codeGraph: h.adapter, repoDir: h.mirror, budget: BUDGET });
+    const map = {
+      builtAtSha: h.sha,
+      routes: [{ path: "/orders" }, { path: "/profile" }],
+      api: [{ operationId: "listOrders", method: "GET", path: "/api/orders" }],
+      feBe: [{ route: "/orders", operationId: "listOrders" }],
+    };
+
+    const fromHelper = await pages.resolve({ map, sha: h.sha, changedFiles: [FORMAT], touchedLines: new Map([[FORMAT, new Set([2])]]), linked: new Set() });
+    assert.deepEqual(fromHelper?.pages.map((p) => [p.route, p.proof.length]), [["/orders", 3], ["/profile", 3]]);
+
+    const repository = "api/src/main/java/demo/repo/OrderRepository.java";
+    const fromBackend = await pages.resolve({ map, sha: h.sha, changedFiles: [repository], touchedLines: new Map([[repository, new Set([7])]]), linked: new Set() });
+    assert.deepEqual(fromBackend?.pages, [{
+      route: "/orders",
+      proof: [`${repository}::loadAll`, "api/src/main/java/demo/service/OrderService.java::findAll", "api/src/main/java/demo/web/OrderController.java::listOrders", "GET /api/orders (listOrders)", "page /orders"],
+    }]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
 });

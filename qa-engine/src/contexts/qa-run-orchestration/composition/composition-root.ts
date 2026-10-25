@@ -54,7 +54,8 @@ import { CleanupPortAdapter, type CleanupPortCollaborators } from "../infrastruc
 import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollaborators } from "../infrastructure/bridges/pre-generation-grounding-port.adapter.ts";
 import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../infrastructure/bridges/review-dom-grounding-port.adapter.ts";
 import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../infrastructure/bridges/pre-exec-grounding-port.adapter.ts";
-import { StructuralSignalPortAdapter } from "../infrastructure/bridges/structural-signal-port.adapter.ts";
+import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "../infrastructure/bridges/structural-signal-port.adapter.ts";
+import { ChangePagesPortAdapter } from "../infrastructure/bridges/change-pages-port.adapter.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
@@ -477,6 +478,16 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
   /* The app's declared position, the lead's value and one per flow: authoring context, never an input to the delivered suite. */
   const geolocation = cfg.geolocation && !cfg.isCode ? new GeolocationPortAdapter(cfg.geolocation) : undefined;
 
+  /* The change's pages over the run's call graph: the index the index phase built (the change's repo, and on a service run the app's own). */
+  const changePages = cfg.codeGraph && !cfg.isCode
+    ? new ChangePagesPortAdapter({
+        codeGraph: cfg.codeGraph,
+        repoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir,
+        ...(cfg.codeGraphPrimary ? { pagesRepoDir: cfg.codeGraphPrimary.repoDir } : {}),
+        budget: ADVISORY_BUDGET,
+      })
+    : undefined;
+  const groundingCollaborators: PreGenerationGroundingCollaborators = { ...(changePages ? { changePages } : {}), ...cfg.groundingCollaborators };
   const preGenerationGrounding = !cfg.isCode
     ? new PreGenerationGroundingPortAdapter(
         {
@@ -491,7 +502,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
           contextPack: cfg.contextPack,
           ...(cfg.triggerService ? { stagedRoots: stagedRootsOf(cfg.mirrorDir, join(cfg.mirrorDir, cfg.e2eRelDir), cfg.triggerService.mirrorDir) } : {}),
         },
-        cfg.telemetry ? { ...cfg.groundingCollaborators, trace: telemetryGroundingTrace(cfg.telemetry, cfg.contextMapProvenance) } : (cfg.groundingCollaborators ?? {}),
+        cfg.telemetry ? { ...groundingCollaborators, trace: telemetryGroundingTrace(cfg.telemetry, cfg.contextMapProvenance) } : groundingCollaborators,
       )
     : undefined;
   const reviewDomGrounding = !cfg.isCode

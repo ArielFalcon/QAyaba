@@ -78,7 +78,7 @@ export async function selectExemplars(state: Readonly<RunState>, ctx: WorkspaceR
  * Fail-open: a misbehaving adapter must never abort the run over grounding.
  */
 export async function groundRepository(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
-  const { deps, workspace, signal } = ctx;
+  const { deps, workspace, signal, input } = ctx;
   const { diff: classificationDiff } = state.classification;
   let groundingContextPack: string | undefined;
   let groundingContextPackItemIds: readonly string[] | undefined;
@@ -93,7 +93,11 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
   if (deps.preGenerationGrounding) {
     deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
     try {
-      const grounding = await deps.preGenerationGrounding.ground(workspace.specDir, signal, classificationDiff);
+      const grounding = await deps.preGenerationGrounding.ground(workspace.specDir, signal, classificationDiff, {
+        sha: input.sha.toString(),
+        serviceLinks: state.grounding.serviceLinks,
+        crossRepoImpact: state.grounding.crossRepoImpact,
+      });
       groundingContextPack = grounding.contextPack;
       groundingContextPackItemIds = grounding.contextPackItemIds;
       groundingContextPackOmissions = grounding.contextPackOmissions;

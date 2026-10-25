@@ -1,7 +1,7 @@
 /* The order in which the pack offers the map's routes to the capture: the ones the run's changed files point at come first. The map is data read from a file, so each field can hold any shape; entries here are plain records and the map type is claimed once. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROUTE_LINK_FIELDS, rankRoutesByChange } from "@contexts/generation/domain/route-ranking.ts";
+import { ROUTE_LINK_FIELDS, rankRoutesByChange, rankRoutesWithRelevance } from "@contexts/generation/domain/route-ranking.ts";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 
 const { implementationFiles: IMPLEMENTATION, source: SOURCE, spec: SPEC } = ROUTE_LINK_FIELDS;
@@ -368,4 +368,20 @@ test("ranking leaves the list it was given as it was", () => {
 
   assert.deepEqual(ranked, ["/a", "/m", "/z", "/b", "/y"]);
   assert.deepEqual(given, FILE_ORDER);
+});
+
+test("a page the call graph proved ranks after every page the map links and before the rest, and a page the map links keeps the map's basis", () => {
+  const map = mapOf([route("/plain"), route("/proven"), route("/both", { [IMPLEMENTATION]: ["src/pages/both.ts"] }), route("/by-source", { [SOURCE]: "src/pages/orders.ts" })]);
+
+  const ranked = rankRoutesWithRelevance(["/plain", "/proven", "/both", "/by-source"], map, { changedFiles: ["src/pages/both.ts", "src/pages/orders.ts"], graphPages: ["/proven", "/both"] });
+
+  assert.deepEqual(
+    ranked.map((r) => [r.route, r.relevant, r.basis]),
+    [["/both", true, "implementation"], ["/by-source", true, "source"], ["/proven", true, "graph"], ["/plain", false, undefined]],
+  );
+});
+
+test("a proven page the derived routes did not list is still offered, once", () => {
+  const ranked = rankRoutesByChange(["/a"], mapOf([route("/a"), route("/b")]), { changedFiles: ["x.ts"], graphPages: ["/b", "/b"] });
+  assert.deepEqual(ranked, ["/b", "/a"]);
 });

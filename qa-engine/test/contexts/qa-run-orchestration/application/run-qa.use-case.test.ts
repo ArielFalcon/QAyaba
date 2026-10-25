@@ -5811,6 +5811,28 @@ test("a cross-repo run whose trigger matches a resolved service link asks the cr
   assert.equal(out.outcome?.gateSignals.crossRepoImpactedCount, 1, "crossRepoImpactedCount telemetry must reflect impactedLinks.length");
 });
 
+test("the grounding is handed the run's commit, the resolved service links and the cross-repo impact, so the change's pages can be joined over them", async () => {
+  const link: ServiceLink = {
+    from: { repo: "org/front", file: "src/api.ts", symbol: "getOrder" },
+    to: { repo: "org/orders-svc", file: "src/routes.ts", symbol: "getOrder" },
+    transport: "http",
+    confidence: 1,
+    source: "openapi",
+  };
+  const impact = { impactedLinks: [{ link, tier: "contract-file" as const }] };
+  const crossRepoImpact: CrossRepoImpactPort = { resolve: async () => impact };
+  const serviceLinks: ServiceLinksPort = { resolve: async () => ({ links: [link], drift: [] }) };
+  const changes: unknown[] = [];
+  const preGenerationGrounding: PreGenerationGroundingPort = { ground: async (_specDir, _signal, _diff, change) => { changes.push(change); return {}; } };
+
+  const { ports } = stubPorts({});
+  const useCase = new RunQaUseCase({ ...ports, serviceLinks, crossRepoImpact, preGenerationGrounding, config: baseConfig });
+
+  await useCase.run({ ...baseInput, runId: "grounding-gets-links", triggerRepo: "org/orders-svc" });
+
+  assert.deepEqual(changes, [{ sha: baseInput.sha.toString(), serviceLinks: [link], crossRepoImpact: impact }]);
+});
+
 test("a same-repo run (no input.triggerRepo) never invokes the crossRepoImpact port at all", async () => {
   let resolveCallCount = 0;
   const crossRepoImpact: CrossRepoImpactPort = {

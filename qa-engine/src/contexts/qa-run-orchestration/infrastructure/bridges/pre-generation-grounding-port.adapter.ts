@@ -1,6 +1,7 @@
 /* PreGenerationGroundingPort: fail-open context.json + context pack + harness facts. Never throws. */
 
-import type { PreGenerationGroundingPort, GroundingResult, HarnessFacts } from "../../application/ports/index.ts";
+import type { ChangePagesPort, GroundingChange, PreGenerationGroundingPort, GroundingResult, HarnessFacts } from "../../application/ports/index.ts";
+import type { ChangePagesJoin } from "@kernel/change-pages.ts";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps, packDeliveredItemIds } from "@contexts/generation/infrastructure/context-pack.ts";
@@ -17,7 +18,7 @@ import { raceWithAbort, isAbortError } from "./abort-race.ts";
 import { withDeclaredResources } from "./implementation-resources.ts";
 import { withChangedElementScopes } from "./changed-element-scope.ts";
 import { withUnchangedLines, type MeasuredLabels } from "./changed-label-lines.ts";
-import { filesLinkedToPages } from "@contexts/generation/domain/route-ranking.ts";
+import { filesLinkedToPages, rankRoutesWithRelevance } from "@contexts/generation/domain/route-ranking.ts";
 const diffParser = new DiffParserService();
 
 export interface PreGenerationGroundingStaticContext {
@@ -41,6 +42,8 @@ export interface GroundingTrace {
   /* A stored map that did not fit the run's commit and was left out: said with the provenance that explains why, so the run does not read as one with no map at all. */
   contextMapLeftOut?(provenance: ContextProvenance): void;
   pack?(assembly: ContextPackAssembly): void;
+  /* What the change-page join over the call graph found: told whether or not it added a page, so its hubs and disagreements are on the run's record. */
+  changePages?(join: ChangePagesJoin): void;
 }
 
 export interface PreGenerationGroundingCollaborators {
@@ -50,6 +53,8 @@ export interface PreGenerationGroundingCollaborators {
   buildContextPack?: typeof buildContextPack;
   contextPackDeps?: ContextPackDeps;
   loadContextMap?: (specDir: string) => ArchitectureContext | undefined;
+  /* The pages the run's call graph proves the change reaches. Absent: the change's pages are the map's links alone. */
+  changePages?: ChangePagesPort;
 }
 
 function isValidArchitectureContext(raw: unknown): raw is ArchitectureContext {
@@ -238,6 +243,25 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     private readonly collaborators: PreGenerationGroundingCollaborators = {},
   ) {}
 
+  /*
+   * The pages the call graph proves the change reaches, beside the ones the map links (which keep the map's basis and take no
+   * slot of the join's cap). Recorded on the result and told to the trace; nothing when no index answered.
+   */
+  private async graphPagesOf(result: GroundingResult, map: ArchitectureContext, changedFiles: string[], diff: string | undefined, change: GroundingChange): Promise<string[] | undefined> {
+    const join = this.collaborators.changePages;
+    if (!join) return undefined;
+    const linked = new Set(
+      rankRoutesWithRelevance(map.routes.map((route) => route.path), map, { changedFiles, ...(this.ctx.stagedRoots ? { stagedRoots: this.ctx.stagedRoots } : {}) })
+        .filter((route) => route.relevant)
+        .map((route) => route.route),
+    );
+    const found = await join.resolve({ map, sha: change.sha, changedFiles, ...(diff ? { touchedLines: diffParser.touchedLines(diff) } : {}), linked, crossRepoImpact: change.crossRepoImpact ?? null });
+    if (!found) return undefined;
+    result.changePages = found;
+    this.tell(() => this.collaborators.trace?.changePages?.(found));
+    return found.pages.map((page) => page.route);
+  }
+
   /* The observer is told in passing: its fault never changes what grounding returns. */
   private tell(notify: () => void): void {
     try {
@@ -247,7 +271,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     }
   }
 
-  async ground(specDir: string, signal?: AbortSignal, diff?: string): Promise<GroundingResult> {
+  async ground(specDir: string, signal?: AbortSignal, diff?: string, change?: GroundingChange): Promise<GroundingResult> {
     if (signal?.aborted) return {};
 
     const result: GroundingResult = {};
@@ -315,7 +339,9 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       const parsed = domPack && diff ? labels?.elements : undefined;
       const changedElements = parsed && this.ctx.mirrorDir && this.ctx.stagedRoots === undefined
         ? withChangedElementScopes(parsed, this.ctx.mirrorDir, this.ctx.testIdAttribute)
-        : parsed;      const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
+        : parsed;
+      const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
+      const graphPages = domPack && contextMap && prChangedFiles?.length && change ? await this.graphPagesOf(result, contextMap, prChangedFiles, diff, change) : undefined;
       const buildPromise = build(
         {
           baseUrl: this.ctx.baseUrl,
@@ -326,6 +352,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           domPack,
           ...(deterministicRoutes?.length ? { routes: deterministicRoutes } : {}),
           ...(this.ctx.stagedRoots ? { stagedRoots: this.ctx.stagedRoots } : {}),
+          ...(graphPages?.length ? { graphPages } : {}),
           ...(changedElements?.length ? { changedElements } : {}),
           ...(labels?.literals.length ? { changedLiterals: labels.literals } : {}),
         },
@@ -341,7 +368,10 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       if (packResult.changedValuesWithMoreNodes?.length) result.changedValuesWithMoreNodes = packResult.changedValuesWithMoreNodes;
       const confirmed = confirmedDataRoutes(packResult.trace?.pages ?? []);
       if (confirmed.length > 0) result.packConfirmedDataRoutes = confirmed;
-      if (packResult.trace?.relevantRoutes?.length) result.changeRoutes = [...packResult.trace.relevantRoutes];
+      if (packResult.trace?.relevantRoutes?.length) {
+        result.changeRoutes = [...packResult.trace.relevantRoutes];
+        if (packResult.trace.relevantBasis?.length === result.changeRoutes.length) result.changeRouteBasis = [...packResult.trace.relevantBasis];
+      }
       this.tell(() => this.collaborators.trace?.pack?.(packResult));    } catch (err) {
       if (isAbortError(err)) return result; /* abort: return whatever was gathered so far, never throw — see the note above. */
       console.warn(`[qa] WARNING: context-pack build FAILED (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
