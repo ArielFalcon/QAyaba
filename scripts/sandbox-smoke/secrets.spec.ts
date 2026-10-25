@@ -39,7 +39,7 @@ test("the config directory (app configs) cannot be listed", () => {
 });
 
 test("none of the orchestrator's secrets or its test account is in this process's environment", () => {
-  for (const name of ["DEV_TEST_USER", "DEV_TEST_PASS", "GITHUB_TOKEN", "QA_API_TOKEN", "OPENCODE_API_KEY", "OPENCODE_SERVER_PASSWORD", "WEBHOOK_SECRET", "CODEX_API_KEY", "DOPPLER_TOKEN"]) {
+  for (const name of ["DEV_TEST_USER", "DEV_TEST_PASS", "GITHUB_TOKEN", "QA_API_TOKEN", "OPENCODE_API_KEY", "OPENCODE_SERVER_PASSWORD", "WEBHOOK_SECRET", "DOPPLER_TOKEN"]) {
     expect(process.env[name], name).toBeUndefined();
   }
 });

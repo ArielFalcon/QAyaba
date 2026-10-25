@@ -484,11 +484,6 @@ test("propose(): session.prompt() rejecting logs exactly one redacted warn with 
   const originalWarn = console.warn;
   const logged: string[] = [];
   console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  /* Gotcha: save the prior value and restore via `delete` when it was unset — assigning
-     `undefined` back would coerce to the STRING "undefined" (process.env only holds strings).
-   */
-  const priorSingleProvider = process.env.AGENT_SINGLE_PROVIDER;
-  process.env.AGENT_SINGLE_PROVIDER = "single";
   try {
     const depsFactory = fakeDepsFactory({ promptResult: new Error("connect ECONNREFUSED 127.0.0.1:4096") });
     const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
@@ -501,12 +496,10 @@ test("propose(): session.prompt() rejecting logs exactly one redacted warn with 
     assert.equal(entry.l, "warn");
     assert.equal(entry.app, "nname");
     assert.equal(entry.model, PROPOSER_MODEL);
-    assert.equal(entry.singleProvider, "single", "the concrete flag VALUE must be asserted, not key presence");
+    assert.equal("singleProvider" in entry, false, "the retired runtime selector is no longer logged");
     assert.equal(entry.error, "connect ECONNREFUSED 127.0.0.1:4096");
   } finally {
     console.warn = originalWarn;
-    if (priorSingleProvider === undefined) delete process.env.AGENT_SINGLE_PROVIDER;
-    else process.env.AGENT_SINGLE_PROVIDER = priorSingleProvider;
   }
 });
 

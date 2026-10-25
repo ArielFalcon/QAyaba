@@ -164,15 +164,13 @@ export class LlmProfileProposerAdapter implements ProfileProposerPort {
        * Fail-open by contract (ProfileProposerPort doc): any throw — open() failure, prompt()
        * rejection/timeout, unparseable text — degrades to an empty round, never propagates.
        * Instrumented (do NOT silently swallow): emit exactly one structured warn with the redacted
-       * real error + the context needed to confirm-or-refute the AGENT_SINGLE_PROVIDER correlation
-       * and identify the actual throw. redactionPort.redactError reads only err.message and scrubs
+       * real error + the context needed to identify the actual throw. redactionPort.redactError reads only err.message and scrubs
        * it via the canonical adapter (env+pattern) — it never serializes structured SDK bodies or
        * the stack (no new leak surface).
        */
       logJson("warn", "onboarding proposer round failed (fail-open, returning no candidates)", {
         app: this.ctx.app,
         model: this.model,
-        singleProvider: process.env.AGENT_SINGLE_PROVIDER,
         error: redactionPort.redactError(err),
       });
       return [];

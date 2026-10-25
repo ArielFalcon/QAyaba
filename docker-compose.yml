@@ -1,6 +1,6 @@
 # Two long-lived services:
 #   orchestrator → the Node infrastructure (webhook, gate, working copy, execution, reporting)
-#   agents       → dual agent container: supervisor + OpenCode/Codex runtimes + MCPs
+#   agents       → agent container: supervisor + OpenCode runtime + MCPs
 #
 # They share the `mirrors` volume: the orchestrator clones/checks out the repo
 # working copy and the agent reads/writes there (the session cwd). Since
@@ -165,7 +165,7 @@ services:
           cpus: "2.0"
 
   agents:
-    build: ./agents # dual agent runtime: OpenCode + Codex + uv/JDK (Serena)
+    build: ./agents # agent runtime: OpenCode + uv/JDK (Serena)
     restart: always
     # Same init: the browser of the Playwright MCP and the runtimes' own tool children can outlive the process that started them.
     init: true
@@ -176,7 +176,7 @@ services:
       - 8.8.8.8
     # SECURITY: the agent container does NOT get the full .env. It receives ONLY the
     # model-provider keys, the shared OpenCode server password, the run_spec service token and DEV_ENV_* (the HTTP Basic gate
-    # of DEV, read by the baseline arm's Playwright config and a Codex shell) — NEVER the test
+    # of DEV, read by the baseline arm's Playwright config) — NEVER the test
     # account (DEV_TEST_*: the app login is the orchestrator's and the agent only gets the saved
     # session) nor GITHUB_TOKEN / WEBHOOK_SECRET / QA_API_TOKEN. Git writes are the orchestrator's
     # job, so the agent has no push credential to exfiltrate. (docker compose reads
@@ -186,21 +186,12 @@ services:
       - default
       - agent-otlp
     environment:
-      # QA_AGENT_OTLP_ENDPOINT makes the supervisor give Codex a trace exporter pointed at collector-agents (traces only; the
-      # supervisor writes the [otel] table of Codex's config.toml). OTEL_EXPORTER_OTLP_ENDPOINT is OpenCode's own switch: it
-      # exports logs and traces to the same receiver, where the trace pipeline drops its spans and the log pipeline keeps
-      # its logs. Codex never receives this variable (its exec env is an exact-name allowlist), and OpenCode's
-      # experimental.openTelemetry (content-bearing ai.* spans) stays off.
-      QA_AGENT_OTLP_ENDPOINT: http://collector-agents:4319
+      # OTEL_EXPORTER_OTLP_ENDPOINT is OpenCode's own switch: it exports logs and traces to the same receiver, where the
+      # trace pipeline drops its spans and the log pipeline keeps its logs. OpenCode's experimental.openTelemetry
+      # (content-bearing ai.* spans) stays off.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://collector-agents:4319
       MIRROR_DIR: /app/.mirrors
-      AGENT_PROMPT_DIR: /root/.config/agent
       AGENT_SUPERVISOR_PORT: 4097
-      AGENT_RUNTIME_MODE: ${AGENT_RUNTIME_MODE:-single}
-      AGENT_SINGLE_PROVIDER: ${AGENT_SINGLE_PROVIDER:-}
-      AGENT_PRIMARY_PROVIDER: ${AGENT_PRIMARY_PROVIDER:-}
-      AGENT_REVIEWER_PROVIDER: ${AGENT_REVIEWER_PROVIDER:-}
-      AGENT_CHAT_PROVIDER: ${AGENT_CHAT_PROVIDER:-}
       AGENT_PRIMARY_MODEL: ${AGENT_PRIMARY_MODEL:-}
       AGENT_REVIEWER_MODEL: ${AGENT_REVIEWER_MODEL:-}
       AGENT_CHAT_MODEL: ${AGENT_CHAT_MODEL:-}
@@ -214,7 +205,6 @@ services:
       # run_spec and authbrowser_* tools (agents/tool/): where the orchestrator's internal endpoint is, and the service token it requires.
       QA_TOOLS_PORT: ${QA_TOOLS_PORT:-459}
       QA_TOOLS_TOKEN: ${QA_TOOLS_TOKEN:-}
-      CODEX_API_KEY: ${CODEX_API_KEY:-}
       DEV_ENV_USER: ${DEV_ENV_USER:-}
       DEV_ENV_PASS: ${DEV_ENV_PASS:-}
       # `opencode serve` ignores a watched repo's own opencode.json/.opencode (they could re-grant a shell or run a
@@ -222,11 +212,9 @@ services:
       AGENT_ALLOW_PROJECT_CONFIG: ${AGENT_ALLOW_PROJECT_CONFIG:-}
     volumes:
       - ./agents:/root/.config/opencode:ro # opencode.json + agents + AGENTS.md + skills (read-only: agents must NOT rewrite their own prompts)
-      - ./agent:/root/.config/agent:ro # provider-neutral prompts/skills for Codex and future OpenCode config
       - mirrors:/app/.mirrors # SAME path as the orchestrator: the agent reads/writes here (Serena caches in <repo>/.serena)
       - serena-cache:/root/.cache/uv # uv/Serena cache (avoids re-downloading on each boot)
       - opencode-data:/root/.local/share/opencode # sessions + auth — survives restarts
-      - codex-data:/root/.codex # Codex auth/session state — survives restarts
     logging:
       driver: "json-file"
       options:
@@ -374,6 +362,5 @@ volumes:
   qa-data:
   serena-cache:
   opencode-data:
-  codex-data:
   lgtm-data:
   otel-debug:

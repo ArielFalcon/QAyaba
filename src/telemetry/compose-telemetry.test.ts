@@ -190,7 +190,7 @@ test("no literal secret or default password appears in the telemetry files", () 
 test("the orchestrator is pointed at the trusted receiver and the agents' exporters at the untrusted one", () => {
   assert.equal(svc("orchestrator").environment?.OTEL_EXPORTER_OTLP_ENDPOINT, "http://collector:4318");
   assert.equal(svc("orchestrator").environment?.OTEL_SERVICE_NAME, "qayaba-orchestrator");
-  assert.equal(svc("agents").environment?.QA_AGENT_OTLP_ENDPOINT, "http://collector-agents:4319");
+  assert.equal(svc("agents").environment?.QA_AGENT_OTLP_ENDPOINT, undefined, "the supervisor has no exporter of its own to point");
   assert.equal(svc("agents").environment?.OTEL_EXPORTER_OTLP_ENDPOINT, "http://collector-agents:4319");
 });
 
