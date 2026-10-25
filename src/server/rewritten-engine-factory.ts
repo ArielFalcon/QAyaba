@@ -61,6 +61,8 @@ import { GenerateTestsUseCase } from "@contexts/generation/application/generate-
 import { resolveDiffTimeBudgets } from "@contexts/generation/domain/generator-time-budget";
 import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-runtime.adapter";
 import { RunDeadline } from "@contexts/qa-run-orchestration/domain/run-deadline";
+import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import { contextMapValidity, parseNameStatusZ, type ChangedFile } from "@contexts/qa-run-orchestration/domain/context-map-validity";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { CONTEXT_HEAL_MIN_INTERVAL_MS, CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
@@ -531,6 +533,26 @@ export interface RewrittenEngineFactoryDeps {
    * the run that triggered it.
    */
   enqueueContextRun?: (input: ContextHealRunRequest) => string | Promise<string>;
+  /*
+   * How the files differ between the commit a stored context map was built at and the run's commit, read in the primary
+   * mirror; undefined when they cannot be compared. Test seam: the default asks git.
+   */
+  contextMapChanges?: (repoDir: string, fromSha: string, toSha: string) => ChangedFile[] | undefined;
+}
+
+/* `git diff` between two commits of the mirror; a failure (a commit the mirror does not hold) is "cannot compare", never a guess. */
+function gitChangedFiles(repoDir: string, fromSha: string, toSha: string): ChangedFile[] | undefined {
+  try {
+    const out = execFileSync("git", hardenGitArgs(["diff", "--name-status", "--no-renames", "-z", fromSha, toSha, "--"], repoDir), {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return parseNameStatusZ(out);
+  } catch (err) {
+    console.warn(`[qa] WARNING: the context map's commit ${fromSha.slice(0, 7)} could not be compared with ${toSha.slice(0, 7)} (${err instanceof Error ? err.message.split("\n")[0] : String(err)}); the map is not reused.`);
+    return undefined;
+  }
 }
 
 export interface ContextHealRunRequest {
@@ -876,7 +898,11 @@ export function buildRewrittenCompositionConfig(
   /* An off-path rebuild for a map stale by SHA/age, deduped to one request per app per 6h. The
    * process-audit flag keeps its own path above; this one never clears that flag. */
   const requestMapHealIfDue = (): void => {
-    if (campaignFrozen || !mapProvenance?.stale) return;
+    if (!mapProvenance?.stale) return;
+    if (campaignFrozen) {
+      mapProvenance = { ...mapProvenance, recapture: "skipped" };
+      return;
+    }
     const last = lastContextHealRequestAt(app.name);
     if (last !== undefined && Date.now() - Date.parse(last) < CONTEXT_HEAL_MIN_INTERVAL_MS) {
       mapProvenance = { ...mapProvenance, recapture: "skipped" };
@@ -885,6 +911,21 @@ export function buildRewrittenCompositionConfig(
     recordContextHealRequest(app.name);
     mapProvenance = { ...mapProvenance, recapture: "requested" };
     requestContextHeal(app.name, run.sha, deps.enqueueContextRun, run.runId);
+  };
+
+  /*
+   * Whether a map built at `capturedSha` describes this run's commit (context-map-validity.ts: the files the map names are the
+   * same in both commits). A map that does not fit is not used; the run grounds without it and a rebuild is requested.
+   * A service-triggered run's sha belongs to the service repo, so the primary repo's map cannot be compared with it: that
+   * case, and a run with no sha, keep the plain sha comparison and still use the map.
+   */
+  const changesBetween = deps.contextMapChanges ?? gitChangedFiles;
+  const mapFitsRun = (map: ArchitectureContext, capturedSha: string): { fits: boolean; usable: boolean; reason: string } => {
+    if (capturedSha === run.sha) return { fits: true, usable: true, reason: "none" };
+    if (triggerService || !run.sha) return { fits: false, usable: true, reason: "sha-mismatch" };
+    const validity = contextMapValidity(map, capturedSha, run.sha, changesBetween(mirrorDir, capturedSha, run.sha));
+    if (validity.valid) return { fits: true, usable: true, reason: "none" };
+    return { fits: false, usable: false, reason: validity.reason === "inputs-changed" ? "inputs-changed" : "sha-mismatch" };
   };
 
   /*
@@ -1183,9 +1224,9 @@ export function buildRewrittenCompositionConfig(
         if (stored) {
           const capturedMs = Date.parse(stored.updatedAt);
           const ageMs = Number.isFinite(capturedMs) ? Math.max(0, Date.now() - capturedMs) : undefined;
-          const staleBySha = stored.builtAtSha !== run.sha;
+          const fit = mapFitsRun(stored.data, stored.builtAtSha);
           const staleByAge = ageMs !== undefined && ageMs > CONTEXT_MAP_MAX_AGE_MS;
-          const stale = staleBySha || staleByAge;
+          const stale = !fit.fits || staleByAge;
           mapProvenance = {
             location: "db:context_maps",
             capturedAt: stored.updatedAt,
@@ -1193,24 +1234,25 @@ export function buildRewrittenCompositionConfig(
             ...(ageMs !== undefined ? { ageMs } : {}),
             resultCount: contextMapResultCount(stored.data),
             stale,
-            staleReason: staleBySha ? "sha-mismatch" : staleByAge ? "older-than-max-age" : "none",
+            staleReason: !fit.fits ? fit.reason : staleByAge ? "older-than-max-age" : "none",
             recapture: "not-needed",
           };
           if (stale) requestMapHealIfDue();
-          return stored.data;
+          return fit.usable ? stored.data : undefined;
         }
         const disk = loadContextMapFromDisk(specDir);
         if (disk) {
-          const stale = disk.builtAtSha !== run.sha;
+          const fit = mapFitsRun(disk, disk.builtAtSha);
           mapProvenance = {
             location: "file:e2e/.qa/context.json",
             capturedSha: disk.builtAtSha,
             resultCount: contextMapResultCount(disk),
-            stale,
-            staleReason: stale ? "sha-mismatch" : "none",
+            stale: !fit.fits,
+            staleReason: fit.fits ? "none" : fit.reason,
             recapture: "not-needed",
           };
-          if (stale) requestMapHealIfDue();
+          if (!fit.fits) requestMapHealIfDue();
+          return fit.usable ? disk : undefined;
         }
         return disk;
       },

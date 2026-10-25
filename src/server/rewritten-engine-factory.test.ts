@@ -644,7 +644,8 @@ for (const [label, enqueueContextRun] of [
       }
 
       assert.equal(isContextStale(app.name), false);
-      const nextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-0a1b2c3-run2", { mode: "diff", sha: "0a1b2c3" });
+      /* The next run is at another commit that changed nothing the map names, so the map fits it. */
+      const nextRun = buildRewrittenCompositionConfig(app, { ...deps, contextMapChanges: () => [] }, "qa-bot-0a1b2c3-run2", { mode: "diff", sha: "0a1b2c3" });
       assert.deepEqual(nextRun.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/fresh" }]);
     });
   }
@@ -3584,6 +3585,91 @@ test("with the campaign freeze on, a stale-flagged app requests no context rebui
   await flushMicrotasks();
   assert.deepEqual(requested, [], "a frozen campaign never adds a run to the queue");
   assert.equal(isContextStale(app.name), true, "the flag is left as the campaign found it");
+});
+
+/*
+ * A stored map is reused at another sha only when what it names is the same in both commits (git decides, no agent turn);
+ * otherwise this run grounds without it and a rebuild at the run's sha is requested. The provenance says exactly that.
+ */
+const mapNamingFiles: ArchitectureContext = {
+  builtAtSha: "sha-built",
+  routes: [{ path: "/shops", source: "src/shops.routes.ts", implementationFiles: ["src/shops/shops.page.ts"] }],
+  api: [],
+  feBe: [],
+};
+const storedMapApp = (label: string): AppConfig => {
+  const app = cfg(`factory-map-validity-${label}-${Math.random().toString(36).slice(2)}`);
+  saveContextMap(app.name, "sha-built", mapNamingFiles);
+  return app;
+};
+
+test("a stored map from another sha is reused when none of the files it names changed between the two commits", async () => {
+  const app = storedMapApp("unchanged");
+  const requested: string[] = [];
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/unrelated.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
+    "qa-bot-run1",
+    { mode: "diff", sha: "sha-run" },
+  );
+  const map = config.groundingCollaborators!.loadContextMap!("/nowhere");
+  await flushMicrotasks();
+  assert.equal(map?.builtAtSha, "sha-built");
+  assert.equal(config.contextMapProvenance!()?.stale, false);
+  assert.equal(config.contextMapProvenance!()?.capturedSha, "sha-built");
+  assert.equal(config.contextMapProvenance!()?.recapture, "not-needed");
+  assert.deepEqual(requested, []);
+});
+
+test("a stored map from another sha is not used when a file it names changed, and a rebuild at the run's sha is requested", async () => {
+  const app = storedMapApp("changed");
+  const requested: string[] = [];
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops/shops.page.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
+    "qa-bot-run1",
+    { mode: "diff", sha: "sha-run" },
+  );
+  const map = config.groundingCollaborators!.loadContextMap!("/nowhere");
+  await flushMicrotasks();
+  assert.equal(map, undefined, "a map that does not fit the run's commit is never presented as current");
+  const provenance = config.contextMapProvenance!();
+  assert.equal(provenance?.stale, true);
+  assert.equal(provenance?.staleReason, "inputs-changed");
+  assert.equal(provenance?.capturedSha, "sha-built");
+  assert.equal(provenance?.recapture, "requested");
+  assert.deepEqual(requested, ["sha-run"]);
+});
+
+test("a stored map whose two commits cannot be compared is not used", () => {
+  const app = storedMapApp("unverifiable");
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, contextMapChanges: () => undefined }, "qa-bot-run1", { mode: "diff", sha: "sha-run" });
+  assert.equal(config.groundingCollaborators!.loadContextMap!("/nowhere"), undefined);
+  assert.equal(config.contextMapProvenance!()?.staleReason, "sha-mismatch");
+});
+
+test("a stored map at the run's own sha is used without comparing commits", () => {
+  const app = storedMapApp("same");
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, contextMapChanges: () => { throw new Error("no comparison for the same sha"); } },
+    "qa-bot-run1",
+    { mode: "diff", sha: "sha-built" },
+  );
+  assert.equal(config.groundingCollaborators!.loadContextMap!("/nowhere")?.builtAtSha, "sha-built");
+  assert.equal(config.contextMapProvenance!()?.stale, false);
+});
+
+test("under the campaign freeze a map that does not fit the run says its recapture was skipped, not that none was needed", () => {
+  const app = storedMapApp("frozen");
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, env: { [CAMPAIGN_FREEZE_ENV]: "1" }, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }] },
+    "qa-bot-run1",
+    { mode: "diff", sha: "sha-run" },
+  );
+  config.groundingCollaborators!.loadContextMap!("/nowhere");
+  assert.equal(config.contextMapProvenance!()?.recapture, "skipped");
 });
 
 /* ── The run_spec loop ─────────────────────────────────────────────────────────────────────────── */

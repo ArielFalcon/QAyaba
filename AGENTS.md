@@ -174,7 +174,10 @@ The harness pre-computes context so the agent does not have to rediscover it. An
 to the agent's behaviour must make it **consume** this context, not re-derive it:
 - **Pre-generation grounding** —
   `qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts`
-  (fail-open): context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
+  (fail-open): the stored context map, reused at another sha only when the files it names are unchanged between the two
+  commits (`qa-run-orchestration/domain/context-map-validity.ts`; otherwise the run grounds without it and a rebuild at
+  the run's sha is requested, recorded as `recapture` requested/skipped, see `docs/adr/0001-grounding-telemetry-quality.md`),
+  context pack (live DOM per route, redirect advisory, relevant API contracts, routes not
   capturable — `generation/infrastructure/context-pack.ts`), harness facts
   (`generation/domain/harness-facts.ts`), existing-suite manifest.
 - **Pre-exec / review grounding** — `pre-exec-grounding-port.adapter.ts`,

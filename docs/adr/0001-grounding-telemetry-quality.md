@@ -231,7 +231,7 @@ qayaba.context.captured_sha   the SHA the source was built from, when it has one
 qayaba.context.age_ms         now - captured_at
 qayaba.context.result_count   routes+operations+links+flows, pages, claims, lines, rules, exemplars
 qayaba.context.stale          boolean
-qayaba.context.stale_reason   sha-mismatch | older-than-max-age | marked-stale | empty |
+qayaba.context.stale_reason   sha-mismatch | inputs-changed | older-than-max-age | marked-stale | empty |
                               capture-failed | fetch-failed | dom-changed | none
 qayaba.context.recapture      not-needed | requested | completed | failed | skipped
 ```
@@ -251,7 +251,9 @@ Per source:
 
 The map's **effective location** is the location that actually won. The loader currently prefers the DB and silently falls back to disk; record both so a fresh disk map that was shadowed by an older DB row is visible. The DB `built_at_sha` is authoritative; the map's own `builtAtSha` is the agent's declared value and may differ.
 
-The R4 map is the case study: `location=db:context_maps`, `captured_at=2026-10-11T16:38:31Z`, `captured_sha=549e0649`, `result_count=112`, `stale=true`, `stale_reason=sha-mismatch`, `age≈8 days`, `recapture=requested`. The run would still use the map (fail-open), but the freshness is now measurable and the next run benefits from the rebuild.
+The R4 map is the case study: `location=db:context_maps`, `captured_at=2026-10-11T16:38:31Z`, `captured_sha=549e0649`, `result_count=112`, `stale=true`, `stale_reason=sha-mismatch`, `age≈8 days`, `recapture=requested`. The freshness is measurable and the next run benefits from the rebuild.
+
+**Map reuse across shas.** A map built at another sha is reused only when git shows that the files the map names (each route's `source` and `implementationFiles`, each operation's `spec`) are unchanged between the map's commit and the run's, and no file of a route source's kind (same name suffix) was added (`context-map-validity.ts`; a tree comparison, so a map from a later commit is judged the same way). A map that fits is `stale=false`. One that does not fit (`stale_reason=inputs-changed`), or whose commits cannot be compared (`stale_reason=sha-mismatch`), is left out of the run: the run grounds without it, a `qayaba.context.context-map` span with no items still carries the provenance, and a rebuild at the run's sha is requested off-path (`recapture=requested`, `skipped` when deduped within 6 h or under the campaign freeze, never `not-needed`). A service-triggered run, whose sha belongs to another repo, keeps the plain sha comparison and still uses the map. The rule sees only what the map names: a generated client feeding `feBe` is not named, so the 14-day age bound still applies.
 
 **Capture consistency.** A page can be captured more than once in a run: the pre-generation pack, the pre-exec catalog gate and the review DOM. Record `captured_at`, `settled`, `nodes`, `test_ids` and a fingerprint of the change-relevant page's `dom:` ids for each capture. When two captures of the same route exist, record `consistent`, `added` and `removed`. If the change-relevant page differs, set `context_fresh=false` with `stale_reason=dom-changed`. R4 is the case: the grounding capture saw `0 resultados`, the review capture saw `11`, and the generated spec was authored against the stale sample. The review DOM should be used both to judge the spec and to audit the grounding it was judged against.
 

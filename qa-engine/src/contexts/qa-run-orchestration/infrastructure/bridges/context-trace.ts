@@ -67,6 +67,12 @@ export function telemetryGroundingTrace(telemetry: TelemetryPort, mapProvenance?
       bytes: jsonBytes(map),
       freshness: provenance ?? mapProvenance?.(),
     })),
+    contextMapLeftOut: (provenance) => safely(() => recordContextSpan(telemetry, {
+      source: "context-map",
+      ids: [],
+      bytes: 0,
+      freshness: provenance,
+    })),
     pack: (assembly) => safely(() => {
       const trace = assembly.trace;
       if (trace && trace.capturablePages > 0) {

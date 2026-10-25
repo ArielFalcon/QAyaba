@@ -38,6 +38,8 @@ export interface PreGenerationGroundingStaticContext {
 /* Told what grounding supplied, as it supplies it. Read-only: nothing it does reaches what the agent receives, and a fault in it is logged and ignored. */
 export interface GroundingTrace {
   contextMap?(map: ArchitectureContext, provenance?: ContextProvenance): void;
+  /* A stored map that did not fit the run's commit and was left out: said with the provenance that explains why, so the run does not read as one with no map at all. */
+  contextMapLeftOut?(provenance: ContextProvenance): void;
   pack?(assembly: ContextPackAssembly): void;
 }
 
@@ -268,6 +270,10 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     }
     if (contextMap) result.contextMap = contextMap;
     if (contextMap) this.tell(() => this.collaborators.trace?.contextMap?.(contextMap, this.ctx.contextMapProvenance?.()));
+    else {
+      const leftOut = this.ctx.contextMapProvenance?.();
+      if (leftOut?.stale === true && leftOut.capturedSha !== undefined) this.tell(() => this.collaborators.trace?.contextMapLeftOut?.(leftOut));
+    }
 
     try {
       const found = enumerateExistingSpecFiles(this.ctx.e2eDir);
