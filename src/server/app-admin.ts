@@ -5,7 +5,7 @@
 
 import { parse } from "yaml";
 import { AppConfigSchema } from "../orchestrator/schemas";
-import { expandEnv, type AppConfig } from "../orchestrator/config-loader";
+import { AppConfigInvalidError, AppNotFoundError, expandEnv, type AppConfig } from "../orchestrator/config-loader";
 import { buildYaml, suggestName, type OnboardAuthInput, type OnboardInput, type OnboardServiceInput } from "./onboard";
 import { patchAppYaml } from "./onboarding/patch-app-yaml";
 import type { RepoInfo } from "../integrations/github";
@@ -131,7 +131,9 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
   try {
     existing = deps.loadApp(input.name);
   } catch (err) {
-    return { ok: false, errors: [`app '${input.name}' not found`] };
+    if (err instanceof AppNotFoundError) return { ok: false, errors: [`app '${input.name}' not found`] };
+    if (err instanceof AppConfigInvalidError) return { ok: false, errors: [err.message] };
+    throw err;
   }
 
   const repo = input.repo ?? existing.repo;
@@ -194,7 +196,7 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
 
 export function deleteApp(name: string, purge: boolean, deps: AppAdminDeps): { removed: string[] } {
   if (!NAME_RE.test(name)) throw new Error(`invalid app name: ${JSON.stringify(name)}`);
-  const app = deps.loadApp(name);  /* throws if not onboarded */
+  const app = deps.loadApp(name);  /* throws AppNotFoundError when not onboarded, AppConfigInvalidError when its config cannot be loaded; the caller answers both */
   const removed: string[] = [];
   deps.deleteConfig(name);
   removed.push(`config:${name}`);

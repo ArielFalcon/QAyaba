@@ -1832,6 +1832,15 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
+            /** @description app config invalid: the app has a config file that cannot be loaded */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     getRun: {
@@ -2276,6 +2285,24 @@ export interface operations {
                     "application/json": components["schemas"]["AppView"];
                 };
             };
+            /** @description app not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description app config invalid: the app has a config file that cannot be loaded */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     updateApp: {
@@ -2331,6 +2358,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeleteAppResult"];
+                };
+            };
+            /** @description app not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description app config invalid: the app has a config file that cannot be loaded */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
@@ -2464,6 +2509,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description app config invalid: the app has a config file that cannot be loaded */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description service shutting down */
             503: {
                 headers: {
@@ -2491,6 +2545,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntelligenceView"];
+                };
+            };
+            /** @description app not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description app config invalid: the app has a config file that cannot be loaded */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
@@ -2521,6 +2593,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description app config invalid: the app has a config file that cannot be loaded */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
             };
         };
     };
@@ -2579,6 +2660,24 @@ export interface operations {
                     "application/json": components["schemas"]["TrendsView"];
                 };
             };
+            /** @description app not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description app config invalid: the app has a config file that cannot be loaded */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     getAppTelemetry: {
@@ -2601,6 +2700,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AppTelemetryView"];
+                };
+            };
+            /** @description app not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description app config invalid: the app has a config file that cannot be loaded */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
@@ -2626,6 +2743,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReportView"];
+                };
+            };
+            /** @description app not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description app config invalid: the app has a config file that cannot be loaded */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };

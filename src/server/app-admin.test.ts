@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "yaml";
 import { createApp, updateApp, deleteApp, type AppAdminDeps } from "./app-admin";
-import { expandEnv, type AppConfig } from "../orchestrator/config-loader";
+import { AppConfigInvalidError, AppNotFoundError, expandEnv, type AppConfig } from "../orchestrator/config-loader";
 import { AppConfigSchema } from "../orchestrator/schemas";
 import { buildYaml, type OnboardInput } from "./onboard";
 import { serializeBoundary, spliceBoundariesBlock } from "./onboarding/write-boundaries";
@@ -482,11 +482,33 @@ test("updateApp rejects invalid config", async () => {
 
 test("updateApp returns 404 when app does not exist", async () => {
   const deps = makeDeps({
-    loadApp: () => { throw new Error("not found"); },
+    loadApp: () => { throw new AppNotFoundError("missing"); },
   });
   const r = await updateApp({ name: "missing", baseUrl: "https://x" }, deps);
   assert.equal(r.ok, false);
   assert.match(r.errors?.[0] ?? "", /not found/);
+});
+
+test("updateApp reports the reason when the app's config cannot be loaded, instead of calling it missing", async () => {
+  const deps = makeDeps({
+    loadApp: () => { throw new AppConfigInvalidError("shop", "config references unset env var ${GITHUB_TOKEN}"); },
+  });
+  const r = await updateApp({ name: "shop", baseUrl: "https://x" }, deps);
+  assert.equal(r.ok, false);
+  assert.match(r.errors?.[0] ?? "", /unset env var/);
+  assert.doesNotMatch(r.errors?.[0] ?? "", /not found/);
+  assert.deepEqual(deps.written, {});
+});
+
+test("updateApp does not turn an unexpected failure of loadApp into 'not found'", async () => {
+  const failure = new Error("disk unreachable");
+  const deps = makeDeps({ loadApp: () => { throw failure; } });
+  await assert.rejects(updateApp({ name: "shop", baseUrl: "https://x" }, deps), failure);
+});
+
+test("deleteApp lets the typed errors of loadApp reach its caller, which answers them", () => {
+  assert.throws(() => deleteApp("shop", false, makeDeps({ loadApp: () => { throw new AppNotFoundError("shop"); } })), AppNotFoundError);
+  assert.throws(() => deleteApp("shop", false, makeDeps({ loadApp: () => { throw new AppConfigInvalidError("shop", "bad yaml"); } })), AppConfigInvalidError);
 });
 
 test("updateApp dryRun returns yaml without writing", async () => {

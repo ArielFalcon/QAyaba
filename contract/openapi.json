@@ -135,6 +135,16 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "app config invalid: the app has a config file that cannot be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       },
@@ -702,6 +712,26 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "app not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "app config invalid: the app has a config file that cannot be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       },
@@ -769,6 +799,26 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeleteAppResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "app not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "app config invalid: the app has a config file that cannot be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -920,6 +970,16 @@
           "409": {
             "description": "the app has no form login to bootstrap, or an onboarding job is running"
           },
+          "422": {
+            "description": "app config invalid: the app has a config file that cannot be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "service shutting down"
           }
@@ -947,6 +1007,26 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/IntelligenceView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "app not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "app config invalid: the app has a config file that cannot be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -981,6 +1061,16 @@
           },
           "404": {
             "description": "app not found, or no stored architecture map yet for this app"
+          },
+          "422": {
+            "description": "app config invalid: the app has a config file that cannot be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -1080,6 +1170,26 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "app not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "app config invalid: the app has a config file that cannot be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -1114,6 +1224,26 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AppTelemetryView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "app not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "app config invalid: the app has a config file that cannot be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -1162,6 +1292,26 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ReportView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "app not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "app config invalid: the app has a config file that cannot be loaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }

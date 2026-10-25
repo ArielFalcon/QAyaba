@@ -168,6 +168,7 @@ function paths(): Record<string, unknown> {
           "202": { description: "enqueued", content: jsonBody("CreateRunResult") },
           "400": { description: "invalid request", content: jsonBody("ApiError") },
           "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
         },
       },
       get: {
@@ -298,7 +299,15 @@ function paths(): Record<string, unknown> {
       },
     },
     "/api/v1/apps/{name}": {
-      get: { operationId: "getApp", parameters: [nameParam], responses: { "200": { description: "configured app", content: jsonBody("AppView") } } },
+      get: {
+        operationId: "getApp",
+        parameters: [nameParam],
+        responses: {
+          "200": { description: "configured app", content: jsonBody("AppView") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
+      },
       put: {
         operationId: "updateApp",
         parameters: [nameParam],
@@ -311,7 +320,11 @@ function paths(): Record<string, unknown> {
       delete: {
         operationId: "deleteApp",
         parameters: [nameParam, { name: "purge", in: "query", schema: { type: "boolean" } }],
-        responses: { "200": { description: "deleted app config", content: jsonBody("DeleteAppResult") } },
+        responses: {
+          "200": { description: "deleted app config", content: jsonBody("DeleteAppResult") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
       },
     },
     "/api/v1/apps/{name}/boundaries/propose": {
@@ -355,6 +368,7 @@ function paths(): Record<string, unknown> {
         responses: {
           "202": { description: "login-bootstrap run enqueued", content: jsonBody("LoginBootstrapResult") },
           "404": { description: "app not found" },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
           "409": { description: "the app has no form login to bootstrap, or an onboarding job is running" },
           "503": { description: "service shutting down" },
         },
@@ -365,7 +379,11 @@ function paths(): Record<string, unknown> {
         operationId: "getAppIntelligence",
         summary: "Learning ledger, value-oracle scorecard and curriculum for an app (read-only)",
         parameters: [nameParam],
-        responses: { "200": { description: "intelligence view", content: jsonBody("IntelligenceView") } },
+        responses: {
+          "200": { description: "intelligence view", content: jsonBody("IntelligenceView") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
       },
     },
     "/api/v1/apps/{name}/context-map": {
@@ -376,6 +394,7 @@ function paths(): Record<string, unknown> {
         responses: {
           "200": { description: "context map view", content: jsonBody("ContextMapView") },
           "404": { description: "app not found, or no stored architecture map yet for this app" },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
         },
       },
     },
@@ -395,7 +414,11 @@ function paths(): Record<string, unknown> {
         operationId: "getAppTrends",
         summary: "Period-over-period trends for an app: coverage, value-oracle, verdicts, error classes (read-only)",
         parameters: [nameParam, windowParam, formatParam],
-        responses: { "200": { description: "trends view", content: jsonBody("TrendsView") } },
+        responses: {
+          "200": { description: "trends view", content: jsonBody("TrendsView") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
       },
     },
     "/api/v1/apps/{name}/telemetry": {
@@ -403,7 +426,11 @@ function paths(): Record<string, unknown> {
         operationId: "getAppTelemetry",
         summary: "Prompt-size, grounding, repair and wall-clock aggregates over an app's agent turns, plus agent-efficiency aggregates (read-only)",
         parameters: [nameParam, windowParam],
-        responses: { "200": { description: "app telemetry", content: jsonBody("AppTelemetryView") } },
+        responses: {
+          "200": { description: "app telemetry", content: jsonBody("AppTelemetryView") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
       },
     },
     "/api/v1/apps/{name}/report": {
@@ -411,7 +438,11 @@ function paths(): Record<string, unknown> {
         operationId: "getAppReport",
         summary: "Ad-hoc report: interestingness-ranked insights with a recommended chart per metric (read-only)",
         parameters: [nameParam, windowParam, formatParam],
-        responses: { "200": { description: "report view", content: jsonBody("ReportView") } },
+        responses: {
+          "200": { description: "report view", content: jsonBody("ReportView") },
+          "404": { description: "app not found", content: jsonBody("ApiError") },
+          "422": { description: "app config invalid: the app has a config file that cannot be loaded", content: jsonBody("ApiError") },
+        },
       },
     },
     "/api/v1/signals": {

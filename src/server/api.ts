@@ -13,7 +13,7 @@ import type { CaptureMode } from "@kernel/telemetry/capture-mode";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { RUN_MODES, RunMode, TestTarget, RunRecord, engineStatus } from "../types";
-import { AppConfig } from "../orchestrator/config-loader";
+import { AppConfig, AppConfigInvalidError, AppNotFoundError } from "../orchestrator/config-loader";
 import { sanitizeText, RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { buildRunContext, buildLearningContext, buildRunChatContext } from "./chat";
 import { buildHelpContext } from "./help";
@@ -112,7 +112,7 @@ export interface RunObservabilityRequest {
 export interface ApiDeps {
   queue: { readonly size: number };
   enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string, closedLoop?: boolean, agentBrowser?: boolean, observability?: RunObservabilityRequest, grounding?: GroundingInput): string;
-  loadApp(name: string): AppConfig;  /* throws if the app is not configured */
+  loadApp(name: string): AppConfig;  /* throws AppNotFoundError when the app has no config and AppConfigInvalidError when its config cannot be loaded */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
   getRecord(id: string): RunRecord | undefined;
@@ -234,6 +234,29 @@ function contractJson(res: ServerResponse, status: number, schema: z.ZodTypeAny,
 /* An error body of the public contract: schemaVersion first, on every status. */
 function apiError(res: ServerResponse, status: number, error: string): void {
   json(res, status, { schemaVersion: 1, error });
+}
+
+/*
+ * The one place a route loads the app it is about. An app with no config answers 404; an app whose config cannot be loaded
+ * answers 422 with the reason (the operator can fix it, and "not found" would send them to onboard an app that exists). Any other
+ * failure is not about the app and propagates. Returns what `run` returns, or undefined once the response has been written.
+ */
+function withApp<T>(res: ServerResponse, deps: ApiDeps, name: string, run: (app: AppConfig) => T): T | undefined {
+  let app: AppConfig;
+  try {
+    app = deps.loadApp(name);
+  } catch (err) {
+    if (err instanceof AppNotFoundError) {
+      apiError(res, 404, `app not found: '${name}'`);
+      return undefined;
+    }
+    if (err instanceof AppConfigInvalidError) {
+      apiError(res, 422, redactionPort.redactError(err));
+      return undefined;
+    }
+    throw err;
+  }
+  return run(app);
 }
 
 function sseWrite(res: ServerResponse, event: unknown): void {
@@ -512,13 +535,8 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
     return true;
   }
 
-  let appConfig: AppConfig;
-  try {
-    appConfig = deps.loadApp(appName);
-  } catch {
-    apiError(res, 404, `app not found: '${appName}'`);
-    return true;
-  }
+  const appConfig = withApp(res, deps, appName, (app) => app);
+  if (!appConfig) return true;
 
   const target: TestTarget =
     typeof body.target === "string" && (TARGETS as string[]).includes(body.target)
@@ -955,11 +973,7 @@ function appView(app: AppConfig): { name: string; repo: string; baseUrl: string;
 }
 
 function handleGetApp(res: ServerResponse, deps: ApiDeps, name: string): boolean {
-  try {
-    contractJson(res, 200, AppViewSchema, appView(deps.loadApp(name)));
-  } catch {
-    json(res, 404, { error: `app not found: '${name}'` });
-  }
+  withApp(res, deps, name, (app) => contractJson(res, 200, AppViewSchema, appView(app)));
   return true;
 }
 
@@ -968,13 +982,8 @@ function handleAppIntelligence(res: ServerResponse, deps: ApiDeps, name: string)
     json(res, 501, { error: "intelligence is not available" });
     return true;
   }
-  try {
-    deps.loadApp(name);  /* 404 when the app isn't configured */
-  } catch {
-    json(res, 404, { error: `app not found: '${name}'` });
-    return true;
-  }
-  contractJson(res, 200, IntelligenceViewSchema, deps.intelligence(name));
+  const { intelligence } = deps;
+  withApp(res, deps, name, () => contractJson(res, 200, IntelligenceViewSchema, intelligence(name)));
   return true;
 }
 
@@ -983,12 +992,7 @@ function handleContextMap(res: ServerResponse, deps: ApiDeps, name: string): boo
     json(res, 501, { error: "context map is not available" });
     return true;
   }
-  try {
-    deps.loadApp(name);  /* 404 when the app isn't configured */
-  } catch {
-    json(res, 404, { error: `app not found: '${name}'` });
-    return true;
-  }
+  if (!withApp(res, deps, name, () => true)) return true;
   const view = deps.contextMap(name);
   if (!view) {
     json(res, 404, { error: `no stored architecture map for app '${name}'` });
@@ -1057,12 +1061,7 @@ function handleAppTrends(
     json(res, 501, { error: "trends is not available" });
     return true;
   }
-  try {
-    deps.loadApp(name);  /* 404 when the app isn't configured */
-  } catch {
-    json(res, 404, { error: `app not found: '${name}'` });
-    return true;
-  }
+  if (!withApp(res, deps, name, () => true)) return true;
   const trends = deps.trends(name, window);
   if (format === "csv") {
     res.writeHead(200, { "Content-Type": "text/csv; charset=utf-8" });
@@ -1084,12 +1083,7 @@ function handleAppReport(
     json(res, 501, { error: "report is not available" });
     return true;
   }
-  try {
-    deps.loadApp(name);
-  } catch {
-    json(res, 404, { error: `app not found: '${name}'` });
-    return true;
-  }
+  if (!withApp(res, deps, name, () => true)) return true;
   const report = deps.report(name, window);
   /*
    * ?format=csv → a spreadsheet-friendly flat table (one row per insight); default stays the
@@ -1139,12 +1133,7 @@ function handleAppTelemetry(res: ServerResponse, deps: ApiDeps, name: string, wi
     json(res, 501, { error: "telemetry analysis is not available" });
     return true;
   }
-  try {
-    deps.loadApp(name);  /* 404 when the app is not configured */
-  } catch {
-    json(res, 404, { error: `app not found: '${name}'` });
-    return true;
-  }
+  if (!withApp(res, deps, name, () => true)) return true;
   try {
     const analysis = deps.telemetryAnalysis(name, window);
     contractJson(res, 200, AppTelemetryViewSchema, analysis);
@@ -1605,7 +1594,7 @@ function handleDeleteApp(res: ServerResponse, deps: ApiDeps, name: string, purge
     contractJson(res, 200, DeleteAppResultSchema, deps.deleteApp(name, purge));
   } catch (err) {
     const msg = redactionPort.redactError(err);
-    json(res, msg.includes("not found") ? 404 : 500, { error: msg });
+    json(res, err instanceof AppNotFoundError ? 404 : err instanceof AppConfigInvalidError ? 422 : 500, { error: msg });
   }
   return true;
 }
@@ -1620,13 +1609,8 @@ async function handleLoginBootstrap(res: ServerResponse, deps: ApiDeps, name: st
     json(res, 501, { error: "login bootstrap is not available" });
     return true;
   }
-  let appConfig: AppConfig;
-  try {
-    appConfig = deps.loadApp(name);
-  } catch {
-    json(res, 404, { error: `app not found: '${name}'` });
-    return true;
-  }
+  const appConfig = withApp(res, deps, name, (app) => app);
+  if (!appConfig) return true;
   if (appConfig.code === true || appConfig.auth?.kind !== "form") {
     json(res, 409, { error: `app '${name}' declares no form login to bootstrap` });
     return true;

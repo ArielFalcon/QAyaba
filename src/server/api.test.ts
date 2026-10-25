@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { handleApi, ApiDeps } from "./api";
+import { AppConfigInvalidError, AppNotFoundError } from "../orchestrator/config-loader";
 import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
@@ -68,7 +69,7 @@ function deps(over: Partial<ApiDeps> = {}): ApiDeps {
     enqueue: () => "run-xyz",
     loadApp: (n) => {
       if (n === "demo") return appConfig;
-      throw new Error("not found");
+      throw new AppNotFoundError(n);
     },
     listApps: () => [appConfig],
     resolveRef: async () => "f".repeat(40),
@@ -1151,7 +1152,7 @@ test("DELETE /api/apps/:name on a missing app returns 404", async () => {
   await handleApi(
     mkReq("DELETE", "/api/apps/shop"),
     res,
-    deps({ deleteApp: () => { throw new Error("config/apps/shop.yaml not found — is the app onboarded?"); } }),
+    deps({ deleteApp: () => { throw new AppNotFoundError("shop"); } }),
   );
   assert.equal(res.status, 404);
 });
@@ -1579,7 +1580,7 @@ test("POST /api/apps/:name/boundaries/confirm forwards :name into deps.boundarie
 
 const formLoginApp: any = { ...appConfig, baseBranch: "develop", auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } };
 const loginDeps = (over: Partial<ApiDeps> = {}): ApiDeps =>
-  deps({ loadApp: (n) => { if (n === "demo") return formLoginApp; if (n === "pub") return appConfig; if (n === "cli") return { ...formLoginApp, code: true }; throw new Error("not found"); }, ...over });
+  deps({ loadApp: (n) => { if (n === "demo") return formLoginApp; if (n === "pub") return appConfig; if (n === "cli") return { ...formLoginApp, code: true }; throw new AppNotFoundError(n); }, ...over });
 
 test("POST /api/apps/:name/login-bootstrap enqueues the login run at the base branch head and answers 202 with the run", async () => {
   const resolved: string[][] = [];
@@ -1675,3 +1676,70 @@ test("POST /api/v1/runs rejects an agentBrowser that is not a boolean (nothing i
   assert.equal(enqueued, false);
 });
 
+
+/* ── The app an API route needs: absent answers 404, a config that cannot be loaded answers 422, anything else is a fault ── */
+
+const APP_ROUTES: ReadonlyArray<{ route: string; method: string; path: string; body?: string; over?: Partial<ApiDeps> }> = [
+  { route: "create run", method: "POST", path: "/api/v1/runs", body: JSON.stringify({ app: "ghost", sha: "abc1234", mode: "diff", target: "e2e" }) },
+  { route: "get app", method: "GET", path: "/api/v1/apps/ghost" },
+  { route: "intelligence", method: "GET", path: "/api/v1/apps/ghost/intelligence", over: { intelligence: () => { throw new Error("not reached"); } } },
+  { route: "context map", method: "GET", path: "/api/v1/apps/ghost/context-map", over: { contextMap: () => null } },
+  { route: "trends", method: "GET", path: "/api/v1/apps/ghost/trends", over: { trends: () => { throw new Error("not reached"); } } },
+  { route: "report", method: "GET", path: "/api/v1/apps/ghost/report", over: { report: () => { throw new Error("not reached"); } } },
+  { route: "telemetry analysis", method: "GET", path: "/api/v1/apps/ghost/telemetry", over: { telemetryAnalysis: () => { throw new Error("not reached"); } } },
+  { route: "login bootstrap", method: "POST", path: "/api/v1/apps/ghost/login-bootstrap", over: { bootstrapLogin: () => "run-login-1" } },
+];
+
+for (const { route, method, path, body, over } of APP_ROUTES) {
+  test(`${route}: an unknown app answers 404 'app not found' as an API error with schemaVersion`, async () => {
+    const res = mkRes();
+    await handleApi(mkReq(method, path, body), res, deps({ ...over, loadApp: (n) => { throw new AppNotFoundError(n); } }));
+    assert.equal(res.status, 404);
+    assert.deepEqual(JSON.parse(res.body), { schemaVersion: 1, error: "app not found: 'ghost'" });
+  });
+
+  test(`${route}: an app whose config is invalid answers 422 with the reason, not 404`, async () => {
+    const res = mkRes();
+    await handleApi(mkReq(method, path, body), res, deps({ ...over, loadApp: (n) => { throw new AppConfigInvalidError(n, "config references unset env var ${GITHUB_TOKEN}"); } }));
+    assert.equal(res.status, 422);
+    const parsed = JSON.parse(res.body);
+    assert.equal(parsed.schemaVersion, 1);
+    assert.match(parsed.error, /app config invalid: 'ghost'/);
+    assert.match(parsed.error, /unset env var \$\{GITHUB_TOKEN\}/);
+  });
+
+  test(`${route}: an unexpected error from loadApp is not turned into a 404`, async () => {
+    const res = mkRes();
+    const failure = new Error("disk unreachable");
+    await assert.rejects(handleApi(mkReq(method, path, body), res, deps({ ...over, loadApp: () => { throw failure; } })), failure);
+    assert.notEqual(res.status, 404);
+  });
+}
+
+test("DELETE /api/v1/apps/:name answers 404 for an unknown app and 422 for an app whose config is invalid", async () => {
+  const notFound = mkRes();
+  await handleApi(mkReq("DELETE", "/api/v1/apps/ghost"), notFound, deps({ deleteApp: (name) => { throw new AppNotFoundError(name); } }));
+  assert.equal(notFound.status, 404);
+  assert.match(JSON.parse(notFound.body).error, /ghost\.yaml not found/);
+  const invalid = mkRes();
+  await handleApi(mkReq("DELETE", "/api/v1/apps/ghost"), invalid, deps({ deleteApp: (name) => { throw new AppConfigInvalidError(name, "bad yaml"); } }));
+  assert.equal(invalid.status, 422);
+  assert.match(JSON.parse(invalid.body).error, /bad yaml/);
+});
+
+test("DELETE /api/v1/apps/:name keeps a failure that merely mentions 'not found' a server error", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("DELETE", "/api/v1/apps/demo"), res, deps({ deleteApp: () => { throw new Error("mirror directory not found"); } }));
+  assert.equal(res.status, 500);
+});
+
+test("the assistant keeps answering when the run's app cannot be loaded", async () => {
+  const res = mkRes();
+  const record: any = parentRec;
+  await handleApi(
+    mkReq("POST", "/api/v1/runs/p1/ask", JSON.stringify({ question: "why?" })),
+    res,
+    deps({ getRecord: () => record, ask: async () => "because", loadApp: () => { throw new AppConfigInvalidError("demo", "bad yaml"); } }),
+  );
+  assert.equal(res.status, 200);
+});

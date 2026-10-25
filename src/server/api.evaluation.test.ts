@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { handleApi, type ApiDeps } from "./api";
+import { AppNotFoundError } from "../orchestrator/config-loader";
 import { RegradeRequestError } from "@contexts/evaluation/application/regrade.use-case";
 import { GRADER_CATALOG } from "@contexts/evaluation/domain/grader-catalog";
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
@@ -95,7 +96,7 @@ function deps(over: Partial<ApiDeps> = {}): ApiDeps {
     enqueue: () => "run-new",
     loadApp: (n) => {
       if (n === "demo") return { name: "demo", repo: "o/d", qa: { shadow: false, needsReview: true, testDataPrefix: "qa" } } as never;
-      throw new Error("nope");
+      throw new AppNotFoundError(n);
     },
     listApps: () => [],
     resolveRef: async () => "f".repeat(40),

@@ -13,13 +13,32 @@ const ROOT = qayabaRoot();
 
 export interface AppConfig extends ValidatedAppConfig {}
 
+/* The app has no config file: it was never onboarded, or was deleted. */
+export class AppNotFoundError extends Error {
+  constructor(readonly app: string) {
+    super(`config/apps/${app}.yaml not found — is the app onboarded?`);
+    this.name = "AppNotFoundError";
+  }
+}
+
+/* The app has a config file that cannot be turned into a valid config: it cannot be read, an env var it names is unset, the YAML does not parse or the schema rejects it. `reason` is the underlying message; `cause` keeps the original error. */
+export class AppConfigInvalidError extends Error {
+  constructor(readonly app: string, readonly reason: string, options?: { cause?: unknown }) {
+    super(`app config invalid: '${app}': ${reason}`, options);
+    this.name = "AppConfigInvalidError";
+  }
+}
+
+/** Throws AppNotFoundError when the app has no config file and AppConfigInvalidError when the file cannot be loaded; these two are the only errors a caller is meant to tell apart. */
 export function loadAppConfig(name: string, root = ROOT): ValidatedAppConfig {
   const path = join(root, "config", "apps", `${name}.yaml`);
-  if (!existsSync(path)) {
-    throw new Error(`config/apps/${name}.yaml not found — is the app onboarded?`);
+  if (!existsSync(path)) throw new AppNotFoundError(name);
+  try {
+    const raw = expandEnv(readFileSync(path, "utf8"));
+    return AppConfigSchema.parse(parse(raw));
+  } catch (err) {
+    throw new AppConfigInvalidError(name, err instanceof Error ? err.message : String(err), { cause: err });
   }
-  const raw = expandEnv(readFileSync(path, "utf8"));
-  return AppConfigSchema.parse(parse(raw));
 }
 
 /* An unset ${VAR} silently un-watches an app — surface it as an error, not a malformed-YAML skip. */
