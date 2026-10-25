@@ -973,7 +973,9 @@ export function buildRewrittenCompositionConfig(
 
 
   const grounding = run.grounding;
-  const structuralSignalsOn = grounding?.structuralSignal === false || grounding?.structuralSignal === "off" ? false : structuralSignalsOnFor(app);
+  /* The run's own choice wins over the app's mode, either way. */
+  const asked = grounding?.structuralSignal;
+  const structuralSignalsOn = asked === false || asked === "off" ? false : asked === true || asked === "signal" ? true : structuralSignalsOnFor(app);
   /* The run's code graph (one instance: the index phase builds it, the structural signal and the cross-repo impact read it). */
   const codeGraph = structuralSignalsOn
     ? buildCodeGraph({ exec, git: runner, dataDir, appName: app.name, sandbox: codeSandbox, exclude: app.qa.structuralSignals?.exclude ?? [] })

@@ -138,3 +138,9 @@ test("style sheets give way to the code that defines the behaviour", () => {
   assert.ok(out.includes("diff --git a/src/z.component.ts"), "the code is kept");
   assert.match(out, /src\/a\.component\.scss \(\+20 -0\)/, "the style sheet is the one listed");
 });
+
+test("extractDiffFilePath names a file whose path holds spaces or that git quotes by its real path", () => {
+  assert.equal(extractDiffFilePath("diff --git a/src/my page.ts b/src/my page.ts\n--- a/src/my page.ts\n"), "src/my page.ts");
+  assert.equal(extractDiffFilePath('diff --git "a/src/caf\\303\\251.ts" "b/src/caf\\303\\251.ts"\n'), "src/café.ts");
+  assert.equal(extractDiffFilePath("diff --git a/src/a.ts b/src/a.ts\n"), "src/a.ts");
+});

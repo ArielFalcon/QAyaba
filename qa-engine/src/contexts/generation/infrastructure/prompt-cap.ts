@@ -10,6 +10,7 @@
  * hard-slices that one section. capText is flat prose truncation with no file-awareness.
  * capDiff is the only diff capper; nothing in src/ keeps a copy.
  */
+import { diffGitHeaderPath } from "@kernel/diff-parser/diff-parser.service.ts";
 
 export const MAX_PROMPT_DIFF_CHARS = 50_000;
 
@@ -45,8 +46,8 @@ function omittedLine(section: string, file: string): string {
 }
 
 export function extractDiffFilePath(section: string): string {
-  const m = /^diff --git a\/\S+ b\/(\S+)/m.exec(section);
-  return m?.[1] ?? "";
+  const header = /^diff --git .*$/m.exec(section)?.[0];
+  return header ? (diffGitHeaderPath(header) ?? "") : "";
 }
 
 const DIFF_HEADER_START_RE = /^diff --git /;

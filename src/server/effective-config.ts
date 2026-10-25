@@ -51,7 +51,8 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
   const tools = toolsApply(target, app);
   const closedLoopAsked = request.closedLoop ?? app.qa.closedLoop?.enabled === true;
   const agentBrowserAsked = request.agentBrowser ?? app.qa.agentBrowser?.enabled === true;
-  const structuralMode = structuralSignalsMode(app);
+  /* The run's own choice wins over the app's mode, either way. */
+  const structuralMode = request.grounding?.structuralSignal === true ? "signal" : structuralSignalsMode(app);
   const stitched = serviceTopologyWired(app);
   const requestedGrounding = request.grounding ?? {};
   return {

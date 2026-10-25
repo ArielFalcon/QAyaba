@@ -1269,6 +1269,15 @@ test("the change dossier is on only when the run or the app asks for it and the 
   assert.equal(build(withDossier, { structuralSignal: false }).structuralDossier, undefined, "no code graph, no dossier");
 });
 
+test("a run that asks for the structural signal gets the code graph even where the app has it off", () => {
+  const plain = cfg("factory-structural-asked");
+  const off = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "off" } } } as AppConfig;
+  const build = (grounding?: { structuralSignal?: boolean }) =>
+    buildRewrittenCompositionConfig(off, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
+  assert.equal(build().codeGraph, undefined);
+  assert.notEqual(build({ structuralSignal: true }).codeGraph, undefined);
+});
+
 test("buildRewrittenCompositionConfig supplies crossRepoImpact under the SAME gate as serviceTopology (signal + services[] + boundaries[])", () => {
   const app: AppConfig = {
     ...cfg("factory-cross-repo-impact-active"),

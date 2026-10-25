@@ -110,3 +110,11 @@ test("the static prompt hash covers AGENTS.md and every role file, in name order
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a run that asks for the structural signal gets it even where the app has it off, and it is recorded on", () => {
+  const off = app({}, { structuralSignals: { mode: "off" } });
+  const asked = resolveRunConfig(off, "e2e", { grounding: { structuralSignal: true, dossier: true } }, "metadata", env);
+  assert.equal(asked.grounding.structuralSignal, "signal");
+  assert.equal(asked.grounding.dossier, true);
+  assert.equal(resolveRunConfig(off, "e2e", {}, "metadata", env).grounding.structuralSignal, "off");
+});
