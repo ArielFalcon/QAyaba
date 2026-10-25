@@ -3,7 +3,9 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 
 export interface CoveredLines { file: string; lines: number[]; }
-export interface CoverageReport { covered: CoveredLines[]; }
+/* What a browser coverage collection saw of the scripts a page ran: how many, and how many carried a source map that translates them back to the repository's files. Absent for a collector that reads native reports. */
+export interface CoverageScripts { total: number; withSourceMap: number; }
+export interface CoverageReport { covered: CoveredLines[]; scripts?: CoverageScripts; }
 export interface CoverageCollectorPort {
   collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport>;
 }

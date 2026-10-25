@@ -2162,7 +2162,8 @@ test("buildRewrittenCompositionConfig's coverage collector for an e2e app does N
      by the code-mode wrapper; a nonexistent namespace dir degrades to an empty report (fail-open).
    */
   const report = await config.objectiveSignal.collector.collect("/tmp/does-not-exist/e2e", "qa-bot-abc1234-run1");
-  assert.deepEqual(report, { covered: [] });
+  assert.deepEqual(report.covered, []);
+  assert.deepEqual(report.scripts, { total: 0, withSourceMap: 0 });
 });
 
 test("buildRewrittenCompositionConfig's coverage collector for a code:true app runs best-effort (never throws even with no c8/no test command)", async () => {

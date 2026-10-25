@@ -1,6 +1,6 @@
 /* src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts CoverageCollectorPort over V8/Chromium browser coverage dumps (.json files in .qa/coverage/<ns>/). The missing DI seam: the read of the dumps is injected (no hard-coded readdirSync/readFileSync), so this is unit-testable without disk and fail-open by contract (no dumps → empty report, never a throw). The injected read hands back what each dump covers (the lines of the changed files), not the dump: a dump holds every script a page loaded with its source map, megabytes of it, and the dumps of a suite are many, so each is reduced as it is read and none is kept.
    A dump is written by code the agent wrote, so what decoding it costs is bounded by its size and never by how its numbers are chosen: ranges that each cover the whole script, a script of nothing but line breaks or a source map of a million segments cost the script's length or the dump's size, once, and a dump past a bound is not decoded at all. How fast the segments of a source map decode still varies with their shape (a fifth of the usual speed on a map made to be slow), so the decoding is also asked, as it goes, whether the time it was given is spent (`TimeSpent`), and stops when it is. */
-import type { CoverageCollectorPort, CoverageReport } from "../application/ports/index.ts";
+import type { CoverageCollectorPort, CoverageReport, CoverageScripts } from "../application/ports/index.ts";
 
 interface RawSourceMap {
   version?: number;
@@ -27,7 +27,7 @@ export interface V8Entry {
 export type CoveredLines = Map<string, Set<number>>;
 
 /* Reads the dumps of a namespace and reduces each to the lines of `changedFiles` it covers, one dump at a time. */
-export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[]) => Promise<CoveredLines[]>;
+export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts) => Promise<CoveredLines[]>;
 
 export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   constructor(
@@ -36,7 +36,8 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   ) {}
 
   async collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport> {
-    const dumps = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles);
+    const scripts: CoverageScripts = { total: 0, withSourceMap: 0 };
+    const dumps = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts);
     const merged = new Map<string, Set<number>>();
     for (const covered of dumps) {
       for (const [file, lines] of covered) {
@@ -45,7 +46,7 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
         merged.set(file, set);
       }
     }
-    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })) };
+    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), scripts };
   }
 }
 
@@ -212,8 +213,8 @@ function coverOriginalLines(map: RawSourceMap, files: ReadonlyArray<string | nul
   }
 }
 
-/* What the entries of one dump cover of the changed files. A script is reduced only when it is a changed file or maps to one. Throws on a dump that cannot be decoded within the bounds above, or before the time `spent` speaks of is. */
-export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[], spent?: TimeSpent): Map<string, Set<number>> {
+/* What the entries of one dump cover of the changed files; `scripts`, when given, is added the scripts the dump held and the ones that carried a source map. A script is reduced only when it is a changed file or maps to one. Throws on a dump that cannot be decoded within the bounds above, or before the time `spent` speaks of is. */
+export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[], spent?: TimeSpent, scripts?: CoverageScripts): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>();
   /* The one place a covered line is kept: the lines of a file are bounded however many scripts and segments claim them. */
   const cover = (file: string, line: number): void => {
@@ -228,9 +229,14 @@ export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[
   for (const entry of entries) {
     if (typeof entry?.source !== "string" || typeof entry.url !== "string") continue;
     const source = entry.source;
-    const directFile = resolveUrlToRepoFile(entry.url, changedFiles);
     const map = entry.map;
-    const mapped = !directFile && typeof map?.mappings === "string" && Array.isArray(map.sources);
+    const hasSourceMap = typeof map === "object" && map !== null && typeof map.mappings === "string" && Array.isArray(map.sources);
+    if (scripts) {
+      scripts.total += 1;
+      if (hasSourceMap) scripts.withSourceMap += 1;
+    }
+    const directFile = resolveUrlToRepoFile(entry.url, changedFiles);
+    const mapped = !directFile && hasSourceMap && !!map;
     const files = mapped ? map.sources.map((s) => resolveUrlToRepoFile(sourcePathOf(s, map.sourceRoot), changedFiles)) : [];
     if (!directFile && !files.some((f) => f !== null)) continue;
     if (spent?.()) throw new RangeError();

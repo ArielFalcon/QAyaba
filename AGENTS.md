@@ -575,5 +575,11 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   re-measured under its own `${runId}-coverage-regen` namespace. Only that second
   measurement can change the decision; a failed or empty regen keeps the first result.
 
+- A browser run maps covered bundle bytes to repository files only through source maps the page's
+  scripts carry (inline, or fetched from the URL their `sourceMappingURL` names). When the dumps held
+  scripts and none carried a map, the measurement ends `unknown` with `unmeasured: no-source-maps`
+  (span `qayaba.coverage.unmeasured`), distinct from `no-changed-file-mapped` (maps existed, none
+  reached a changed file). It is an app/DEV build property, fixed by serving maps, never by a guess.
+
 New "quality" logic should strengthen this signal (better line mapping, moving apps from
 `signal` to `enforce`), not add another LLM proxy.

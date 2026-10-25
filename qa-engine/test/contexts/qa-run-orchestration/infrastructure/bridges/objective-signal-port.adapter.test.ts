@@ -423,3 +423,21 @@ test("measure() says why a change-coverage is unknown: no executed source mapped
   assert.equal((await adapterWith({ covered: [] }).measure(br, "/r/e2e")).measurement?.unmeasured, "no-diff");
   assert.equal((await adapterWith({ covered: [] }, false).measure(br, "/r/e2e", SAMPLE_DIFF)).measurement?.unmeasured, "not-assembled");
 });
+
+test("measure() says the scripts carried no source map when the dumps held scripts, none had one and no changed file mapped; it never blocks", async () => {
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const make = (report: CoverageReport) => new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" }) },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/r", assembleChangeCoverage: assembleChangeCoverage },
+  );
+
+  const bundled = await make({ covered: [], scripts: { total: 40, withSourceMap: 0 } }).measure(br, "/r/e2e", SAMPLE_DIFF);
+  assert.equal(bundled.status, "unknown");
+  assert.equal(bundled.measurement?.unmeasured, "no-source-maps");
+
+  const mapped = await make({ covered: [], scripts: { total: 40, withSourceMap: 3 } }).measure(br, "/r/e2e", SAMPLE_DIFF);
+  assert.equal(mapped.measurement?.unmeasured, "no-changed-file-mapped", "maps existed and still none reached a changed file");
+
+  const none = await make({ covered: [], scripts: { total: 0, withSourceMap: 0 } }).measure(br, "/r/e2e", SAMPLE_DIFF);
+  assert.equal(none.measurement?.unmeasured, "no-changed-file-mapped", "no script at all is not a statement about maps");
+});

@@ -416,3 +416,17 @@ test("a script that is no changed file is not decoded and so costs no time: the 
 test("an entry with no URL is skipped", () => {
   assert.equal(defaultParseV8Coverage([{ url: "", source: SOURCE, functions: covering(range(0, 3)) }] as never, ["svc.ts", ""]).size, 0);
 });
+
+test("the scripts of a dump are counted, and so are the ones that carry a source map, whether or not they map to a changed file", () => {
+  const map = { sources: ["src/other.ts"], mappings: "AAAA" };
+  const entries = [
+    { url: "https://dev.example/main.js", source: "a;", functions: [] },
+    { url: "https://dev.example/chunk.js", source: "b;", functions: [], map },
+    { source: "no url", functions: [] },
+  ];
+  const scripts = { total: 0, withSourceMap: 0 };
+
+  defaultParseV8Coverage(entries as never, ["src/svc.ts"], undefined, scripts);
+
+  assert.deepEqual(scripts, { total: 2, withSourceMap: 1 });
+});

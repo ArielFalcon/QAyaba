@@ -48,3 +48,14 @@ test("what one collection adds to a report is its own: the lines of a dump are n
 
   assert.deepEqual([...first.get("src/svc.ts")!], [1]);
 });
+
+test("the report says how many scripts the dumps held and how many carried a source map, so a change nothing maps to can be told from one that was never measurable", async () => {
+  const adapter = new V8BrowserCoverageAdapter(async (_dir, _ns, _changed, scripts) => {
+    scripts!.total += 7;
+    return [covers()];
+  }, CHANGED_FILES);
+
+  const report = await adapter.collect("/e2e", "qa-abc");
+
+  assert.deepEqual(report.scripts, { total: 7, withSourceMap: 0 });
+});

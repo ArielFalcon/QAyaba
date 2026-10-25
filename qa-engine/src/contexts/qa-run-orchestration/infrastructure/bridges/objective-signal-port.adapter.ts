@@ -23,7 +23,7 @@ export interface ObjectiveSignalPortStaticContext {
 }
 
 /* What the measurement counted, and why one that decides nothing did not. */
-function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["unmeasured"]): CoverageMeasurement {
+function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["unmeasured"], scripts?: CoverageReport["scripts"]): CoverageMeasurement {
   if (!cc) return { changedLines: 0, coveredChanged: 0, changedFiles: 0, mappedFiles: 0, unmeasured: skipped ?? "not-assembled" };
   const counts = {
     changedLines: cc.overall.changedLines,
@@ -32,7 +32,10 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
     mappedFiles: cc.perFile.filter((file) => file.covered > 0).length,
   };
   if (cc.overall.changedLines === 0) return { ...counts, unmeasured: "no-changed-lines" };
-  return cc.measured ? counts : { ...counts, unmeasured: "no-changed-file-mapped" };
+  if (cc.measured) return counts;
+  /* Scripts ran and none of them carried a source map: nothing could have mapped them to the repository, whatever the change was. */
+  const unmappable = scripts !== undefined && scripts.total > 0 && scripts.withSourceMap === 0;
+  return { ...counts, unmeasured: unmappable ? "no-source-maps" : "no-changed-file-mapped" };
 }
 
 export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
@@ -50,13 +53,12 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     /* Per-call changed files from the live diff. Composition-time collectors often hold a static empty list; absent diff → collector constructor value. */
     const changedFiles = diff ? [...parseDiffHunks(diff).keys()] : undefined;
     const willAssemble = this.ctx.assembleChangeCoverage !== undefined && !!diff;
-    const cc: ChangeCoverage | null = willAssemble
-      ? this.ctx.assembleChangeCoverage!(diff!, await this.deps.collector.collect(specDir, namespace, changedFiles))
-      : null;
+    const report = willAssemble ? await this.deps.collector.collect(specDir, namespace, changedFiles) : null;
+    const cc: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(diff!, report) : null;
 
     const status = this.deps.decide.decide(cc, this.ctx.policy);
     const ratio = cc?.measured ? cc.overall.ratio : null;
-    const measurement = measurementOf(cc, !diff ? "no-diff" : this.ctx.assembleChangeCoverage === undefined ? "not-assembled" : undefined);
+    const measurement = measurementOf(cc, !diff ? "no-diff" : this.ctx.assembleChangeCoverage === undefined ? "not-assembled" : undefined, report?.scripts);
 
     const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases);
 
