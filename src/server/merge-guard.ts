@@ -260,6 +260,11 @@ export const PROTECTED_PATHS: string[] = [
   /* Which mirror the sandbox group may traverse, and when it is closed again. */
   "qa-engine/src/shared-infrastructure/process-sandbox/mirror-access.ts",
   "src/server/exec-sandbox-factory.ts",
+  /* The code-graph engine's edge: the workspace export (which files of a watched repo reach the sandbox uid, through a hardened checkout), the store cache (what one run hands the next, read back through the confined reader), the engine's command set under the graph profile, and the read-only store reader the orchestrator runs on a store the sandbox wrote. A fix that published a planted store or widened what the engine reads would cross the file boundary without touching the launcher. */
+  "qa-engine/src/shared-infrastructure/code-graph/codegraph-workspace.ts",
+  "qa-engine/src/shared-infrastructure/code-graph/codegraph-store-cache.ts",
+  "qa-engine/src/shared-infrastructure/code-graph/codegraph-engine.ts",
+  "qa-engine/src/shared-infrastructure/code-graph/codegraph-store-reader.mjs",
   /* The egress filter: the policy compiler, the transparent proxy that decides on the name a connection asks for, the DNS filter, the iptables rules and their applier, the controller that holds the leases, and the wiring that reads the declared origins; plus the registries file, which is the list of package registries every install may reach. Widening any of them hands agent code a network. */
   "qa-engine/src/shared-infrastructure/egress/",
   "src/server/egress-wiring.ts",
