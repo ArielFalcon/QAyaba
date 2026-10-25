@@ -350,11 +350,26 @@ that catches nothing. The objective signal that breaks the circle is **change-co
   re-measured under its own `${runId}-coverage-regen` namespace. Only that second
   measurement can change the decision; a failed or empty regen keeps the first result.
 
+- The changed lines are the change's own code: the repo's test files a commit carries (the language
+  registry's `isTestFile`) are neither collected nor counted.
 - A browser run maps covered bundle bytes to repository files only through source maps the page's
-  scripts carry (inline, or fetched from the URL their `sourceMappingURL` names). When the dumps held
+  scripts carry (inline, fetched from the URL their `sourceMappingURL` names, or `<script>.map` when
+  they name none), fetched through the browser context so a DEV gate's credentials reach them. When the dumps held
   scripts and none carried a map, the measurement ends `unknown` with `unmeasured: no-source-maps`
   (span `qayaba.coverage.unmeasured`), distinct from `no-changed-file-mapped` (maps existed, none
   reached a changed file). It is an app/DEV build property, fixed by serving maps, never by a guess.
+- **Branch coverage** (signal, never a gate): the decisions of the scripts the page ran (if/else with the
+  implicit else, `?:`, `&&`/`||`/`??`, switch clauses) are placed through the same maps, and an arm is
+  taken when V8's block counts say it ran. The arms on changed lines go on the coverage span
+  (`qayaba.coverage.changed_branches`/`taken_branches`) and `gateSignals.branchCoverage`; the ones that
+  never ran join the enforce regeneration's gap. A happy-path suite shows a high line ratio and a low
+  branch one.
+- **Bundle mutation** (signal, never a gate; on with `qa.valueOracle`): up to three mutants of the changed
+  code in the served script (a negated condition, a swapped comparison or logical operator), each one
+  re-run of the spec files whose tests reached it, through the seed's `_mutate` fixture (`PW_MUTANT`).
+  A mutant is judged only when it reached a page; it is killed when a passing test fails.
+  `gateSignals.bundleMutation` holds `{ applied, killed, survived[] }` beside the response oracle's
+  `valueScore`, whose meaning is unchanged.
 
 New "quality" logic should strengthen this signal (better line mapping, moving apps from
 `signal` to `enforce`), not add another LLM proxy.

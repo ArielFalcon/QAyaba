@@ -132,7 +132,8 @@ to the agent's behaviour must make it **consume** this context, not re-derive it
   workspace is refreshed from the working copy first, a finding no flow took goes to a regeneration, and the result goes through the
   round's acceptance and rebuttal check like any regeneration. The run's own checks before the review take the same route: the
   static gate's errors (one finding per error block), a failing execution's cases in the fix loop (and the contract deltas of a
-  round the intent lock refused), the pre-execution selector contradictions and the change-coverage gap each go to the lead as
+  round the intent lock refused), the pre-execution selector contradictions and the change-coverage gap (the changed lines no test ran and the
+  arms of their decisions that never ran) each go to the lead as
   facts it routes to their flows and never rebuts; what no flow takes goes to the lead's own regeneration with only that evidence,
   and the run's acceptance of the round is unchanged. The run releases the pass after the review and in its `finally`. DEV access: every action holds its account's lease (`DevLease`, an `AccountLock`
   whose read-only concurrency is gated by the proxy; the proxy has no read-only mode yet, so today every action is exclusive).
