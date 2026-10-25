@@ -321,6 +321,33 @@ test("routes name a backend handler's verb and path and a frontend page's path, 
   }
 });
 
+test("the same change walked twice in a run reads the index once; another change, or a new index, reads it again", async () => {
+  const h = harness();
+  const reads = () => h.engine.signals.length - h.engine.calls.length;
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const change = BlastRadius.of(Sha.of(h.sha), [FORMAT], new Map([[FORMAT, new Set([2])]]));
+    const before = reads();
+    const first = await h.adapter.impactedSymbols(h.mirror, change, BUDGET);
+    const afterFirst = reads();
+    const second = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT], new Map([[FORMAT, new Set([2])]])), BUDGET);
+
+    assert.ok(afterFirst > before);
+    assert.equal(reads(), afterFirst, "an identical walk is answered from the run's first one");
+    assert.deepEqual(second, first);
+
+    await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT]), BUDGET);
+    assert.ok(reads() > afterFirst, "a change with other lines is walked");
+    const afterOther = reads();
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const resynced = reads();
+    await h.adapter.impactedSymbols(h.mirror, change, BUDGET);
+    assert.ok(reads() > resynced && resynced >= afterOther, "a new index is walked again");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("a handler route the engine names for any verb (ANY, ALL) is a backend route, not a page named after its verb", async () => {
   const h = harness();
   try {

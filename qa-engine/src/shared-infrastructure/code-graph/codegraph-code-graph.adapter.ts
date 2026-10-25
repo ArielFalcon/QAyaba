@@ -118,6 +118,8 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
   private readonly now: () => number;
   private readonly scopeKey: string;
   private runSignal: AbortSignal | undefined;
+  /* The run's answered walks of a change, by index and question: the structural block and the change pages ask the same one. */
+  private readonly walks = new Map<string, Promise<Result<ImpactReport, CodeGraphUnavailable>>>();
 
   constructor(private readonly deps: CodegraphCodeGraphDeps) {
     this.now = deps.now ?? Date.now;
@@ -127,6 +129,7 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
   async syncTo(repoDir: string, sha: string, signal?: AbortSignal): Promise<CodeGraphIndexRecord> {
     /* One adapter per run: the signal the run's index build is given also bounds the run's later queries. */
     this.runSignal = signal;
+    this.walks.clear();
     const started = this.now();
     const repo = repoKeyOf(basename(repoDir));
     let workspace = "";
@@ -260,9 +263,21 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
     const entry = this.indexOf(repoDir);
     if (!entry) return err({ reason: "the repo is not indexed in this run" });
     if (files.length === 0) return ok({ indexedSha: entry.sha, symbols: [], truncated: false });
+    const lines = changed.touchedLines ? [...changed.touchedLines].map(([file, set]) => [file, [...set].sort((a, b) => a - b)]).sort() : null;
+    const key = JSON.stringify([repoDir, entry.workspace, entry.sha, [...files].sort(), lines, budget.depth, budget.maxSymbols]);
+    const known = this.walks.get(key);
+    if (known) return known;
+    const walk = this.walkChange(repoDir, files, changed.touchedLines, budget);
+    this.walks.set(key, walk);
+    /* Only an answer is kept: a failed walk may succeed when asked again. */
+    void walk.then((result) => { if (!result.ok) this.walks.delete(key); }, () => this.walks.delete(key));
+    return walk;
+  }
+
+  private async walkChange(repoDir: string, files: string[], touchedLines: TouchedLines | undefined, budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
     const listed = await this.read<{ symbols: StoreSymbol[]; truncated: boolean }>(repoDir, { op: "symbols", files });
     if (!listed.ok) return listed;
-    return this.walkFrom(repoDir, selectSeeds(listed.value.value.symbols, files, changed.touchedLines), budget, listed.value.sha, listed.value.value.truncated);
+    return this.walkFrom(repoDir, selectSeeds(listed.value.value.symbols, files, touchedLines), budget, listed.value.sha, listed.value.value.truncated);
   }
 
   async callersOf(repoDir: string, symbols: readonly LocalSymbolRef[], budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
