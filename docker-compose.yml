@@ -17,8 +17,8 @@
 #   docker compose -f docker-compose.yml up --build
 #
 # The local telemetry stack starts with the app, from this file: two OpenTelemetry collectors (one per trust level),
-# grafana/otel-lgtm (Grafana, Loki, Tempo, Prometheus) and a loopback proxy in front of Grafana (127.0.0.1:3001). It needs
-# GRAFANA_ADMIN_PASSWORD (Doppler or .env) for every compose command. See docs/telemetry-local.md.
+# grafana/otel-lgtm (Grafana, Loki, Tempo, Prometheus) and a loopback proxy in front of Grafana (127.0.0.1:3001). Grafana's
+# admin password is GRAFANA_ADMIN_PASSWORD (Doppler or .env), "admin" when unset. See docs/telemetry-local.md.
 #
 # Telemetry trust model (docs/observability-design.md §9.2). Network isolation is per container, so each receiver is its
 # own service and no container holds a receiver on a network its clients should not reach:
@@ -300,8 +300,9 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_AUTH_DISABLE_LOGIN_FORM: "false"
       GF_SECURITY_ADMIN_USER: admin
-      # Required, never defaulted: compose refuses to start without it. Set it in Doppler or .env.
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD to start the telemetry stack}
+      # "admin" when unset: Grafana is reachable only on 127.0.0.1:3001. Set GRAFANA_ADMIN_PASSWORD (Doppler or .env) to change it;
+      # Grafana reads it when its data volume is first created.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       # R4: spans are kept 30 days. The image's Tempo config has no retention key (its default is 14 days); its start
       # script appends this variable to the Tempo command line (Tempo 3.x flag).
       TEMPO_EXTRA_ARGS: "-backend-worker.compaction.block-retention=720h"

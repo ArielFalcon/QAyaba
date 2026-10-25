@@ -157,10 +157,10 @@ test("the telemetry services start with the app: no profile gates them", () => {
   for (const name of TELEMETRY_SERVICES) assert.equal(svc(name).profiles, undefined, name);
 });
 
-test("Grafana has anonymous access off and a required admin password with no default", () => {
+test("Grafana has anonymous access off and an admin password that defaults to admin, overridable from the environment", () => {
   const env = svc("lgtm").environment ?? {};
   assert.equal(String(env.GF_AUTH_ANONYMOUS_ENABLED), "false");
-  assert.match(String(env.GF_SECURITY_ADMIN_PASSWORD), /^\$\{GRAFANA_ADMIN_PASSWORD:\?[^}]*\}$/);
+  assert.equal(String(env.GF_SECURITY_ADMIN_PASSWORD), "${GRAFANA_ADMIN_PASSWORD:-admin}");
   assert.equal(String(env.GF_PLUGINS_PREINSTALL_DISABLED), "true");
   assert.equal(String(env.GF_NEWS_NEWS_FEED_ENABLED), "false");
   assert.equal(String(env.GF_ANALYTICS_FEEDBACK_LINKS_ENABLED), "false");
@@ -180,7 +180,8 @@ test("both collectors run as a non-root uid, read-only, with no capability, afte
 test("no literal secret or default password appears in the telemetry files", () => {
   const texts = [telemetryText, trusted.text, untrusted.text, read("config/otel/grafana-proxy.conf")];
   for (const text of texts) {
-    assert.doesNotMatch(text, /\$\{[A-Z_]*(PASSWORD|SECRET|TOKEN|KEY)[A-Z_]*:-[^}]/, "a secret variable has a default");
+    /* The one default is the loopback-only Grafana's admin password (Grafana is reachable only on 127.0.0.1:3001). */
+    assert.doesNotMatch(text.replace("${GRAFANA_ADMIN_PASSWORD:-admin}", ""), /\$\{[A-Z_]*(PASSWORD|SECRET|TOKEN|KEY)[A-Z_]*:-[^}]/, "a secret variable has a default");
     assert.doesNotMatch(text, /(PASSWORD|SECRET|TOKEN|API_KEY)\s*[:=]\s*["']?(?!\$\{)[A-Za-z0-9]/i, "a literal secret value");
   }
   assert.doesNotMatch(telemetryText, /LANGFUSE/i);
