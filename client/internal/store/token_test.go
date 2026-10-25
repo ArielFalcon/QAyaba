@@ -22,15 +22,15 @@ func TestDiscoverTokenFromEnv(t *testing.T) {
 }
 
 /* When the env var is unset, the token is read from the orchestrator's token file
-   (config/.api_token under the configured root), trimmed — the same file the server writes. */
+   (data/.api_token under the configured root), trimmed — the same file the server writes. */
 func TestDiscoverTokenFromFile(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "")
 	dir := t.TempDir()
-	cfg := filepath.Join(dir, "config")
-	if err := os.MkdirAll(cfg, 0o755); err != nil {
+	data := filepath.Join(dir, "data")
+	if err := os.MkdirAll(data, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cfg, ".api_token"), []byte("filetok\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(data, ".api_token"), []byte("filetok\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("QAYABA_ROOT", dir)
@@ -46,7 +46,7 @@ func TestDiscoverTokenFromFile(t *testing.T) {
 }
 
 /* mkRepo creates a qayaba-shaped repo (config/apps + config/e2e) at dir, with the given
-   token in config/.api_token. */
+   token in data/.api_token. */
 func mkRepo(t *testing.T, dir, token string) {
 	t.Helper()
 	for _, d := range []string{"apps", "e2e"} {
@@ -54,7 +54,10 @@ func mkRepo(t *testing.T, dir, token string) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config", ".api_token"), []byte(token+"\n"), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data", ".api_token"), []byte(token+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -76,12 +79,12 @@ func TestDiscoverTokenWalksUpToRepo(t *testing.T) {
 	if tok != "repotok" {
 		t.Fatalf("walk-up from a subdir should find the repo token; got %q", tok)
 	}
-	if src != "config/.api_token" {
-		t.Fatalf("source = %q, want config/.api_token", src)
+	if src != "data/.api_token" {
+		t.Fatalf("source = %q, want data/.api_token", src)
 	}
 }
 
-/* A config/.api_token without the repo shape (no config/e2e) is NOT trusted — a forged
+/* A data/.api_token without the repo shape (no config/e2e) is NOT trusted — a forged
    config/apps marker alone must not make the walk-up read a planted token. */
 func TestDiscoverTokenIgnoresForgedMarker(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "")
@@ -90,7 +93,10 @@ func TestDiscoverTokenIgnoresForgedMarker(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "config", "apps"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config", ".api_token"), []byte("planted"), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data", ".api_token"), []byte("planted"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)
@@ -154,7 +160,7 @@ func TestSaveLastHostIgnoresEmpty(t *testing.T) {
    concrete instruction). */
 func TestDiscoverTokenNone(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "")
-	t.Setenv("QAYABA_ROOT", t.TempDir()) /* a root with no config/.api_token */
+	t.Setenv("QAYABA_ROOT", t.TempDir()) /* a root with no data/.api_token */
 	t.Chdir(t.TempDir())                       /* a cwd whose ancestors are not the repo */
 
 	if tok, _ := DiscoverToken(); tok != "" {
@@ -162,28 +168,23 @@ func TestDiscoverTokenNone(t *testing.T) {
 	}
 }
 
-/* The server keeps its token in data/.api_token (an earlier version wrote config/.api_token):
-   the console reads the current file first and the old one only when there is no current one. */
-func TestDiscoverTokenPrefersTheDataDirectory(t *testing.T) {
+/* The server keeps its token in data/.api_token; a token file in the config folder is not read. */
+func TestDiscoverTokenIgnoresTheConfigFolder(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "")
 	t.Setenv("QAYABA_ROOT", "")
 	repo := t.TempDir()
-	mkRepo(t, repo, "legacytok")
+	mkRepo(t, repo, "datatok")
+	if err := os.WriteFile(filepath.Join(repo, "config", ".api_token"), []byte("strayt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Chdir(repo)
-	if tok, src := DiscoverToken(); tok != "legacytok" || src != "config/.api_token" {
-		t.Fatalf("without a data token the old file is read; got %q from %q", tok, src)
+	if tok, src := DiscoverToken(); tok != "datatok" || src != "data/.api_token" {
+		t.Fatalf("the data token is the one read; got %q from %q", tok, src)
 	}
-	if err := os.MkdirAll(filepath.Join(repo, "data"), 0o700); err != nil {
+	if err := os.Remove(filepath.Join(repo, "data", ".api_token")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, "data", ".api_token"), []byte("datatok\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if tok, src := DiscoverToken(); tok != "datatok" || src != "data/.api_token" {
-		t.Fatalf("the data token wins; got %q from %q", tok, src)
-	}
-	t.Setenv("QAYABA_ROOT", repo)
-	if tok, src := DiscoverToken(); tok != "datatok" || src != "data/.api_token" {
-		t.Fatalf("under QAYABA_ROOT the data token wins too; got %q from %q", tok, src)
+	if tok, _ := DiscoverToken(); tok != "" {
+		t.Fatalf("a token file in the config folder must not be read; got %q", tok)
 	}
 }

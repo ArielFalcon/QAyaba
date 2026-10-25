@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseFileBoundaryStatus, type FileBoundaryLayout } from "../../qa-engine/src/shared-infrastructure/process-sandbox/file-boundary";
 import type { FileBoundaryGate } from "../../qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox";
-import { apiTokenPath, legacyApiTokenPath } from "./api-token";
+import { apiTokenPath } from "./api-token";
 
 export function fileBoundaryStatusFile(env: NodeJS.ProcessEnv): string {
   return env.QA_FILE_BOUNDARY_STATUS_FILE && env.QA_FILE_BOUNDARY_STATUS_FILE !== "" ? env.QA_FILE_BOUNDARY_STATUS_FILE : "/run/qa-file-boundary.status";
@@ -39,7 +39,7 @@ export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBo
   const mirrors = env.MIRROR_DIR && env.MIRROR_DIR !== "" ? env.MIRROR_DIR : join(root, ".mirrors");
   return {
     appRoot: root,
-    secretFiles: ["/proc/1/environ", apiTokenPath(root), legacyApiTokenPath(root)],
+    secretFiles: ["/proc/1/environ", apiTokenPath(root)],
     closedDirs: [data, join(data, "auth"), config, join(config, "apps"), mirrors],
     unwritable: [
       data,

@@ -97,11 +97,10 @@ current user and the launcher warns, loudly, once per process; use it only on a 
 in `/proc/self/mountinfo`) grants every uid what it asks: there the sandbox uid could read a token kept in `config/`, rewrite an
 app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the orchestrator's code through a code mount. So:
 
-- **The API token lives in `data/`**, a named volume, never in a host folder. A token an earlier version left in
-  `config/.api_token` may have been readable by the sandbox uid, so the service does not reuse it: at its start
-  (`src/server/api-token.ts`, also when `QA_API_TOKEN` pins one) it removes the file, generates a new token and logs a notice (file
-  names only) telling operators to discover the token again. A file that cannot be removed stops the start, as a misconfigured
-  setting does; clients read `data/.api_token` first and the old file only as a fallback.
+- **The API token lives in `data/`**, a named volume, never in a host folder. The service reads it from `QA_API_TOKEN` or
+  generates it into `data/.api_token` (`src/server/api-token.ts`); clients read the same two places. A token an earlier version
+  kept in the host's config folder may have been readable by the sandbox uid and is no longer read or removed by anything:
+  delete the `.api_token` file beside the app configs by hand, and rotate `QA_API_TOKEN` if it was copied from there.
 - **The host's config folder is mounted at `/app/.host/config`** and `/app/config` is a link to it (Dockerfile, compose). The lookup
   of a path is checked by the filesystem of each directory on the way, and `/app/.host` (`0700 root`) is on the image's own
   filesystem: the sandbox uid cannot reach the configs whatever the host folder's filesystem does, and the orchestrator (root)
@@ -271,7 +270,7 @@ docker compose exec orchestrator npm run sandbox:smoke
 
 It seeds a throwaway project under the mirrors volume, installs it as the sandbox uid, and runs `scripts/sandbox-smoke/*.spec.ts`
 through the real runner with canary secrets planted in the service's environment. Every spec passes only when the isolation
-holds: `/proc/1/environ`, `/app/data`, the API token (`/app/data/.api_token`, and the old `/app/config/.api_token`) and
+holds: `/proc/1/environ`, `/app/data`, the API token (`/app/data/.api_token`) and
 `/app/config` are `EACCES`; an app config cannot be written; no mount under `/app` can be written; the mirror it runs in and
 another one cannot be written or listed; an undeclared host, raw TCP/UDP to a public address, IPv6 and the API on loopback all fail; no secret is in
 `process.env`; and the one declared origin (`QA_SMOKE_ORIGIN`, default `https://example.com`) loads in a real browser. Exit 0

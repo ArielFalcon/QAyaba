@@ -6,7 +6,7 @@
  * actually behave that way, and Docker Desktop's kernel in particular cannot be assumed. This script runs the specs of
  * scripts/sandbox-smoke/ through the REAL runner (the same launcher, profile, uid, work dir and egress filter a
  * production run gets) against a throwaway mirror, with canary secrets planted in this process's environment, and
- * every spec passes only when the isolation holds: it reads /proc/1/environ, /app/data, /app/config/.api_token (all
+ * every spec passes only when the isolation holds: it reads /proc/1/environ, /app/data, /app/data/.api_token (all
  * must be EACCES), writes the mirror it runs in and another mirror (must fail), fetches an undeclared host, sends raw UDP
  * and IPv6 and connects to the API on loopback (all must fail), reads the canary secrets from its environment (must be
  * absent), and loads the one declared origin in a real browser (must succeed).

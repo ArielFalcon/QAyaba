@@ -80,17 +80,15 @@ func LoadLastHost() string {
 
 /* DiscoverToken finds the orchestrator's API token WITHOUT the operator typing it, mirroring
    how the server resolves it (src/server/api-token.ts): the QA_API_TOKEN env var first; else the
-   data/.api_token file the server auto-generates on first boot (or config/.api_token, where an
-   earlier version kept it), located by walking UP from
+   data/.api_token file the server auto-generates on first boot, located by walking UP from
    the working directory to the qayaba repo (so the console works when launched from a
-   subdirectory). Returns the token plus a short source label ("$QA_API_TOKEN", "data/.api_token"
-   or "config/.api_token"), or ("","") when nothing is found. A server in a container keeps the
+   subdirectory). Returns the token plus a short source label ("$QA_API_TOKEN" or "data/.api_token"), or ("","") when nothing is found. A server in a container keeps the
    file in its data volume, out of the host's reach: there the console uses the saved token, or
    QA_API_TOKEN.
 
    Trust model: QAYABA_ROOT is operator-set and trusted as-is. Directories found by
    walking up are trusted ONLY when they have the repo's shape (both a config/apps AND a
-   config/e2e directory beside the token), so a stray config/.api_token planted in some
+   config/e2e directory), so a stray token file planted in some
    unrelated parent directory is never read and sent as a credential. */
 func DiscoverToken() (token, source string) {
 	if t := strings.TrimSpace(os.Getenv("QA_API_TOKEN")); t != "" {
@@ -113,9 +111,8 @@ func DiscoverToken() (token, source string) {
 	return "", ""
 }
 
-/* tokenFiles are where the server keeps its token, newest location first: data/ (since the
-   token moved out of the config folder) and config/ (an earlier version's). */
-var tokenFiles = []string{"data/.api_token", "config/.api_token"}
+/* tokenFiles are where the server keeps its token. */
+var tokenFiles = []string{"data/.api_token"}
 
 func tokenUnder(root string) (token, source string) {
 	for _, rel := range tokenFiles {
@@ -147,7 +144,7 @@ func ancestors(dir string) []string {
 }
 
 /* isRepoRoot reports whether dir has the qayaba repo's shape (both config/apps and
-   config/e2e) — a strong-enough signal that a lone planted config/.api_token elsewhere is not
+   config/e2e) — a strong-enough signal that a lone planted token file elsewhere is not
    mistaken for the real one. */
 func isRepoRoot(dir string) bool {
 	return isDir(filepath.Join(dir, "config", "apps")) && isDir(filepath.Join(dir, "config", "e2e"))

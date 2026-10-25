@@ -24,9 +24,8 @@ test("the auth directory of an app cannot be read", () => {
   expect(codeOf(() => readdirSync("/app/data/auth"))).toMatch(/^(EACCES|EPERM)$/);
 });
 
-test("the API token is unreadable, where the service keeps it and where an earlier version did", () => {
+test("the API token is unreadable where the service keeps it", () => {
   expect(codeOf(() => readFileSync("/app/data/.api_token"))).toMatch(/^(EACCES|EPERM)$/);
-  expect(codeOf(() => readFileSync("/app/config/.api_token"))).toMatch(/^(EACCES|EPERM|ENOENT)$/);
 });
 
 test("the code-graph stores of the indexed repos cannot be listed", () => {

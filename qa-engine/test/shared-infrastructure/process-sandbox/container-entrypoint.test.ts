@@ -22,12 +22,12 @@ test("the data and config directories and the API token are closed at boot, what
   try {
     mkdirSync(join(root, "data"), { mode: 0o755 });
     mkdirSync(join(root, "config"), { mode: 0o755 });
-    writeFileSync(join(root, "config", ".api_token"), "t", { mode: 0o644 });
-    chmodSync(join(root, "config", ".api_token"), 0o644);
+    writeFileSync(join(root, "data", ".api_token"), "t", { mode: 0o644 });
+    chmodSync(join(root, "data", ".api_token"), 0o644);
     boot(root);
     assert.equal(mode(join(root, "data")), 0o700);
     assert.equal(mode(join(root, "config")), 0o750);
-    assert.equal(mode(join(root, "config", ".api_token")), 0o600);
+    assert.equal(mode(join(root, "data", ".api_token")), 0o600);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

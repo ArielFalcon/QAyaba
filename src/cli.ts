@@ -78,7 +78,7 @@ async function localServiceIsRunning(): Promise<boolean> {
 
 /*
  * The control-plane token, discovered the same way the server resolves it (env wins, then the
- * persisted data/.api_token, then an earlier version's config/.api_token) so delegation
+ * persisted data/.api_token) so delegation
  * authenticates without the operator typing it.
  */
 function cliApiToken(): string | undefined {

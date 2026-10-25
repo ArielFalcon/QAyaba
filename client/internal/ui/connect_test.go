@@ -56,7 +56,7 @@ func TestDiagnoseTransportIsUnreachable(t *testing.T) {
 func TestConnectSavedTokenAutoConnects(t *testing.T) {
 	m := newConnectModel() /* host defaults to localhost:458 */
 
-	m, cmd := m.Update(savedLoadedMsg{host: "localhost:458", token: "secret", source: "config/.api_token"})
+	m, cmd := m.Update(savedLoadedMsg{host: "localhost:458", token: "secret", source: "data/.api_token"})
 
 	if m.phase != phaseConnecting || cmd == nil {
 		t.Fatalf("a resolved token should auto-connect (phase=%v, cmd!=nil=%v)", m.phase, cmd != nil)
@@ -64,7 +64,7 @@ func TestConnectSavedTokenAutoConnects(t *testing.T) {
 	if !m.prefilled {
 		t.Fatal("the screen should record that a token was auto-loaded")
 	}
-	if m.tokenSource != "config/.api_token" {
+	if m.tokenSource != "data/.api_token" {
 		t.Fatalf("the token source should be recorded for the UI; got %q", m.tokenSource)
 	}
 }
@@ -95,7 +95,7 @@ func TestConnectSavedTokenNotAppliedToTypedHost(t *testing.T) {
 	m := newConnectModel()
 	m.host.SetValue("localhost:9090") /* user typed a different host before the read returned */
 
-	m, cmd := m.Update(savedLoadedMsg{host: "localhost:8080", token: "secret", source: "config/.api_token"})
+	m, cmd := m.Update(savedLoadedMsg{host: "localhost:8080", token: "secret", source: "data/.api_token"})
 
 	if m.prefilled || cmd != nil {
 		t.Fatalf("a token resolved for a different host must not be applied/auto-connected; prefilled=%v cmd!=nil=%v", m.prefilled, cmd != nil)
@@ -112,10 +112,10 @@ func TestConnectShowsTokenSource(t *testing.T) {
 	m.width = 80
 	m.advanced = true
 	m.prefilled = true
-	m.tokenSource = "config/.api_token"
+	m.tokenSource = "data/.api_token"
 	m.token.SetValue("x")
 
-	if !strings.Contains(m.View(), "config/.api_token") {
+	if !strings.Contains(m.View(), "data/.api_token") {
 		t.Fatalf("the note should show where the token came from; got:\n%s", m.View())
 	}
 }
@@ -126,7 +126,7 @@ func TestConnectForgetClearsTokenAndSource(t *testing.T) {
 	m := newConnectModel()
 	m.advanced = true
 	m.prefilled = true
-	m.tokenSource = "config/.api_token"
+	m.tokenSource = "data/.api_token"
 	m.token.SetValue("x")
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
