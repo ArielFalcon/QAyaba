@@ -488,3 +488,11 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
     - "Si, así": rebuild the map inside the run, with no 6 h window, once per commit (32ad7f4b, 5edb0e0a).
     - "La que recomiendas": the pages a hub reaches order the DOM capture after every change page and before the rest, and are never change pages.
   - The owner chose R11 to replace c428f2dc in the DEV pair.
+- **L41 (2026-10-25)** The DEV pair was clean on image `d04baf8e`.
+  - R11 (`run-ab922ad-mvoccj7i`): pass, 9/9, covering the 3 dev use cases.
+  - f303da2c (`run-f303da2-mvocjso4`): pass, 10/10. A pre-run context rebuild ran first; the graph proved `/map` and `/search`; the relevant pages equal the L37 label.
+  - Re-run with telemetry export, after the owner's "Los recursos de telemetría no pueden depender de que te acuerdes o no de levantarlos…" (telemetry now starts with the app, 16628427):
+    - both runs ended skipped, because the accepted suite already covers each change;
+    - Tempo holds every trace, with no error span;
+    - Loki holds 9 warn lines: egress noise, a budget-cut walk on R11, and DOM capture of `/` and `/login` redirected to `/home`.
+  - The localhost:4200 pair was dropped by the owner ("Sino seguimos con dev"). The sandbox closes loopback to the browser, and Keycloak's admin password is a restricted Doppler secret.
