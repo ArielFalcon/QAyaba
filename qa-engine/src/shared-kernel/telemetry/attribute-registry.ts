@@ -52,7 +52,7 @@ export const ATTRIBUTES = {
   "qayaba.geo.lng": dbl("The browser longitude a sandboxed child was given."),
 
   /* Configuration in effect for the run. */
-  "qayaba.runtime": str("The agent runtime: opencode or codex."),
+  "qayaba.runtime": str("The agent runtime that served the turn."),
   "qayaba.closed_loop.enabled": bool("The run_spec closed loop is on."),
   "qayaba.agent_browser.enabled": bool("The authenticated agent browser is on."),
   "qayaba.coverage.policy": str("The change-coverage policy mode: off, signal or enforce."),

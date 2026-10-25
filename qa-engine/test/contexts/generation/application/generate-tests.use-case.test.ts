@@ -743,8 +743,8 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
 });
 
 /* The bounded repair loop threads the agent's own prior-turn output through
-   RepairPort.instruction's opts, so a STATELESS repair re-prompt (e.g. a fresh `codex exec`
-   process with no session resume) can recover its prior specifics instead of fabricating a new
+   RepairPort.instruction's opts, so a STATELESS repair re-prompt (e.g. a fresh process
+   with no session resume) can recover its prior specifics instead of fabricating a new
    verdict. Pinned via a fake RepairPort that captures the opts it receives at each call site.
  */
 test("follow-up #27: a malformed generator verdict triggers ONE bounded repair whose instruction carries priorResponseTail (the agent's own prior output)", async () => {

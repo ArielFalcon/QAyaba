@@ -53,7 +53,7 @@ test("default env store writes secrets with owner-only permissions", () => {
   try {
     const path = join(dir, ".env");
     const fs = defaultEnvStoreFs(path);
-    applyEnvVars({ CODEX_API_KEY: "secret" }, { fs, env: {} });
+    applyEnvVars({ OPENCODE_API_KEY: "secret" }, { fs, env: {} });
 
     assert.equal(statSync(path).mode & 0o777, 0o600);
   } finally {

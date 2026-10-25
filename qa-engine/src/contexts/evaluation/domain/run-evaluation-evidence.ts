@@ -142,7 +142,7 @@ export interface RunEvaluationEvidence {
     | undefined;
   /* The limit that ended the run, when one did: the limit, the role it stopped and the intent of that turn's last step (undefined when unknown). */
   limit: { fired: string; role: string | undefined; intent: string | undefined } | undefined;
-  /* Steps per intent, counted from the ledger's `chat` spans. Absent when no step carried an intent (Codex has no steps). */
+  /* Steps per intent, counted from the ledger's `chat` spans. Absent when no step carried an intent. */
   stepIntents: Readonly<Record<string, number>> | undefined;
   /* The grounding evidence (delivered sources, references, changed-element): absent when the run recorded none. */
   context: ContextEvidence | undefined;

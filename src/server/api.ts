@@ -210,7 +210,7 @@ export interface ApiDeps {
   githubClientId?: string;
   agentRuntime?: {
     getConfig(): PublicAgentConfig | Promise<PublicAgentConfig>;
-    applyConfig(input: unknown): { config: PublicAgentConfig; restarted: AgentProvider[]; downgraded?: boolean } | Promise<{ config: PublicAgentConfig; restarted: AgentProvider[]; downgraded?: boolean }>;
+    applyConfig(input: unknown): { config: PublicAgentConfig; restarted: AgentProvider[] } | Promise<{ config: PublicAgentConfig; restarted: AgentProvider[] }>;
     listModels(provider: AgentProvider): AgentModelInfo[] | Promise<AgentModelInfo[]>;
     restart(provider: AgentProvider): Promise<z.infer<typeof AgentProviderHealthSchema>> | z.infer<typeof AgentProviderHealthSchema>;
     hasOpenSessions?(): boolean;
@@ -1218,7 +1218,7 @@ async function handleAgentModels(res: ServerResponse, deps: ApiDeps, rawProvider
   }
   const provider = AgentProviderSchema.safeParse(rawProvider);
   if (!provider.success) {
-    json(res, 400, { error: "?provider=opencode|codex is required" });
+    json(res, 400, { error: "?provider=opencode is required" });
     return true;
   }
   try {
@@ -1266,7 +1266,7 @@ function isAgentRuntimeBusy(deps: ApiDeps): boolean {
 }
 
 function runtimeStatusFromErrorMessage(message: string): number {
-  if (message.includes("confirmSingleDowngrade") || message.includes("active") || message.includes("session")) return 409;
+  if (message.includes("active") || message.includes("session")) return 409;
   if (message.includes("model") || message.includes("API_KEY") || message.includes("required") || message.includes("invalid")) return 422;
   return 502;
 }

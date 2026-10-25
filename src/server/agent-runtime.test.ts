@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createAgentRuntimeManager } from "./agent-runtime";
 import type { EnvStoreFs } from "./env-store";
 import type { AgentProvider, AgentRuntimeStrategy } from "../agent-runtime/types";
-import { configFromEnv, runtimeRoleModelsFromConfig, singleProviderConfig } from "../agent-runtime/config";
+import { configFromEnv, providerConfig, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
 import {
   modelWindowBytes,
   roleWindowBytes,
@@ -30,21 +30,15 @@ function strategy(
   disposed?: AgentProvider[],
 ): AgentRuntimeStrategy {
   /* The runtime offers the roster's default assignments next to the fixed ids the tests reassign to. */
-  const defaults = Object.values(singleProviderConfig(provider, {}).assignments).map((a) => ({ id: a.model }));
-  const models = provider === "opencode"
-    ? [
-        ...defaults,
-        { id: "opencode-go/minimax-m3.1-flash-free" },
-        { id: "opencode/deepseek-v4.1-flash-free" },
-        { id: "opencode-go/glm-5.3-flash" },
-        { id: "opencode-go/minimax-m3" },
-        { id: "opencode-go/kimi-k2.7-code" },
-      ]
-    : [
-        { id: "gpt-5.4" },
-        { id: "gpt-5.4-mini" },
-        { id: "gpt-5.5" },
-      ];
+  const defaults = Object.values(providerConfig(provider, {}).assignments).map((a) => ({ id: a.model }));
+  const models = [
+    ...defaults,
+    { id: "opencode-go/minimax-m3.1-flash-free" },
+    { id: "opencode/deepseek-v4.1-flash-free" },
+    { id: "opencode-go/glm-5.3-flash" },
+    { id: "opencode-go/minimax-m3" },
+    { id: "opencode-go/kimi-k2.7-code" },
+  ];
   return {
     provider,
     health: async () => ({ provider, status: "healthy", configured: true }),
@@ -61,128 +55,58 @@ function strategy(
   };
 }
 
-test("agent runtime manager boots single/opencode and reports missing key as needs_config", async () => {
+test("agent runtime manager boots on opencode and reports missing key as needs_config", async () => {
   const restarts: AgentProvider[] = [];
   const manager = createAgentRuntimeManager({
     env: {},
     fs: memoryFs(),
-    strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
+    strategies: { opencode: strategy("opencode", restarts) },
   });
 
   const cfg = await manager.getConfig();
 
-  assert.equal(cfg.mode, "single");
-  assert.equal(cfg.singleProvider, "opencode");
   assert.equal(cfg.keys.opencode, false);
   assert.equal(cfg.validation.ok, false);
   assert.equal(cfg.health?.opencode?.status, "needs_config");
+  assert.equal("mode" in cfg, false);
+  assert.equal("singleProvider" in cfg, false);
 });
 
-test("agent runtime manager applies a codex key and restarts only codex", async () => {
+test("agent runtime manager applies an opencode key and restarts opencode", async () => {
   const restarts: AgentProvider[] = [];
-  const env: Record<string, string | undefined> = { OPENCODE_API_KEY: "open-key" };
-  const fs = memoryFs("OPENCODE_API_KEY=open-key\n");
+  const env: Record<string, string | undefined> = {};
+  const fs = memoryFs();
   const manager = createAgentRuntimeManager({
     env,
     fs,
-    strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
+    strategies: { opencode: strategy("opencode", restarts) },
   });
 
-  const result = await manager.applyConfig({ mode: "single", singleProvider: "codex", apiKeys: { codex: "codex-key" } });
+  const result = await manager.applyConfig({ apiKeys: { opencode: "open-key" } });
 
-  assert.equal(result.config.singleProvider, "codex");
-  assert.deepEqual(result.restarted, ["codex"]);
-  assert.equal(env.CODEX_API_KEY, "codex-key");
-  assert.match(fs.content, /^CODEX_API_KEY=codex-key$/m);
-  assert.doesNotMatch(JSON.stringify(result), /codex-key/);
+  assert.deepEqual(result.restarted, ["opencode"]);
+  assert.equal(env.OPENCODE_API_KEY, "open-key");
+  assert.match(fs.content, /^OPENCODE_API_KEY=open-key$/m);
+  assert.doesNotMatch(JSON.stringify(result), /open-key/);
 });
 
-test("agent runtime manager disposes the outgoing provider when switching single provider", async () => {
+test("agent runtime manager passes the current runtime env to the provider restart", async () => {
   const restarts: AgentProvider[] = [];
-  const disposed: AgentProvider[] = [];
+  const restartOpts: Record<AgentProvider, unknown[]> = { opencode: [] };
   const manager = createAgentRuntimeManager({
     env: { OPENCODE_API_KEY: "open-key" },
     fs: memoryFs("OPENCODE_API_KEY=open-key\n"),
-    strategies: {
-      opencode: strategy("opencode", restarts, undefined, disposed),
-      codex: strategy("codex", restarts, undefined, disposed),
-    },
+    strategies: { opencode: strategy("opencode", restarts, restartOpts) },
   });
 
-  await manager.applyConfig({ mode: "single", singleProvider: "codex", apiKeys: { codex: "codex-key" } });
+  await manager.applyConfig({ apiKeys: { opencode: "rotated-key" } });
 
-  assert.deepEqual(disposed, ["opencode"]);
-  assert.deepEqual(restarts, ["codex"]);
-});
-
-test("agent runtime manager passes current runtime env to provider restarts", async () => {
-  const restarts: AgentProvider[] = [];
-  const restartOpts: Record<AgentProvider, unknown[]> = { opencode: [], codex: [] };
-  const env: Record<string, string | undefined> = { OPENCODE_API_KEY: "open-key" };
-  const manager = createAgentRuntimeManager({
-    env,
-    fs: memoryFs("OPENCODE_API_KEY=open-key\n"),
-    strategies: {
-      opencode: strategy("opencode", restarts, restartOpts),
-      codex: strategy("codex", restarts, restartOpts),
-    },
-  });
-
-  await manager.applyConfig({ mode: "single", singleProvider: "codex", apiKeys: { codex: "codex-key" } });
-
-  const opts = restartOpts.codex[0] as { env?: Record<string, string>; apiKey?: string };
-  assert.equal(opts.apiKey, "codex-key");
-  assert.equal(opts.env?.AGENT_RUNTIME_MODE, "single");
-  assert.equal(opts.env?.AGENT_SINGLE_PROVIDER, "codex");
-  assert.equal(opts.env?.AGENT_PRIMARY_PROVIDER, "codex");
-  assert.equal(opts.env?.AGENT_PRIMARY_MODEL, "gpt-5.4");
-});
-
-test("agent runtime manager requires confirmation before downgrading dual with one provider", async () => {
-  const restarts: AgentProvider[] = [];
-  const manager = createAgentRuntimeManager({
-    env: { OPENCODE_API_KEY: "open-key", CODEX_API_KEY: "codex-key" },
-    fs: memoryFs(),
-    strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
-  });
-
-  await assert.rejects(
-    manager.applyConfig({
-      mode: "dual",
-      assignments: {
-        primary: { provider: "codex", model: "gpt-5.4" },
-        reviewer: { provider: "codex", model: "gpt-5.4" },
-        chat: { provider: "codex", model: "gpt-5.4-mini" },
-      },
-    }),
-    /confirmSingleDowngrade/,
-  );
-});
-
-test("agent runtime manager downgrades confirmed single-provider dual config to single", async () => {
-  const restarts: AgentProvider[] = [];
-  const manager = createAgentRuntimeManager({
-    env: { OPENCODE_API_KEY: "open-key", CODEX_API_KEY: "codex-key" },
-    fs: memoryFs(),
-    strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
-  });
-
-  const result = await manager.applyConfig({
-    mode: "dual",
-    confirmSingleDowngrade: true,
-    assignments: {
-      /* primary and reviewer must be DIFFERENT models — identical models here would trip the
-         reviewer!=primary runtime guard and this test isn't exercising that guard.
-       */
-      primary: { provider: "codex", model: "gpt-5.4" },
-      reviewer: { provider: "codex", model: "gpt-5.5" },
-      chat: { provider: "codex", model: "gpt-5.4-mini" },
-    },
-  });
-
-  assert.equal(result.config.mode, "single");
-  assert.equal(result.config.singleProvider, "codex");
-  assert.equal(result.downgraded, true);
+  const opts = restartOpts.opencode[0] as { env?: Record<string, string>; apiKey?: string };
+  assert.equal(opts.apiKey, "rotated-key");
+  assert.equal(opts.env?.AGENT_PRIMARY_MODEL, providerConfig("opencode", {}).assignments.primary.model);
+  assert.equal(opts.env?.AGENT_RUNTIME_MODE, undefined, "no runtime mode is written");
+  assert.equal(opts.env?.AGENT_SINGLE_PROVIDER, undefined);
+  assert.equal(opts.env?.AGENT_PRIMARY_PROVIDER, undefined);
 });
 
 test("agent runtime manager rejects missing model instead of silently falling back", async () => {
@@ -190,7 +114,7 @@ test("agent runtime manager rejects missing model instead of silently falling ba
   const manager = createAgentRuntimeManager({
     env: { OPENCODE_API_KEY: "open-key" },
     fs: memoryFs(),
-    strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
+    strategies: { opencode: strategy("opencode", restarts) },
   });
 
   await assert.rejects(
@@ -204,7 +128,7 @@ test("agent runtime manager rejects a configured model that is not listed by its
   const manager = createAgentRuntimeManager({
     env: { OPENCODE_API_KEY: "open-key" },
     fs: memoryFs(),
-    strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
+    strategies: { opencode: strategy("opencode", restarts) },
   });
 
   await assert.rejects(
@@ -227,10 +151,6 @@ test("agent runtime manager re-injects runtime role models on applyConfig so rol
   const restarts: AgentProvider[] = [];
   const env: Record<string, string | undefined> = {
     OPENCODE_API_KEY: "open-key",
-    CODEX_API_KEY: "codex-key",
-    AGENT_RUNTIME_MODE: "dual",
-    AGENT_SINGLE_PROVIDER: "opencode",
-    AGENT_REVIEWER_PROVIDER: "opencode",
     AGENT_REVIEWER_MODEL: "opencode-go/minimax-m3",
   };
 
@@ -246,24 +166,21 @@ test("agent runtime manager re-injects runtime role models on applyConfig so rol
     const manager = createAgentRuntimeManager({
       env,
       fs: memoryFs(),
-      strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
+      strategies: { opencode: strategy("opencode", restarts) },
     });
 
     /* (b) live reconfiguration: reassign qa-reviewer to a DIFFERENT-window model via the guarded
        operator path (PUT /api/agent-config → applyConfig).
      */
     await manager.applyConfig({
-      mode: "dual",
-      assignments: { reviewer: { provider: "codex", model: "gpt-5.5" } },
+      assignments: { reviewer: { provider: "opencode", model: "opencode-go/kimi-k2.7-code" } },
     });
 
-    /* (c) roleWindowBytes must now reflect gpt-5.5's window (128K), not the stale
-       snapshot from boot.
-     */
+    /* (c) roleWindowBytes must now reflect the new model's window, not the stale snapshot from boot. */
     const bytesAfterReconfig = roleWindowBytes("qa-reviewer");
     assert.equal(
       bytesAfterReconfig,
-      modelWindowBytes("gpt-5.5"),
+      modelWindowBytes("kimi-k2.7-code"),
       "roleWindowBytes must budget against the newly-assigned model after live reconfiguration",
     );
     assert.notEqual(
@@ -283,11 +200,11 @@ test("applyConfig accepts a shared reviewer model and logs the warning once", as
   const manager = createAgentRuntimeManager({
     env: { OPENCODE_API_KEY: "open-key", AGENT_PRIMARY_MODEL: shared, AGENT_REVIEWER_MODEL: shared, AGENT_CHAT_MODEL: shared },
     fs: memoryFs(),
-    strategies: { opencode: { ...base, listModels: async () => [{ id: shared }] }, codex: strategy("codex", restarts) },
+    strategies: { opencode: { ...base, listModels: async () => [{ id: shared }] } },
   });
   const warn = mock.method(console, "warn", () => {});
   try {
-    const result = await manager.applyConfig({ mode: "single", singleProvider: "opencode" });
+    const result = await manager.applyConfig({});
     assert.equal(result.config.validation.ok, true);
     assert.equal(result.config.validation.warnings?.length, 1);
     const lines = warn.mock.calls.map((c) => String(c.arguments[0])).filter((l) => l.includes("independent judgment"));
@@ -304,11 +221,11 @@ test("applyConfig logs no warning when the reviewer runs another model", async (
   const manager = createAgentRuntimeManager({
     env: { OPENCODE_API_KEY: "open-key", AGENT_PRIMARY_MODEL: "fixture-provider/model-a", AGENT_REVIEWER_MODEL: "fixture-provider/model-b", AGENT_CHAT_MODEL: "fixture-provider/model-a" },
     fs: memoryFs(),
-    strategies: { opencode: { ...base, listModels: async () => [{ id: "fixture-provider/model-a" }, { id: "fixture-provider/model-b" }] }, codex: strategy("codex", restarts) },
+    strategies: { opencode: { ...base, listModels: async () => [{ id: "fixture-provider/model-a" }, { id: "fixture-provider/model-b" }] } },
   });
   const warn = mock.method(console, "warn", () => {});
   try {
-    const result = await manager.applyConfig({ mode: "single", singleProvider: "opencode" });
+    const result = await manager.applyConfig({});
     assert.deepEqual(result.config.validation.warnings, []);
     assert.equal(warn.mock.calls.length, 0);
   } finally {

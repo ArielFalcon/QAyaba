@@ -31,7 +31,6 @@ export interface PlanningLimits {
 /* The longest one flow may take, by the runtime its sidekick runs on. */
 export interface FlowBudgets {
   opencode: number;
-  codex: number;
 }
 
 export interface CoordinationSettings {
@@ -48,7 +47,7 @@ export const DEFAULT_COORDINATION_SETTINGS: CoordinationSettings = {
   maxParallel: 3,
   maxFlows: 6,
   planBudgetMs: 180_000,
-  flowBudgetMs: { opencode: 480_000, codex: 600_000 },
+  flowBudgetMs: { opencode: 480_000 },
 };
 
 /* What a run records about its coordination. Persist-only: no verdict, gate or retirement reads it back. */
@@ -85,7 +84,6 @@ export function resolveCoordinationSettings(configured?: {
     planBudgetMs: configured?.planBudgetMs ?? d.planBudgetMs,
     flowBudgetMs: {
       opencode: configured?.flowBudgetMs?.opencode ?? d.flowBudgetMs.opencode,
-      codex: configured?.flowBudgetMs?.codex ?? d.flowBudgetMs.codex,
     },
   };
 }

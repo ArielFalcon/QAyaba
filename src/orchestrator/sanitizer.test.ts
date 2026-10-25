@@ -501,7 +501,7 @@ test("a PERFECT 2-char case-alternation blob (the deterministic adversarial shap
    NAME heuristics (parity with src/util/redact.ts's secretValues/redactSecrets), even when no
    NAMED_SECRET_PATTERNS entry recognizes the value's shape. Fixtures below are values pattern-based
    sanitizeText alone genuinely misses (verified live: "oc-LIVE-key-998877" matches no
-   NAMED_SECRET_PATTERNS entry at all; "superSecretCodex42" is a 19-char bare token, one short of the
+   NAMED_SECRET_PATTERNS entry at all; "superSecretToken42" is a 19-char bare token, one short of the
    llm-api-key pattern's 20-char minimum).
  */
 test("RedactionPortAdapter.redact detects an env-value secret patterns alone would miss (no NAMED_SECRET_PATTERNS match)", () => {
@@ -515,11 +515,11 @@ test("RedactionPortAdapter.redact detects an env-value secret patterns alone wou
 });
 
 test("RedactionPortAdapter.redact detects a second env-value gap fixture (bare token below the llm-api-key pattern's length floor)", () => {
-  const env = { CODEX_API_KEY: "superSecretCodex42" };
+  const env = { SERVICE_API_KEY: "superSecretToken42" };
   const adapter = new RedactionPortAdapter(env);
-  assert.match(sanitizeText("codex exec exited 1: bad CODEX key superSecretCodex42").text, /superSecretCodex42/);
-  const out = adapter.redact("codex exec exited 1: bad CODEX key superSecretCodex42");
-  assert.doesNotMatch(out, /superSecretCodex42/);
+  assert.match(sanitizeText("runtime exited 1: bad service key superSecretToken42").text, /superSecretToken42/);
+  const out = adapter.redact("runtime exited 1: bad service key superSecretToken42");
+  assert.doesNotMatch(out, /superSecretToken42/);
   assert.match(out, /\[REDACTED\]/);
 });
 
@@ -568,10 +568,10 @@ test("RedactionPortAdapter.redactText is a shell-consumer alias for redact (env+
 });
 
 test("RedactionPortAdapter.redactError unwraps an Error instance through env+pattern redaction", () => {
-  const env = { CODEX_API_KEY: "superSecretCodex42" };
+  const env = { SERVICE_API_KEY: "superSecretToken42" };
   const adapter = new RedactionPortAdapter(env);
-  const out = adapter.redactError(new Error("codex exec exited 1: bad CODEX key superSecretCodex42"));
-  assert.doesNotMatch(out, /superSecretCodex42/);
+  const out = adapter.redactError(new Error("runtime exited 1: bad service key superSecretToken42"));
+  assert.doesNotMatch(out, /superSecretToken42/);
   assert.match(out, /\[REDACTED\]/);
 });
 

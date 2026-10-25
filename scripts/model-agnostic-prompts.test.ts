@@ -23,8 +23,7 @@ import { SidekickExecutor } from "@contexts/qa-run-orchestration/application/coo
 import { ReflectorPortAdapter } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts";
 import type { ReflectionInput } from "@contexts/cross-run-learning/application/ports/index.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
-import { singleProviderConfig } from "../src/agent-runtime/config.ts";
-import { CODEX_MODELS, codexPreambleParts } from "../src/agent-runtime/codex-strategy.ts";
+import { providerConfig } from "../src/agent-runtime/config.ts";
 import { OpenCodeRuntimeStrategy } from "../src/agent-runtime/opencode-strategy.ts";
 import { AGENT_NAME_FOR_ROLE, type AgentModelInfo, type AgentRole } from "../src/agent-runtime/types.ts";
 import { askAssistant, type AgentDeps } from "../src/integrations/opencode-client.ts";
@@ -219,11 +218,10 @@ async function readDeclaredModelSources(root: string = ROOT): Promise<Record<str
       ...Object.values(opencode.agent ?? {}).map((a) => a.model),
       ...Object.values(opencode.model_fallback ?? {}),
     ]),
-    "provider role defaults": (["opencode", "codex"] as const).flatMap((p) =>
-      Object.values(singleProviderConfig(p, {}).assignments).map((a) => a.model),
+    "provider role defaults": (["opencode"] as const).flatMap((p) =>
+      Object.values(providerConfig(p, {}).assignments).map((a) => a.model),
     ),
     "OpenCode fallback list": withLabels(await new OpenCodeRuntimeStrategy({ configPath: absentConfig }).listModels()),
-    "Codex model list": withLabels(CODEX_MODELS),
     "proposer pin": [PROPOSER_MODEL],
     "window catalog": [...CATALOGED_MODELS],
   };
@@ -693,22 +691,4 @@ test("the scan reads what each builder emits: a model named in a field the build
       assert.deepEqual(scanText(source, text, terms), [{ source, layer: "vendor", token: "Deepseek" }], `${kind}: ${source}`);
     }
   }
-});
-
-test("the Codex preamble of every role names no model", async () => {
-  const terms = await repoTerms();
-  const roles = Object.keys(AGENT_NAME_FOR_ROLE) as AgentRole[];
-  const parts: PromptText[] = roles.flatMap((role) => {
-    const preamble = codexPreambleParts(role, join(ROOT, "agent"));
-    return [
-      { source: `codex preamble ${role} shared`, text: preamble.shared },
-      { source: `codex preamble ${role} role prompt`, text: preamble.rolePrompt },
-      ...preamble.skills.map((s) => ({ source: `codex preamble ${role} skill ${s.name}`, text: s.body })),
-    ];
-  });
-  for (const role of roles) {
-    assert.ok(parts.some((p) => p.source === `codex preamble ${role} role prompt` && p.text.length > 0), `${role} has a role prompt to scan`);
-  }
-  const findings = parts.flatMap((p) => scanText(p.source, p.text, terms));
-  assert.equal(findings.length, 0, `model references in the Codex preambles:\n${describeFindings(findings)}`);
 });

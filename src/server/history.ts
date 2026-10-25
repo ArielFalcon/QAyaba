@@ -481,8 +481,8 @@ function ensureDb(): void {
     );
 
     -- Per-turn telemetry for every agent prompt/response cycle.
-    -- Mirrors the run_events 30-day retention. Token columns are nullable because Codex
-    -- runs return no token info. output_text is sanitized before persist (sanitizer.ts).
+    -- Mirrors the run_events 30-day retention. Token columns are nullable because a
+    -- run may return no token info. output_text is sanitized before persist (sanitizer.ts).
     CREATE TABLE IF NOT EXISTS agent_turns (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       run_id TEXT,
@@ -568,8 +568,8 @@ function ensureDb(): void {
    * Every agent_turns efficiency column
    * is added by this guarded ALTER (fresh and pre-existing DBs alike), so the
    * column list has a single source of truth. All are nullable: they stay NULL
-   * for a pre-existing row and for any runtime that cannot supply them (Codex
-   * leaves steps_used/max_steps/exhausted NULL) — never a fabricated value.
+   * for a pre-existing row and for any runtime that cannot supply them
+   * (steps_used/max_steps/exhausted stay NULL) — never a fabricated value.
    */
   for (const { name, type } of AGENT_TURN_EFFICIENCY_COLUMNS) {
     if (!columnExists("agent_turns", name)) {
@@ -2040,7 +2040,7 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
 
 /*
  * The one place a transport's AgentTurnEvent becomes an agent_turns row, shared by every runtime
- * so a new column can never drift between OpenCode and Codex. `output_text` is already sanitized
+ * so a new column can never drift between runtimes. `output_text` is already sanitized
  * by the transport that emitted the event.
  */
 export function saveAgentTurnEvent(t: AgentTurnEvent): void {
@@ -2299,7 +2299,7 @@ export interface TelemetryRoleStat {
   role: string;
   medianPromptBytes: number | null;
   p95PromptBytes: number | null;
-  medianCacheHitRate: number | null;  /* null when no token data available (Codex or no turns) */
+  medianCacheHitRate: number | null;  /* null when no token data available (no turns) */
   turnCount: number;
 }
 

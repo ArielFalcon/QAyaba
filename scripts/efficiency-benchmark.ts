@@ -304,7 +304,7 @@ export interface CaseMeasurement {
   turns?: TurnMeasurement[];
   /** Absent when the run recorded no turn at all (none was made, or they were pruned) and for a snapshot taken before sessions were counted: unknown, never zero. */
   sessions?: SessionCounts;
-  /** Whether a generator turn hit the step limit; null for Codex (no step budget), for a run with no generator turn, and while any generator turn's exhaustion is unknown. */
+  /** Whether a generator turn hit the step limit; null for a run with no generator turn, and while any generator turn's exhaustion is unknown. */
   exhausted: boolean | null;
   guardrails: CaseGuardrails;
 }
@@ -385,8 +385,7 @@ function sessionCounts(turns: AgentTurnRecord[], generatorTurns: AgentTurnRecord
  * the run exhausted; the run is known not to be only when every turn is known not to be, and any unknown
  * turn leaves it unknown.
  */
-function generatorExhausted(outcome: RunOutcome | undefined, turns: AgentTurnRecord[]): boolean | null {
-  if (outcome?.gateSignals.usage?.primaryProvider === "codex") return null;
+function generatorExhausted(turns: AgentTurnRecord[]): boolean | null {
   const generatorTurns = generatorTurnsOf(turns);
   if (generatorTurns.length === 0) return null;
   if (generatorTurns.some((t) => t.exhausted === true)) return true;
@@ -417,7 +416,7 @@ export function measureRun(runId: string, source: RunDataSource): CaseMeasuremen
     coarse: classifyRunEfficiency(events),
     ...(generatorTurns.length > 0 ? { turns: generatorTurns.map(turnMeasurement) } : {}),
     ...(sessions ? { sessions } : {}),
-    exhausted: generatorExhausted(outcome, turns),
+    exhausted: generatorExhausted(turns),
     guardrails: {
       verdict: outcome?.verdict ?? record?.verdict ?? null,
       specsProduced: specsProduced(events, record),

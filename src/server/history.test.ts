@@ -896,11 +896,11 @@ test("getAgentTurns returns multiple turns in chronological order", () => {
   assert.equal(rows[2]!.role, "qa-reviewer");
 });
 
-test("saveAgentTurn accepts null token fields (Codex path)", () => {
-  const runId = "run-codex-null-" + Date.now();
+test("saveAgentTurn accepts null token fields (a runtime that reports no tokens)", () => {
+  const runId = "run-null-tokens-" + Date.now();
   const turn = makeTurn({
     runId,
-    sessionId: "codex-sess",
+    sessionId: "sess-null-tokens",
     tokensInput: null,
     tokensOutput: null,
     tokensReasoning: null,

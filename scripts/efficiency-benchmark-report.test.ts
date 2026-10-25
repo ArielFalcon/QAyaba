@@ -113,9 +113,9 @@ test("identical guardrails report no change", () => {
   assert.deepEqual(row!.guardrailChanges, []);
 });
 
-test("unknown values read as unknown, never as a zero: exhaustion for Codex and an unmeasured coverage", () => {
-  const codexRun = measurement({ exhausted: null, guardrails: { coverageRatio: null, executePass: null, reviewerApproved: null } });
-  const text = renderReport(compareSnapshots(snapshot("a", { c: codexRun }), snapshot("b", { c: codexRun })));
+test("unknown values read as unknown, never as a zero: exhaustion of a run with no generator turn and an unmeasured coverage", () => {
+  const unmeasuredRun = measurement({ exhausted: null, guardrails: { coverageRatio: null, executePass: null, reviewerApproved: null } });
+  const text = renderReport(compareSnapshots(snapshot("a", { c: unmeasuredRun }), snapshot("b", { c: unmeasuredRun })));
   assert.match(text, /step limit n\/a/);
   assert.match(text, /coverage unknown/);
   assert.match(text, /execute n\/a/);

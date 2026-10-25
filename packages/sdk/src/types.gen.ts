@@ -1032,10 +1032,6 @@ export interface components {
             status: string;
         };
         PublicAgentConfig: {
-            /** @enum {string} */
-            mode: "single" | "dual";
-            /** @enum {string} */
-            singleProvider: "opencode" | "codex";
             assignments: {
                 primary: components["schemas"]["RoleAssignment"];
                 reviewer: components["schemas"]["RoleAssignment"];
@@ -1043,26 +1039,17 @@ export interface components {
             };
             keys: {
                 opencode: boolean;
-                codex: boolean;
             };
             validation: {
                 ok: boolean;
                 errors: string[];
                 warnings?: string[];
-                requiresSingleDowngradeConfirmation?: boolean;
-                /** @enum {string} */
-                downgradeProvider?: "opencode" | "codex";
             };
             health?: {
                 opencode?: components["schemas"]["AgentProviderHealth"];
-                codex?: components["schemas"]["AgentProviderHealth"];
             };
         };
         AgentConfigUpdate: {
-            /** @enum {string} */
-            mode?: "single" | "dual";
-            /** @enum {string} */
-            singleProvider?: "opencode" | "codex";
             assignments?: {
                 primary?: components["schemas"]["RoleAssignment"];
                 reviewer?: components["schemas"]["RoleAssignment"];
@@ -1070,30 +1057,27 @@ export interface components {
             };
             apiKeys?: {
                 opencode?: string;
-                codex?: string;
             };
-            confirmSingleDowngrade?: boolean;
         };
         AgentConfigApplyResult: {
             config: components["schemas"]["PublicAgentConfig"];
-            restarted: ("opencode" | "codex")[];
-            downgraded?: boolean;
+            restarted: "opencode"[];
         };
         AgentModelsResponse: {
             /** @enum {string} */
-            provider: "opencode" | "codex";
+            provider: "opencode";
             models: components["schemas"]["AgentModelInfo"][];
         };
         AgentRestartRequest: {
             /** @enum {string} */
-            provider: "opencode" | "codex";
+            provider: "opencode";
         };
         AgentRestartResponse: {
             health: components["schemas"]["AgentProviderHealth"];
         };
         AgentProviderHealth: {
             /** @enum {string} */
-            provider: "opencode" | "codex";
+            provider: "opencode";
             /** @enum {string} */
             status: "stopped" | "starting" | "healthy" | "degraded" | "failed" | "needs_config";
             configured: boolean;
@@ -1103,11 +1087,11 @@ export interface components {
             id: string;
             label?: string;
             /** @enum {string} */
-            provider?: "opencode" | "codex";
+            provider?: "opencode";
         };
         RoleAssignment: {
             /** @enum {string} */
-            provider: "opencode" | "codex";
+            provider: "opencode";
             model: string;
         };
         LearningRuleView: {
@@ -2897,7 +2881,7 @@ export interface operations {
                     "application/json": components["schemas"]["AgentConfigApplyResult"];
                 };
             };
-            /** @description active run/session or downgrade confirmation required */
+            /** @description active run/session */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2909,7 +2893,7 @@ export interface operations {
     listAgentModels: {
         parameters: {
             query: {
-                provider: "opencode" | "codex";
+                provider: "opencode";
             };
             header?: never;
             path?: never;

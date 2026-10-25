@@ -4,7 +4,8 @@ export type AgentRole =
   | "primary" | "reviewer" | "chat"
   | "sidekick" | "maintainer" | "reflector" | "proposer";
 
-export type AgentProvider = "opencode" | "codex";
+/* The runtimes an agent can run on. Add a member here and a strategy in src/agent-runtime to add a runtime. */
+export type AgentProvider = "opencode";
 
 export interface RoleAssignment {
   provider: AgentProvider;

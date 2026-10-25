@@ -373,7 +373,7 @@ test("repairInstruction names the reviewer shape", () => {
   assert.match(msg, /corrections/);
 });
 
-/* A fresh `codex exec` process never saw the prior turn (no resume by default), so a bare
+/* A fresh process that never saw the prior turn (no resume by default), so a bare
    "re-emit ONLY the closing JSON block" instruction gives it nothing to re-emit FROM — it can
    only fabricate a plausible-looking verdict. Threading the tail of the prior response makes the
    repair prompt self-contained: a stateless process can genuinely recover the verdict rather than

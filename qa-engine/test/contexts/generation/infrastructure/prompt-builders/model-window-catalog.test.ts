@@ -174,8 +174,8 @@ test("catalog: gpt-5.4-mini has a dedicated catalog entry and does NOT fall back
 });
 
 test("catalog: unknown model id still falls back to DEFAULT_WINDOW_TOKENS", () => {
-  /* The codex entries must not break the existing fallback contract for unknown models. */
-  const unknownBytes = modelWindowBytes("__unknown_codex_model__");
+  /* The catalog entries must not break the existing fallback contract for unknown models. */
+  const unknownBytes = modelWindowBytes("__unknown_model__");
   const fallbackBytes = Math.floor(DEFAULT_WINDOW_TOKENS * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN);
   assert.equal(
     unknownBytes,
@@ -205,11 +205,10 @@ test("catalog: roleWindowBytes resolves correctly for all roster roles via a ful
 
 /* BEFORE this fix: roleWindowBytes read agents/opencode.json EXCLUSIVELY for every role — even
    though the ACTUAL runtime model a role executes under is decided by AgentRuntimeConfig.assignments
-   (src/agent-runtime/config.ts), which is env/dual-mode aware (AGENT_RUNTIME_MODE=dual,
-   AGENT_REVIEWER_PROVIDER=codex, AGENT_REVIEWER_MODEL=gpt-5.5, etc.). In dual mode the reviewer can
-   run on a COMPLETELY DIFFERENT provider/model than opencode.json declares (opencode.json only
+   (src/agent-runtime/config.ts), which is env aware (AGENT_REVIEWER_MODEL, etc.). The reviewer can
+   run on a DIFFERENT model than opencode.json declares (opencode.json only
    configures the OpenCode runtime's own roster) — so the prompt budget was computed against the
-   WRONG model's context window whenever dual mode (or an env override) was active. Two independent
+   WRONG model's context window whenever an env override was active. Two independent
    sources of truth for "what model does this role run" = a split-brain.
    AFTER this fix: for the three VISIBLE roles with their own AgentRuntimeConfig assignment
    (qa-generator→primary, qa-reviewer→reviewer, qa-assistant→chat), roleWindowBytes resolves the
@@ -228,10 +227,10 @@ test("BEFORE/AFTER: without the injected runtime assignment (not wired), roleWin
   assert.equal(roleWindowBytes("qa-reviewer", cfgPath), modelWindowBytes("minimax-m3"));
 });
 
-test("AFTER (dual-mode reviewer): qa-reviewer resolves via the injected AgentRuntimeConfig.assignments.reviewer model, NOT opencode.json — closes the split-brain", () => {
-  /* Simulates dual mode: opencode.json still declares the OpenCode-only roster (minimax-m3), but the
-     REAL runtime assignment (what config.ts's configFromEnv() resolved, env/dual-mode aware) routed
-     the reviewer to gpt-5.5 (a Codex model, 128K window) — a completely different provider/model.
+test("AFTER (env-assigned reviewer): qa-reviewer resolves via the injected AgentRuntimeConfig.assignments.reviewer model, NOT opencode.json — closes the split-brain", () => {
+  /* Simulates an env override: opencode.json still declares the roster (minimax-m3), but the
+     REAL runtime assignment (what config.ts's configFromEnv() resolved from the env) routed
+     the reviewer to gpt-5.5 (128K window) — a different model.
    */
   const cfg = { agent: { "qa-reviewer": { model: "opencode-go/minimax-m3" } } };
   const cfgPath = writeTempConfig(cfg);

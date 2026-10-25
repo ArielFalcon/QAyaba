@@ -23,7 +23,7 @@ export interface UsageSnapshot {
   cost: number;
 }
 
-/** What an attempt spent, as its runtime reports it. The cost is absent when the runtime reports none (Codex): it is never made up. */
+/** What an attempt spent, as its runtime reports it. The cost is absent when the runtime reports none: it is never made up. */
 export type AttemptUsage = Omit<UsageSnapshot, "cost"> & { cost?: number };
 
 /** A single agent prompt/response turn captured at the transport funnel. outputText is sanitized BEFORE emitting (sanitizeText, the qa-engine twin of src/orchestrator/sanitizer.ts). runId is null when the session was opened without a descriptor. */
@@ -45,16 +45,16 @@ export interface AgentTurnEvent {
   cost: number | null;
   ts: string;
   sectionSizes: Record<string, number> | null;
-  /** Step limit and whether the turn hit it (its `exhausted` is null while unknown). Null when the runtime has no step-budget concept (Codex) or the measurement failed. */
+  /** Step limit and whether the turn hit it (its `exhausted` is null while unknown). Null when the runtime has no step-budget concept or the measurement failed. */
   stepBudget: TurnStepBudget | null;
   /** What the agent did this turn, measured from its tool calls. Null when unsupported, unobserved, or the measurement failed. */
   callMetrics: TurnCallMetrics | null;
-  /** How the turn ended; absent when the transport does not say (Codex). A turn that did not answer carries empty output, no usage and the calls measured up to its end. */
+  /** How the turn ended; absent when the transport does not say. A turn that did not answer carries empty output, no usage and the calls measured up to its end. */
   ended?: TurnEnd;
   /** Wall time from when the prompt was sent to when the turn ended (answered, timed out or aborted); null when the runtime did not measure it. */
   durationMs: number | null;
   /*
-   * What the turn did, for its trace and its record; each is absent or null where the runtime cannot say (Codex). The model
+   * What the turn did, for its trace and its record; each is absent or null where the runtime cannot say. The model
    * asked for is the one the prompt named (null: the agent's configured model); the one that answered is what the runtime
    * reported back.
    */

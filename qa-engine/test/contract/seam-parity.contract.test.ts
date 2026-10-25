@@ -17,7 +17,7 @@ import { toStoredRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryA
 import { buildCompositionConfig, type RunEngineFactoryDeps } from "../../../src/server/run-engine-factory.ts";
 import type { AppConfig } from "../../../src/orchestrator/config-loader.ts";
 import type { AgentDeps } from "../../../src/integrations/opencode-client.ts";
-import { DualAgentFacade, SingleAgentFacade } from "../../../src/agent-runtime/facades.ts";
+import { AgentRuntimeFacade } from "../../../src/agent-runtime/facades.ts";
 import type { AgentFacade, AgentProvider, AgentRuntimeStrategy, StepLimits } from "../../../src/agent-runtime/types.ts";
 import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
@@ -416,9 +416,9 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
   function facadeReporting(limits: StepLimits): AgentFacade {
     const assignment = { provider: "opencode" as const, model: S("model") };
     return {
-      config: { mode: "single", singleProvider: "opencode", assignments: { primary: assignment, reviewer: assignment, chat: assignment } },
+      config: { assignments: { primary: assignment, reviewer: assignment, chat: assignment } },
       deps: () => ({}) as unknown as AgentDeps,
-      getStatus: async () => ({ mode: "single", providers: [] }),
+      getStatus: async () => ({ providers: [] }),
       listModels: async () => [],
       stepLimits: async () => limits,
     };
@@ -471,8 +471,8 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
     assert.equal("stepLimit" in review, false);
   });
 
-  /* The real facades over the two providers, with only the providers themselves faked. A provider that enforces no
-     step limit it can report (Codex) leaves its roles without one, all the way to the input a prompt is built from. */
+  /* The real facade over two runtimes (the second a stand-in for one a future provider adds), with only the providers themselves faked. A provider that enforces no
+     step limit it can report leaves its roles without one, all the way to the input a prompt is built from. */
   function providerReporting(provider: AgentProvider, limits?: StepLimits): AgentRuntimeStrategy {
     return {
       provider,
@@ -485,25 +485,25 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
     };
   }
   const assignedTo = (provider: AgentProvider) => ({ provider, model: S("model") });
+  const NO_LIMIT_NAME = "fixture-runtime";
+  const NO_LIMIT_RUNTIME = NO_LIMIT_NAME as unknown as AgentProvider;
 
-  test("a runtime that enforces no limit for a role gives that role none end to end: Codex alone has none, and with the reviewer on Codex only the generator keeps OpenCode's", async () => {
-    const codexAlone = new SingleAgentFacade(providerReporting("codex"), {
-      mode: "single",
-      singleProvider: "codex",
-      assignments: { primary: assignedTo("codex"), reviewer: assignedTo("codex"), chat: assignedTo("codex") },
+  test("a runtime that enforces no limit for a role gives that role none end to end: a runtime alone has none, and with the reviewer on it only the generator keeps OpenCode's", async () => {
+    const runtimeAlone = new AgentRuntimeFacade({ [NO_LIMIT_NAME]: providerReporting(NO_LIMIT_RUNTIME) } as unknown as Record<AgentProvider, AgentRuntimeStrategy>, {
+      assignments: { primary: assignedTo(NO_LIMIT_RUNTIME), reviewer: assignedTo(NO_LIMIT_RUNTIME), chat: assignedTo(NO_LIMIT_RUNTIME) },
     });
-    const split = new DualAgentFacade(
-      { opencode: providerReporting("opencode", { primary: 41, reviewer: 17 }), codex: providerReporting("codex") },
-      { mode: "dual", singleProvider: "opencode", assignments: { primary: assignedTo("opencode"), reviewer: assignedTo("codex"), chat: assignedTo("codex") } },
+    const split = new AgentRuntimeFacade(
+      { opencode: providerReporting("opencode", { primary: 41, reviewer: 17 }), [NO_LIMIT_NAME]: providerReporting(NO_LIMIT_RUNTIME) } as Record<AgentProvider, AgentRuntimeStrategy>,
+      { assignments: { primary: assignedTo("opencode"), reviewer: assignedTo(NO_LIMIT_RUNTIME), chat: assignedTo(NO_LIMIT_RUNTIME) } },
     );
 
-    const alone = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => codexAlone });
+    const alone = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => runtimeAlone });
     assert.equal("stepLimit" in alone.generation, false);
     assert.equal("stepLimit" in alone.review, false);
 
     const dual = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => split });
     assert.equal(dual.generation.stepLimit, 41);
-    assert.equal("stepLimit" in dual.review, false, "the reviewer runs on Codex, which has no limit to report: OpenCode's figure for that role is not its own");
+    assert.equal("stepLimit" in dual.review, false, "the reviewer runs on a runtime with no limit to report: OpenCode's figure for that role is not its own");
   });
 
   test("every documented OPTIONAL_ALLOWLIST field is a REAL optional field on the type (guards against a stale allowlist entry after a refactor)", () => {

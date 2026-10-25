@@ -781,14 +781,12 @@ test("the telemetry health route is not a public control-plane route", async () 
 });
 
 const publicAgentConfig = {
-  mode: "single" as const,
-  singleProvider: "opencode" as const,
   assignments: {
     primary: { provider: "opencode" as const, model: "opencode-go/deepseek-v4-pro" },
     reviewer: { provider: "opencode" as const, model: "opencode-go/minimax-m3" },
     chat: { provider: "opencode" as const, model: "opencode-go/deepseek-v4-flash" },
   },
-  keys: { opencode: true, codex: false },
+  keys: { opencode: true },
   validation: { ok: true, errors: [] },
   health: {
     opencode: { provider: "opencode" as const, status: "healthy" as const, configured: true },
@@ -808,45 +806,48 @@ test("GET /api/agent/config returns sanitized runtime config", async () => {
   assert.equal(ok, true);
   assert.equal(res.status, 200);
   PublicAgentConfigSchema.parse(JSON.parse(res.body));
-  assert.doesNotMatch(res.body, /sk-|opencode-secret|codex-secret/);
+  assert.doesNotMatch(res.body, /sk-|opencode-secret/);
+  const parsed = JSON.parse(res.body);
+  assert.equal("mode" in parsed, false);
+  assert.equal("singleProvider" in parsed, false);
 });
 
 test("GET /api/agent/models returns models for one provider", async () => {
   const res = mkRes();
-  await handleApi(mkReq("GET", "/api/agent/models?provider=codex"), res, deps({
+  await handleApi(mkReq("GET", "/api/agent/models?provider=opencode"), res, deps({
     agentRuntime: {
       getConfig: async () => publicAgentConfig,
       applyConfig: async () => ({ config: publicAgentConfig, restarted: [] }),
-      listModels: async (provider) => [{ id: "gpt-5.4", label: "GPT-5.4", provider }],
-      restart: async () => ({ provider: "codex", status: "healthy", configured: true }),
+      listModels: async (provider) => [{ id: "provider/model-a", label: "Model A", provider }],
+      restart: async () => ({ provider: "opencode", status: "healthy", configured: true }),
     },
   }));
   assert.equal(res.status, 200);
-  assert.deepEqual(AgentModelsResponseSchema.parse(JSON.parse(res.body)).models.map((m) => m.id), ["gpt-5.4"]);
+  assert.deepEqual(AgentModelsResponseSchema.parse(JSON.parse(res.body)).models.map((m) => m.id), ["provider/model-a"]);
 });
 
 test("PUT /api/agent/config applies runtime config without echoing api keys", async () => {
   const res = mkRes();
   let seen: unknown;
   await handleApi(
-    mkReq("PUT", "/api/agent/config", JSON.stringify({ mode: "single", singleProvider: "codex", apiKeys: { codex: "sk-codex-secret" } })),
+    mkReq("PUT", "/api/agent/config", JSON.stringify({ apiKeys: { opencode: "sk-opencode-secret" } })),
     res,
     deps({
       agentRuntime: {
         getConfig: async () => publicAgentConfig,
         applyConfig: async (input) => {
           seen = input;
-          return { config: { ...publicAgentConfig, singleProvider: "codex", keys: { opencode: true, codex: true } }, restarted: ["codex"] };
+          return { config: publicAgentConfig, restarted: ["opencode"] };
         },
         listModels: async () => [],
-        restart: async () => ({ provider: "codex", status: "healthy", configured: true }),
+        restart: async () => ({ provider: "opencode", status: "healthy", configured: true }),
       },
     }),
   );
   assert.equal(res.status, 200);
-  assert.equal((seen as any).apiKeys.codex, "sk-codex-secret");
+  assert.equal((seen as any).apiKeys.opencode, "sk-opencode-secret");
   AgentConfigApplyResultSchema.parse(JSON.parse(res.body));
-  assert.doesNotMatch(res.body, /sk-codex-secret/);
+  assert.doesNotMatch(res.body, /sk-opencode-secret/);
 });
 
 test("PUT /api/agent/config blocks while a run is active", async () => {
@@ -854,7 +855,7 @@ test("PUT /api/agent/config blocks while a run is active", async () => {
   let applied = false;
   const running: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" };
   await handleApi(
-    mkReq("PUT", "/api/agent/config", JSON.stringify({ mode: "single", singleProvider: "codex" })),
+    mkReq("PUT", "/api/agent/config", JSON.stringify({ assignments: {} })),
     res,
     deps({
       currentRun: () => running,
@@ -865,7 +866,7 @@ test("PUT /api/agent/config blocks while a run is active", async () => {
           return { config: publicAgentConfig, restarted: [] };
         },
         listModels: async () => [],
-        restart: async () => ({ provider: "codex", status: "healthy", configured: true }),
+        restart: async () => ({ provider: "opencode", status: "healthy", configured: true }),
       },
     }),
   );

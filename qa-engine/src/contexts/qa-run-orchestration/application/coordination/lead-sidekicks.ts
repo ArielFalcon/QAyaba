@@ -9,6 +9,7 @@
  * Nothing here decides a verdict: it returns what a generation would, and the run reads it as it reads any generation.
  */
 
+import type { AgentProvider } from "@kernel/agent-role.ts";
 import { posix } from "node:path";
 import { PROBE_REL_DIR } from "@contexts/test-execution/domain/run-spec-capability.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -86,7 +87,7 @@ export interface CoordinateInput {
   specRelDir: string;
   settings: CoordinationSettings;
   /* What the sidekicks would author with: whether the app has a login, and the runtime the sidekick role is assigned to; and the runtime the lead plans on, since only some runtimes can hold a planning turn to read-only. */
-  facts: { hasLogin: boolean; provider: "opencode" | "codex" | undefined; plannerProvider: "opencode" | "codex" | undefined };
+  facts: { hasLogin: boolean; provider: AgentProvider | undefined; plannerProvider: AgentProvider | undefined };
   closedLoop?: ClosedLoopHandle;
   agentBrowser?: AgentBrowserHandle;
   /* The run's authoring location, when the app declares one: a flow may name a place and each flow owns its own value. */

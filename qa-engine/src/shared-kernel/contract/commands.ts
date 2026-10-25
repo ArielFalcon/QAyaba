@@ -407,8 +407,7 @@ export const ConfirmBoundariesInputSchema = z.object({
   confirm: z.literal(true),
 });
 
-export const AgentProviderSchema = z.enum(["opencode", "codex"]);
-export const AgentModeSchema = z.enum(["single", "dual"]);
+export const AgentProviderSchema = z.enum(["opencode"]);
 
 export const RoleAssignmentSchema = z.object({
   provider: AgentProviderSchema,
@@ -423,15 +422,12 @@ export const AgentAssignmentsSchema = z.object({
 
 export const KeyPresenceSchema = z.object({
   opencode: z.boolean(),
-  codex: z.boolean(),
 });
 
 export const AgentConfigValidationSchema = z.object({
   ok: z.boolean(),
   errors: z.array(z.string()),
   warnings: z.array(z.string()).optional(),
-  requiresSingleDowngradeConfirmation: z.boolean().optional(),
-  downgradeProvider: AgentProviderSchema.optional(),
 });
 
 export const AgentRuntimeStatusSchema = z.enum(["stopped", "starting", "healthy", "degraded", "failed", "needs_config"]);
@@ -445,12 +441,9 @@ export const AgentProviderHealthSchema = z.object({
 
 export const AgentHealthMapSchema = z.object({
   opencode: AgentProviderHealthSchema.optional(),
-  codex: AgentProviderHealthSchema.optional(),
 });
 
 export const PublicAgentConfigSchema = z.object({
-  mode: AgentModeSchema,
-  singleProvider: AgentProviderSchema,
   assignments: AgentAssignmentsSchema,
   keys: KeyPresenceSchema,
   validation: AgentConfigValidationSchema,
@@ -458,14 +451,10 @@ export const PublicAgentConfigSchema = z.object({
 });
 
 export const AgentConfigUpdateSchema = z.object({
-  mode: AgentModeSchema.optional(),
-  singleProvider: AgentProviderSchema.optional(),
   assignments: AgentAssignmentsSchema.partial().optional(),
   apiKeys: z.object({
     opencode: z.string().optional(),
-    codex: z.string().optional(),
   }).optional(),
-  confirmSingleDowngrade: z.boolean().optional(),
 });
 
 export const AgentModelInfoSchema = z.object({
@@ -482,7 +471,6 @@ export const AgentModelsResponseSchema = z.object({
 export const AgentConfigApplyResultSchema = z.object({
   config: PublicAgentConfigSchema,
   restarted: z.array(AgentProviderSchema),
-  downgraded: z.boolean().optional(),
 });
 
 export const AgentRestartRequestSchema = z.object({
@@ -728,7 +716,6 @@ export type LoginBootstrapResult = z.infer<typeof LoginBootstrapResultSchema>;
 export type ProposeBoundariesInput = z.infer<typeof ProposeBoundariesInputSchema>;
 export type ConfirmBoundariesInput = z.infer<typeof ConfirmBoundariesInputSchema>;
 export type AgentProvider = z.infer<typeof AgentProviderSchema>;
-export type AgentMode = z.infer<typeof AgentModeSchema>;
 export type RoleAssignment = z.infer<typeof RoleAssignmentSchema>;
 export type PublicAgentConfig = z.infer<typeof PublicAgentConfigSchema>;
 export type AgentConfigUpdate = z.infer<typeof AgentConfigUpdateSchema>;

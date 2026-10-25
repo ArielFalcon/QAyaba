@@ -5,8 +5,7 @@
     "directives": 17
   },
   "staticLayers": {
-    "opencode": 20427,
-    "codex": 35747
+    "opencode": 20427
   },
   "buckets": {
     "complete/code/first/tree-none/none": {

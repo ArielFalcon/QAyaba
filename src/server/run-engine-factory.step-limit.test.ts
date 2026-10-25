@@ -45,9 +45,9 @@ const ASSIGNMENT = { provider: "opencode" as const, model: "provider/model" };
 function facadeAnswering(answer: (directory: string) => Promise<StepLimits>): { facade: AgentFacade; reads: string[] } {
   const reads: string[] = [];
   const facade: AgentFacade = {
-    config: { mode: "single", singleProvider: "opencode", assignments: { primary: ASSIGNMENT, reviewer: ASSIGNMENT, chat: ASSIGNMENT } },
+    config: { assignments: { primary: ASSIGNMENT, reviewer: ASSIGNMENT, chat: ASSIGNMENT } },
     deps: unusableAgentDeps,
-    getStatus: async () => ({ mode: "single", providers: [] }),
+    getStatus: async () => ({ providers: [] }),
     listModels: async () => [],
     stepLimits: (directory) => {
       reads.push(directory);

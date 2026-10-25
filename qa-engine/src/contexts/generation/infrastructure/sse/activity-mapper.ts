@@ -95,54 +95,6 @@ export function eventRunId(
 }
 
 
-export interface RawCodexEvent {
-  type?: string;
-  msg?: string;
-  message?: string;
-  text?: string;
-  content?: string;
-  name?: string;
-  input?: unknown;
-  error?: string;
-}
-
-function codexEventText(event: RawCodexEvent): string {
-  const v = event.msg ?? event.message ?? event.text ?? event.content;
-  return typeof v === "string" ? v.trim() : "";
-}
-
-export function mapCodexExecEvent(line: string): RunEventBody[] {
-  if (!line.trim()) return [];
-  let event: RawCodexEvent;
-  try {
-    event = JSON.parse(line) as RawCodexEvent;
-  } catch {
-    return [];
-  }
-
-  const type = String(event.type ?? "").toLowerCase();
-
-  if (type === "tool_use" || type === "tool") {
-    const tool = String(event.name ?? "tool");
-    const input = event.input as Record<string, unknown> | undefined ?? {};
-    const file = toolInputPath(input);
-    const target = file ? basename(file) : cap(tool);
-    const kind = kindForTool(tool);
-    return [{ type: "agent.activity", kind, target, status: "running" }];
-  }
-
-  if (type === "error") {
-    const detail = codexEventText(event) || String(event.error ?? "codex error");
-    return [{ type: "agent.error", detail: cap(detail) }];
-  }
-
-  if (type === "message" || type === "assistant" || type === "response") {
-    return [];
-  }
-
-  return [];
-}
-
 export function mapOpencodeEvent(
   event: RawOpencodeEvent,
   sessions: ReadonlyMap<string, string>,

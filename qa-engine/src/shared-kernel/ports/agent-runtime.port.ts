@@ -39,7 +39,7 @@ export interface AgentTurnEvent {
 /**
  * What one prompt measured of its own turn, handed to the caller of `prompt` and equal to what is
  * persisted for that turn. Each figure is null when it is unknown: never a fabricated zero or false.
- * A runtime with no step concept (Codex) never supplies stats.
+ * A runtime with no step concept never supplies stats.
  */
 export interface AgentTurnStats {
   /** The limit the turn was judged against: the number its prompt stated, else the agent's configured limit; null when neither exists. */

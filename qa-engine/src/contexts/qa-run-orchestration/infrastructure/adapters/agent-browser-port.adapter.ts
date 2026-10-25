@@ -35,7 +35,7 @@ export interface AgentBrowserPortAdapterDeps {
   registry: AgentBrowserRegistry;
   /* The app's own setting (qa.agentBrowser). */
   setting: { enabled: boolean; denyRoutes: readonly string[]; allowMutating: readonly string[] };
-  /* Whether the generator role runs on a runtime that can call a custom tool (OpenCode; never Codex). Read at each open: the runtime is switchable. */
+  /* Whether the generator role runs on a runtime that can call a custom tool (OpenCode). Read at each open: the runtime is switchable. */
   generatorRuntimeCanCall: () => boolean;
   baseUrl: string;
   /* The run's saved session, read into memory; called inside the run's scope. */

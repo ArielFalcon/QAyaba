@@ -1048,7 +1048,7 @@ export function buildCompositionConfig(
     promptCapMs: agentPromptCapMs(),
     /* QA_DIFF_TIME_BUDGET_MS_{TINY,FOCUSED,BROAD} override a tier's time; read here once because qa-engine never reads process.env. A mistyped value throws. */
     timeBudgets: resolveDiffTimeBudgets(deps.env ?? process.env),
-    /* An OpenCode session keeps its conversation; a Codex prompt is a fresh exec that remembers nothing. */
+    /* An OpenCode session keeps its conversation; a runtime that starts a fresh process per prompt remembers nothing. */
     continuesSessions: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
   });
 
@@ -1376,12 +1376,12 @@ export function buildCompositionConfig(
      * granted it is the app's qa.agentBrowser (or the run's own choice), decided when the run opens it. It starts in the execution
      * sandbox (the same launcher, uid and egress lease a spec gets) with a lifetime of its own on Linux, so that a browser the
      * orchestrator forgot, because it was restarted in place, ends by itself. The generator's runtime is read as it is now, and a
-     * host that cannot say is not assumed to be OpenCode: only OpenCode can call a custom tool, and a Codex role never gets one.
+     * host that cannot say is not assumed to be OpenCode: only OpenCode can call a custom tool.
      */
     /*
      * The lead's code-graph tool: a read-only explore of the index the index phase built, served by the orchestrator, whose engine
      * and store the agents container never holds. Only where the structural signal has the code graph, and only for a lead on
-     * OpenCode (a Codex role never gets a custom tool).
+     * OpenCode.
      */
     ...(deps.codeGraphRegistry && toolsApplyToRun && structuralSignalsOn
       ? {

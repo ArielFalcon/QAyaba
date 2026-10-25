@@ -472,7 +472,7 @@ test("propose(): fail-open holds even when feedback is supplied and the session 
   assert.deepEqual(result, []);
 });
 
-/* ── Diagnostic logging on the fail-open catch (proposer-codex-instant-fail) ────────────────────
+/* ── Diagnostic logging on the fail-open catch (an instant failure) ────────────────────
    LlmProfileProposerAdapter.propose()'s catch is the ONLY point where the real thrown error and
    the app/model/singleProvider context still exist before the fail-open contract erases them to
    `[]`. These tests assert exactly one warn-level structured log per failed round, with a redacted

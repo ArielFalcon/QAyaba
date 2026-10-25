@@ -1,114 +1,75 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  defaultAgentRuntimeConfig,
   configFromEnv,
   validateAgentRuntimeConfig,
   publicAgentConfig,
   reviewerIndependence,
 } from "./config";
 
-test("defaultAgentRuntimeConfig prefers single/opencode when OPENCODE_API_KEY exists", () => {
-  const cfg = defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key", CODEX_API_KEY: "codex-key" });
-  assert.equal(cfg.mode, "single");
-  assert.equal(cfg.singleProvider, "opencode");
+test("configFromEnv assigns every role to the one runtime", () => {
+  const cfg = configFromEnv({ OPENCODE_API_KEY: "opencode-go-key" });
   assert.equal(cfg.assignments.primary.provider, "opencode");
+  assert.equal(cfg.assignments.reviewer.provider, "opencode");
+  assert.equal(cfg.assignments.chat.provider, "opencode");
 });
 
-test("defaultAgentRuntimeConfig falls back to single/codex when only CODEX_API_KEY exists", () => {
-  const cfg = defaultAgentRuntimeConfig({ CODEX_API_KEY: "codex-key" });
-  assert.equal(cfg.mode, "single");
-  assert.equal(cfg.singleProvider, "codex");
-  assert.equal(cfg.assignments.primary.provider, "codex");
+test("configFromEnv ignores runtime mode and provider selection variables and yields the single-runtime config", () => {
+  const plain = configFromEnv({ OPENCODE_API_KEY: "ok" });
+  const withSelectors = configFromEnv({
+    OPENCODE_API_KEY: "ok",
+    AGENT_RUNTIME_MODE: "dual",
+    AGENT_SINGLE_PROVIDER: "other",
+    AGENT_PRIMARY_PROVIDER: "other",
+    AGENT_REVIEWER_PROVIDER: "other",
+    AGENT_CHAT_PROVIDER: "other",
+  });
+  assert.deepEqual(withSelectors, plain);
+  assert.deepEqual(Object.keys(withSelectors), ["assignments"]);
 });
 
-test("single mode only requires the selected provider key", () => {
-  const cfg = defaultAgentRuntimeConfig({ CODEX_API_KEY: "codex-key" });
-  const result = validateAgentRuntimeConfig(cfg, { codex: true, opencode: false });
-  assert.equal(result.ok, true);
+test("a role's model comes from AGENT_<ROLE>_MODEL when set", () => {
+  const cfg = configFromEnv({ AGENT_REVIEWER_MODEL: "fixture-provider/reviewer-model" });
+  assert.equal(cfg.assignments.reviewer.model, "fixture-provider/reviewer-model");
+  assert.notEqual(cfg.assignments.primary.model, "fixture-provider/reviewer-model");
 });
 
-test("dual mode requires both provider keys and at least two visible providers", () => {
-  const cfg = {
-    ...defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key", CODEX_API_KEY: "codex-key" }),
-    mode: "dual" as const,
-    assignments: {
-      primary: { provider: "opencode" as const, model: "opencode-go/deepseek-v4-pro" },
-      reviewer: { provider: "codex" as const, model: "gpt-5.4" },
-      chat: { provider: "codex" as const, model: "gpt-5.4-mini" },
-    },
-  };
-  assert.equal(validateAgentRuntimeConfig(cfg, { opencode: true, codex: true }).ok, true);
-  assert.match(validateAgentRuntimeConfig(cfg, { opencode: true, codex: false }).errors.join("\n"), /CODEX_API_KEY/);
+test("the runtime config only requires the runtime's key", () => {
+  const cfg = configFromEnv({});
+  assert.equal(validateAgentRuntimeConfig(cfg, { opencode: true }).ok, true);
+  assert.match(validateAgentRuntimeConfig(cfg, { opencode: false }).errors.join("\n"), /OPENCODE_API_KEY is required/);
 });
 
-test("dual mode: reviewer defaults to the primary's COMPLEMENT, not a hardcoded codex", () => {
-  const keys = { OPENCODE_API_KEY: "ok", CODEX_API_KEY: "ck" };
-  /* primary=codex with no explicit reviewer provider → reviewer must be opencode (independent
-     judgment), NOT codex again (the old hardcoded fallback collapsed both roles onto codex).
-   */
-  const codexPrimary = configFromEnv({ ...keys, AGENT_RUNTIME_MODE: "dual", AGENT_SINGLE_PROVIDER: "codex" });
-  assert.equal(codexPrimary.assignments.primary.provider, "codex");
-  assert.equal(codexPrimary.assignments.reviewer.provider, "opencode");
-  const opencodePrimary = configFromEnv({ ...keys, AGENT_RUNTIME_MODE: "dual", AGENT_SINGLE_PROVIDER: "opencode" });
-  assert.equal(opencodePrimary.assignments.reviewer.provider, "codex");
-  const explicit = configFromEnv({ ...keys, AGENT_RUNTIME_MODE: "dual", AGENT_SINGLE_PROVIDER: "codex", AGENT_REVIEWER_PROVIDER: "codex" });
-  assert.equal(explicit.assignments.reviewer.provider, "codex");
-});
-
-test("dual mode with one provider asks for single-mode downgrade confirmation", () => {
-  const cfg = {
-    ...defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key" }),
-    mode: "dual" as const,
-    assignments: {
-      primary: { provider: "opencode" as const, model: "opencode-go/deepseek-v4-pro" },
-      reviewer: { provider: "opencode" as const, model: "opencode-go/minimax-m3" },
-      chat: { provider: "opencode" as const, model: "opencode-go/deepseek-v4-flash" },
-    },
-  };
-  const result = validateAgentRuntimeConfig(cfg, { opencode: true, codex: true });
-  assert.equal(result.ok, false);
-  assert.equal(result.requiresSingleDowngradeConfirmation, true);
-  assert.equal(result.downgradeProvider, "opencode");
-});
-
-test("publicAgentConfig never exposes API key values", () => {
-  const cfg = defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-secret", CODEX_API_KEY: "codex-secret" });
-  const pub = publicAgentConfig(cfg, { opencode: true, codex: true });
+test("publicAgentConfig never exposes API key values and carries no mode or provider selector", () => {
+  const cfg = configFromEnv({ OPENCODE_API_KEY: "opencode-go-secret" });
+  const pub = publicAgentConfig(cfg, { opencode: true });
   const body = JSON.stringify(pub);
-  assert.doesNotMatch(body, /opencode-go-secret|codex-secret/);
-  assert.deepEqual(pub.keys, { opencode: true, codex: true });
+  assert.doesNotMatch(body, /opencode-go-secret/);
+  assert.deepEqual(pub.keys, { opencode: true });
+  assert.equal("mode" in pub, false);
+  assert.equal("singleProvider" in pub, false);
 });
 
 /* The reviewer sharing the generator's model is a recorded property, not a precondition: the
    config validates, carries one warning naming both assignments, and the run record says so.
  */
 
-test("single mode: the default config validates ok", () => {
-  const cfg = defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key" });
-  const result = validateAgentRuntimeConfig(cfg, { opencode: true, codex: false });
-  assert.equal(result.ok, true, `default single-mode config must validate ok; errors: ${result.errors.join("; ")}`);
-});
-
-test("dual mode: the default config validates ok", () => {
-  const keys = { OPENCODE_API_KEY: "ok", CODEX_API_KEY: "ck" };
-  const cfg = configFromEnv({ ...keys, AGENT_RUNTIME_MODE: "dual" });
-  const result = validateAgentRuntimeConfig(cfg, { opencode: true, codex: true });
-  assert.equal(result.ok, true, `default dual-mode config must validate ok; errors: ${result.errors.join("; ")}`);
+test("the default config validates ok", () => {
+  const result = validateAgentRuntimeConfig(configFromEnv({ OPENCODE_API_KEY: "opencode-go-key" }), { opencode: true });
+  assert.equal(result.ok, true, `default config must validate ok; errors: ${result.errors.join("; ")}`);
 });
 
 const SHARED = "fixture-provider/shared-model";
 
 test("a config whose reviewer shares the primary's model validates ok and carries one warning naming both assignments", () => {
   const cfg = {
-    ...defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key" }),
     assignments: {
       primary: { provider: "opencode" as const, model: SHARED },
       reviewer: { provider: "opencode" as const, model: SHARED },
       chat: { provider: "opencode" as const, model: "fixture-provider/chat-model" },
     },
   };
-  const result = validateAgentRuntimeConfig(cfg, { opencode: true, codex: false });
+  const result = validateAgentRuntimeConfig(cfg, { opencode: true });
   assert.equal(result.ok, true);
   assert.deepEqual(result.errors, []);
   assert.equal(result.warnings.length, 1);
@@ -118,58 +79,28 @@ test("a config whose reviewer shares the primary's model validates ok and carrie
   assert.equal(reviewerIndependence(cfg), "shared-model");
 });
 
-test("dual mode: a reviewer on the primary's model validates ok and carries the same warning", () => {
-  const cfg = {
-    ...defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key", CODEX_API_KEY: "codex-key" }),
-    mode: "dual" as const,
-    assignments: {
-      primary: { provider: "opencode" as const, model: SHARED },
-      reviewer: { provider: "opencode" as const, model: SHARED },
-      chat: { provider: "codex" as const, model: "fixture-provider/chat-model" },
-    },
-  };
-  const result = validateAgentRuntimeConfig(cfg, { opencode: true, codex: true });
-  assert.equal(result.ok, true);
-  assert.equal(result.warnings.length, 1);
-});
-
 test("a config with distinct models carries no warning", () => {
   const cfg = {
-    ...defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key" }),
     assignments: {
       primary: { provider: "opencode" as const, model: "fixture-provider/primary-model" },
       reviewer: { provider: "opencode" as const, model: "fixture-provider/reviewer-model" },
       chat: { provider: "opencode" as const, model: "fixture-provider/chat-model" },
     },
   };
-  const result = validateAgentRuntimeConfig(cfg, { opencode: true, codex: false });
+  const result = validateAgentRuntimeConfig(cfg, { opencode: true });
   assert.deepEqual(result.warnings, []);
-  assert.equal(reviewerIndependence(cfg), "distinct-model");
-});
-
-test("the same model name under two providers is distinct", () => {
-  const cfg = {
-    ...defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key", CODEX_API_KEY: "codex-key" }),
-    mode: "dual" as const,
-    assignments: {
-      primary: { provider: "opencode" as const, model: SHARED },
-      reviewer: { provider: "codex" as const, model: SHARED },
-      chat: { provider: "codex" as const, model: "fixture-provider/chat-model" },
-    },
-  };
   assert.equal(reviewerIndependence(cfg), "distinct-model");
 });
 
 test("a missing key or an empty model still produces an error", () => {
   const cfg = {
-    ...defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key" }),
     assignments: {
       primary: { provider: "opencode" as const, model: "" },
       reviewer: { provider: "opencode" as const, model: SHARED },
       chat: { provider: "opencode" as const, model: SHARED },
     },
   };
-  const result = validateAgentRuntimeConfig(cfg, { opencode: false, codex: false });
+  const result = validateAgentRuntimeConfig(cfg, { opencode: false });
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /OPENCODE_API_KEY is required/);
   assert.match(result.errors.join("\n"), /primary model is required/);

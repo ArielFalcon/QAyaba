@@ -160,12 +160,7 @@ test("other roles' turns do not count towards the generator's exhaustion", () =>
   assert.equal(exhaustedOf(withExhausted(true, { role: "qa-sidekick" }), withExhausted(false)), false);
 });
 
-test("exhaustion is null for a Codex primary (no step budget) and when the run has no generator turn", () => {
-  const codex = measureRun("run-1", source({
-    outcome: outcome({ usage: { tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, complete: false, primaryProvider: "codex" } }),
-    turns: [withExhausted(true)],
-  }))!;
-  assert.equal(codex.exhausted, null);
+test("exhaustion is null when the run has no generator turn", () => {
   assert.equal(measureRun("run-1", source({ turns: [] }))!.exhausted, null);
 });
 

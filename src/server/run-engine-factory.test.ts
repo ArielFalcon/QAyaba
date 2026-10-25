@@ -844,7 +844,7 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
   let promptCount = 0;
   const capturedRepairPrompts: string[] = [];
   /* Stub AgentDeps.open so the composed real runtime adapter drives the use-case without a live
-     OpenCode/Codex process — mirrors this factory's own construction contract (AgentRuntimeAdapter's
+     OpenCode process — mirrors this factory's own construction contract (AgentRuntimeAdapter's
      `open` closure calls deps.getAgentDeps().open(...) lazily, only when generate() actually runs).
    */
   const fakeAgentDeps: AgentDeps = {
@@ -3709,9 +3709,11 @@ test("under the campaign freeze a map that does not fit the run says its recaptu
 
 /* ── The run_spec loop ─────────────────────────────────────────────────────────────────────────── */
 
-function agentFacadeFor(provider: "opencode" | "codex") {
+/* "fixture-runtime" stands in for a runtime a future provider adds: the host runs OpenCode alone today. */
+type FacadeProvider = "opencode" | "fixture-runtime";
+function agentFacadeFor(provider: FacadeProvider) {
   const assignment = { provider, model: "m" };
-  return () => ({ config: { mode: "single", assignments: { primary: assignment, reviewer: assignment, chat: assignment } } }) as never;
+  return () => ({ config: { assignments: { primary: assignment, reviewer: assignment, chat: assignment } } }) as never;
 }
 
 test("an e2e app composes the run_spec loop only when the host has a registry, defaulting what the app leaves out", async () => {
@@ -3744,8 +3746,8 @@ test("only an OpenCode generator, as the facade assigns it now, can call the too
   const { ClosedLoopRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/closed-loop-registry");
   const app: AppConfig = { ...cfg("loop-runtime"), qa: { needsReview: true, testDataPrefix: "qa-bot", closedLoop: { enabled: true } } };
   const registry = new ClosedLoopRegistry();
-  const codex = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("codex") }, "ns", { mode: "diff" });
-  assert.equal(codex.closedLoop?.generatorRuntimeCanCall(), false);
+  const other = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry, getAgentFacade: agentFacadeFor("fixture-runtime") }, "ns", { mode: "diff" });
+  assert.equal(other.closedLoop?.generatorRuntimeCanCall(), false);
   const noFacade = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, closedLoopRegistry: registry }, "ns", { mode: "diff" });
   assert.equal(noFacade.closedLoop?.generatorRuntimeCanCall(), false, "a host that cannot say which runtime the generator uses is not assumed to be OpenCode");
 });
@@ -3804,8 +3806,8 @@ test("only an OpenCode generator, as the facade assigns it now, is granted the b
   const { AgentBrowserRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/agent-browser-registry");
   const app: AppConfig = { ...cfg("browser-runtime"), qa: { needsReview: true, testDataPrefix: "qa-bot", agentBrowser: { enabled: true } }, dev: { baseUrl: "https://dev.example.com" } };
   const registry = new AgentBrowserRegistry();
-  const codex = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("codex") }, "ns", { mode: "diff" });
-  assert.equal(codex.agentBrowser?.generatorRuntimeCanCall(), false);
+  const other = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry, getAgentFacade: agentFacadeFor("fixture-runtime") }, "ns", { mode: "diff" });
+  assert.equal(other.agentBrowser?.generatorRuntimeCanCall(), false);
   const noFacade = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps, agentBrowserRegistry: registry }, "ns", { mode: "diff" });
   assert.equal(noFacade.agentBrowser?.generatorRuntimeCanCall(), false);
 });
@@ -3916,7 +3918,6 @@ test("the composition carries the app's qa.coordination with every limit it left
   assert.equal(on.coordinationSettings?.maxFlows, 4);
   assert.equal(on.coordinationSettings?.maxParallel, DEFAULT_COORDINATION_SETTINGS.maxParallel);
   assert.equal(on.coordinationSettings?.flowBudgetMs.opencode, 120_000);
-  assert.equal(on.coordinationSettings?.flowBudgetMs.codex, DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.codex);
 });
 
 test("the run_spec loop and the agent browser take DEV through the same lease, which holds it alone for an action that may write", async () => {
@@ -3950,12 +3951,12 @@ test("an e2e app composes the lead/sidekick mode over a workspace root beside th
 });
 
 test("the sidekick role's runtime is read from the facade as it is now, not as it was when the run was composed", async () => {
-  let provider: "opencode" | "codex" = "opencode";
+  let provider: FacadeProvider = "opencode";
   const wired = buildCompositionConfig(cfg("deleg-switch"), { getAgentDeps: stubAgentDeps, getAgentFacade: () => agentFacadeFor(provider)(), mirrorRoot: "/mirrors" }, "ns", { mode: "diff" });
   assert.equal(wired.delegation?.sidekickProvider(), "opencode");
-  provider = "codex";
-  assert.equal(wired.delegation?.sidekickProvider(), "codex");
-  assert.equal(wired.delegation?.plannerProvider(), "codex");
+  provider = "fixture-runtime";
+  assert.equal(wired.delegation?.sidekickProvider(), "fixture-runtime");
+  assert.equal(wired.delegation?.plannerProvider(), "fixture-runtime");
 });
 
 

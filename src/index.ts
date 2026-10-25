@@ -51,7 +51,7 @@ import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from 
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps, setAgentBrowserGrantLookup, setCodeGraphGrantLookup, setGeolocationGrantLookup } from "./integrations/opencode-client";
 import { createAgentRuntimeManager, logAgentConfigWarnings } from "./server/agent-runtime";
 import { keyPresence, validateAgentRuntimeConfig } from "./agent-runtime/config";
-import { CodexRuntimeStrategy, OpenCodeRuntimeStrategy } from "./agent-runtime";
+import { OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { appendLog, appendActivity, deleteAppHistory, runVerdictCounts } from "./server/history";
 import { type RunMode, type TestTarget } from "./types";
 import { github } from "./integrations/github";
@@ -214,7 +214,6 @@ const agentRuntime = createAgentRuntimeManager({
   fs: defaultEnvStoreFs(),
   strategies: {
     opencode: new OpenCodeRuntimeStrategy({ env: process.env }),
-    codex: new CodexRuntimeStrategy({ env: process.env }),
   },
   hasOpenSessions: () => getOpenSessionCount() > 0,
 });
@@ -821,10 +820,7 @@ const apiDeps: ApiDeps = {
       parentRunId: parentId,
       source: "manual",
       trigger: "continuation",
-      /*
-       * Honor the active agent runtime (Codex/dual) on continuations, exactly like the
-       * webhook path above.
-       */
+      /* Continuations run on the active agent runtime, exactly like the webhook path above. */
     }, runnerDeps());
   },
 };

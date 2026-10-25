@@ -2,16 +2,15 @@ import { defaultEnvStoreFs, applyEnvVars, type EnvStoreFs } from "./env-store";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import {
   configFromEnv,
-  defaultAgentRuntimeConfig,
   keyPresence,
   publicAgentConfig,
   runtimeRoleModelsFromConfig,
-  singleProviderConfig,
   validateAgentRuntimeConfig,
   type PublicAgentConfig,
 } from "../agent-runtime/config";
 import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
-import { DualAgentFacade, SingleAgentFacade } from "../agent-runtime/facades";
+import { AgentRuntimeFacade } from "../agent-runtime/facades";
+import { AGENT_PROVIDERS } from "../agent-runtime/types";
 import type {
   AgentFacade,
   AgentProvider,
@@ -24,7 +23,7 @@ import type { AgentConfigUpdate, AgentModelInfo } from "../contract/commands";
 
 export interface AgentRuntimeManager {
   getConfig(): Promise<PublicAgentConfig>;
-  applyConfig(input: AgentConfigUpdate): Promise<{ config: PublicAgentConfig; restarted: AgentProvider[]; downgraded?: boolean }>;
+  applyConfig(input: AgentConfigUpdate): Promise<{ config: PublicAgentConfig; restarted: AgentProvider[] }>;
   listModels(provider: AgentProvider): Promise<AgentModelInfo[]>;
   restart(provider: AgentProvider): Promise<AgentProviderHealth>;
   facade(): AgentFacade;
@@ -40,7 +39,7 @@ export interface CreateAgentRuntimeManagerOptions {
   hasOpenSessions?: () => boolean;
 }
 
-const PROVIDERS: AgentProvider[] = ["opencode", "codex"];
+const PROVIDERS = AGENT_PROVIDERS;
 const ROLES: Array<keyof AgentRuntimeConfig["assignments"]> = ["primary", "reviewer", "chat"];
 
 
@@ -92,18 +91,8 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       const apiKeyVars = apiKeyEnvVars(input);
       for (const [key, value] of Object.entries(apiKeyVars)) nextEnv[key] = value;
 
-      let next = mergeConfig(previous, input, nextEnv);
-      let downgraded = false;
-      let validation = validateAgentRuntimeConfig(next, keyPresence(nextEnv));
-
-      if (validation.requiresSingleDowngradeConfirmation) {
-        if (!input.confirmSingleDowngrade) {
-          throw new Error(`confirmSingleDowngrade is required to convert dual/${validation.downgradeProvider} to single/${validation.downgradeProvider}`);
-        }
-        next = downgradeToSingle(next, validation.downgradeProvider ?? next.singleProvider, nextEnv);
-        downgraded = true;
-        validation = validateAgentRuntimeConfig(next, keyPresence(nextEnv));
-      }
+      const next = mergeConfig(previous, input);
+      const validation = validateAgentRuntimeConfig(next, keyPresence(nextEnv));
       if (!validation.ok) throw new Error(validation.errors.join("; "));
       logAgentConfigWarnings(validation.warnings);
       await validateAssignedModels(next, opts.strategies);
@@ -127,16 +116,16 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       await Promise.all(restarted.map((provider) => restartProvider(provider, apiKeyForProvider(input, provider), runtimeVars)));
 
       /*
-       * Release a provider that is no longer used by any role (e.g. single/opencode →
-       * single/codex): the supervisor stops its process, but the orchestrator-side
-       * strategy still caches a live client until we dispose it.
+       * Release a provider that is no longer used by any role: the supervisor stops its
+       * process, but the orchestrator-side strategy still caches a live client until we
+       * dispose it.
        */
       await Promise.all(
         PROVIDERS
           .filter((provider) => usedProvider(previous, provider) && !usedProvider(next, provider))
           .map((provider) => opts.strategies[provider].dispose?.()),
       );
-      return { config: await currentPublicConfig(), restarted, ...(downgraded ? { downgraded: true } : {}) };
+      return { config: await currentPublicConfig(), restarted };
     },
 
     async listModels(provider) {
@@ -146,9 +135,7 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
     restart: restartProvider,
 
     facade() {
-      return config.mode === "dual"
-        ? new DualAgentFacade(opts.strategies, config)
-        : new SingleAgentFacade(opts.strategies[config.singleProvider], config);
+      return new AgentRuntimeFacade(opts.strategies, config);
     },
 
     current() {
@@ -186,55 +173,8 @@ async function validateAssignedModels(
   if (errors.length > 0) throw new Error(errors.join("; "));
 }
 
-function mergeConfig(
-  current: AgentRuntimeConfig,
-  input: AgentConfigUpdate,
-  env: Record<string, string | undefined>,
-): AgentRuntimeConfig {
-  const mode = input.mode ?? current.mode;
-  const singleProvider = input.singleProvider ?? current.singleProvider;
-
-  if (mode === "single") {
-    const base = singleProviderConfig(singleProvider, env);
-    return {
-      ...base,
-      assignments: overlayAssignments(base.assignments, input.assignments),
-    };
-  }
-
-  const base = current.mode === "dual" ? current : defaultDualConfig(singleProvider, env);
-  return {
-    mode: "dual",
-    singleProvider,
-    assignments: overlayAssignments(base.assignments, input.assignments),
-  };
-}
-
-function defaultDualConfig(singleProvider: AgentProvider, env: Record<string, string | undefined>): AgentRuntimeConfig {
-  const baseline = defaultAgentRuntimeConfig({ ...env, AGENT_SINGLE_PROVIDER: singleProvider });
-  return {
-    mode: "dual",
-    singleProvider,
-    assignments: {
-      primary: baseline.assignments.primary,
-      reviewer: { provider: opposite(singleProvider), model: modelFromEnv("reviewer", opposite(singleProvider), env) },
-      chat: baseline.assignments.chat,
-    },
-  };
-}
-
-function downgradeToSingle(
-  config: AgentRuntimeConfig,
-  provider: AgentProvider,
-  env: Record<string, string | undefined>,
-): AgentRuntimeConfig {
-  const base = singleProviderConfig(provider, env);
-  const preserved = ROLES.reduce((acc, role) => {
-    const current = config.assignments[role];
-    acc[role] = current.provider === provider ? current : base.assignments[role];
-    return acc;
-  }, {} as AgentRuntimeConfig["assignments"]);
-  return { mode: "single", singleProvider: provider, assignments: preserved };
+function mergeConfig(current: AgentRuntimeConfig, input: AgentConfigUpdate): AgentRuntimeConfig {
+  return { assignments: overlayAssignments(current.assignments, input.assignments) };
 }
 
 function overlayAssignments(
@@ -251,19 +191,12 @@ function overlayAssignments(
 function apiKeyEnvVars(input: AgentConfigUpdate): Record<string, string> {
   const vars: Record<string, string> = {};
   const open = input.apiKeys?.opencode?.trim();
-  const codex = input.apiKeys?.codex?.trim();
   if (open) vars.OPENCODE_API_KEY = open;
-  if (codex) vars.CODEX_API_KEY = codex;
   return vars;
 }
 
 function configEnvVars(config: AgentRuntimeConfig): Record<string, string> {
   return {
-    AGENT_RUNTIME_MODE: config.mode,
-    AGENT_SINGLE_PROVIDER: config.singleProvider,
-    AGENT_PRIMARY_PROVIDER: config.assignments.primary.provider,
-    AGENT_REVIEWER_PROVIDER: config.assignments.reviewer.provider,
-    AGENT_CHAT_PROVIDER: config.assignments.chat.provider,
     AGENT_PRIMARY_MODEL: config.assignments.primary.model,
     AGENT_REVIEWER_MODEL: config.assignments.reviewer.model,
     AGENT_CHAT_MODEL: config.assignments.chat.model,
@@ -277,8 +210,6 @@ function changedProviders(
 ): AgentProvider[] {
   const changed = new Set<AgentProvider>();
   if (apiKeyVars.OPENCODE_API_KEY) changed.add("opencode");
-  if (apiKeyVars.CODEX_API_KEY) changed.add("codex");
-  if (previous.mode !== next.mode || previous.singleProvider !== next.singleProvider) changed.add(next.singleProvider);
   for (const provider of PROVIDERS) {
     if (usedProvider(next, provider) && JSON.stringify(assignmentsForProvider(previous, provider)) !== JSON.stringify(assignmentsForProvider(next, provider))) {
       changed.add(provider);
@@ -298,13 +229,5 @@ function usedProvider(config: AgentRuntimeConfig, provider: AgentProvider): bool
 }
 
 function apiKeyForProvider(input: AgentConfigUpdate, provider: AgentProvider): string | undefined {
-  return provider === "opencode" ? input.apiKeys?.opencode : input.apiKeys?.codex;
-}
-
-function opposite(provider: AgentProvider): AgentProvider {
-  return provider === "opencode" ? "codex" : "opencode";
-}
-
-function modelFromEnv(role: keyof AgentRuntimeConfig["assignments"], provider: AgentProvider, env: Record<string, string | undefined>): string {
-  return singleProviderConfig(provider, env).assignments[role].model;
+  return input.apiKeys?.[provider];
 }

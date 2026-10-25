@@ -113,9 +113,9 @@ describe("computeTelemetryAnalysis — cache hit rate", () => {
     assert.ok(Math.abs(gen.medianCacheHitRate! - 0.35) < 1e-9, `expected 0.35, got ${gen.medianCacheHitRate}`);
   });
 
-  it("cache hit rate is null when no token data (Codex turns)", () => {
-    const app = uniqueApp("tel-codex");
-    const runId = `run-tel-codex-${Date.now()}`;
+  it("cache hit rate is null when no token data (turns of a runtime that reports none)", () => {
+    const app = uniqueApp("tel-no-tokens");
+    const runId = `run-tel-no-tokens-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
     saveAgentTurn(turn(runId, { role: "qa-generator", tokensInput: null, tokensCacheRead: null }));
 

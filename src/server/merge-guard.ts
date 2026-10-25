@@ -151,7 +151,7 @@ export const PROTECTED_PATHS: string[] = [
   /*
    * The ONE killTree an autonomous fix could neuter quietly (e.g. drop the process-group
    * signal, or swallow the kill and silently no-op) — the change would still compile and pass a
-   * shallow test while a hung/runaway untrusted child (Playwright, codex exec, npm/mvn/gradle)
+   * shallow test while a hung/runaway untrusted child (Playwright, npm/mvn/gradle)
    * is never actually torn down, a resource-exhaustion / hang risk the sandbox exists to prevent.
    */
   "qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts",
@@ -196,13 +196,7 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/shadow-log.adapter.ts",
 
   "src/integrations/repo-mirror.ts",
-  /*
-   * codexExecEnv's env allowlist for untrusted `codex exec` spawns — the same risk class as
-   * scrub-env.ts above (an unreviewed widening leaks the orchestrator's own secrets to untrusted
-   * agent-authored code).
-   */
-  "src/agent-runtime/codex-strategy.ts",
-  /* The twin of codexExecEnv inside the agents container (the allowlist for `codex exec`, the trace context it forwards, the config.toml it writes): the two allowlists are pinned equal, so loosening one is loosening both. */
+  /* The supervisor inside the agents container: the env allowlist for the agent runtime it spawns and the trace context it forwards. Loosening it leaks the container's secrets to agent-authored code. */
   "agents/agent-supervisor.mjs",
   /*
    * The runtime role assignment validation and the reviewer-independence derivation the run record

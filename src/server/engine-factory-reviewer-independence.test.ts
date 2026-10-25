@@ -18,9 +18,9 @@ const unusableAgentDeps = (): AgentDeps => ({ open: async () => { throw new Erro
 
 function facadeWith(primary: RoleAssignment, reviewer: RoleAssignment): AgentFacade {
   return {
-    config: { mode: "single", singleProvider: "opencode", assignments: { primary, reviewer, chat: primary } },
+    config: { assignments: { primary, reviewer, chat: primary } },
     deps: unusableAgentDeps,
-    getStatus: async () => ({ mode: "single", providers: [] }),
+    getStatus: async () => ({ providers: [] }),
     listModels: async () => [],
     stepLimits: async () => ({}),
   };

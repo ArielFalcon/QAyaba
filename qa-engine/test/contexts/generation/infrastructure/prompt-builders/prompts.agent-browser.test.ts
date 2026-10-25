@@ -1,4 +1,4 @@
-/* The authenticated browser budget a generator prompt states when the run granted the tools. The section provides the fact and holds nothing else, on a first pass and on every regeneration of an e2e run, in every mode that writes tests; without a grant it does not render, and the Codex layer is never given one. Asserted on section ids, claims, numbers from the input and lint findings, never on prompt wording. */
+/* The authenticated browser budget a generator prompt states when the run granted the tools. The section provides the fact and holds nothing else, on a first pass and on every regeneration of an e2e run, in every mode that writes tests; without a grant it does not render. Asserted on section ids, claims, numbers from the input and lint findings, never on prompt wording. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {

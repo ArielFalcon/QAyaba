@@ -2,7 +2,7 @@
  * Per-run token/cost usage accumulator — observation-only; never influences verdict or publish.
  * Captures OpenCode SDK info.tokens + info.cost from every session.prompt response within a run,
  * sums them into a RunUsage blob, and persists it on gateSignals.usage.
- * Codex exposes no usage, so a Codex-only run yields undefined (never zero).
+ * A run with no usage snapshot yields undefined (never zero).
  */
 
 /* A single SDK response's normalized token counts + optional cost. */
@@ -21,7 +21,7 @@ export interface UsageSnapshot {
  * cost is absent when no snapshot fired (the accumulator never invents a zero cost).
  * complete: true iff both primary and reviewer are OpenCode in this run config.
  * primaryProvider / reviewerProvider: the provider names from the role assignment at run time,
- * persisted for attribution (e.g. "codex" vs "opencode"). Absent when no runtime config is known.
+ * persisted for attribution (e.g. "opencode"). Absent when no runtime config is known.
  */
 export interface RunUsage {
   tokens: {
@@ -33,9 +33,9 @@ export interface RunUsage {
     total: number;  /* = input + output + reasoning */
   };
   cost?: number;  /* USD, SDK-computed; present iff >= 1 snapshot fired */
-  complete: boolean;  /* true = full picture; false = partial (e.g. dual mode, Codex reviewer) */
-  primaryProvider?: string;  /* provider for the primary/generator role (e.g. "opencode" | "codex") */
-  reviewerProvider?: string;  /* provider for the reviewer role (e.g. "opencode" | "codex") */
+  complete: boolean;  /* true = full picture; false = partial */
+  primaryProvider?: string;  /* provider for the primary/generator role (e.g. "opencode") */
+  reviewerProvider?: string;  /* provider for the reviewer role (e.g. "opencode") */
 }
 
 /* Provider attribution context passed to result() from the pipeline's runtime config. */
@@ -48,7 +48,7 @@ export interface UsageProviderAttribution {
 export interface UsageAccumulator {
   add(s: UsageSnapshot): void;
   /*
-   * undefined when nothing was ever added (Codex-only run with no snapshots).
+   * undefined when nothing was ever added (a run with no snapshots).
    * attribution: optional provider names from the role assignment (for persisted attribution).
    */
   result(complete: boolean, attribution?: UsageProviderAttribution): RunUsage | undefined;
@@ -77,7 +77,7 @@ export function createUsageAccumulator(): UsageAccumulator {
     result(complete: boolean, attribution?: UsageProviderAttribution): RunUsage | undefined {
       /*
        * When no snapshots were fired AND no attribution is provided, return undefined to signal
-       * "no usage data available" (e.g. a Codex-only run before the usage hook is activated).
+       * "no usage data available" (e.g. a run before the usage hook is activated).
        * When attribution IS provided (provider names from the runtime config), always return a
        * record — with zero tokens when none were accumulated — so the run is attributable even
        * when the provider emits no token counts. This keeps the record honest: complete=false,

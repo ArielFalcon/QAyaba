@@ -12,7 +12,6 @@ test("a limit an app leaves out is the default, and one it sets is its own", () 
   assert.equal(settings.maxParallel, DEFAULT_COORDINATION_SETTINGS.maxParallel);
   assert.equal(settings.planBudgetMs, DEFAULT_COORDINATION_SETTINGS.planBudgetMs);
   assert.equal(settings.flowBudgetMs.opencode, 90_000);
-  assert.equal(settings.flowBudgetMs.codex, DEFAULT_COORDINATION_SETTINGS.flowBudgetMs.codex);
 });
 
 test("the defaults themselves are never shared with a resolved setting", () => {

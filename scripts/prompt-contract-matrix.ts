@@ -1,9 +1,9 @@
 /*
  * Prompt-contract matrix: assembles the REAL generator prompt (real builders, the real
  * context-pack builder over fake capture deps) across the run shapes that can
- * reach the agent, pairs each with both static role layers (OpenCode and Codex) and lints every
- * combination. Each layer's cell is assembled from the input its own runtime hands the prompt: the
- * OpenCode runtime enforces a step limit and the prompt is given it, the Codex runtime states none.
+ * reach the agent, pairs each with the static role layer of the runtime and lints every
+ * combination. A layer's cell is assembled from the input its own runtime hands the prompt: the
+ * OpenCode runtime enforces a step limit and the prompt is given it, or states none for a role it reports no cap for.
  * The lint lives in qa-engine; this module lives in scripts/ because it also reads the static role layers and the baseline file.
  *
  * Every combination is budgeted: its user-prompt bytes and directive volume against the largest
@@ -53,7 +53,6 @@ import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
-import { codexPreambleParts } from "../src/agent-runtime/codex-strategy.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -80,11 +79,11 @@ export const DIMENSIONS = {
   service: [false, true],
   /* Whether the run lists any spec: the suite as the grounding folded it, on a diff or a manual run, and on a regeneration the specs the run has delivered. `large` is the worst case of a listing: a diff or manual run that delivered more specs than the listing shows of the ones it can say nothing of, over a suite that has more than it shows of the ones to leave alone, and then could not say which spec to change. */
   suite: ["listed", "none", "large"],
-  /* Whether the run granted the generator the run_spec tool, so its prompt states the budget. Only the OpenCode layer can have it (the Codex runtime cannot call a custom tool), and only an e2e run that writes tests. */
+  /* Whether the run granted the generator the run_spec tool, so its prompt states the budget. Only an e2e run that writes tests has it. */
   closedLoop: [false, true],
-  /* Whether the run also granted the authoring agents the authenticated browser, so its prompt states that budget as well. Like the run_spec budget, only the OpenCode layer can have it; the combinations that carry it are the granted ones of the run_spec budget, since its block is as small and as independent of every other. */
+  /* Whether the run also granted the authoring agents the authenticated browser, so its prompt states that budget as well. Like the run_spec budget, only an e2e run that writes tests has it; the combinations that carry it are the granted ones of the run_spec budget, since its block is as small and as independent of every other. */
   agentBrowser: [false, true],
-  /* Whether the prompt is the planning turn of a coordinated run, so it carries the plan contract. Only the OpenCode layer can have it (the lead must be held from writing on that turn, which only that runtime can do), and only the first pass of an e2e run that writes tests. */
+  /* Whether the prompt is the planning turn of a coordinated run, so it carries the plan contract. Only the first pass of an e2e run that writes tests has it (the lead is held from writing on that turn). */
   planning: [false, true],
 } as const;
 
@@ -357,7 +356,7 @@ function deliveredSpecsFor(spec: CellSpec): DeliveredSpec[] | undefined {
   return spec.suite === "listed" && spec.phase !== "first" ? deliveredFor(spec) : undefined;
 }
 
-/* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap; the Codex runtime has no step cap to report (the `stepLimits` asymmetry documented in src/agent-runtime/contract-parity.test.ts), so a Codex prompt is built with none. */
+/* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap. */
 export const MATRIX_STEP_LIMIT = 40;
 
 /* The run_spec budget a granted cell is assembled with: the shipped defaults. */
@@ -443,9 +442,11 @@ export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<Op
 
 /* ── the static layers the agent ships with ── */
 
-export type StaticLayerName = "opencode" | "codex";
+/* The runtimes whose static role layer is linted. Add a member and its layer in loadStaticLayer to cover another runtime. */
+export type StaticLayerName = "opencode";
 
-const STEP_LIMIT_BY_LAYER: Readonly<Record<StaticLayerName, number | undefined>> = { opencode: MATRIX_STEP_LIMIT, codex: undefined };
+/* The step limits a layer's prompt is assembled with: the cap the runtime reports, and none for a role it reports no cap for. */
+const STEP_LIMITS_BY_LAYER: Readonly<Record<StaticLayerName, ReadonlyArray<number | undefined>>> = { opencode: [MATRIX_STEP_LIMIT, undefined] };
 
 function readText(path: string): string {
   return readFileSync(path, "utf8");
@@ -453,17 +454,9 @@ function readText(path: string): string {
 
 export function loadStaticLayer(layer: StaticLayerName, root: string = ROOT): LintSection[] {
   const section = (id: string, text: string): LintSection => ({ id, layer: "static", text, claims: [] });
-  if (layer === "opencode") {
-    return [
-      section("opencode/AGENTS.md", readText(join(root, "agents", "AGENTS.md"))),
-      section("opencode/qa-generator.md", readText(join(root, "agents", "agent", "qa-generator.md"))),
-    ];
-  }
-  const parts = codexPreambleParts("primary", join(root, "agent"));
   return [
-    section("codex/AGENTS.md", parts.shared),
-    section("codex/qa-generator.md", parts.rolePrompt),
-    ...parts.skills.map((s) => section(`codex/skill-${s.name}`, s.body)),
+    section("opencode/AGENTS.md", readText(join(root, "agents", "AGENTS.md"))),
+    section("opencode/qa-generator.md", readText(join(root, "agents", "agent", "qa-generator.md"))),
   ];
 }
 
@@ -556,27 +549,28 @@ export function measureAssembled(sections: readonly LintSection[]): CellMeasure 
 
 /* Every combination that can reach the agent is linted for contradictions and duplicates and measured against the budget recorded for its bucket. */
 export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[] = allValidSpecs()): Promise<MatrixCell[]> {
-  const layers: StaticLayerName[] = ["opencode", "codex"];
+  const layers: StaticLayerName[] = ["opencode"];
   const staticByLayer = new Map(layers.map((l) => [l, loadStaticLayer(l, root)] as const));
   const cells: MatrixCell[] = [];
   for (const spec of specs) {
-    for (const layer of layers) {
-      /* The Codex runtime cannot call the tool, so a run on it is never granted it: no cell of that layer states a budget. */
-      if ((spec.closedLoop || spec.agentBrowser || spec.planning) && layer === "codex") continue;
-      /* A layer's cell is assembled from the input its own runtime hands the prompt, and records the limit that input carries. */
-      const input = await buildInput(spec, STEP_LIMIT_BY_LAYER[layer]);
+    for (const layer of layers) for (const stepLimit of STEP_LIMITS_BY_LAYER[layer]) {
+      /* A cell is assembled from the input its runtime hands the prompt, and records the limit that input carries. */
+      /* A prompt that states the run_spec budget, the browser budget or the plan contract is built for a role the runtime caps, so it always states the step limit. */
+      if (stepLimit === undefined && (spec.closedLoop || spec.agentBrowser || spec.planning)) continue;
+      const input = await buildInput(spec, stepLimit);
+      const cellKey = `${cellName(spec)}|${layer}${stepLimit === undefined ? "|no-limit" : ""}`;
       /* Budget 0 disables shedding: the matrix measures the full prompt, independent of the model window catalog. */
       const assembled = buildPromptAssembled(input, { budgetBytes: 0 });
       const sections = assembledLintSections(assembled);
       const measure = measureAssembled(sections);
       cells.push({
-        key: `${cellName(spec)}|${layer}`,
+        key: cellKey,
         name: cellName(spec),
         layer,
         spec,
         ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
         bucket: bucketOf(spec, input.stepLimit !== undefined),
-        lint: { name: `${cellName(spec)}|${layer}`, regen: spec.phase !== "first", sections: [...staticByLayer.get(layer)!, ...sections] },
+        lint: { name: cellKey, regen: spec.phase !== "first", sections: [...staticByLayer.get(layer)!, ...sections] },
         assembledBytes: measure.bytes,
         directives: measure.directives,
         staticBytes: measureStatic(staticByLayer.get(layer)!),
@@ -675,7 +669,7 @@ export function recordBaseline(cells: readonly MatrixCell[], committed?: Baselin
       bytes: Math.max(...cells.map((c) => c.assembledBytes)),
       directives: Math.max(...cells.map((c) => c.directives)),
     },
-    staticLayers: { opencode: staticLayers.opencode, codex: staticLayers.codex },
+    staticLayers: { opencode: staticLayers.opencode },
     buckets: Object.fromEntries(Object.entries(buckets).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
   };
   const raises = committed ? budgetRaises(committed, next) : [];

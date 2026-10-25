@@ -7,6 +7,7 @@
  * run_spec or the authenticated browser at all and is left out. Pure.
  */
 
+import type { AgentProvider } from "@kernel/agent-role.ts";
 import { MAX_SESSION_PAGES } from "@kernel/agent-browser.ts";
 
 export const SIDEKICK_AUTHORING = {
@@ -21,7 +22,7 @@ export interface AuthoringFacts {
   /* The app declares a login. */
   hasLogin: boolean;
   /* The runtime the sidekick role is assigned to, when the host can say. */
-  provider: "opencode" | "codex" | undefined;
+  provider: AgentProvider | undefined;
   /* The run was granted run_spec, and the authenticated browser. */
   runSpecGranted: boolean;
   browserGranted: boolean;

@@ -8,6 +8,7 @@
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
  */
 
+import type { AgentProvider } from "@kernel/agent-role.ts";
 import { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { type RunMode, type RunPurpose, type TestTarget, type TriggerSource } from "@kernel/run-mode.ts";
@@ -355,9 +356,9 @@ export interface RunQaUseCaseDeps {
    */
   leadSidekicks?: Pick<LeadSidekicks, "coordinate">;
   /** The runtime the sidekick role is assigned to now (it is switchable); absent: the host cannot say, and no sidekick is used. */
-  sidekickProvider?: () => "opencode" | "codex" | undefined;
+  sidekickProvider?: () => AgentProvider | undefined;
   /** The runtime the lead plans on now: only one that can deny the write tools per prompt may hold the planning turn to read-only. Absent: the host cannot say, and the lead authors alone. */
-  plannerProvider?: () => "opencode" | "codex" | undefined;
+  plannerProvider?: () => AgentProvider | undefined;
   config?: Partial<RunQaConfig>;
 }
 

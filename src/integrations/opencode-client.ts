@@ -470,7 +470,6 @@ export async function askAssistant(
  * The reviewer is a bounded, read-only judge (10 steps, contents inlined in the prompt) —
  * it must never inherit the generator's 25-minute worst-case budget: a hung reviewer would
  * add that whole window to the run before the loop fails closed.
- * Shared with CodexRuntimeStrategy so both providers use one per-role budget.
  */
 export const REVIEWER_TIMEOUT_MS = Number(process.env.OPENCODE_REVIEWER_TIMEOUT_MS) || 6 * 60 * 1000;
 

@@ -9,7 +9,7 @@ Use ONLY the information below. If the answer is not here, say so plainly — do
 ## What is qayaba / qayaba
 
 qayaba is an app-agnostic, centralized AI-assisted E2E QA engine. It watches team repos;
-when a commit is deployed to DEV, an AI agent runtime (OpenCode, Codex, or dual mode) generates Playwright E2E tests for the
+when a commit is deployed to DEV, an AI agent runtime (OpenCode) generates Playwright E2E tests for the
 blast radius, runs them against the live DEV site, and — when green + reviewer-approved —
 commits them into the app repo's e2e/ folder via a PR with auto-merge. Failures open a GitHub Issue.
 
@@ -29,7 +29,6 @@ over HTTP. It provides a visual dashboard for launching and tracking QA runs.
 - \`qayaba continue <runId> --cases "name1,name2" [--guidance "..."] [-w]\` — re-run fixing failed cases
 - \`qayaba onboard\` — add a new project (interactive wizard)
 - \`qayaba agent\` — view/edit agent runtime, API keys and role models
-- Global runtime flags: \`qayaba --opencode\`, \`qayaba --codex\`, \`qayaba --dual\`
 
 The service must be running: \`docker compose up\` (or the orchestrator started separately).
 
@@ -130,9 +129,9 @@ Can be disabled per-app: qa.needsReview: false.
 ## How to set up the service
 
 1. Clone the repo, run \`npm install\`
-2. Copy \`.env.example\` to \`.env\` and set OPENCODE_API_KEY or CODEX_API_KEY
+2. Copy \`.env.example\` to \`.env\` and set OPENCODE_API_KEY
 3. For production: also set GITHUB_TOKEN and WEBHOOK_SECRET
-4. Start: \`docker compose up --build\` (orchestrator + dual agent container)
+4. Start: \`docker compose up --build\` (orchestrator + agent container)
 5. Or start locally: \`npm start\` (needs the selected agent runtime running separately)
 
 ## How continuation works
@@ -154,9 +153,6 @@ It is bounded to runs still in the in-memory history (ephemeral).
 ## Environment variables
 
 - OPENCODE_API_KEY — required for OpenCode runtime (format: opencode-go-...)
-- CODEX_API_KEY — required for Codex runtime
-- AGENT_RUNTIME_MODE — single or dual (dual requires both keys and mixed visible roles)
-- AGENT_SINGLE_PROVIDER — opencode or codex when AGENT_RUNTIME_MODE=single
 - GITHUB_TOKEN — required for PR/Issue creation
 - WEBHOOK_SECRET — required for production webhook validation
 - QA_HOST — orchestrator address (default: ${DEFAULT_HOST})
@@ -166,7 +162,7 @@ It is bounded to runs still in the in-memory history (ephemeral).
 
 Two services sharing a volume:
 - **orchestrator** (Node/TS): deterministic infra — webhook, queue, git, Playwright, publish
-- **opencode** (dual agent container): supervisor + OpenCode/Codex runtimes; reads code via Serena LSP, writes tests, invokes reviewer
+- **opencode** (agent container): supervisor + OpenCode runtime; reads code via Serena LSP, writes tests, invokes reviewer
 
 The AI agent is read-only on watched repos. Only the orchestrator does git writes.
 Runs are sequential (one at a time against DEV). App-specific config lives in config/apps/.

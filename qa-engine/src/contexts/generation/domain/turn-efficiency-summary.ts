@@ -131,7 +131,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
 }
 
 /** Resolves a turn's step budget: `maxSteps` is passed through as given
- *  (null for Codex), `exhausted` is the tri-state `stepExhaustionState`
+ *  (null when the runtime reports none), `exhausted` is the tri-state `stepExhaustionState`
  *  reads from the final step's text and the observed step count. */
 export function buildTurnStepBudget(input: StepExhaustionInput): TurnStepBudget {
   return { maxSteps: input.maxSteps, exhausted: stepExhaustionState(input) };

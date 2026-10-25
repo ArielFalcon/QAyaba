@@ -225,42 +225,42 @@ const goldenCasesB2: ParityCase[] = [
   },
 ];
 
-/* ── Part 3: the pipeline-codex.test.ts scenarios with a real decide-relevant outcome (the harness
-   replays 3 codex scenarios that assert a verdict/sideEffect; a 4th is a pure config-shape
+/* ── Part 3: the single-provider scenarios with a real decide-relevant outcome (the harness
+   replays 3 scenarios that assert a verdict/sideEffect; a 4th is a pure config-shape
    assertion that never calls runPipeline — not decide-relevant, so not included here). Mirrors
    golden-outcome.test.ts:246-305.
  */
-const codexCases: ParityCase[] = [
+const singleProviderCases: ParityCase[] = [
   {
-    /* codexApp (needsReview:false), a green single-provider codex run → pass, PR published.
+    /* an app with needsReview:false, a green single-provider run → pass, PR published.
        Source: golden-outcome.test.ts:247-259.
      */
-    scenario: "pipeline-codex.ts:green-pass",
+    scenario: "single-provider:green-pass",
     evidence: { verdict: "pass", generating: true, needsReview: false, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
     expectedVerdict: "pass",
     expectedHarnessSideEffect: "pr",
   },
   {
-    /* codexApp; the SAME green fixture as green-pass, only the assertion differs (usage
+    /* The SAME green fixture as green-pass, only the assertion differs (usage
        attribution, not decide-relevant beyond verdict/sideEffect). Source:
        golden-outcome.test.ts:260-283.
      */
-    scenario: "pipeline-codex.ts:usage-attribution",
+    scenario: "single-provider:usage-attribution",
     evidence: { verdict: "pass", generating: true, needsReview: false, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
     expectedVerdict: "pass",
     expectedHarnessSideEffect: "pr",
   },
-  /* "pipeline-codex.ts:infra-error-propagates" is deliberately EXCLUDED: it asserts the adapter
+  /* "single-provider:infra-error-propagates" is deliberately EXCLUDED: it asserts the adapter
      THROWS (an AgentUnavailableError from generate()) rather than returning any RunOutcome for
      decide() to consume — there is no verdict/sideEffect for a thrown-before-verdict error to pin
      against. See golden-outcome.test.ts:284-304 and its expectThrows handling.
    */
 ];
 
-const allCases: ParityCase[] = [...goldenCases, ...goldenCasesB2, ...codexCases];
+const allCases: ParityCase[] = [...goldenCases, ...goldenCasesB2, ...singleProviderCases];
 
-test("parity pin: the golden and codex scenario sets are non-trivial (guards against an accidentally-empty pin)", () => {
-  assert.equal(allCases.length, 23, "expected exactly 10 goldens + 11 B2 scenarios + 2 decide-relevant codex scenarios");
+test("parity pin: the golden and single-provider scenario sets are non-trivial (guards against an accidentally-empty pin)", () => {
+  assert.equal(allCases.length, 23, "expected exactly 10 goldens + 11 B2 scenarios + 2 decide-relevant single-provider scenarios");
 });
 
 for (const c of allCases) {

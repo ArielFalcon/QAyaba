@@ -3,8 +3,11 @@ import type { LiveActivity } from "../integrations/opencode-client";
 import type { UsageSnapshot } from "../qa/usage";
 import type { RunEventBody } from "../contract/events";
 
-export type AgentProvider = "opencode" | "codex";
-export type AgentMode = "single" | "dual";
+/* The runtimes an agent can run on. Add a member here and a strategy to add a runtime. */
+export type AgentProvider = "opencode";
+
+/* Every runtime the host knows, in the order its status is reported. */
+export const AGENT_PROVIDERS: readonly AgentProvider[] = ["opencode"];
 export type AgentRole = "primary" | "reviewer" | "chat" | "sidekick" | "maintainer" | "reflector" | "proposer";
 
 /*
@@ -27,8 +30,6 @@ export interface RoleAssignment {
 }
 
 export interface AgentRuntimeConfig {
-  mode: AgentMode;
-  singleProvider: AgentProvider;
   assignments: {
     primary: RoleAssignment;
     reviewer: RoleAssignment;
@@ -99,7 +100,7 @@ export interface AgentFacadeDeps extends AgentDeps {}
 export interface AgentFacade {
   config: AgentRuntimeConfig;
   deps(): AgentFacadeDeps;
-  getStatus(): Promise<{ mode: AgentMode; providers: AgentProviderHealth[] }>;
+  getStatus(): Promise<{ providers: AgentProviderHealth[] }>;
   listModels(provider?: AgentProvider): Promise<AgentModelInfo[]>;
   /** The step limit each role runs under, from the provider the role is assigned to; a role whose provider reports none is absent. */
   stepLimits(directory: string): Promise<StepLimits>;
@@ -114,7 +115,7 @@ export interface AgentFacade {
 
 /*
  * The one role -> agent-name table. An agent name is the key of `agent` in agents/opencode.json and
- * the stem of agent/roles/<name>.md. Every forward lookup and the reverse lookup read from here, so
+ * the stem of agents/agent/<name>.md. Every forward lookup and the reverse lookup read from here, so
  * a role cannot compile without a name and a name always resolves back to its own role.
  */
 export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {

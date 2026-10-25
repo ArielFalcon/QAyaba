@@ -109,7 +109,7 @@ test("buildTurnStepBudget leaves exhaustion unknown when the count is unknown an
   assert.equal(budget.exhausted, null);
 });
 
-test("buildTurnStepBudget passes a null maxSteps through unchanged (Codex has no step limit) and stays unknown", () => {
+test("buildTurnStepBudget passes a null maxSteps through unchanged (a runtime with no step limit) and stays unknown", () => {
   const budget = buildTurnStepBudget({ maxSteps: null, stepsUsed: null, finalStepText: "any output text" });
   assert.equal(budget.maxSteps, null);
   assert.equal(budget.exhausted, null);

@@ -395,8 +395,12 @@ test("qa.closedLoop is off unless an app turns it on, and every limit is bounded
 test("qa.coordination is absent unless an app sets it, accepts only the lead-sidekicks mode, and every limit is bounded", () => {
   assert.equal(AppConfigSchema.parse(base).qa.coordination, undefined);
 
-  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000, codex: 400_000 } } } });
-  assert.deepEqual(on.qa.coordination, { maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000, codex: 400_000 } });
+  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000 } } } });
+  assert.deepEqual(on.qa.coordination, { maxParallel: 2, maxFlows: 4, planBudgetMs: 120_000, flowBudgetMs: { opencode: 300_000 } });
+
+  /* An app file written before the second runtime was removed still loads: its budget is dropped, not rejected. */
+  const retired = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { flowBudgetMs: { opencode: 300_000, codex: 400_000 } } } });
+  assert.deepEqual(retired.qa.coordination, { flowBudgetMs: { opencode: 300_000 } });
 
   const limitsOnly = AppConfigSchema.parse({ ...base, qa: { ...base.qa, coordination: { maxFlows: 4 } } });
   assert.deepEqual(limitsOnly.qa.coordination, { maxFlows: 4 });

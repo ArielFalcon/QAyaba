@@ -283,16 +283,12 @@ test("isProtectedPath flags the whole generation/infrastructure and orchestratio
 });
 
 /* despite being squarely inside the secret/confinement/review boundary this module protects. */
-test("isProtectedPath flags repo-mirror.ts, codex-strategy.ts and agent-runtime/config.ts", () => {
+test("isProtectedPath flags repo-mirror.ts and agent-runtime/config.ts", () => {
   /* owns authHeaderArgs() (GITHUB_TOKEN into git URLs), hardenGitArgs() (disables hooksPath — its own
      comment calls this a root-RCE escape), and scrubGitError() (its comment cites a PAST incident of a
      PAT logged in plaintext).
    */
   assert.equal(isProtectedPath("src/integrations/repo-mirror.ts"), true);
-  /* codexExecEnv's env allowlist for untrusted `codex exec` spawns — same risk class as scrub-env.ts,
-     already protected above.
-   */
-  assert.equal(isProtectedPath("src/agent-runtime/codex-strategy.ts"), true);
   /* The runtime assignment validation and the reviewer-independence derivation the run record reads. */
   assert.equal(isProtectedPath("src/agent-runtime/config.ts"), true);
 });
@@ -881,7 +877,7 @@ test("the real ledger store persists deploys on disk across reads, creating its 
   }
 });
 
-test("isProtectedPath flags the tool-call trace modules, the supervisor that mirrors Codex's env allowlist, and the compose file that holds the telemetry stack", () => {
+test("isProtectedPath flags the tool-call trace modules, the supervisor that holds the agent runtime's env allowlist, and the compose file that holds the telemetry stack", () => {
   for (const file of [
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-trace.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/tool-call-outcome.ts",

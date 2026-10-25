@@ -64,7 +64,7 @@ export interface GenerationResult {
   end: GenerationEndKind;
   /** For a declared no-op, the reason the verdict named (`noop.kind`), `unspecified` when it named none. Absent for every other end. */
   noopKind?: NoopKind;
-  /** What the generation's MAIN turn measured, when its runtime can measure a turn (Codex cannot). */
+  /** What the generation's MAIN turn measured, when its runtime can measure a turn. */
   turn?: AgentTurnStats;
   /** The generator's typed claim that the test is correct; a claim, never evidence. Absent unless the verdict carried one. */
   testCorrect?: { cause: "env" | "app"; reason: string };

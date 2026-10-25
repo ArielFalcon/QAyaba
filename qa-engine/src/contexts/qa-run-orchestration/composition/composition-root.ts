@@ -1,5 +1,6 @@
 /* Composition root: the only qa-engine module allowed to import concrete adapters from sibling contexts (arch-lint VCS-write gate). Wires qa-run-orchestration ports to real adapters. A shadow composition (cfg.shadow) publishes to the shadow log: no PR or Issue is opened on the watched repo. */
 
+import type { AgentProvider } from "@kernel/agent-role.ts";
 import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort, RunDeadlinePort, SuiteStorePort, ValidationPort, LearningPort, ObjectiveSignalPort } from "../application/ports/index.ts";
@@ -107,9 +108,9 @@ export interface DelegationWiring {
   /* The absolute directory the sidekicks' workspaces are made under (on the mirrors volume, so the agents' runtime can open a session in it). */
   workspaceRoot: string;
   /* The runtime the sidekick role is assigned to now (it is switchable): only OpenCode can call run_spec and the authenticated browser. */
-  sidekickProvider: () => "opencode" | "codex" | undefined;
+  sidekickProvider: () => AgentProvider | undefined;
   /* The runtime the lead (the primary role) plans on now: only OpenCode can hold the planning turn to read-only. */
-  plannerProvider: () => "opencode" | "codex" | undefined;
+  plannerProvider: () => AgentProvider | undefined;
   /* The run's deadline, as the agents' turns read it. */
   deadline?: RunDeadlineView;
 }

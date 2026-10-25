@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { buildEffectiveConfig, hashStaticPrompts, parseStoredRunConfig, resolveRunConfig, type RunConfigEnvironment } from "./effective-config";
 
-const env: RunConfigEnvironment = { runtime: () => "codex", staticPromptHash: () => "sha256:x", toolsGranted: true, reflectorEnabled: true, campaignFrozen: false, maxCapture: "full" };
+const env: RunConfigEnvironment = { runtime: () => "opencode", staticPromptHash: () => "sha256:x", toolsGranted: true, reflectorEnabled: true, campaignFrozen: false, maxCapture: "full" };
 const app = (over: Record<string, unknown> = {}, qa: Record<string, unknown> = {}): AppConfig =>
   ({ name: "a", repo: "o/a", dev: { baseUrl: "https://dev" }, qa: { needsReview: true, testDataPrefix: "qa", ...qa }, report: { onFailure: "x" }, ...over }) as AppConfig;
 

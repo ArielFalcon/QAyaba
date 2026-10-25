@@ -35,7 +35,7 @@ import type { GroundingInput } from "./contract/commands";
 import { renderRunReport } from "./qa/value-report";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { defaultEnvStoreFs } from "./server/env-store";
-import { OpenCodeRuntimeStrategy, CodexRuntimeStrategy } from "./agent-runtime";
+import { OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRunEngineFactory } from "./server/run-engine-factory";
 import { resolvePort } from "./server/port";
@@ -46,7 +46,6 @@ const cliAgentRuntime = createAgentRuntimeManager({
   fs: defaultEnvStoreFs(),
   strategies: {
     opencode: new OpenCodeRuntimeStrategy({ env: process.env }),
-    codex: new CodexRuntimeStrategy({ env: process.env }),
   },
   hasOpenSessions: () => getOpenSessionCount() > 0,
 });

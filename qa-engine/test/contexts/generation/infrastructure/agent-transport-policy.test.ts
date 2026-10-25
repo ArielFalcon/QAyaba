@@ -171,12 +171,12 @@ test("withStallWatchdog: dispose() stops the watchdog (no leak after session end
   assert.equal(stopCalled, true, "dispose() must stop the watchdog to prevent leaks");
 });
 
-test("withStallWatchdog: a self-timed session (Codex exec) skips the watchdog entirely", async () => {
+test("withStallWatchdog: a self-timed session (one that bounds its own turn) skips the watchdog entirely", async () => {
   let watchdogCreated = false;
   const base: AgentDeps = {
     open: async () => ({
-      id: "codex-session",
-      prompt: async () => "codex result",
+      id: "self-timed-session",
+      prompt: async () => "self-timed result",
       dispose: async () => {},
       selfTimed: true,
     }),
@@ -189,7 +189,7 @@ test("withStallWatchdog: a self-timed session (Codex exec) skips the watchdog en
   const session = await wrapped.open("qa-generator", "/tmp");
   assert.equal(watchdogCreated, false, "the watchdog must NOT be created for a self-timed session");
   assert.equal(session.selfTimed, true, "the self-timed marker is preserved on the returned session");
-  assert.equal(await session.prompt("hello"), "codex result");
+  assert.equal(await session.prompt("hello"), "self-timed result");
   await session.dispose();
 });
 

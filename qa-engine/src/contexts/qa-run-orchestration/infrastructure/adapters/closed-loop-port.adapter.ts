@@ -37,7 +37,7 @@ export interface ClosedLoopPortAdapterDeps {
   registry: ClosedLoopRegistry;
   /* The app's own setting (qa.closedLoop), with the limits already defaulted. */
   setting: { enabled: boolean; limits: ClosedLoopLimits };
-  /* Whether the generator role runs on a runtime that can call the tool (OpenCode; never Codex). Read at each open: the runtime is switchable. */
+  /* Whether the generator role runs on a runtime that can call the tool (OpenCode). Read at each open: the runtime is switchable. */
   generatorRuntimeCanCall: () => boolean;
   execution: ExecutionPort;
   /* Absent: nothing removes the data a call created beyond what the spec's own fixtures undo. */

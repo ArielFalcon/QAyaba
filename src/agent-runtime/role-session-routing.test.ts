@@ -4,9 +4,8 @@ import { AgentRuntimeAdapter } from "@contexts/generation/infrastructure/agent-r
 import type { AgentRole } from "@kernel/agent-role";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { roleToAgentName } from "../server/run-engine-factory";
-import { SingleAgentFacade } from "./facades";
+import { AgentRuntimeFacade } from "./facades";
 import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
-import { CodexRuntimeStrategy, type CodexTransportStartInput } from "./codex-strategy";
 import { AGENT_NAME_FOR_ROLE, type AgentFacade, type AgentRuntimeConfig } from "./types";
 
 /*
@@ -18,9 +17,9 @@ import { AGENT_NAME_FOR_ROLE, type AgentFacade, type AgentRuntimeConfig } from "
 
 const ALL_ROLES = Object.keys(AGENT_NAME_FOR_ROLE) as AgentRole[];
 
-function configFor(provider: "opencode" | "codex"): AgentRuntimeConfig {
+function configFor(provider: "opencode"): AgentRuntimeConfig {
   const assignment = { provider, model: "some-model" };
-  return { mode: "single", singleProvider: provider, assignments: { primary: assignment, reviewer: assignment, chat: assignment } };
+  return { assignments: { primary: assignment, reviewer: assignment, chat: assignment } };
 }
 
 /* The narrowing the composition root applies between the engine's runtime adapter and the host deps. */
@@ -49,7 +48,7 @@ test("a session opened for each role reaches the OpenCode transport as that role
     },
   };
   const strategy = new OpenCodeRuntimeStrategy({ env: { OPENCODE_API_KEY: "k" }, depsFactory: async () => raw });
-  const runtime = engineRuntime(new SingleAgentFacade(strategy, configFor("opencode")));
+  const runtime = engineRuntime(new AgentRuntimeFacade({ opencode: strategy }, configFor("opencode")));
 
   for (const role of ALL_ROLES) {
     opened.length = 0;
@@ -67,32 +66,9 @@ test("an escalated sidekick session reaches the OpenCode transport as qa-sidekic
     },
   };
   const strategy = new OpenCodeRuntimeStrategy({ env: { OPENCODE_API_KEY: "k" }, depsFactory: async () => raw });
-  const runtime = engineRuntime(new SingleAgentFacade(strategy, configFor("opencode")));
+  const runtime = engineRuntime(new AgentRuntimeFacade({ opencode: strategy }, configFor("opencode")));
 
   await (await runtime.openSession("sidekick", "/repo", { model: "opencode-go/escalated" })).dispose();
 
   assert.deepEqual(opened, [{ agent: AGENT_NAME_FOR_ROLE.sidekick, model: "opencode-go/escalated" }]);
-});
-
-test("a session opened for each role reaches the Codex transport as that role", async () => {
-  const started: CodexTransportStartInput[] = [];
-  const strategy = new CodexRuntimeStrategy({
-    env: { CODEX_API_KEY: "codex-key" },
-    promptRoot: "/nonexistent-prompt-root",
-    transport: {
-      start: async (input) => {
-        started.push(input);
-        return { id: "codex-1", prompt: async () => "ok", dispose: async () => {} };
-      },
-      health: async () => ({ provider: "codex", status: "healthy", configured: true }),
-      listModels: async () => [{ id: "some-model" }],
-    },
-  });
-  const runtime = engineRuntime(new SingleAgentFacade(strategy, configFor("codex")));
-
-  for (const role of ALL_ROLES) {
-    started.length = 0;
-    await (await runtime.openSession(role, "/repo")).dispose();
-    assert.deepEqual(started.map((s) => s.role), [role], `role ${role} must reach Codex as itself`);
-  }
 });

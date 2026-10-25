@@ -91,14 +91,14 @@ const sampleSpecs = (): CellSpec[] => {
 let cells: Promise<MatrixCell[]> | undefined;
 const cellsOnce = (): Promise<MatrixCell[]> => (cells ??= buildMatrix(ROOT, sampleSpecs()));
 
-test("the sample exercises every value of every dimension, and both static layers", async () => {
+test("the sample exercises every value of every dimension, and the static layer", async () => {
   const specs = sampleSpecs();
   for (const dimension of Object.keys(DIMENSIONS) as Array<keyof typeof DIMENSIONS>) {
     for (const value of DIMENSIONS[dimension] as readonly unknown[]) {
       assert.ok(specs.some((s) => s[dimension] === value), `${dimension}=${String(value)} is in the sample`);
     }
   }
-  assert.deepEqual([...new Set((await cellsOnce()).map((c) => c.layer))].sort(), ["codex", "opencode"]);
+  assert.deepEqual([...new Set((await cellsOnce()).map((c) => c.layer))].sort(), ["opencode"]);
 });
 
 /* The most prompts the sample may assemble: the work one mutant's run of the whole preset is sized for, against the 15 second timeout every mutant gets. Each cell of a layer is assembled from its own input, so every combination in the sample costs two prompts. */

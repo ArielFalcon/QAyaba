@@ -481,14 +481,14 @@ function paths(): Record<string, unknown> {
         requestBody: { required: true, content: jsonBody("AgentConfigUpdate") },
         responses: {
           "200": { description: "updated runtime config", content: jsonBody("AgentConfigApplyResult") },
-          "409": { description: "active run/session or downgrade confirmation required" },
+          "409": { description: "active run/session" },
         },
       },
     },
     "/api/v1/agent/models": {
       get: {
         operationId: "listAgentModels",
-        parameters: [{ name: "provider", in: "query", required: true, schema: { type: "string", enum: ["opencode", "codex"] } }],
+        parameters: [{ name: "provider", in: "query", required: true, schema: { type: "string", enum: ["opencode"] } }],
         responses: { "200": { description: "models for provider", content: jsonBody("AgentModelsResponse") } },
       },
     },

@@ -331,7 +331,6 @@ export const AppConfigSchema = z
           flowBudgetMs: z
             .object({
               opencode: z.number().int().min(60_000).max(3_600_000).optional(),
-              codex: z.number().int().min(60_000).max(3_600_000).optional(),
             })
             .optional(),
         })

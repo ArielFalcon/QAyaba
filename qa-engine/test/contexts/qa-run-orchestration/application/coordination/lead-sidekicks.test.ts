@@ -216,9 +216,9 @@ test("a generation that cannot plan, a sidekick that cannot author and a run wit
   const noPlan = await r.coordinator.coordinate(input(r, { plan: undefined }));
   assert.equal(noPlan.action, "lead");
 
-  const codex = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: "codex", plannerProvider: "opencode" } }));
-  assert.equal(codex.action, "lead");
-  assert.equal(codex.signal.authoring, "excluded");
+  const unnamed = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: undefined, plannerProvider: "opencode" } }));
+  assert.equal(unnamed.action, "lead");
+  assert.equal(unnamed.signal.authoring, "excluded");
 
   const bare = await r.coordinator.coordinate(input(r, { plan, closedLoop: undefined, agentBrowser: undefined }));
   assert.equal(bare.action, "lead", "a login and neither run_spec nor the browser");
@@ -230,11 +230,11 @@ test("a generation that cannot plan, a sidekick that cannot author and a run wit
   assert.equal(r.created.length, 0);
 });
 
-test("a lead on a runtime that cannot hold the planning turn to read-only, or one the host cannot name, is not asked for a plan", async () => {
+test("a lead on a runtime the host cannot name is not asked for a plan", async () => {
   const r = rig();
   let asked = 0;
   const plan = async (): Promise<PlanOutput> => { asked += 1; return { plan: FANOUT_PLAN, parsed: true, timedOut: false }; };
-  for (const plannerProvider of ["codex", undefined] as const) {
+  for (const plannerProvider of [undefined] as const) {
     const outcome = await r.coordinator.coordinate(input(r, { plan, facts: { hasLogin: true, provider: "opencode", plannerProvider } }));
     assert.equal(outcome.action, "lead", String(plannerProvider));
     assert.ok(outcome.signal.downgrade && /read-only/.test(outcome.signal.downgrade), "the downgrade says why");
@@ -611,7 +611,7 @@ test("a sidekick session that opens after its flow ran out of time is closed at 
   const hold = new Promise<void>((resolve) => { release = resolve; });
   const lead = leadWith([[{ flow: "cart", action: "replace", instruction: "again" }], []]);
   const r = rig({ answers: { cart: [{ status: "failed", summary: "x", filesChanged: [] }, { hold, writes: true }] }, hasFile: new Set(["login"]) });
-  const pending = new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, settings: { ...DEFAULT_COORDINATION_SETTINGS, flowBudgetMs: { opencode: 100_000, codex: 100_000 } } }));
+  const pending = new LeadSidekicks(r.deps).coordinate(input(r, { plan: lead.plan, closedLoop: undefined, settings: { ...DEFAULT_COORDINATION_SETTINGS, flowBudgetMs: { opencode: 100_000 } } }));
   for (let i = 0; i < 20; i++) await settle();
   r.timers.advance(100_000);
   await settle();
@@ -697,7 +697,7 @@ test("a flow that runs out of its time is stopped and nothing is taken back from
   let release!: () => void;
   const hold = new Promise<void>((resolve) => { release = resolve; });
   const r = rig({ answers: { cart: [{ hold }], login: [{ hold }] } });
-  const pending = r.coordinator.coordinate(input(r, { settings: { ...DEFAULT_COORDINATION_SETTINGS, flowBudgetMs: { opencode: 100_000, codex: 100_000 } } }));
+  const pending = r.coordinator.coordinate(input(r, { settings: { ...DEFAULT_COORDINATION_SETTINGS, flowBudgetMs: { opencode: 100_000 } } }));
   await settle();
   r.timers.advance(100_000);
   await settle();

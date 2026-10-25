@@ -133,8 +133,8 @@ function stripFrameMarkers(tail: string): string {
 export interface RepairInstructionOpts {
   /*
    * The tail of the agent's PRIOR response (bounded to the last PRIOR_RESPONSE_TAIL_CHARS chars
-   * by this function, so callers may pass the full text). Provider-agnostic fallback: a fresh
-   * `codex exec` process (no resume) never saw the prior turn, so without this the repair
+   * by this function, so callers may pass the full text). Provider-agnostic fallback: a runtime
+   * that starts a fresh process per prompt never saw the prior turn, so without this the repair
    * instruction gives it nothing to recover FROM — it can only fabricate a plausible verdict.
    * OpenCode's server-side session already remembers the prior turn, so passing this there is
    * additive (a harmless restatement of context the session already holds), never harmful.

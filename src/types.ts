@@ -299,8 +299,8 @@ export interface RunOutcome {
     /*
      * Per-run agent token/cost usage — observation-only, never affects verdict or publish.
      * Absent only when no snapshot fired AND no provider attribution is available (dep not wired).
-     * For Codex runs (no token snapshots), present with zero tokens and provider attribution fields
-     * so the run is attributable without re-deriving provider from config. complete=false for Codex.
+     * For a run with no token snapshots, present with zero tokens and provider attribution fields
+     * so the run is attributable without re-deriving provider from config. complete=false then.
      */
     usage?: import("./qa/usage").RunUsage;
     /*

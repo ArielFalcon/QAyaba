@@ -388,8 +388,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       /* Only the lines that read, judge and route a limit: the rest of these modules is other code. */
       "src/agent-runtime/opencode-strategy.ts@step-limit-read",
       "src/agent-runtime/opencode-strategy.ts@dispose-without-limit",
-      "src/agent-runtime/facades.ts@single-facade-step-limits",
-      "src/agent-runtime/facades.ts@dual-facade-step-limits",
+      "src/agent-runtime/facades.ts@facade-step-limits",
       "src/integrations/opencode-client.ts@max-steps-from-config-head",
       "src/integrations/opencode-client.ts#AgentOnTheWire",
       "src/integrations/opencode-client.ts@list-agent-caps",
@@ -407,18 +406,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
-  "tool-link-and-codex-usage": {
-    description: "the join of a tool call to the orchestrator's span of it (a tie excludes both sides, a worse rank never claims what a better one left), Codex's usage put in the shape every row holds, and the reading of what an exec reported it spent (a usage with no valid count is none, not zero)",
-    mutate: [
-      `${GEN}/domain/tool-link.ts`,
-      "qa-engine/src/shared-kernel/telemetry/genai-semconv.ts@codex-usage-normalization",
-      "src/agent-runtime/codex-strategy.ts@supervisor-usage-extraction",
-    ],
-    tests: [
-      `${GEN_TEST}/domain/tool-link.test.ts`,
-      "qa-engine/test/shared-kernel/telemetry/genai-semconv.test.ts",
-      "src/agent-runtime/codex-strategy.test.ts",
-    ],
+  "tool-link": {
+    description: "the join of a tool call to the orchestrator's span of it (a tie excludes both sides, a worse rank never claims what a better one left)",
+    mutate: [`${GEN}/domain/tool-link.ts`],
+    tests: [`${GEN_TEST}/domain/tool-link.test.ts`],
     thresholds: DEFAULT_THRESHOLDS,
   },
   "merge-guard": {

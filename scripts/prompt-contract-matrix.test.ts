@@ -1,4 +1,4 @@
-/* The prompt-contract matrix: every run shape that can reach the generator, assembled with the real builders and linted against both static role layers. */
+/* The prompt-contract matrix: every run shape that can reach the generator, assembled with the real builders and linted against the static role layer. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -79,33 +79,25 @@ test("a code run can be asked to cover a change it already tested, but never to 
   assert.equal(codePhases.has("selector-fix"), false);
 });
 
-test("the matrix holds every valid combination against both static layers", async () => {
+test("the matrix holds every valid combination against the static layer", async () => {
   const cells = await matrixOnce();
-  /* A run on the Codex runtime is never granted the run_spec tool and its lead cannot be held from writing on a planning turn, so a combination that states the budget or carries the plan contract has a cell in the OpenCode layer only. */
-  const granted = allValidSpecs().filter((s) => s.closedLoop || s.planning).length;
-  assert.ok(granted > 0, "setup: some combinations state the budget or carry the plan contract");
-  assert.equal(cells.length, allValidSpecs().length * 2 - granted);
-  assert.equal(cells.some((c) => c.layer === "codex" && (c.spec.closedLoop || c.spec.planning)), false, "no Codex cell states a budget or carries the plan contract");
-  assert.deepEqual([...new Set(cells.map((c) => c.layer))].sort(), ["codex", "opencode"]);
-  for (const layer of ["opencode", "codex"] as const) {
-    const sections = loadStaticLayer(layer, ROOT);
-    assert.ok(sections.length > 0 && sections.every((s) => s.layer === "static" && s.text.length > 0), layer);
-  }
+  const granted = allValidSpecs().filter((s) => s.closedLoop || s.agentBrowser || s.planning).length;
+  assert.ok(granted > 0, "setup: some combinations state a tool budget or carry the plan contract");
+  assert.equal(cells.length, allValidSpecs().length * 2 - granted, "each combination with a step limit, and without it unless it states a tool budget or carries the plan contract");
+  assert.deepEqual([...new Set(cells.map((c) => c.layer))], ["opencode"]);
+  const sections = loadStaticLayer("opencode", ROOT);
+  assert.ok(sections.length > 0 && sections.every((s) => s.layer === "static" && s.text.length > 0));
 });
 
-/* ── one assembly per layer: the OpenCode runtime enforces a step limit and the Codex runtime states none ── */
+/* ── one assembly: the OpenCode runtime enforces a step limit ── */
 
 test("the step limit the matrix assembles with is one the runtime's resolver accepts", () => {
   assert.equal(enforcedStepLimit(MATRIX_STEP_LIMIT), MATRIX_STEP_LIMIT);
 });
 
-test("an OpenCode cell is assembled with the step limit that runtime enforces, and a Codex cell with none", async () => {
+test("an OpenCode cell is assembled with the step limit that runtime enforces, or with none for a role it reports none for", async () => {
   const cells = await matrixOnce();
-  const opencode = cells.filter((c) => c.layer === "opencode");
-  const codex = cells.filter((c) => c.layer === "codex");
-  assert.ok(opencode.length > 0 && codex.length === opencode.filter((c) => !c.spec.closedLoop && !c.spec.planning).length, "every combination has a cell in each layer, but the ones that state the run_spec budget or carry the plan contract, which only OpenCode can have");
-  assert.deepEqual([...new Set(opencode.map((c) => c.stepLimit))], [MATRIX_STEP_LIMIT]);
-  assert.deepEqual([...new Set(codex.map((c) => c.stepLimit))], [undefined]);
+  assert.deepEqual([...new Set(cells.map((c) => c.stepLimit))], [MATRIX_STEP_LIMIT, undefined]);
 });
 
 test("the input of a limited cell is the same run input plus the step limit, and an input built without one has no such key", async () => {
@@ -507,7 +499,6 @@ function raisedTightenedBudgets(committed: Baseline): Array<[string, Baseline]> 
     ["the ceiling's bytes", tightened((b) => void (b.ceiling.bytes -= 1))],
     ["the ceiling's directives", tightened((b) => void (b.ceiling.directives -= 1))],
     ["the opencode static layer", tightened((b) => void (b.staticLayers.opencode -= 1))],
-    ["the codex static layer", tightened((b) => void (b.staticLayers.codex -= 1))],
   ];
 }
 
@@ -526,9 +517,9 @@ test("a raise recorded with a reason stores the reason and the budgets it raised
   const bucket = Object.keys(measured.buckets)[0]!;
   const committed = structuredClone(measured);
   committed.buckets[bucket]!.bytes -= 1;
-  committed.staticLayers.codex -= 1;
+  committed.staticLayers.opencode -= 1;
   const raised = recordBaseline(cells, committed, { increaseReason: "a section the prompt now needs" });
-  assert.deepEqual(raised.lastIncrease, { reason: "a section the prompt now needs", budgets: [`${bucket}:bytes`, "static:codex"] });
+  assert.deepEqual(raised.lastIncrease, { reason: "a section the prompt now needs", budgets: [`${bucket}:bytes`, "static:opencode"] });
   assert.deepEqual(recordBaseline(cells, raised).lastIncrease, raised.lastIncrease);
 });
 

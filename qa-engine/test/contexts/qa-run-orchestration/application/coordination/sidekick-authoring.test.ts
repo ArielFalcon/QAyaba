@@ -41,8 +41,8 @@ test("an app with no login is authored with the unauthenticated browser, one flo
   }
 });
 
-test("a sidekick on a runtime that cannot call a tool, or on none the host can name, is left out and says why, whatever the app has", () => {
-  for (const provider of ["codex", undefined] as const) {
+test("a sidekick on a runtime the host cannot name is left out and says why, whatever the app has", () => {
+  for (const provider of [undefined] as const) {
     for (const hasLogin of [true, false]) {
       const decision = sidekickAuthoring(facts({ provider, hasLogin }));
       assert.equal(decision.mode, SIDEKICK_AUTHORING.EXCLUDED, `${provider} ${hasLogin}`);
