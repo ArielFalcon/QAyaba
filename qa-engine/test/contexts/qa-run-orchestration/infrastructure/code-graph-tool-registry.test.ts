@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CodeGraphToolRegistry, type LiveCodeGraph } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts";
 
-const live = (runId: string): LiveCodeGraph => ({ runId, call: async () => ({ ok: true, result: "{}", truncated: false, callsLeft: 1 }) });
+const live = (runId: string): LiveCodeGraph => ({ runId, call: async () => ({ ok: true, result: "", truncated: false, indexedSha: "abc1234", callsLeft: 1 }) });
 
 test("only the lead's own sessions of a run find its code graph: not a sidekick, not the lead's session for a flow, not any other role", () => {
   const registry = new CodeGraphToolRegistry();

@@ -55,8 +55,6 @@ import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollabora
 import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../infrastructure/bridges/review-dom-grounding-port.adapter.ts";
 import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../infrastructure/bridges/pre-exec-grounding-port.adapter.ts";
 import { StructuralSignalPortAdapter } from "../infrastructure/bridges/structural-signal-port.adapter.ts";
-import { ProjectNameResolver, type ProjectNameCliClient } from "../../../shared-infrastructure/code-graph/resolve-project-name.ts";
-import type { CodebaseMemoryCliClient } from "../../../shared-infrastructure/code-graph/codebase-memory-client.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
@@ -250,8 +248,6 @@ export interface CompositionConfig {
   groundingCollaborators?: PreGenerationGroundingCollaborators;
   reviewDomGroundingCollaborators?: ReviewDomGroundingCollaborators;
   preExecGroundingCollaborators?: PreExecGroundingCollaborators;
-  /* The lead's code-graph tools' client. Absent: the tools are not wired. */
-  codebaseMemory?: ProjectNameCliClient & CodebaseMemoryCliClient;
   /* The run's code graph: the index phase builds it, the structural signal and the cross-repo impact read it. One instance per run, because the index a run built lives in it. Absent: no repo is indexed and both signals are empty. */
   codeGraph?: CodeGraphPort;
   /* Git co-change history for the structural signal. */
@@ -468,12 +464,11 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       })
     : undefined;
 
-  /* The lead reads the run's own project of the graph the index phase synced; the graph's CLI never runs a query the lead names in full. */
-  const codeGraphTools = cfg.codeGraphTools && cfg.codebaseMemory && !cfg.isCode
+  /* The lead explores the index the index phase built for the run's repo; it names terms, never the repo, the workspace or the engine's options. */
+  const codeGraphTools = cfg.codeGraphTools && cfg.codeExplore && !cfg.isCode
     ? new CodeGraphToolsPortAdapter({
         ...cfg.codeGraphTools,
-        client: cfg.codebaseMemory,
-        resolver: new ProjectNameResolver(cfg.codebaseMemory),
+        explore: cfg.codeExplore,
         repoDir: cfg.codeGraphRepoDir ?? cfg.mirrorDir,
         ...(toolTrace ? { trace: toolTrace } : {}),
       })

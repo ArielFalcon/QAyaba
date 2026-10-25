@@ -462,9 +462,10 @@ threat-model header first) and a canary-before-promote hot-swap.
   a live run, behind the service token; every other role denies the tools (`agents/opencode.json`, pinned by a test) and Codex has none.
   Never widen the tools to another role, add an action that runs script or sends a file, or let a mutating request through without an
   `allowMutating` entry the app's config names.
-- **The code-graph tools read one app's index, and only through the orchestrator.** The agent names a query; the orchestrator
-  admits it, names the project and runs the CLI. Never forward a project the agent names, add a free graph query or an action that
-  indexes, deletes or writes, mount the graph store into the agents container, or widen the tools beyond `qa-generator`.
+- **The code-graph tool reads one app's index, and only through the orchestrator.** The agent names terms; the orchestrator
+  admits them, names the repo and the workspace, sets the file cap and runs the engine. Never forward a project, a path or an option
+  the agent names, let a term start with `-`, add a free graph query or an action that indexes, deletes or writes, mount the graph store
+  into the agents container, or widen the tool beyond `qa-generator`.
 - **Agent-influenced code runs only through the execution launcher**
   (`qa-engine/src/shared-infrastructure/process-sandbox/exec-sandbox.ts`, profiles `offline | suite | login | install`).
   Specs, the e2e project's `tsc`/`eslint`/`playwright --list`/`npm ci`, the login scripts, the DOM capture, a code-mode
@@ -525,7 +526,7 @@ threat-model header first) and a canary-before-promote hot-swap.
   Follow that pattern for new side-effecting code.
 - **No build step** — `tsx` is a devDependency; install ALL deps in Docker.
 - **When the OpenCode pin or `@opencode-ai/plugin` moves**, re-run `agents/smoke/run-spec-tool.smoke.mjs` and
-  `agents/smoke/authbrowser-tool.smoke.mjs` in the new image (the plugin's `ToolContext` and the naming of a file's exports are what the
+  `agents/smoke/authbrowser-tool.smoke.mjs` and `agents/smoke/codegraph-tool.smoke.mjs` in the new image (the plugin's `ToolContext` and the naming of a file's exports are what the
   tools depend on) next to re-recording the agent-list fixture. **When Playwright moves**, `playwright-core` in `package.json` moves with
   it, and `npx tsx scripts/agent-browser-smoke.ts` is re-run in the new orchestrator image (see `docs/execution-sandbox.md`).
 - **Pin exact versions on the execution path** — Playwright `1.60.0` matches the

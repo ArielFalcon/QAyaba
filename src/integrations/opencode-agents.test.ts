@@ -50,7 +50,7 @@ async function capsOf(wire: unknown): Promise<Map<string, unknown>> {
 test("every agent of a recorded server response is listed with the cap the server enforces for it", async () => {
   const caps = await capsOf(recordedAgents());
   assert.equal(caps.size, recordedAgents().length, "no agent is dropped");
-  assert.equal(caps.get("qa-generator"), 50);
+  assert.equal(caps.get("qa-generator"), 250);
   assert.equal(caps.get("qa-reviewer"), 25);
   assert.equal(caps.get("probe-steps"), 40);
   assert.equal(caps.get("probe-both"), 33, "steps wins when an agent declares both names");

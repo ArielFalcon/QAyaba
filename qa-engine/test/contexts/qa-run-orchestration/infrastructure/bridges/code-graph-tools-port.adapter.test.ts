@@ -1,53 +1,71 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { err, ok, type Result } from "@kernel/result.ts";
+import type { CodeExplorePort, ExploreAnswer } from "@kernel/ports/code-explore.port.ts";
+import type { CodeGraphUnavailable } from "@kernel/code/index.ts";
+import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
+import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
+import type { SpanHandle, StartSpanOptions } from "@kernel/telemetry/telemetry.port.ts";
 import { CodeGraphToolsPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/code-graph-tools-port.adapter.ts";
 import { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts";
 import { admitCodeGraphQuery } from "@contexts/qa-run-orchestration/domain/code-graph-query.ts";
 
-interface Seen { calls: Array<{ tool: string; json: string; repoDir: string; timeoutMs: number | undefined }> }
+/* The engine's own text for `explore formatMoney OrdersPage`, as recorded: three files, a blast radius and a list of names not shown. */
+const ENGINE_TEXT = readFileSync(new URL("../../../../shared-infrastructure/code-graph/__fixtures__/codegraph/explore.txt", import.meta.url), "utf8");
 
-function adapter(over: { answer?: { code: number | null; stdout: string; stderr: string }; project?: string | undefined; canCall?: boolean; maxCalls?: number; maxAnswerChars?: number; redact?: (t: string) => string } = {}) {
+interface Seen { calls: Array<{ repoDir: string; terms: readonly string[]; maxFiles: number }> }
+
+function adapter(over: { answer?: Result<ExploreAnswer, CodeGraphUnavailable>; canCall?: boolean; maxCalls?: number; maxFiles?: number; maxAnswerChars?: number; redact?: (t: string) => string; telemetry?: NoopTelemetry } = {}) {
   const seen: Seen = { calls: [] };
   const registry = new CodeGraphToolRegistry();
+  const explore: CodeExplorePort = {
+    explore: async (repoDir, terms, maxFiles) => {
+      seen.calls.push({ repoDir, terms, maxFiles });
+      return over.answer ?? ok({ text: ENGINE_TEXT, indexedSha: "abc1234" });
+    },
+  };
   const port = new CodeGraphToolsPortAdapter({
     registry,
-    client: { cli: async (tool, json, repoDir, timeoutMs) => { seen.calls.push({ tool, json, repoDir, timeoutMs }); return over.answer ?? { code: 0, stdout: '{"results":[]}', stderr: "level=info" }; } },
-    resolver: { resolve: async () => ("project" in over ? over.project : "app-webapp") },
+    explore,
     repoDir: "/mirrors/webapp",
     generatorRuntimeCanCall: () => over.canCall ?? true,
-    limits: { maxCalls: over.maxCalls ?? 40, perCallMs: 5_000, maxAnswerChars: over.maxAnswerChars ?? 12_000 },
+    limits: { maxCalls: over.maxCalls ?? 40, maxFiles: over.maxFiles ?? 8, maxAnswerChars: over.maxAnswerChars ?? 12_000 },
     ...(over.redact ? { redact: over.redact } : {}),
+    ...(over.telemetry ? { trace: { telemetry: over.telemetry, clock: { now: () => 1 } } } : {}),
   });
   return { port, registry, seen };
 }
 
-const search = admitCodeGraphQuery({ action: "search_graph", name_pattern: ".*Store.*" })!;
-const request = (agent = "qa-generator") => ({ sessionId: "lead", agent, query: search });
+const explore = admitCodeGraphQuery({ action: "explore", terms: ["formatMoney", "OrdersPage"] })!;
+const request = (agent = "qa-generator") => ({ sessionId: "lead", agent, query: explore });
 
-test("a run whose app is in the graph grants the lead its project: the call runs the graph's CLI on that project, in the app's mirror, bounded in time", async () => {
-  const { port, registry, seen } = adapter();
-  const handle = await port.open({ runId: "r1" });
-  assert.ok(handle);
-  registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
-  const answer = await registry.find("lead")!.call(request());
-  assert.deepEqual(answer, { ok: true, result: '{"results":[]}', truncated: false, callsLeft: 39 });
-  assert.equal(seen.calls[0]!.tool, "search_graph");
-  assert.equal(JSON.parse(seen.calls[0]!.json).project, "app-webapp");
-  assert.equal(seen.calls[0]!.repoDir, "/mirrors/webapp");
-  assert.equal(seen.calls[0]!.timeoutMs, 5_000);
+async function granted(over: Parameters<typeof adapter>[0] = {}) {
+  const a = adapter(over);
+  const handle = (await a.port.open({ runId: "r1" }))!;
+  a.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
+  return { ...a, handle, live: a.registry.find("lead")! };
+}
+
+test("an explore call asks the run's index for the lead's terms, in the run's repo, with the orchestrator's own file cap, and carries the index commit", async () => {
+  const { live, seen, handle } = await granted({ maxFiles: 3 });
+  const answer = await live.call(request());
+  assert.ok(answer.ok);
+  if (!answer.ok) return;
+  assert.deepEqual(seen.calls, [{ repoDir: "/mirrors/webapp", terms: ["formatMoney", "OrdersPage"], maxFiles: 3 }]);
+  assert.equal(answer.indexedSha, "abc1234");
+  assert.equal(answer.callsLeft, 39);
+  assert.equal(answer.truncated, false);
+  assert.equal(answer.result, ENGINE_TEXT.trim());
   assert.deepEqual(handle.signals(), { calls: 1, refused: 0, failed: 0 });
 });
 
-test("nothing is granted when the app is not in the graph or the lead's runtime cannot call a custom tool", async () => {
-  assert.equal(await adapter({ project: undefined }).port.open({ runId: "r1" }), undefined);
+test("nothing is granted when the lead's runtime cannot call a custom tool", async () => {
   assert.equal(await adapter({ canCall: false }).port.open({ runId: "r1" }), undefined);
 });
 
 test("calls stop at the run's cap, another role is refused, and a closed grant answers nothing", async () => {
-  const { port, registry } = adapter({ maxCalls: 1 });
-  const handle = (await port.open({ runId: "r1" }))!;
-  registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
-  const live = registry.find("lead")!;
+  const { handle, live, registry } = await granted({ maxCalls: 1 });
   assert.equal((await live.call(request("qa-sidekick"))).ok, false);
   assert.equal((await live.call(request())).ok, true);
   const spent = await live.call(request());
@@ -59,59 +77,92 @@ test("calls stop at the run's cap, another role is refused, and a closed grant a
   assert.deepEqual(handle.signals(), { calls: 1, refused: 3, failed: 0 });
 });
 
-test("a graph that cannot answer is a failed call with no detail of its own, and a long answer is cut and says so", async () => {
-  const failing = adapter({ answer: { code: 1, stdout: "", stderr: "secret path /app/.codebase-memory/x.db" } });
-  await failing.port.open({ runId: "r1" });
-  failing.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
-  const failed = await failing.registry.find("lead")!.call(request());
+test("an index that cannot answer is a failed call that repeats nothing of the engine's own reason", async () => {
+  const { live, handle } = await granted({ answer: err({ reason: "spawn failed: /app/data/code-graph/webapp/codegraph.db is locked" }) });
+  const failed = await live.call(request());
   assert.equal(failed.ok, false);
-  assert.ok(!JSON.stringify(failed).includes("codebase-memory"), "the CLI's own output is not repeated");
-
-  const long = adapter({ answer: { code: 0, stdout: "y".repeat(200), stderr: "" }, maxAnswerChars: 50, redact: (t) => t.replace(/y/g, "z") });
-  await long.port.open({ runId: "r1" });
-  long.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
-  const cut = await long.registry.find("lead")!.call(request());
-  assert.ok(cut.ok);
-  if (!cut.ok) return;
-  assert.equal(cut.truncated, true);
-  assert.equal(cut.result.length, 50);
-  assert.match(cut.result, /^z+$/, "the answer passes the run's redaction");
+  assert.equal(failed.ok ? "" : failed.code, "failed");
+  assert.ok(!JSON.stringify(failed).includes("codegraph.db"), "the engine's reason is not repeated");
+  assert.deepEqual(handle.signals(), { calls: 1, refused: 0, failed: 1 });
 });
 
-/* A redaction by value, as the run's secret scope does it. */
-const SECRET = 'pa"ss\\word';
-const byValue = (text: string) => text.split(SECRET).join("[redacted]");
+/* A redaction by value and by pattern, as the run's secret scope does both. */
+const byValueAndPattern = (text: string) => text.split("pa\"ss\\word").join("[redacted]").replace(/\bAKIA[0-9A-Z]{16}\b/g, "[redacted]");
 
-async function answerTo(stdout: string, maxAnswerChars = 12_000) {
-  const a = adapter({ answer: { code: 0, stdout, stderr: "" }, maxAnswerChars, redact: byValue });
-  await a.port.open({ runId: "r1" });
-  a.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
-  const answer = await a.registry.find("lead")!.call(request());
+test("the answer is redacted as text, by value and by pattern, before it is cut and before the lead reads it", async () => {
+  const leaky = ENGINE_TEXT.replace("return Math.round(amount * 100) / 100;", "return AKIAABCDEFGHIJKLMNOP + 'pa\"ss\\word';");
+  assert.notEqual(leaky, ENGINE_TEXT);
+  const { live } = await granted({ answer: ok({ text: leaky, indexedSha: "abc1234" }), redact: byValueAndPattern });
+  const answer = await live.call(request());
   assert.ok(answer.ok);
-  return answer as Extract<typeof answer, { ok: true }>;
+  if (!answer.ok) return;
+  assert.ok(!answer.result.includes("AKIAABCDEFGHIJKLMNOP") && !answer.result.includes("pa\"ss\\word"));
+  assert.match(answer.result, /\[redacted\]/);
+});
+
+/* The engine's text split the way the answer must be cut: the file sections, each from its heading to the next. */
+const fileHeadings = (text: string) => [...text.matchAll(/^\*\*`([^`]+)`\*\*/gm)].map((m) => m[1]!);
+const fences = (text: string) => text.split("\n").filter((line) => line.startsWith("```")).length;
+
+test("a long answer is cut only at a file boundary, never inside a code block, and says what it left out", async () => {
+  const all = fileHeadings(ENGINE_TEXT);
+  assert.equal(all.length, 3);
+  const second = ENGINE_TEXT.indexOf(`**\`${all[1]}\`**`);
+  /* Room for the first file and the marker, and for part of the second: the second must go whole. */
+  const max = second + 100;
+  const { live } = await granted({ maxAnswerChars: max });
+  const answer = await live.call(request());
+  assert.ok(answer.ok);
+  if (!answer.ok) return;
+  assert.equal(answer.truncated, true);
+  assert.ok(answer.result.length <= max);
+  assert.deepEqual(fileHeadings(answer.result), [all[0]], "only whole files are kept");
+  assert.equal(fences(answer.result) % 2, 0, "every code block that starts also ends");
+  assert.ok(answer.result.includes(ENGINE_TEXT.slice(ENGINE_TEXT.indexOf(`**\`${all[0]}\`**`), second).trim()), "the kept file is the engine's, byte for byte");
+  assert.match(answer.result, /omitted/i, "an omission marker closes the answer");
+  assert.ok(!answer.result.includes("Not shown above"), "a section after the cut is left out too");
+});
+
+test("an answer none of whose files fit is the engine's opening and a marker, with no code cut", async () => {
+  const first = ENGINE_TEXT.indexOf(`**\`${fileHeadings(ENGINE_TEXT)[0]}\`**`);
+  const max = first + 150;
+  const { live } = await granted({ maxAnswerChars: max });
+  const answer = await live.call(request());
+  assert.ok(answer.ok);
+  if (!answer.ok) return;
+  assert.equal(answer.truncated, true);
+  assert.ok(answer.result.length <= max);
+  assert.deepEqual(fileHeadings(answer.result), []);
+  assert.equal(fences(answer.result), 0);
+  assert.match(answer.result, /omitted/i);
+});
+
+test("an answer too long even for its opening is only a marker that asks for narrower terms", async () => {
+  const { live } = await granted({ maxAnswerChars: 120 });
+  const answer = await live.call(request());
+  assert.ok(answer.ok);
+  if (!answer.ok) return;
+  assert.equal(answer.truncated, true);
+  assert.ok(answer.result.length <= 120);
+  assert.match(answer.result, /omitted/i);
+  assert.equal(answer.result.includes("Exploration"), false);
+});
+
+class RecordingTelemetry extends NoopTelemetry {
+  readonly spans: Array<{ name: string; attrs: Attrs }> = [];
+  override startSpan(name: string, opts?: StartSpanOptions): SpanHandle {
+    const record = { name, attrs: { ...(opts?.attrs ?? {}) } as Attrs };
+    this.spans.push(record);
+    return { ...super.startSpan(name, opts), setAttrs: (attrs: Attrs) => void Object.assign(record.attrs, attrs) };
+  }
 }
 
-test("a secret inside a JSON string is redacted though the JSON escapes it", async () => {
-  const stdout = JSON.stringify({ results: [{ name: "Login", source: `const password = '${SECRET}';` }] });
-  assert.ok(!stdout.includes(SECRET), "the JSON text holds the secret only escaped");
-  const answer = await answerTo(stdout);
-  assert.ok(!answer.result.includes("pa\\\"ss"), "nothing of the escaped secret is left");
-  assert.match(answer.result, /\[redacted\]/);
-  assert.deepEqual(JSON.parse(answer.result).results[0].name, "Login");
-});
-
-test("a JSON answer too long for the lead is cut by its structure and is still JSON", async () => {
-  const stdout = JSON.stringify({ total: 40, results: Array.from({ length: 40 }, (_, i) => ({ name: `Symbol${i}`, file: `src/s${i}.ts` })) });
-  const answer = await answerTo(stdout, 400);
-  assert.equal(answer.truncated, true);
-  assert.ok(answer.result.length <= 400);
-  const parsed = JSON.parse(answer.result);
-  assert.equal(parsed.total, 40);
-  assert.ok(parsed.results.length > 0 && parsed.results.length < 40, "entries are dropped from the end");
-  assert.equal(parsed.results[0].name, "Symbol0");
-
-  const snippet = JSON.stringify({ name: "big", source: "x".repeat(5_000) });
-  const cut = await answerTo(snippet, 300);
-  assert.equal(cut.truncated, true);
-  assert.match(JSON.parse(cut.result).source, /… \(cut\)$/);
+test("the call is a tool span named for the codegraph tool, with how it ended and the commit of the index it read", async () => {
+  const telemetry = new RecordingTelemetry();
+  const { live } = await granted({ telemetry });
+  await live.call(request());
+  const span = telemetry.spans.find((s) => s.name === "qayaba.tool.codegraph");
+  assert.ok(span);
+  assert.equal(span.attrs["qayaba.tool.outcome"], "ok");
+  assert.equal(span.attrs["qayaba.code_graph.sha"], "abc1234");
 });

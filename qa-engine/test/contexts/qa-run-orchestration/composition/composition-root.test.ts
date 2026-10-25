@@ -1553,6 +1553,24 @@ test("wireBridges builds the agent browser port from cfg.agentBrowser and omits 
   assert.equal("agentBrowser" in wireBridges(fakeConfig({ isCode: true, target: "code", baseUrl: "https://dev.example.com", agentBrowser: wiring })), false, "a code target never gets it");
 });
 
+/* The lead's code-graph tool is wired from the run's explore port and the shell's registry, for an e2e app only. */
+test("wireBridges builds the lead's code-graph tool over cfg.codeExplore and omits it without the explore, the wiring or for a code target", async () => {
+  const { CodeGraphToolRegistry } = await import("@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry.ts");
+  const explore = { explore: async () => ok({ text: "**Exploration: x**", indexedSha: "abc1234" }) };
+  const wiring = { registry: new CodeGraphToolRegistry(), generatorRuntimeCanCall: () => true, redact: (text: string) => text };
+  assert.equal("codeGraphTools" in wireBridges(fakeConfig({ codeGraphTools: wiring })), false, "no explore, no tool");
+  assert.equal("codeGraphTools" in wireBridges(fakeConfig({ codeExplore: explore })), false, "no wiring, no tool");
+  assert.equal("codeGraphTools" in wireBridges(fakeConfig({ isCode: true, target: "code", codeExplore: explore, codeGraphTools: wiring })), false, "a code target never gets it");
+
+  const wired = wireBridges(fakeConfig({ codeExplore: explore, codeGraphTools: wiring }));
+  const handle = await wired.codeGraphTools!.open({ runId: "r1" });
+  assert.ok(handle, "the port is there and, with a lead that can call a custom tool, grants the right");
+  wiring.registry.bindSession({ sessionId: "lead", runId: "r1", agent: "qa-generator" });
+  const answer = await wiring.registry.find("lead")!.call({ sessionId: "lead", agent: "qa-generator", query: { action: "explore", terms: ["x"] } });
+  assert.deepEqual(answer.ok && answer.indexedSha, "abc1234", "the call is answered by the run's explore");
+  handle.close();
+});
+
 test("wireBridges hands the use case the app's coordination settings, and omits them when the config has none", () => {
   const without = wireBridges(fakeConfig());
   assert.equal("coordinationSettings" in without, false);

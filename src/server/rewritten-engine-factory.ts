@@ -105,7 +105,6 @@ import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemb
 import { SandboxedBinaryRunnerAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
 import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
 
-import { CodebaseMemoryClient } from "../../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { CodegraphCodeGraphAdapter } from "../../qa-engine/src/shared-infrastructure/code-graph/codegraph-code-graph.adapter";
 import { CodegraphEngine } from "../../qa-engine/src/shared-infrastructure/code-graph/codegraph-engine";
 import { CodegraphStoreCache } from "../../qa-engine/src/shared-infrastructure/code-graph/codegraph-store-cache";
@@ -520,7 +519,7 @@ export interface RewrittenEngineFactoryDeps {
   geolocationRegistry?: GeolocationRegistry;
   /*
    * Where the lead's sessions find the run's code graph. One per process, shared with the tools endpoint that serves the
-   * codegraph_* tools. Absent: no run grants the lead the code graph.
+   * codegraph_explore tool. Absent: no run grants the lead the code graph.
    */
   codeGraphRegistry?: CodeGraphToolRegistry;
   mirrorRoot?: string;
@@ -1297,7 +1296,6 @@ export function buildRewrittenCompositionConfig(
     /* A service-triggered run indexes the primary repo too, at the commit it is checked out at. */
     ...(codeGraph && triggerService ? { codeGraphPrimary: { repoDir: mirrorDir, headSha: () => new GitMirrorReadAdapter(mirrorDir, runner).headSha() } } : {}),
     /* The lead's code-graph tools' client. */
-    ...(structuralSignalsOn ? { codebaseMemory: new CodebaseMemoryClient(runner) } : {}),
 
     ...(serviceTopologyOn && app.services
       ? {
@@ -1368,8 +1366,8 @@ export function buildRewrittenCompositionConfig(
      * host that cannot say is not assumed to be OpenCode: only OpenCode can call a custom tool, and a Codex role never gets one.
      */
     /*
-     * The lead's code-graph tools: read-only queries of the project the index phase synced, served by the orchestrator, whose CLI
-     * and store the agents container never holds. Only where the structural signal has the graph client, and only for a lead on
+     * The lead's code-graph tool: a read-only explore of the index the index phase built, served by the orchestrator, whose engine
+     * and store the agents container never holds. Only where the structural signal has the code graph, and only for a lead on
      * OpenCode (a Codex role never gets a custom tool).
      */
     ...(deps.codeGraphRegistry && toolsApplyToRun && structuralSignalsOn

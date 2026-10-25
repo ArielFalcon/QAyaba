@@ -126,8 +126,8 @@ blocked and listed in the answer. Use it to see what a signed-in page really sho
 a selector or an assertion. Take a fresh snapshot after anything that changes the page; when an
 answer says the session was invalidated, stop using it. Do not copy account data from it into a spec.
 
-When your tools include the `codegraph_*` tools, use them before reading files one by one to find
-what a change reaches: the callers of a changed function and the pages that use it.
+When your tools include `codegraph_explore`, use it before reading files one by one to find what a
+change reaches: the callers of a changed function and the pages that use it.
 
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 

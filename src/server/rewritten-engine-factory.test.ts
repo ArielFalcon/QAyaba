@@ -1099,7 +1099,8 @@ test("qa.structuralSignals mode 'off' supplies no code graph, so nothing is inde
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.codeGraph, undefined);
   assert.equal(config.coChange, undefined);
-  assert.equal(config.codebaseMemory, undefined);
+  assert.equal(config.codeExplore, undefined);
+  assert.equal("codebaseMemory" in config, false, "the lead's code-graph tool no longer needs the codebase-memory client");
 });
 
 test("buildRewrittenCompositionConfig sets mode from the passed run param, not a hardcoded 'diff'", () => {
@@ -1201,11 +1202,11 @@ test("buildRewrittenCompositionConfig omits serviceTopology when neither service
 });
 
 /* qa.structuralSignals calibration gate: mode "off" must omit BOTH advisory collaborators
-   (codebaseMemory + serviceTopology), never just one (the named half-gate hazard). Default
+   (codeGraph + codeExplore + serviceTopology), never just one (the named half-gate hazard). Default
    (absent/"signal") stays byte-identical to today's behavior.
  */
 
-test("qa.structuralSignals mode 'off' omits BOTH codebaseMemory and serviceTopology (the half-gate hazard — asserting both, not just one)", () => {
+test("qa.structuralSignals mode 'off' omits BOTH the code graph (with its explore) and serviceTopology (the half-gate hazard — asserting both, not just one)", () => {
   const app: AppConfig = {
     ...cfg("factory-structural-signals-off"),
     qa: { ...cfg("factory-structural-signals-off").qa, structuralSignals: { mode: "off" } },
@@ -1222,7 +1223,7 @@ test("qa.structuralSignals mode 'off' omits BOTH codebaseMemory and serviceTopol
     ],
   } as AppConfig;
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.codebaseMemory, undefined, "mode:off must omit codebaseMemory");
+  assert.equal(config.codeExplore, undefined, "mode:off must omit the code-graph explore the lead's tool reads");
   assert.equal(config.codeGraph, undefined, "mode:off must omit the code graph");
   assert.equal(config.serviceTopology, undefined, "mode:off must omit serviceTopology even though services[]+boundaries[] are both declared");
   assert.equal(config.crossRepoImpact, undefined, "mode:off must omit crossRepoImpact too — all three structural collaborators share the one gate");
@@ -1257,20 +1258,21 @@ test("buildRewrittenCompositionConfig supplies crossRepoImpact under the SAME ga
   assert.equal(noServices.crossRepoImpact, undefined, "no services[]/boundaries[] declared must leave crossRepoImpact undefined");
 });
 
-test("qa.structuralSignals absent supplies codebaseMemory unconditionally (byte-identical to pre-change behavior)", () => {
+test("qa.structuralSignals absent supplies the code graph and its explore unconditionally (byte-identical to pre-change behavior)", () => {
   const app = cfg("factory-structural-signals-absent");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.ok(config.codebaseMemory, "absent config must keep supplying codebaseMemory — no behavior change");
+  assert.ok(config.codeExplore, "absent config supplies the explore the lead's tool reads");
+  assert.equal(config.codeExplore, config.codeGraph, "the explore reads the very index the run builds: one instance");
   assert.ok(config.codeGraph, "absent config supplies the code graph");
 });
 
-test("qa.structuralSignals mode 'signal' supplies codebaseMemory unconditionally (explicit default, same as absent)", () => {
+test("qa.structuralSignals mode 'signal' supplies the code graph and its explore unconditionally (explicit default, same as absent)", () => {
   const app: AppConfig = {
     ...cfg("factory-structural-signals-signal"),
     qa: { ...cfg("factory-structural-signals-signal").qa, structuralSignals: { mode: "signal" } },
   };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.ok(config.codebaseMemory, "mode:signal must keep supplying codebaseMemory — same as absent");
+  assert.ok(config.codeExplore, "mode:signal supplies the explore — same as absent");
   assert.ok(config.codeGraph, "mode:signal supplies the code graph");
 });
 

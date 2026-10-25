@@ -936,6 +936,15 @@ test("a prompt that asks for no tool at all denies the code-graph tools, and the
   assert.ok(existsSync(join(process.cwd(), "agents", "lib", "codegraph-client.mjs")));
 });
 
+test("the code-graph tool file exports exactly one tool, explore, and takes no argument the orchestrator decides", () => {
+  const source = readFileSync(join(process.cwd(), "agents", "tool", "codegraph.ts"), "utf8");
+  const exported = [...source.matchAll(/^export\s+(?:const|function|async function)\s+(\w+)/gm)].map((m) => m[1]);
+  assert.deepEqual(exported, ["explore"], "the file's exports are the tools; the runtime names each `codegraph_<export>`");
+  assert.deepEqual(CODE_GRAPH_TOOLS, ["codegraph_explore"]);
+  const args = source.slice(source.indexOf("args:"), source.indexOf("async execute"));
+  assert.deepEqual([...args.matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]), ["terms"], "the only argument is the list of terms: no project, repo, file cap or engine option");
+});
+
 test("the location tool is off for every agent by the global tools map and on for the two authoring roles alone", () => {
   const raw = loadRawConfig();
   assert.deepEqual((raw.tools as Record<string, unknown> | undefined)?.set_geolocation, false, "the global default switches the tool off");

@@ -1,96 +1,45 @@
 /*
- * What a code-graph call the lead makes may ask. Three read-only queries of the run's own project are served: a search for
- * symbols, the callers or callees of one, and the source of one. Nothing else the graph's CLI offers is: not a free graph
- * query, not indexing, not deleting, not a decision record. The project is never the caller's to name: the orchestrator binds
- * it to the run (the graph holds every app's code). Arguments are read by their known keys, checked and bounded; an argument out
- * of its bounds is refused rather than cut, except a limit or a depth, which is held to its ceiling.
+ * What a code-graph call the lead makes may ask. One read-only query of the run's own index is served: `explore`, a bag of
+ * names (symbols, files, short code terms) answered with the verbatim source of what matches and the calls among them. Nothing
+ * else is: not a free graph query, not indexing, not deleting. The repo and its workspace are never the caller's to name (the
+ * orchestrator binds them to the run), and neither is how much comes back: the file count and the size of the answer are the
+ * orchestrator's, per call. Terms are read by their known key and checked; one that is out of bounds refuses the call rather
+ * than being cut or fixed. A term is a single identifier or path, so it can never be read as an option of the engine.
  * Pure: no clock, no file, no process.
  */
 
 export const CODE_GRAPH_ACTION = {
-  SEARCH: "search_graph",
-  TRACE: "trace_path",
-  SNIPPET: "get_code_snippet",
+  EXPLORE: "explore",
 } as const;
 
-const MAX_PATTERN_CHARS = 200;
-const MAX_QUALIFIED_NAME_CHARS = 400;
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 25;
-const DEFAULT_DEPTH = 2;
-const MAX_DEPTH = 3;
-const LABEL = /^[A-Za-z]{1,40}$/;
-const DIRECTIONS = new Set(["inbound", "outbound", "both"]);
+export const MAX_EXPLORE_TERMS = 8;
+export const MAX_TERM_CHARS = 200;
+/* Identifier and path characters (word characters, `$`, `.`, `/`, `:`, `@`, `#`, `~`, `-`); no space, quote, shell or glob character. */
+const TERM = /^[A-Za-z0-9_$.\/:@#~-]+$/;
 
-export type CodeGraphQuery =
-  | { action: typeof CODE_GRAPH_ACTION.SEARCH; namePattern?: string; query?: string; label?: string; limit: number }
-  | { action: typeof CODE_GRAPH_ACTION.TRACE; functionName: string; direction: "inbound" | "outbound" | "both"; depth: number }
-  | { action: typeof CODE_GRAPH_ACTION.SNIPPET; qualifiedName: string };
-
-function text(value: unknown, max: number): string | undefined | null {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed === "" || trimmed.length > max ? null : trimmed;
+export interface CodeGraphQuery {
+  action: typeof CODE_GRAPH_ACTION.EXPLORE;
+  terms: string[];
 }
 
-function bounded(value: unknown, fallback: number, max: number): number | null {
-  if (value === undefined) return fallback;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) return null;
-  return Math.min(value, max);
+function termsOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_EXPLORE_TERMS) return undefined;
+  const terms: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item.length > MAX_TERM_CHARS || item.startsWith("-") || !TERM.test(item)) return undefined;
+    terms.push(item);
+  }
+  return terms;
 }
 
 /* The query the call's body names, or undefined when it is not one the lead may make. */
 export function admitCodeGraphQuery(raw: Record<string, unknown>): CodeGraphQuery | undefined {
-  switch (raw.action) {
-    case CODE_GRAPH_ACTION.SEARCH: {
-      const namePattern = text(raw.name_pattern, MAX_PATTERN_CHARS);
-      const query = text(raw.query, MAX_PATTERN_CHARS);
-      const label = text(raw.label, 40);
-      const limit = bounded(raw.limit, DEFAULT_LIMIT, MAX_LIMIT);
-      if (namePattern === null || query === null || label === null || limit === null) return undefined;
-      if (namePattern === undefined && query === undefined) return undefined;
-      if (label !== undefined && !LABEL.test(label)) return undefined;
-      return { action: CODE_GRAPH_ACTION.SEARCH, ...(namePattern !== undefined ? { namePattern } : {}), ...(query !== undefined ? { query } : {}), ...(label !== undefined ? { label } : {}), limit };
-    }
-    case CODE_GRAPH_ACTION.TRACE: {
-      const functionName = text(raw.function_name, MAX_PATTERN_CHARS);
-      const direction = raw.direction === undefined ? "both" : raw.direction;
-      const depth = bounded(raw.depth, DEFAULT_DEPTH, MAX_DEPTH);
-      if (typeof functionName !== "string" || depth === null || typeof direction !== "string" || !DIRECTIONS.has(direction)) return undefined;
-      return { action: CODE_GRAPH_ACTION.TRACE, functionName, direction: direction as "inbound" | "outbound" | "both", depth };
-    }
-    case CODE_GRAPH_ACTION.SNIPPET: {
-      const qualifiedName = text(raw.qualified_name, MAX_QUALIFIED_NAME_CHARS);
-      return typeof qualifiedName === "string" ? { action: CODE_GRAPH_ACTION.SNIPPET, qualifiedName } : undefined;
-    }
-    default:
-      return undefined;
-  }
+  if (raw.action !== CODE_GRAPH_ACTION.EXPLORE) return undefined;
+  const terms = termsOf(raw.terms);
+  return terms === undefined ? undefined : { action: CODE_GRAPH_ACTION.EXPLORE, terms };
 }
 
-/* The graph CLI's tool and its JSON argument for an admitted query, on the run's project. */
-export function cliCallOf(query: CodeGraphQuery, project: string): { tool: string; json: string } {
-  switch (query.action) {
-    case CODE_GRAPH_ACTION.SEARCH:
-      return {
-        tool: query.action,
-        json: JSON.stringify({
-          project,
-          ...(query.namePattern !== undefined ? { name_pattern: query.namePattern } : {}),
-          ...(query.query !== undefined ? { query: query.query } : {}),
-          ...(query.label !== undefined ? { label: query.label } : {}),
-          limit: query.limit,
-        }),
-      };
-    case CODE_GRAPH_ACTION.TRACE:
-      return { tool: query.action, json: JSON.stringify({ project, function_name: query.functionName, direction: query.direction, depth: query.depth }) };
-    case CODE_GRAPH_ACTION.SNIPPET:
-      return { tool: query.action, json: JSON.stringify({ project, qualified_name: query.qualifiedName }) };
-  }
-}
-
-/* One call of the lead's code-graph tools, as the tools endpoint hands it on: the session and agent the tool reported, and the admitted query. */
+/* One call of the lead's code-graph tool, as the tools endpoint hands it on: the session and agent the tool reported, and the admitted query. */
 export interface CodeGraphToolRequest {
   sessionId: string;
   agent: string;
@@ -101,5 +50,5 @@ export interface CodeGraphToolRequest {
 export type CodeGraphRefusalCode = "wrong-agent" | "revoked" | "no-calls" | "failed";
 
 export type CodeGraphToolResponse =
-  | { ok: true; result: string; truncated: boolean; callsLeft: number }
+  | { ok: true; result: string; truncated: boolean; /* The commit of the index the answer was read from. */ indexedSha: string; callsLeft: number }
   | { ok: false; code: CodeGraphRefusalCode; message: string };

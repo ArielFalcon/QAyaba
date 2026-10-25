@@ -242,7 +242,7 @@ Every piece of agent-influenced code runs through the exec launcher (`qa-engine/
 - **Grounding brief (removed): it was used.** Its risks became spec objectives. It was occasionally wrong.
 - **Rendered context map** (4.8 KB) and **stitcher links/drift** (4.8 KB): pushed whole, rarely used by the agent.
 - **Skill exemplars and learned rules:** unused.
-- **Serena:** 0 calls. **codebase-memory:** never reaches the agent.
+- **Serena:** 0 calls. **The code graph:** reaches the agent only as the lead's `codegraph_explore`, served by the orchestrator.
 
 **Telemetry must make "resource present vs. resource used vs. outcome" queryable per run.** That is how these verdicts get re-measured after each change, instead of argued about.
 

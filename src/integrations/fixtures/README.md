@@ -5,7 +5,7 @@
 Recorded-output fixture for `listAgentCaps`: the body of `GET /agent?directory=<dir>` as an OpenCode
 server returns it (the SDK's `app.agents`, whose element type is the v2 `Agent`).
 
-Captured 2026-10-12, again on 2026-10-24 after the memory server was removed from every role, and once more that day after the `codegraph_*` switches were added, from an `opencode serve` 1.17.7, the build `agents/Dockerfile` pins, run inside the
+Captured 2026-10-12, again on 2026-10-24 after the memory server was removed from every role, and once more that day after the `codegraph_*` switches were added, and on 2026-10-25 after they became the single `codegraph_explore` (which also picked up the generator's and sidekick's raised step caps), from an `opencode serve` 1.17.7, the build `agents/Dockerfile` pins, run inside the
 `agents` container (so the Linux/Node build the stack ships) and bound to 127.0.0.1. The server ran with an
 isolated HOME and XDG directories and an empty environment (`env -i`), with no credentials, no provider and
 no repository, and its config sat at `$XDG_CONFIG_HOME/opencode/opencode.json`: the `OPENCODE_CONFIG`

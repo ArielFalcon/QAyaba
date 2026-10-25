@@ -36,7 +36,7 @@ signed-in app (see below); without either, they stay out and the lead authors al
    server); a lead on a runtime that has no such denial is not asked for a plan and the change stays with it as one
    piece of work, with the reason recorded. The lead grounds deterministically: it
    reads the Context Pack, the structural signal, the suite listing and the diff, in which the app's own test files
-   are named rather than shown (the language registry's conventions), and it explores with its code-graph tools. Its
+   are named rather than shown (the language registry's conventions), and it explores with its code-graph tool. Its
    planning session, review included, is denied Playwright: DEV is read by the sidekicks.
 2. **Admit.** `admitLeadPlan` treats the plan as untrusted. It slugs the ids, assigns each flow the spec path
    `e2e/flows/<slug>.spec.ts` itself (any write list the lead names is ignored), caps the sizes, and refuses
@@ -151,12 +151,15 @@ not taken, the flow is shown to the lead with the conflict, and any revision is 
 reads every route in one shared browser context and waits for the declared data state), so the conflict names a
 difference to look at, not a culprit.
 
-## The lead's code-graph tools
+## The lead's code-graph tool
 
-When the app's structural signal is on and the generator runs on OpenCode, the lead (not a sidekick) can query the code graph
-while it plans and reviews: `codegraph_search_graph` (find a symbol), `codegraph_trace_path` (its callers or callees) and
-`codegraph_get_code_snippet` (its source). The orchestrator serves each call on the run's own project, bounded and redacted
-(AGENTS.md, Code-graph tools). The tools are the lead's when it authors alone too.
+When the app's structural signal is on and the generator runs on OpenCode, the lead (not a sidekick) can read the code graph
+while it plans and reviews through one action, `codegraph_explore`: it names symbols, file paths or short code terms and gets
+back the verbatim source of what matches, grouped by file, with the calls among them and what depends on them. The source it
+shows counts as already read, so the lead does not open those files again. The orchestrator serves each call over the run's
+own index: it admits the terms, picks the repo and the file cap, redacts the answer and cuts it only between files (an omission
+marker says what was left out), and the answer carries the commit of the index it came from (AGENTS.md, Code-graph tools).
+The tool is the lead's when it authors alone too.
 
 ## The reviewer's corrections
 

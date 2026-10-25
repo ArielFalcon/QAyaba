@@ -37,6 +37,12 @@ The environment is built from an allowlist per profile, not by removing known se
 the orchestrator gains later is absent from every child without anyone listing it. A caller can add only the
 Playwright contract (`PW_*`, `PLAYWRIGHT_JSON_OUTPUT_NAME`, `QA_FAILURE_CAPTURE_DIR`, `QA_FAULT_INJECT`).
 
+**The lead's `codegraph_explore`.** The one code-graph action an agent can ask for runs in this `graph` profile, not in the
+agents container: the agent sends terms to the tools endpoint (`/internal/codegraph`, service token), the orchestrator admits
+them (1 to 8 identifier or path terms, none starting with `-`, passed to the engine after `--`), binds the call to the run's own
+index and workspace, sets the file cap itself, and returns the engine's text redacted and cut between files. The agent names
+neither a project nor a path, and no code path reaches any other engine command.
+
 **The account.** The test account reaches the `login` profile and nothing else, with one opt-in: an app whose flows need a
 login the saved session cannot give them sets `e2e.specCredentials: account` in its config, and its suite children also get
 `DEV_TEST_USER/PASS` (the account its `auth` declaration names, else the conventional pair). It is a per-app choice because a spec

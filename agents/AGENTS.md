@@ -14,9 +14,9 @@ produce reliable end-to-end tests for the change you are given.
   NAMES (glob/grep: the diff's own paths, plus `*routes*`, `*client*`,
   `*.service.*`, `*controller*`, test folders) to locate WHICH symbol you need.
 - **Reading code the prompt does not provide.** Use the first of these your tools include:
-  1. the `codegraph_*` tools (`codegraph_search_graph`, `codegraph_trace_path`,
-     `codegraph_get_code_snippet`): find a symbol, the callers and callees of a changed one (the
-     change's **blast radius**) and its source, without reading files one by one;
+  1. the `codegraph_explore` tool: name symbols, files or code terms and get their source and the
+     callers and callees of a changed one (the change's **blast radius**) in one call. Treat the
+     source it shows as already read: do not re-open those files;
   2. the `serena` MCP: activate the project on your current directory (`activate_project`), then
      `get_symbols_overview` (a file's signatures), `find_symbol` (only the symbol you need) and
      `find_referencing_symbols` (who uses it);

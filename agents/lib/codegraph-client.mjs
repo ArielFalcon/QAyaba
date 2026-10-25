@@ -1,11 +1,11 @@
-// The lead's side of the code-graph tools (`codegraph_*`): one authenticated POST to the orchestrator's internal tools endpoint per
+// The lead's side of the code-graph tool (`codegraph_explore`): one authenticated POST to the orchestrator's internal tools endpoint per
 // tool call, and the answer shaped for a model to read. Plain JavaScript with the environment and `fetch` injected, so it is tested
 // without OpenCode (agents/lib/codegraph-client.test.mjs); tool/codegraph.ts is only the OpenCode wrapper around it.
 //
-// The orchestrator holds the graph, binds every query to the run's own project and decides everything: whether the session may
-// call, how many calls are left, what an answer may say. This file carries the session and agent the runtime reports, the action
-// and the arguments the model chose, and the service token. It never carries the token into what it returns, and it forwards only
-// the arguments each action declares: never a project.
+// The orchestrator holds the index, binds every call to the run's own repo and decides everything: whether the session may call,
+// how many calls are left, how much an answer shows, what it may say. This file carries the session and agent the runtime reports,
+// the action and the terms the model chose, and the service token. It never carries the token into what it returns, and it
+// forwards only the arguments each action declares: never a project, a repo, a file cap or an engine option.
 
 import { endpointOf, messageIdOf } from "./run-spec-client.mjs";
 
@@ -16,9 +16,7 @@ export const CLIENT_TIMEOUT_MS = 45 * 1000;
 
 // What each action may carry. Anything else the model sends is dropped here and refused again by the orchestrator.
 const ARGUMENTS = {
-  search_graph: ["name_pattern", "query", "label", "limit"],
-  trace_path: ["function_name", "direction", "depth"],
-  get_code_snippet: ["qualified_name"],
+  explore: ["terms"],
 };
 
 function asText(body) {

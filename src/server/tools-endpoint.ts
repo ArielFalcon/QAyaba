@@ -2,9 +2,8 @@
  * The orchestrator's internal endpoint for the agents' custom tools: `run_spec`, which lets the generator run a spec it wrote
  * (POST /internal/run-spec), the `authbrowser_*` tools, which let the authoring roles read DEV through the run's saved
  * session without holding it (POST /internal/authbrowser), `set_geolocation`, which moves the authoring location of the
- * caller's scope (POST /internal/geolocation), and the lead's read-only `codegraph_*` queries of the run's own project in the code
- * graph (POST /internal/codegraph). It is a second listener on its own port (QA_TOOLS_PORT), which compose does
- * not publish: it is reachable from the agents container only, and the sandbox uid that runs the specs cannot reach it (the
+ * caller's scope (POST /internal/geolocation), and the lead's read-only `codegraph_explore` over the run's own code-graph index
+ * (POST /internal/codegraph). It is a second listener on its own port (QA_TOOLS_PORT), which compose does not publish: it is reachable from the agents container only, and the sandbox uid that runs the specs cannot reach it (the
  * egress filter rejects every loopback port but its own). A service secret (QA_TOOLS_TOKEN) is required on top of that.
  * The caller names a session and an agent; neither decides anything by itself: the call is served only when the session is
  * one the orchestrator bound to an authorized role of a live run (see ClosedLoopRegistry, AgentBrowserRegistry,
@@ -292,7 +291,7 @@ function parseCodeGraphCall(body: string): CodeGraphToolRequest | undefined {
 
 async function handleCodeGraphRequest(request: ToolsRequest, deps: ToolsHandlerDeps): Promise<ToolsResponse> {
   const call = parseCodeGraphCall(request.body);
-  if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent and an action (search_graph with a name_pattern or a query, trace_path with a function_name, or get_code_snippet with a qualified_name)" } };
+  if (!call) return { status: 400, body: { ok: false, code: "invalid-request", message: "the call must be a JSON object with sessionID, agent, the action explore and 1 to 8 terms (each a symbol name, a file path or a short code term of at most 200 characters, never starting with a dash)" } };
   if (deps.limiter && !deps.limiter.allowCall(call.sessionId)) return { status: 429, body: { ok: false, code: "rate-limited", message: "too many calls from this session in a short time; wait a few seconds and retry" } };
   const graph = deps.codeGraphs?.find(call.sessionId);
   if (!graph) return { status: 403, body: { ok: false, code: "unknown-session", message: "the code graph is not available to this session" } };
