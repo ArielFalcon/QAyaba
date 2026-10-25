@@ -17,6 +17,8 @@ export const BACKEND_PROBE_TIMEOUT_MS = 3_000;
 export const DISK_USED_DEGRADED_RATIO = 0.85;
 /* An exporter queue this full is about to drop data. */
 export const QUEUE_FILL_DEGRADED_RATIO = 0.9;
+/* How many traces one health search reads to find the newest. */
+const TEMPO_SEARCH_PAGE = 50;
 const RECENT_WINDOW_MS = 24 * 3600 * 1000;
 const MAX_REASON_CHARS = 160;
 
@@ -221,7 +223,8 @@ export class BackendHealthMonitor {
     const nowMs = this.deps.now();
     const query = new URLSearchParams({
       tags: `service.name=${this.deps.config.serviceName}`,
-      limit: "1",
+      /* Tempo does not return a search in start order, so the newest is taken among a bounded page. */
+      limit: `${TEMPO_SEARCH_PAGE}`,
       start: `${Math.floor((nowMs - RECENT_WINDOW_MS) / 1000)}`,
       end: `${Math.floor(nowMs / 1000)}`,
     });
@@ -229,7 +232,12 @@ export class BackendHealthMonitor {
     if (!search || search.status !== 200) return { status: "degraded", reasons: [`Tempo is ready but cannot search traces${search ? ` (HTTP ${search.status})` : ""}`] };
     const verdict: Verdict = { status: "ok", reasons: [] };
     try {
-      const at = isoFromNanos((JSON.parse(search.body) as { traces?: Array<{ startTimeUnixNano?: string }> }).traces?.[0]?.startTimeUnixNano);
+      const starts = ((JSON.parse(search.body) as { traces?: Array<{ startTimeUnixNano?: string }> }).traces ?? [])
+        .map((trace) => trace.startTimeUnixNano)
+        .filter((start): start is string => typeof start === "string" && /^\d+$/.test(start))
+        .map(BigInt);
+      const newest = starts.reduce<bigint | undefined>((max, start) => (max === undefined || start > max ? start : max), undefined);
+      const at = isoFromNanos(newest?.toString());
       if (at) verdict.lastDataAt = at;
     } catch {
       verdict.status = "degraded";

@@ -130,6 +130,13 @@ test("a quiet stack with no recent lines or traces is still ok", async () => {
   assert.equal(h?.tempo.lastDataAt, undefined);
 });
 
+test("the newest trace is the latest start among those the search returns, whatever order Tempo answers in", async () => {
+  const nanos = (ms: number) => `${BigInt(ms) * 1_000_000n}`;
+  const traces = [{ startTimeUnixNano: nanos(NOW - 3_600_000) }, { startTimeUnixNano: nanos(NOW - 30_000) }, { startTimeUnixNano: nanos(NOW - 600_000) }];
+  const { m } = monitor(healthyRoutes({ "GET lgtm:3200/api/search": { status: 200, body: JSON.stringify({ traces }) } }));
+  assert.equal((await m.get())?.tempo.lastDataAt, new Date(NOW - 30_000).toISOString());
+});
+
 test("Tempo that is ready but cannot answer a search is degraded", async () => {
   const { m } = monitor(healthyRoutes({ "GET lgtm:3200/api/search": { status: 500, body: "boom" } }));
   const h = await m.get();
