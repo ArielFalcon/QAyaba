@@ -224,6 +224,36 @@ test("two takers of a stale lock never both hold it: the one that finds the lock
   }
 });
 
+test("a taker never removes a lock created after it judged the old one stale, even when the stale holder released in between", () => {
+  const { root } = setup();
+  const now = Date.now();
+  const cache = new CodegraphStoreCache(join(root, "cache"), () => now);
+  let stale: ReturnType<CodegraphStoreCache["lock"]>;
+  let fresh: ReturnType<CodegraphStoreCache["lock"]>;
+  const taker = new CodegraphStoreCache(join(root, "cache"), () => now, {
+    /* The instant after the taker's re-check: the stale holder releases and another run takes the free lock. */
+    beforeRemoveStale: () => {
+      stale!.release();
+      fresh = cache.lock("org__app");
+    },
+  });
+  try {
+    stale = cache.lock("org__app");
+    assert.ok(stale);
+    const lockFile = join(root, "cache", "org__app", "lock");
+    const old = new Date(now - 16 * 60_000);
+    utimesSync(lockFile, old, old);
+
+    const taken = taker.lock("org__app");
+
+    assert.ok(fresh!, "the other run took the released lock");
+    assert.equal(taken, undefined, "the taker backs off");
+    assert.equal(existsSync(lockFile), true, "the other run's lock is still in place");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a holder that outlived its lock does not release the lock of whoever took over", () => {
   const { root } = setup();
   const now = Date.now();

@@ -180,6 +180,9 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort
             status = afterSync;
             outcome = cached.sha === sha ? "reused" : "synced";
           }
+        } else if (signal?.aborted) {
+          /* The runner reports a child the abort ended as timed out: the store was not slow, it stays cached. */
+          return record("failed", null, "the run was aborted");
         } else if (synced.error.kind === "timeout") {
           /* The same sync would time out on the same store at every run, and none would resolve it: the store is forgotten so the next run builds it from nothing. */
           this.deps.cache!.discard(repo);

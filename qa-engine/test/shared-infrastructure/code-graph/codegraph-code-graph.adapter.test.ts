@@ -482,6 +482,24 @@ test("a cached store the sync leaves unreadable is rebuilt", async (t: TestConte
   }
 });
 
+test("a sync the run's abort ends keeps the cached store: an abort is not a slow sync", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const controller = new AbortController();
+    controller.abort();
+    /* The runner reports a child it ended on abort as timed out. */
+    h.engine.fail.sync = { exitCode: null, stdout: "", stderr: "", timedOut: true };
+
+    const aborted = await h.adapter.syncTo(h.mirror, h.sha, controller.signal);
+
+    assert.notEqual(aborted.outcome, "reused");
+    assert.notEqual(h.cache.meta("org__shop"), undefined, "the cached store survives the abort");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("a sync that times out forgets the cached store, so the next run builds it instead of repeating the sync", async (t: TestContext) => {
   const h = harness();
   const warn = t.mock.method(console, "warn", () => {});

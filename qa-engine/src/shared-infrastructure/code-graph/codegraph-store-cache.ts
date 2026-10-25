@@ -10,7 +10,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { chownSync, closeSync, constants, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { chownSync, closeSync, constants, copyFileSync, existsSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { probeOwnedSpecFile } from "../spec-path-confinement.ts";
 import type { Sandbox } from "../process-sandbox/sandbox.ts";
@@ -50,6 +50,7 @@ export interface StoreCacheTuning {
   chunkBytes?: number;
   maxStoreBytes?: number;
   beforeTakeover?: () => void;
+  beforeRemoveStale?: () => void;
 }
 
 /* The cache key of a repo: its mirror's name, reduced to a file name. */
@@ -128,7 +129,26 @@ export class CodegraphStoreCache {
       const again = this.statOrUndefined(path);
       if (again !== undefined) {
         if (again.holder !== seen.holder || again.mtimeMs !== seen.mtimeMs) return undefined;
-        rmSync(path, { force: true });
+        this.tuning.beforeRemoveStale?.();
+        /* The lock is moved aside, an atomic step that captures exactly the file there now, and removed only when it is still the
+           stale one: a lock created after the re-check (its holder released and another run took it) is put back. */
+        const aside = `${path}.${randomBytes(6).toString("hex")}.stale`;
+        try {
+          renameSync(path, aside);
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+        }
+        const moved = this.statOrUndefined(aside);
+        if (moved !== undefined && moved.holder !== seen.holder) {
+          try {
+            linkSync(aside, path);
+          } catch {
+            /* the lock was taken again meanwhile; its holder keeps it */
+          }
+          rmSync(aside, { force: true });
+          return undefined;
+        }
+        rmSync(aside, { force: true });
       }
       return create();
     } finally {
