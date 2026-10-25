@@ -294,7 +294,7 @@ test("assembleChangeCoverage: a diff with no added lines (pure deletion) → mea
 
   const svc = new DecideCoverageService();
   const status = svc.decide(cc, { mode: "enforce", minRatio: 0.7 });
-  assert.equal(status, "unknown", "zero changed lines must decide to unknown, matching legacy decideCoverage's own changedLines===0 guard");
+  assert.equal(status, "unknown", "zero changed lines must decide to unknown");
   assert.equal(svc.blocks(status, { mode: "enforce", minRatio: 0.7 }), false, "unknown must never block, even in enforce mode");
 });
 

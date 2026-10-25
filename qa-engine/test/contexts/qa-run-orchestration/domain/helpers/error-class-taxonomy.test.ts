@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 /* these two copies must stay byte-compatible; engine cannot import src/ */
-/* expected values are a frozen oracle from the deleted twin — do not rebase them to silence a failure */
+/* expected values are fixed snapshots — do not rebase them to silence a failure */
 import {
   ERROR_CLASS,
   ERROR_CLASSES,
@@ -15,16 +15,16 @@ import {
   errorClassFromCorrections as referenceErrorClassFromCorrections,
 } from "../../../../../../src/qa/learning/taxonomy.ts";
 
-test("PARITY: both copies list the same error classes in the same order", () => {
+test("both copies list the same error classes in the same order", () => {
   assert.deepEqual([...ERROR_CLASSES], [...REFERENCE_ERROR_CLASSES]);
 });
 
-test("PARITY: both copies list the reviewer-unavailable class", () => {
+test("both copies list the reviewer-unavailable class", () => {
   assert.ok((ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.REVIEWER_UNAVAILABLE));
   assert.ok((REFERENCE_ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.REVIEWER_UNAVAILABLE));
 });
 
-test("PARITY: both copies list the precondition class", () => {
+test("both copies list the precondition class", () => {
   assert.ok((ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.PRECONDITION));
   assert.ok((REFERENCE_ERROR_CLASSES as readonly string[]).includes(ERROR_CLASS.PRECONDITION));
 });
@@ -39,7 +39,7 @@ function referenceResolveErrorClass(input: {
   const key = JSON.stringify(input);
   const snapshot = REFERENCE_RESOLVE_ERROR_CLASS_SNAPSHOT[key];
   if (snapshot === undefined) {
-    throw new Error(`No fixture snapshot for input: ${key} — add a captured legacy value before using a new sample.`);
+    throw new Error(`No fixture snapshot for input: ${key} — add a captured value before using a new sample.`);
   }
   return snapshot;
 }
@@ -58,7 +58,7 @@ const REFERENCE_RESOLVE_ERROR_CLASS_SNAPSHOT: Record<string, string | null> = {
   '{"verdict":"skipped","coverageRatio":null,"minCoverageRatio":0.7,"reviewerCorrections":[]}': null,
 };
 
-test("PARITY: errorClassFromVerdict matches legacy across every verdict + coverage-ratio band", () => {
+test("errorClassFromVerdict", () => {
   const samples: Array<{ verdict: string; coverageRatio: number | null; minRatio: number }> = [
     { verdict: "invalid", coverageRatio: null, minRatio: 0.7 },
     { verdict: "fail", coverageRatio: null, minRatio: 0.7 },
@@ -79,7 +79,7 @@ test("PARITY: errorClassFromVerdict matches legacy across every verdict + covera
   }
 });
 
-test("PARITY: errorClassFromCorrections matches legacy across tagged/untagged/other corrections", () => {
+test("errorClassFromCorrections", () => {
   const samples: string[][] = [
     ["[false-positive] login.spec.ts: asserts nothing meaningful"],
     ["[wrong-objective] does not test the change"],
@@ -100,7 +100,7 @@ test("PARITY: errorClassFromCorrections matches legacy across tagged/untagged/ot
   }
 });
 
-test("PARITY: resolveErrorClass matches legacy's labelRunOutcome-derived errorClass across the full precedence chain", () => {
+test("resolveErrorClass", () => {
   const samples: Array<{
     verdict: string;
     coverageRatio: number | null;

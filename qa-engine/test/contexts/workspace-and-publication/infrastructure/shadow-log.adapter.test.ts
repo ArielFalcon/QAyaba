@@ -46,7 +46,7 @@ test("prune logs instead of pruning the mirror", async () => {
 /* assert a log line matched a regex — none of them asserts the ABSENCE of real I/O. An edit that
    added a real git/network call ALONGSIDE the console.log (e.g. actually pushing, opening a PR, or
    committing) would pass every test above unchanged, turning shadow mode into live-write mode for
-   `qa.shadow: true` apps (portfolio, petclinic, jhipster-store per CLAUDE.md) that never opted into
+   `qa.shadow: true` apps (portfolio, petclinic, jhipster-store per AGENTS.md) that never opted into
    real writes. This adapter has no injectable I/O collaborator to spy on (by design — it does none),
    so the mechanism that actually pins "no real I/O" is a static source scan.
    The scan must catch a bare specifier (`from "child_process"`, no `node:` prefix — legal and

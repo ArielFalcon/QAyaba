@@ -27,13 +27,13 @@ test("prepare() delegates to the injected checkout collaborator and derives spec
   assert.equal(result.specDir, "/mirrors/org/app/e2e");
 });
 
-test("prepare() returns the bare mirrorDir when specRelDir is empty (code target — legacy parity: mirrorDir itself, never mirrorDir/e2e)", async () => {
+test("prepare() returns the bare mirrorDir when specRelDir is empty", async () => {
   const checkout = async (): Promise<string> => "/mirrors/org/app";
   const adapter = new WorkspacePortAdapter(checkout, { specRelDir: "" });
 
   const result = await adapter.prepare(Sha.of("def5678"));
 
-  assert.equal(result.specDir, "/mirrors/org/app", "code target: specDir must be the bare mirrorDir, matching legacy's setupCode(mirrorDir, ...)/executeCode(mirrorDir, ...)");
+  assert.equal(result.specDir, "/mirrors/org/app", "code target: specDir must be the bare mirrorDir");
 });
 
 /* PROD-BLOCKER fix: publish()'s "pr" route needs the bare mirror root to stage/commit/push from —
@@ -61,7 +61,7 @@ test("prepare() returns the SAME mirrorDir as specDir for the code target (specR
   assert.equal(result.specDir, result.mirrorDir, "code target: mirrorDir and specDir must be identical (both the bare mirror root)");
 });
 
-test("prepare() surfaces a checkout failure loudly (no swallowed error — CLAUDE.md invariant)", async () => {
+test("prepare() surfaces a checkout failure loudly", async () => {
   const checkout = async (): Promise<string> => { throw new Error("mirror clone failed: network unreachable"); };
   const adapter = new WorkspacePortAdapter(checkout, { specRelDir: "e2e" });
 

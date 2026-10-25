@@ -1101,7 +1101,7 @@ test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrad
 /* A mid-retry infra-error (DEV dies after a filtered retry-execute) is a discarded-run verdict
    and must carry zero cases, matching every other infra-error assignment site in this aggregate.
  */
-test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards cases, matching legacy resultOf's cases:[] contract", async () => {
+test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards cases", async () => {
   let executeCallCount = 0;
   let devHealthyCallCount = 0;
   const execution: FixLoopExecutionPort = {
@@ -1150,14 +1150,14 @@ test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards c
 
   assert.equal(executeCallCount, 1, "the retry-execute must have run before the mid-retry infra-error fires");
   assert.equal(result.run.verdict, "infra-error");
-  assert.deepEqual(result.run.cases, [], "legacy resultOf() ALWAYS returns cases:[] — a discarded infra-error run must carry zero cases, matching every other infra-error assignment in this aggregate");
+  assert.deepEqual(result.run.cases, [], "a discarded infra-error run must carry zero cases, matching every other infra-error assignment in this aggregate");
 });
 
 /* cycleBudget/wallClockBudget thread into the FixLoopGenerationPort.generate() call so a composed
    generation adapter can enforce the budget check at the generate() call boundary, rather than the
    fix-loop re-implementing budget logic it structurally does not own.
  */
-test("the regen call threads cycleBudget/wallClockBudget to the GenerationPort, matching WHERE the legacy checks (inside generateOnce, not the fix-loop block)", async () => {
+test("the regen call threads cycleBudget/wallClockBudget to the GenerationPort, not the fix-loop block)", async () => {
   const receivedGenerateInputs: Array<{ cycleBudget?: CycleBudget; wallClockBudget?: WallClockBudget }> = [];
   const execution: FixLoopExecutionPort = {
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const }] }),

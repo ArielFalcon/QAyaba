@@ -26,7 +26,7 @@
 // resolves the CLI's own TARGET ARGUMENT against that same baseDir, not against the invoking cwd —
 // so the target must itself be baseDir-relative ("qa-engine/src"), regardless of cwd. A bare
 // relative target like `src`, run from inside qa-engine/ (e.g. `cd qa-engine && npx depcruise
-// --config .dependency-cruiser.cjs src`), resolves as `<repo-root>/src` — the LEGACY root src/
+// --config .dependency-cruiser.cjs src`), resolves as `<repo-root>/src` — the shell's root src/
 // tree, a completely different, still-existing directory — not qa-engine/src. This does not error;
 // it silently scans the wrong tree and reports a false "clean" even with a real qa-engine/src/
 // violation present, because none of that tree's module ids match the `^qa-engine/src/` `from`
@@ -103,16 +103,14 @@ module.exports = {
       to: { path: "(^|/)playwright-core($|/)" },
     },
     {
-      // migration-tier-1-2, Slice 5 (corrected judgment-day round-1: the prior comment's "ONLY
-      // sanctioned src<->qa-engine adapter" framing was stale/inaccurate). The direction actually
-      // enforced here is ONE-WAY: qa-engine/src/ may never import src/ (below). The OPPOSITE
+      // The direction enforced here is ONE-WAY: qa-engine/src/ may never import src/ (below). The OPPOSITE
       // direction — src/ importing qa-engine/src/ — is open by design (the shell consumes the
       // engine, not the reverse) and is NOT machine-enforced by this rule; src/server/
       // run-engine-factory.ts (the composition factory) is one such importer, but not the
-      // only one — src/integrations/repo-mirror.ts (MirrorProvisionAdapter, migration-tier-4a),
+      // only one — src/integrations/repo-mirror.ts (MirrorProvisionAdapter),
       // src/orchestrator/sanitizer.ts, src/server/webhook-routing.ts, and src/contract/{commands,
-      // events}.ts all predate or postdate it and import qa-engine/src/ deliberately too. `*-parity.
-      // test.ts` files under qa-engine/test/ (pre-deletion pins) are also outside this rule's
+      // events}.ts all import qa-engine/src/ deliberately too. `*-parity.
+      // test.ts` files under qa-engine/test/ are also outside this rule's
       // `from` scope (qa-engine/src/ only), so none of the above ever trips this gate.
       name: "no-src-import-in-qa-engine",
       severity: "error",

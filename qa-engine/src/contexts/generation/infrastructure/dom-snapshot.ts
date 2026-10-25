@@ -416,7 +416,7 @@ export async function captureDom(input: CaptureDomInput, deps: CaptureDomDeps): 
     const snaps = await deps.render(input.e2eDir, input.baseUrl, routes, input.testIdAttribute);
     const text = formatDomSnapshot(snaps);
     if (text.trim()) return text;
-    /* Routes WERE extractable and a baseUrl WAS present, yet the render produced nothing. That is a real grounding GAP, not a benign no-op — surface it loudly (CLAUDE.md: never swallow into an empty result), so a run that authors/judges selectors WITHOUT the live DOM is visible. */
+    /* Routes WERE extractable and a baseUrl WAS present, yet the render produced nothing. That is a real grounding GAP, not a benign no-op — surface it loudly (AGENTS.md: never swallow into an empty result), so a run that authors/judges selectors WITHOUT the live DOM is visible. */
     console.warn(`[qa] WARNING: DOM grounding produced no snapshot for ${routes.length} route(s) [${loggableRoutes(routes)}] — authoring/judging UI selectors WITHOUT the live DEV tree.`);
     return undefined;
   } catch (err) {
@@ -572,7 +572,7 @@ export async function captureDomByRoute(
     console.warn(`[qa] WARNING: DOM capture FAILED for ${clean.length} route(s) [${loggableRoutes(clean)}] (${err instanceof Error ? err.message : String(err)}) — each objective falls back to its own exploration this run.`);
     return out;
   }
-  /* Per-route degrade: surface errored routes loudly (same pattern as captureRouteTrees — CLAUDE.md: never swallow a capture failure) before filtering them out for grounding. */
+  /* Per-route degrade: surface errored routes loudly (same pattern as captureRouteTrees — AGENTS.md: never swallow a capture failure) before filtering them out for grounding. */
   warnOnDegradedRoutes(snaps);
   const sig = (s: RouteSnapshot): string => (s.nodes ?? []).join("\n");
   const rendered = snaps.filter((s) => !s.error && s.nodes?.length);
@@ -598,7 +598,7 @@ export async function captureRouteTrees(input: CaptureDomInput, deps: CaptureDom
   try {
     snaps = await deps.render(input.e2eDir, input.baseUrl, routes, input.testIdAttribute);
   } catch (err) {
-    /* Loud, attributed degrade (CLAUDE.md: never swallow a capture failure into []). The whole render threw → no pre-execution selector grounding this run; the gate has nothing and stays advisory. */
+    /* Loud, attributed degrade (AGENTS.md: never swallow a capture failure into []). The whole render threw → no pre-execution selector grounding this run; the gate has nothing and stays advisory. */
     console.warn(`[qa] WARNING: DOM capture FAILED for ${routes.length} route(s) [${loggableRoutes(routes)}] (${err instanceof Error ? err.message : String(err)}) — no pre-execution selector grounding this run.`);
     return [];
   }
@@ -1231,7 +1231,7 @@ export function createCaptureDomDeps(
  * configured at all. It never touches the filesystem or spawns a process and never derives
  * credential paths from e2eDir. If it is ever actually invoked
  * (every real production wiring always overrides it with createCaptureDomDeps(exec) instead — see
- * run-engine-factory.ts), it fails loudly (CLAUDE.md: never swallow — surface integration
+ * run-engine-factory.ts), it fails loudly (AGENTS.md: never swallow — surface integration
  * errors loudly) rather than silently degrading to an insecure default.
  */
 export const defaultCaptureDomDeps: CaptureDomDeps = {

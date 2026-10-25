@@ -30,7 +30,7 @@ test("a contract-miss reviewer verdict forwards valid:false + issues (the bounde
   assert.deepEqual(j.issues, ["contract failure"]); /* a port that dropped issues would be undefined — gutted-impl-proof */
 });
 
-test("a parse MISS is fail-closed (approved:false, parsed:false) — inherited from legacy, not 'fixed'", () => {
+test("a parse MISS is fail-closed (approved:false, parsed:false) —", () => {
   const adapter = new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: false, specs: [] }) as never,
     parseReviewerVerdict: () => ({ approved: false, corrections: ["no parseable verdict"], blockingCount: 0, parsed: false, valid: false, issues: ["no reviewer verdict JSON found"] }) as never,
@@ -199,7 +199,7 @@ test("the suite listing looks at no more than the cap of entries it is given, so
   }
 });
 
-test("parseGenerator forwards a plan the legacy parser read, and carries none when it read none", () => {
+test("and carries none when it read none", () => {
   const plan = { kind: "fanout", flows: [{ id: "a", objective: "x" }] };
   const withPlan = new VerdictParserAdapter({
     parseVerdict: () => ({ parsed: true, approved: true, specs: [], plan }),

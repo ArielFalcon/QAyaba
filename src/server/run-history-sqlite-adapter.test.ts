@@ -28,9 +28,9 @@ function kernelOutcome(overrides: Partial<KernelRunOutcome> = {}): KernelRunOutc
 }
 
 /* The adapter's core contract: save() reaches the injected saveOutcome fn, not the real
-   module-singleton SQLite DB (dependency injection is the testing strategy, CLAUDE.md).
+   module-singleton SQLite DB (dependency injection is the testing strategy, AGENTS.md).
  */
-test("SqliteRunHistoryAdapter.save() delegates to the injected saveOutcome, mapping the kernel RunOutcome to legacy's shape", async () => {
+test("SqliteRunHistoryAdapter.save() delegates to the injected saveOutcome", async () => {
   let captured: StoredRunOutcome | undefined;
   const adapter = new SqliteRunHistoryAdapter({ saveOutcome: (o) => { captured = o; } });
 

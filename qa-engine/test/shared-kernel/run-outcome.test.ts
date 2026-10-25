@@ -12,7 +12,7 @@ import { runOutcomeEquivalent, type ComparableOutcome } from "./run-outcome-equi
    usage/reflection — so wide kernel types are fine. This test pins the direction that matters:
    shell → kernel.
  */
-test("kernel RunOutcome is structurally assignable FROM legacy RunOutcome (legacy → kernel)", () => {
+test("kernel RunOutcome is structurally assignable FROM the shell RunOutcome", () => {
   const kernel: KernelRunOutcome = {
     runId: "r1", app: "demo", sha: "abc1234", mode: "diff", target: "e2e",
     verdict: "pass", errorClass: null,

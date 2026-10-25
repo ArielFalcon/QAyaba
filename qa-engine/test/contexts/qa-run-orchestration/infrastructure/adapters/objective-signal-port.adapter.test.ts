@@ -68,7 +68,7 @@ test("measure() returns unknown+null when an assembler IS injected but diff is a
   assert.equal(result.ratio, null);
 });
 
-test("measure() short-circuits the collector's IO entirely when no assembly will happen (legacy keeps collection INSIDE the gated block)", async () => {
+test("measure() short-circuits the collector's IO entirely when no assembly will happen", async () => {
   let collectCalls = 0;
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, () => { collectCalls++; });
   const decide = new DecideCoverageService();
@@ -83,7 +83,7 @@ test("measure() short-circuits the collector's IO entirely when no assembly will
   const starved = await withAssembler.measure(br, "/mirrors/org/app/e2e");
   assert.equal(collectCalls, 0, "no diff -> the collector's real IO must be skipped, not run-and-discarded");
   assert.equal(starved.status, "unknown");
-  assert.equal(starved.valueScore, 0.5, "the value-oracle still runs — only coverage collection is skipped (legacy parity)");
+  assert.equal(starved.valueScore, 0.5, "the value-oracle still runs — only coverage collection is skipped");
 
   const withoutAssembler = new ObjectiveSignalPortAdapter(
     { collector, decide, oracle },

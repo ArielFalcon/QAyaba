@@ -256,7 +256,7 @@ test("commit() logs loudly AND returns the reverted denylisted paths when a tamp
   }
 });
 
-/* .filter((p) => this.pathDecoder.isDangerousPath(p))`, vcs-write.adapter.ts:161) had ZERO coverage
+/* .filter((p) => this.pathDecoder.isDangerousPath(p))`) had ZERO coverage
    filtering at all) and the FULL SUITE (3693 tests) still passed, because every existing test that pins
    revertedDangerous's VALUE does so against a mocked publish() stub that hardcodes the correct answer,
    never the real filter. This fixture stages a Dockerfile tamper (denylisted, but not secret-tier) AND

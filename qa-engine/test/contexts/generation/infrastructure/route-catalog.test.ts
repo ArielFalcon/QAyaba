@@ -30,7 +30,7 @@ test("buildTestIdIndex ignores blank / whitespace-only values", () => {
 /* buildRouteCatalog is the PURE adapter from the capture DTO (RouteSnapshot) to the gate-facing
    RouteCatalog. status/settled gate whether the future fail-closed path may trust the catalog: a
    capture error ⇒ "degraded"; absence of an explicit settle ⇒ settled:false (conservative — never
-   fail-closed on an unknown). degradedRouteWarning surfaces real capture failures LOUDLY (CLAUDE.md:
+   fail-closed on an unknown). degradedRouteWarning surfaces real capture failures LOUDLY (AGENTS.md:
    never swallow), replacing the silent `catch{return []}` reopen — unsettled is NOT warned per-route
    (expected on SPAs; it stays advisory in the catalog).
  */

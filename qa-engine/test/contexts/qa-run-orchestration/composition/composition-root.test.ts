@@ -447,7 +447,7 @@ test("buildProduction threads testIdAttribute into the ExecutionPortAdapter", as
   assert.equal(capturedTestIdAttribute, "data-cy");
 });
 
-/* SetupPort (CLAUDE.md run-flow step 3) — genuine-wiring proof: setupCollaborators (OPTIONAL on
+/* SetupPort (AGENTS.md run-flow step 3) — genuine-wiring proof: setupCollaborators (OPTIONAL on
    CompositionConfig) must reach the run() call when supplied, and stay a silent no-op when absent
    (every fakeConfig() base case above never supplies it — that already proves the absent-collaborator
    backward-compat path across all the OTHER tests in this file).

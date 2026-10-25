@@ -619,7 +619,7 @@ test("readFailureDumps + match: same title, different files round-trip to distin
  */
 test("matchFailureDumps: a dump with no file still matches a file-prefixed case (title-only fallback)", () => {
   const dumps: FailureDump[] = [{ project: "desktop", title: "suite › test", retry: 0, yaml: "y" }];
-  assert.equal(matchFailureDumps("legacy.spec.ts › suite › test", dumps)!.yaml, "y");
+  assert.equal(matchFailureDumps("older.spec.ts › suite › test", dumps)!.yaml, "y");
 });
 
 /* The seed playwright.config defines TWO projects (desktop, mobile) and the suite runs with NO

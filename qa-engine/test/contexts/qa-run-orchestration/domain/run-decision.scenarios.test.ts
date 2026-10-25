@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decide, type RunEvidence } from "@contexts/qa-run-orchestration/domain/run-decision.service.ts";
 
-/* Flaky is the one declared widening: the characterization harness can only observe "none"
+/* Flaky is the one declared widening: the scenario goldens can only observe "none"
    (flaky never calls publish or openIssue), while decide() returns "quarantine". Do not map
    one onto the other. Every other verdict's sideEffect must match the harness literal. */
 
@@ -15,13 +15,13 @@ interface ParityCase {
 }
 
 /* ── Part 1: the 10 scenarios.ts goldens (GATE A) — mirrors EXPECTED_VERDICT/EXPECTED_SIDE_EFFECT
-   from golden-outcome.test.ts:94-117 exactly. Evidence transcribed from each scenario's
+    Evidence transcribed from each scenario's
    AppConfig/deps in scenarios.ts (see the per-case comment for the exact source).
  */
 const goldenCases: ParityCase[] = [
   {
     /* scenarioApp (needsReview:true), makeDeps({}) → generated (approved:true), passing(), no
-       coverage config (blocksPublish=false), not shadow. Source: scenarios.ts:226-234.
+       coverage config (blocksPublish=false), not shadow.
      */
     scenario: "green-pr",
     evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -30,7 +30,7 @@ const goldenCases: ParityCase[] = [
   },
   {
     /* scenarioApp, makeDeps({ run: fail }) — verdict!=='pass' short-circuits before any pass-path
-       evidence matters. Source: scenarios.ts:236-246.
+       evidence matters.
      */
     scenario: "fail-issue",
     evidence: { verdict: "fail", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -45,7 +45,7 @@ const goldenCases: ParityCase[] = [
   },
   {
     /* scenarioApp, makeDeps({ agent: noopAgent }) — the classify-skip/no-op path never reaches
-       generating's pass-path chain regardless of the flag's own value. Source: scenarios.ts:260-268.
+       generating's pass-path chain regardless of the flag's own value.
      */
     scenario: "no-op-skip",
     evidence: { verdict: "skipped", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -54,7 +54,6 @@ const goldenCases: ParityCase[] = [
   },
   {
     /* scenarioApp, makeDeps({ validation: { ok:false, ... } }) — verdict!=='pass' short-circuits.
-       Source: scenarios.ts:270-280.
      */
     scenario: "invalid-issue",
     evidence: { verdict: "invalid", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -63,7 +62,6 @@ const goldenCases: ParityCase[] = [
   },
   {
     /* scenarioApp, makeDeps({ healthy: false }) — verdict!=='pass' short-circuits. Source:
-       scenarios.ts:282-290.
      */
     scenario: "infra-error",
     evidence: { verdict: "infra-error", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -73,7 +71,7 @@ const goldenCases: ParityCase[] = [
   {
     /* codeApp (needsReview:true), makeDeps({ isCodeMode: true }) → generated (approved:true),
        passing(). Code mode reuses the SAME pass-path chain (report()/decide are verdict-shaped,
-       not e2e-vs-code-shaped). Source: scenarios.ts:292-300.
+       not e2e-vs-code-shaped).
      */
     scenario: "code-mode",
     evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -82,7 +80,7 @@ const goldenCases: ParityCase[] = [
   },
   {
     /* crossApp (needsReview:false, shadow:false explicit), makeDeps({ isCrossRepo: true }) →
-       generated (approved:true), passing(). Source: scenarios.ts:302-322.
+       generated (approved:true), passing().
      */
     scenario: "cross-repo",
     evidence: { verdict: "pass", generating: true, needsReview: false, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -91,7 +89,7 @@ const goldenCases: ParityCase[] = [
   },
   {
     /* shadowApp (needsReview:true, shadow:true), makeDeps({}) → generated (approved:true),
-       passing(). Source: scenarios.ts:324-332.
+       passing().
      */
     scenario: "shadow",
     evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: true, onFailure: "github-issue" },
@@ -102,7 +100,7 @@ const goldenCases: ParityCase[] = [
     /* scenarioApp, context mode's own generate() stub returns { approved: true, reviewed: false },
        passing(). Context mode's early-return path is synthesized by the harness/adapter but the
        VERDICT it reproduces is real: pass, reviewer-approved, no coverage block configured, not
-       shadow → the same green-publish branch. Source: scenarios.ts:334-351.
+       shadow → the same green-publish branch.
      */
     scenario: "context",
     evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -111,14 +109,14 @@ const goldenCases: ParityCase[] = [
   },
 ];
 
-/* EXPECTED_SIDE_EFFECT_B2 from golden-outcome.test.ts:145-170 exactly. Evidence transcribed
+/* EXPECTED_SIDE_EFFECT_B2: evidence transcribed
    from each scenario's AppConfig/deps in scenarios.ts's buildScenarioDepsB2 (per-case source line
    noted below).
  */
 const goldenCasesB2: ParityCase[] = [
   {
     /* scenarioApp (needsReview:true); the static-gate repair loop recovers on the regen round, so
-       by decide-time the run is a clean pass. Source: scenarios.ts:381-398.
+       by decide-time the run is a clean pass.
      */
     scenario: "static-repair-recovers",
     evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -128,8 +126,8 @@ const goldenCasesB2: ParityCase[] = [
   {
     /* covApp("enforce") (needsReview:true, spread from scenarioApp); the improvement regen produces
        no new specs so the coverage gap never closes → blocksPublish=true. Verdict stays "pass" —
-       the harness's own comment (golden-outcome.test.ts:160) confirms blocksPublish holds the PR
-       WITHOUT reclassifying RunOutcome.verdict. Source: scenarios.ts:400-428.
+       the harness confirms blocksPublish holds the PR
+       WITHOUT reclassifying RunOutcome.verdict.
      */
     scenario: "coverage-enforce-blocks",
     evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: true, shadow: false, onFailure: "github-issue" },
@@ -138,7 +136,7 @@ const goldenCasesB2: ParityCase[] = [
   },
   {
     /* covApp("enforce"); the second collectCoverage (after the improvement regen) reports full
-       coverage → the gap closes, blocksPublish=false. Source: scenarios.ts:430-454.
+       coverage → the gap closes, blocksPublish=false.
      */
     scenario: "coverage-enforce-improves",
     evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -148,7 +146,6 @@ const goldenCasesB2: ParityCase[] = [
   {
     /* covApp("enforce"); collectCoverage returns null (unmeasured) — decideCoverage("unknown")
        NEVER blocks, even in enforce mode (the keystone invariant) → blocksPublish=false. Source:
-       scenarios.ts:456-470.
      */
     scenario: "coverage-enforce-unknown",
     evidence: { verdict: "pass", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -158,7 +155,7 @@ const goldenCasesB2: ParityCase[] = [
   {
     /* fixLoop.maxRetries=0 disables the fix-loop entirely; a permanently-failing single execute
        never retries — verdict stays "fail". verdict!=='pass' short-circuits before any pass-path
-       evidence matters. Source: scenarios.ts:472-488.
+       evidence matters.
      */
     scenario: "fixloop-maxretries-zero",
     evidence: { verdict: "fail", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -167,7 +164,7 @@ const goldenCasesB2: ParityCase[] = [
   },
   {
     /* scenarioApp with needsReview:false override; the adjudicator classifies the failure as
-       app_defect → an Issue is filed, verdict stays "fail". Source: scenarios.ts:490-522.
+       app_defect → an Issue is filed, verdict stays "fail".
      */
     scenario: "adjudicator-app-defect",
     evidence: { verdict: "fail", generating: true, needsReview: false, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -176,7 +173,7 @@ const goldenCasesB2: ParityCase[] = [
   },
   {
     /* scenarioApp with needsReview:false override; the adjudicator classifies the failure as
-       runner_infra → verdict becomes "infra-error", no repo Issue. Source: scenarios.ts:524-553.
+       runner_infra → verdict becomes "infra-error", no repo Issue.
      */
     scenario: "adjudicator-runner-infra",
     evidence: { verdict: "infra-error", generating: true, needsReview: false, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -186,7 +183,6 @@ const goldenCasesB2: ParityCase[] = [
   {
     /* scenarioApp with needsReview:false override; two retries with an identical failing case →
        decideProgress returns false → break-needs-human fires: verdict stays "fail", Issue filed.
-       Source: scenarios.ts:555-584.
      */
     scenario: "adjudicator-ambiguous-break",
     evidence: { verdict: "fail", generating: true, needsReview: false, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -197,7 +193,6 @@ const goldenCasesB2: ParityCase[] = [
     /* scenarioApp; a strict-mode ambiguity persists after the corrective regen → the deterministic
        pre-exec block holds the run BEFORE execution as "invalid" (a distinct gate from the static-
        validate invalid already covered by invalid-issue). verdict!=='pass' short-circuits. Source:
-       scenarios.ts:586-605.
      */
     scenario: "w2-preexec-block",
     evidence: { verdict: "invalid", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -206,7 +201,7 @@ const goldenCasesB2: ParityCase[] = [
   },
   {
     /* codeApp; the compile gate reports infra:true (broken toolchain) → verdict becomes
-       "infra-error", no Issue, no execute. Source: scenarios.ts:607-624.
+       "infra-error", no Issue, no execute.
      */
     scenario: "codemode-infra-toolchain",
     evidence: { verdict: "infra-error", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -216,7 +211,7 @@ const goldenCasesB2: ParityCase[] = [
   {
     /* scenarioApp; the agent builds a context map but it fails validateContextFn → context mode
        returns "invalid" and files an Issue — a distinct verdict from the clean-pass "context"
-       golden above. verdict!=='pass' short-circuits. Source: scenarios.ts:627-640.
+       golden above. verdict!=='pass' short-circuits.
      */
     scenario: "context-invalid",
     evidence: { verdict: "invalid", generating: true, needsReview: true, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -228,12 +223,10 @@ const goldenCasesB2: ParityCase[] = [
 /* ── Part 3: the single-provider scenarios with a real decide-relevant outcome (the harness
    replays 3 scenarios that assert a verdict/sideEffect; a 4th is a pure config-shape
    assertion that never calls runPipeline — not decide-relevant, so not included here). Mirrors
-   golden-outcome.test.ts:246-305.
  */
 const singleProviderCases: ParityCase[] = [
   {
     /* an app with needsReview:false, a green single-provider run → pass, PR published.
-       Source: golden-outcome.test.ts:247-259.
      */
     scenario: "single-provider:green-pass",
     evidence: { verdict: "pass", generating: true, needsReview: false, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -243,7 +236,6 @@ const singleProviderCases: ParityCase[] = [
   {
     /* The SAME green fixture as green-pass, only the assertion differs (usage
        attribution, not decide-relevant beyond verdict/sideEffect). Source:
-       golden-outcome.test.ts:260-283.
      */
     scenario: "single-provider:usage-attribution",
     evidence: { verdict: "pass", generating: true, needsReview: false, reviewerApproved: true, blocksPublish: false, shadow: false, onFailure: "github-issue" },
@@ -253,7 +245,7 @@ const singleProviderCases: ParityCase[] = [
   /* "single-provider:infra-error-propagates" is deliberately EXCLUDED: it asserts the adapter
      THROWS (an AgentUnavailableError from generate()) rather than returning any RunOutcome for
      decide() to consume — there is no verdict/sideEffect for a thrown-before-verdict error to pin
-     against. See golden-outcome.test.ts:284-304 and its expectThrows handling.
+     against.
    */
 ];
 

@@ -109,7 +109,7 @@ test("checkGeneratorVerdict accepts specMetas without targets (targets default t
   assert.equal(c.valid, true);
 });
 
-test("checkGeneratorVerdict ignores a stray legacy `approved` field", () => {
+test("checkGeneratorVerdict ignores a stray `approved` field", () => {
   const c = checkGeneratorVerdict('{"approved":true,"specs":["a.spec.ts"]}');
   assert.equal(c.valid, true);
 });
@@ -120,7 +120,7 @@ test("checkGeneratorVerdict rejects a missing closing JSON block", () => {
   assert.ok(c.issues.length > 0);
 });
 
-test("checkGeneratorVerdict rejects a legacy approved-only block with no specs", () => {
+test("checkGeneratorVerdict rejects an approved-only block with no specs", () => {
   /* A block carrying only `approved` (the old contract) is located as a candidate but fails
      the new schema (specs is required) → repair asks the generator for its specs.
    */
@@ -232,7 +232,7 @@ test("missing severity field defaults to blocking (fail-closed backward compat)"
    */
   const json = JSON.stringify({
     approved: false,
-    rationale: "legacy format correction",
+    rationale: "format correction",
     corrections: ["[other] some.spec.ts: a correction without a severity field"],
   });
   const v = parseReviewerVerdict(json);

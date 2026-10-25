@@ -59,7 +59,7 @@ services:
       # campaign start from the same ground. Empty is off (docs/efficiency-benchmark.md, "Campaigns").
       QA_CAMPAIGN_FREEZE: ${QA_CAMPAIGN_FREEZE:-}
       # Re-enables the reflector pass and the injection of unproven (candidate / low-confidence) learned
-      # rules into prompts. Empty is off, which is the default (CLAUDE.md, "Cross-run learning").
+      # rules into prompts. Empty is off, which is the default (AGENTS.md, "Cross-run learning").
       QA_REFLECTOR_ENABLED: ${QA_REFLECTOR_ENABLED:-}
     volumes:
       - ./src:/app/src:ro

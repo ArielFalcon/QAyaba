@@ -4,7 +4,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 
 /* src/types.ts's QaCase carries `runtimeErrors` (app-defect
    detection via browser console/page-error capture); the kernel QaCase did not, before this task.
-   Any characterization scenario exercising Rule 2.6 (runtime-error -> app_defect) could not
+   Any scenario exercising Rule 2.6 (runtime-error -> app_defect) could not
    reproduce through the port -- a false-green surface INSIDE the safety net. This test asserts the
    kernel VO structurally accepts the same shape as src/types.ts's QaCase.runtimeErrors
    (`{ type: string; text: string }[]`), including the absent-warned best-effort contract (optional,

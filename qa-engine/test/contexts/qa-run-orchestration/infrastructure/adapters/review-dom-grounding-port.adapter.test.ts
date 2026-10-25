@@ -88,7 +88,7 @@ test("capture(): an empty specs list short-circuits to undefined without calling
   assert.equal(called, false);
 });
 
-test("capture(): a captureDom throw is non-fatal — resolves undefined, never rejects (mirrors legacy's .catch(() => undefined))", async () => {
+test("capture(): a captureDom throw is non-fatal", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-review-dom-throw-"));
   try {
     writeFileSync(join(dir, "a.spec.ts"), `await page.goto("/x");`);

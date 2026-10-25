@@ -96,7 +96,7 @@ test("buildCompositionConfig maps an e2e AppConfig into a complete CompositionCo
   assert.ok(config.validationStrategies.code, "code validation (compile gate) collaborator must be wired");
   assert.ok(config.executionStrategies.e2e, "e2e execution strategy must be wired");
   assert.ok(config.executionStrategies.code, "code execution strategy must be wired");
-  assert.ok(config.setupCollaborators?.e2e, "SetupPort e2e collaborator must be wired (CLAUDE.md run-flow step 3 — missing before this fix)");
+  assert.ok(config.setupCollaborators?.e2e, "SetupPort e2e collaborator must be wired");
   assert.ok(config.setupCollaborators?.code, "SetupPort code collaborator must be wired");
   assert.ok(config.groundingCollaborators, "PreGenerationGroundingPort collaborators must be wired for an e2e app");
   assert.ok(config.reviewDomGroundingCollaborators, "ReviewDomGroundingPort collaborators must be wired for an e2e app");
@@ -1561,11 +1561,11 @@ test("buildCompositionConfig wires githubPr with app.baseBranch as the PR base",
   assert.equal(base, "develop", "githubPr must be constructed with app.baseBranch, not silently defaulting to GitHubPrAdapter's own 'main' fallback");
 });
 
-test("buildCompositionConfig falls back to 'main' when app.baseBranch is absent (matches legacy's app.baseBranch ?? \"main\")", () => {
+test("buildCompositionConfig falls back to 'main' when app.baseBranch is absent", () => {
   const app = cfg("factory-basebranch-default");
   const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const base = (config.githubPr as unknown as { base?: string }).base;
-  assert.equal(base, "main", "an app with no configured baseBranch must fall back to 'main', mirroring legacy's app.baseBranch ?? \"main\"");
+  assert.equal(base, "main", "an app with no configured baseBranch must fall back to 'main'");
 });
 
 /* ── PROD-BLOCKER fix (buildVcsPublish) — the publish path never staged/committed/pushed
@@ -1637,7 +1637,7 @@ test("buildVcsPublish (e2e target): changes under e2e/ -> checkout -B, add, comm
   /* publish() surfaces revertedDenylisted (always an array once a commit ran) for gateSignals. */
   assert.deepEqual(result, { changed: true, revertedDenylisted: [], revertedDangerous: [] });
   /* commit() always diffs tracked denylist paths before committing, including on e2e. */
-  assert.deepEqual(calls.map(subcommandOf), ["status", "checkout", "add", "diff", "commit", "push"], "git write must follow the legacy contract's exact ordering: status-check -> checkout -B -> add -> [tracked-denylist diff] -> commit -> push");
+  assert.deepEqual(calls.map(subcommandOf), ["status", "checkout", "add", "diff", "commit", "push"], "git write must follow this exact ordering: status-check -> checkout -B -> add -> [tracked-denylist diff] -> commit -> push");
   assert.ok(["-B", "qa-bot/abc1234"].every((word) => calls[1]?.includes(word)), "checkout must target the SAME branch the PR will be opened against (ctx.branch, threaded through the vcsWrite.publish() call)");
   assert.deepEqual(calls[2], ["add", "--", "e2e"], "e2e target stages ONLY the e2e/ pathspec, never the whole repo");
   assert.ok(calls[5]?.includes("--force-with-lease"), "push must force-with-lease (safe concurrent-push guard)");
@@ -1673,7 +1673,7 @@ test("buildVcsPublish (context mode): the tracked-file denylist guard is ALSO wi
    These tests pin the EXACT argv the fake receives.
  */
 
-test("CRITICAL auth-on-push: buildVcsPublish's push carries authHeaderArgs() (-c url.insteadOf token rewrite) when GITHUB_TOKEN is set — legacy parity with publish.ts:124", async () => {
+test("CRITICAL auth-on-push: buildVcsPublish's push carries authHeaderArgs() (-c url.insteadOf token rewrite) when GITHUB_TOKEN is set", async () => {
   await withEnv({ GITHUB_TOKEN: "testtoken123" }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
     const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
@@ -1692,12 +1692,12 @@ test("CRITICAL auth-on-push: buildVcsPublish's push carries authHeaderArgs() (-c
         "origin",
         "qa-bot/abc1234",
       ],
-      "the push must carry the SAME transient -c url.insteadOf auth args legacy prepended (publish.ts:124) — realGit itself never adds auth, so an unprefixed push fails non-interactively (GIT_TERMINAL_PROMPT=0)",
+      "realGit itself never adds auth, so an unprefixed push fails non-interactively (GIT_TERMINAL_PROMPT=0)",
     );
   });
 });
 
-test("CRITICAL auth-on-push: without GITHUB_TOKEN the push argv has NO auth prefix (authHeaderArgs() returns [] — tokenless environments, legacy parity)", async () => {
+test("CRITICAL auth-on-push: without GITHUB_TOKEN the push argv has NO auth prefix", async () => {
   await withEnv({ GITHUB_TOKEN: undefined }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
     const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
@@ -1705,11 +1705,11 @@ test("CRITICAL auth-on-push: without GITHUB_TOKEN the push argv has NO auth pref
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
     const push = calls.find((c) => subcommandOf(c) === "push");
-    assert.deepEqual(push, ["push", "--force-with-lease", "-u", "origin", "qa-bot/abc1234"], "no token -> bare push, exactly what authHeaderArgs()'s own empty-array branch produces for legacy");
+    assert.deepEqual(push, ["push", "--force-with-lease", "-u", "origin", "qa-bot/abc1234"], "no token -> bare push");
   });
 });
 
-test("CRITICAL commit-identity: buildVcsPublish's commit carries -c user.name/-c user.email with legacy's exact env fallbacks (fresh mirrors have NO git identity — a bare commit hard-fails 'Author identity unknown')", async () => {
+test("a bare commit hard-fails 'Author identity unknown')", async () => {
   await withEnv({ GIT_AUTHOR_NAME: undefined, GIT_AUTHOR_EMAIL: undefined }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
     const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
@@ -1720,12 +1720,12 @@ test("CRITICAL commit-identity: buildVcsPublish's commit carries -c user.name/-c
     assert.deepEqual(
       commit,
       ["-c", "user.name=qayaba", "-c", "user.email=qayaba@users.noreply.github.com", "commit", "-m", "test(e2e): automated QA"],
-      "byte-parity with legacy publishChanges (publish.ts:107-108,120-123): identity flags precede the commit subcommand, with the SAME fallback values",
+      "with the SAME fallback values",
     );
   });
 });
 
-test("CRITICAL commit-identity: GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL override the fallbacks (same env vars legacy read, resolved at CALL time)", async () => {
+test("CRITICAL commit-identity: GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL override the fallbacks", async () => {
   await withEnv({ GIT_AUTHOR_NAME: "qa-ops", GIT_AUTHOR_EMAIL: "qa-ops@example.com" }, async () => {
     const { git, calls } = fakeGit(" M src/orders.ts");
     const vcsWrite = buildVcsPublish(true, "diff", git, () => {});
@@ -1736,12 +1736,12 @@ test("CRITICAL commit-identity: GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL override the fa
     assert.deepEqual(
       commit,
       ["-c", "user.name=qa-ops", "-c", "user.email=qa-ops@example.com", "commit", "-m", "test(code): automated QA"],
-      "explicit GIT_AUTHOR_* env values must win over the qayaba fallbacks, matching legacy's `process.env.GIT_AUTHOR_NAME ?? \"qayaba\"`",
+      "explicit GIT_AUTHOR_* env values must win over the qayaba fallbacks",
     );
   });
 });
 
-test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED (no auth, no identity — only push needs auth, only commit needs identity, matching legacy's per-call-site discipline)", async () => {
+test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED", async () => {
   await withEnv({ GITHUB_TOKEN: "testtoken123", GIT_AUTHOR_NAME: undefined, GIT_AUTHOR_EMAIL: undefined }, async () => {
     const { git, calls } = fakeGit(" M e2e/login.spec.ts");
     const vcsWrite = buildVcsPublish(false, "diff", git, () => {});
@@ -1750,10 +1750,10 @@ test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED (no 
 
     const carriesAuthOrIdentity = (args: string[]): boolean => args.some((arg) => arg.startsWith("url.") || arg.startsWith("user."));
     assert.deepEqual(calls[0]?.slice(-2), ["--", "e2e"], "status scopes to the e2e pathspec");
-    assert.equal(carriesAuthOrIdentity(calls[0] ?? []), false, "status must stay undecorated — legacy never decorated the change check");
+    assert.equal(carriesAuthOrIdentity(calls[0] ?? []), false, "status must stay undecorated");
     assert.ok(["-B", "qa-bot/abc1234"].every((word) => calls[1]?.includes(word)));
     assert.equal(carriesAuthOrIdentity(calls[1] ?? []), false, "checkout must stay undecorated — a local branch op needs neither auth nor identity");
-    assert.deepEqual(calls[2], ["add", "--", "e2e"], "add must stay bare — legacy's add carried no -c flags (publish.ts:119)");
+    assert.deepEqual(calls[2], ["add", "--", "e2e"], "add must stay bare");
   });
 });
 
@@ -1765,7 +1765,7 @@ test("buildVcsPublish (code target): changes anywhere -> stages the whole tree p
 
   assert.deepEqual(result, { changed: true, revertedDenylisted: [], revertedDangerous: [] });
   assert.deepEqual(calls[0]?.slice(-2), ["--", "."], "code target's status check scopes to '.', not 'e2e' (the whole tree, per publishCode's own CODE_ADD)");
-  assert.deepEqual(calls[2], ["add", "--", "."], "code target stages the whole tree, matching legacy's publishCode(mirrorDir, ...) — never just e2e/");
+  assert.deepEqual(calls[2], ["add", "--", "."], "code target stages the whole tree");
 });
 
 test("buildVcsPublish writes gitignore-style excludes BEFORE checking for changes (so an ignored path like node_modules/ never fails `git add`)", async () => {
@@ -1843,7 +1843,7 @@ test("resolving the code sandbox registers its group with the git hardening, so 
 test("buildCompositionConfig wires config.sanitize to the REAL sanitizeText (redacts a secret-shaped input)", () => {
   const app = cfg("factory-sanitize");
   const config = buildCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(typeof config.sanitize, "function", "config.sanitize must be wired — its absence silently falls back to PublicationPortAdapter's identity default, defeating the CLAUDE.md sanitize invariant");
+  assert.equal(typeof config.sanitize, "function", "config.sanitize must be wired — its absence silently falls back to PublicationPortAdapter's identity default, defeating the AGENTS.md sanitize invariant");
   const redacted = config.sanitize!("const apiKey = sk-abc123XYZ\ntoken: ghs_supersecretvalue");
   assert.ok(!redacted.includes("sk-abc123XYZ"), "a real API-key-shaped secret must be redacted, not passed through verbatim");
   assert.ok(!redacted.includes("ghs_supersecretvalue"), "a real token-shaped secret must be redacted, not passed through verbatim");
@@ -2140,7 +2140,7 @@ test("engineFactory (real production factory) is invoked and drives the run to c
 });
 
 /* ── THE VALUE KEYSTONE — assembleChangeCoverage wiring + code-mode coverage trigger ──────────────
-   CLAUDE.md "The value/trust risk": change-coverage measurement was always "unknown" because no
+   AGENTS.md "The value/trust risk": change-coverage measurement was always "unknown" because no
    assembler turned the collector's raw CoverageReport + the run's diff into the ChangeCoverage
    read-model. This factory is the production seam that supplies the REAL assembler + (for code mode)
    triggers the repo's own instrumented test run so a report exists to read in the first place.
@@ -2189,7 +2189,7 @@ test("the runner reaches the real factory and never bypasses it", async () => {
   const realFactory = createRunEngineFactory({ getAgentDeps: stubAgentDeps });
   const id = enqueueTrackedRun(
     queue,
-    { app: "factory-dispatch-legacy", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+    { app: "factory-dispatch-manual", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
     {
       loadApp: cfg,
       engineFactory: (appConfig, namespace, run) => {
@@ -2955,7 +2955,7 @@ test("createRunEngineFactory's produced CompositionConfig carries the SAME real 
 });
 
 /* ── Cross-repo composition threading (bug fix) ────────────────────────────────────────────────────
-   CLAUDE.md: "diff/classify/gate come from the service mirror at the event SHA; the suite runs from
+   AGENTS.md: "diff/classify/gate come from the service mirror at the event SHA; the suite runs from
    the primary mirror at baseBranch HEAD." Prior to this fix, run.triggerRepo never reached the
    factory at all — vcs/checkout/gate were hardwired to the PRIMARY repo unconditionally, so a real
    cross-repo run tried `git checkout -f <serviceSha>` inside the PRIMARY mirror and crashed.
@@ -3384,7 +3384,7 @@ test("context mode: checkout(sha) materializes every declared service via ensure
   assert.deepEqual(ensureMirrorAtBranchCalls, [
     { repo: "org/orders-svc", branch: "main", deps: defaultMirrorDeps },
     { repo: "org/payments-svc", branch: "develop", deps: defaultMirrorDeps },
-  ], "every declared service must be mirrored read-only at its OWN svc.baseBranch ?? 'main', sequentially like legacy's buildContextMap loop");
+  ], "every declared service must be mirrored read-only at its OWN svc.baseBranch ?? 'main'");
   assert.deepEqual(calls, [
     { workingCopyDir: dir, repo: "org/orders-svc" },
     { workingCopyDir: dir, repo: "org/payments-svc" },

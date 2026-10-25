@@ -1,5 +1,5 @@
 /* qa-engine/test/contexts/generation/infrastructure/resilience/circuit-breaker.test.ts
-   circuit breaker is SDK-free policy, so its characterization tests move with it, unchanged.
+   circuit breaker is SDK-free policy, so its tests do not depend on the SDK.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

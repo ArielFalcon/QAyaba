@@ -4,7 +4,7 @@ import { YamlAppConfigAdapter } from "@contexts/app-catalog/infrastructure/yaml-
 
 const raw = { name: "portfolio", repo: "org/portfolio", baseBranch: "main", code: false, qa: { shadow: true }, services: [{ repo: "org/api" }], dev: { versionUrl: "https://dev" } };
 
-test("load maps a legacy config to an AppConfigSnapshot", async () => {
+test("load maps a config to an AppConfigSnapshot", async () => {
   const adapter = new YamlAppConfigAdapter({ load: (n) => ({ ...raw, name: n }), list: () => [raw] });
   const snap = await adapter.load("portfolio");
   assert.equal(snap.name, "portfolio");

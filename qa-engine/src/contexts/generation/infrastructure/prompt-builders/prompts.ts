@@ -169,7 +169,7 @@ function redactForModel(text: string): string {
 
 /* THE single way to embed a commit diff into any prompt: capped FIRST (capDiff needs raw `diff --git` boundaries to split/rank files), then secret-scrubbed. Each section is redacted AND guarded (assertNoSecretLeak) independently, with that section's own mode. A diff with no file header at all (several unit-test fixtures pass raw, header-less snippets as `diff`) has no file to key a mode off, so the whole text keeps the prior "model" mode — unchanged for those callers. */
 const CODE_FILE_EXTENSIONS = new Set([
-  /* Every language this system's watched apps and self-maintenance target today (see CLAUDE.md's "Java + JavaScript/TypeScript" scope note) plus common ecosystems, so a diff hunk touching source code keeps model-mode's narrower, code-aware redaction instead of the config-file default. */
+  /* Every language this system's watched apps and self-maintenance target today (see AGENTS.md's "Java + JavaScript/TypeScript" scope note) plus common ecosystems, so a diff hunk touching source code keeps model-mode's narrower, code-aware redaction instead of the config-file default. */
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "java", "go", "rs", "kt", "cs", "rb", "php", "swift",
 ]);
 
@@ -1371,7 +1371,7 @@ export function renderReviewSpecs(input: ReviewInput): string {
     try {
       content = readConfinedSpecFile(root, s);
     } catch (err) {
-      /* A spec the independent reviewer NEVER sees can otherwise ship inside an approved batch — that silently bypasses the quality gate. Surface it loudly (CLAUDE.md: never swallow), like the byte-cap branch below does for its own mode switch. */
+      /* A spec the independent reviewer NEVER sees can otherwise ship inside an approved batch — that silently bypasses the quality gate. Surface it loudly (AGENTS.md: never swallow), like the byte-cap branch below does for its own mode switch. */
       console.warn(`[qa] WARNING: could not read spec '${rel(s)}' for review (${err instanceof Error ? err.message : String(err)}) — it will be judged from a placeholder, NOT its real content.`);
       contents.push(`### ${rel(s)}\n( could not read file — review skipped for this spec )`);
       continue;

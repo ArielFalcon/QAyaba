@@ -5,7 +5,7 @@
 # self-edit, GitHub itself refuses to merge a fix whose CI is red. The job id `ci` is the
 # required-check name.
 #
-# sdd/security-hardening Slice 4: arch:check (the qa-engine/src src/ boundary + VCS-write-seam
+# arch:check (the qa-engine/src src/ boundary + VCS-write-seam
 # dependency-cruiser gates) was previously enforced ONLY by qa-engine/test/arch/*.test.ts's own
 # node:test assertions inside `npm test` — real, but not itself run standalone in CI, so a change
 # that broke `npm run arch:check` specifically (as opposed to the node:test wrapper around it)

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { ContextAssemblerAdapter } from "@contexts/generation/infrastructure/context-assembler.adapter.ts";
 import { assemble as referenceAssemble, section as referenceSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
 
-test("PARITY: assemble + section wrapper produces identical result to the legacy fn", () => {
+test("assemble + section wrapper produces identical result to the reference fn", () => {
   const adapter = new ContextAssemblerAdapter(referenceAssemble, referenceSection);
 
   /* Build sections via both paths using an arbitrary budget (NOT roleWindowBytes — catalog-independent) */
@@ -18,11 +18,11 @@ test("PARITY: assemble + section wrapper produces identical result to the legacy
   const adapterS2 = adapter.section("diff", "semi-stable", "- added LoginForm\n+ added validation", { priority: 2 });
   const adapterResult = adapter.assemble([adapterS1, adapterS2], { budgetBytes: BUDGET });
 
-  assert.equal(adapterResult.text, referenceResult.text, "assembled text must match the legacy fn");
-  assert.deepEqual(adapterResult.sectionSizes, referenceResult.sectionSizes, "sectionSizes must match the legacy fn");
+  assert.equal(adapterResult.text, referenceResult.text, "assembled text must match the reference fn");
+  assert.deepEqual(adapterResult.sectionSizes, referenceResult.sectionSizes, "sectionSizes must match the reference fn");
 });
 
-test("PARITY: budget shedding behavior matches the legacy fn", () => {
+test("budget shedding behavior", () => {
   const adapter = new ContextAssemblerAdapter(referenceAssemble, referenceSection);
 
   /* Use a very tight budget to trigger shedding — proves the shedding algorithm is delegated */

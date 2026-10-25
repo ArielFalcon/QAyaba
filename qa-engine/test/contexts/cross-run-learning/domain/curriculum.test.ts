@@ -20,11 +20,11 @@ describe("initCurriculum", () => {
 
 describe("normalizeCurriculum", () => {
   it("defaults evaluated/credited to 0 for a pre-existing row that lacks them", () => {
-    const legacy = {
+    const older = {
       app: "app", updatedAt: NOW,
       archetypes: [{ archetype: "invalid-input", caughtRealBug: true, firstCaughtAt: NOW, promotionCount: 2, lastPromoted: NOW }],
     };
-    const c = normalizeCurriculum(legacy, "app");
+    const c = normalizeCurriculum(older, "app");
     const e = c.archetypes.find((a) => a.archetype === "invalid-input")!;
     assert.equal(e.caughtRealBug, true);
     assert.equal(e.promotionCount, 2);

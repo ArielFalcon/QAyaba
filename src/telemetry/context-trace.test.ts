@@ -284,7 +284,7 @@ test("the pages the call graph proved are on the record: their basis on the rout
     resolve: async () => ({
       pages: [{ route: "/b", proof: ["src/orders/list.ts::save", "src/b/page.ts::B", "page /b"] }],
       hubs: [{ symbol: "src/http.ts::request", pages: 9 }],
-      disagreements: [{ route: "/orders", mapFiles: ["src/orders/list.ts"], engineFile: "src/orders/legacy.ts" }],
+      disagreements: [{ route: "/orders", mapFiles: ["src/orders/list.ts"], engineFile: "src/orders/older.ts" }],
       omitted: 1,
     }),
   };
@@ -298,7 +298,7 @@ test("the pages the call graph proved are on the record: their basis on the rout
     assert.deepEqual(join.attributes["qayaba.code_graph.pages"], ["route:/b"]);
     assert.deepEqual(join.attributes["qayaba.code_graph.proofs"], ["/b: src/orders/list.ts::save > src/b/page.ts::B > page /b"]);
     assert.deepEqual(join.attributes["qayaba.code_graph.hubs"], ["src/http.ts::request: 9"]);
-    assert.deepEqual(join.attributes["qayaba.code_graph.disagreements"], ["/orders: src/orders/legacy.ts"]);
+    assert.deepEqual(join.attributes["qayaba.code_graph.disagreements"], ["/orders: src/orders/older.ts"]);
     assert.equal(join.attributes["qayaba.code_graph.pages_omitted"], 1);
   } finally {
     g.dispose();

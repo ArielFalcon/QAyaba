@@ -15,7 +15,7 @@ FROM node:24-bookworm
 # depends on outbound GitHub/PyPI access and startup is deterministic and fast. Pin a
 # release tag for reproducibility — bump it deliberately, never float on a moving ref.
 ARG SERENA_VERSION=v1.5.3
-# The agent CLIs are PINNED to exact versions (CLAUDE.md: pin exact versions on the
+# The agent CLIs are PINNED to exact versions (AGENTS.md: pin exact versions on the
 # execution path). A floating "latest" would let a silent upstream bump change agent
 # behavior on the next rebuild. Bumping is a deliberate edit here + an image rebuild —
 # confirm a new opencode-ai against `opencode models` before bumping.

@@ -99,9 +99,9 @@ test("a run whose error class changed between the labels is called out with both
 });
 
 test("a snapshot taken before the error class was recorded reads as unknown, never as none, and is not called a change", () => {
-  const legacy = measurement();
-  delete (legacy.guardrails as Partial<CaseMeasurement["guardrails"]>).errorClass;
-  const comparison = compareSnapshots(snapshot("a", { c: legacy }), snapshot("b", { c: measurement({ guardrails: { errorClass: "E-STEP-BUDGET" } }) }));
+  const older = measurement();
+  delete (older.guardrails as Partial<CaseMeasurement["guardrails"]>).errorClass;
+  const comparison = compareSnapshots(snapshot("a", { c: older }), snapshot("b", { c: measurement({ guardrails: { errorClass: "E-STEP-BUDGET" } }) }));
   const text = renderReport(comparison);
   assert.match(text, /error class unknown/);
   assert.doesNotMatch(text, /error class undefined/);
@@ -319,12 +319,12 @@ test("a gate-signal guardrail whose value differs between the labels is called o
 });
 
 test("a snapshot taken before the gate signals were recorded reads them as n/a, never as undefined or zero, and is not called a change", () => {
-  const legacy = measurement();
+  const older = measurement();
   for (const key of ["preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateFailClosed"] as const) {
-    delete (legacy.guardrails as Partial<CaseMeasurement["guardrails"]>)[key];
+    delete (older.guardrails as Partial<CaseMeasurement["guardrails"]>)[key];
   }
 
-  const comparison = compareSnapshots(snapshot("a", { c: legacy }), snapshot("b", { c: measurement({ guardrails: { preExecAmbiguityCatches: 3 } }) }));
+  const comparison = compareSnapshots(snapshot("a", { c: older }), snapshot("b", { c: measurement({ guardrails: { preExecAmbiguityCatches: 3 } }) }));
   const text = renderReport(comparison);
 
   assert.match(text, /pre-exec ambiguity catches n\/a/);

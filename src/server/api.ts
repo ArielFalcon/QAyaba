@@ -221,7 +221,7 @@ function contractJson(res: ServerResponse, status: number, schema: z.ZodTypeAny,
   const result = schema.safeParse(body);
   if (!result.success) {
     /*
-     * Surface the drift loudly (CLAUDE.md invariant) — a silent 500 hides a real
+     * Surface the drift loudly (AGENTS.md invariant) — a silent 500 hides a real
      * schema mismatch between the handler and the contract.
      */
     console.error("[contract] response validation failed:", result.error.issues);
@@ -648,7 +648,7 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
 /*
  * Sanitize a RunRecord before it leaves the system: logs, case details and the note can
  * carry DEV data or a secret the agent echoed. Same egress invariant the chat/Issue paths
- * already honor (CLAUDE.md "Sanitize data leaving the system").
+ * already honor (AGENTS.md "Sanitize data leaving the system").
  */
 function sanitizeRecord(record: RunRecord): RunRecord {
   return {

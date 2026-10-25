@@ -25,7 +25,7 @@ test("parseStatusOutput strips quotes independently from each side of a quoted r
   assert.deepEqual(parsed.map((p) => p.path), ["old spaced.ts", "new spaced.ts"]);
 });
 
-test("parseStatusOutput is quote-aware when the OLD path itself literally contains ' -> ' — git C-style-quotes such a path, and the split must skip past the quoted span, not first-match inside it", () => {
+test("parseStatusOutput is quote-aware when the source path itself literally contains ' -> ' — git C-style-quotes such a path, and the split must skip past the quoted span, not first-match inside it", () => {
   const parsed = svc.parseStatusOutput('R  "e2e/weird -> name.spec.ts" -> e2e/renamed.spec.ts');
   assert.deepEqual(parsed, [
     { xy: "R ", path: "e2e/weird -> name.spec.ts", renameCounterpart: "e2e/renamed.spec.ts" },

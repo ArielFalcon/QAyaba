@@ -387,7 +387,7 @@ test("PROD-BLOCKER: publish() invokes vcsWrite BEFORE pr.openWithAutoMerge on th
   const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
 
   assert.match(result.outcome, /pr/);
-  assert.deepEqual(order, ["vcsWrite.publish", "pr.openWithAutoMerge"], "the git write must land BEFORE the PR is opened — the legacy contract's exact ordering");
+  assert.deepEqual(order, ["vcsWrite.publish", "pr.openWithAutoMerge"], "the git write must land BEFORE the PR is opened");
 });
 
 /* the vcs-write tracked-file guard's own revert
@@ -522,7 +522,7 @@ test("PROD-BLOCKER: publish() short-circuits to a noop-shaped outcome when vcsWr
   const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
 
   assert.equal(prCalled, false, "no changes to publish -> the PR must never be opened");
-  assert.match(result.outcome, /noop/, "the outcome must honestly reflect that nothing was published, matching legacy's own no-change skip semantic (CLAUDE.md-documented: a green run with no e2e/ changes opens no PR)");
+  assert.match(result.outcome, /noop/, "the outcome must honestly reflect that nothing was published");
 });
 
 test("PROD-BLOCKER: publish() throws loudly on the 'pr' route when vcsWrite is absent (fail-closed — never silently opens a PR against a phantom branch)", async () => {

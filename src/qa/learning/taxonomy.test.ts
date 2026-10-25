@@ -168,7 +168,7 @@ describe("errorClassFromCorrections", () => {
 });
 
 describe("errorClassFromCorrections — closed-vocabulary reviewer tags (PROMPT-05)", () => {
-  it("classifies by the leading [tag] even when the prose contains no legacy keyword", () => {
+  it("classifies by the leading [tag] even when the prose contains no keyword", () => {
     /* The realistic reviewer correction: tagged, but the description is free-form and matches
        none of the keyword regexes. Before the tag, every such correction collapsed to the
        catch-all E-REVIEWER-REJECTED, making the fine-grained taxonomy dead.

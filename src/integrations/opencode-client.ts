@@ -204,7 +204,7 @@ export function agentConfigFacts(agent: string, configPath: string = DEFAULT_AGE
 }
 
 /*
- * The acting agent's step limit from opencode.json: `agent.<id>.steps`, else the legacy
+ * The acting agent's step limit from opencode.json: `agent.<id>.steps`, else the deprecated
  * `agent.<id>.maxSteps` — the order in which the OpenCode server maps them into the one cap it
  * enforces — so a turn's exhaustion is reported against the budget the file declares, never a
  * hardcoded copy. Undefined when the file, the agent or a limit is absent; a file that cannot be
@@ -226,7 +226,7 @@ export function maxStepsFromConfig(
   const limit: unknown = declared?.steps ?? declared?.maxSteps;
   if (limit === undefined) return undefined;
   if (typeof limit !== "number") {
-    reportUnusableSetting(entry!, configPath, `agent.${agent}.steps`, `the step limit of '${agent}' (steps, or the legacy maxSteps) is not a number (${JSON.stringify(limit)}); step-budget telemetry reports an unknown limit`);
+    reportUnusableSetting(entry!, configPath, `agent.${agent}.steps`, `the step limit of '${agent}' (steps, or the deprecated maxSteps) is not a number (${JSON.stringify(limit)}); step-budget telemetry reports an unknown limit`);
     return undefined;
   }
   return limit;
@@ -327,7 +327,7 @@ export interface AgentCap {
 
 /*
  * An agent as the server answers it. `steps` is the cap: the server maps a configured `maxSteps`
- * into it, and answers null (not an absent key) for a configured agent with no cap. The legacy
+ * into it, and answers null (not an absent key) for a configured agent with no cap. The deprecated
  * `maxSteps` is not on the SDK's v2 `Agent`; it is read only when `steps` is absent, for a server
  * that still answers the old name.
  */

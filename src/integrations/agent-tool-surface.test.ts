@@ -8,7 +8,7 @@
    {[key:string]: boolean}`, `maxSteps?: number`, `permission?`, `mode?`, and NO `mcp` key. The old
    test was certifying a security posture the runtime never enforced (the fictional field was
    silently ignored by OpenCode). The step cap goes by two names: `steps` (declared by the v2
-   `AgentConfig`, and what `GET /agent` returns) and the legacy `maxSteps`, which the server maps into
+   `AgentConfig`, and what `GET /agent` returns) and the deprecated `maxSteps`, which the server maps into
    it. This version:
    (a) pins the config against the SDK's real `AgentConfig` type at compile time (below);
    (b) asserts the fiction is gone (no per-agent `mcp` arrays) and that an agent names its step cap once;
@@ -203,7 +203,7 @@ function agentTools(agent: unknown): Record<string, unknown> {
 }
 
 /* The names an agent's step cap goes by: `steps`, which the SDK's v2 AgentConfig declares and the server
-   returns, and the legacy `maxSteps`, which the server maps into it (`steps` first). */
+   returns, and the deprecated `maxSteps`, which the server maps into it (`steps` first). */
 const STEP_CAP_FIELDS = ["steps", "maxSteps"] as const;
 
 /* What is wrong with the step cap an agent declares, or undefined: both names at once (the server reads
@@ -257,7 +257,7 @@ test("the fiction is gone: no per-agent `mcp` array remains", () => {
   }
 });
 
-test("an agent names its step cap once: `steps`, or the legacy `maxSteps` the server maps into it", () => {
+test("an agent names its step cap once: `steps`", () => {
   assert.equal(stepCapProblem({ steps: 40 }), undefined);
   assert.equal(stepCapProblem({ maxSteps: 30 }), undefined);
   assert.match(stepCapProblem({ steps: 40, maxSteps: 30 })!, /both steps and maxSteps/, "the server reads steps and ignores maxSteps, so naming both hides one of them");

@@ -1,5 +1,5 @@
 /* qa-engine/test/contexts/generation/infrastructure/sse/event-stream.test.ts
-   characterization tests exercise the SSE lifecycle POLICY (reconnect-with-backoff,
+   These tests exercise the SSE lifecycle POLICY (reconnect-with-backoff,
    refcounted per-directory subscription lifecycle) that now lives in event-stream.ts, decoupled
    from the SDK (openStream is injected in every test — none rely on the real raw opener).
  */

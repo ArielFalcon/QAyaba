@@ -77,7 +77,7 @@ import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
    provides for the equivalent runPipeline scenario.
  */
 
-/* ── Fully-stubbed port set, mirroring the green-pr scenario (scenarios.ts:226-234): scenarioApp
+/* ── Fully-stubbed port set, mirroring the green-pr scenario: scenarioApp
    (needsReview:true), makeDeps({}) — generate() returns approved:true with 1 spec, execute()
    returns a clean pass, no coverage config (blocksPublish never trips), not shadow, onFailure
    defaults to "github-issue". ──────────────────────────────────────────────────────────────────
@@ -726,7 +726,7 @@ test("REVIEWER DOM GROUNDING: aborting during capture() (signal fires inside the
 /* Drives ALL 10 scenarios.ts goldens through RunQaUseCase, with per-scenario stub ports built from
    the SAME fixture semantics scenarios.ts's makeDeps() encodes (never a new, invented behavior) —
    asserting RunDecision (verdict + sideEffect) equals the EXPECTED_VERDICT/EXPECTED_SIDE_EFFECT
-   golden-outcome.test.ts already proves for LegacyPipelineAdapter (and run-decision-parity.test.ts
+   golden-outcome.test.ts already proves (and run-decision.scenarios.test.ts
    already proves for decide() in isolation). This test's OWN job is proving the WIRING reaches the
    same decision — not re-deriving decide()'s policy.
  */
@@ -753,7 +753,6 @@ const baseConfig = { needsReview: true, shadow: false, onFailure: "github-issue"
 const tenScenarios: TenScenarioCase[] = [
   {
     /* scenarioApp (needsReview:true), makeDeps({}) — generated (approved:true), passing(). Source:
-       scenarios.ts:226-234.
      */
     scenario: "green-pr",
     overrides: {},
@@ -765,7 +764,6 @@ const tenScenarios: TenScenarioCase[] = [
   {
     /* scenarioApp, makeDeps({ run: fail }) — a failing case, no fix-loop recovery (execute always
        returns the SAME fail result, mirroring the golden's fail-issue stub semantics exactly).
-       Source: scenarios.ts:236-246.
      */
     scenario: "fail-issue",
     overrides: {
@@ -789,7 +787,7 @@ const tenScenarios: TenScenarioCase[] = [
   },
   {
     /* scenarioApp, makeDeps({ agent: noopAgent }) — the agent approves with zero specs: a VALID
-       skipped (CLAUDE.md invariant), never invalid. Source: scenarios.ts:260-268.
+       skipped (AGENTS.md invariant), never invalid.
      */
     scenario: "no-op-skip",
     overrides: {
@@ -801,7 +799,7 @@ const tenScenarios: TenScenarioCase[] = [
     expectedSideEffect: "none",
   },
   {
-    /* scenarioApp, makeDeps({ validation: { ok:false, ... } }). Source: scenarios.ts:270-280. */
+    /* scenarioApp, makeDeps({ validation: { ok:false, ... } }). */
     scenario: "invalid-issue",
     overrides: {
       validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
@@ -813,7 +811,6 @@ const tenScenarios: TenScenarioCase[] = [
   },
   {
     /* scenarioApp, makeDeps({ healthy: false }) — DEV unhealthy before execution. Source:
-       scenarios.ts:282-290.
      */
     scenario: "infra-error",
     overrides: {
@@ -827,7 +824,6 @@ const tenScenarios: TenScenarioCase[] = [
   {
     /* codeApp (needsReview:true), makeDeps({ isCodeMode: true }) — code mode reuses the SAME
        pass-path chain (report()/decide are verdict-shaped, not e2e-vs-code-shaped). Source:
-       scenarios.ts:292-300.
      */
     scenario: "code-mode",
     overrides: {},
@@ -846,7 +842,7 @@ const tenScenarios: TenScenarioCase[] = [
     expectedSideEffect: "pr",
   },
   {
-    /* shadowApp (needsReview:true, shadow:true), makeDeps({}). Source: scenarios.ts:324-332. */
+    /* shadowApp (needsReview:true, shadow:true), makeDeps({}). */
     scenario: "shadow",
     overrides: {},
     config: { ...baseConfig, shadow: true },
@@ -856,7 +852,6 @@ const tenScenarios: TenScenarioCase[] = [
   },
   {
     /* scenarioApp, context mode's own generate() stub — approved:true, reviewed:false, passing().
-       Source: scenarios.ts:334-351.
      */
     scenario: "context",
     overrides: {
@@ -893,7 +888,7 @@ for (const c of tenScenarios) {
 test("RunQaUseCase — shadow: publish() IS called (dispatches to PublicationPort, which routes shadow-log internally)", async () => {
   /* ONLY sideEffect==="pr" used to call publish() — shadow
      mode's "shadow-log" side effect silently never reached the publish port, so a shadow-mode green
-     run never logged anything (CLAUDE.md "Shadow mode... replaces every PR/Issue side effect with a
+     run never logged anything (AGENTS.md "Shadow mode... replaces every PR/Issue side effect with a
      log line" — a promise the use-case could not keep on its own, since PublicationPortAdapter's
      shadow-log routing (publication-port.adapter.ts:103-107) was simply unreachable). RunQaUseCase's
      own scope is the DECISION (sideEffect !== "none"), not which concrete side effect the real
@@ -930,7 +925,7 @@ test("RunQaUseCase — cross-repo (needsReview:false): review() is NEVER called"
    nothing new on a pass. `generating` is the classify action, never a hardcoded true.
  */
 
-test("characterization: a regression commit that PASSES the existing suite publishes NOTHING (pass/none), never calls generate() or review()", async () => {
+test("a regression commit that PASSES the existing suite publishes NOTHING (pass/none), never calls generate() or review()", async () => {
   let generateCallCount = 0;
   let reviewCallCount = 0;
   let executeCallCount = 0;
@@ -954,7 +949,7 @@ test("characterization: a regression commit that PASSES the existing suite publi
   assert.equal(publishCallCount, 0, "sideEffect:'none' must never dispatch to the publish port");
 });
 
-test("characterization: a regression commit whose EXISTING suite FAILS still opens an Issue (fail/issue), FixLoop never regenerates (generating:false)", async () => {
+test("a regression commit whose EXISTING suite FAILS still opens an Issue (fail/issue), FixLoop never regenerates (generating:false)", async () => {
   let generateCallCount = 0;
   let executeCallCount = 0;
   const { ports } = stubPorts({
@@ -972,7 +967,7 @@ test("characterization: a regression commit whose EXISTING suite FAILS still ope
   assert.equal(out.decision.sideEffect, "issue", "a red existing suite still surfaces — the normal fail/Issue machinery, unchanged");
 });
 
-test("characterization: reviewerApproved persists as undefined (never a fabricated true) for a passing regression run", async () => {
+test("reviewerApproved persists as undefined (never a fabricated true) for a passing regression run", async () => {
   const { ports } = stubPorts({
     classify: async () => ({ action: "regression", reason: "type=refactor", diff: "" }),
     execute: async () => ({ verdict: "pass", cases: [{ name: "existing-suite-flow", status: "pass" as const }], logs: "" }),
@@ -981,10 +976,10 @@ test("characterization: reviewerApproved persists as undefined (never a fabricat
 
   const out = await useCase.run({ ...baseInput, runId: "regression-reviewer-approved-undefined" });
 
-  assert.equal(out.gateSignals.reviewerApproved, undefined, "legacy persists reviewerApproved as null for a regression run (result stays unset) — this use-case's equivalent is undefined, never the synthetic generate() stand-in's approved:true");
+  assert.equal(out.gateSignals.reviewerApproved, undefined, "this use-case's equivalent is undefined, never the synthetic generate() stand-in's approved:true");
 });
 
-test("characterization: a generate-typed commit (unchanged) still calls generate() normally — regression's own gate does not leak into other actions", async () => {
+test("a generate-typed commit (unchanged) still calls generate() normally — regression's own gate does not leak into other actions", async () => {
   let generateCallCount = 0;
   const { ports } = stubPorts({
     classify: async () => ({ action: "generate", reason: "type=feat", diff: "diff --git a/src/x.ts b/src/x.ts\n+if (x) return 1;\n" }),
@@ -1134,7 +1129,7 @@ test("RunQaUseCase — infra-error: execute() is NEVER called (DEV unhealthy bef
   assert.equal(executeCallCount, 0, "DEV-unhealthy must block BEFORE execution, never call it");
 });
 
-/* ── CLAUDE.md invariant ("surface integration errors loudly — never swallow errors into an empty
+/* ── AGENTS.md invariant ("surface integration errors loudly — never swallow errors into an empty
    result"): every infra-error-shaped terminal must carry a diagnostic note. A live portfolio run
    once produced verdict:infra-error with NO note/log/cases — undiagnosable without instrumenting a
    live container. These tests pin the note end-to-end for each silent terminal that fix closed. ──
@@ -1441,7 +1436,7 @@ test("enforce mode — the regen's generate() throws — KEEPS the first measure
   await assert.rejects(
     () => useCase.run({ ...baseInput, runId: "p2c-enforce-regen-throws" }),
     /agent runtime crashed mid-regen/,
-    "CLAUDE.md invariant: surface integration errors loudly — a regen throw must propagate, never be silently swallowed into a fabricated result",
+    "AGENTS.md invariant: surface integration errors loudly — a regen throw must propagate, never be silently swallowed into a fabricated result",
   );
 });
 
@@ -1671,7 +1666,7 @@ test("context mode NEVER calls execute() (context.json is not a Playwright spec)
   assert.equal(executeCallCount, 0, "context mode must never invoke ExecutionPort.execute — context.json is not a Playwright spec");
 });
 
-test("a diff-mode fail retry computes coverageWillMeasure per the legacy formula and threads it into the FixLoop", async () => {
+test("a diff-mode fail retry computes coverageWillMeasure and threads it into the FixLoop", async () => {
   /* The use-case's ExecutionPort accepts an ExecutionOpts bag (see
      ports/index.ts) and the fixLoopExecution closure below DOES thread FixLoopExecuteInput.specFiles
      through to it (see "filtered-retry threads specFiles" tests further down in this
@@ -1710,7 +1705,7 @@ test("a diff-mode fail retry computes coverageWillMeasure per the legacy formula
   );
 });
 
-test("coveragePolicyMode:\"off\" threads coverageWillMeasure:false into the FixLoop (matches the legacy's covPolicy.mode!=='off' conjunct)", async () => {
+test("coveragePolicyMode:\"off\" threads coverageWillMeasure:false into the FixLoop", async () => {
   const originalRun = FixLoop.prototype.run;
   let capturedCoverageWillMeasure: boolean | undefined;
   FixLoop.prototype.run = async function (input: Parameters<typeof originalRun>[0]) {
@@ -1750,7 +1745,7 @@ test("agent no-op skip calls runHistory.save() but NOT learning.fold()", async (
 
   assert.equal(out.decision.verdict, "skipped");
   assert.equal(saveCallCount, 1, "agent no-op skip must call runHistory.save() exactly once");
-  assert.equal(foldCallCount, 0, "agent no-op skip must NEVER call learning.fold() (the legacy never calls foldRunLearning for this source)");
+  assert.equal(foldCallCount, 0, "agent no-op skip must NEVER call learning.fold()");
 });
 
 test("classify-skip does NOT call runHistory.save() or learning.fold() (distinct from the agent no-op skip source)", async () => {
@@ -1764,7 +1759,7 @@ test("classify-skip does NOT call runHistory.save() or learning.fold() (distinct
   const out = await useCase.run({ ...baseInput, runId: "fix-e-classify-skip", mode: "diff" });
 
   assert.equal(out.decision.verdict, "skipped");
-  assert.equal(saveCallCount, 0, "classify-skip is a bare return in the legacy — it must NOT call runHistory.save()");
+  assert.equal(saveCallCount, 0, "it must NOT call runHistory.save()");
   assert.equal(foldCallCount, 0, "classify-skip must NOT call learning.fold()");
 });
 
@@ -2357,7 +2352,7 @@ test("reflector-rewire: reflector dep ABSENT ([SWAP]-optional) — a gate-true o
   const out = await useCase.run({ ...baseInput, runId: "reflector-absent-no-behavior-change" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(foldCallCount, 1, "learning.fold() must still run when reflector is unwired — dormant, pre-cutover-equivalent behavior");
+  assert.equal(foldCallCount, 1, "learning.fold() must still run when reflector is unwired");
 });
 
 test("reflector-rewire: RunOutcome.reflection stays undefined on the use-case's own persisted outcome — back-fill is host-side (ADR-2), not this use-case's concern", async () => {
@@ -2476,10 +2471,10 @@ test("process-audit: processAudit dep ABSENT ([SWAP]-optional) — a gate-true o
   const out = await useCase.run({ ...baseInput, runId: "process-audit-absent-no-behavior-change" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(foldCallCount, 1, "learning.fold() must still run when processAudit is unwired — dormant, pre-cutover-equivalent behavior");
+  assert.equal(foldCallCount, 1, "learning.fold() must still run when processAudit is unwired");
 });
 
-/* ── SETUP phase (CLAUDE.md run-flow step 3): "bootstrap the config/e2e seed into e2e/, then npm ci;
+/* ── SETUP phase (AGENTS.md run-flow step 3): "bootstrap the config/e2e seed into e2e/, then npm ci;
    runs BEFORE generation so the agent has the fixtures/config". Missing from this rewrite until now
    regression and BEFORE generate(); a setup throw surfaces as infra-error, never a code verdict
    (src/qa/setup.ts's own doc). ─────────────────────────────────────────────────────────────────
@@ -2506,7 +2501,7 @@ test("SETUP: setup() is called on a non-diff mode too (which never classifies)",
 
   await useCase.run({ ...baseInput, runId: "setup-non-diff-mode", mode: "complete" });
 
-  assert.equal(setupCalled, true, "setup must run for whole-repo/guided modes too (CLAUDE.md: setup runs before generation for every generating run)");
+  assert.equal(setupCalled, true, "setup must run for whole-repo/guided modes too");
 });
 
 test("SETUP: setup() is SKIPPED on a classify-skip (nothing to generate for)", async () => {
@@ -2539,7 +2534,7 @@ test("SETUP: a setup() throw maps to infra-error, never a code verdict — and d
   assert.equal(out.decision.sideEffect, "none");
   assert.equal(generateCalled, false, "generate() must never run once setup has thrown");
   assert.equal(saveCallCount, 0, "a setup failure must NOT persist a RunOutcome — matches the entry-gate infra-error's own no-persist convention (infraErrorResult never saves)");
-  assert.ok(out.note?.includes("npm ci in e2e failed (code 1)"), `a setup throw must surface a diagnostic note carrying the thrown message (CLAUDE.md "never swallow errors into an empty result") — got: ${out.note}`);
+  assert.ok(out.note?.includes("npm ci in e2e failed (code 1)"), `a setup throw must surface a diagnostic note carrying the thrown message (AGENTS.md "never swallow errors into an empty result") — got: ${out.note}`);
 });
 
 test("SETUP: an absent SetupPort (deps.setup undefined) is a no-op — generation still runs (backward compatible)", async () => {
@@ -2755,7 +2750,7 @@ test("the final guard fails closed when no suite store can prove the delivered b
   assert.equal(out.decision.sideEffect, "none");
 });
 
-test("a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 convention — context mode never calls saveOutcome on a clean pass)", async () => {
+test("a CLEAN context-mode pass does NOT persist", async () => {
   let saveCallCount = 0;
   const { ports } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" })),
@@ -2766,7 +2761,7 @@ test("a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 co
   const out = await useCase.run({ ...baseInput, runId: "context-clean-no-persist", mode: "context" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.equal(saveCallCount, 0, "a clean context-mode pass must NOT call runHistory.save() — the legacy's buildContextMap publishes directly via publishContext and returns without persisting");
+  assert.equal(saveCallCount, 0, "a clean context-mode pass must NOT call runHistory.save()");
 });
 
 /* The stored map is independent of whether a context.json PR opens, so shadow must not suppress it. */
@@ -3106,7 +3101,7 @@ test("reviewerApproved is ABSENT (not fabricated) when needsReview is false, reg
 
   assert.equal(out.decision.verdict, "fail");
   assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(saved!.gateSignals.reviewerApproved, undefined, "needsReview:false must never persist a reviewerApproved value (matches the legacy's `app.qa.needsReview && result ? ... : null` guard's first conjunct)");
+  assert.equal(saved!.gateSignals.reviewerApproved, undefined, "needsReview:false must never persist a reviewerApproved value");
 });
 
 /* These tests pin field threading only (the fields reach publish()). Provenance of the values
@@ -3258,11 +3253,11 @@ test("a failing static gate is repaired by regenerating with the validation erro
 
   const out = await useCase.run({ ...baseInput, runId: "static-repair-recovers" });
 
-  assert.equal(out.decision.verdict, "pass", "a static gate repaired within the bound must recover to the SAME pass verdict the legacy static-repair loop converges to, not invalid");
+  assert.equal(out.decision.verdict, "pass", "not invalid");
   assert.equal(out.decision.sideEffect, "pr");
   assert.equal(validateCallCount, 2, "the static-fix loop must re-validate after the repair regen (1 initial fail + 1 recovery pass)");
   assert.ok(generateCallCount >= 2, `the static-fix loop must regenerate at least once to repair the static gate, got ${generateCallCount} generate() call(s)`);
-  assert.equal(out.gateSignals.retries, 1, "matches the legacy static-repair loop's own retries++ per repair round — 1 repair round consumed");
+  assert.equal(out.gateSignals.retries, 1, "1 repair round consumed");
 });
 
 test("the static-fix loop is bounded — a static gate that never recovers resolves to invalid after the last repair round", async () => {
@@ -3461,7 +3456,7 @@ test("infra-error calls runHistory.save() but NOT learning.fold()", async () => 
 
   assert.equal(out.decision.verdict, "infra-error");
   assert.equal(saveCallCount, 1, "infra-error must call runHistory.save() exactly once");
-  assert.equal(foldCallCount, 0, "infra-error must NEVER call learning.fold() (the legacy never calls foldRunLearning for this source)");
+  assert.equal(foldCallCount, 0, "infra-error must NEVER call learning.fold()");
 });
 
 /* ── Change-coverage keystone: classificationDiff threading into ObjectiveSignalPort.measure() ───
@@ -3500,11 +3495,11 @@ test("KEYSTONE: a non-diff mode run never has a classificationDiff — measure()
 
   await useCase.run({ ...baseInput, mode: "complete", runId: "keystone-non-diff-mode" });
 
-  assert.equal(seenDiff, undefined, "classify() is only ever called in diff mode (CLAUDE.md 'Run modes'), so complete/exhaustive/manual/context must never fabricate a diff for measure()");
+  assert.equal(seenDiff, undefined, "classify() is only ever called in diff mode, so complete/exhaustive/manual/context must never fabricate a diff for measure()");
 });
 
 /* Cross-repo coverage guard: a cross-repo (deploy-event) run's changed lines live in the SERVICE
-   repo, which browser V8 coverage cannot map (CLAUDE.md: "Change-coverage is unknown for these
+   repo, which browser V8 coverage cannot map (AGENTS.md: "Change-coverage is unknown for these
    [cross-repo] runs"). The keystone invariant is "unknown" NEVER blocks, so a cross-repo diff run
    must starve the assembler (measure() sees diff:undefined) exactly like a non-diff-mode run, even
    though classify() DID run and DID produce a real classificationDiff.
@@ -3523,7 +3518,7 @@ test("KEYSTONE: a diff-mode PASS run WITH input.triggerRepo set — measure() se
 
   await useCase.run({ ...baseInput, mode: "diff", runId: "keystone-cross-repo", triggerRepo: "org/orders-svc" });
 
-  assert.equal(seenDiff, undefined, "a cross-repo run must starve ObjectiveSignalPort.measure()'s diff arg — the assembler must never be invoked (browser coverage cannot map service-repo lines), mirroring legacy's !triggerService gate");
+  assert.equal(seenDiff, undefined, "a cross-repo run must starve ObjectiveSignalPort.measure()'s diff arg — the assembler must never be invoked (browser coverage cannot map service-repo lines)");
 });
 
 test("KEYSTONE: the SAME diff-mode PASS run WITHOUT input.triggerRepo still threads the real classificationDiff", async () => {
@@ -3666,7 +3661,7 @@ test("ObserverPort: the setup phase is SKIPPED (no 'setup' step) when RunQaUseCa
   );
 });
 
-test("ObserverPort: a classify-skip emits gate -> classify -> done, matching the legacy's bare-return (no generate/validate/execute)", async () => {
+test("ObserverPort: a classify-skip emits gate -> classify -> done", async () => {
   const { ports } = stubPorts({ classify: async () => ({ action: "skip", reason: "docs-only change", diff: "" }) });
   const { observer, steps } = fakeObserver();
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig, observer });
@@ -3696,7 +3691,7 @@ test("ObserverPort: a failing execute() emits a 'retry' step (fix-loop engaged) 
    and a cross-repo diff-mode pass does NOT.
  */
 
-test("ObserverPort: a non-diff-mode (complete) PASS run never emits a 'coverage' step, mirroring the legacy's mode==='diff' gate", async () => {
+test("ObserverPort: a non-diff-mode (complete) PASS run never emits a 'coverage' step", async () => {
   const { ports } = stubPorts();
   const { observer, steps } = fakeObserver();
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig, observer });
@@ -3704,10 +3699,10 @@ test("ObserverPort: a non-diff-mode (complete) PASS run never emits a 'coverage'
   const out = await useCase.run({ ...baseInput, runId: "coverage-step-non-diff-mode", mode: "complete" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.ok(!steps.some((s) => s.step === "coverage"), "a non-diff mode pass must never emit 'coverage' — legacy's own onStep('coverage') site lives strictly inside the mode==='diff' branch");
+  assert.ok(!steps.some((s) => s.step === "coverage"), "a non-diff mode pass must never emit 'coverage'");
 });
 
-test("ObserverPort: a diff-mode PASS run WITH triggerRepo set never emits a 'coverage' step, mirroring the legacy's !triggerService conjunct", async () => {
+test("ObserverPort: a diff-mode PASS run WITH triggerRepo set never emits a 'coverage' step", async () => {
   const { ports } = stubPorts();
   const { observer, steps } = fakeObserver();
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig, observer });
@@ -3715,7 +3710,7 @@ test("ObserverPort: a diff-mode PASS run WITH triggerRepo set never emits a 'cov
   const out = await useCase.run({ ...baseInput, runId: "coverage-step-cross-repo", mode: "diff", triggerRepo: "org/orders-svc" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.ok(!steps.some((s) => s.step === "coverage"), "a cross-repo diff-mode pass must never emit 'coverage' — browser coverage cannot map the triggering service repo's changed lines (CLAUDE.md)");
+  assert.ok(!steps.some((s) => s.step === "coverage"), "a cross-repo diff-mode pass must never emit 'coverage' — browser coverage cannot map the triggering service repo's changed lines");
 });
 
 test("ObserverPort: a diff-mode PASS run WITHOUT triggerRepo still emits a 'coverage' step (control case for the two guards above)", async () => {
@@ -4054,7 +4049,7 @@ test("a triggerRepo run threads issueRepo into publish() so the Issue routes to 
 
   assert.equal(out.decision.sideEffect, "issue");
   assert.ok(publishedDecision, "publish() must have been called");
-  assert.equal(publishedDecision!.issueRepo, "org/orders-svc", "publish() must receive issueRepo from input.triggerRepo so PublicationPortAdapter can route the Issue to the triggering repo, not the primary (mirrors legacy's issueRepo = triggerService ? triggerService.repo : app.repo)");
+  assert.equal(publishedDecision!.issueRepo, "org/orders-svc", "publish() must receive issueRepo from input.triggerRepo so PublicationPortAdapter can route the Issue to the triggering repo, not the primary");
 });
 
 test("an ordinary (non-cross-repo) run omits issueRepo entirely — the adapter falls back to its own static ctx.repo", async () => {
@@ -4141,7 +4136,7 @@ test("an infra-error verdict resolves to sideEffect 'none' via decide() itself �
   const out = await useCase.run({ ...baseInput, runId: "w3-fix1-infra-error-no-publish" });
 
   assert.equal(out.decision.verdict, "infra-error");
-  assert.equal(out.decision.sideEffect, "none", "infra-error must resolve to sideEffect 'none' automatically through the shared decide() call — legacy never opens an Issue for infra-error (report():3353-3355)");
+  assert.equal(out.decision.sideEffect, "none", "infra-error must resolve to sideEffect 'none' automatically through the shared decide() call");
   assert.equal(publishCallCount, 0, "an infra-error terminal must NEVER dispatch to publish()");
 });
 
@@ -4182,7 +4177,7 @@ test("a context-mode invalid dispatches publish() when onFailure:'github-issue' 
   assert.equal(saveCallCount, 0, "context-mode invalid must still NOT persist — publish dispatch and persistence are orthogonal (the skipPersist convention is unaffected by publish dispatch)");
 });
 
-test("a context-mode invalid does NOT dispatch publish() when onFailure:'none' — a DELIBERATE divergence from legacy's unconditional issueOrShadow bypass", async () => {
+test("a context-mode invalid does NOT dispatch publish() when onFailure:'none'", async () => {
   let publishCallCount = 0;
   const { ports } = stubPorts({
     generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "tried" })),
@@ -4194,7 +4189,7 @@ test("a context-mode invalid does NOT dispatch publish() when onFailure:'none' �
   const out = await useCase.run({ ...baseInput, runId: "w3-fix2-context-invalid-onfailure-none", mode: "context" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(publishCallCount, 0, "this composition prefers the CONSISTENT onFailure policy over legacy's undocumented direct-issueOrShadow bypass — see the terminalResult skipPersist comment for the full rationale");
+  assert.equal(publishCallCount, 0, "see the terminalResult skipPersist comment for the full rationale");
 });
 
 /* The FixLoop's own regenerate() call receives FixLoopGenerateInput
@@ -4345,7 +4340,7 @@ test("corrections resolved on the regenerated round -> reviewerApproved:true -> 
   assert.equal(out.decision.sideEffect, "pr");
 });
 
-test("corrections persist through the legacy's bound (2 rounds) -> terminal rejection (issue, not pr)", async () => {
+test("not pr)", async () => {
   let reviewCallCount = 0;
   let generateCallCount = 0;
   const { ports } = stubPorts({
@@ -4507,7 +4502,7 @@ test("parsed:false (a parse miss) fails closed WITHOUT burning a regeneration ro
 
   const out = await useCase.run({ ...baseInput, runId: "w2-f3-parse-miss-fails-closed-no-burn" });
 
-  assert.equal(reviewCallCount, 1, "a parse miss must return IMMEDIATELY — never re-prompt/re-review, matching the legacy's reviewGenerated() own comment: 'failing closed (not burning a regeneration round)'");
+  assert.equal(reviewCallCount, 1, "a parse miss must return IMMEDIATELY — never re-prompt/re-review");
   assert.equal(generateCallCount, 1, "a parse miss must NOT trigger any review-driven regeneration — only the initial generate() call happened");
   assert.equal(out.decision.verdict, "pass");
   assert.equal(out.decision.sideEffect, "issue", "a parse-miss must fail closed to an Issue, never a PR");
@@ -4532,7 +4527,7 @@ test("a regeneration that produces zero specs mid-loop is a lost cause — termi
 
   const out = await useCase.run({ ...baseInput, runId: "w2-f3-empty-regen-mid-loop-terminal" });
 
-  assert.equal(reviewCallCount, 1, "a regeneration with zero specs was never judged — the loop must NOT re-review it, matching the legacy's round>0 empty-result guard");
+  assert.equal(reviewCallCount, 1, "a regeneration with zero specs was never judged — the loop must NOT re-review it");
   assert.equal(out.decision.sideEffect, "issue", "an unreviewed empty regeneration must never inherit self-approval — routes to Issue");
 });
 
@@ -4560,7 +4555,7 @@ test("exactly ONE reviewer session (review() call) fires for a clean pass — no
 });
 
 test("no-op skip (approved + zero specs) still works — needsReview:true generation self-approval is preserved", async () => {
-  /* CLAUDE.md invariant: "Honor the agent's no-op decision — approved + zero specs is a valid
+  /* AGENTS.md invariant: "Honor the agent's no-op decision — approved + zero specs is a valid
      skipped, never invalid." This must hold regardless of the composition root's needsReview wiring (which only
      changes GenerationPortAdapter's ctx.needsReview, not this use-case's OWN generation stub
      contract) — generation returning approved:true with zero specs is ALWAYS a valid skip.
@@ -4902,7 +4897,7 @@ test("regression pin: a pre-retrieval exit (classify-skip) still persists nothin
 
   assert.equal(out.decision.verdict, "skipped");
   assert.deepEqual(out.rulesRetrieved, [], "a classify-skip returns before learning.retrieve() is ever called (see run-qa.use-case.ts's classify-skip bare-return, strictly before the retrievedRuleIds derivation) — it must stay [], never fabricated");
-  assert.equal(saveCallCount, 0, "a classify-skip never calls runHistory.save() at all — matches the legacy's own bare-return");
+  assert.equal(saveCallCount, 0, "a classify-skip never calls runHistory.save() at all —");
 });
 
 /* serviceLinksCount/contractDriftCount telemetry must survive from the mainline `extra?` bag into
@@ -5079,7 +5074,7 @@ test("measure() excludes non-passing case names from baselineCases (a flaky-then
 
   await useCase.run({ ...baseInput, runId: "baseline-cases-excludes-flaky", mode: "diff" });
 
-  assert.deepEqual(capturedBaselineCases, ["login flow"], "only genuinely-passing cases belong in the baseline, matching the legacy's own status==='pass' filter exactly");
+  assert.deepEqual(capturedBaselineCases, ["login flow"], "only genuinely-passing cases belong in the baseline");
 });
 
 test("a non-pass verdict never calls measure() at all — no baselineCases question arises (measure is gated on run.verdict==='pass')", async () => {
@@ -5111,8 +5106,8 @@ test("CLEANUP: cleanup() is called with the run's previousNamespace, AFTER setup
 
   await useCase.run({ ...baseInput, runId: "cleanup-order-and-namespace", previousNamespace: "qa-portfolio-abc123-run42" });
 
-  assert.deepEqual(callOrder, ["setup", "cleanup", "generate"], "cleanup must run strictly between setup and generate, mirroring legacy's step 4 (setup, awaited) then step 4a (cleanup)");
-  assert.equal(capturedOpts?.namespace, "qa-portfolio-abc123-run42", "cleanup must receive the run's previousNamespace verbatim, matching legacy's `namespace: opts.previousNamespace`");
+  assert.deepEqual(callOrder, ["setup", "cleanup", "generate"], "cleanup must run strictly between setup and generate");
+  assert.equal(capturedOpts?.namespace, "qa-portfolio-abc123-run42", "cleanup must receive the run's previousNamespace verbatim");
 });
 
 test("CLEANUP: cleanup() is SKIPPED when previousNamespace is absent (the common case — the prior run finished cleanly)", async () => {
@@ -5124,7 +5119,7 @@ test("CLEANUP: cleanup() is SKIPPED when previousNamespace is absent (the common
 
   const out = await useCase.run({ ...baseInput, runId: "cleanup-skipped-no-previous-namespace" });
 
-  assert.equal(cleanupCalled, false, "cleanup must never fire without a previousNamespace — mirrors legacy's `opts.previousNamespace &&` guard exactly");
+  assert.equal(cleanupCalled, false, "cleanup must never fire without a previousNamespace —");
   assert.equal(out.decision.verdict, "pass", "a run with no cleanup work must proceed normally");
 });
 
@@ -5137,7 +5132,7 @@ test("CLEANUP: cleanup() is SKIPPED on the code target, even with a previousName
 
   await useCase.run({ ...baseInput, runId: "cleanup-skipped-code-target", target: "code", previousNamespace: "qa-portfolio-abc123-run42" });
 
-  assert.equal(cleanupCalled, false, "cleanup must never fire for the code target — mirrors legacy's `!isCode` conjunct; code mode has no web test data to clean");
+  assert.equal(cleanupCalled, false, "cleanup must never fire for the code target —");
 });
 
 test("CLEANUP: an absent CleanupPort (deps.cleanup undefined) is a no-op — generation still runs (backward compatible)", async () => {
@@ -5160,7 +5155,7 @@ test("CLEANUP: a cleanup() failure is logged and swallowed — the run's verdict
 
   const out = await useCase.run({ ...baseInput, runId: "cleanup-failure-non-blocking", previousNamespace: "qa-portfolio-abc123-run42" });
 
-  assert.equal(generateCalled, true, "generation must proceed after a cleanup failure — best-effort, never blocking (mirrors legacy's `.catch((err) => log(...))`)");
+  assert.equal(generateCalled, true, "generation must proceed after a cleanup failure");
   assert.equal(out.decision.verdict, "pass", "a cleanup failure must NEVER alter this run's verdict");
 });
 
@@ -5225,11 +5220,11 @@ test("executedRed: DIRECT logic pin — reproduces the override's own condition 
   const round = 0;
   const runVerdict: "pass" | "fail" | "flaky" = "fail";
   const executedRed = round === 0 && runVerdict === "fail";
-  assert.equal(executedRed, true, "round 0 + a fail verdict must compute executedRed:true, matching the legacy executed-red override exactly");
+  assert.equal(executedRed, true, "round 0 + a fail verdict must compute executedRed:true");
 
   const roundOne = 1;
   const executedRedRoundOne = (roundOne as number) === 0 && runVerdict === "fail";
-  assert.equal(executedRedRoundOne, false, "round >= 1 must NEVER trigger the override — mirrors legacy's stale-evidence guard (the spec is fresh/unexecuted after the internal mid-loop regen)");
+  assert.equal(executedRedRoundOne, false, "round >= 1 must NEVER trigger the override —");
 
   const passVerdict: "pass" | "fail" | "flaky" = "pass";
   const executedRedOnPass = round === 0 && (passVerdict as string) === "fail";
@@ -5364,7 +5359,7 @@ test("the structural signal port is invoked once and its text reaches generation
 });
 
 /* With structuralSignal absent (today's composition default), the verdict/side-effect must be
-   byte-identical to every pre-existing characterization scenario this same suite already pins
+   byte-identical to every pre-existing scenario this same suite already pins
    elsewhere in this file — a targeted spot-check, not a re-run of the full golden suite.
  */
 test("4b.4.2 (Scenario H baseline): a clean green run's verdict/sideEffect is unaffected by the structuralSignal wiring being absent", async () => {
@@ -6243,7 +6238,7 @@ test("empty-generation guard: a generation that returns parsed:false + zero spec
 test("no-op honored: a genuine agent no-op (parsed:true + approved + zero specs) still skips — the guard does not over-fire", async () => {
   const { ports } = stubPorts({
     /* The agent emitted a real, parseable verdict deciding no tests are warranted — the legitimate
-       CLAUDE.md no-op that MUST stay `skipped`. Only parsed:false (above) diverts to infra-error.
+       AGENTS.md no-op that MUST stay `skipped`. Only parsed:false (above) diverts to infra-error.
      */
     generate: async () => (scriptedGeneration({ specs: [], approved: true, parsed: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })),
   });
@@ -6478,7 +6473,7 @@ test("confinement wiring: a publish() stub with revertedDenylisted but no revert
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  await useCase.run({ ...baseInput, runId: "confinement-vcswrite-legacy-stub" });
+  await useCase.run({ ...baseInput, runId: "confinement-vcswrite-stub" });
 
   const persisted = savedOutcomes[0]?.gateSignals.confinement;
   assert.ok(persisted);

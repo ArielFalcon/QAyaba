@@ -101,7 +101,7 @@ test("classify() surfaces the FULL CommitIntent classifyCommit() already derived
 test("classify() surfaces breaking:true for a BREAKING CHANGE commit, matching classifyCommit's own escalation", async () => {
   const sha = Sha.of("bbb1111");
   const vcs = fakeVcsRead({
-    message: async () => "feat!: remove legacy endpoint",
+    message: async () => "feat!: remove deprecated endpoint",
     diff: async () => "diff --git a/src/api.ts b/src/api.ts\n+++ b/src/api.ts\n+if (v2) { return newHandler(); }\n",
   });
   const adapter = new ChangeAnalysisPortAdapter(vcs);

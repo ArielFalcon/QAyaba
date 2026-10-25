@@ -56,7 +56,7 @@ test("a run that fails identically on every execution is retried once and ends a
   assert.equal(result.run.verdict, "fail", "must reproduce fail-issue.json's verdict:fail exactly");
   assert.equal(generateCallCount, 1, "exactly ONE regen call — round 2's fail-closed progress gate stops before a second regen");
   assert.equal(executeCallCount, 1, "exactly ONE retry-execute call — round 2 never re-executes (loop breaks on break-needs-human first)");
-  assert.equal(result.lastAdjudicatorVerdict?.action, "break-needs-human", "round 2 stops via the fail-closed progress gate (Rule 5), matching the legacy's own asymmetric-stop behavior");
+  assert.equal(result.lastAdjudicatorVerdict?.action, "break-needs-human", "round 2 stops via the fail-closed progress gate (Rule 5)");
 });
 
 test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress-preserving stub (upper-bound proof, independent of invalid-issue's unrelated static-gate loop)", async () => {

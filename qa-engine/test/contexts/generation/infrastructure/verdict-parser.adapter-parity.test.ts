@@ -13,19 +13,19 @@ function makeRealAdapter(): VerdictParserAdapter {
   return new VerdictParserAdapter({ parseVerdict, parseReviewerVerdict });
 }
 
-test("PARITY: parseGenerator on a valid generator verdict matches legacy parseVerdict output", () => {
+test("parseGenerator on a valid generator verdict", () => {
   const text = JSON.stringify({ specs: ["login.spec.ts", "checkout.spec.ts"], note: "all flows covered" });
   const adapter = makeRealAdapter();
   const got = adapter.parseGenerator(text);
-  const legacy = parseVerdict(text);
+  const reference = parseVerdict(text);
   /* specs must match — a gutted adapter returning [] FAILS this */
-  assert.deepEqual(got.specs, legacy.specs ?? []);
+  assert.deepEqual(got.specs, reference.specs ?? []);
   /* parsed flag forwarded — a gutted adapter always returning parsed:true on garbage FAILS the miss test below */
-  assert.equal(got.parsed, legacy.parsed);
-  assert.equal(got.note, legacy.note);
+  assert.equal(got.parsed, reference.parsed);
+  assert.equal(got.note, reference.note);
 });
 
-test("PARITY: parseGenerator reads a declared no-op's reason the way the legacy parser does, and never reads `approved` as one", () => {
+test("and never reads `approved` as one", () => {
   const adapter = makeRealAdapter();
   const declared = JSON.stringify({ specs: [], noop: { reason: "nothing worth an E2E test" } });
   assert.equal(adapter.parseGenerator(declared).noopReason, "nothing worth an E2E test");
@@ -36,16 +36,16 @@ test("PARITY: parseGenerator reads a declared no-op's reason the way the legacy 
   }
 });
 
-test("PARITY: parseGenerator on a parse miss is fail-closed — matches legacy parsed:false output", () => {
+test("parseGenerator on a parse miss is fail-closed —", () => {
   const text = "the agent wrote prose with no JSON verdict";
   const adapter = makeRealAdapter();
   const got = adapter.parseGenerator(text);
-  const legacy = parseVerdict(text);
+  const reference = parseVerdict(text);
   /* parsed:false is the contract on a miss; a gutted adapter returning parsed:true FAILS this */
   assert.equal(got.parsed, false);
-  assert.equal(got.parsed, legacy.parsed);
+  assert.equal(got.parsed, reference.parsed);
   assert.deepEqual(got.specs, []);
-  assert.deepEqual(got.specs, legacy.specs ?? []);
+  assert.deepEqual(got.specs, reference.specs ?? []);
 });
 
 /* specs is the list of spec paths the run executes; an entry that is not a path string makes the
@@ -67,7 +67,7 @@ test("a generator verdict listing a spec that is not a path string is a parse mi
   }
 });
 
-test("PARITY: parseGenerator with specMetas forwards them — a gutted adapter that drops specMetas FAILS", () => {
+test("parseGenerator with specMetas forwards them — a gutted adapter that drops specMetas FAILS", () => {
   const specMetas = [
     { file: "flows/login.spec.ts", flow: "login", objective: "user can log in", targets: ["src/auth.ts"] },
   ];
@@ -79,20 +79,20 @@ test("PARITY: parseGenerator with specMetas forwards them — a gutted adapter t
   assert.equal(got.specMetas?.[0]?.file, "flows/login.spec.ts");
 });
 
-test("PARITY: parseReview on a valid reviewer approval matches legacy parseReviewerVerdict output", () => {
+test("parseReview on a valid reviewer approval", () => {
   const text = JSON.stringify({ approved: true, rationale: "all flows exercised", corrections: [] });
   const adapter = makeRealAdapter();
   const got = adapter.parseReview(text);
-  const legacy = parseReviewerVerdict(text);
+  const reference = parseReviewerVerdict(text);
   assert.equal(got.approved, true);
-  assert.equal(got.approved, legacy.approved);
+  assert.equal(got.approved, reference.approved);
   assert.equal(got.blockingCount, 0);
-  assert.equal(got.blockingCount, legacy.blockingCount);
+  assert.equal(got.blockingCount, reference.blockingCount);
   assert.equal(got.valid, true);
-  assert.equal(got.valid, legacy.valid);
+  assert.equal(got.valid, reference.valid);
 });
 
-test("PARITY: parseReview on a reviewer rejection forwards blockingCount and corrections", () => {
+test("parseReview on a reviewer rejection forwards blockingCount and corrections", () => {
   const text = JSON.stringify({
     approved: false,
     rationale: "missing assertion on discount",
@@ -100,26 +100,26 @@ test("PARITY: parseReview on a reviewer rejection forwards blockingCount and cor
   });
   const adapter = makeRealAdapter();
   const got = adapter.parseReview(text);
-  const legacy = parseReviewerVerdict(text);
+  const reference = parseReviewerVerdict(text);
   assert.equal(got.approved, false);
-  assert.equal(got.approved, legacy.approved);
+  assert.equal(got.approved, reference.approved);
   /* blockingCount — the grave [false-positive] tag must make this >=1 per effectiveSeverity logic */
   assert.ok((got.blockingCount ?? 0) >= 1, "a grave-tagged correction must produce blockingCount >= 1");
-  assert.equal(got.blockingCount, legacy.blockingCount);
+  assert.equal(got.blockingCount, reference.blockingCount);
 });
 
-test("PARITY: parseGenerator forwards a typed test-correct claim the legacy parser read", () => {
+test("parseGenerator forwards a typed test-correct claim the reference parser read", () => {
   const text = JSON.stringify({ specs: [], testCorrect: { cause: "env", reason: "DEV did not render the discount" } });
   const adapter = makeRealAdapter();
   const got = adapter.parseGenerator(text);
-  const legacy = parseVerdict(text);
+  const reference = parseVerdict(text);
   assert.deepEqual(got.testCorrect, { cause: "env", reason: "DEV did not render the discount" });
-  assert.deepEqual(got.testCorrect, legacy.testCorrect);
+  assert.deepEqual(got.testCorrect, reference.testCorrect);
   assert.equal(got.parsed, true, "a closing verdict carrying only a claim is a parse, not a miss");
-  assert.equal(got.parsed, legacy.parsed);
+  assert.equal(got.parsed, reference.parsed);
 });
 
-test("PARITY: parseGenerator forwards the rebuttals the legacy parser read, bounded and redacted", () => {
+test("bounded and redacted", () => {
   const rebuttal = { finding: "[false-positive] a.spec.ts: asserts nothing", basis: "execution", ref: "a.spec.ts", reason: "the case ran green" };
   const text = JSON.stringify({ specs: [], rebuttals: [rebuttal] });
   const adapter = makeRealAdapter();
@@ -134,7 +134,7 @@ test("PARITY: parseGenerator forwards the rebuttals the legacy parser read, boun
   assert.equal(secret.rebuttals![0]!.reason.includes(token), false, "the reason carries no secret");
 });
 
-test("PARITY: a rebuttal without a checkable basis is no rebuttal, never a claim the run could weigh", () => {
+test("a rebuttal without a checkable basis is no rebuttal, never a claim the run could weigh", () => {
   const adapter = makeRealAdapter();
   for (const entry of [
     '{"finding":"a.spec.ts","reason":"trust me"}',
@@ -149,7 +149,7 @@ test("PARITY: a rebuttal without a checkable basis is no rebuttal, never a claim
   }
 });
 
-test("PARITY: a malformed test-correct claim is no claim, never a cause the loop could verify", () => {
+test("a malformed test-correct claim is no claim, never a cause the loop could verify", () => {
   const adapter = makeRealAdapter();
   for (const claim of ['{"cause":"env"}', '{"cause":"env","reason":"   "}', '{"cause":"other","reason":"x"}', "true", '"app"']) {
     const text = `{"specs":[],"testCorrect":${claim}}`;
@@ -158,7 +158,7 @@ test("PARITY: a malformed test-correct claim is no claim, never a cause the loop
   }
 });
 
-test("PARITY: a test-correct reason is redacted and bounded before it reaches the run", () => {
+test("a test-correct reason is redacted and bounded before it reaches the run", () => {
   const token = `ghp_${"A".repeat(36)}`;
   const adapter = makeRealAdapter();
   const got = adapter.parseGenerator(JSON.stringify({ specs: [], testCorrect: { cause: "app", reason: `the server rejected ${token}` } }));
@@ -171,18 +171,18 @@ test("PARITY: a test-correct reason is redacted and bounded before it reaches th
   assert.equal(long.testCorrect!.reason.length, GENERATION_NOTE_MAX_CHARS);
 });
 
-test("PARITY: parseReview on a parse miss is fail-closed — matches legacy parsed:false output", () => {
+test("parseReview on a parse miss is fail-closed —", () => {
   const text = "the reviewer wrote prose but no JSON";
   const adapter = makeRealAdapter();
   const got = adapter.parseReview(text);
-  const legacy = parseReviewerVerdict(text);
+  const reference = parseReviewerVerdict(text);
   /* fail-closed: approved must be false on a miss */
   assert.equal(got.approved, false);
-  assert.equal(got.approved, legacy.approved);
+  assert.equal(got.approved, reference.approved);
   assert.equal(got.parsed, false);
-  assert.equal(got.parsed, legacy.parsed);
+  assert.equal(got.parsed, reference.parsed);
   /* issues forwarded — the bounded repair loop reads them; a gutted adapter returning [] loses the repair fuel */
   assert.ok(Array.isArray(got.issues) && got.issues.length > 0,
     "issues must be non-empty on a parse miss — a gutted adapter FAILS this");
-  assert.deepEqual(got.issues, legacy.issues);
+  assert.deepEqual(got.issues, reference.issues);
 });

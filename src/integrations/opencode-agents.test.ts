@@ -64,15 +64,15 @@ test("an agent the server lists without a cap has none, whether its steps is nul
   }
 });
 
-test("the legacy maxSteps is the cap of an agent that carries no steps", async () => {
+test("the deprecated maxSteps is the cap of an agent that carries no steps", async () => {
   const caps = await capsOf([
-    { name: "legacy-only", maxSteps: 30 },
-    { name: "steps-and-legacy", steps: 33, maxSteps: 22 },
+    { name: "max-steps-only", maxSteps: 30 },
+    { name: "steps-and-max-steps", steps: 33, maxSteps: 22 },
     { name: "null-steps", steps: null, maxSteps: 22 },
     { name: "neither" },
   ]);
-  assert.equal(caps.get("legacy-only"), 30);
-  assert.equal(caps.get("steps-and-legacy"), 33);
+  assert.equal(caps.get("max-steps-only"), 30);
+  assert.equal(caps.get("steps-and-max-steps"), 33);
   assert.equal(caps.get("null-steps"), 22, "a null steps is no steps");
   assert.equal(caps.get("neither"), undefined);
 });

@@ -52,7 +52,7 @@ test("message() returns the commit message stdout trimmed", async () => {
   assert.equal(await adapter.message(Sha.of("abc1234")), "feat: x\n\nbody");
 });
 
-test("diff() throws on non-zero exitCode — never returns silent empty diff (CLAUDE.md surface-errors rule)", async () => {
+test("diff() throws on non-zero exitCode — never returns silent empty diff", async () => {
   const badRunner: SandboxedBinaryRunner = {
     run: async () => ({ exitCode: 128, stdout: "", stderr: "fatal: bad object deadbeef", timedOut: false }),
   };

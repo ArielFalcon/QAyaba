@@ -53,13 +53,13 @@ test("where the map declares no file for a page, the engine's route node for the
 });
 
 test("where the engine names a file the map does not list for a page, the disagreement is reported and the map's files still decide", () => {
-  const pageRoutes: GraphRoute[] = [{ file: "web/src/app/app.routes.ts", line: 3, path: "/orders", target: { file: "web/src/app/orders/legacy.page.ts", symbol: "Legacy", kind: "class" } }];
-  const reached = [sym(FORMAT, "formatMoney", 0), sym("web/src/app/orders/legacy.page.ts", "Legacy", 1, { file: FORMAT, symbol: "formatMoney" })];
+  const pageRoutes: GraphRoute[] = [{ file: "web/src/app/app.routes.ts", line: 3, path: "/orders", target: { file: "web/src/app/orders/classic.page.ts", symbol: "Classic", kind: "class" } }];
+  const reached = [sym(FORMAT, "formatMoney", 0), sym("web/src/app/orders/classic.page.ts", "Classic", 1, { file: FORMAT, symbol: "formatMoney" })];
 
   const join = joinChangePages(input({ walks: [walk(reached)], pageRoutes }));
 
   assert.deepEqual(join.pages, [], "the engine's file does not override the map's");
-  assert.deepEqual(join.disagreements, [{ route: "/orders", mapFiles: [ORDERS], engineFile: "web/src/app/orders/legacy.page.ts" }], "the file that declares the route is the map's source, never a disagreement");
+  assert.deepEqual(join.disagreements, [{ route: "/orders", mapFiles: [ORDERS], engineFile: "web/src/app/orders/classic.page.ts" }], "the file that declares the route is the map's source, never a disagreement");
 });
 
 test("a reached handler whose route serves a map operation reaches the pages feBe joins to it, by verb and path or by its operationId", () => {
@@ -134,7 +134,7 @@ test("a reached symbol named for an operationId proves the pages feBe joins to i
 
 test("a map that lists a route twice reports one disagreement per engine file, not one per entry", () => {
   const map = { routes: [{ path: "/orders", implementationFiles: [ORDERS] }, { path: "/orders", implementationFiles: [ORDERS] }] };
-  const pageRoutes: GraphRoute[] = [{ file: "web/src/app/app.routes.ts", line: 3, path: "/orders", target: { file: "web/src/app/orders/legacy.page.ts", symbol: "Legacy", kind: "class" } }];
+  const pageRoutes: GraphRoute[] = [{ file: "web/src/app/app.routes.ts", line: 3, path: "/orders", target: { file: "web/src/app/orders/classic.page.ts", symbol: "Classic", kind: "class" } }];
   assert.equal(joinChangePages(input({ map, pageRoutes })).disagreements.length, 1);
 });
 

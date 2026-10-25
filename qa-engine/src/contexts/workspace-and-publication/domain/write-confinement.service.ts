@@ -82,7 +82,7 @@ export class WriteConfinementService {
         i += 1;
         continue;
       }
-      /* Unrecognized escape shape — no known git C-style-quoting escape starts this way. Fail LOUDLY (CLAUDE.md invariant "surface integration errors loudly — never swallow errors into an empty/degraded result") instead of silently keeping the bare backslash, which would hand a corrupted path to the revert git calls and reproduce the same revert-matches-nothing silent bypass this function exists to prevent. enforce()'s caller (RunQaUseCase's enforceConfinement wrapper) already catches, logs loudly, and records this in gateSignals — a throw here is fault-isolated, never a run crash. */
+      /* Unrecognized escape shape — no known git C-style-quoting escape starts this way. Fail LOUDLY (AGENTS.md invariant "surface integration errors loudly — never swallow errors into an empty/degraded result") instead of silently keeping the bare backslash, which would hand a corrupted path to the revert git calls and reproduce the same revert-matches-nothing silent bypass this function exists to prevent. enforce()'s caller (RunQaUseCase's enforceConfinement wrapper) already catches, logs loudly, and records this in gateSignals — a throw here is fault-isolated, never a run crash. */
       throw new Error(
         `decodeQuoted: unrecognized escape sequence starting at ${JSON.stringify(inner.slice(i, i + 4))} in quoted path segment ${JSON.stringify(inner)}`,
       );

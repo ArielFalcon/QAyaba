@@ -11,8 +11,8 @@ const RUN = `${process.pid}-${Date.now().toString(36)}`;
 const id = (name: string): string => `${name}-${RUN}`;
 
 {
-  const legacy = new Database(process.env.HISTORY_DB_PATH!);
-  legacy.exec(`
+  const seeded = new Database(process.env.HISTORY_DB_PATH!);
+  seeded.exec(`
     CREATE TABLE runs (
       id TEXT PRIMARY KEY, app TEXT NOT NULL, sha TEXT NOT NULL, ref TEXT, target TEXT NOT NULL DEFAULT 'e2e', mode TEXT NOT NULL DEFAULT 'diff',
       status TEXT NOT NULL DEFAULT 'enqueued', step TEXT, step_detail TEXT, verdict TEXT, passed INTEGER DEFAULT 0, failed INTEGER DEFAULT 0, note TEXT,
@@ -24,13 +24,13 @@ const id = (name: string): string => `${name}-${RUN}`;
       tokens_reasoning INTEGER, tokens_cache_read INTEGER, tokens_cache_write INTEGER, cost REAL
     );
   `);
-  const run = legacy.prepare("INSERT INTO runs (id, app, sha, at, campaign_id) VALUES (?, 'retention', 'abcdef1', ?, ?)");
-  const turn = legacy.prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, 's', 'qa-generator', ?, 'p', 'o')");
+  const run = seeded.prepare("INSERT INTO runs (id, app, sha, at, campaign_id) VALUES (?, 'retention', 'abcdef1', ?, ?)");
+  const turn = seeded.prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, 's', 'qa-generator', ?, 'p', 'o')");
   for (const [name, age, campaign] of [["ordinary-old", 60, null], ["ordinary-new", 5, null], ["campaign-mid", 60, "camp"], ["campaign-old", 200, "camp"]] as const) {
     run.run(id(name), iso(age), campaign);
     turn.run(id(name), iso(age));
   }
-  legacy.close();
+  seeded.close();
 }
 
 test("a run past the ordinary window is pruned unless it belongs to a campaign still inside the campaign window", () => {

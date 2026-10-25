@@ -39,7 +39,7 @@ interface ParsedVerdict {
   noopReason?: string;
   /* The kind the no-op names, `unspecified` when it names none. */
   noopKind?: NoopKind;
-  /* The plan the legacy parser read, forwarded untouched: it is the orchestrator's admission that judges it. */
+  /* The plan the verdict carries, forwarded untouched: it is the orchestrator's admission that judges it. */
   plan?: Record<string, unknown>;
   /* The generator's typed test-correct claim, forwarded after sanitizing/bounding its reason. */
   testCorrect?: { cause: "env" | "app"; reason: string };

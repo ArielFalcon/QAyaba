@@ -1,6 +1,6 @@
 /*
  * The right to act on DEV, held for the length of one action (a spec execution, an authenticated browser action). It is the
- * account lock with one more rule, the one CLAUDE.md states: actions on one account are serialized; actions run together only on
+ * account lock with one more rule, the one AGENTS.md states: actions on one account are serialized; actions run together only on
  * distinct accounts and only when they cannot write; an action that may write holds DEV alone.
  *
  * Whether an action can write is never taken from the action's own word. A caller says `mayWrite: false` only when the thing it

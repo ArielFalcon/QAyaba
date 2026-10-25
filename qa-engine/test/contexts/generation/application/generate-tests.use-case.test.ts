@@ -118,7 +118,7 @@ test("the files the rendered prompt already carries are handed to the session wi
   assert.equal("providedPaths" in (seenOpts[1] ?? {}), false);
 });
 
-test("code target skips manifest reconciliation entirely (legacy opencode-client.ts:800 parity) and passes specMetas through raw", async () => {
+test("code target skips manifest reconciliation entirely and passes specMetas through raw", async () => {
   const calls: string[] = [];
   const ports: GenerationPorts = {
     runtime: {
@@ -551,7 +551,7 @@ test("manifest.reconcile receives the run's spec root: the mirror, and the spec 
    Live-run root cause: the engine assembled rawEntries from deliverable.specs alone
    (objective:"", no targets/changeRef), which the real manifest schema (src/orchestrator/
    schemas.ts ManifestEntrySchema) always rejects — verdict=invalid on every real run that reached
-   the static gate with a non-empty manifest. Faithful port of opencode-client.ts:772-788: entries
+   the static gate with a non-empty manifest. Entries
    come from specMetas (objective/flow/targets from the agent), changeRef stamped by the
    orchestrator from input.sha + input.intent?.type.
  */
@@ -623,7 +623,7 @@ test("manifest entries are built from specMetas with objective/flow/targets + ch
   });
 });
 
-test("manifest entry changeRef.type falls back to 'unknown' when input.intent is absent (matches legacy's input.intent?.type ?? \"unknown\")", async () => {
+test("manifest entry changeRef.type falls back to 'unknown' when input.intent is absent", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
   const ports: GenerationPorts = {
     runtime: {
@@ -685,7 +685,7 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
    metadata entry is skipped). This test pins that a partial specMetas list (2 specs, 1 meta)
    yields exactly 1 manifest entry, not a synthesized default for the second.
  */
-test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest entry (legacy-faithful, opencode-client.ts:772)", async () => {
+test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest entry", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
   const ports: GenerationPorts = {
     runtime: {

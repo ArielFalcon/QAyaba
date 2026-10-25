@@ -68,7 +68,7 @@ test("enqueueTrackedRun with no engineFactory supplied — throws loudly, finali
   await queue.drain();
   const r = getRecord(id)!;
   assert.equal(r.status, "done");
-  assert.equal(r.verdict, "infra-error", "a missing engineFactory must surface as a loud infra-error, never a silent legacy fallback (the legacy engine was removed)");
+  assert.equal(r.verdict, "infra-error", "a missing engineFactory must surface as a loud infra-error");
   assert.match(r.note ?? "", /engineFactory is required/);
 });
 
@@ -282,7 +282,7 @@ test("a bootstrap queued ahead of a run is announced in the log with the app and
   assert.ok(said?.includes("runner-boot-log"));
 });
 
-/* CLAUDE.md invariant ("surface integration errors loudly — never swallow errors into an empty
+/* AGENTS.md invariant ("surface integration errors loudly — never swallow errors into an empty
    result"): a live portfolio run once produced verdict:infra-error with NO note/log/cases on the
    engine path — undiagnosable without instrumenting a live container. Root cause:
    runViaEngine (this file) mapped RunOutcome -> QaRunResult but dropped `note` entirely.
@@ -329,7 +329,7 @@ test("the runner passes a testDataNamespace-shaped, per-run namespace to engineF
   /* testDataNamespace(prefix, sha, runId) formula: `${prefix}-${shortSha(sha)}-${runToken(runId)}`.
      cfg(...) fixtures use testDataPrefix "qa-bot"; shortSha("def5678") === "def5678" (already 7 chars).
    */
-  assert.match(receivedNamespace!, /^qa-bot-def5678-/, "namespace must start with testDataPrefix-shortSha, matching legacy's formula");
+  assert.match(receivedNamespace!, /^qa-bot-def5678-/, "namespace must start with testDataPrefix-shortSha");
 });
 
 test("two DIFFERENT runs (different sha) produce DIFFERENT namespaces passed to engineFactory", async () => {
@@ -460,7 +460,7 @@ test("the runner threads req.triggerRepo into port.run's RunInput when present",
   await queue.drain();
   assert.equal(getRecord(id)!.verdict, "pass");
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.triggerRepo, "org/orders-svc", "RunInput.triggerRepo must carry req.triggerRepo through to port.run, mirroring legacy's triggerService cross-repo gate");
+  assert.equal(calls[0]!.triggerRepo, "org/orders-svc", "RunInput.triggerRepo must carry req.triggerRepo through to port.run");
 });
 
 /* An undeclared triggerRepo throws `trigger repo ${x} is not a declared service of app ${y}`.
@@ -748,11 +748,11 @@ test("a port that drives ObserverPort.onStep mid-run updates the record's step +
   assert.deepEqual(
     stepEvents.map((e) => e.step),
     ["gate", "classify", "generate", "validate", "health", "execute"],
-    "every onStep() call the port made mid-run must publish its own step.changed RunEvent, in order — this is the SAME machinery the legacy engine's own onStep callback drives",
+    "every onStep() call the port made mid-run must publish its own step.changed RunEvent, in order",
   );
 });
 
-test("ObserverPort.onStep('retry', detail) sets record.stepDetail and record.retrying:true, mirroring the legacy callback's own retrying:step==='retry' convention", async () => {
+test("ObserverPort.onStep('retry', detail) sets record.stepDetail and record.retrying:true", async () => {
   const queue = new JobQueue();
   let currentObserver: { onStep(step: string, detail?: string): void } | undefined;
   const retryingPort: RunPipelinePort = {
@@ -797,7 +797,7 @@ test("ObserverPort.onStep('retry', detail) sets record.stepDetail and record.ret
    transient write failure (e.g. a flaky event-bus subscriber) must never propagate up through
    ObserverPort and abort an otherwise-healthy run. Before this fix, a throwing onStep call would
    have escaped RunQaUseCase's `this.deps.observer?.onStep(...)` call site and converted a genuine
-   "pass" into an unrelated crash — the SAME class of bug CLAUDE.md's own "a bad event must never
+   "pass" into an unrelated crash — the SAME class of bug AGENTS.md's own "a bad event must never
    break..." pattern (src/index.ts) already guards against elsewhere in this codebase.
    Scoped precisely to buildRunObserver's own onStep/onEvent (not every runEvents.publish
    call site in the runner, several of which are outside this fix's scope): the throwing stub only
@@ -1116,7 +1116,7 @@ test("cancelTrackedRun finalizes a STALE running record the queue no longer hold
   const rec = createRecord({ app: "cancel-zombie", sha: "bbb2222", target: "e2e", mode: "diff" });
   updateRecord(rec.id, { status: "running" }); /* a zombie left "running" by a restart/crash race */
   /* Not the live queue job, so nothing is aborted (false) — but the stuck record MUST be
-     finalized so the operator's stop actually clears it (the old path left it "running" → 409).
+     finalized so the operator's stop actually clears it (it used to stay "running" → 409).
    */
   assert.equal(cancelTrackedRun(queue, rec.id), false);
   const r = getRecord(rec.id)!;

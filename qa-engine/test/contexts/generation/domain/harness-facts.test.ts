@@ -13,7 +13,7 @@ test("declared exports are found by kind: const, let, var, function, async funct
   const source = [
     "export const test = base.extend({});",
     "export let counter = 0;",
-    "export var legacy = 1;",
+    "export var oldStyle = 1;",
     "export function authenticate() {}",
     "export async function login() {}",
     "export function* ids() {}",
@@ -21,7 +21,7 @@ test("declared exports are found by kind: const, let, var, function, async funct
     "export abstract class Base {}",
     "export enum Mode { A }",
   ].join("\n");
-  assert.deepEqual(extractExportedNames(source), ["test", "counter", "legacy", "authenticate", "login", "ids", "Page", "Base", "Mode"]);
+  assert.deepEqual(extractExportedNames(source), ["test", "counter", "oldStyle", "authenticate", "login", "ids", "Page", "Base", "Mode"]);
 });
 
 test("an export list exposes the alias when there is one and never the default", () => {

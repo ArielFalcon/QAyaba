@@ -115,7 +115,7 @@ test("changedElementsFromGuidance: empty string → []", () => {
 });
 
 /* Parity tests that import from src/ live in diff-parser-parity.test.ts, which is
-   excluded from qa-engine typecheck (same pattern as test/characterization/scenarios.ts).
+   excluded from qa-engine typecheck.
  */
 
 test("touchedLines marks every added line, and a deletion at the new-side line that follows it", () => {

@@ -120,7 +120,7 @@ function readOpencodeJsonModel(role: string, configPath: string): string | undef
   }
 }
 
-/** Resolve the byte budget for a ROLE. 1. If the role is one of the three VISIBLE roles AND a runtime assignment has been injected (setRuntimeRoleModels), resolve the model from THAT assignment first (env/dual-mode aware). A disagreement against opencode.json's own declared model for the same role is warned once (not a read failure — a real cross-source mismatch), but the runtime assignment always wins. 2. Never throws; always returns a positive byte count. */
+/** Resolve the byte budget for a ROLE. 1. If the role is one of the three VISIBLE roles AND a runtime assignment has been injected (setRuntimeRoleModels), resolve the model from THAT assignment first (env aware). A disagreement against opencode.json's own declared model for the same role is warned once (not a read failure — a real cross-source mismatch), but the runtime assignment always wins. 2. Never throws; always returns a positive byte count. */
 export function roleWindowBytes(
   role: string,
   agentsConfigPath?: string,

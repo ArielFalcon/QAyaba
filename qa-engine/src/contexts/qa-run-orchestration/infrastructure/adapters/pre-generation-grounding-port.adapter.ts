@@ -310,7 +310,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     try {
       const found = enumerateExistingSpecFiles(this.ctx.e2eDir);
       if (found.length > 0) {
-        /* Fold flow/objective from the manifest into each existingSpecFiles string (formatSuiteEntry: `path — flow: X, objective: Y`). Filename-only would hide duplicate flows; the field stays string[] so metadata cannot be a separate typed field. Never fabricated: the manifest is read as it is on disk, so an entry that lacks a flow or an objective (a legacy or hand-edited one) is folded without it and never says `undefined`. */
+        /* Fold flow/objective from the manifest into each existingSpecFiles string (formatSuiteEntry: `path — flow: X, objective: Y`). Filename-only would hide duplicate flows; the field stays string[] so metadata cannot be a separate typed field. Never fabricated: the manifest is read as it is on disk, so an entry that lacks a flow or an objective (an older or hand-edited one) is folded without it and never says `undefined`. */
         let byFile = new Map<string, { flow?: string; objective?: string }>();
         try {
           const entries = await readManifest(this.ctx.e2eDir);

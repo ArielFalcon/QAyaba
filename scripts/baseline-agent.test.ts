@@ -16,7 +16,7 @@ import type { LoadedSnapshot } from "./warm-suite.ts";
 test("the baseline borrows the generator's model, step cap and temperature from the file, whatever they are", () => {
   const config = { agent: { [GENERATOR_AGENT]: { model: "some-provider/some-model-7", maxSteps: 33, temperature: 0.4 }, other: { model: "x/y" } } };
   assert.deepEqual(generatorSettings(config), { model: "some-provider/some-model-7", steps: 33, temperature: 0.4 });
-  assert.equal(generatorSettings({ agent: { [GENERATOR_AGENT]: { model: "a/b", steps: 12, maxSteps: 99 } } }).steps, 12, "steps wins over the legacy key, as the server reads it");
+  assert.equal(generatorSettings({ agent: { [GENERATOR_AGENT]: { model: "a/b", steps: 12, maxSteps: 99 } } }).steps, 12, "as the server reads it");
   assert.equal(generatorSettings({ agent: { [GENERATOR_AGENT]: { model: "a/b" } } }).steps, null);
 });
 

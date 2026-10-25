@@ -1,4 +1,4 @@
-/* The failure classifier is pinned to the error wording of Playwright 1.60.0 (the version the image pins). When Playwright moves, these fixtures are re-recorded from the new version's messages (CLAUDE.md, "When Playwright moves"). */
+/* The failure classifier is pinned to the error wording of Playwright 1.60.0 (the version the image pins). When Playwright moves, these fixtures are re-recorded from the new version's messages (AGENTS.md, "When Playwright moves"). */
 /* Provenance of the fixtures. Fragments confirmed in the 1.60.0 sources under node_modules/playwright-core and node_modules/playwright: the
    "strict mode violation: <locator> resolved to N elements:" line, "waiting for <locator>", "unexpected value", "<element(s) not found>",
    "locator resolved to hidden", "intercepts pointer events", "Timeout Nms exceeded", the "Expected:"/"Received:" labels and "Call log:".

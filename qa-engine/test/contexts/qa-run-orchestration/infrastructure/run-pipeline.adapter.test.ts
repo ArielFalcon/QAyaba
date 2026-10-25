@@ -117,7 +117,7 @@ test("RunPipelineAdapter: green-pr — fully stubbed ports, returns RunOutcome v
 /* 10-scenario parity for RunQaUseCase) — drives ALL 10 scenarios.ts goldens through
    RunPipelineAdapter.run(), asserting the resulting RunOutcome.verdict equals the golden.
    The adapter's OWN job is proving the RunInput -> RunQaUseCase -> RunOutcome MAPPING is faithful —
-   not re-deriving decide()'s policy (already proven by run-decision-parity.test.ts) or the use-case's
+   not re-deriving decide()'s policy (already proven by run-decision.scenarios.test.ts) or the use-case's
    own wiring (already proven by run-qa.use-case.test.ts). ─────────────────────────────────────────
  */
 
@@ -140,7 +140,6 @@ interface TenScenarioCase {
 const tenScenarios: TenScenarioCase[] = [
   {
     /* scenarioApp (needsReview:true), makeDeps({}) — generated (approved:true), passing(). Source:
-       scenarios.ts:226-234.
      */
     scenario: "green-pr",
     overrides: {},
@@ -150,7 +149,7 @@ const tenScenarios: TenScenarioCase[] = [
   },
   {
     /* scenarioApp, makeDeps({ run: fail }) — a failing case, no fix-loop recovery (execute always
-       returns the SAME fail result). Source: scenarios.ts:236-246.
+       returns the SAME fail result).
      */
     scenario: "fail-issue",
     overrides: {
@@ -172,7 +171,7 @@ const tenScenarios: TenScenarioCase[] = [
   },
   {
     /* scenarioApp, makeDeps({ agent: noopAgent }) — the agent approves with zero specs: a VALID
-       skipped (CLAUDE.md invariant), never invalid. Source: scenarios.ts:260-268.
+       skipped (AGENTS.md invariant), never invalid.
      */
     scenario: "no-op-skip",
     overrides: {
@@ -183,7 +182,7 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "skipped",
   },
   {
-    /* scenarioApp, makeDeps({ validation: { ok:false, ... } }). Source: scenarios.ts:270-280. */
+    /* scenarioApp, makeDeps({ validation: { ok:false, ... } }). */
     scenario: "invalid-issue",
     overrides: {
       validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
@@ -194,7 +193,6 @@ const tenScenarios: TenScenarioCase[] = [
   },
   {
     /* scenarioApp, makeDeps({ healthy: false }) — DEV unhealthy before execution. Source:
-       scenarios.ts:282-290.
      */
     scenario: "infra-error",
     overrides: {
@@ -206,7 +204,7 @@ const tenScenarios: TenScenarioCase[] = [
   },
   {
     /* codeApp (needsReview:true), makeDeps({ isCodeMode: true }) — code mode reuses the SAME
-       pass-path chain. Source: scenarios.ts:292-300.
+       pass-path chain.
      */
     scenario: "code-mode",
     overrides: {},
@@ -216,7 +214,6 @@ const tenScenarios: TenScenarioCase[] = [
   },
   {
     /* crossApp (needsReview:false, shadow:false explicit), makeDeps({ isCrossRepo: true }). Source:
-       scenarios.ts:302-322.
      */
     scenario: "cross-repo",
     overrides: {},
@@ -225,7 +222,7 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "pass",
   },
   {
-    /* shadowApp (needsReview:true, shadow:true), makeDeps({}). Source: scenarios.ts:324-332. */
+    /* shadowApp (needsReview:true, shadow:true), makeDeps({}). */
     scenario: "shadow",
     overrides: {},
     config: { ...baseConfig, shadow: true },
@@ -234,7 +231,6 @@ const tenScenarios: TenScenarioCase[] = [
   },
   {
     /* scenarioApp, context mode's own generate() stub — approved:true, reviewed:false, passing().
-       Source: scenarios.ts:334-351.
      */
     scenario: "context",
     overrides: {
@@ -361,7 +357,7 @@ test("errorClass is forwarded into the returned RunOutcome, not hardcoded null",
   assert.equal(outcome.errorClass, "E-EXEC-FAIL", "errorClass must be forwarded from the use-case's RunQaResult into the adapter's RunOutcome");
 });
 
-/* ── CLAUDE.md invariant note-chain (a live infra-error once surfaced with NO note/log/cases —
+/* ── AGENTS.md invariant note-chain (a live infra-error once surfaced with NO note/log/cases —
    undiagnosable without instrumenting a live container): RunQaResult.note must reach RunOutcome.note
    through this adapter's toOutcome() mapping — previously dropped entirely, silently breaking the
    note chain between RunQaUseCase and src/server/runner.ts's runViaEngine (which reads

@@ -313,6 +313,6 @@ test("with the reflector's unproven rules held back, a distiller's candidate sti
 });
 
 test("a rule stored before authorship was recorded counts as the reflector's, since the reflector was its only author", () => {
-  const legacy: LearningRule = { ...rule("candidate", 0.5, "legacy"), source: "qa-bot-abc1234-run1" };
-  assert.deepEqual(svc.topRules([legacy], 5, undefined, { reflectorUnproven: false }), []);
+  const older: LearningRule = { ...rule("candidate", 0.5, "older"), source: "qa-bot-abc1234-run1" };
+  assert.deepEqual(svc.topRules([older], 5, undefined, { reflectorUnproven: false }), []);
 });
