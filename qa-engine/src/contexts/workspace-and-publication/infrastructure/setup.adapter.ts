@@ -21,9 +21,11 @@ import {
 
 export const DEFAULT_E2E_INSTALL_TIMEOUT_MS = 600_000;
 
+/* mutation-scope:begin install-marker-limits */
 /* The install marker holds one hash; the lock file is the largest thing an install is judged by, and a real one is a few megabytes at most. */
 export const MAX_INSTALL_MARKER_BYTES = 1024;
 export const MAX_LOCK_FILE_BYTES = 32 * 1024 * 1024;
+/* mutation-scope:end install-marker-limits */
 
 /* The install runs the repo's own lifecycle scripts, which can write without limit; nothing reads its output beyond the exit status, so only a small newest tail is kept. */
 const E2E_INSTALL_OUTPUT_KEEP_CHARS = 16_000;
@@ -443,6 +445,7 @@ test.afterEach(async ({ page }, testInfo) => {
 });
 // <<< qa-failure-capture <<<
 `;
+/* mutation-scope:begin setup-options-and-project-reads */
 
 export interface SetupOptions {
   signal?: AbortSignal;
@@ -623,11 +626,14 @@ export class SetupAdapter {
     if ("reason" in read) throw new ConfinedPathError(join(e2eDir, rel), read.reason);
     return read.bytes;
   }
+/* mutation-scope:end setup-options-and-project-reads */
 
   private readProjectText(e2eDir: string, rel: string): string | undefined {
     return this.readProject(e2eDir, rel, MAX_SPEC_SOURCE_BYTES)?.toString("utf8");
+  /* mutation-scope:begin project-write-head */
   }
 
+  /* mutation-scope:end project-write-head */
   /* Replaces a file of the project whole, through a temporary file renamed over it, so that nothing is written through a link; a refusal names the file as `e2eDir` has it. */
   private writeProject(e2eDir: string, rel: string, text: string): void {
     try {

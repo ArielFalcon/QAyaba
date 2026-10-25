@@ -81,7 +81,9 @@ export interface AuthSessionAdapterDeps {
   telemetry?: TelemetryPort;
 }
 
+/* mutation-scope:begin auth-setup-env */
 /* The env names the seed playwright.config.ts reads for the test-id attribute and the action auto-wait bound; the execute and DOM-capture spawns pass the same pair. */
+/* mutation-scope:end auth-setup-env */
 export const AUTH_SETUP_ENV = {
   testIdAttribute: "PW_TEST_ID_ATTRIBUTE",
   actionTimeoutMs: "PW_ACTION_TIMEOUT_MS",
@@ -269,12 +271,14 @@ export class AuthSessionAdapter implements AuthSessionPort {
       /* A submit already went out: the seed must not send another. */
       if (found.attempted) {
         if (req.phase === "pre-generate") return { unauthored: true };
+        /* mutation-scope:begin unconfirmed-login */
         throw new Error(UNCONFIRMED_LOGIN_MESSAGE);
       }
     }
     const childEnv: Record<string, string> = {
       ...accountEnv,
       PW_BASE_URL: req.baseUrl,
+        /* mutation-scope:end unconfirmed-login */
       /* Tells the setup project (auth.setup.ts) to write storageState here — outside the mirror —
          instead of its relative, mirror-local ".auth/user.json" fallback. */
       PW_STORAGE_STATE: childStatePath,

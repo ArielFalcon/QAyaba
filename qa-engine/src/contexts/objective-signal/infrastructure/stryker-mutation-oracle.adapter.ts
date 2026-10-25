@@ -13,8 +13,10 @@ const DEFAULT_MUTATION_TIMEOUT_MS = 600_000;
 /* What is kept of each output stream of a Stryker run. Only the last few hundred chars are ever reported, and the run executes the repo's own tests, so its output is untrusted and may be unbounded. */
 export const MUTATION_OUTPUT_KEEP_CHARS = 8_000;
 
+/* mutation-scope:begin report-size-cap */
 /* Stryker's JSON report holds a record for every mutant with where it is and what it became (some 250 bytes each, and the source of each file mutated): a few megabytes for a real repository, 5 MB for 20,000 mutants, which no run of ten minutes reaches. The report is left by a run of the repository's own tests, which the agent wrote, and it is parsed in the orchestrator's one thread: a document of empty arrays costs some fifteen times its size in heap and a second of parse for every 12 MiB (128 MiB took 11 s and 2 GiB), so the cap is also what a freeze can cost. */
 export const MAX_MUTATION_REPORT_BYTES = 16 * 1024 * 1024;
+/* mutation-scope:end report-size-cap */
 
 export function resolveStrykerCommand(): { cmd: string; args: string[] } {
   const root = process.env.QAYABA_ROOT ?? process.cwd();
@@ -54,8 +56,10 @@ export function selectMutateTargets(repoDir: string, changedFiles?: string[]): s
   return globs.length > 0 ? globs : ["src/**/*.ts", "src/**/*.js"];
 }
 
+/* mutation-scope:begin config-write */
 /* The config goes into the repository's working copy, which the agent writes into: it is replaced through a temporary file renamed over the target, so a link planted at `stryker.conf.json` is never written through. A name the strict write refuses is thrown, and the run is unmeasured. */
 function writeStrykerConfig(repoDir: string, testCommand: string, testArgs: string[], mutate: string[]): void {
+/* mutation-scope:end config-write */
   const config = {
     $schema: "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
     mutate,
@@ -71,9 +75,12 @@ function writeStrykerConfig(repoDir: string, testCommand: string, testArgs: stri
     cleanTempDir: true,
     tempDirName: ".stryker-tmp",
   };
+  /* mutation-scope:begin config-write-end */
   writeOwnedSpecFile({ mirrorDir: repoDir, specDir: repoDir }, "stryker.conf.json", JSON.stringify(config, null, 2));
 }
+  /* mutation-scope:end config-write-end */
 
+/* mutation-scope:begin unreadable-report */
 /* A report that was there and cannot be used: said aloud with the reason of the module's own and nothing the report held. */
 function unread(reason: string): null {
   console.warn(`[qa] WARNING: the Stryker report was not read (${reason}); the mutation score stays unmeasured (non-blocking).`);
@@ -98,6 +105,7 @@ function parseStrykerReport(repoDir: string): { mutationScore: number; mutantCou
     return null;
   }
 }
+/* mutation-scope:end unreadable-report */
 
 function cleanupStryker(repoDir: string): void {
   try {

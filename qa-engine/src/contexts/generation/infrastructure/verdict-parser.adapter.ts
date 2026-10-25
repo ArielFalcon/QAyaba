@@ -12,10 +12,12 @@ import type { NoopKind } from "@kernel/noop-kind.ts";
 function forNote(text: string, keep: "start" | "end"): string {
   const redacted = sanitizeText(text, "issue").text;
   return (keep === "start" ? redacted.slice(0, GENERATION_NOTE_MAX_CHARS) : redacted.slice(-GENERATION_NOTE_MAX_CHARS)).trim();
+/* mutation-scope:begin parser-region */
 }
 
 /* Every *.spec.ts under specDir as a suite-relative, "/"-separated path — installed packages and dot-directories excluded, as Playwright excludes them. The suite is a directory the agent writes into, so it is walked by the one walk of the specs (spec-path-confinement): no link followed and no more entries looked at than its cap, which a caller that must not miss a spec cannot rely on and one that resolves a name can: what was not walked is not listed. */
 export function listSuiteSpecFiles(specDir: string, maxEntries?: number): string[] {
+/* mutation-scope:end parser-region */
   return scanSpecTree(specDir, maxEntries).specs.map((path) => path.split(sep).join("/"));
 }
 

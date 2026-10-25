@@ -562,7 +562,7 @@ Read [`docs/testing-standards.md`](docs/testing-standards.md) before writing or 
 5. Write only under `os.tmpdir()`; no real time or network.
 6. Never kill a mutant by asserting its literal; restructure an equivalent one away or
    list it as a documented survivor. No `// Stryker disable`. Thresholds are per preset.
-   Keep preset line ranges in `scripts/mutate.ts` in sync when editing the code they cover.
+   Mutation presets narrow a file by anchor (`path.ts#Name`, or `path.ts@scope` between `mutation-scope` marker comments), never by line number (`docs/testing-standards.md`, Mutation policy).
 
 ## The value/trust risk
 

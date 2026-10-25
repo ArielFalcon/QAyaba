@@ -73,6 +73,7 @@ function isValidArchitectureContext(raw: unknown): raw is ArchitectureContext {
 
   const opIds = new Set<string>();
   for (const entry of c.api) {
+    /* mutation-scope:begin operation-id-filter */
     const o = entry as { operationId?: unknown; method?: unknown; path?: unknown } | undefined;
     if (typeof o?.operationId !== "string" || o.operationId.trim().length === 0) return false;
     if (opIds.has(o.operationId)) return false; /* duplicate operationId */
@@ -134,10 +135,12 @@ export function loadContextMapFromDisk(specDir: string): ArchitectureContext | u
   if ("reason" in read) {
     console.warn(`[qa] WARNING: ${ctxJsonPath} was not read (${read.reason}); contextMap stays absent this run (non-blocking).`);
     return undefined;
+    /* mutation-scope:end operation-id-filter */
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(read.bytes.toString("utf8"));
+  /* mutation-scope:begin context-map-json-read */
   } catch {
     console.warn(`[qa] WARNING: ${ctxJsonPath} is not valid JSON; contextMap stays absent this run (non-blocking).`);
     return undefined;
@@ -188,6 +191,7 @@ function readFixtureFacts(specDir: string): HarnessFacts["fixtures"] {
     if (exports.length === 0) return skipFixtures(path, "no exports found");
     return { file: FIXTURES_FILE, exports };
   } catch (err) {
+  /* mutation-scope:end context-map-json-read */
     return skipFixtures(path, err instanceof Error ? err.message : String(err));
   }
 }
@@ -318,7 +322,9 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
         } catch (err) {
           console.warn(`[qa] WARNING: manifest read failed (non-blocking, existingSpecFiles stays plain): ${err instanceof Error ? err.message : String(err)}`);
         }
+        /* mutation-scope:begin existing-spec-listing */
         result.existingSpecFiles = found.map((file) => formatSuiteEntry({ file, ...byFile.get(file) }));
+        /* mutation-scope:end existing-spec-listing */
       }
     } catch (err) {
       console.warn(`[qa] WARNING: existing-spec enumeration failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);

@@ -556,6 +556,7 @@ export function gitChangedFiles(repoDir: string, fromSha: string, toSha: string)
     return parseNameStatusZ(out);
   } catch (err) {
     console.warn(`[qa] WARNING: the context map's commit ${fromSha.slice(0, 7)} could not be compared with ${toSha.slice(0, 7)} (${err instanceof Error ? err.message.split("\n")[0] : String(err)}); the map is not reused.`);
+    /* mutation-scope:begin context-map-compare-fallback */
     return undefined;
   }
 }
@@ -589,6 +590,7 @@ const contextMapWrittenThisRun: ContextMapWrittenThisRun = (specDir) =>
  * refused (""), rejected, thrown or unwired enqueue — or a run with no sha — keeps the flag armed,
  * so the next qualifying run retries instead of the heal being lost.
  */
+    /* mutation-scope:end context-map-compare-fallback */
 function requestContextHeal(
   app: string,
   sha: string | undefined,

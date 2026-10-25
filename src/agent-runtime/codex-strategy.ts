@@ -664,6 +664,7 @@ export class SupervisorExecTransport implements CodexHeadlessTransport {
   }
 }
 
+/* mutation-scope:begin supervisor-usage-extraction */
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
 /* The usage the supervisor relayed: the four counts of `turn.completed`, each a plain non-negative count, or nothing. A malformed object under-reports rather than invents. */
@@ -705,6 +706,7 @@ export function extractCodexTokenUsage(jsonl: string): CodexTokenUsage | undefin
   }
   return total;
 }
+/* mutation-scope:end supervisor-usage-extraction */
 
 /*
  * Strips chain-of-thought reasoning wrappers that models may include in their output.

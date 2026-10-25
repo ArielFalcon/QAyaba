@@ -163,12 +163,14 @@ export interface E2eExecuteDeps {
   /* OPTIONAL diagnostic sink for a secret-redaction audit trail (src/orchestrator/sanitizer.ts's recordAudit/SECRET_AUDIT — a security-boundary concern this module does not import directly, to stay src/-free). Absent ⇒ no audit recorded (safe for every unit test that doesn't care about it). The composition-root shell (rewritten-engine-factory.ts) binds the REAL recordAudit into createDefaultE2eExecuteDeps's returned object, so production behavior is unchanged. */
   recordAudit?(runId: string, detection: SecretDetection): void;
   /* OPTIONAL read-only observer of a report-shaped Playwright JSON report, told once per run before the verdict is derived (the shell turns it into spans), with the harvested (and redacted) cases as its evidence. It never alters the report or the verdict; a fault in it is logged and ignored. */
+  /* mutation-scope:begin report-callback */
   onReport?(report: unknown, cases: readonly QaCase[]): void;
 }
 
 /** Local result shape so this file stays src/-free. */
 export interface E2eRunResult {
   sha: string;
+  /* mutation-scope:end report-callback */
   verdict: RunVerdict;
   passed: boolean;
   cases: QaCase[];
@@ -297,6 +299,7 @@ export async function runE2E(
       sha: opts.namespace,
       verdict: "infra-error",
       passed: false,
+      /* mutation-scope:begin no-report-outcome */
       cases: [],
       logs: sanitized.text || "the E2E runner produced no report (it crashed before reporting results)",
     });
@@ -309,6 +312,7 @@ export async function runE2E(
     } catch (err) {
       console.error(`[qa] the report observer failed (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
     }
+      /* mutation-scope:end no-report-outcome */
   };
   const parsed = parsePlaywrightReport(report);
 
@@ -411,6 +415,7 @@ function readDevWrites(dir: string | undefined, root: string | undefined): { wri
     return writes;
   }, LEDGER_LIMITS);
   return files === undefined || files.length === 0 ? undefined : { writes: files.reduce((sum, n) => sum + n, 0), files: files.length };
+/* mutation-scope:begin output-readers */
 }
 
 function redactCaseByValue(c: QaCase): void {
@@ -478,6 +483,7 @@ export const FAILURE_DUMP_LIMITS: RunOutputLimits = {
 /* Why a report that was there is no report: said in words that quote nothing it holds, since a parser's message does. */
 const REPORT_NOT_JSON = "the report is not valid JSON";
 
+/* mutation-scope:end output-readers */
 /* The report, or that the run has none: with the reason when there was a report that could not be used, and with none when there was no report at all. */
 export type PlaywrightReportRead = { ran: true; report: unknown } | { ran: false; reason: string } | { ran: false };
 
@@ -688,13 +694,17 @@ export function createDefaultE2eCleanupDeps(processKill: ProcessKillPort = new P
         child.on("error", () => settle());
         child.on("close", () => settle());
       }),
+  /* mutation-scope:begin cleanup-deps-head */
   };
 }
 
+  /* mutation-scope:end cleanup-deps-head */
 export function cleanupArgs(outputDir: string): string[] {
   return ["playwright", "test", "cleanup.spec.ts", "--reporter=line", `--output=${outputDir}`];
+/* mutation-scope:begin default-cleanup-deps */
 }
 
+/* mutation-scope:end default-cleanup-deps */
 const STREAM_REPORTER = `
 class QaStreamReporter {
   onBegin(_config, suite) {

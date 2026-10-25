@@ -225,10 +225,14 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/route-instantiation.ts`,
       `${GEN}/infrastructure/loggable-route.ts`,
       /* Only the lines that rank the derived routes, filter the candidates, cut them, open the templates through links, log and list what was left out, and the capture that reports which pages it grounded and the links they showed. */
-      `${GEN}/infrastructure/dom-snapshot.ts:326-351`,
-      `${GEN}/infrastructure/context-pack.ts:140-164`,
-      `${GEN}/infrastructure/context-pack.ts:229-328`,
-      `${GEN}/infrastructure/context-pack.ts:349-359`,
+      `${GEN}/infrastructure/dom-snapshot.ts@non-table-overflow-note`,
+      `${GEN}/infrastructure/context-pack.ts@context-pack-deps`,
+      `${GEN}/infrastructure/context-pack.ts@not-capturable-listing`,
+      `${GEN}/infrastructure/context-pack.ts@pack-section-gap`,
+      `${GEN}/infrastructure/context-pack.ts@pack-sections-assembly`,
+      `${GEN}/infrastructure/context-pack.ts@grounded-line-route-header`,
+      `${GEN}/infrastructure/context-pack.ts@grounded-line-routes`,
+      `${GEN}/infrastructure/context-pack.ts@capture-state-line`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/route-capturability.test.ts",
@@ -253,12 +257,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
       `${GEN}/application/generate-tests.use-case.ts@intent-change-type`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:147-153`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:179-180`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:188-188`,
-      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:131-131`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts@generate-return-tail`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts@services-and-step-limit`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts@attribution-and-dom-snapshot`,
+      `${ORCH}/infrastructure/bridges/generation-port.adapter.ts@note-and-parsed-passthrough`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:321-321`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts@existing-spec-listing`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
       `${ORCH}/domain/helpers/selector-check.ts#contradictionOrigins`,
       `${ORCH}/domain/pre-exec-grounding.service.ts@no-catalog-result`,
@@ -307,14 +311,14 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   "redirect-advisory": {
     description: "redirect advisory: why a route degraded and where a redirect led, the state line and the advisory block that render it, and the split that keeps the block out of the live DOM section",
     mutate: [
-      `${GEN}/infrastructure/route-catalog.ts:15-25`,
-      `${GEN}/infrastructure/route-catalog.ts:66-129`,
+      `${GEN}/infrastructure/route-catalog.ts@degrade-reasons`,
+      `${GEN}/infrastructure/route-catalog.ts@redirect-target`,
       /* Only the lines that state a degraded route, build the advisory block and the capture, and warn about a gated app: the tree rendering they call is older code. */
-      `${GEN}/infrastructure/dom-snapshot.ts:225-229`,
-      `${GEN}/infrastructure/dom-snapshot.ts:250-277`,
-      `${GEN}/infrastructure/context-pack.ts:188-200`,
-      `${GEN}/infrastructure/context-pack.ts:256-257`,
-      `${GEN}/infrastructure/context-pack.ts:297-297`,
+      `${GEN}/infrastructure/dom-snapshot.ts@changed-marker-tail`,
+      `${GEN}/infrastructure/dom-snapshot.ts@text-line-split`,
+      `${GEN}/infrastructure/context-pack.ts@contract-sanitizer`,
+      `${GEN}/infrastructure/context-pack.ts@pack-section-gap`,
+      `${GEN}/infrastructure/context-pack.ts@grounded-line-route-header`,
     ],
     tests: [
       `${GEN_TEST}/infrastructure/route-catalog.test.ts`,
@@ -338,7 +342,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/harness-facts.ts`,
       `${GEN}/domain/step-limit.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:141-190`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts@context-map-json-read`,
     ],
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
@@ -386,11 +390,11 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/opencode-strategy.ts@dispose-without-limit",
       "src/agent-runtime/facades.ts@single-facade-step-limits",
       "src/agent-runtime/facades.ts@dual-facade-step-limits",
-      "src/integrations/opencode-client.ts:217-218",
-      "src/integrations/opencode-client.ts:330-332",
-      "src/integrations/opencode-client.ts:340-350",
+      "src/integrations/opencode-client.ts@max-steps-from-config-head",
+      "src/integrations/opencode-client.ts#AgentOnTheWire",
+      "src/integrations/opencode-client.ts@list-agent-caps",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
-      "src/server/rewritten-engine-factory.ts:559-591",
+      "src/server/rewritten-engine-factory.ts@context-map-compare-fallback",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",
@@ -408,7 +412,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [
       `${GEN}/domain/tool-link.ts`,
       "qa-engine/src/shared-kernel/telemetry/genai-semconv.ts@codex-usage-normalization",
-      "src/agent-runtime/codex-strategy.ts:667-707",
+      "src/agent-runtime/codex-strategy.ts@supervisor-usage-extraction",
     ],
     tests: [
       `${GEN_TEST}/domain/tool-link.test.ts`,
@@ -431,7 +435,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
   },
   "local-login": {
     description: "web console local-login policy: loopback peer/flag AND loopback-or-allowlisted Host header",
-    mutate: ["src/server/auth.ts:86-167"],
+    mutate: ["src/server/auth.ts@loopback-and-console-principal"],
     tests: ["src/server/auth.test.ts", "src/server/api.test.ts"],
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -452,24 +456,22 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [
       "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
       /* The manifest's file hashes, its strict read (a refusal is "no manifest") and its write (a refusal is thrown). */
-      `${GEN}/infrastructure/manifest-fs.ts:7-46`,
-      `${GEN}/infrastructure/manifest-fs.ts:79-92`,
+      `${GEN}/infrastructure/manifest-fs.ts@sha256-of-named-file`,
+      `${GEN}/infrastructure/manifest-fs.ts@reconcile-safe-entries`,
       /* The read gate's zero-assertion scan (a spec it cannot vouch for, and a path it could not walk, are findings) and its manifest check, whose output goes back to the agent. */
-      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:72-112",
-      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:149-161",
+      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts@spec-scan",
+      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts@eslint-fix-source",
       /* The context map: a strict read, and warnings that say nothing of what the file holds. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:76-136`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts@operation-id-filter`,
       /* Setup: the caps, the strict copy of the seed (the mark of a project last) and the wiring of the real strict calls, the entries of .qa that are removed when they are not ordinary, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
-      `${PUB_INFRA}/setup.adapter.ts:24-26`,
-      `${PUB_INFRA}/setup.adapter.ts:317-369`,
-      `${PUB_INFRA}/setup.adapter.ts:379-382`,
-      `${PUB_INFRA}/setup.adapter.ts:432-625`,
-      `${PUB_INFRA}/setup.adapter.ts:629-630`,
+      `${PUB_INFRA}/setup.adapter.ts@install-marker-limits`,
+      `${PUB_INFRA}/setup.adapter.ts@setup-options-and-project-reads`,
+      `${PUB_INFRA}/setup.adapter.ts@project-write-head`,
       /* The login's stock check: a strict read whose refusal fails the login. */
-      `${ORCH}/infrastructure/auth-session.adapter.ts:84-84`,
-      `${ORCH}/infrastructure/auth-session.adapter.ts:272-278`,
+      `${ORCH}/infrastructure/auth-session.adapter.ts@auth-setup-env`,
+      `${ORCH}/infrastructure/auth-session.adapter.ts@unconfirmed-login`,
       /* The verdict parser's listing of the suite: the one walk of the specs, with its cap. */
-      `${GEN}/infrastructure/verdict-parser.adapter.ts:15-18`,
+      `${GEN}/infrastructure/verdict-parser.adapter.ts@parser-region`,
     ],
     tests: [
       "qa-engine/test/shared-infrastructure/spec-path-confinement.test.ts",
@@ -532,13 +534,13 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "what the e2e runner reads back from the Playwright child, which runs code the agent wrote: the JSON report (a strict, capped read that never waits on a pipe or follows a link, and a report that cannot be used is a run with no result, infrastructure and never a pass, said with the reason and nothing the report held) and the failure-capture dumps (each read strictly under a cap, each that cannot be used left out so that its case runs without grounding, said once for the directory with a count and a reason and no file's name or content), with the lines of the runner that read them back and that distrust a pass the child did not exit 0 for (the status or the signal that ended it) and leave the report of a run that is settled unread",
     mutate: [
       /* Why a pass is not believed, and what the runner makes of it. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:166-171",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:300-311",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@report-callback",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@no-report-outcome",
       /* The caps, the report's read, the dump's decoding and the dumps' read. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:414-480",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@output-readers",
       /* What the runner does when the child is gone: reads the report unless the run is settled, before the directory it is in is removed (a line apart, which is the removal and not a read), and says why when it could not. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:691-693",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:696-699",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@cleanup-deps-head",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts@default-cleanup-deps",
     ],
     tests: [
       "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
@@ -593,17 +595,17 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "what a code run reads of its repository's working copy and writes into it, which the agent writes into: the manifest that names the test command (a strict, capped read that never waits on a pipe or follows a link; one that cannot be used is a refusal, said with the reason and nothing the file held, which the project carries: a run of it is infrastructure and the setup of it fails) and the mutation oracle's config (replaced through a temporary file, never written through a link, and a config that cannot be written leaves the run unmeasured without starting Stryker) and report (a strict, capped read; one that cannot be used is a run that produced none)",
     mutate: [
       /* The manifest: what is a refusal, the strict read, the project that carries a refusal, and what a run and a setup make of it. */
-      `${TE_INFRA}/code-execution.runner.ts:43-46`,
-      `${TE_INFRA}/code-execution.runner.ts:53-80`,
-      `${TE_INFRA}/code-execution.runner.ts:91-93`,
-      `${TE_INFRA}/code-execution.runner.ts:99-99`,
-      `${TE_INFRA}/code-execution.runner.ts:377-386`,
-      `${TE_INFRA}/code-setup.ts:39-40`,
-      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:16-17`,
+      `${TE_INFRA}/code-execution.runner.ts@manifest-refusal`,
+      `${TE_INFRA}/code-execution.runner.ts@strict-manifest-read`,
+      `${TE_INFRA}/code-execution.runner.ts@manifest-read-in-detect`,
+      `${TE_INFRA}/code-execution.runner.ts@project-carries-refusal`,
+      `${TE_INFRA}/code-execution.runner.ts@refused-manifest-run-outcome`,
+      `${TE_INFRA}/code-setup.ts@refused-manifest-setup-failure`,
+      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts@report-size-cap`,
       /* The write of the config (not what the config holds, which is other code) and the read of the report. */
-      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:57-58`,
-      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:74-75`,
-      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:77-100`,
+      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts@config-write`,
+      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts@config-write-end`,
+      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts@unreadable-report`,
     ],
     tests: [
       `${TE_INFRA_TEST}/code-execution.detect.confinement.test.ts`,
@@ -685,20 +687,7 @@ export function clearPreviousReport(root: string, name: string): void {
 }
 
 export function sourcePathOf(entry: string): string {
-  return entry.replace(/(:\d+(-\d+)?|#[\w$.]+|@[\w-]+)$/, "");
-}
-
-/* Why a `path.ts:start-end` entry cannot narrow a file of `lineCount` lines, or undefined when it can; an entry with no range names the whole file. */
-export function rangeProblemOf(entry: string, lineCount: number): string | undefined {
-  if (sourcePathOf(entry) === entry) return undefined;
-  const range = /:(\d+)-(\d+)$/.exec(entry);
-  if (range === null) return "the suffix is not a start-end line range";
-  const start = Number(range[1]);
-  const end = Number(range[2]);
-  if (start < 1) return "the range starts before line 1";
-  if (end < start) return "the range ends before it starts";
-  if (end > lineCount) return `the range ends at line ${end} but the file has ${lineCount} lines`;
-  return undefined;
+  return entry.replace(/(#[\w$.]+|@[\w-]+)$/, "");
 }
 
 // A scope is the lines strictly between a begin and an end marker comment of the same name, each alone on its line:
@@ -807,24 +796,19 @@ function importLinesOf(source: string): number {
   return last;
 }
 
-const ENTRY_FORM = /^(.*?\.ts)(?:#([\w$.]+)|@([\w-]+)|:(\d+)-(\d+))?$/;
+const ENTRY_FORM = /^(.*?\.ts)(?:#([\w$.]+)|@([\w-]+))?$/;
 
 /* The `file:start-end` range Stryker takes for one `mutate` entry, or why the entry names nothing usable. A whole file has no range. */
 export function resolveMutateEntry(entry: string, readSource: MutateReader): ResolvedMutateEntry {
   const m = ENTRY_FORM.exec(entry);
-  if (m === null) return { problem: `${entry}: not a path.ts, path.ts#Symbol, path.ts@scope or path.ts:start-end entry` };
-  const [, file, symbol, scope, from, to] = m as unknown as [string, string, string | undefined, string | undefined, string | undefined, string | undefined];
-  if (symbol === undefined && scope === undefined && from === undefined) return { file };
+  if (m === null) return { problem: `${entry}: not a path.ts, path.ts#Symbol or path.ts@scope entry` };
+  const [, file, symbol, scope] = m as unknown as [string, string, string | undefined, string | undefined];
+  if (symbol === undefined && scope === undefined) return { file };
   const source = readSource(file);
   if (source === undefined) return { problem: `${entry}: ${file} cannot be read` };
-  const lineCount = source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
 
   let range: [number, number];
-  if (from !== undefined && to !== undefined) {
-    const problem = rangeProblemOf(entry, lineCount);
-    if (problem !== undefined) return { problem: `${entry}: ${problem}` };
-    range = [Number(from), Number(to)];
-  } else if (symbol !== undefined) {
+  if (symbol !== undefined) {
     const matches = declarationsOf(source).get(symbol) ?? [];
     if (matches.length === 0) return { problem: `${entry}: ${file} declares no ${symbol}` };
     if (matches.length > 1) return { problem: `${entry}: ${file} declares ${symbol} ${matches.length} times, so the anchor is ambiguous` };

@@ -4,6 +4,7 @@ import type { ManifestEntry } from "../application/ports/index.ts";
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, manifestEntryViolation } from "@kernel/manifest/manifest-entry.ts";
 import { ConfinedPathError, readConfinedSpecBytes, readOwnedSpecFile, writeOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
+/* mutation-scope:begin sha256-of-named-file */
 /* The hash of a file the agent named, read through the confined reader: a name that leaves the spec directory, or is not a file in it, has none, exactly like a name that is not on disk. */
 function sha256File(root: SpecRoot, file: string): string | undefined {
   let bytes: Buffer;
@@ -44,6 +45,7 @@ export async function readManifest(specDir: string): Promise<ManifestEntry[]> {
   }
   return loaded.entries;
 }
+/* mutation-scope:end sha256-of-named-file */
 
 /* The disk-existence check must distinguish "file declared but NOT on disk" (a real phantom — drop it) from "no file declared at all" (not a phantom — keep it, sha256 stays undefined, never fabricated). */
 function safetyFilter(root: SpecRoot, entries: readonly ManifestEntry[]): ManifestEntry[] {
@@ -76,6 +78,7 @@ function safetyFilter(root: SpecRoot, entries: readonly ManifestEntry[]): Manife
 export async function reconcileManifest(root: SpecRoot, entries: readonly ManifestEntry[]): Promise<ManifestEntry[]> {
   if (entries.length === 0) return [];
 
+  /* mutation-scope:begin reconcile-safe-entries */
   const safeEntries = safetyFilter(root, entries);
   if (safeEntries.length === 0) return [];
 
@@ -90,3 +93,4 @@ export async function reconcileManifest(root: SpecRoot, entries: readonly Manife
   writeOwnedSpecFile(root, MANIFEST_FILE, JSON.stringify(merged, null, 2));
   return merged;
 }
+  /* mutation-scope:end reconcile-safe-entries */

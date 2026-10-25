@@ -137,6 +137,7 @@ export interface ContextPackAssembly {
   changedValuesWithMoreNodes?: string[];
 }
 
+/* mutation-scope:begin context-pack-deps */
 export interface ContextPackDeps {
   captureDomForRoutes(
     routes: string[],
@@ -162,6 +163,7 @@ const DOM_BUDGET_BYTES = 30_000;
 
 const BYTES_PER_CHAR = 1;
 
+/* mutation-scope:end context-pack-deps */
 
 function filterRelevantContracts(
   contextMap: ArchitectureContext | undefined,
@@ -185,6 +187,7 @@ function filterRelevantContracts(
 }
 
 
+/* mutation-scope:begin contract-sanitizer */
 const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
 
 /* The most routes the pack lists as not capturable: a long list says no more than its first lines. */
@@ -198,6 +201,7 @@ interface NotCaptured {
 
 /* Why a template of the map that was meant to be captured is not. */
 export const TEMPLATE_LEFT_OUT = {
+/* mutation-scope:end contract-sanitizer */
   /* The pages that could show a link to it were captured, and none did. */
   NO_LINK: `${ROUTE_REASON.TEMPLATE}: no link to a page of it was seen`,
   /* No page that could show a link to it was captured, so whether the site links to it is not known. */
@@ -226,6 +230,7 @@ function renderNotCapturable(routes: readonly NotCaptured[]): string {
   if (routes.length === 0) return "";
   const listed = routes.slice(0, MAX_LISTED_UNCAPTURABLE).map((entry) => `- ${s(entry.route)} (${entry.reason})`);
   const more = routes.length - listed.length;
+  /* mutation-scope:begin not-capturable-listing */
   return [`### ${PACK_HEADINGS.notCapturable}`, ...listed, ...(more > 0 ? [`(+${more} more)`] : [])].join("\n");
 }
 
@@ -253,8 +258,12 @@ export function withoutPackSection(text: string, heading: string): string | unde
   if (!removed) return text;
   if (!kept.some((line) => line.startsWith("### "))) return undefined;
   return kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "");
+  /* mutation-scope:end not-capturable-listing */
+/* mutation-scope:begin pack-section-gap */
 }
 
+/* mutation-scope:end pack-section-gap */
+/* mutation-scope:begin pack-sections-assembly */
 interface PackSection {
   text: string;
   /* How the pack's header names the section. */
@@ -294,7 +303,11 @@ function attributeGroundedLines(grounded: string): AttributedLine[] {
   const out: AttributedLine[] = [];
   let route: string | undefined;
   for (const line of grounded.split("\n")) {
+/* mutation-scope:end pack-sections-assembly */
+    /* mutation-scope:begin grounded-line-route-header */
     if (line.startsWith("route ")) {
+    /* mutation-scope:end grounded-line-route-header */
+      /* mutation-scope:begin grounded-line-routes */
       route = routeOfHeader(line);
       out.push(route === undefined ? { line } : { line, route });
     } else if (route !== undefined && line.startsWith("  ")) {
@@ -326,6 +339,7 @@ function joinRedirectSections(first: string, second: string): string {
   if (first === "" || second === "") return first || second;
   const at = second.indexOf(REDIRECT_ADVISORY_INTRO);
   const pages = at === -1 ? second : second.slice(at + REDIRECT_ADVISORY_INTRO.length).replace(/^\n/, "");
+      /* mutation-scope:end grounded-line-routes */
   return `${first}\n${pages}`;
 }
 
@@ -346,6 +360,7 @@ function captureStateLabel(page: CapturedPage): string {
 }
 
 /* One "Capture state" line for a page whose dev.dataState route matched: its result count, effective location and, when the state could not be confirmed, the explicit warning that an empty tree is not proof. */
+/* mutation-scope:begin capture-state-line */
 function captureStateLine(page: CapturedPage, hasChangedElements: boolean): string {
   const parts: string[] = [];
   if (page.resultCount !== undefined) parts.push(`${page.resultCount} result(s)`);
@@ -357,6 +372,7 @@ function captureStateLine(page: CapturedPage, hasChangedElements: boolean): stri
   return parts.length > 0 ? `- ${s(captureStateLabel(page))}: ${parts.join(", ")}` : "";
 }
 
+/* mutation-scope:end capture-state-line */
 export async function buildContextPack(
   input: ContextPackInput,
   deps: ContextPackDeps,

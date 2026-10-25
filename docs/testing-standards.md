@@ -111,6 +111,12 @@ a stale summary.
   (`--concurrency=N`); presets whose tests spawn git set a lower `concurrency` of their own. A
   preset's tests run in their own process group (`scripts/run-in-group.mjs`), so a timed-out run's
   test-file processes die with it instead of spinning on the looping mutant.
+- **A preset narrows a file by anchor, never by line number.** An entry is a whole file, `path.ts#Name`
+  (or `#Class.method`) for one declaration, or `path.ts@scope` for the lines between a
+  `/* mutation-scope:begin scope */` and a `/* mutation-scope:end scope */` comment, each on a line of
+  its own, named for the behavior it brackets. The run resolves the anchors to the `file:start-end` ranges
+  Stryker takes, and fails (exit 2) on an anchor that is missing or matches twice, a scope that is nested,
+  unbalanced or empty, and a marker pair no preset names; a test walks every preset and every marker.
 - **Thresholds are per module, never repo-wide.** A preset starts in signal mode (`break: null`);
   raise its `break` only after it holds above `high` (90) for a few cycles. The keystone keeps
   `break: 80`.

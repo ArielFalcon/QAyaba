@@ -215,7 +215,9 @@ export function agentConfigFacts(agent: string, configPath: string = DEFAULT_AGE
  * (a bind-mounted file, a project's own opencode.json): it serves the exhaustion report alone and is
  * not a source for any prompt. A number a prompt states comes from `listAgentCaps`.
  */
+/* mutation-scope:begin max-steps-from-config-head */
 export function maxStepsFromConfig(
+/* mutation-scope:end max-steps-from-config-head */
   agent: string,
   configPath: string = DEFAULT_AGENTS_CONFIG_PATH(),
 ): number | undefined {
@@ -341,6 +343,7 @@ function describeFailure(error: unknown): string {
  * a session is created in. A failure to read, or a reply that is not a list of agents, throws; what to
  * do about it is the caller's decision, never an empty list.
  */
+/* mutation-scope:begin list-agent-caps */
 export async function listAgentCaps(directory: string, deps: AgentListDeps = defaultAgentListDeps): Promise<ReadonlyArray<AgentCap>> {
   const client = await deps.getClient();
   const res = await client.app.agents({ directory });
@@ -348,6 +351,7 @@ export async function listAgentCaps(directory: string, deps: AgentListDeps = def
     const status = res.response?.status;
     throw new Error(`OpenCode app.agents failed${status === undefined ? "" : ` (HTTP ${status})`}: ${describeFailure(res.error)}`);
   }
+/* mutation-scope:end list-agent-caps */
   if (!Array.isArray(res.data)) throw new Error(`OpenCode app.agents returned no list of agents: ${JSON.stringify(res.data)}`);
   const agents: ReadonlyArray<AgentOnTheWire> = res.data;
   const caps = agents.map((agent) => ({ name: agent.name, cap: agent.steps ?? agent.maxSteps }));

@@ -14,7 +14,6 @@ import {
   MAX_WORKERS,
   markerProblemsOf,
   mutateProblemsOf,
-  rangeProblemOf,
   resolveMutateEntry,
   resolvedMutateEntries,
   runOptionsFrom,
@@ -36,26 +35,6 @@ test("every preset names source files and test files that exist (a moved module 
     }
     for (const t of preset.tests) {
       assert.ok(existsSync(join(ROOT, t)), `${name}: test file ${t} does not exist`);
-    }
-  }
-});
-
-test("a line range names real lines of its file: it starts at line 1 or later, never ends before it starts and stops at the last line", () => {
-  assert.equal(rangeProblemOf("src/a.ts", 10), undefined, "an entry with no range names the whole file");
-  assert.equal(rangeProblemOf("src/a.ts:1-10", 10), undefined, "the first and the last line are in the file");
-  assert.equal(rangeProblemOf("src/a.ts:5-5", 10), undefined, "a single line is a range");
-  assert.match(rangeProblemOf("src/a.ts:0-3", 10)!, /line 1/);
-  assert.match(rangeProblemOf("src/a.ts:7-6", 10)!, /before it starts/);
-  assert.match(rangeProblemOf("src/a.ts:5-11", 10)!, /ends at line 11 but the file has 10 lines/);
-  assert.match(rangeProblemOf("src/a.ts:5", 10)!, /start-end/);
-});
-
-test("every preset's line ranges lie inside their files (a range left past the end of an edited file would mutate nothing)", () => {
-  for (const [name, preset] of Object.entries(PRESETS)) {
-    for (const entry of preset.mutate.filter((e) => /:\d+-\d+$/.test(e))) {
-      const text = readFileSync(join(ROOT, sourcePathOf(entry)), "utf8");
-      const lineCount = text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
-      assert.equal(rangeProblemOf(entry, lineCount), undefined, `${name}: ${entry}`);
     }
   }
 });
@@ -106,9 +85,9 @@ test("a scope anchor resolves to the lines strictly between its markers", () => 
   assert.deepEqual(resolveMutateEntry("src/m.ts@inner", readerOf({ "src/m.ts": source })), { file: "src/m.ts", range: [4, 5] });
 });
 
-test("a whole-file entry resolves to the file, and a numeric range to itself while the numeric form is accepted", () => {
+test("a whole-file entry resolves to the file, and a line range is no entry at all", () => {
   assert.deepEqual(resolveMutateEntry("src/m.ts", () => undefined), { file: "src/m.ts" });
-  assert.deepEqual(resolveMutateEntry("src/m.ts:4-6", readerOf({ "src/m.ts": SOURCE })), { file: "src/m.ts", range: [4, 6] });
+  assert.match((resolveMutateEntry("src/m.ts:4-6", readerOf({ "src/m.ts": SOURCE })) as { problem: string }).problem, /not a path\.ts/);
 });
 
 test("an entry whose symbol does not exist is reported with its preset", () => {
@@ -143,10 +122,10 @@ test("an entry whose scope marker is missing, duplicated, nested or unbalanced i
 test("a scope that brackets no lines, and a range inside the imports, are reported", () => {
   const read = readerOf({
     "empty.ts": ["const a = 1;", BEGIN("s"), END("s")].join("\n"),
-    "imports.ts": ['import { a } from "./a";', 'import { b } from "./b";', "export const c = 1;"].join("\n"),
+    "imports.ts": ['import { a } from "./a";', BEGIN("s"), 'import { b } from "./b";', END("s"), "export const c = 1;"].join("\n"),
   });
   assert.match(mutateProblemsOf("p", presetOf("empty.ts@s"), read)[0]!, /brackets no lines/);
-  assert.match(mutateProblemsOf("p", presetOf("imports.ts:1-2"), read)[0]!, /inside the imports/);
+  assert.match(mutateProblemsOf("p", presetOf("imports.ts@s"), read)[0]!, /inside the imports/);
 });
 
 test("a marker pair that no preset references is reported", () => {
@@ -158,13 +137,13 @@ test("a marker pair that no preset references is reported", () => {
 
 test("strykerConfigFor puts file:start-end strings in mutate, never an anchor", () => {
   const read = readerOf({ "src/m.ts": SOURCE });
-  const config = strykerConfigFor("x", presetOf("src/m.ts#alpha", "src/m.ts:14-18", "src/whole.ts"), { tsconfigFile: "/tmp/tsconfig.json", concurrency: 1, incremental: false, readSource: read }) as { mutate: string[] };
+  const config = strykerConfigFor("x", presetOf("src/m.ts#alpha", "src/m.ts#beta", "src/whole.ts"), { tsconfigFile: "/tmp/tsconfig.json", concurrency: 1, incremental: false, readSource: read }) as { mutate: string[] };
   assert.deepEqual(config.mutate, ["src/m.ts:4-6", "src/m.ts:14-18", "src/whole.ts"]);
   assert.throws(() => resolvedMutateEntries(presetOf("src/m.ts#missing"), read), /declares no missing/);
 });
 
 test("sourcePathOf strips every anchor form and keeps a whole-file entry", () => {
-  for (const entry of ["a/b.ts#Name", "a/b.ts#Class.method", "a/b.ts@scope-name", "a/b.ts:3-9"]) assert.equal(sourcePathOf(entry), "a/b.ts");
+  for (const entry of ["a/b.ts#Name", "a/b.ts#Class.method", "a/b.ts@scope-name"]) assert.equal(sourcePathOf(entry), "a/b.ts");
   assert.equal(sourcePathOf("a/b.ts"), "a/b.ts");
 });
 
@@ -618,16 +597,16 @@ test("a run re-tests every mutant unless incremental mode is asked for (the comm
   assert.equal(runOptionsFrom(["--incremental", "keystone"]).preset, "keystone");
 });
 
-test("the checker type-checks the mutated file without its line range, with the options of its own project", () => {
+test("the checker type-checks the mutated file without its anchor, with the options of its own project", () => {
   const engine = checkerTsconfigFor(
-    { description: "x", mutate: ["qa-engine/src/x.ts:10-20"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
+    { description: "x", mutate: ["qa-engine/src/x.ts#run"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
     "/repo",
   ) as { extends: string; files: string[] };
   assert.deepEqual(engine.files, ["/repo/qa-engine/src/x.ts"]);
   assert.equal(engine.extends, "/repo/qa-engine/tsconfig.json");
 
   const shell = checkerTsconfigFor(
-    { description: "x", mutate: ["src/server/auth.ts:1-5"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
+    { description: "x", mutate: ["src/server/auth.ts@scope"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
     "/repo",
   ) as { extends: string; files: string[] };
   assert.deepEqual(shell.files, ["/repo/src/server/auth.ts"]);

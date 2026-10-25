@@ -40,16 +40,19 @@ export interface CodeProject {
   manifestRefused?: string;
 }
 
+/* mutation-scope:begin manifest-refusal */
 /* A manifest that is there and cannot be used (a link, a named pipe, a directory, one over the cap, one that cannot be read): told apart from no manifest, which a repository may well have. */
 export class ManifestRefusal {
   constructor(readonly reason: string) {}
 }
+/* mutation-scope:end manifest-refusal */
 
 export interface DetectDeps {
   exists(path: string): boolean;
   readJson(path: string): Record<string, unknown> | ManifestRefusal | null;
 }
 
+/* mutation-scope:begin strict-manifest-read */
 /* A package.json is a few kilobytes, a monorepo root's some hundreds. */
 export const MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
 
@@ -78,6 +81,7 @@ export const realDetectDeps: DetectDeps = {
     }
   },
 };
+/* mutation-scope:end strict-manifest-read */
 
 export function detectCodeProject(repoDir: string, deps: DetectDeps = realDetectDeps): CodeProject {
   const at = (f: string): string => join(repoDir, f);
@@ -88,15 +92,19 @@ export function detectCodeProject(repoDir: string, deps: DetectDeps = realDetect
       : deps.exists(at("yarn.lock"))
         ? "yarn"
         : "npm";
+    /* mutation-scope:begin manifest-read-in-detect */
     const manifest = deps.readJson(at("package.json"));
     const refused = manifest instanceof ManifestRefusal ? manifest.reason : undefined;
     const pkg = manifest === null || manifest instanceof ManifestRefusal ? {} : manifest;
+    /* mutation-scope:end manifest-read-in-detect */
     /* `--ignore-scripts`: the watched repo is UNTRUSTED code running in the orchestrator. A package.json install lifecycle (preinstall/postinstall/prepare) is arbitrary code execution — the cheapest RCE vector. Skipping it closes that vector. Fail-safe: a repo that genuinely needs a build script will fail its test command → infra-error (inconclusive), never a false pass. (Only the code-mode UNTRUSTED install; the e2e seed install is the orchestrator's own trusted fixtures and keeps its scripts.) */
     const install: Command =
       pm === "npm"
         ? { cmd: "npm", args: [deps.exists(at("package-lock.json")) ? "ci" : "install", "--ignore-scripts"] }
         : { cmd: pm, args: ["install", "--ignore-scripts"] };
+    /* mutation-scope:begin project-carries-refusal */
     return { ecosystem: "node", install, test: nodeTestCommand(pm, pkg), ...(refused !== undefined ? { manifestRefused: refused } : {}) };
+    /* mutation-scope:end project-carries-refusal */
   }
 
   if (
@@ -374,6 +382,7 @@ export async function runCodeTests(
   deps: CodeExecuteDeps,
 ): Promise<CodeRunResult> {
   const detected = deps.detect(repoDir);
+  /* mutation-scope:begin refused-manifest-run-outcome */
   /* The manifest the test command is chosen from was there and could not be used, so the command is not the repository's: running the default in its place would say nothing of the repository, pass or fail. */
   if (detected.manifestRefused !== undefined) {
     return {
@@ -384,6 +393,7 @@ export async function runCodeTests(
       logs: `${join(repoDir, "package.json")} cannot be read (${detected.manifestRefused}), so the test command cannot be chosen from it — inconclusive, not a pass`,
     };
   }
+  /* mutation-scope:end refused-manifest-run-outcome */
   const changed = effectiveChangedFiles(opts.changedFiles ?? [], repoDir, deps.listWrites);
   const scope = scopeForChangedFiles(detected, repoDir, changed);
   opts.log?.(`[qa] code-mode: ${scope.note}`);

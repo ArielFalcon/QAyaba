@@ -128,7 +128,9 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(generated.noopKind ? { noopKind: generated.noopKind } : {}),
       reviewed: generated.reviewed,
       approved: generated.approved,
+      /* mutation-scope:begin note-and-parsed-passthrough */
       ...(generated.note !== undefined ? { note: generated.note } : {}),
+      /* mutation-scope:end note-and-parsed-passthrough */
       ...(generated.parsed !== undefined ? { parsed: generated.parsed } : {}),
       ...(generated.turn ? { turn: generated.turn } : {}),
       ...(generated.specMetas?.length
@@ -144,6 +146,7 @@ export class GenerationPortAdapter implements GenerationPort {
     }
 
     return result;
+  /* mutation-scope:begin generate-return-tail */
   }
 
   /* The run input of one turn, from the run's static context and the enrichment the caller hands. */
@@ -151,6 +154,7 @@ export class GenerationPortAdapter implements GenerationPort {
     const reviewerLearnedRules = enrichment?.learnedRules?.length ? renderLearnedRulesForReviewer(enrichment.learnedRules) : "";
     const stepLimit = await this.collaborators.stepLimitFor?.("generator");
     /* The in-generate reviewer's limit travels only with a generation that runs that reviewer's session. */
+  /* mutation-scope:end generate-return-tail */
     const reviewerStepLimit = generationRunsReviewer(this.ctx) ? await this.collaborators.stepLimitFor?.("reviewer") : undefined;
     const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
     /* On a regeneration turn only, what the run delivered, what a contradiction points at and the suite's own entries, minus the files that are no longer a regular file inside the spec directory (deleted, renamed away, a link out, a path that climbs): the agent can change the suite between passes, and a path it reported is never trusted. A first pass hands the suite's entries on as the grounding folded them. */
@@ -176,8 +180,10 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(this.ctx.baseUrl ? { baseUrl: this.ctx.baseUrl } : {}),
       ...(this.ctx.openapi ? { openapi: this.ctx.openapi } : {}),
       ...(this.ctx.service ? { service: this.ctx.service } : {}),
+      /* mutation-scope:begin services-and-step-limit */
       ...(this.ctx.services?.length ? { services: this.ctx.services } : {}),
       /* The limit the runtime enforces for each session of this generation. Absent -> omitted, never a made-up number. */
+      /* mutation-scope:end services-and-step-limit */
       ...(stepLimit !== undefined ? { stepLimit } : {}),
       ...(reviewerStepLimit !== undefined ? { reviewerStepLimit } : {}),
       ...(enrichment?.reviewCorrections?.length ? { reviewCorrections: [...enrichment.reviewCorrections] } : {}),
@@ -185,7 +191,9 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(enrichment?.selectorContradictions?.length ? { selectorContradictions: [...enrichment.selectorContradictions] } : {}),
       /* Absent when there is none left, never []. */
       ...(deliveredSpecs.length ? { deliveredSpecs } : {}),
+      /* mutation-scope:begin attribution-and-dom-snapshot */
       ...(attributedSpecFiles.length ? { attributedSpecFiles } : {}),
+      /* mutation-scope:end attribution-and-dom-snapshot */
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
       ...(enrichment?.coverageGap ? { coverageGap: enrichment.coverageGap } : {}),
       ...(enrichment?.contractFeedback?.length ? { contractFeedback: enrichment.contractFeedback.map((violation) => ({ ...violation })) } : {}),

@@ -69,6 +69,7 @@ export async function validateSpecs(
   return { ok: errors.length === 0, errors, infra: errors.length > 0 && allFailuresAreInfra };
 }
 
+/* mutation-scope:begin spec-scan */
 /* Deterministic check — scan *.spec.ts files under specDir/flows (the GENERATED-spec dir; qayaba writes generated specs there) and return one error per spec with NO assertion. Detects `expect(`, `await expect(`, `expect.soft(`, `expect.poll(`. A missing flows/ dir yields no errors.
    The scan runs in the orchestrator, over files the agent writes, so it lists without following a link and reads through the confined reader: a named pipe cannot hold it, a link cannot lead it out of the spec directory and a device cannot fill its memory. A spec it cannot vouch for (a link out of the spec directory, a pipe, a file it cannot read or that is over the cap) is a finding of its own, never skipped and never taken for fine: the gate is fail-closed, the agent can fix it, and a spec that was not checked must not go on to be run. So is a path it could not walk (a link to a directory, which tsc, ESLint and Playwright may follow to specs that nothing here checked, a directory it could not list, and a directory with more entries than the walk looks at, since the entries past the cap were not checked). A flows/ that is itself a link or a file is a finding too: nothing under it was checked. */
 function checkZeroAssertionSpecs(specDir: string): string[] {
@@ -110,6 +111,7 @@ function readSpec(root: SpecRoot, spec: string): { source: string } | { problem:
     return { problem: readFailureReason(err) };
   }
 }
+/* mutation-scope:end spec-scan */
 
 /* `tsc`, `eslint` and `playwright test --list` import and run the project's config and its specs' top-level code, so they are agent-influenced code like a test run: they start through the launcher in the `offline` profile (no network, no session, no account). A code-target compile runs the repo's own build and uses the `install` profile, which reaches package registries only. */
 export function runCheck(
@@ -146,6 +148,7 @@ export function runCheck(
     child.on("close", (code) => settle({ ok: code === 0, output: redactByValue(out.text()), infra: code === null ? true : undefined }));
   });
 }
+/* mutation-scope:begin eslint-fix-source */
 
 /* The linter the fixes come from: ESLint, as the static gate runs it. A test names a stand-in. */
 export const ESLINT_COMMAND: readonly [string, readonly string[]] = ["npx", ["eslint"]];
@@ -159,6 +162,7 @@ export async function fixLintedSpecs(
   timeoutMs: number = DEFAULT_VALIDATE_CHECK_TIMEOUT_MS,
 ): Promise<string[]> {
   const named = [...new Set(specs.filter((s) => s.endsWith(".spec.ts") && !isAbsolute(s) && !s.split("/").includes("..")))];
+/* mutation-scope:end eslint-fix-source */
   if (named.length === 0) return [];
   const res = await runCheck(linter[0], [...linter[1], "--fix-dry-run", "--format", "json", "--", ...named], specDir, timeoutMs, exec, "offline", "eslint", { stdoutOnly: true });
   if (res.infra) return [];

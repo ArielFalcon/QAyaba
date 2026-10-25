@@ -12,6 +12,7 @@ export const ROUTE_STATUS = {
 /** Route capture status: "captured" = render succeeded; "degraded" = errored / timed-out / auth-blocked. */
 export type RouteStatus = (typeof ROUTE_STATUS)[keyof typeof ROUTE_STATUS];
 
+/* mutation-scope:begin degrade-reasons */
 /** Why a route degraded: its capture failed, it rendered no nodes, or the browser ended on another page. */
 export const DEGRADE_REASON = {
   CAPTURE_FAILED: "capture-failed",
@@ -23,6 +24,7 @@ export type DegradeReason = (typeof DEGRADE_REASON)[keyof typeof DEGRADE_REASON]
 
 /** The longest path a redirect is named by: the path comes from the app, and it reaches a prompt and a log. */
 export const REDIRECT_PATH_MAX_CHARS = 200;
+/* mutation-scope:end degrade-reasons */
 
 /** Per-route catalog of selectors that exist in the captured live DOM, one index per family. status/settled gate whether the fail-closed path may trust it. */
 export interface RouteCatalog {
@@ -63,6 +65,7 @@ export function hasRuntimeErrorSignal(errors: readonly { type: string; text: str
   return false;
 }
 
+/* mutation-scope:begin redirect-target */
 /** The path the browser ended on when the settled finalUrl pathname diverges from the requested route pathname (a redirect); undefined otherwise. Both sides are parsed as URLs so query/hash — including hash-router paths — cannot count as a path mismatch. Trailing slashes are normalized. A hash-only redirect is undetectable here: an ambiguous signal defaults to trust, never degrade. */
 function redirectTarget(route: string, finalUrl: string | undefined): string | undefined {
   if (!finalUrl) return undefined;
@@ -127,6 +130,7 @@ export function gatedAppAdvisory(catalogs: readonly RouteCatalog[]): string | un
     const page = reached.get(c.redirectedTo) ?? { routes: [], hasPasswordField: false };
     page.routes.push(c.route);
     page.hasPasswordField ||= c.reachedPasswordField === true;
+/* mutation-scope:end redirect-target */
     reached.set(c.redirectedTo, page);
   }
   const gated = [...reached].filter(([, page]) => page.routes.length > 1 || page.hasPasswordField);

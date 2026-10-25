@@ -36,8 +36,10 @@ export async function setupCodeProject(
   opts?: { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<void> {
   const project = deps.detect(repoDir);
+  /* mutation-scope:begin refused-manifest-setup-failure */
   /* A manifest that was there and could not be used (a link, a named pipe, a directory, one over its cap) is not installed from: the install would be the default one, and a package manager follows a link the orchestrator does not. The setup fails aloud, which the pipeline reports as an infra-error. */
   if (project.manifestRefused !== undefined) throw new Error(`${join(repoDir, "package.json")} cannot be read (${project.manifestRefused}): the dependencies are not installed from a manifest that cannot be vouched for`);
+  /* mutation-scope:end refused-manifest-setup-failure */
   deps.prepareWorkdir?.(repoDir); /* drop the working copy to the sandbox user before any spawn */
   if (!project.install) return;
   if (opts?.signal?.aborted) throw new Error("code-mode install aborted by operator cancel");

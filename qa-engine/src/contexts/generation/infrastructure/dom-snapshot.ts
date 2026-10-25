@@ -222,11 +222,13 @@ function buildAttrHint(attr: NodeAttr, testIdAttrName: string): string {
 
 function isMarkerLine(line: string): boolean {
   return line.includes(": (present)") || line.startsWith("text: ");
+/* mutation-scope:begin changed-marker-tail */
 }
 
 export function buildChangedMarker(
   line: string,
   attr: NodeAttr | undefined,
+/* mutation-scope:end changed-marker-tail */
   changed: ChangedElement[],
   testIdAttrName: string = "data-testid",
   /* The containers of this occurrence when its page repeats its name (see RepeatedName). */
@@ -247,6 +249,7 @@ export function buildChangedMarker(
     if (c.href !== undefined && attr?.href === c.href) {
       return ` [CHANGED: new link → ${c.href}]`;
     }
+    /* mutation-scope:begin text-line-split */
     if (c.text !== undefined) {
       const colonIdx = line.indexOf(": ");
       const rawNodeName = colonIdx !== -1 ? line.slice(colonIdx + 2).trim() : line.trim();
@@ -275,6 +278,7 @@ export function buildChangedMarker(
 }
 
 /* The node lines of one route's tree: each node with its attribute hint, state and [CHANGED] mark, cut to the node bound with a count of what was left out. */
+    /* mutation-scope:end text-line-split */
 function renderNodeLines(s: RouteSnapshot, allChanged?: ChangedElement[]): string[] {
   const lines: string[] = [];
   /* A change whose nearest container this page shows none of is not on this page now: it marks nothing here, and the page says so. */
@@ -323,6 +327,7 @@ function renderNodeLines(s: RouteSnapshot, allChanged?: ChangedElement[]): strin
     }
     const changedMarker = useChanged && !isMarkerLine(n) ? buildChangedMarker(n, attrMap?.get(normalizeKey(n)) ?? attrMap?.get(n), changed!, testIdAttrName, occurrence !== undefined && pinpointed.has(occurrence.group) ? occurrence.scope : undefined) : "";
     lines.push(`  ${n}${stateSuffix}${repeatedNote}${changedMarker}`);
+  /* mutation-scope:begin non-table-overflow-note */
   }
   if (all.length > nodes.length) lines.push(`  … (${all.length - nodes.length} more non-table elements omitted)`);
   return lines;
@@ -349,6 +354,7 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
     const runtimeErrorAdvisory = hasRuntimeErrorSignal(s.runtimeErrors ?? [])
       ? " (note: the app logged runtime errors on this route — possibly a defect; assert only content this tree shows)"
       : "";
+  /* mutation-scope:end non-table-overflow-note */
     lines.push(`route ${routeLabel(s)}:${runtimeErrorAdvisory}`);
     lines.push(...renderNodeLines(s, changed));
     if (s.testIds && s.testIds.size > 0) {
