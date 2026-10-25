@@ -120,6 +120,37 @@ module.exports = {
       from: { path: "^qa-engine/src/" },
       to: { path: "^src/" },
     },
+    {
+      name: "domain-imports-nothing-outward",
+      severity: "error",
+      comment: "A context's domain depends on nothing outside itself: not its own application, infrastructure or composition layers, not another context's, and not shared-infrastructure. The domain holds the rules; every layer around it depends on it, never the reverse.",
+      from: { path: "^qa-engine/src/contexts/([^/]+)/domain/" },
+      to: { path: "^qa-engine/src/(contexts/[^/]+/(application|infrastructure|composition)/|shared-infrastructure/)" },
+    },
+    {
+      name: "application-not-infrastructure",
+      severity: "error",
+      comment: "A context's application layer reaches the outside only through ports it declares. It never imports an infrastructure adapter, of its own context or another, nor shared-infrastructure; the composition root wires adapters to ports.",
+      from: { path: "^qa-engine/src/contexts/([^/]+)/application/" },
+      to: { path: "^qa-engine/src/(contexts/[^/]+/infrastructure/|shared-infrastructure/)" },
+    },
+    {
+      name: "cross-context-internals",
+      severity: "error",
+      comment: "A context reaches another context only through its public surface, the application ports barrel (application/index.ts or application/ports/index.ts). Composition roots wire contexts together by design and are exempt. Everything else of another context (domain, infrastructure, other application files) is internal.",
+      from: { path: "^qa-engine/src/contexts/([^/]+)/", pathNot: "composition/" },
+      to: {
+        path: "^qa-engine/src/contexts/",
+        pathNot: ["^qa-engine/src/contexts/$1/", "^qa-engine/src/contexts/[^/]+/application/(ports/)?index\\.ts$"],
+      },
+    },
+    {
+      name: "no-circular",
+      severity: "error",
+      comment: "A module never depends on itself through other modules: a cycle makes every module in it impossible to understand, test or move alone.",
+      from: {},
+      to: { circular: true },
+    },
   ],
   options: {
     // Repo root, regardless of the invoking cwd — see the header note above.

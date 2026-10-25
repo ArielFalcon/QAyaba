@@ -58,6 +58,8 @@ node --import ./test-setup.mjs --import tsx --test path/to/file.test.ts [--test-
 # Full CI gate (.github/workflows/ci.yml) — all must stay green:
 npm run typecheck && npm run arch:check && npm run seed:lint && npm run sdk:typecheck && npm run contract:check && npm test
 (cd client && go vet ./... && go test ./...)
+# arch:check applies qa-engine/.dependency-cruiser-known-violations.json (layering violations frozen at the time the rules were added): regenerate it with depcruise-baseline only to shrink it
+# or to follow a pure file move that leaves the count unchanged, and lower KNOWN_VIOLATIONS_CEILING in qa-engine/test/arch/known-violations.test.ts with it.
 
 npm run seed:lint           # the e2e seed (config/e2e/) against its own ESLint config, as an app's static gate runs it
 npm run mutate -- <preset>  # mutation testing per preset (scripts/mutate.ts)
