@@ -130,6 +130,8 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
   - the client and the adapters;
   - the seam contract tests;
   - the docs (L17.1's list).
+- **S18** (review corrections, 2026-10-25, before T9): fix every finding in L34's review, verbatim there, both "Mayores" and "Menores". Each fix starts with a test that fails for the finding's reason. A finding the code disproves is recorded as such in the Log, not "fixed".
+  - Out of scope: "el Dockerfile sigue instalando lizard, difftastic y ast-grep" (already in Out of scope).
 
 ## Out of scope (do not do these here)
 
@@ -155,11 +157,17 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 | T8 | S14, S15 | inline | item 3 (prompt contract) | done — sidekick proof path (S15) and the change dossier in `static-signal` behind `grounding.dossier` / `qa.structuralSignals.dossier` (off by default, the T9 lever); prompt-contract matrix: 0 findings, no baseline re-record needed (L31) | `03af259f`, `98b031a2` |
 | T9 | S16 | per-action workers (long runs) | item 6 | pending — the ablation rounds; the verdict per default in the Log | |
 | T10 | S17 | inline | item 5 | done — codebase-memory-mcp removed from the image, compose, entrypoint, file boundary, engine and tests; CI gate green, live `sandbox:smoke` 22+5 green (L32) | `dcff6a7c` |
+| T11 | S18 | delegated (parallel unit A) | item 2 (redaction) | pending — bridges: explore/dossier shaping keeps code, keeps "Not shown above", honest omission marker; dossier drop and explore/dossier failures leave telemetry; the tool redacts in model mode; safeImpacted logs failures and truncation | |
+| T12 | S18 | delegated (parallel unit B) | items 1, 4 (store, lock) | pending — engine: reader trims instead of failing; deterministic walk order; syncTo checks the reader accepts the index version; reuse always syncs; crash-safe publish without loading the store in memory; lock race; abort reaches the engine; repeated sync timeout; seeds for deleted, permission-only and renamed files | |
+| T13 | S18 | delegated (parallel unit C) | item 3 (shared diff parser) | pending — change and topology: per-frontend route files in monorepos; hub bound under a truncated walk; routesOf and cross-repo failures logged; Tier 2 ANY/ALL verbs; one-segment suffix false positive; quoted diff paths; co-change history under a merge trigger | |
+| T14 | S18 | inline | item 2 (merge guard, own commit) | pending — the dossier lever from the CLI and run-delegate; the merge guard covers codegraph-code-graph.adapter.ts | |
+| T15 | S18 | inline, after T11-T13 | none | pending — one impact walk per run instead of two | |
 
 Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10.
 - Every task is inline. No unit has a writer reason: each depends on the one before it (T6's backend path uses T5's operation keys).
 - T7 depends only on T2-T3 and may move earlier if the gate passes and the signals stall.
 - T9's runs go to per-action workers because they are long.
+- T11-T15 come before T9. T11, T12 and T13 are parallel writers in this tree with disjoint edit surfaces (writer reason: independent units, several files each). The parent owns git, T14 and T15.
 
 ## Log
 
@@ -347,3 +355,60 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
   - **A1 and A2 fixed:**
     - **A1:** the adapter now reports `providedFiles` only when the rendered block holds the dossier heading. The regression test uses a multi-byte dossier over the byte budget.
     - **A2:** ran `make gen`, which adds `Dossier` to the Go client's types. `go vet` and `go test` are green.
+- **L33 (2026-10-25) — T9 labelled set, draft (pending owner confirmation).**
+  - **App:** name-webapp (JS/TS, Angular). Each commit's expected `changeRoutes` was drafted from the code by tracing route declarations and the imports of the changed files.
+  - **The set:**
+    - `75f53907` (feat, weekly daily menus): `/restaurantes/:province/:city/:slug`, `/restaurantes/:province/:city/:slug/menu-del-dia`, `/restaurantes/:province/:city/:slug/order`.
+    - `dbff9456` (fix, daily-menu schema dates; shared schema, 2 hops): `/restaurantes/:province/:city/:slug`, `/restaurantes/:province/:city/:slug/menu-del-dia`, `/upload-menu` (confirm).
+    - `efb1eab6` (feat, FAQ mobile sheet): `/restaurantes/:province/:city` and its list variants.
+    - `c0130100` (feat, greeting beside the avatar): `/home`.
+    - `c428f2dc` (fix, cheap-price util; pure helper, 2 hops): `/map`, `/restaurantes/:province/:city`.
+    - `f303da2c` (feat, search bar): `/home`, `/search`.
+    - `6d0e1106` (fix, restaurant model; hub, 33 importers): `/map`. The graph must report a hub, not add pages.
+- **L34 (2026-10-25) — owner's review of the implementation, verbatim ("Te voy a dar una revisión hecha sobre la implementación para que apliques las correcciones que correspondan:").**
+  > Mayores — corregir antes de T9 (todos los verifiqué en el código)
+  > Los fallos se pierden sin dejar rastro.
+  > Hay tres casos: el lector rechaza la versión del índice, una consulta se agota o se supera el tope. En los tres, el resultado es [] sin ningún log ni span, y lo mismo pasa con truncated.
+  > Dónde: structural-signal-port.adapter.ts (safeImpacted), change-pages-port.adapter.ts (routesOf) y resolve-cross-repo-impact.use-case.ts:71,101.
+  > Además, syncTo nunca comprueba que el lector acepte la versión del índice. Si se actualiza la versión fijada del motor, el índice queda marcado como "built" y todas las respuestas salen vacías.
+  > Los revisores del motor y del recorrido lo encontraron por separado.
+  > Un cambio grande se queda sin señal.
+  > codegraph-store-reader.mjs:47: si se pasan más de 2 000 símbolos de partida o archivos, el lector falla entero en vez de recortar.
+  > Por ejemplo, renombrar 100 archivos genera unos 2 500 símbolos de partida, y la respuesta pasa a ser "sin impacto".
+  > La respuesta de explore pierde el código.
+  > code-graph-tools-port.adapter.ts:~118: el recorte se detiene en el primer archivo que no cabe. Un archivo de más de unos 10 KB deja al lead sin una sola línea de código.
+  > La lista "Not shown above" se descarta.
+  > El aviso puede decir que se omitieron archivos cuando no se omitió ninguno.
+  > El dossier tiene el mismo fallo y, además, desaparece sin avisar.
+  > La herramienta deforma el código que muestra.
+  > En rewritten-engine-factory.ts:1380 la herramienta censura con el modo de Issue, mientras que el dossier usa el modo modelo.
+  > El resultado: una línea como const token = this.auth.getToken() llega como const [REDACTED], y el prompt la presenta como código literal.
+  > Página equivocada en monorepos con varios frontends (change-pages.ts:62-85).
+  > Cuando el mapa no declara archivos para una ruta, se toman los de todos los frontends que tienen esa ruta.
+  > Así, un cambio en apps/admin mete en changeRoutes el /orders de apps/shop.
+  > Además, el límite de hubs no tiene en cuenta si el recorrido se cortó por presupuesto, así que un símbolo central puede no detectarse como hub.
+  > Una caída puede servir un índice de otro commit (codegraph-store-cache.ts:134).
+  > Al publicar, primero se renombra la base de datos y después meta.json, y la reutilización se salta sync cuando el SHA coincide.
+  > Si el proceso cae entre los dos renombres, la base de datos ya es de B pero meta.json sigue diciendo A. La siguiente ejecución sobre A reutiliza el índice de B como si fuera de A.
+  > Solución: ejecutar siempre sync, que solo vuelve a calcular lo que cambió y no cuesta casi nada.
+  > Menores
+  > Rutas de archivo: el parser del diff no reconoce rutas con espacios ni con acentos, porque git las entrecomilla. Falta usar -z o core.quotepath=false.
+  > Tier 2: los verbos ANY/ALL (@RequestMapping sin método, app.all) quedan fuera.
+  > Falsos positivos: basta con que coincida un solo segmento literal del final de la ruta (GET /items sirve a /orders/{id}/items).
+  > Símbolos de partida:
+  > un archivo borrado no aporta ninguno;
+  > un cambio que solo toca permisos o solo renombra toma todos los símbolos del archivo y gasta el presupuesto.
+  > Historial de cambios conjuntos: --skip=1 descarta un commit que no corresponde cuando el commit disparador es un merge.
+  > Procesos del motor:
+  > el lock tiene una carrera cuando dos ejecuciones lo consideran caducado a la vez;
+  > el motor no recibe la señal de abortar;
+  > un timeout de sync se repite en cada ejecución sin llegar a resolverse.
+  > Determinismo: el recorrido no tiene ORDER BY, así que cuando se corta por presupuesto el prompt puede cambiar entre ejecuciones. Esto es una hipótesis y afecta a la reproducibilidad de T9.
+  > Palanca del dossier: no se puede activar desde el CLI ni desde run-delegate, que son los caminos que usan las variantes de T9. Además, ni explore ni el dossier dejan telemetría cuando fallan.
+  > Merge guard: no protege codegraph-code-graph.adapter.ts.
+  > Optimizaciones:
+  > el recorrido del impacto se ejecuta dos veces, una de ellas en el camino crítico de la preparación del contexto;
+  > al publicar, se carga hasta 1 GiB en memoria;
+  > el Dockerfile sigue instalando lizard, difftastic y ast-grep, que ya no se usan. Esto el plan lo deja fuera de alcance.
+  - **Parent spot check, confirmed:** reader `strings()` fails over its max (`codegraph-store-reader.mjs:48`); `shapeExploreAnswer` breaks at the first file that does not fit and never keeps the closing sections (`code-graph-tools-port.adapter.ts:111-126`); `publish` renames the store before `meta.json` (`codegraph-store-cache.ts:136-137`); the tool's `redact` is the Issue redactor (`rewritten-engine-factory.ts:1380`).
+  - **Routing:** S18, tasks T11-T15. T9 waits for them, and the L33 labelled set still awaits the owner's confirmation.
