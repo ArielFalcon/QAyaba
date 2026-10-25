@@ -55,6 +55,9 @@ export const GRADER_CATALOG: readonly ScoreSpec[] = [
   spec({ name: "change_coverage", dataType: "CATEGORICAL", polarity: "none", categories: COVERAGE_CLASSES }),
   spec({ name: "mutation_value", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "infra_error", dataType: "CATEGORICAL", polarity: "none" }),
+  spec({ name: "plan_route_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
+  spec({ name: "delivered_route_coverage", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
+  spec({ name: "flow_delivery_rate", dataType: "NUMERIC", polarity: "higher_better", range: UNIT }),
   spec({ name: "cost_per_useful_spec", dataType: "NUMERIC", polarity: "lower_better", range: { min: 0 }, state: "pending" }),
 ];
 

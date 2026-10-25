@@ -51,6 +51,21 @@ export interface ContextEvidence {
   freshness: ContextFreshness | undefined;
 }
 
+/* The lead's plan as the run kept it, with each flow's result in the final execution. */
+export interface PlanEvidence {
+  /* "noop" | "lead" | "fanout". */
+  kind: string;
+  /* The pages of the app's map the change is linked to. */
+  changeRoutes: readonly string[];
+  flows: ReadonlyArray<{
+    id: string;
+    /* The change pages the flow visits. */
+    visits: readonly string[];
+    /* Whether the flow delivered a spec and every case of it passed the final execution: false when it delivered none or a case failed; undefined when the run's cases cannot be tied to its spec. */
+    passed: boolean | undefined;
+  }>;
+}
+
 export interface RunEvaluationEvidence {
   runId: string;
   /* The run this one rebuilds/continues (a context heal, a /continue). Diagnostic lineage only: freshness never reads it. */
@@ -97,6 +112,8 @@ export interface RunEvaluationEvidence {
   stepIntents: Readonly<Record<string, number>> | undefined;
   /* The grounding evidence (delivered sources, references, changed-element): absent when the run recorded none. */
   context: ContextEvidence | undefined;
+  /* What the lead planned and how its flows ended (`run_plans`); absent when the run kept no plan (it did not coordinate, or nothing was kept). */
+  plan: PlanEvidence | undefined;
   /* When the run ended, ISO-8601: the score timestamp. */
   finishedAt: string;
 }

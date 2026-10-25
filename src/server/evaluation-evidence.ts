@@ -8,9 +8,9 @@
 
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import type { EvidencePort } from "@contexts/evaluation/application/ports/index";
-import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, RunEvaluationEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence";
+import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, PlanEvidence, RunEvaluationEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
-import { getRecord, getRunFacts, getRunOutcome, getRunPhases, getAgentTurns, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
+import { getRecord, getRunFacts, getRunOutcome, getRunPhases, getAgentTurns, getRunPlan, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
 import type { RunOutcome, RunRecord } from "../types";
 
 /* The slice of a ledger span the evidence reads. */
@@ -30,6 +30,8 @@ export interface EvidenceDeps {
   getAgentTurns(id: string): AgentTurnRecord[];
   runSpans(id: string): LedgerSpan[];
   listSpecSnapshots(id: string): SpecSnapshotRow[];
+  /* The plan the run kept, as JSON (`run_plans`). */
+  getRunPlan(id: string): string | undefined;
 }
 
 export const defaultEvidenceDeps: EvidenceDeps = {
@@ -40,6 +42,7 @@ export const defaultEvidenceDeps: EvidenceDeps = {
   getAgentTurns,
   runSpans: (id) => listRunSpans(id).map((s) => ({ name: s.name, spanId: s.spanId, parentSpanId: s.parentSpanId, attrs: s.attrs })),
   listSpecSnapshots,
+  getRunPlan,
 };
 
 const STEP_INTENT_ATTR = "qayaba.step.intent";
@@ -90,6 +93,38 @@ export function countPassedSpecs(specNames: readonly string[], cases: ReadonlyAr
     return specNames.filter((s) => bySpec.get(s)!.every((st) => st === "pass")).length;
   }
   return verdict === "pass" ? valid : undefined;
+}
+
+/* The verdicts of a run whose specs ran in the final execution. */
+const EXECUTED_VERDICTS: ReadonlySet<string> = new Set(["pass", "fail", "flaky"]);
+
+/*
+ * The plan the run kept, with each flow's result in the final execution: a flow passed when it delivered its spec and every case the
+ * report ties to that spec passed. A flow that delivered nothing did not pass. Whether a delivered flow passed is unknown when the run
+ * did not execute, or when no case can be tied to its spec. A plan that does not read as one is no plan.
+ */
+export function planEvidenceOf(raw: string | undefined, record: Pick<RunRecord, "cases" | "verdict">): PlanEvidence | undefined {
+  if (raw === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== "object") return undefined;
+  const plan = parsed as { kind?: unknown; changeRoutes?: unknown; flows?: unknown };
+  if (typeof plan.kind !== "string" || !Array.isArray(plan.flows)) return undefined;
+  const executed = record.verdict !== undefined && EXECUTED_VERDICTS.has(record.verdict);
+  const flows = plan.flows.flatMap((value: unknown) => {
+    if (value === null || typeof value !== "object") return [];
+    const flow = value as { id?: unknown; visits?: unknown; specFile?: unknown; outcome?: { kind?: unknown } };
+    if (typeof flow.id !== "string") return [];
+    const delivered = flow.outcome?.kind === "delivered";
+    const statuses = typeof flow.specFile === "string" ? record.cases.filter((c) => specOfCase(c.file, [flow.specFile as string]) !== undefined).map((c) => c.status) : [];
+    const passed = !delivered ? false : !executed || statuses.length === 0 ? undefined : statuses.every((s) => s === "pass");
+    return [{ id: flow.id, visits: asStringArray(flow.visits), passed }];
+  });
+  return { kind: plan.kind, changeRoutes: asStringArray(plan.changeRoutes), flows };
 }
 
 export interface SpecCounts {
@@ -365,6 +400,7 @@ export class HistoryEvidenceAdapter implements EvidencePort {
       limit: facts?.limitFired ? { fired: facts.limitFired, role: facts.limitRole ?? undefined, intent: limitIntentOf(spans, facts.limitRole ?? undefined) } : undefined,
       stepIntents: stepIntentsOf(spans),
       context: contextOf(spans, turns, d.listSpecSnapshots(runId)),
+      plan: planEvidenceOf(d.getRunPlan(runId), record),
       finishedAt: outcome?.at ?? record.at,
     };
   }

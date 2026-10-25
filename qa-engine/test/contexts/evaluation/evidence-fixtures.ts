@@ -19,6 +19,7 @@ export function evidence(over: Partial<RunEvaluationEvidence> = {}): RunEvaluati
     limit: undefined,
     stepIntents: undefined,
     context: undefined,
+    plan: undefined,
     finishedAt: "2026-10-17T10:00:00.000Z",
     ...over,
   };

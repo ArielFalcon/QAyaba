@@ -36,6 +36,7 @@ function deps(over: Partial<EvidenceDeps> = {}): EvidenceDeps {
     getAgentTurns: () => [],
     runSpans: () => [],
     listSpecSnapshots: () => [snapshot("flows/restaurant-list-change-filters.spec.ts")],
+    getRunPlan: () => undefined,
     ...over,
   };
 }
@@ -192,4 +193,36 @@ test("two captures of the same route that disagree mark the context stale", asyn
 test("a run with no delivered sources and no snapshots has no context evidence", async () => {
   const evidence = (await new HistoryEvidenceAdapter(deps({ runSpans: () => [], listSpecSnapshots: () => [] })).load("run-1"))!;
   assert.equal(evidence.context, undefined);
+});
+
+test("the plan the run kept carries each flow's result in the final execution, tied to its cases by the flow's spec file", async () => {
+  const plan = {
+    runId: "run-1", kind: "fanout", changeRoutes: ["/cart", "/orders"], unvisited: [], recordedAt: 1,
+    flows: [
+      { id: "cart", objective: "o", acceptance: [], routes: ["/cart"], specFile: "flows/cart.spec.ts", visits: ["/cart"], outcome: { kind: "delivered", specs: ["flows/cart.spec.ts"] } },
+      { id: "orders", objective: "o", acceptance: [], routes: ["/orders"], specFile: "flows/orders.spec.ts", visits: ["/orders"], outcome: { kind: "delivered", specs: ["flows/orders.spec.ts"] } },
+      { id: "login", objective: "o", acceptance: [], routes: [], specFile: "flows/login.spec.ts", visits: [], outcome: { kind: "failed", reason: "x" } },
+      { id: "quiet", objective: "o", acceptance: [], routes: [], specFile: "flows/quiet.spec.ts", visits: [], outcome: { kind: "delivered" } },
+    ],
+  };
+  const cases: RunRecord["cases"] = [
+    { name: "cart a", status: "pass", file: "flows/cart.spec.ts" },
+    { name: "cart b", status: "pass", file: "flows/cart.spec.ts" },
+    { name: "orders a", status: "fail", file: "flows/orders.spec.ts" },
+  ];
+  const executed = (await new HistoryEvidenceAdapter(deps({ getRecord: () => record({ verdict: "fail", cases }), getRunPlan: () => JSON.stringify(plan) })).load("run-1"))!;
+  assert.deepEqual(executed.plan, {
+    kind: "fanout",
+    changeRoutes: ["/cart", "/orders"],
+    flows: [
+      { id: "cart", visits: ["/cart"], passed: true },
+      { id: "orders", visits: ["/orders"], passed: false },
+      { id: "login", visits: [], passed: false },
+      { id: "quiet", visits: [], passed: undefined },
+    ],
+  });
+  const unexecuted = (await new HistoryEvidenceAdapter(deps({ getRecord: () => record({ verdict: "invalid", cases }), getRunPlan: () => JSON.stringify(plan) })).load("run-1"))!;
+  assert.deepEqual(unexecuted.plan?.flows.map((f) => f.passed), [undefined, undefined, false, undefined]);
+  const unreadable = (await new HistoryEvidenceAdapter(deps({ getRunPlan: () => "{not json" })).load("run-1"))!;
+  assert.equal(unreadable.plan, undefined);
 });

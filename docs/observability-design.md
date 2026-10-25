@@ -831,6 +831,11 @@ qa-engine/src/contexts/evaluation/
   - So the validate phase writes a **per-run snapshot of every delivered spec**: path, sha256 and
     the redacted text, capped at 64 KB per spec, into `run_spec_snapshots`.
   - It has the ledger's retention. Without it, nothing can re-grade an invalid or failed run (F10).
+- **Plan snapshots make the plan gradable.** A run that coordinates keeps the lead's admitted plan in
+  `run_plans` (`PlanSnapshotPort`): each flow's id, objective, acceptance, routes and spec file, the change
+  pages it visits, the change pages no flow visits, and how each flow ended. The text the lead wrote goes
+  through the outbound sanitizer first. It is recorded when the plan is admitted and again when its flows
+  end (the last record is kept), with the same retention and campaign window as the spec snapshots.
 - **Referenced-id extraction** (`context-refs.ts`, pure). Each source is declared **extractable or
   not**, and non-extractable sources report `n/a`, never 0:
 
@@ -864,6 +869,9 @@ qa-engine/src/contexts/evaluation/
 | `change_coverage` | CATEGORICAL | `pass\|fail\|unknown` (unknown is its own class, never pass) | Existing signal |
 | `mutation_value` | NUMERIC | Killed / mutants, when the oracle ran | Existing |
 | `infra_error` | CATEGORICAL | `error_class` × sub-cause (deploy-unverified, egress-denied, quota, suspend, sandbox…) | |
+| `plan_route_coverage` | NUMERIC 0..1 | Change pages (the map pages the change is linked to) an admitted flow of the lead's plan visits / change pages; comment lists the unvisited | Read from `run_plans`; only a plan of flows with change pages. A flow visits a page when one of its routes names it, the same template under other parameter names included |
+| `delivered_route_coverage` | NUMERIC 0..1 | Change pages visited by a flow whose delivered spec passed every case of the final execution / change pages; comment lists the unproven | Absent while a flow's result cannot be tied to its cases |
+| `flow_delivery_rate` | NUMERIC 0..1 | Flows that delivered a spec passing every case of the final execution / admitted flows; comment lists the others | Same condition |
 | `cost_per_useful_spec` | NUMERIC USD | cost / useful specs. **Useful** = valid ∧ passed on the run ∧ passed on the campaign's no-retry re-run ∧ (killed ≥ 1 mutant when the oracle ran) | Absent outside campaigns that do the re-run |
 
 ### 11.3 LLM-as-judge and human labels (last)
@@ -1091,7 +1099,7 @@ the contract above is unaffected:
 
 | Score | Polarity |
 |---|---|
-| `spec_validity_rate`, `spec_pass_rate`, `selector_stability`, `context_utilization[.<source>]`, `mutation_value` | higher_better |
+| `spec_validity_rate`, `spec_pass_rate`, `selector_stability`, `context_utilization[.<source>]`, `mutation_value`, `plan_route_coverage`, `delivered_route_coverage`, `flow_delivery_rate` | higher_better |
 | `empty_output_guard`, `approval_consistent`, `context_complete`, `noop_consistent` (BOOLEAN, `true` = pass) | higher_better |
 | `auth_overhead`, `cost_per_useful_spec` | lower_better |
 | `furthest_phase` (ordinal by `phases`), `budget_exhaustion` (`none` is the clean value), `change_coverage` (`unknown` is its own class), `infra_error`, `step_intent_mix.<intent>` | none |

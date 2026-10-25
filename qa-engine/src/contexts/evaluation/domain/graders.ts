@@ -298,6 +298,38 @@ const noopConsistent: Grader = {
   }),
 };
 
+/* A plan of flows to grade: the lead split the change into flows. A no-op or a change the lead authored alone has no flows to reach anything with. */
+const fanoutPlan = (e: Evidence): NonNullable<Evidence["plan"]> | undefined => (e.plan?.kind === "fanout" && e.plan.flows.length > 0 ? e.plan : undefined);
+
+/* How much of the change's pages the plan reached, and how much of it a passing spec reached. Unreached pages are the comment. */
+const planReach: Grader = {
+  names: ["plan_route_coverage", "delivered_route_coverage"],
+  grade: finishedOnly((e) => {
+    const plan = fanoutPlan(e);
+    if (!plan || plan.changeRoutes.length === 0) return [];
+    const reach = (flows: typeof plan.flows): RawScore["value"] => ratio(plan.changeRoutes.filter((route) => flows.some((f) => f.visits.includes(route))).length, plan.changeRoutes.length);
+    const missed = (flows: typeof plan.flows): string[] => plan.changeRoutes.filter((route) => !flows.some((f) => f.visits.includes(route)));
+    const planned = missed(plan.flows);
+    const scores: RawScore[] = [{ name: "plan_route_coverage", value: reach(plan.flows), ...(planned.length > 0 ? { comment: `no flow visits: ${planned.join(", ")}` } : {}) }];
+    if (plan.flows.some((f) => f.passed === undefined)) return scores;
+    const passing = plan.flows.filter((f) => f.passed === true);
+    const unproven = missed(passing);
+    scores.push({ name: "delivered_route_coverage", value: reach(passing), ...(unproven.length > 0 ? { comment: `no passing spec visits: ${unproven.join(", ")}` } : {}) });
+    return scores;
+  }),
+};
+
+/* The share of the plan's flows that delivered a spec whose every case passed the final execution. */
+const flowDeliveryRate: Grader = {
+  names: ["flow_delivery_rate"],
+  grade: finishedOnly((e) => {
+    const plan = fanoutPlan(e);
+    if (!plan || plan.flows.some((f) => f.passed === undefined)) return [];
+    const failed = plan.flows.filter((f) => f.passed !== true).map((f) => f.id);
+    return [{ name: "flow_delivery_rate", value: ratio(plan.flows.length - failed.length, plan.flows.length), ...(failed.length > 0 ? { comment: `not delivered passing: ${failed.join(", ")}` } : {}) }];
+  }),
+};
+
 export const GRADERS: readonly Grader[] = [
   emptyOutputGuard,
   furthestPhase,
@@ -314,6 +346,8 @@ export const GRADERS: readonly Grader[] = [
   contextComplete,
   contextFresh,
   noopConsistent,
+  planReach,
+  flowDeliveryRate,
 ];
 
 /* Runs the graders that emit one of `only` (all of them when absent) and returns the catalog-typed scores. A throwing grader is not caught here. */
