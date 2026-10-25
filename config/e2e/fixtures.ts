@@ -94,6 +94,8 @@ export interface QaFixtures {
   _coverage: void;
   // system-owned: do not edit — the orchestrator's response-oracle pass (QA_FAULT_INJECT).
   _faultInject: void;
+  // system-owned: do not edit — the orchestrator's mutation pass (PW_MUTANT).
+  _mutate: void;
   // system-owned: do not edit — runs the failure-point capture around every test.
   _failureCapture: void;
 }
@@ -255,6 +257,49 @@ export const test = base.extend<QaFixtures>({
     },
     { auto: true },
   ],
+  // >>> qa-mutation-fixture (system-owned: do not edit) >>>
+  // The orchestrator's MUTATION pass sets PW_MUTANT to one edit of one script the page loads
+  // ({ url, sha256, start, end, replacement }) and re-runs the tests that reached it: a test that stays
+  // green while the changed code it ran does the opposite does not check that code. The edit is made
+  // only to a response whose text is the script the coverage saw (same sha256). How many responses were
+  // mutated is counted beside the response oracle's counters, so a mutant that never reached the page
+  // is not scored. No-op in a normal run.
+  _mutate: [
+    async ({ page }, use) => {
+      let mutated = 0;
+      const raw = process.env.PW_MUTANT;
+      if (raw) {
+        const { createHash } = await import("node:crypto");
+        const m = JSON.parse(raw) as { url: string; sha256: string; start: number; end: number; replacement: string };
+        await page.route((url) => url.href === m.url, async (route) => {
+          let res;
+          try {
+            res = await route.fetch();
+          } catch {
+            return route.continue();
+          }
+          const body = await res.text();
+          if (createHash("sha256").update(body).digest("hex") !== m.sha256) return route.fulfill({ response: res });
+          mutated++;
+          return route.fulfill({ response: res, body: body.slice(0, m.start) + m.replacement + body.slice(m.end) });
+        });
+      }
+      await use();
+      if (mutated > 0) {
+        try {
+          const fs = await import("node:fs");
+          const path = await import("node:path");
+          const dir = path.join(process.cwd(), ".qa", "fault-injection", process.env.PW_NAMESPACE ?? "local");
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, `mutated-${process.pid}.json`), JSON.stringify({ corrupted: mutated }));
+        } catch {
+          /* best effort — the marker is a signal, never a test failure */
+        }
+      }
+    },
+    { auto: true },
+  ],
+  // <<< qa-mutation-fixture <<<
 });
 
 export { expect };

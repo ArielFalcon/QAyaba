@@ -181,6 +181,36 @@ function withCurrentSourceMaps(src: string, current: string): string {
   return src.slice(0, at) + current + src.slice(at + length, callAt) + SOURCE_MAPS_CALL + src.slice(callAt + call.length);
 }
 
+/*
+ * The seed's auto fixture of the mutation pass (it mutates one served script when PW_MUTANT names an edit), and its
+ * entry in the seed's fixture types. A fixtures.ts from the seed that lacks it gets both, the fixture as the last of the
+ * seed's test.extend and its type after the response oracle's; any other fixtures.ts is left as it is, and its mutants
+ * reach no page, so they are not scored.
+ */
+export const MUTATION_FIXTURE_MARKER = ">>> qa-mutation-fixture (system-owned: do not edit) >>>";
+const MUTATION_FIXTURE_END_MARKER = "  // <<< qa-mutation-fixture <<<\n";
+const MUTATION_FIXTURE_TYPE = "  // system-owned: do not edit — the orchestrator's mutation pass (PW_MUTANT).\n  _mutate: void;\n";
+const MUTATION_FIXTURE_TYPE_ANCHOR = "\n  _faultInject: void;\n";
+const MUTATION_FIXTURE_ANCHOR = "\n});\n\nexport { expect };\n";
+
+/* The seed's mutation fixture block (from its opening marker's line through its closing marker line), or undefined. */
+function mutationFixtureOf(seed: string): string | undefined {
+  const marker = onlyIndexOf(seed, `  // ${MUTATION_FIXTURE_MARKER}`);
+  if (marker === -1) return undefined;
+  const end = seed.indexOf(MUTATION_FIXTURE_END_MARKER, marker);
+  return end === -1 ? undefined : seed.slice(marker, end + MUTATION_FIXTURE_END_MARKER.length);
+}
+
+/* `src` with the mutation fixture `block`, when it has it or is shaped like the seed; undefined when it cannot be placed. */
+function withMutationFixture(src: string, block: string): string | undefined {
+  if (src.includes(MUTATION_FIXTURE_MARKER)) return src;
+  const typeAt = onlyIndexOf(src, MUTATION_FIXTURE_TYPE_ANCHOR);
+  const fixtureAt = onlyIndexOf(src, MUTATION_FIXTURE_ANCHOR);
+  if (typeAt === -1 || fixtureAt === -1 || typeAt > fixtureAt) return undefined;
+  const typeEnd = typeAt + MUTATION_FIXTURE_TYPE_ANCHOR.length;
+  return src.slice(0, typeEnd) + MUTATION_FIXTURE_TYPE + src.slice(typeEnd, fixtureAt + 1) + block + src.slice(fixtureAt + 1);
+}
+
 /* Where `needle` is in `text` when it is there exactly once; -1 otherwise. */
 function onlyIndexOf(text: string, needle: string): number {
   const at = text.indexOf(needle);
@@ -599,6 +629,7 @@ export class SetupAdapter {
     this.ensureSpecDir(e2eDir);
     this.ensureFailureCapture(e2eDir);
     this.ensureSourceMaps(e2eDir);
+    this.ensureMutationFixture(e2eDir);
     this.ensureAuthSetup(e2eDir);
     this.ensureSessionGitignore(e2eDir);
     this.ensurePlaywrightEnvKeys(e2eDir);
@@ -715,6 +746,25 @@ export class SetupAdapter {
     const src = this.readProjectText(e2eDir, FIXTURES_FILE);
     if (src === undefined) return;
     const out = withCurrentSourceMaps(src, seed.slice(block.start, block.end));
+    if (out !== src) this.writeProject(e2eDir, FIXTURES_FILE, out);
+  }
+
+  /**
+   * Gives a fixtures.ts from the seed the mutation pass's fixture when it lacks it. Any other fixtures.ts is left as it
+   * is, and said: its mutants reach no page, so the mutation pass scores none of them.
+   */
+  ensureMutationFixture(e2eDir: string): void {
+    const seedPath = join(this.deps.seedDir, FIXTURES_FILE);
+    if (!this.deps.fs.exists(seedPath)) return;
+    const block = mutationFixtureOf(this.deps.fs.read(seedPath));
+    if (!block) return;
+    const src = this.readProjectText(e2eDir, FIXTURES_FILE);
+    if (src === undefined) return;
+    const out = withMutationFixture(src, block);
+    if (out === undefined) {
+      console.warn(`[qa] WARNING: ${join(e2eDir, FIXTURES_FILE)} has no mutation fixture and setup could not add one (its test.extend is not the seed's); the mutation pass reaches no page of this suite, so it scores no mutant.`);
+      return;
+    }
     if (out !== src) this.writeProject(e2eDir, FIXTURES_FILE, out);
   }
 
