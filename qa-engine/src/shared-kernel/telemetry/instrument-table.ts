@@ -27,6 +27,7 @@ export const INSTRUMENTS = {
   "qayaba.agent.cost": { type: "counter", attrs: ["qayaba.agent.role", GENAI.attrs.requestModel, "qayaba.app"] },
   "qayaba.provider.errors": { type: "counter", attrs: [...MODEL, "error.type"] },
   "qayaba.egress.denied": { type: "counter", attrs: ["qayaba.exec.profile"] },
+  "qayaba.code_graph.index": { type: "counter", attrs: ["qayaba.code_graph.outcome"] },
   /* What a run's grounding, login and tests came to. */
   "qayaba.tests": { type: "counter", attrs: ["qayaba.test.status", "qayaba.test.failure_category"] },
   "qayaba.auth.attempts": { type: "counter", attrs: ["qayaba.auth.outcome"] },

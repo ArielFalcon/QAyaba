@@ -8,7 +8,8 @@ import { ResolveCrossRepoImpactUseCase, type CrossRepoVcsRead, type MirrorRegist
 export interface CrossRepoImpactPortAdapterDeps {
   mirrors: MirrorRegistryLike;
   makeVcs: (repoDir: string) => CrossRepoVcsRead;
-  codeGraph: CodeGraphPort;
+  /* Absent: only the contract-file tier matches. */
+  codeGraph?: CodeGraphPort;
   runner: SandboxedBinaryRunner;
 }
 

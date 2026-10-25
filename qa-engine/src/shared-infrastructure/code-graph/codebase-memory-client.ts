@@ -48,3 +48,8 @@ export class CodebaseMemoryClient {
     }
   }
 }
+
+/* The CLI surface the lead's code-graph tools call. */
+export interface CodebaseMemoryCliClient {
+  cli(tool: string, jsonArg: string, repoDir: string): Promise<{ code: number | null; stdout: string; stderr: string }>;
+}

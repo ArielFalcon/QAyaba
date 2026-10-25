@@ -139,7 +139,16 @@ export const ATTRIBUTES = {
   "qayaba.eval.value": str("A categorical score's value, from the catalog's closed set (or `other` when a class is not in it)."),
 
   /* Execution children. */
-  "qayaba.exec.profile": str("The sandbox profile: offline, suite, login or install."),
+  "qayaba.exec.profile": str("The sandbox profile: offline, suite, login, install or graph."),
+  "qayaba.code_graph.repo": str("The repo a code-graph index belongs to (its mirror's name)."),
+  "qayaba.code_graph.engine": str("The code-graph engine that built the index."),
+  "qayaba.code_graph.engine_version": str("The code-graph engine's version."),
+  "qayaba.code_graph.sha": str("The commit the run's index of the repo is at.", "high"),
+  "qayaba.code_graph.outcome": str("How the run's index came to be: built, synced, reused, failed, timeout or skipped."),
+  "qayaba.code_graph.duration_ms": int("How long indexing the repo took, in ms."),
+  "qayaba.code_graph.node_count": int("Symbols the index holds."),
+  "qayaba.code_graph.edge_count": int("Edges the index holds."),
+  "qayaba.code_graph.reason": str("Why an index failed, timed out or was skipped.", "high"),
   "qayaba.exec.command_class": str("A closed set taken from the call site: tsc, eslint, playwright-list, playwright-test, npm-ci, login, dom-capture, browser or code-test."),
   "qayaba.exec.signal": str("The signal that ended the child, if any."),
   "qayaba.exec.timed_out": bool("The child was killed by its timeout."),

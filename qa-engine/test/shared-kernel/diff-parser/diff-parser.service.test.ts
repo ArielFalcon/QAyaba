@@ -117,3 +117,26 @@ test("changedElementsFromGuidance: empty string → []", () => {
 /* Parity tests that import from src/ live in diff-parser-parity.test.ts, which is
    excluded from qa-engine typecheck (same pattern as test/characterization/scenarios.ts).
  */
+
+test("touchedLines marks every added line, and a deletion at the new-side line that follows it", () => {
+  const diff = [
+    "diff --git a/src/a.ts b/src/a.ts",
+    "--- a/src/a.ts",
+    "+++ b/src/a.ts",
+    "@@ -10,4 +10,3 @@",
+    " context",
+    "-removed one",
+    "-removed two",
+    " kept",
+    "+added",
+    "diff --git a/src/gone.ts b/src/gone.ts",
+    "--- a/src/gone.ts",
+    "+++ /dev/null",
+    "@@ -1,2 +0,0 @@",
+    "-x",
+    "-y",
+  ].join("\n");
+  const touched = new DiffParserService().touchedLines(diff);
+  assert.deepEqual([...touched.keys()], ["src/a.ts"], "a deleted file touches nothing on the new side");
+  assert.deepEqual([...touched.get("src/a.ts")!].sort((a, b) => a - b), [11, 12]);
+});

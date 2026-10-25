@@ -49,7 +49,7 @@ function renderCoupledBlock(coupled: readonly CoupledFile[]): string[] {
 /* What a model reads first. A block that names symbols is the structural exploration of the change. */
 const SYMBOLS_INTRO: readonly string[] = [
   `## ${PROMPT_HEADINGS.structuralBlastRadius} (deterministic — from the code graph, advisory)`,
-  "Derived from the indexed call graph at confidence >= 0.55. Advisory guidance, not a gate. Absent edges (e.g. Lombok accessors) do NOT imply no dependency.",
+  "Derived from the call graph indexed at this commit. Advisory guidance, not a gate. Absent edges (e.g. Lombok accessors) do NOT imply no dependency.",
 ];
 
 /* A block of co-change files alone shows what version control recorded and nothing about what depends on what. It is no exploration of what the change reaches, so it is not titled or worded as one: the prompt around it still sends the agent to look that up. */

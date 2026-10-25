@@ -46,6 +46,35 @@ export class DiffParserService {
     return changed;
   }
 
+  /* The new-side lines a diff touched per file: every added line, and for a deletion the line that follows it on the new side (the place the removed code was). A pure deletion of a file touches nothing on the new side. */
+  touchedLines(diff: string): ChangedLines {
+    const touched: ChangedLines = new Map();
+    let file: string | null = null;
+    let newLine = 0;
+    let inHunk = false;
+    const mark = (line: number): void => {
+      if (file === null) return;
+      let set = touched.get(file);
+      if (!set) touched.set(file, (set = new Set()));
+      set.add(line);
+    };
+    for (const raw of diff.split("\n")) {
+      if (raw.startsWith("diff --git")) { file = null; inHunk = false; continue; }
+      const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+      if (hunk) { newLine = Number(hunk[1]); inHunk = true; continue; }
+      if (!inHunk) {
+        if (raw.startsWith("+++ ")) file = headerPath(raw);
+        continue;
+      }
+      const c = raw[0];
+      if (c === "+") { mark(newLine); newLine++; }
+      else if (c === "-") mark(Math.max(1, newLine));
+      else if (c === "\\") { /* "\ No newline at end of file" */ }
+      else newLine++;
+    }
+    return touched;
+  }
+
   /* Every changed path from `diff --git a/X b/Y` headers (added, modified, deleted). Prefer the b/ side, fall back to a/. */
   changedFiles(diff: string): string[] {
     const files: string[] = [];

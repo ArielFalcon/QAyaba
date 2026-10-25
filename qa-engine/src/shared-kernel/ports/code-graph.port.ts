@@ -1,54 +1,19 @@
-/* Advisory-only: confidence-bearing queries default to the 0.55 floor and never gate a PR — the graph complements runtime change-coverage, it does not replace it. */
+/* Advisory only: the graph complements runtime change-coverage, it never gates a PR. `repoDir` names a repo by its mirror; the adapter answers from the index the run built of that repo at the run's commit, never from the mirror itself. Every answer is repo-relative, sorted and de-duplicated, so a prompt section built from it hashes the same for the same inputs. */
 
 import type { Result } from "@kernel/result.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
-import type {
-  LocalSymbolRef,
-  CoupledFile,
-  SpecCoverage,
-  CodeGraphUnavailable,
-  IndexFailed,
-} from "@kernel/code/index.ts";
+import type { CodeGraphIndexRecord, CodeGraphUnavailable, GraphRoute, ImpactBudget, ImpactReport, LocalSymbolRef } from "@kernel/code/index.ts";
 
 export interface CodeGraphPort {
-  /** Index/refresh the graph for repoDir over changedFiles. opts.semantic requests embedding-backed edges. Returns node count on success; IndexFailed only on whole-index failure (never per-file). */
-  syncTo(
-    repoDir: string,
-    changedFiles: string[],
-    opts?: { semantic?: boolean },
-  ): Promise<Result<{ nodeCount: number }, IndexFailed>>;
+  /** Builds or refreshes the run's index of the repo at `sha`. Never throws: a failure is a record with outcome `failed` or `timeout`, and the queries then answer unavailable. */
+  syncTo(repoDir: string, sha: string): Promise<CodeGraphIndexRecord>;
 
-  /** Symbols structurally impacted by the changed set, up to opts.depth hops. depth is required; minConfidence defaults to the 0.55 advisory floor. */
-  impactedSymbols(
-    repoDir: string,
-    changed: BlastRadius,
-    opts: { depth: number; minConfidence?: number },
-  ): Promise<Result<LocalSymbolRef[], CodeGraphUnavailable>>;
+  /** The changed symbols (the innermost symbol around each touched line; every top-level symbol of a changed file the diff gave no lines for) at depth 0, and the symbols that reach them, walked inbound within the budget. */
+  impactedSymbols(repoDir: string, changed: BlastRadius, budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>>;
 
-  /** Files that historically co-change with the given files. */
-  coChangeCoupling(
-    repoDir: string,
-    files: string[],
-  ): Promise<Result<CoupledFile[], CodeGraphUnavailable>>;
+  /** The symbols that reach the named ones (depth 0), walked inbound within the budget. A name the index does not hold is absent from the answer. */
+  callersOf(repoDir: string, symbols: readonly LocalSymbolRef[], budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>>;
 
-  /** Callers of a symbol up to `depth` hops. depth is positional (intentional asymmetry vs impactedSymbols.opts.depth), required, no default; minConfidence defaults to the 0.55 floor. */
-  callersOf(
-    repoDir: string,
-    symbol: LocalSymbolRef,
-    depth: number,
-    opts?: { minConfidence?: number },
-  ): Promise<Result<LocalSymbolRef[], CodeGraphUnavailable>>;
-
-  /** Existing spec/test coverage that references the changed symbols. An empty result is not an error — a consumer must not render empty as "no coverage". */
-  existingCoverage(
-    repoDir: string,
-    changed: BlastRadius,
-  ): Promise<Result<SpecCoverage[], CodeGraphUnavailable>>;
-
-  /** Symbols structurally related by shared-neighbor similarity (Jaccard). */
-  structurallyRelated(
-    repoDir: string,
-    symbols: LocalSymbolRef[],
-    minJaccard?: number,
-  ): Promise<Result<LocalSymbolRef[], CodeGraphUnavailable>>;
+  /** The routes the engine recognised, test files excluded. */
+  routes(repoDir: string): Promise<Result<GraphRoute[], CodeGraphUnavailable>>;
 }

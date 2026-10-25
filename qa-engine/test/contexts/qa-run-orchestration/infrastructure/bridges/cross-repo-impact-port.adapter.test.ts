@@ -97,13 +97,16 @@ class FakeVcs implements VcsReadPort {
 
 class FakeCodeGraph implements CodeGraphPort {
   calls = 0;
-  constructor(private readonly impacted: Awaited<ReturnType<CodeGraphPort["impactedSymbols"]>> = ok([])) {}
-  async syncTo(): ReturnType<CodeGraphPort["syncTo"]> { return ok({ nodeCount: 0 }); }
-  async impactedSymbols(): ReturnType<CodeGraphPort["impactedSymbols"]> { this.calls++; return this.impacted; }
-  async coChangeCoupling(): ReturnType<CodeGraphPort["coChangeCoupling"]> { return ok([]); }
-  async callersOf(): ReturnType<CodeGraphPort["callersOf"]> { return ok([]); }
-  async existingCoverage(): ReturnType<CodeGraphPort["existingCoverage"]> { return ok([]); }
-  async structurallyRelated(): ReturnType<CodeGraphPort["structurallyRelated"]> { return ok([]); }
+  constructor(private readonly reached: { file: string; symbol: string }[] = []) {}
+  async syncTo(repo: string, sha: string): ReturnType<CodeGraphPort["syncTo"]> {
+    return { repo, engine: "fake", engineVersion: "1", sha, outcome: "built", durationMs: 0, nodeCount: 1, edgeCount: 0 };
+  }
+  async impactedSymbols(): ReturnType<CodeGraphPort["impactedSymbols"]> {
+    this.calls++;
+    return ok({ indexedSha: TRIGGER_SHA, symbols: this.reached.map((s) => ({ ...s, kind: "method", depth: 0 })), truncated: false });
+  }
+  async callersOf(): ReturnType<CodeGraphPort["callersOf"]> { return ok({ indexedSha: TRIGGER_SHA, symbols: [], truncated: false }); }
+  async routes(): ReturnType<CodeGraphPort["routes"]> { return ok([]); }
 }
 
 function makeAdapter(opts: {
@@ -210,7 +213,7 @@ describe("CrossRepoImpactPortAdapter — tiered matching", () => {
   test("an impacted symbol matching link.contractRef produces a tier-2 (impacted-symbol) match, via Result narrowing", async () => {
     const blast = BlastRadius.of(Sha.of(TRIGGER_SHA), ["src/main/java/RestaurantsController.java"]);
     const vcs = new FakeVcs(blast);
-    const codeGraph = new FakeCodeGraph(ok([{ file: "src/main/java/RestaurantsController.java", symbol: "getRestaurants" }]));
+    const codeGraph = new FakeCodeGraph([{ file: "src/main/java/RestaurantsController.java", symbol: "getRestaurants" }]);
     const adapter = makeAdapter({
       mirrors: new FakeMirrorRegistry({ [TRIGGER_REPO]: MIRROR_DIR }),
       vcs,
@@ -268,13 +271,13 @@ describe("CrossRepoImpactPortAdapter — fail-open branches", () => {
     assert.equal(result, null, "an absent mirror directory must degrade to null, never throw");
   });
 
-  test("an unindexed mirror (impactedSymbols returns ok([])) with a non-contract diff degrades to null (tier-1-only outcome, not an error)", async () => {
+  test("an unindexed mirror (impactedSymbols reaches nothing) with a non-contract diff degrades to null (tier-1-only outcome, not an error)", async () => {
     const blast = BlastRadius.of(Sha.of(TRIGGER_SHA), ["src/main/java/UnrelatedController.java"]);
     const vcs = new FakeVcs(blast);
     const adapter = makeAdapter({
       mirrors: new FakeMirrorRegistry({ [TRIGGER_REPO]: MIRROR_DIR }),
       vcs,
-      codeGraph: new FakeCodeGraph(ok([])),
+      codeGraph: new FakeCodeGraph([]),
       runner: new RecordingRunner(),
     });
 
@@ -304,7 +307,7 @@ describe("CrossRepoImpactPortAdapter — fail-open branches", () => {
     const adapter = makeAdapter({
       mirrors: new FakeMirrorRegistry({ [TRIGGER_REPO]: MIRROR_DIR }),
       vcs,
-      codeGraph: new FakeCodeGraph(ok([{ file: "x", symbol: "unrelatedMethod" }])),
+      codeGraph: new FakeCodeGraph([{ file: "x", symbol: "unrelatedMethod" }]),
       runner: new RecordingRunner(),
     });
 
@@ -332,7 +335,7 @@ describe("CrossRepoImpactPortAdapter — fail-open branches", () => {
     const vcs = new FakeVcs(blast);
     class ThrowingCodeGraph extends FakeCodeGraph {
       override async impactedSymbols(): ReturnType<CodeGraphPort["impactedSymbols"]> {
-        throw new Error("codebase-memory-mcp CLI crashed");
+        throw new Error("code-graph engine crashed");
       }
     }
     const throwingCodeGraph: CodeGraphPort = new ThrowingCodeGraph();

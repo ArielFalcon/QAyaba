@@ -55,10 +55,10 @@ import { PreGenerationGroundingPortAdapter, type PreGenerationGroundingCollabora
 import { ReviewDomGroundingPortAdapter, type ReviewDomGroundingCollaborators } from "../infrastructure/bridges/review-dom-grounding-port.adapter.ts";
 import { PreExecGroundingPortAdapter, type PreExecGroundingCollaborators } from "../infrastructure/bridges/pre-exec-grounding-port.adapter.ts";
 import { StructuralSignalPortAdapter } from "../infrastructure/bridges/structural-signal-port.adapter.ts";
-import { LazyProjectCodeGraphAdapter } from "../../../shared-infrastructure/code-graph/lazy-project-code-graph.adapter.ts";
 import { ProjectNameResolver, type ProjectNameCliClient } from "../../../shared-infrastructure/code-graph/resolve-project-name.ts";
-import type { CodebaseMemoryCliClient } from "../../../shared-infrastructure/code-graph/codebase-memory-code-graph.adapter.ts";
-import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
+import type { CodebaseMemoryCliClient } from "../../../shared-infrastructure/code-graph/codebase-memory-client.ts";
+import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
+import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 import { ServiceLinksPortAdapter } from "../infrastructure/bridges/service-links-port.adapter.ts";
 import { MirrorRegistryAdapter } from "@contexts/service-topology/infrastructure/mirror-registry.adapter.ts";
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/ports/index.ts";
@@ -249,11 +249,16 @@ export interface CompositionConfig {
   groundingCollaborators?: PreGenerationGroundingCollaborators;
   reviewDomGroundingCollaborators?: ReviewDomGroundingCollaborators;
   preExecGroundingCollaborators?: PreExecGroundingCollaborators;
+  /* The lead's code-graph tools' client. Absent: the tools are not wired. */
   codebaseMemory?: ProjectNameCliClient & CodebaseMemoryCliClient;
-  /* Per-run lastIndexedSha sidecar. OPTIONAL: absent-omit — never default-constructed here (tests/fakes stay byte-identical when omitted). The shell factory supplies IndexStatusAdapter. Indexing itself also needs codeGraph (built from codebaseMemory below); either absent is a no-op. */
-  indexStatus?: IndexStatusPort;
+  /* The run's code graph: the index phase builds it, the structural signal and the cross-repo impact read it. One instance per run, because the index a run built lives in it. Absent: no repo is indexed and both signals are empty. */
+  codeGraph?: CodeGraphPort;
+  /* Git co-change history for the structural signal. */
+  coChange?: CoChangePort;
   /* Classify-source repo root for CodeGraphPort.syncTo and StructuralSignalPortAdapter. Factory sets this to the SERVICE mirror on a webhook, PRIMARY otherwise. Absent → cfg.mirrorDir. */
   codeGraphRepoDir?: string;
+  /* On a service-triggered run, the primary repo, indexed too. */
+  codeGraphPrimary?: { repoDir: string; headSha(): Promise<string | null> };
   serviceTopology?: {
     appName: string;
     primaryRepo: string;
@@ -261,9 +266,9 @@ export interface CompositionConfig {
     services: readonly { repo: string }[];
     boundaryProfiles: BoundaryProfileProviderPort;
   };
+  /* Cross-repo impact; its graph tier reads cfg.codeGraph, and answers nothing from the graph without it. */
   crossRepoImpact?: {
     mirrorRoot: string;
-    codebaseMemory: ProjectNameCliClient & CodebaseMemoryCliClient;
     runner: SandboxedBinaryRunner;
   };
   /* Triggering microservice for a cross-repo run — its repo, its own read-only mirror dir, and its own openapi hint. Prompt-context only (GenerationPortAdapter → OpencodeRunInput.service). No verdict/gate/coverage/publish path reads it. Absent in the same-repo case — never a stub. */
@@ -515,13 +520,12 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       )
     : undefined;
 
-  /* StructuralSignalPort: optional, never a stub. One LazyProjectCodeGraphAdapter is shared with RunQaUseCaseDeps.codeGraph — do not double-construct. Unindexed repo → empty advisory + IndexFailed (fail-open: no setLastIndexedSha). */
-  const codeGraphPort = cfg.codebaseMemory
-    ? new LazyProjectCodeGraphAdapter(cfg.codebaseMemory, new ProjectNameResolver(cfg.codebaseMemory))
-    : undefined;
-  const plainStructuralSignal = codeGraphPort
+  /* StructuralSignalPort: optional, never a stub. It reads the same CodeGraphPort RunQaUseCaseDeps.codeGraph indexes — do not double-construct. Unindexed repo → empty advisory. */
+  const codeGraphPort = cfg.codeGraph;
+  const plainStructuralSignal = codeGraphPort && cfg.coChange
     ? new StructuralSignalPortAdapter(
         codeGraphPort,
+        cfg.coChange,
         /* Classify-source repo root (SERVICE on a webhook, PRIMARY otherwise) — not the e2e subfolder and not always the primary suite mirror (see StructuralSignalPortAdapter). */
         cfg.codeGraphRepoDir ?? cfg.mirrorDir,
       )
@@ -545,7 +549,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ? new CrossRepoImpactPortAdapter({
         mirrors: new MirrorRegistryAdapter(cfg.crossRepoImpact.mirrorRoot),
         makeVcs: (repoDir) => new GitMirrorReadAdapter(repoDir, cfg.crossRepoImpact!.runner),
-        codeGraph: new LazyProjectCodeGraphAdapter(cfg.crossRepoImpact.codebaseMemory, new ProjectNameResolver(cfg.crossRepoImpact.codebaseMemory)),
+        ...(codeGraphPort ? { codeGraph: codeGraphPort } : {}),
         runner: cfg.crossRepoImpact.runner, /* same runner — no extra spawn surface */
       })
     : undefined;
@@ -651,9 +655,9 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
     ...(preExecGrounding ? { preExecGrounding } : {}),
     ...(structuralSignal ? { structuralSignal } : {}),
-    ...(cfg.indexStatus ? { indexStatus: cfg.indexStatus } : {}),
     ...(codeGraphPort ? { codeGraph: codeGraphPort } : {}),
     ...(cfg.codeGraphRepoDir ? { codeGraphRepoDir: cfg.codeGraphRepoDir } : {}),
+    ...(cfg.codeGraphPrimary ? { codeGraphPrimary: cfg.codeGraphPrimary } : {}),
     ...(serviceLinks ? { serviceLinks } : {}),
     ...(crossRepoImpact ? { crossRepoImpact } : {}),
     ...(cfg.observer ? { observer: cfg.observer } : {}),

@@ -1,0 +1,249 @@
+/*
+ * CodeGraphPort over the codegraph engine. Placement: shared-infrastructure, because more than one bounded context asks the
+ * graph (the structural signal, the cross-repo impact, the change pages).
+ *
+ * `syncTo` builds the run's index of one repo: the workspace of the run's commit (codegraph-workspace.ts), the cached store
+ * copied in and synced, or a first build, validated, and published back to the cache before any agent-influenced code runs
+ * (codegraph-store-cache.ts). Every query then reads that workspace's store through the store reader, a child of the
+ * launcher's graph profile. A repo the run did not index answers unavailable, never an empty graph.
+ *
+ * Nothing the engine names crosses this adapter: no node id, no absolute path, no engine format. Answers are repo-relative,
+ * sorted and de-duplicated, and carry the commit of the index they read.
+ */
+
+import { basename, join } from "node:path";
+import { existsSync, rmSync } from "node:fs";
+import { err, ok, type Result } from "../../shared-kernel/result.ts";
+import type { BlastRadius, TouchedLines } from "../../shared-kernel/blast-radius.ts";
+import type { CodeGraphPort } from "../../shared-kernel/ports/code-graph.port.ts";
+import type { CodeGraphIndexRecord, CodeGraphUnavailable, GraphRoute, ImpactBudget, ImpactReport, ImpactedSymbol, IndexOutcome, LocalSymbolRef } from "../../shared-kernel/code/index.ts";
+import type { Sandbox } from "../process-sandbox/sandbox.ts";
+import type { SandboxedBinaryRunner } from "../process-sandbox/sandboxed-binary-runner.ts";
+import { CODEGRAPH_ENGINE, storePathOf, type CodegraphEngine, type EngineFailure, type EngineStatus } from "./codegraph-engine.ts";
+import { exportWorkspace, type WorkspaceScope } from "./codegraph-workspace.ts";
+import { repoKeyOf, type CodegraphStoreCache } from "./codegraph-store-cache.ts";
+
+/* A symbol as the store reader lists it. The id is the engine's and stays inside this adapter. */
+export interface StoreSymbol {
+  id: string;
+  file: string;
+  symbol: string;
+  kind: string;
+  startLine: number;
+  endLine: number;
+}
+
+interface WalkNode {
+  id: string;
+  file: string;
+  symbol: string;
+  kind: string;
+  startLine: number;
+  depth: number;
+  via?: LocalSymbolRef;
+}
+
+interface StoreRoute {
+  name: string;
+  file: string;
+  line: number;
+  target?: { file: string; symbol: string; kind: string };
+}
+
+const HTTP_ROUTE = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) (\S+)$/;
+
+/*
+ * The seeds of a change: for each touched line, the innermost symbol whose range holds it; for a changed file the diff gave no
+ * lines for, every top-level symbol (one no other symbol of the file encloses). A line between symbols seeds nothing. Pure.
+ */
+export function selectSeeds(symbols: readonly StoreSymbol[], changedFiles: readonly string[], touched: TouchedLines | undefined): StoreSymbol[] {
+  const byFile = new Map<string, StoreSymbol[]>();
+  for (const s of symbols) (byFile.get(s.file) ?? byFile.set(s.file, []).get(s.file)!).push(s);
+  const seeds = new Map<string, StoreSymbol>();
+  for (const file of changedFiles) {
+    const inFile = byFile.get(file) ?? [];
+    const lines = touched?.get(file);
+    if (lines === undefined) {
+      for (const s of inFile) {
+        const enclosed = inFile.some((o) => o !== s && o.startLine <= s.startLine && o.endLine >= s.endLine && (o.endLine - o.startLine) > (s.endLine - s.startLine));
+        if (!enclosed) seeds.set(s.id, s);
+      }
+      continue;
+    }
+    for (const line of lines) {
+      let best: StoreSymbol | undefined;
+      for (const s of inFile) {
+        if (s.startLine > line || s.endLine < line) continue;
+        if (!best || s.endLine - s.startLine < best.endLine - best.startLine) best = s;
+      }
+      if (best) seeds.set(best.id, best);
+    }
+  }
+  return [...seeds.values()].sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.startLine - b.startLine));
+}
+
+export interface CodegraphCodeGraphDeps {
+  engine: CodegraphEngine;
+  /* The trusted git runner the workspace is checked out with. */
+  git: SandboxedBinaryRunner;
+  /* The app's store cache; absent: every run builds from nothing and publishes nothing. */
+  cache?: CodegraphStoreCache;
+  /* The run's work directory (the launcher's), where the workspaces live and which the run's end removes. */
+  workDir(): string;
+  sandbox: Sandbox | null;
+  scope: WorkspaceScope;
+  /* A test file of a declared language, by its language's conventions: its routes and callers are not the app's. */
+  isTestFile(file: string): boolean;
+  now?: () => number;
+}
+
+interface Indexed {
+  workspace: string;
+  sha: string;
+}
+
+export class CodegraphCodeGraphAdapter implements CodeGraphPort {
+  private readonly indexed = new Map<string, Indexed>();
+  private readonly now: () => number;
+
+  constructor(private readonly deps: CodegraphCodeGraphDeps) {
+    this.now = deps.now ?? Date.now;
+  }
+
+  async syncTo(repoDir: string, sha: string): Promise<CodeGraphIndexRecord> {
+    const started = this.now();
+    const repo = repoKeyOf(basename(repoDir));
+    const record = (outcome: IndexOutcome, status: EngineStatus | null, reason?: string): CodeGraphIndexRecord => ({
+      repo,
+      engine: CODEGRAPH_ENGINE,
+      engineVersion: status?.version ?? null,
+      sha,
+      outcome,
+      durationMs: this.now() - started,
+      nodeCount: status?.nodeCount ?? null,
+      edgeCount: status?.edgeCount ?? null,
+      ...(reason !== undefined ? { reason } : {}),
+    });
+    const failed = (f: EngineFailure): CodeGraphIndexRecord => record(f.kind === "timeout" ? "timeout" : "failed", null, f.reason);
+
+    this.indexed.delete(repoDir);
+    let workspace: string;
+    try {
+      workspace = join(this.deps.workDir(), `graph-${repo}`);
+    } catch (e) {
+      return record("failed", null, e instanceof Error ? e.message : String(e));
+    }
+    rmSync(workspace, { recursive: true, force: true });
+    const exported = await exportWorkspace({ git: this.deps.git, mirrorDir: repoDir, sha, dir: workspace, scope: this.deps.scope, sandbox: this.deps.sandbox });
+    if (!exported.ok) return record(exported.error.reason.startsWith("the commit holds no file") ? "skipped" : "failed", null, exported.error.reason);
+
+    const lock = this.deps.cache?.lock(repo);
+    try {
+      const cached = lock ? this.deps.cache!.meta(repo) : undefined;
+      const usable = cached?.engine === CODEGRAPH_ENGINE && lock !== undefined && this.deps.cache!.copyIn(repo, workspace, this.deps.sandbox);
+      let outcome: IndexOutcome = "built";
+      let status: Result<EngineStatus, EngineFailure> | undefined;
+      if (usable) {
+        if (cached.sha !== sha) {
+          const synced = await this.deps.engine.sync(workspace);
+          if (synced.ok) status = await this.deps.engine.status(workspace);
+          else if (synced.error.kind === "timeout") return failed(synced.error);
+        } else {
+          status = await this.deps.engine.status(workspace);
+        }
+        if (status?.ok && status.value.version === cached.engineVersion) outcome = cached.sha === sha ? "reused" : "synced";
+        else status = undefined;
+      }
+      if (status === undefined) {
+        rmSync(storePathOf(workspace), { force: true });
+        const built = await this.deps.engine.build(workspace);
+        if (!built.ok) return failed(built.error);
+        status = await this.deps.engine.status(workspace);
+        outcome = "built";
+      }
+      if (!status.ok) return failed(status.error);
+      if (status.value.nodeCount === 0) return record("failed", status.value, "the index holds no symbol");
+      if (lock && outcome !== "reused") {
+        const published = this.deps.cache!.publish(repo, workspace, {
+          engine: CODEGRAPH_ENGINE,
+          engineVersion: status.value.version,
+          sha,
+          nodeCount: status.value.nodeCount,
+          edgeCount: status.value.edgeCount,
+          fileCount: status.value.fileCount,
+          builtAt: new Date(this.now()).toISOString(),
+        });
+        if (!published.published) console.warn(`[qa] the code-graph store of ${repo} was not cached (${published.reason}); the next run indexes it again`);
+      }
+      this.indexed.set(repoDir, { workspace, sha });
+      return record(outcome, status.value);
+    } finally {
+      lock?.release();
+    }
+  }
+
+  private indexOf(repoDir: string): Indexed | undefined {
+    const entry = this.indexed.get(repoDir);
+    return entry && existsSync(storePathOf(entry.workspace)) ? entry : undefined;
+  }
+
+  private async read<T>(repoDir: string, request: Record<string, unknown>): Promise<Result<{ value: T; sha: string }, CodeGraphUnavailable>> {
+    const entry = this.indexOf(repoDir);
+    if (!entry) return err({ reason: "the repo is not indexed in this run" });
+    const answer = await this.deps.engine.read<T>(entry.workspace, request);
+    if (!answer.ok) return err({ reason: answer.error.reason });
+    return ok({ value: answer.value, sha: entry.sha });
+  }
+
+  private async walkFrom(repoDir: string, seeds: readonly StoreSymbol[], budget: ImpactBudget, sha: string): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
+    if (seeds.length === 0) return ok({ indexedSha: sha, symbols: [], truncated: false });
+    const walked = await this.read<{ nodes: WalkNode[]; truncated: boolean }>(repoDir, { op: "walk", seeds: seeds.map((s) => s.id), depth: budget.depth, maxNodes: budget.maxSymbols });
+    if (!walked.ok) return walked;
+    const symbols: ImpactedSymbol[] = [];
+    const seen = new Set<string>();
+    for (const n of walked.value.value.nodes) {
+      if (n.kind === "route" || this.deps.isTestFile(n.file)) continue;
+      const key = `${n.file}::${n.symbol}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      symbols.push({ file: n.file, symbol: n.symbol, kind: n.kind, depth: n.depth, ...(n.via ? { via: n.via } : {}) });
+    }
+    return ok({ indexedSha: walked.value.sha, symbols, truncated: walked.value.value.truncated });
+  }
+
+  async impactedSymbols(repoDir: string, changed: BlastRadius, budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
+    const files = changed.changedFiles.filter((f) => !this.deps.isTestFile(f));
+    const entry = this.indexOf(repoDir);
+    if (!entry) return err({ reason: "the repo is not indexed in this run" });
+    if (files.length === 0) return ok({ indexedSha: entry.sha, symbols: [], truncated: false });
+    const listed = await this.read<{ symbols: StoreSymbol[] }>(repoDir, { op: "symbols", files });
+    if (!listed.ok) return listed;
+    return this.walkFrom(repoDir, selectSeeds(listed.value.value.symbols, files, changed.touchedLines), budget, listed.value.sha);
+  }
+
+  async callersOf(repoDir: string, symbols: readonly LocalSymbolRef[], budget: ImpactBudget): Promise<Result<ImpactReport, CodeGraphUnavailable>> {
+    const entry = this.indexOf(repoDir);
+    if (!entry) return err({ reason: "the repo is not indexed in this run" });
+    if (symbols.length === 0) return ok({ indexedSha: entry.sha, symbols: [], truncated: false });
+    const found = await this.read<{ symbols: StoreSymbol[] }>(repoDir, { op: "find", symbols: symbols.map((s) => ({ file: s.file, symbol: s.symbol })) });
+    if (!found.ok) return found;
+    return this.walkFrom(repoDir, found.value.value.symbols, budget, found.value.sha);
+  }
+
+  async routes(repoDir: string): Promise<Result<GraphRoute[], CodeGraphUnavailable>> {
+    const listed = await this.read<{ routes: StoreRoute[] }>(repoDir, { op: "routes" });
+    if (!listed.ok) return listed;
+    const out: GraphRoute[] = [];
+    for (const r of listed.value.value.routes) {
+      if (this.deps.isTestFile(r.file)) continue;
+      const http = HTTP_ROUTE.exec(r.name);
+      out.push({
+        file: r.file,
+        line: r.line,
+        ...(http ? { method: http[1]!, path: http[2]! } : { path: r.name }),
+        ...(r.target ? { target: { file: r.target.file, symbol: r.target.symbol, kind: r.target.kind } } : {}),
+      });
+    }
+    return ok(out);
+  }
+}

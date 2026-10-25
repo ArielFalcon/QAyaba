@@ -1,0 +1,80 @@
+**Exploration: OrdersPage formatMoney**
+
+Found 13 symbols across 3 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `OrdersPage` (web/src/app/orders/orders.page.ts:6) — 3 callers in `web/src/app/app.routes.ts`; tests: `web/src/app/orders/orders.page.spec.ts`
+- `formatMoney` (web/src/app/shared/format.ts:1) — 4 callers in `web/src/app/profile/profile.page.ts`, `web/src/app/orders/orders.page.ts`; tested via callers: `web/src/app/orders/orders.page.spec.ts`
+- `OrdersApi` (web/src/app/orders/orders.api.ts:3) — 2 callers in `web/src/app/orders/orders.page.ts`; tested via callers: `web/src/app/orders/orders.page.spec.ts`
+- `OrderService` (api/src/main/java/demo/service/OrderService.java:6) — 3 callers in `api/src/main/java/demo/web/OrderController.java`; no tests found within 3 caller hops
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`web/src/app/shared/format.ts`** — formatMoney(function), roundCents(function)
+
+```typescript
+1	export function formatMoney(amount: number): string {
+2	  return roundCents(amount).toFixed(2);
+3	}
+4	
+5	export function roundCents(amount: number): number {
+6	  return Math.round(amount * 100) / 100;
+7	}
+```
+
+**`api/src/main/java/demo/web/OrderController.java`** — OrderController(method), OrderController(class), demo.web(namespace), listOrders(method), GET /api/orders(route), +1 more
+
+```java
+1	package demo.web;
+2	
+3	import demo.service.OrderService;
+4	import java.util.List;
+5	import org.springframework.web.bind.annotation.GetMapping;
+6	import org.springframework.web.bind.annotation.RestController;
+7	
+8	@RestController
+9	public class OrderController {
+10	    private final OrderService orderService;
+11	
+12	    public OrderController(OrderService orderService) {
+13	        this.orderService = orderService;
+14	    }
+15	
+16	    @GetMapping("/api/orders")
+17	    public List<String> listOrders() {
+18	        return orderService.findAll();
+19	    }
+20	}
+```
+
+**`api/src/main/java/demo/service/OrderService.java`** — OrderService(method), OrderService(class), findAll(method), demo.service(namespace), repository(field)
+
+```java
+1	package demo.service;
+2	
+3	import demo.repo.OrderRepository;
+4	import java.util.List;
+5	
+6	public class OrderService {
+7	    private final OrderRepository repository;
+8	
+9	    public OrderService(OrderRepository repository) {
+10	        this.repository = repository;
+11	    }
+12	
+13	    public List<String> findAll() {
+14	        return repository.loadAll();
+15	    }
+16	}
+```
+
+**Not shown above — explore these names for their source**
+
+- web/src/app/orders/orders.page.ts: OrdersPage:6, total:13, constructor:7, load:9, orders.page.ts:1
+- api/src/main/java/demo/repo/OrderRepository.java: OrderRepository:5, loadAll:6, demo.repo:1
+- web/src/app/orders/orders.api.ts: OrdersApi:3, listOrders:6, constructor:4, API_BASE:11
+- web/src/app/app.routes.ts: /orders:6, /profile:7, app.routes.ts:1
+- web/src/app/profile/profile.page.ts: balance:6, ProfilePage:5, profile.page.ts:1

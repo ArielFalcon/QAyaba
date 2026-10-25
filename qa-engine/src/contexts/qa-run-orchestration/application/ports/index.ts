@@ -868,6 +868,8 @@ export interface ReviewDomGroundingPort {
 export interface StructuralSignalResult {
   text: string;
   hasSymbols: boolean;
+  /** The commit of the code-graph index the block was read from; absent when the graph gave no answer. */
+  indexedSha?: string;
 }
 
 /**

@@ -1065,19 +1065,12 @@ test("buildRewrittenCompositionConfig leaves testIdAttribute undefined when the 
   assert.equal(config.testIdAttribute, undefined);
 });
 
-test("buildRewrittenCompositionConfig wires codebaseMemory (the raw CLI client) so the structural blast-radius signal is ACTIVE in production — an unindexed mirror degrades to no section inside the adapter chain, so this is always safe to supply", () => {
-  const app = cfg("factory-codebase-memory");
+test("buildRewrittenCompositionConfig wires the code graph and the co-change history so the structural blast-radius signal is ACTIVE in production — an unindexed repo degrades to no section inside the adapter chain", () => {
+  const app = cfg("factory-code-graph");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.ok(config.codebaseMemory, "codebaseMemory must be supplied — absent means composition-root never builds StructuralSignalPortAdapter and the agent NEVER receives the blast-radius section, even for an indexed repo");
-  assert.equal(typeof config.codebaseMemory.cli, "function", "the collaborator is the raw CLI client (ProjectNameCliClient & CodebaseMemoryCliClient)");
-});
-
-test("buildRewrittenCompositionConfig sets indexStatus with getLastIndexedSha/setLastIndexedSha functions", () => {
-  const app = cfg("factory-index-status");
-  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.ok(config.indexStatus, "indexStatus is cheap JSON and must always be supplied — the use-case no-ops unless codeGraph is also wired");
-  assert.equal(typeof config.indexStatus.getLastIndexedSha, "function");
-  assert.equal(typeof config.indexStatus.setLastIndexedSha, "function");
+  assert.ok(config.codeGraph, "codeGraph must be supplied — absent means no repo is indexed and the agent NEVER receives the blast-radius section");
+  assert.ok(config.coChange, "the co-change history must be supplied with it");
+  assert.equal(config.codeGraphPrimary, undefined, "a same-repo run indexes one repo");
 });
 
 test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the primary mirror on a same-repo run", () => {
@@ -1086,7 +1079,7 @@ test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the primary mirro
   assert.equal(config.codeGraphRepoDir, "/tmp/mirrors/org__demo", "same-repo indexing must pin the primary mirror, same formula as cfg.mirrorDir");
 });
 
-test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the SERVICE mirror on a cross-repo run", () => {
+test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the SERVICE mirror on a cross-repo run, and indexes the primary repo too", () => {
   const app: AppConfig = { ...cfg("factory-codegraph-service"), services: [{ repo: "org/orders-svc" }] };
   const config = buildRewrittenCompositionConfig(
     app,
@@ -1095,17 +1088,18 @@ test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the SERVICE mirro
     { mode: "diff", triggerRepo: "org/orders-svc" },
   );
   assert.equal(config.codeGraphRepoDir, "/tmp/mirrors/org__orders-svc", "cross-repo indexing must pin the classify-source SERVICE mirror, never the primary suite dir");
+  assert.equal(config.codeGraphPrimary?.repoDir, "/tmp/mirrors/org__demo", "the primary repo the frontend signals read is indexed too");
 });
 
-test("qa.structuralSignals mode 'off' still supplies indexStatus (indexing is gated by omitted codebaseMemory/codeGraph, not by omitting the sidecar)", () => {
+test("qa.structuralSignals mode 'off' supplies no code graph, so nothing is indexed", () => {
   const app: AppConfig = {
-    ...cfg("factory-index-status-off"),
-    qa: { ...cfg("factory-index-status-off").qa, structuralSignals: { mode: "off" } },
+    ...cfg("factory-code-graph-off"),
+    qa: { ...cfg("factory-code-graph-off").qa, structuralSignals: { mode: "off" } },
   };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.equal(config.codebaseMemory, undefined, "mode:off omits codebaseMemory so wireBridges omits codeGraph — indexing is a no-op");
-  assert.ok(config.indexStatus, "indexStatus stays present when structural signals are off");
-  assert.equal(typeof config.indexStatus.getLastIndexedSha, "function");
+  assert.equal(config.codeGraph, undefined);
+  assert.equal(config.coChange, undefined);
+  assert.equal(config.codebaseMemory, undefined);
 });
 
 test("buildRewrittenCompositionConfig sets mode from the passed run param, not a hardcoded 'diff'", () => {
@@ -1229,6 +1223,7 @@ test("qa.structuralSignals mode 'off' omits BOTH codebaseMemory and serviceTopol
   } as AppConfig;
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.codebaseMemory, undefined, "mode:off must omit codebaseMemory");
+  assert.equal(config.codeGraph, undefined, "mode:off must omit the code graph");
   assert.equal(config.serviceTopology, undefined, "mode:off must omit serviceTopology even though services[]+boundaries[] are both declared");
   assert.equal(config.crossRepoImpact, undefined, "mode:off must omit crossRepoImpact too — all three structural collaborators share the one gate");
 });
@@ -1266,6 +1261,7 @@ test("qa.structuralSignals absent supplies codebaseMemory unconditionally (byte-
   const app = cfg("factory-structural-signals-absent");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.codebaseMemory, "absent config must keep supplying codebaseMemory — no behavior change");
+  assert.ok(config.codeGraph, "absent config supplies the code graph");
 });
 
 test("qa.structuralSignals mode 'signal' supplies codebaseMemory unconditionally (explicit default, same as absent)", () => {
@@ -1275,6 +1271,7 @@ test("qa.structuralSignals mode 'signal' supplies codebaseMemory unconditionally
   };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.codebaseMemory, "mode:signal must keep supplying codebaseMemory — same as absent");
+  assert.ok(config.codeGraph, "mode:signal supplies the code graph");
 });
 
 test("qa.structuralSignals mode 'signal' still supplies serviceTopology when services[]+boundaries[] are both declared (AND-gate unaffected)", () => {

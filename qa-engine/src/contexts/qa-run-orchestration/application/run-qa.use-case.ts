@@ -21,7 +21,6 @@ import { createRunSecretScope, withRunSecretScope } from "../../../shared-infras
 import { isSandboxUnavailable, type SandboxUnavailableError } from "../../../shared-infrastructure/process-sandbox/exec-sandbox.ts";
 import { activeExecScope, refusedScope, sandboxRefused, sandboxSignal, withExecScope, type ExecScopePort } from "../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 import type { AuthSession, AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
-import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type {
@@ -329,18 +328,15 @@ export interface RunQaUseCaseDeps {
    * runs overlapping. A thrown prune() is caught here and never alters the verdict.
    */
   mirrorGc?: MirrorGcPort;
-  /**
-   * Requires both ports. Fail-open: a throw or IndexFailed never becomes
-   * infra-error and does not setLastIndexedSha. SHA skip when lastIndexedSha
-   * matches. Classify-skip returns before this phase. No onStep.
-   */
-  indexStatus?: IndexStatusPort;
+  /** The code graph the index phase builds and the graph signals read. Absent: no repo is indexed and every graph signal is empty. Fail-open: an index that fails never ends the run. */
   codeGraph?: CodeGraphPort;
   /**
    * Classify-source repo root (SERVICE mirror on a webhook, PRIMARY otherwise).
    * Absent → index workspace.mirrorDir.
    */
   codeGraphRepoDir?: string;
+  /** On a service-triggered run, the primary repo, indexed too at the commit it is checked out at. */
+  codeGraphPrimary?: { repoDir: string; headSha(): Promise<string | null> };
   /** Absent: a coordinated run writes nothing to the ledger of decisions. */
   coordinationTelemetry?: CoordinationTelemetryPort;
   /**

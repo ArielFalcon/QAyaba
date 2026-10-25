@@ -28,6 +28,13 @@ export class GitMirrorReadAdapter implements VcsReadPort {
     return r.stdout;
   }
 
+  /* The commit the working copy is checked out at; null when git cannot name one. */
+  async headSha(): Promise<string | null> {
+    const r = await this.runner.run({ command: "git", args: hardenGitArgs(["rev-parse", "--verify", "HEAD^{commit}"], this.repoDir), cwd: this.repoDir, env: scrubEnv() });
+    const sha = r.stdout.trim().toLowerCase();
+    return !r.timedOut && r.exitCode === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
+  }
+
   async message(sha: Sha): Promise<string> {
     const r = await this.runner.run({ command: "git", args: hardenGitArgs(["log", "-1", "--format=%B", sha.value], this.repoDir), cwd: this.repoDir, env: scrubEnv() });
     return r.stdout.trim();
@@ -35,7 +42,7 @@ export class GitMirrorReadAdapter implements VcsReadPort {
 
   async blastRadius(sha: Sha, opts?: { baseSha?: Sha; commits?: number }): Promise<BlastRadius> {
     const diff = await this.diff(sha, opts);
-    return BlastRadius.of(sha, this.parser.changedFiles(diff));
+    return BlastRadius.of(sha, this.parser.changedFiles(diff), this.parser.touchedLines(diff));
   }
 
   /* Other commits' messages in `baseSha..sha` (both merge parents), excluding sha itself (head comes from message(sha)). Drop the head by hash prefix, never message or exact equality — `%H` is the full hash while sha.value may be abbreviated. [] when baseSha === sha. */

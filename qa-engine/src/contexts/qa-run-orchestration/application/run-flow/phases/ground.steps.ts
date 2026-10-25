@@ -2,6 +2,7 @@
 
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { rethrowIfUntrusted } from "../../../../../shared-kernel/domain-error.ts";
 import { rethrowIfRunDeadline } from "../../../../../shared-kernel/run-deadline.ts";
@@ -142,8 +143,9 @@ export async function groundRepository(state: Readonly<RunState>, ctx: Workspace
  */
 export async function resolveBlastRadius(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input, workspace } = ctx;
-  const { intent: classificationIntent } = state.classification;
-  const runBlastRadius = BlastRadius.of(input.sha, classificationIntent?.changedFiles ?? []);
+  const { intent: classificationIntent, diff } = state.classification;
+  /* The diff's touched lines seed the graph walk at the changed symbols rather than at every symbol of a changed file. */
+  const runBlastRadius = BlastRadius.of(input.sha, classificationIntent?.changedFiles ?? [], diff ? new DiffParserService().touchedLines(diff) : undefined);
   let blastRadiusSignal = "";
   let blastRadiusSignalHasSymbols = false;
   if (deps.structuralSignal) {

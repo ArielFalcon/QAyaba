@@ -6,6 +6,8 @@ import type { RunQaResult } from "../../run-qa.use-case.ts";
 import type { StepResult } from "../run-flow.ts";
 import type { RunContext, WorkspaceRunContext } from "../run-context.ts";
 import type { RunState } from "../run-state.ts";
+import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
+import type { CodeGraphIndexRecord } from "@kernel/code/index.ts";
 
 type Result = Promise<StepResult<RunState, RunQaResult>>;
 
@@ -65,28 +67,61 @@ export async function armRunDeadline(state: Readonly<RunState>, ctx: WorkspaceRu
 }
 
 /*
- * Requires both ports. Classify-skip already returned (that path may GC the
- * mirror). SHA skip does not call syncTo. IndexFailed does not setLastIndexedSha.
- * Throws are fail-open. No onStep("index").
+ * Indexes every repo the run's graph signals read (the classify-source repo at the run's SHA and, on a service-triggered
+ * run, the primary repo at the commit it is checked out at), each on its own: a failure of one never stops the other, and
+ * none stops the run. Each index leaves its provenance as a span. Classify-skip already returned (that path may GC the
+ * mirror). No onStep("index").
  */
-export async function indexMirror(state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
+export async function indexMirror(_state: Readonly<RunState>, ctx: WorkspaceRunContext): Result {
   const { deps, input, workspace } = ctx;
-  if (deps.indexStatus && deps.codeGraph) {
-    try {
-      const indexDir = deps.codeGraphRepoDir ?? workspace.mirrorDir;
-      const lastIndexedSha = await deps.indexStatus.getLastIndexedSha(indexDir);
-      if (lastIndexedSha !== input.sha.toString()) {
-        const changedFiles = state.classification.intent?.changedFiles ?? [];
-        const result = await deps.codeGraph.syncTo(indexDir, changedFiles);
-        if (result.ok) {
-          await deps.indexStatus.setLastIndexedSha(indexDir, input.sha.toString());
-        } else {
-          console.warn("[qa] mirror indexing failed (non-blocking):", result.error.reason);
-        }
+  if (deps.codeGraph) {
+    const sourceDir = deps.codeGraphRepoDir ?? workspace.mirrorDir;
+    await indexOne(ctx, deps.codeGraph, sourceDir, input.sha.toString());
+    const primary = deps.codeGraphPrimary;
+    if (primary && primary.repoDir !== sourceDir) {
+      try {
+        const head = await primary.headSha();
+        if (head) await indexOne(ctx, deps.codeGraph, primary.repoDir, head);
+        else console.warn("[qa] the primary repo's commit could not be read; it is not indexed this run");
+      } catch (err) {
+        console.warn("[qa] the primary repo's commit could not be read; it is not indexed this run:", err);
       }
-    } catch (err) {
-      console.warn("[qa] mirror indexing failed (non-blocking):", err);
     }
   }
   if (ctx.signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir) };
+}
+
+async function indexOne(ctx: WorkspaceRunContext, codeGraph: CodeGraphPort, repoDir: string, sha: string): Promise<void> {
+  let record: CodeGraphIndexRecord;
+  try {
+    record = await codeGraph.syncTo(repoDir, sha);
+  } catch (err) {
+    console.warn("[qa] code-graph indexing failed (non-blocking):", err);
+    return;
+  }
+  if (record.outcome === "failed" || record.outcome === "timeout") console.warn(`[qa] code-graph indexing of ${record.repo} ${record.outcome} (non-blocking): ${record.reason ?? "no reason given"}`);
+  recordIndex(ctx, record);
+}
+
+function recordIndex(ctx: WorkspaceRunContext, record: CodeGraphIndexRecord): void {
+  const { telemetry, input } = ctx;
+  try {
+    telemetry.startSpan("qayaba.code_graph.index", {
+      attrs: {
+        "qayaba.app": input.app,
+        "qayaba.code_graph.repo": record.repo,
+        "qayaba.code_graph.engine": record.engine,
+        "qayaba.code_graph.sha": record.sha,
+        "qayaba.code_graph.outcome": record.outcome,
+        "qayaba.code_graph.duration_ms": record.durationMs,
+        ...(record.engineVersion !== null ? { "qayaba.code_graph.engine_version": record.engineVersion } : {}),
+        ...(record.nodeCount !== null ? { "qayaba.code_graph.node_count": record.nodeCount } : {}),
+        ...(record.edgeCount !== null ? { "qayaba.code_graph.edge_count": record.edgeCount } : {}),
+        ...(record.reason !== undefined ? { "qayaba.code_graph.reason": record.reason } : {}),
+      },
+    }).end();
+  } catch (err) {
+    console.error(`[telemetry] the code-graph index span could not be recorded (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+  }
+  telemetry.counter("qayaba.code_graph.index")(1, { "qayaba.code_graph.outcome": record.outcome });
 }

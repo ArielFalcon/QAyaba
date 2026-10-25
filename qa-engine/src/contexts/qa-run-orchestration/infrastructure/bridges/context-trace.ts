@@ -155,7 +155,10 @@ export class TracedStructuralSignalPort implements StructuralSignalPort {
   async render(repoDir: string, changed: Parameters<StructuralSignalPort["render"]>[1]): Promise<StructuralSignalResult> {
     const signal = await this.inner.render(repoDir, changed);
     const ids = advisoryLineIds(signal.text);
-    safely(() => recordContextSpan(this.telemetry, { source: "structural-signal", ids, bytes: bytesOf(signal.text), freshness: provenanceOf("graph:codebase-memory", ids.length) }));
+    /* The block is stale when the index it read is not at the change's commit; a graph that gave no answer names no commit. */
+    const indexed = signal.indexedSha;
+    const stale = indexed !== undefined && indexed !== changed.sha.value;
+    safely(() => recordContextSpan(this.telemetry, { source: "structural-signal", ids, bytes: bytesOf(signal.text), freshness: provenanceOf("graph:codegraph", ids.length, indexed !== undefined ? { capturedSha: indexed, stale, staleReason: stale ? "index-sha-mismatch" : "none" } : {}) }));
     return signal;
   }
 }

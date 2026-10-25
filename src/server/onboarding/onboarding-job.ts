@@ -162,7 +162,8 @@ export interface OnboardingJobDeps {
    *  (adapter err, unresolvable mirror, spawn timeout, thrown call) maps to a `failed` outcome.
    *  Called with the same mirrorDir ensureMirrorAtBranch resolved this round.
    */
-  indexRepo?(repo: string, mirrorDir: string): Promise<RepoIndexOutcome>;
+  /** Builds the repo's first code-graph store into the app's cache (`app` is the onboarded app's name). */
+  indexRepo?(repo: string, mirrorDir: string, app: string): Promise<RepoIndexOutcome>;
   /** Per-repo bound on indexRepo. Default 5 min. A timeout degrades that repo to `failed` and the phase continues. */
   indexTimeoutMs?: number;
   /** OPTIONAL: enqueue a `mode: context` run so onboarding writes e2e/.qa/context.json.
@@ -298,7 +299,7 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
   async function indexOneRepo(repo: string, mirrorDir: string, indexTimeoutMs: number): Promise<RepoIndexOutcome> {
     try {
       return await raceTimeout(
-        deps.indexRepo!(repo, mirrorDir),
+        deps.indexRepo!(repo, mirrorDir, status.app ?? ""),
         indexTimeoutMs,
         () => {},
         `indexing ${repo} timed out`,

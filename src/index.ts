@@ -4,7 +4,7 @@
 
 import { createServer, IncomingMessage } from "node:http";
 import { join } from "node:path";
-import { qayabaRoot } from "./paths";
+import { qayabaDataDir, qayabaRoot } from "./paths";
 import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "./server/queue";
@@ -38,7 +38,10 @@ import { resolveReflectorEnabled } from "./server/reflector-switch";
 import { resolveCampaignFreeze } from "./server/campaign-freeze";
 import { buildRunViewExtras, defaultRunViewDeps } from "./server/run-view";
 import { enqueueTrackedRun, enqueueContextMapRun, enqueueLoginBootstrapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
-import { appAuthDir, appSuiteStoreDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
+import { appAuthDir, appSuiteStoreDir, buildCodeGraph, createRewrittenEngineFactory, resolveCodeSandbox, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
+import { egressGateFor } from "./server/egress-wiring";
+import { SandboxedBinaryRunnerAdapter } from "../qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter";
+import { ProcessKillAdapter } from "../qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter";
 import { deleteSuiteStoreDir } from "@contexts/workspace-and-publication/infrastructure/suite-store.adapter";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
@@ -60,7 +63,6 @@ import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "./server/onboarding/l
 import { OnboardingService } from "@contexts/service-topology/application/onboarding-service";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory";
 
-import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
 import { processTelemetry, TELEMETRY_SHUTDOWN_TIMEOUT_MS } from "./telemetry/process-telemetry";
 import { HostHealth } from "./telemetry/host-health";
@@ -76,7 +78,7 @@ import { FsDelegationWorkspaceAdapter } from "@contexts/qa-run-orchestration/inf
 import { DELEGATIONS_DIR } from "./paths";
 import { workdirRoot } from "./integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
-import { execWorkRoot } from "./server/exec-sandbox-factory";
+import { buildScriptExec, execWorkRoot } from "./server/exec-sandbox-factory";
 import { resolveApiToken } from "./server/api-token";
 import { shouldLogApiRequest } from "./server/api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./server/login-bootstrap-wiring";
@@ -577,46 +579,33 @@ async function hasProposerAgentConfigured(): Promise<boolean> {
 }
 
 
-const onboardingIndexClient = new CodebaseMemoryClient();
-
 /*
- * The client's own spawn timeout defaults to 60s — far below a first-time FULL index of a large
- * repo. Without an explicit override here, the job's per-repo indexTimeoutMs budget (5 min,
- * onboarding-job.ts DEFAULT_INDEX_TIMEOUT_MS) is a dead ceiling: the inner spawn gives up first
- * and a healthy slow index reads as failed. Kept a hair under the job budget so the SPAWN dies
- * (and reports its stderr) before the outer race masks it.
+ * Onboarding builds each repo's first code-graph store through the same path a run takes (the workspace of the commit the
+ * mirror is checked out at, the engine in the launcher's graph profile, the store published to the app's cache), in a
+ * launcher scope of its own since it has no run to borrow one from. The next run then syncs that store.
  */
-const ONBOARDING_INDEX_SPAWN_TIMEOUT_MS = 4.5 * 60 * 1000;
+const onboardingSandbox = resolveCodeSandbox(process.env);
+const onboardingExec = buildScriptExec(process.env, onboardingSandbox, egressGateFor(process.env, onboardingSandbox));
+const onboardingGit = new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() });
 
-async function indexRepoForOnboarding(repo: string, mirrorDir: string): Promise<RepoIndexOutcome> {
+async function indexRepoForOnboarding(repo: string, mirrorDir: string, app: string): Promise<RepoIndexOutcome> {
+  /* The cache is per app: without its name there is nowhere to publish the store. */
+  if (!app) return { repo, status: "failed", error: "the onboarded app has no name yet" };
   try {
-    /*
-     * Probe fact #3: {"repo_path": mirrorDir} ALONE performs the initial FULL index — no
-     * `changed_files` walk needed, no `project` key needed (server derives it from the path).
-     */
-    const jsonArg = JSON.stringify({ repo_path: mirrorDir });
-    const res = await onboardingIndexClient.cli("index_repository", jsonArg, mirrorDir, ONBOARDING_INDEX_SPAWN_TIMEOUT_MS);
-    if (res.code === null) {
-      return { repo, status: "failed", error: res.stderr || "codebase-memory-mcp unavailable" };
-    }
-    let payload: unknown;
+    const sha = await getHeadSha(mirrorDir, defaultMirrorDeps);
+    let exclude: readonly string[] = [];
     try {
-      payload = JSON.parse(res.stdout);
-    } catch (e) {
-      return { repo, status: "failed", error: e instanceof Error ? e.message : String(e) };
+      exclude = loadAppConfig(app).qa.structuralSignals?.exclude ?? [];
+    } catch {
+      /* Not configured yet: the declared languages alone. */
     }
-    /*
-     * The live CLI (v0.8.1, probe + smoke verified) reports `nodes`; `node_count` is kept as a
-     * fallback for older/newer response shapes. Requiring the wrong single name marked every
-     * SUCCESSFUL live index as failed while the .db landed fine.
-     */
-    const shape = typeof payload === "object" && payload !== null ? (payload as { nodes?: unknown; node_count?: unknown }) : {};
-    const rawNodeCount = shape.nodes ?? shape.node_count;
-    const nodeCount = typeof rawNodeCount === "number" && Number.isFinite(rawNodeCount) ? rawNodeCount : undefined;
-    if (nodeCount === undefined) {
-      return { repo, status: "failed", error: "index_repository response missing nodes/node_count" };
+    const record = await onboardingExec.scoped({ runId: `onboard-index-${repo.replaceAll("/", "__")}-${Date.now()}` }, () =>
+      buildCodeGraph({ exec: onboardingExec.exec, git: onboardingGit, dataDir: qayabaDataDir(), appName: app, sandbox: onboardingSandbox, exclude }).syncTo(mirrorDir, sha),
+    );
+    if (record.outcome === "failed" || record.outcome === "timeout" || record.outcome === "skipped") {
+      return { repo, status: "failed", error: record.reason ?? record.outcome };
     }
-    return { repo, status: "ok", nodeCount };
+    return { repo, status: "ok", ...(record.nodeCount !== null ? { nodeCount: record.nodeCount } : {}) };
   } catch (err) {
     return { repo, status: "failed", error: redactionPort.redactError(err) };
   }
@@ -637,7 +626,7 @@ const onboardingJob = createOnboardingJob({
   readConfig: (path) => readFileSync(path, "utf8"),
   writeConfig: (path, content) => writeFileSync(path, content, "utf8"),
   configPath: (app) => join(ROOT, "config", "apps", `${app}.yaml`),
-  indexRepo: (repo, mirrorDir) => indexRepoForOnboarding(repo, mirrorDir),
+  indexRepo: (repo, mirrorDir, app) => indexRepoForOnboarding(repo, mirrorDir, app),
   enqueueContextRun: async ({ app, mirrorDir }) => {
     /*
      * Same shutdown guard every other enqueue path in this file honors (enqueueApiRun,

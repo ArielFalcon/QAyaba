@@ -1,219 +1,158 @@
-/* CodeGraphPort (fake here, the real one is CodebaseMemoryCodeGraphAdapter) +
-   blast-radius-signal.ts's pure renderer into ONE StructuralSignalPort.render() call. Owns
-   depth=3/minConfidence=0.55 at this call boundary — never throws (every method's
-   err(CodeGraphUnavailable) degrades to an empty array for that field).
- */
+/* CodeGraphPort + CoChangePort (fakes here) + blast-radius-signal.ts's pure renderer into ONE StructuralSignalPort.render()
+   call. One graph walk answers the change: its depth-0 symbols are the changed ones, the deeper ones the code that reaches
+   them. Never throws: an unavailable answer degrades to an empty list for that field. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { StructuralSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/structural-signal-port.adapter.ts";
+import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/structural-signal-port.adapter.ts";
 import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { ok, err } from "@kernel/result.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
+import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
+import type { ImpactedSymbol } from "@kernel/code/index.ts";
+
+const SHA = "abc1234";
+const report = (symbols: ImpactedSymbol[], truncated = false) => ok({ indexedSha: SHA, symbols, truncated });
 
 function fakeCodeGraph(overrides: Partial<CodeGraphPort> = {}): CodeGraphPort {
   return {
-    syncTo: overrides.syncTo ?? (async () => ok({ nodeCount: 0 })),
-    impactedSymbols: overrides.impactedSymbols ?? (async () => ok([])),
-    coChangeCoupling: overrides.coChangeCoupling ?? (async () => ok([])),
-    callersOf: overrides.callersOf ?? (async () => ok([])),
-    existingCoverage: overrides.existingCoverage ?? (async () => ok([])),
-    structurallyRelated: overrides.structurallyRelated ?? (async () => ok([])),
+    syncTo: overrides.syncTo ?? (async (repo, sha) => ({ repo, engine: "fake", engineVersion: "1", sha, outcome: "built", durationMs: 0, nodeCount: 1, edgeCount: 0 })),
+    impactedSymbols: overrides.impactedSymbols ?? (async () => report([])),
+    callersOf: overrides.callersOf ?? (async () => report([])),
+    routes: overrides.routes ?? (async () => ok([])),
   };
 }
 
-const changed = BlastRadius.of(Sha.of("abc1234"), ["src/Foo.java", "src/Bar.java"]);
+function fakeCoChange(impl?: CoChangePort["coChangeCoupling"]): CoChangePort {
+  return { coChangeCoupling: impl ?? (async () => ok([])) };
+}
 
-test("composes a populated CodeGraphPort into the SAME block the pure renderer would produce", async () => {
-  const impacted = [{ file: "src/Impacted.java", symbol: "run" }];
+const changed = BlastRadius.of(Sha.of(SHA), ["src/Foo.java", "src/Bar.java"]);
+const changedSymbol: ImpactedSymbol = { file: "src/Foo.java", symbol: "run", kind: "method", depth: 0 };
+const caller: ImpactedSymbol = { file: "src/Caller.java", symbol: "call", kind: "method", depth: 1, via: { file: "src/Foo.java", symbol: "run" } };
+
+test("renders the walk's changed symbols, the code that reaches them and the co-change files as the pure renderer would", async () => {
   const coupled = [{ file: "src/Coupled.java", couplingScore: 0.8, coChanges: 5 }];
-  const callers = [{ file: "src/Caller.java", symbol: "call" }];
+  const adapter = new StructuralSignalPortAdapter(
+    fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol, caller]) }),
+    fakeCoChange(async () => ok(coupled)),
+    "/repo",
+  );
 
-  const codeGraph = fakeCodeGraph({
-    impactedSymbols: async () => ok(impacted),
-    coChangeCoupling: async () => ok(coupled),
-    callersOf: async () => ok(callers),
-  });
-
-  const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
   const { text } = await adapter.render("/repo", changed);
 
-  const expected = renderBlastRadiusSignal({ impacted, callers, coupled });
-  assert.equal(text, expected, "adapter output must match the pure renderer given the same three result sets");
-  assert.notEqual(text, "", "a populated composition must not degrade to an empty string");
+  const expected = renderBlastRadiusSignal({
+    impacted: [{ file: "src/Foo.java", symbol: "run" }],
+    callers: [{ file: "src/Caller.java", symbol: "call" }],
+    coupled,
+  });
+  assert.equal(text, expected);
+  assert.notEqual(text, "");
 });
 
-test("calls impactedSymbols with depth=3 and coChangeCoupling with the changed file list", async () => {
-  let capturedDepth: number | undefined;
-  let capturedFiles: string[] | undefined;
-  const codeGraph = fakeCodeGraph({
-    impactedSymbols: async (_repoDir, _changed, opts) => {
-      capturedDepth = opts.depth;
-      return ok([]);
-    },
-    coChangeCoupling: async (_repoDir, files) => {
-      capturedFiles = files;
-      return ok([]);
-    },
-  });
-
-  const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  await adapter.render("/repo", changed);
-
-  assert.equal(capturedDepth, 3, "impactedSymbols must be called with the design's advisory depth=3");
-  assert.deepEqual(capturedFiles, [...changed.changedFiles], "coChangeCoupling must be called with the changed file list");
-});
-
-test("calls callersOf per changed-file anchor symbol", async () => {
-  const callersOfCalls: unknown[] = [];
-  const codeGraph = fakeCodeGraph({
-    impactedSymbols: async () => ok([{ file: "src/Foo.java", symbol: "handle" }]),
-    callersOf: async (_repoDir, symbol) => {
-      callersOfCalls.push(symbol);
-      return ok([]);
-    },
-  });
-
-  const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  await adapter.render("/repo", changed);
-
-  assert.ok(callersOfCalls.length > 0, "callersOf must be invoked at least once when impactedSymbols returned an anchor");
-});
-
-test("callersOf fan-out is CAPPED: a large impacted set spawns at most MAX_CALLER_ANCHORS callersOf queries (each is a real process spawn in production — an unbounded Promise.all over hundreds of anchors is a spawn storm on the orchestrator host)", async () => {
-  const bigImpacted = Array.from({ length: 80 }, (_, i) => ({ file: `src/F${i}.java`, symbol: `m${i}` }));
-  let callersOfCalls = 0;
-  const codeGraph = fakeCodeGraph({
-    impactedSymbols: async () => ok(bigImpacted),
-    callersOf: async () => {
-      callersOfCalls += 1;
-      return ok([]);
-    },
-  });
-
-  const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  await adapter.render("/repo", changed);
-
-  assert.ok(
-    callersOfCalls <= 25,
-    `callersOf must be capped at 25 anchors, got ${callersOfCalls} spawns for an 80-symbol impacted set`,
+test("asks the graph once, within the advisory budget, and the co-change history with the same change", async () => {
+  const budgets: unknown[] = [];
+  let callersAsked = 0;
+  let coChangeArg: BlastRadius | undefined;
+  const adapter = new StructuralSignalPortAdapter(
+    fakeCodeGraph({
+      impactedSymbols: async (_repo, _changed, budget) => { budgets.push(budget); return report([changedSymbol]); },
+      callersOf: async () => { callersAsked += 1; return report([]); },
+    }),
+    fakeCoChange(async (_repo, c) => { coChangeArg = c; return ok([]); }),
+    "/repo",
   );
-  assert.ok(callersOfCalls > 0, "the cap must not silence callersOf entirely");
-});
 
-test("callersOf fan-out is CONCURRENCY-bounded, not just count-bounded — at most CALLER_CONCURRENCY (5) in-flight at once, even though up to MAX_CALLER_ANCHORS (25) total calls happen", async () => {
-  const bigImpacted = Array.from({ length: 30 }, (_, i) => ({ file: `src/F${i}.java`, symbol: `m${i}` }));
-  let inFlight = 0;
-  let maxInFlight = 0;
-  let totalCalls = 0;
-  const codeGraph = fakeCodeGraph({
-    impactedSymbols: async () => ok(bigImpacted),
-    callersOf: async () => {
-      totalCalls += 1;
-      inFlight += 1;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      inFlight -= 1;
-      return ok([]);
-    },
-  });
-
-  const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
   await adapter.render("/repo", changed);
 
-  assert.ok(totalCalls <= 25, `total callersOf calls must stay capped at 25, got ${totalCalls}`);
-  assert.ok(
-    maxInFlight <= 5,
-    `at most 5 callersOf calls must be concurrently in-flight at once, observed max ${maxInFlight}`,
+  assert.deepEqual(budgets, [ADVISORY_BUDGET], "one walk, within the declared budget");
+  assert.equal(callersAsked, 0, "the walk already holds the callers: no per-symbol query");
+  assert.equal(coChangeArg, changed);
+});
+
+test("an unavailable graph and history degrade to an empty block that names no symbols", async () => {
+  const adapter = new StructuralSignalPortAdapter(
+    fakeCodeGraph({ impactedSymbols: async () => err({ reason: "not indexed" }) }),
+    fakeCoChange(async () => err({ reason: "git failed" })),
+    "/repo",
   );
+
+  const result = await adapter.render("/repo", changed);
+
+  assert.deepEqual(result, { text: "", hasSymbols: false });
 });
 
-test("every method returning err(CodeGraphUnavailable) degrades to an empty string, never throws", async () => {
-  const codeGraph = fakeCodeGraph({
-    impactedSymbols: async () => err({ reason: "graph unavailable" }),
-    coChangeCoupling: async () => err({ reason: "graph unavailable" }),
-    callersOf: async () => err({ reason: "graph unavailable" }),
-  });
-
-  const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  const { text, hasSymbols } = await adapter.render("/repo", changed);
-
-  assert.equal(text, "", "a fully-unavailable graph must render an empty string — never a fabricated section");
-  assert.equal(hasSymbols, false, "and it names no symbols");
-});
-
-test("an empty BlastRadius degrades to an empty string without ever calling the graph", async () => {
+test("an empty BlastRadius renders nothing without asking the graph or the history", async () => {
   let called = false;
-  const codeGraph = fakeCodeGraph({
-    impactedSymbols: async () => { called = true; return ok([]); },
-    coChangeCoupling: async () => { called = true; return ok([]); },
-  });
+  const adapter = new StructuralSignalPortAdapter(
+    fakeCodeGraph({ impactedSymbols: async () => { called = true; return report([]); } }),
+    fakeCoChange(async () => { called = true; return ok([]); }),
+    "/repo",
+  );
 
-  const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  const { text, hasSymbols } = await adapter.render("/repo", BlastRadius.of(Sha.of("abc1234"), []));
+  const result = await adapter.render("/repo", BlastRadius.of(Sha.of(SHA), []));
 
-  assert.equal(text, "");
-  assert.equal(hasSymbols, false);
-  assert.equal(called, false, "an empty BlastRadius must short-circuit before ever querying the graph");
+  assert.deepEqual(result, { text: "", hasSymbols: false });
+  assert.equal(called, false);
 });
 
-test("a thrown error from the underlying CodeGraphPort degrades to an empty string, never propagates", async () => {
-  const codeGraph = fakeCodeGraph({
-    impactedSymbols: async () => { throw new Error("boom"); },
-  });
+test("a thrown error from either port degrades to an empty block, never propagates", async () => {
+  const adapter = new StructuralSignalPortAdapter(
+    fakeCodeGraph({ impactedSymbols: async () => { throw new Error("boom"); } }),
+    fakeCoChange(async () => { throw new Error("boom"); }),
+    "/repo",
+  );
 
-  const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  const { text, hasSymbols } = await adapter.render("/repo", changed);
-
-  assert.equal(text, "", "an unexpected throw must degrade to an empty string, not propagate past render()");
-  assert.equal(hasSymbols, false);
+  assert.deepEqual(await adapter.render("/repo", changed), { text: "", hasSymbols: false });
 });
 
-test("the constructor's static repoDir (mirrorDir) wins over whatever repoDir the caller passes — the graph is indexed at the repo root, not workspace.specDir's e2e subfolder", async () => {
-  const seenRepoDirs: string[] = [];
-  const codeGraph = fakeCodeGraph({
-    impactedSymbols: async (repoDir) => { seenRepoDirs.push(repoDir); return ok([]); },
-    coChangeCoupling: async (repoDir) => { seenRepoDirs.push(repoDir); return ok([]); },
-  });
+test("the constructor's repo root wins over the call-site directory (the run indexed the repo root, not the e2e folder)", async () => {
+  const seen: string[] = [];
+  const adapter = new StructuralSignalPortAdapter(
+    fakeCodeGraph({ impactedSymbols: async (repo) => { seen.push(repo); return report([]); } }),
+    fakeCoChange(async (repo) => { seen.push(repo); return ok([]); }),
+    "/mirrors/org/app",
+  );
 
-  const adapter = new StructuralSignalPortAdapter(codeGraph, "/mirrors/org/app");
   await adapter.render("/mirrors/org/app/e2e", changed);
 
-  assert.ok(seenRepoDirs.length > 0, "the underlying CodeGraphPort must have been queried");
-  for (const seen of seenRepoDirs) {
-    assert.equal(seen, "/mirrors/org/app", "every CodeGraphPort call must use the adapter's own constructor-injected repoDir, never the call-site parameter");
-  }
+  assert.deepEqual(seen, ["/mirrors/org/app", "/mirrors/org/app"]);
 });
 
-/* A block that holds co-change files alone names the files that tend to move together, never the code the change reaches: only a block with symbols stands for an explored blast radius, and the prompt needs to be told which it is. */
+test("the result names the commit of the index it read, and none when the graph gave no answer", async () => {
+  const answered = new StructuralSignalPortAdapter(fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol]) }), fakeCoChange(), "/repo");
+  const unanswered = new StructuralSignalPortAdapter(fakeCodeGraph({ impactedSymbols: async () => err({ reason: "x" }) }), fakeCoChange(), "/repo");
 
-test("the result says whether the block names symbols: impacted symbols, with or without callers, make it true", async () => {
-  const impacted = [{ file: "src/Impacted.java", symbol: "run" }];
-  const coupled = [{ file: "src/Coupled.java", couplingScore: 0.8, coChanges: 5 }];
+  assert.equal((await answered.render("/repo", changed)).indexedSha, SHA);
+  assert.equal("indexedSha" in (await unanswered.render("/repo", changed)), false);
+});
 
-  const alone = new StructuralSignalPortAdapter(fakeCodeGraph({ impactedSymbols: async () => ok(impacted) }), "/repo");
-  assert.equal((await alone.render("/repo", changed)).hasSymbols, true, "impacted symbols alone");
+/* A block that holds co-change files alone names the files that tend to move together, never the code the change reaches. */
+
+test("changed symbols, with or without callers, make the block name symbols", async () => {
+  const alone = new StructuralSignalPortAdapter(fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol]) }), fakeCoChange(), "/repo");
+  assert.equal((await alone.render("/repo", changed)).hasSymbols, true);
 
   const withCallers = new StructuralSignalPortAdapter(
-    fakeCodeGraph({
-      impactedSymbols: async () => ok(impacted),
-      callersOf: async () => ok([{ file: "src/Caller.java", symbol: "call" }]),
-      coChangeCoupling: async () => ok(coupled),
-    }),
+    fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol, caller]) }),
+    fakeCoChange(async () => ok([{ file: "src/Coupled.java", couplingScore: 0.8, coChanges: 5 }])),
     "/repo",
   );
   const result = await withCallers.render("/repo", changed);
-  assert.equal(result.hasSymbols, true, "impacted symbols with callers and co-change files");
-  assert.ok(result.text.includes("`call`") && result.text.includes("`run`"), "the flag describes a block that really names them");
+  assert.equal(result.hasSymbols, true);
+  assert.ok(result.text.includes("`call`") && result.text.includes("`run`"));
 });
 
 test("co-change files alone render a block but leave the symbol flag false", async () => {
-  const coupled = [{ file: "src/Coupled.java", couplingScore: 0.8, coChanges: 5 }];
-  const adapter = new StructuralSignalPortAdapter(fakeCodeGraph({ coChangeCoupling: async () => ok(coupled) }), "/repo");
+  const adapter = new StructuralSignalPortAdapter(
+    fakeCodeGraph(),
+    fakeCoChange(async () => ok([{ file: "src/Coupled.java", couplingScore: 0.8, coChanges: 5 }])),
+    "/repo",
+  );
 
   const { text, hasSymbols } = await adapter.render("/repo", changed);
 
-  assert.ok(text.includes("src/Coupled.java"), "the co-change file is rendered: the block is not empty");
-  assert.equal(hasSymbols, false, "co-change files are no blast radius");
+  assert.ok(text.includes("src/Coupled.java"));
+  assert.equal(hasSymbols, false);
 });

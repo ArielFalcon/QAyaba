@@ -20,12 +20,15 @@ export interface MirrorRegistryLike {
 }
 
 const FETCH_TIMEOUT_MS = 30_000;
+/* The same walk budget as the structural signal: a hub module cannot blow it. */
+const IMPACT_BUDGET = { depth: 3, maxSymbols: 300 } as const;
 
 export class ResolveCrossRepoImpactUseCase {
   constructor(
     private readonly mirrors: MirrorRegistryLike,
     private readonly makeVcs: (repoDir: string) => CrossRepoVcsRead,
-    private readonly codeGraph: CodeGraphPort,
+    /* Absent: only the contract-file tier matches. */
+    private readonly codeGraph: CodeGraphPort | undefined,
     private readonly runner: SandboxedBinaryRunner,
   ) {}
 
@@ -60,8 +63,8 @@ export class ResolveCrossRepoImpactUseCase {
         }
       }
 
-      const impactedRes = await this.codeGraph.impactedSymbols(mirrorDir, blast, { depth: 3 });
-      const impactedSyms = impactedRes.ok ? impactedRes.value : [];
+      const impactedRes = this.codeGraph ? await this.codeGraph.impactedSymbols(mirrorDir, blast, IMPACT_BUDGET) : undefined;
+      const impactedSyms = impactedRes?.ok ? impactedRes.value.symbols : [];
       const symNames = new Set(impactedSyms.map((s) => s.symbol));
       for (const link of candidateLinks) {
         if (matchedKeys.has(this.linkKey(link))) continue;

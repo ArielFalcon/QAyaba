@@ -21,7 +21,9 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
-import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
+import { ok, err } from "@kernel/result.ts";
+import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
+import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { resolveCoordinationSettings } from "@kernel/coordination.ts";
@@ -855,36 +857,17 @@ test("buildProduction(rewritten) does NOT wire grounding on the code target, eve
   assert.equal(outcome.verdict, "pass");
 });
 
-/* Present -> wireBridges constructs a StructuralSignalPortAdapter over the REAL
-   CodebaseMemoryCodeGraphAdapter, resolving `project` from repoDir via the injected resolver
-   (list_projects lookup; no live syncTo). Absent -> the use-case's own structuralSignal dep stays
-   undefined — NEVER a stub ok([])-shaped fake.
+/* Present -> wireBridges constructs a StructuralSignalPortAdapter over the supplied code graph and co-change history.
+   Absent -> the use-case's own structuralSignal dep stays undefined — NEVER a stub ok([])-shaped fake.
  */
 
-test("buildProduction(rewritten) wires structuralSignal when a codebaseMemory collaborator is supplied — the rendered advisory block reaches OpencodeRunInput.staticSignal", async () => {
+test("buildProduction(rewritten) wires structuralSignal when the code graph and the co-change history are supplied — the rendered advisory block reaches OpencodeRunInput.staticSignal", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
   const seenSymbolFlags: Array<boolean | undefined> = [];
   const cfg = fakeConfig({
     mode: "diff",
-    codebaseMemory: {
-      cli: async (tool: string, jsonArg: string) => {
-        if (tool === "list_projects") return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: MIRROR }] }), stderr: "" };
-        const parsed = JSON.parse(jsonArg) as { query: string };
-        if (parsed.query.includes("FILE_CHANGES_WITH")) return { code: 0, stdout: JSON.stringify({ columns: ["f_path", "g_path", "coupling_score", "co_changes"], rows: [], total: 0 }), stderr: "" };
-        /* impactedSymbols outbound/inbound + callersOf all share the same {columns,rows} shape —
-           the confidence column is per-hop-named (r1_conf/r2_conf/...), NOT a bare "confidence".
-         */
-        return {
-          code: 0,
-          stdout: JSON.stringify({
-            columns: ["a_file", "a_name", "b_name", "b_file", "r1_conf"],
-            rows: [["src/x.ts", "handleX", "helperFn", "src/helper.ts", "0.9"]],
-            total: 1,
-          }),
-          stderr: "",
-        };
-      },
-    },
+    codeGraph: recordingCodeGraph().codeGraph,
+    coChange: quietCoChange,
     vcs: {
       blastRadius: async (sha) => BlastRadius.of(sha, ["src/x.ts"]),
       message: async () => "feat: add x",
@@ -919,20 +902,8 @@ test("buildProduction(rewritten): a graph that knows only co-change files for th
   const seen: Array<{ signal: string | undefined; flag: boolean | undefined; hasFlagKey: boolean }> = [];
   const cfg = fakeConfig({
     mode: "diff",
-    codebaseMemory: {
-      cli: async (tool: string, jsonArg: string) => {
-        if (tool === "list_projects") return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: MIRROR }] }), stderr: "" };
-        const parsed = JSON.parse(jsonArg) as { query: string };
-        if (parsed.query.includes("FILE_CHANGES_WITH")) {
-          return {
-            code: 0,
-            stdout: JSON.stringify({ columns: ["f_path", "g_path", "coupling_score", "co_changes"], rows: [["src/x.ts", "src/y.ts", "0.8", "5"]], total: 1 }),
-            stderr: "",
-          };
-        }
-        return { code: 0, stdout: JSON.stringify({ columns: ["a_file", "a_name", "b_name", "b_file", "r1_conf"], rows: [], total: 0 }), stderr: "" };
-      },
-    },
+    codeGraph: { ...recordingCodeGraph().codeGraph, impactedSymbols: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false }) },
+    coChange: { coChangeCoupling: async () => ok([{ file: "src/y.ts", couplingScore: 0.8, coChanges: 5 }]) },
     vcs: {
       blastRadius: async (sha) => BlastRadius.of(sha, ["src/x.ts"]),
       message: async () => "feat: add x",
@@ -962,7 +933,7 @@ test("buildProduction(rewritten): a graph that knows only co-change files for th
   assert.doesNotMatch(seen[0]?.signal ?? "", /blast radius|call graph/i, "and the block does not present itself as an exploration of what the change reaches");
 });
 
-test("buildProduction(rewritten) leaves structuralSignal undefined when codebaseMemory is absent (no section, backward compatible)", async () => {
+test("buildProduction(rewritten) leaves structuralSignal undefined when the code graph is absent (no section)", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
   const cfg = fakeConfig({
     mode: "diff",
@@ -972,7 +943,7 @@ test("buildProduction(rewritten) leaves structuralSignal undefined when codebase
         return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
-  }); /* fakeConfig()'s base never supplies codebaseMemory */
+  }); /* fakeConfig()'s base never supplies a code graph */
   const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
 
   const outcome = await port.run({
@@ -985,23 +956,21 @@ test("buildProduction(rewritten) leaves structuralSignal undefined when codebase
   });
 
   assert.ok(seenStaticSignals.length > 0, "generationUseCase.generate must have been invoked");
-  assert.equal(seenStaticSignals[0], undefined, "staticSignal must stay entirely absent when no codebaseMemory collaborator is wired");
+  assert.equal(seenStaticSignals[0], undefined, "staticSignal must stay entirely absent when no code graph is wired");
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) degrades structuralSignal to no section when the repo does not resolve to any indexed project (unindexed-repo degrade)", async () => {
+test("buildProduction(rewritten) degrades structuralSignal to no section when the repo is not indexed (unindexed-repo degrade)", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
   const cfg = fakeConfig({
     mode: "diff",
-    codebaseMemory: {
-      /* No matching project for this repoDir — mirrors the real `list_projects` response for an
-         unindexed watched app (verified empirically: qayaba itself returns no match today).
-       */
-      cli: async (tool: string) => {
-        if (tool === "list_projects") return { code: 0, stdout: JSON.stringify({ projects: [{ name: "some-other-app", root_path: "/mirrors/some/other" }] }), stderr: "" };
-        return { code: 0, stdout: JSON.stringify({ columns: [], rows: [], total: 0 }), stderr: "" };
-      },
+    /* The index of this repo failed: every query answers unavailable, as the real adapter does for a repo the run did not index. */
+    codeGraph: {
+      ...recordingCodeGraph().codeGraph,
+      syncTo: async (repo, sha) => ({ repo, engine: "fake", engineVersion: null, sha, outcome: "failed", durationMs: 0, nodeCount: null, edgeCount: null, reason: "x" }),
+      impactedSymbols: async () => err({ reason: "the repo is not indexed in this run" }),
     },
+    coChange: quietCoChange,
     generationUseCase: {
       generate: async (input) => {
         seenStaticSignals.push(input.staticSignal);
@@ -1021,7 +990,7 @@ test("buildProduction(rewritten) degrades structuralSignal to no section when th
   });
 
   assert.ok(seenStaticSignals.length > 0, "generationUseCase.generate must have been invoked");
-  assert.equal(seenStaticSignals[0], undefined, "an unindexed repo (no list_projects match) must degrade to no staticSignal, never a fabricated or empty-but-present section");
+  assert.equal(seenStaticSignals[0], undefined, "an unindexed repo must degrade to no staticSignal, never a fabricated or empty-but-present section");
   assert.equal(outcome.verdict, "pass");
 });
 
@@ -1476,111 +1445,54 @@ test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in
   }
 });
 
-/* ── per-run IndexStatusPort + shared codeGraph (LazyProjectCodeGraphAdapter) ──────────────── */
+/* ── one code graph per run: the index phase builds it, the structural signal reads the same instance ──────────── */
 
-function memoryIndexStatus(): IndexStatusPort & { shas: Map<string, string> } {
-  const shas = new Map<string, string>();
-  return {
-    shas,
-    getLastIndexedSha: async (mirrorDir) => shas.get(mirrorDir),
-    setLastIndexedSha: async (mirrorDir, sha) => { shas.set(mirrorDir, sha); },
+function recordingCodeGraph() {
+  const calls: string[] = [];
+  const codeGraph: CodeGraphPort = {
+    syncTo: async (repo, sha) => { calls.push(`syncTo ${repo} ${sha}`); return { repo, engine: "fake", engineVersion: "1", sha, outcome: "built", durationMs: 0, nodeCount: 1, edgeCount: 0 }; },
+    impactedSymbols: async (repo) => { calls.push(`impactedSymbols ${repo}`); return ok({ indexedSha: "abc1234", symbols: [{ file: "src/x.ts", symbol: "handleX", kind: "function", depth: 0 }], truncated: false }); },
+    callersOf: async () => ok({ indexedSha: "abc1234", symbols: [], truncated: false }),
+    routes: async () => ok([]),
   };
+  return { calls, codeGraph };
 }
 
-function codebaseMemoryRecording(tools: string[]) {
-  return {
-    cli: async (tool: string, jsonArg: string) => {
-      tools.push(tool);
-      if (tool === "list_projects") {
-        return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: MIRROR }] }), stderr: "" };
-      }
-      if (tool === "index_repository") {
-        return { code: 0, stdout: JSON.stringify({ nodes: 1 }), stderr: "" };
-      }
-      const parsed = JSON.parse(jsonArg) as { query?: string };
-      if (parsed.query?.includes("FILE_CHANGES_WITH")) {
-        return { code: 0, stdout: JSON.stringify({ columns: ["f_path", "g_path", "coupling_score", "co_changes"], rows: [], total: 0 }), stderr: "" };
-      }
-      return {
-        code: 0,
-        stdout: JSON.stringify({
-          columns: ["a_file", "a_name", "b_name", "b_file", "r1_conf"],
-          rows: [["src/x.ts", "handleX", "helperFn", "src/helper.ts", "0.9"]],
-          total: 1,
-        }),
-        stderr: "",
-      };
-    },
-  };
-}
+const quietCoChange: CoChangePort = { coChangeCoupling: async () => ok([]) };
 
-test("buildProduction(rewritten) invokes index_repository when indexStatus + codebaseMemory are supplied (new SHA)", async () => {
-  const tools: string[] = [];
-  const indexStatus = memoryIndexStatus();
-  const cfg = fakeConfig({
-    mode: "diff",
-    indexStatus,
-    codebaseMemory: codebaseMemoryRecording(tools),
-    vcs: {
-      blastRadius: async (sha) => BlastRadius.of(sha, ["src/x.ts"]),
-      message: async () => "feat: add x",
-      diff: async () => "diff --git a/src/x.ts b/src/x.ts\n+ handleX();",
-    },
-  });
+const diffRun = {
+  app: "app",
+  sha: Sha.of("abc1234"),
+  source: "manual",
+  mode: "diff",
+  target: "e2e",
+} as const;
+
+const diffVcs = {
+  blastRadius: async (sha: Sha) => BlastRadius.of(sha, ["src/x.ts"]),
+  message: async () => "feat: add x",
+  diff: async () => "diff --git a/src/x.ts b/src/x.ts\n+ handleX();",
+};
+
+test("buildProduction(rewritten) indexes the repo through cfg.codeGraph and the structural signal reads that same instance", async () => {
+  const { calls, codeGraph } = recordingCodeGraph();
+  const cfg = fakeConfig({ mode: "diff", codeGraph, coChange: quietCoChange, vcs: diffVcs });
   const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
 
-  const outcome = await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    source: "manual",
-    mode: "diff",
-    target: "e2e",
-    runId: "composition-root-indexStatus-present",
-  });
+  const outcome = await port.run({ ...diffRun, runId: "composition-root-graph-shared" });
 
-  assert.ok(tools.includes("index_repository"), "codeGraph.syncTo must reach index_repository when both ports are wired and SHA is new");
-  assert.equal(indexStatus.shas.get(MIRROR), "abc1234");
+  assert.deepEqual(calls.slice(0, 2), [`syncTo ${MIRROR} abc1234`, `impactedSymbols ${MIRROR}`], "the run indexes first, then the signal asks the index it built");
   assert.equal(outcome.verdict, "pass");
 });
 
-test("buildProduction(rewritten) omits indexing when indexStatus is absent even if codebaseMemory is wired", async () => {
-  const tools: string[] = [];
-  const cfg = fakeConfig({
-    mode: "diff",
-    codebaseMemory: codebaseMemoryRecording(tools),
-  });
+test("buildProduction(rewritten) still indexes without the co-change history, but builds no structural signal", async () => {
+  const { calls, codeGraph } = recordingCodeGraph();
+  const cfg = fakeConfig({ mode: "diff", codeGraph, vcs: diffVcs });
   const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
 
-  await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    source: "manual",
-    mode: "diff",
-    target: "e2e",
-    runId: "composition-root-indexStatus-absent",
-  });
+  await port.run({ ...diffRun, runId: "composition-root-graph-no-cochange" });
 
-  assert.equal(tools.includes("index_repository"), false, "indexing requires BOTH indexStatus and codeGraph — omitting indexStatus must leave syncTo uncalled");
-});
-
-test("buildProduction(rewritten) omits indexing when codebaseMemory is absent even if indexStatus is supplied", async () => {
-  const indexStatus = memoryIndexStatus();
-  const cfg = fakeConfig({
-    mode: "diff",
-    indexStatus,
-  });
-  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
-
-  await port.run({
-    app: "app",
-    sha: Sha.of("abc1234"),
-    source: "manual",
-    mode: "diff",
-    target: "e2e",
-    runId: "composition-root-codeGraph-absent",
-  });
-
-  assert.equal(indexStatus.shas.size, 0, "without codebaseMemory there is no codeGraph, so lastIndexedSha must stay unset");
+  assert.deepEqual(calls, [`syncTo ${MIRROR} abc1234`]);
 });
 
 /* The run_spec loop is wired only when the shell hands the root its registry; the adapter it builds executes through the run's own execution and cleanup ports. */
