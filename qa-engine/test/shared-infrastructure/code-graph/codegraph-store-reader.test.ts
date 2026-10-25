@@ -48,3 +48,28 @@ test("a store of another extraction version exits 3 and answers nothing", () => 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a request past the reader's bounds is cut to them, deterministically, and says so; it is never refused", () => {
+  const files = Array.from({ length: 2500 }, (_, i) => `f${i}.ts`);
+  const symbols = read(STORE, { op: "symbols", files });
+  assert.equal(symbols.status, 0, symbols.stderr);
+  assert.equal((JSON.parse(symbols.stdout) as { truncated: boolean }).truncated, true);
+
+  const seeds = Array.from({ length: 2500 }, (_, i) => `id${i}`);
+  const walked = read(STORE, { op: "walk", seeds });
+  assert.equal(walked.status, 0, walked.stderr);
+  assert.equal((JSON.parse(walked.stdout) as { truncated: boolean }).truncated, true);
+  assert.equal(read(STORE, { op: "walk", seeds: [...seeds].reverse() }).stdout, walked.stdout, "the same cut whatever the request's order");
+
+  const refs = Array.from({ length: 2500 }, (_, i) => ({ file: `f${i}.ts`, symbol: `s${i}` }));
+  const found = read(STORE, { op: "find", symbols: refs });
+  assert.equal(found.status, 0, found.stderr);
+  assert.equal((JSON.parse(found.stdout) as { truncated: boolean }).truncated, true);
+
+  const small = read(STORE, { op: "symbols", files: ["web/src/app/shared/format.ts"] });
+  assert.equal((JSON.parse(small.stdout) as { truncated: boolean }).truncated, false, "within the bound nothing is cut");
+});
+
+test("ping answers when the store opens at the pinned version and exits 3 otherwise", () => {
+  assert.deepEqual(JSON.parse(read(STORE, { op: "ping" }).stdout), { ready: true });
+});

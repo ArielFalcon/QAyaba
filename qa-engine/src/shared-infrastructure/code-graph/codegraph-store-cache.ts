@@ -10,9 +10,9 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { chownSync, closeSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chownSync, closeSync, constants, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
-import { readOwnedSpecFile } from "../spec-path-confinement.ts";
+import { probeOwnedSpecFile } from "../spec-path-confinement.ts";
 import type { Sandbox } from "../process-sandbox/sandbox.ts";
 import { STORE_DIR } from "./codegraph-workspace.ts";
 
@@ -37,8 +37,19 @@ export const MAX_STORE_BYTES = 1024 * 1024 * 1024;
 /* A lock older than this was left by a process that died holding it. */
 const STALE_LOCK_MS = 15 * 60_000;
 
+/* A store is copied in pieces of this size, so publishing never holds the store in memory. */
+const COPY_CHUNK_BYTES = 4 * 1024 * 1024;
+
 export interface StoreLock {
   release(): void;
+}
+
+/* The calls and bounds a test replaces: the rename between which a crash can land, the copy's piece size, the size cap, and the instant between a lock being judged stale and being taken over. */
+export interface StoreCacheTuning {
+  rename?: (from: string, to: string) => void;
+  chunkBytes?: number;
+  maxStoreBytes?: number;
+  beforeTakeover?: () => void;
 }
 
 /* The cache key of a repo: its mirror's name, reduced to a file name. */
@@ -52,6 +63,7 @@ export class CodegraphStoreCache {
     /* `<data dir>/code-graph/<app>`. */
     private readonly root: string,
     private readonly now: () => number = Date.now,
+    private readonly tuning: StoreCacheTuning = {},
   ) {}
 
   private dirOf(repoKey: string): string {
@@ -64,23 +76,82 @@ export class CodegraphStoreCache {
     return dir;
   }
 
-  /* Takes the repo's lock, breaking one older than STALE_LOCK_MS; undefined when another run holds it. */
+  /*
+   * Takes the repo's lock; undefined when another run holds it. A lock older than STALE_LOCK_MS was left by a process that
+   * died holding it, and exactly one taker breaks it: the break happens under an exclusive claim file, and the lock that
+   * is removed must still be the one judged stale (same holder token and modification time), so a lock another taker has just
+   * made is never removed. A lock is released only by its own holder, so a holder that outlived its lock never removes the
+   * lock of whoever took over.
+   */
   lock(repoKey: string): StoreLock | undefined {
     const path = join(this.ensureDir(repoKey), LOCK_FILE);
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const create = (): StoreLock | undefined => {
+      const token = `${process.pid} ${randomBytes(6).toString("hex")}`;
       try {
         const fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-        writeFileSync(fd, `${process.pid} ${this.now()}\n`);
-        closeSync(fd);
-        return { release: () => rmSync(path, { force: true }) };
+        try {
+          writeFileSync(fd, `${token}\n`);
+        } finally {
+          closeSync(fd);
+        }
       } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-        const age = this.now() - statSync(path).mtimeMs;
-        if (age < STALE_LOCK_MS) return undefined;
+        if ((e as NodeJS.ErrnoException).code === "EEXIST") return undefined;
+        throw e;
+      }
+      return {
+        release: () => {
+          try {
+            if (readFileSync(path, "utf8").trim() === token) rmSync(path, { force: true });
+          } catch {
+            /* already gone */
+          }
+        },
+      };
+    };
+    const held = create();
+    if (held) return held;
+    const seen = this.statOrUndefined(path);
+    if (seen === undefined) return create();
+    if (this.now() - seen.mtimeMs < STALE_LOCK_MS) return undefined;
+    this.tuning.beforeTakeover?.();
+    const claim = `${path}.takeover`;
+    try {
+      closeSync(openSync(claim, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      /* Another taker is at it; a claim left by one that died is cleared so that a later run can take over. */
+      const claimed = this.statOrUndefined(claim);
+      if (claimed !== undefined && this.now() - claimed.mtimeMs >= STALE_LOCK_MS) rmSync(claim, { force: true });
+      return undefined;
+    }
+    try {
+      const again = this.statOrUndefined(path);
+      if (again !== undefined) {
+        if (again.holder !== seen.holder || again.mtimeMs !== seen.mtimeMs) return undefined;
         rmSync(path, { force: true });
       }
+      return create();
+    } finally {
+      rmSync(claim, { force: true });
     }
-    return undefined;
+  }
+
+  /* The age and the holder's token of a lock or claim file, or undefined when it is not there. */
+  private statOrUndefined(path: string): { holder: string; mtimeMs: number } | undefined {
+    try {
+      const st = statSync(path);
+      return { holder: readFileSync(path, "utf8"), mtimeMs: st.mtimeMs };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw e;
+    }
+  }
+
+  /* Forgets the repo's cached store, so the next run builds it from nothing. For a store the incremental path cannot bring up to date. */
+  discard(repoKey: string): void {
+    const dir = this.dirOf(repoKey);
+    rmSync(join(dir, META_FILE), { force: true });
+    rmSync(join(dir, STORE_FILE), { force: true });
   }
 
   meta(repoKey: string): StoreMeta | undefined {
@@ -122,22 +193,65 @@ export class CodegraphStoreCache {
     if (!now.isDirectory() || now.dev !== identity.dev || now.ino !== identity.ino) return { published: false, reason: "the workspace was replaced" };
     const root = { mirrorDir: workspace, specDir: join(workspace, STORE_DIR) };
     if (existsSync(join(workspace, STORE_DIR, `${STORE_FILE}-wal`))) return { published: false, reason: "the store still has a write-ahead log" };
-    const read = readOwnedSpecFile(root, STORE_FILE, MAX_STORE_BYTES);
-    if (!("bytes" in read)) return { published: false, reason: "absent" in read ? "the workspace has no store" : read.reason };
+    const probed = probeOwnedSpecFile(root, STORE_FILE);
+    if (probed !== "file") return { published: false, reason: probed === "absent" ? "the workspace has no store" : probed.reason };
     const dir = this.ensureDir(repoKey);
     const tag = randomBytes(6).toString("hex");
     const storeTmp = join(dir, `${STORE_FILE}.${tag}.tmp`);
     const metaTmp = join(dir, `${META_FILE}.${tag}.tmp`);
+    const rename = this.tuning.rename ?? renameSync;
     try {
-      writeFileSync(storeTmp, read.bytes, { mode: 0o600 });
+      const copied = this.copyStrictly(join(workspace, STORE_DIR, STORE_FILE), storeTmp);
+      if (copied !== undefined) {
+        rmSync(storeTmp, { force: true });
+        return { published: false, reason: copied };
+      }
       writeFileSync(metaTmp, `${JSON.stringify(meta)}\n`, { mode: 0o600 });
-      renameSync(storeTmp, join(dir, STORE_FILE));
-      renameSync(metaTmp, join(dir, META_FILE));
+      /* The metadata is the cursor: it goes first, so a crash between the renames leaves a store without a cursor (rebuilt), never one store under another commit's cursor. */
+      rmSync(join(dir, META_FILE), { force: true });
+      rename(storeTmp, join(dir, STORE_FILE));
+      rename(metaTmp, join(dir, META_FILE));
       return { published: true };
     } catch (e) {
       rmSync(storeTmp, { force: true });
       rmSync(metaTmp, { force: true });
       return { published: false, reason: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /*
+   * Copies a file the sandbox could write to `target` in pieces, without holding it in memory, and with the checks of the
+   * confined reader: opened without following a link and without waiting on a pipe, a regular file whose size is within
+   * the cap, and still the file the path names (device and inode) before and after the copy. Returns why it refused, or undefined.
+   */
+  private copyStrictly(source: string, target: string): string | undefined {
+    const max = this.tuning.maxStoreBytes ?? MAX_STORE_BYTES;
+    const chunk = Buffer.alloc(this.tuning.chunkBytes ?? COPY_CHUNK_BYTES);
+    const fd = openSync(source, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const opened = fstatSync(fd, { bigint: true });
+      if (!opened.isFile()) return "the store is not a regular file";
+      if (opened.size > BigInt(max)) return `the store is larger than ${max} bytes`;
+      const named = lstatSync(source, { bigint: true });
+      if (!named.isFile() || named.dev !== opened.dev || named.ino !== opened.ino) return "the store changed between check and open";
+      const out = openSync(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+      try {
+        const size = Number(opened.size);
+        let copied = 0;
+        while (copied < size) {
+          const read = readSync(fd, chunk, 0, Math.min(chunk.length, size - copied), copied);
+          if (read === 0) return "the store ended before its size";
+          let written = 0;
+          while (written < read) written += writeSync(out, chunk, written, read - written);
+          copied += read;
+        }
+      } finally {
+        closeSync(out);
+      }
+      const after = lstatSync(source, { bigint: true });
+      return after.isFile() && after.dev === opened.dev && after.ino === opened.ino ? undefined : "the store changed during the copy";
+    } finally {
+      closeSync(fd);
     }
   }
 }

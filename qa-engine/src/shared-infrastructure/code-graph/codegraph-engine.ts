@@ -50,9 +50,9 @@ export class CodegraphEngine {
     private readonly node: string = "node",
   ) {}
 
-  private async run(command: string, args: string[], cwd: string, timeoutMs: number): Promise<Result<string, EngineFailure>> {
+  private async run(command: string, args: string[], cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<Result<string, EngineFailure>> {
     try {
-      const r = await this.runner.run({ command, args, cwd, env: {}, timeoutMs });
+      const r = await this.runner.run({ command, args, cwd, env: {}, timeoutMs, ...(signal ? { signal } : {}) });
       if (r.timedOut) return err({ kind: "timeout", reason: `${args[0] ?? command} timed out after ${timeoutMs}ms` });
       if (r.exitCode !== 0) return err({ kind: "failed", reason: `${args[0] ?? command} exited ${r.exitCode}: ${r.stderr.trim().slice(0, 400)}` });
       return ok(r.stdout);
@@ -61,19 +61,19 @@ export class CodegraphEngine {
     }
   }
 
-  /* A first build of the workspace's store. */
-  build(workspace: string): Promise<Result<string, EngineFailure>> {
-    return this.run(BINARY, ["init", "-y", "."], workspace, this.timeouts.buildMs);
+  /* A first build of the workspace's store. Every call takes the run's abort signal, which ends the child. */
+  build(workspace: string, signal?: AbortSignal): Promise<Result<string, EngineFailure>> {
+    return this.run(BINARY, ["init", "-y", "."], workspace, this.timeouts.buildMs, signal);
   }
 
   /* Brings a store copied into the workspace up to the workspace's files. */
-  sync(workspace: string): Promise<Result<string, EngineFailure>> {
-    return this.run(BINARY, ["sync", "-q", "."], workspace, this.timeouts.buildMs);
+  sync(workspace: string, signal?: AbortSignal): Promise<Result<string, EngineFailure>> {
+    return this.run(BINARY, ["sync", "-q", "."], workspace, this.timeouts.buildMs, signal);
   }
 
   /* The store's state; a store that is not complete is a failure. */
-  async status(workspace: string): Promise<Result<EngineStatus, EngineFailure>> {
-    const out = await this.run(BINARY, ["status", "-j", "."], workspace, this.timeouts.queryMs);
+  async status(workspace: string, signal?: AbortSignal): Promise<Result<EngineStatus, EngineFailure>> {
+    const out = await this.run(BINARY, ["status", "-j", "."], workspace, this.timeouts.queryMs, signal);
     if (!out.ok) return out;
     let payload: unknown;
     try {
@@ -89,13 +89,13 @@ export class CodegraphEngine {
   }
 
   /* The engine's read-equivalent answer for a bag of names, as text. Terms are passed after `--`, so none is read as an option. */
-  explore(workspace: string, terms: readonly string[], maxFiles: number): Promise<Result<string, EngineFailure>> {
-    return this.run(BINARY, ["explore", "--max-files", String(Math.max(1, Math.trunc(maxFiles))), "--", ...terms], workspace, this.timeouts.queryMs);
+  explore(workspace: string, terms: readonly string[], maxFiles: number, signal?: AbortSignal): Promise<Result<string, EngineFailure>> {
+    return this.run(BINARY, ["explore", "--max-files", String(Math.max(1, Math.trunc(maxFiles))), "--", ...terms], workspace, this.timeouts.queryMs, signal);
   }
 
   /* One structured answer from the store (codegraph-store-reader.mjs), parsed. */
-  async read<T>(workspace: string, request: Record<string, unknown>): Promise<Result<T, EngineFailure>> {
-    const out = await this.run(this.node, ["--disable-warning=ExperimentalWarning", STORE_READER_SCRIPT, storePathOf(workspace), JSON.stringify(request)], workspace, this.timeouts.queryMs);
+  async read<T>(workspace: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<Result<T, EngineFailure>> {
+    const out = await this.run(this.node, ["--disable-warning=ExperimentalWarning", STORE_READER_SCRIPT, storePathOf(workspace), JSON.stringify(request)], workspace, this.timeouts.queryMs, signal);
     if (!out.ok) return out;
     try {
       return ok(JSON.parse(out.value) as T);

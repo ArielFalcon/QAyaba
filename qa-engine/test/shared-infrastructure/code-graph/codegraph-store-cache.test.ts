@@ -3,7 +3,8 @@
    parallel lanes from racing, and a lock left by a dead process is broken. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodegraphStoreCache, repoKeyOf, type StoreMeta } from "../../../src/shared-infrastructure/code-graph/codegraph-store-cache.ts";
@@ -138,4 +139,122 @@ test("a repo key is a single file name whatever the mirror is called", () => {
   assert.equal(repoKeyOf("../../etc"), "__.._etc", "no separator and no leading dot survive");
   assert.equal(repoKeyOf(""), "_");
   assert.equal(repoKeyOf("a/b c"), "a_b_c");
+});
+
+test("a crash between the two renames of a publish never leaves one commit's store under another commit's cursor", () => {
+  const { root, workspace, cache } = setup();
+  try {
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "store-a");
+    cache.publish("org__app", workspace, identityOf(workspace), META);
+
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "store-b");
+    let renames = 0;
+    const crashing = new CodegraphStoreCache(join(root, "cache"), Date.now, {
+      rename: (from, to) => {
+        if (++renames === 2) throw new Error("killed between the renames");
+        renameSync(from, to);
+      },
+    });
+    const result = crashing.publish("org__app", workspace, identityOf(workspace), { ...META, sha: "b".repeat(40) });
+
+    assert.equal(result.published, false);
+    assert.equal(cache.meta("org__app"), undefined, "no cursor claims the store that was swapped in");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a store is copied in pieces whatever its size relative to a piece, and one past the cap is refused", () => {
+  const { root, workspace } = setup();
+  try {
+    const bytes = "0123456789abcdef-the-store";
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db"), bytes);
+    const small = new CodegraphStoreCache(join(root, "cache"), Date.now, { chunkBytes: 4 });
+    assert.deepEqual(small.publish("org__app", workspace, identityOf(workspace), META), { published: true });
+    assert.equal(readFileSync(join(root, "cache", "org__app", "codegraph.db"), "utf8"), bytes);
+
+    const capped = new CodegraphStoreCache(join(root, "cache2"), Date.now, { maxStoreBytes: bytes.length - 1 });
+    const refused = capped.publish("org__app", workspace, identityOf(workspace), META);
+    assert.equal(refused.published, false);
+    assert.equal(capped.meta("org__app"), undefined);
+    assert.equal(existsSync(join(root, "cache2", "org__app", "codegraph.db")), false);
+    assert.deepEqual(readdirSync(join(root, "cache2", "org__app")), [], "no temporary file is left");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a named pipe planted as the store is refused without being waited on", () => {
+  const { root, workspace, cache } = setup();
+  try {
+    execFileSync("mkfifo", [join(workspace, ".codegraph", "codegraph.db")]);
+    const result = cache.publish("org__app", workspace, identityOf(workspace), META);
+    assert.equal(result.published, false);
+    assert.equal(cache.meta("org__app"), undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("two takers of a stale lock never both hold it: the one that finds the lock replaced backs off", () => {
+  const { root } = setup();
+  const now = Date.now();
+  const winner = new CodegraphStoreCache(join(root, "cache"), () => now);
+  let winnerLock: ReturnType<CodegraphStoreCache["lock"]>;
+  const loser = new CodegraphStoreCache(join(root, "cache"), () => now, {
+    /* The instant after the loser judged the lock stale and before it acts: the other taker completes its takeover. */
+    beforeTakeover: () => {
+      winnerLock = winner.lock("org__app");
+    },
+  });
+  try {
+    const first = winner.lock("org__app");
+    assert.ok(first);
+    const lockFile = join(root, "cache", "org__app", "lock");
+    const old = new Date(now - 16 * 60_000);
+    utimesSync(lockFile, old, old);
+
+    const taken = loser.lock("org__app");
+
+    assert.ok(winnerLock!, "the other taker holds the lock");
+    assert.equal(taken, undefined, "the loser did not break the fresh lock");
+    assert.equal(existsSync(lockFile), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a holder that outlived its lock does not release the lock of whoever took over", () => {
+  const { root } = setup();
+  const now = Date.now();
+  const cache = new CodegraphStoreCache(join(root, "cache"), () => now);
+  try {
+    const slow = cache.lock("org__app");
+    assert.ok(slow);
+    const lockFile = join(root, "cache", "org__app", "lock");
+    const old = new Date(now - 16 * 60_000);
+    utimesSync(lockFile, old, old);
+    const taker = cache.lock("org__app");
+    assert.ok(taker);
+
+    slow.release();
+
+    assert.equal(existsSync(lockFile), true, "the new holder's lock stands");
+    assert.equal(cache.lock("org__app"), undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a discarded store is gone, with its metadata", () => {
+  const { root, workspace, cache } = setup();
+  try {
+    writeFileSync(join(workspace, ".codegraph", "codegraph.db"), "store-bytes");
+    cache.publish("org__app", workspace, identityOf(workspace), META);
+    cache.discard("org__app");
+    assert.equal(cache.meta("org__app"), undefined);
+    assert.equal(cache.copyIn("org__app", workspace, null), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

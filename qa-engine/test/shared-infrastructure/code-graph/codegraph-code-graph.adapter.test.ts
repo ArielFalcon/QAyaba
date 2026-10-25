@@ -2,10 +2,11 @@
    commit, the engine's build/sync/status are a fake that installs the store recorded by the pinned engine (and its status),
    and every query runs the real store reader on it. What crosses the port is repo-relative, test files excluded, and carries
    the commit of the index it read. */
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodegraphCodeGraphAdapter, selectSeeds, type StoreSymbol } from "../../../src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts";
@@ -32,9 +33,15 @@ const ok = (stdout = ""): SandboxedRunResult => ({ exitCode: 0, stdout, stderr: 
 class FakeEngineRunner implements SandboxedBinaryRunner {
   readonly calls: string[] = [];
   status = STATUS;
+  /* The store `init` installs, and the one `sync` leaves when set. */
+  store = STORE;
+  syncStore: string | undefined;
   fail: Partial<Record<"init" | "sync" | "status", SandboxedRunResult>> = {};
+  /* The abort signal each call carried, engine verbs and store reads alike. */
+  readonly signals: (AbortSignal | undefined)[] = [];
 
   async run(req: SandboxedRunRequest): Promise<SandboxedRunResult> {
+    this.signals.push(req.signal);
     if (req.command !== "codegraph") {
       const r = spawnSync(req.command, req.args, { cwd: req.cwd, encoding: "utf8" });
       return { exitCode: r.status, stdout: r.stdout, stderr: r.stderr, timedOut: false };
@@ -43,7 +50,8 @@ class FakeEngineRunner implements SandboxedBinaryRunner {
     this.calls.push(verb);
     const failure = this.fail[verb];
     if (failure) return { ...failure, stderr: failure.stderr.replaceAll("{cwd}", req.cwd) };
-    if (verb === "init") copyFileSync(STORE, join(req.cwd, ".codegraph", "codegraph.db"));
+    if (verb === "init") copyFileSync(this.store, join(req.cwd, ".codegraph", "codegraph.db"));
+    if (verb === "sync" && this.syncStore) copyFileSync(this.syncStore, join(req.cwd, ".codegraph", "codegraph.db"));
     if ((verb as string) === "explore") return ok(EXPLORE);
     return verb === "status" ? ok(this.status) : ok();
   }
@@ -58,7 +66,7 @@ interface Harness {
   adapter: CodegraphCodeGraphAdapter;
 }
 
-function harness(opts: { cache?: boolean; exclude?: string[]; root?: string; mirror?: string } = {}): Harness {
+function harness(opts: { cache?: boolean; exclude?: string[]; root?: string; mirror?: string; signal?: AbortSignal } = {}): Harness {
   const root = opts.root ?? mkdtempSync(join(tmpdir(), "cg-adapter-"));
   const mirror = opts.mirror ?? join(root, "org__shop");
   if (opts.mirror === undefined) {
@@ -83,6 +91,7 @@ function harness(opts: { cache?: boolean; exclude?: string[]; root?: string; mir
     sandbox: null,
     scope: { extensions: LanguageRegistry.extensions, manifests: LanguageRegistry.manifests, exclude: opts.exclude ?? [] },
     isTestFile: (f) => LanguageRegistry.isTestFile(f),
+    ...(opts.signal ? { signal: () => opts.signal } : {}),
   });
   return { root, mirror, sha: git(mirror, "rev-parse", "HEAD"), engine, cache, adapter };
 }
@@ -111,7 +120,7 @@ test("a first index builds the store, validates it and publishes it to the cache
   }
 });
 
-test("the cached store is reused at the same commit and synced at a new one, never rebuilt", async () => {
+test("the cached store is synced at the same commit and at a new one, never rebuilt", async () => {
   const h = harness();
   try {
     await h.adapter.syncTo(h.mirror, h.sha);
@@ -119,7 +128,7 @@ test("the cached store is reused at the same commit and synced at a new one, nev
 
     const reused = await h.adapter.syncTo(h.mirror, h.sha);
     assert.equal(reused.outcome, "reused");
-    assert.deepEqual(h.engine.calls, ["status"]);
+    assert.deepEqual(h.engine.calls, ["sync", "status"], "the cursor is a claim: the engine's incremental sync always runs");
 
     const next = commitAnother(h);
     h.engine.calls.length = 0;
@@ -142,7 +151,7 @@ test("a cached store of another engine version is rebuilt, not reused", async ()
     const record = await h.adapter.syncTo(h.mirror, h.sha);
 
     assert.equal(record.outcome, "built");
-    assert.deepEqual(h.engine.calls, ["status", "init", "status"]);
+    assert.deepEqual(h.engine.calls, ["sync", "status", "init", "status"]);
     assert.equal(h.cache.meta("org__shop")?.engineVersion, "1.7.0");
   } finally {
     rmSync(h.root, { recursive: true, force: true });
@@ -374,6 +383,166 @@ test("over the recorded store the change's pages are proved through the engine's
       route: "/orders",
       proof: [`${repository}::loadAll`, "api/src/main/java/demo/service/OrderService.java::findAll", "api/src/main/java/demo/web/OrderController.java::listOrders", "GET /api/orders (listOrders)", "page /orders"],
     }]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+/* A recorded store whose extraction version the store reader does not accept. */
+function unsupportedStore(root: string): string {
+  const path = join(root, "unsupported.db");
+  copyFileSync(STORE, path);
+  const db = new DatabaseSync(path);
+  db.prepare("UPDATE project_metadata SET value = '999' WHERE key = 'indexed_with_extraction_version'").run();
+  db.close();
+  return path;
+}
+
+test("a store the reader does not accept is a logged failure, never an index that answers empty and never cached", async (t: TestContext) => {
+  const h = harness();
+  const warn = t.mock.method(console, "warn", () => {});
+  try {
+    h.engine.store = unsupportedStore(h.root);
+
+    const record = await h.adapter.syncTo(h.mirror, h.sha);
+
+    assert.equal(record.outcome, "failed");
+    assert.match(record.reason ?? "", /store reader does not accept/);
+    assert.equal(h.cache.meta("org__shop"), undefined);
+    assert.equal((await h.adapter.routes(h.mirror)).ok, false, "unavailable, not an empty graph");
+    assert.match(String(warn.mock.calls[0]?.arguments[0]), /does not accept the store/);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a cached store the sync leaves unreadable is rebuilt", async (t: TestContext) => {
+  const h = harness();
+  t.mock.method(console, "warn", () => {});
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    h.engine.syncStore = unsupportedStore(h.root);
+    h.engine.calls.length = 0;
+
+    const record = await h.adapter.syncTo(h.mirror, h.sha);
+
+    assert.equal(record.outcome, "built");
+    assert.deepEqual(h.engine.calls, ["sync", "status", "init", "status"]);
+    assert.equal((await h.adapter.routes(h.mirror)).ok, true);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a sync that times out forgets the cached store, so the next run builds it instead of repeating the sync", async (t: TestContext) => {
+  const h = harness();
+  const warn = t.mock.method(console, "warn", () => {});
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    h.engine.fail.sync = { exitCode: null, stdout: "", stderr: "", timedOut: true };
+    h.engine.calls.length = 0;
+
+    const timedOut = await h.adapter.syncTo(h.mirror, h.sha);
+
+    assert.equal(timedOut.outcome, "timeout");
+    assert.equal(h.cache.meta("org__shop"), undefined);
+    assert.match(String(warn.mock.calls[0]?.arguments[0]), /timed out/);
+
+    h.engine.calls.length = 0;
+    const next = await h.adapter.syncTo(h.mirror, h.sha);
+    assert.equal(next.outcome, "built");
+    assert.deepEqual(h.engine.calls, ["init", "status"]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("the run's abort signal reaches every engine process and store read", async () => {
+  const controller = new AbortController();
+  const h = harness({ signal: controller.signal });
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT]), BUDGET);
+    await h.adapter.explore(h.mirror, ["formatMoney"], 12);
+
+    const engineCalls = h.engine.signals.slice(h.engine.signals.length - (h.engine.calls.length + 3));
+    assert.ok(engineCalls.length > 0);
+    assert.ok(engineCalls.every((s) => s === controller.signal), "no engine call runs without the signal");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a change of more files than the reader bound still answers, cut deterministically and reported truncated", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const pad = Array.from({ length: 2500 }, (_, i) => `zz/renamed/f${String(i).padStart(4, "0")}.ts`);
+    const changed = BlastRadius.of(Sha.of(h.sha), [FORMAT, ...pad]);
+
+    const report = await h.adapter.impactedSymbols(h.mirror, changed, BUDGET);
+
+    assert.ok(report.ok, "not unavailable");
+    assert.equal(report.value.truncated, true);
+    assert.deepEqual(report.value.symbols.filter((s) => s.depth === 0).map((s) => s.symbol), ["formatMoney", "roundCents"], "the first files in order are kept");
+    const again = await h.adapter.impactedSymbols(h.mirror, changed, BUDGET);
+    assert.deepEqual(again, report);
+
+    const many = Array.from({ length: 2500 }, (_, i) => ({ file: `zz/f${i}.ts`, symbol: `s${i}` }));
+    const callers = await h.adapter.callersOf(h.mirror, [{ file: FORMAT, symbol: "formatMoney" }, ...many], BUDGET);
+    assert.ok(callers.ok);
+    assert.equal(callers.value.truncated, true);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a changed file the read diff has no line for (a mode change, a pure rename) seeds nothing, and an unread diff seeds the whole file", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const noLines = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT], new Map()), BUDGET);
+    assert.ok(noLines.ok);
+    assert.deepEqual(noLines.value.symbols, []);
+
+    const unread = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT]), BUDGET);
+    assert.ok(unread.ok);
+    assert.deepEqual(unread.value.symbols.filter((s) => s.depth === 0).map((s) => s.symbol), ["formatMoney", "roundCents"]);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("selectSeeds leaves a changed file without lines out when the diff was read, and a deleted file seeds nothing", () => {
+  const symbols: StoreSymbol[] = [{ id: "f", file: "a.ts", symbol: "f", kind: "function", startLine: 1, endLine: 5 }];
+  assert.deepEqual(selectSeeds(symbols, ["a.ts", "gone.ts"], new Map([["b.ts", new Set([1])]])), []);
+  assert.deepEqual(selectSeeds(symbols, ["a.ts", "gone.ts"], undefined).map((s) => s.symbol), ["f"]);
+});
+
+/* A walk whose budget cuts it keeps the same callers on every run, whatever order the store holds its edges in. */
+test("when the budget cuts a walk the nodes kept do not depend on the order the store lists its edges", async () => {
+  const h = harness();
+  try {
+    const store = join(h.root, "reordered.db");
+    copyFileSync(STORE, store);
+    const db = new DatabaseSync(store);
+    const target = (db.prepare("SELECT id FROM nodes WHERE name = 'formatMoney' AND kind = 'function'").get() as { id: string }).id;
+    const insertNode = db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES (?, 'function', ?, ?, 'a/first.ts', 'typescript', 1, 2, 0, 0, 0)");
+    const insertEdge = db.prepare("INSERT INTO edges (source, target, kind) VALUES (?, ?, 'calls')");
+    for (const name of ["e", "d", "c", "b", "a"]) {
+      insertNode.run(`function:${name}`, name, name);
+      insertEdge.run(`function:${name}`, target);
+    }
+    db.close();
+    h.engine.store = store;
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.callersOf(h.mirror, [{ file: FORMAT, symbol: "formatMoney" }], { depth: 1, maxSymbols: 3 });
+
+    assert.ok(report.ok);
+    assert.equal(report.value.truncated, true);
+    assert.deepEqual(report.value.symbols.map((s) => s.symbol), ["formatMoney", "a", "b"]);
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }
