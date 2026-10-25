@@ -79,6 +79,7 @@ const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
   "70c791658e6a2ac48fda2dc2c8a351f293b59f18ccaf34025a4db98da930cd88",
   "d57ac04b566df2349291620c06b8b6464de63bc0099dc2eb52656715bae30b39",
   "aed0623048ad9fa291c2e7826527a4b7cb7bd872907e3c4e8d6e46d7aff5f41a",
+  "788b6af2d198ccfa041c90e1429ecce30382895e89dfb884ee59887fd440f707",
 ]);
 
 /*
@@ -206,10 +207,12 @@ function matchDataState(routes: Record<string, { resultSelector?: string; result
 // Reduces a URL to origin + pathname so a query string or fragment never reaches the dump.
 function networkUrl(raw: string): string { try { const u = new URL(raw); const url = u.origin + u.pathname; return url.length > 300 ? url.slice(0, 300) : url; } catch { return ""; } }
 // DEV-write counter, on only when the orchestrator asks (PW_COUNT_DEV_WRITES=1, for a spec it executes on the
-// generator's behalf): the mutating requests (POST, PUT, PATCH, DELETE) a test's page and context send, written
-// per test to a ledger file in the capture directory so the orchestrator can hold what a spec does to DEV to a cap.
-// A context is listened to once however many tests share it. Requests of the API clients (the \`request\` fixture,
-// \`page.request\`, \`context.request\`) are not browser requests, so their fetch is counted too.
+// generator's behalf): the mutating requests (POST, PUT, PATCH, DELETE) of a test's page and context that a server
+// answered, written per test to a ledger file in the capture directory so the orchestrator can hold what a spec does
+// to DEV to a cap. A request nobody answered (refused by the sandbox's egress filter, like an error reporter's
+// beacon, or failed on the network) wrote nothing and is not counted. A context is listened to once however many
+// tests share it. Requests of the API clients (the \`request\` fixture, \`page.request\`, \`context.request\`) are not
+// browser requests, so their fetch is counted too, once it comes back with a response.
 let devWrites = 0;
 const countedContexts = new WeakSet<object>();
 const countedApis = new WeakSet<object>();
@@ -218,12 +221,15 @@ function countWrites(api: WriteCountable | undefined): void {
   if (!api || countedApis.has(api)) return;
   countedApis.add(api);
   const original = api.fetch.bind(api);
-  api.fetch = (target, options) => {
+  api.fetch = async (target, options) => {
+    let writes = false;
     try {
       const own = typeof target === 'object' && target !== null && typeof (target as { method?: unknown }).method === 'function' ? (target as { method: () => string }).method() : 'GET';
-      if (/^(?:POST|PUT|PATCH|DELETE)$/.test(String(options?.method ?? own).toUpperCase())) devWrites++;
+      writes = /^(?:POST|PUT|PATCH|DELETE)$/.test(String(options?.method ?? own).toUpperCase());
     } catch {}
-    return original(target, options);
+    const response = await original(target, options);
+    if (writes) devWrites++;
+    return response;
   };
 }
 
@@ -240,7 +246,7 @@ async function qaFailureCaptureStart(page: QaCapturePage, request: QaCaptureRequ
       const context = page.context();
       if (!countedContexts.has(context)) {
         countedContexts.add(context);
-        context.on('request', (r) => {
+        context.on('requestfinished', (r) => {
           try { if (/^(?:POST|PUT|PATCH|DELETE)$/.test(r.method())) devWrites++; } catch {}
         });
         countWrites(context.request);

@@ -33,7 +33,7 @@ export interface Response { status(): number; url(): string; request(): Request 
 export interface ConsoleMessage { type(): string; text(): string }
 export interface Locator { ariaSnapshot(options?: { timeout?: number }): Promise<string>; first(): Locator; innerText(options?: { timeout?: number }): Promise<string>; count(): Promise<number> }
 export interface APIRequestContext { fetch(urlOrRequest: string | Request, options?: { method?: string }): Promise<unknown>; post(url: string): Promise<unknown> }
-export interface BrowserContext { on(event: "request", listener: (request: Request) => unknown): this; request: APIRequestContext }
+export interface BrowserContext { on(event: "request" | "requestfinished", listener: (request: Request) => unknown): this; request: APIRequestContext }
 export interface Page {
   context(): BrowserContext;
   on(event: "request", listener: (request: Request) => unknown): this;

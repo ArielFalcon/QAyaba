@@ -612,7 +612,7 @@ async function loadCaptureModule(dir: string, name: string): Promise<{ beforeEac
 
 function pageWithContext(requests: { handlers: Array<(r: unknown) => void> }, context: object = {}) {
   const ctx = context as { on?: (event: string, cb: (r: unknown) => void) => void };
-  ctx.on ??= (event, cb) => { if (event === "request") requests.handlers.push(cb); };
+  ctx.on ??= (event, cb) => { if (event === "requestfinished") requests.handlers.push(cb); };
   return { on() {}, url: () => "http://localhost/", context: () => ctx, locator: () => ({ ariaSnapshot: async () => "" }) };
 }
 
@@ -631,7 +631,7 @@ test("with the counter asked for, a test's mutating requests are written to its 
     process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
     process.env.PW_COUNT_DEV_WRITES = "1";
     await mod.beforeEachFn({ page });
-    assert.equal(requests.handlers.length, 1, "one request listener on the test's context");
+    assert.equal(requests.handlers.length, 1, "one listener on the test's context for the requests DEV answered");
     for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]) requests.handlers[0]!({ method: () => method });
     await mod.afterEachFn({ page }, passingInfo);
     const files = readdirSync(captureDir);
@@ -701,6 +701,38 @@ test("writes sent through the API clients (the request fixture, page.request, co
     assert.equal(sent.length, 6, "every fetch still reaches the real client");
     const counts = readdirSync(captureDir).sort().map((f) => JSON.parse(readFileSync(join(captureDir, f), "utf8")).writes);
     assert.deepEqual(counts.sort(), [1, 3], "the first test sent POST, DELETE and PATCH; the second PUT; the clients are wrapped once");
+  } finally {
+    if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
+    if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a write nobody answered is not counted: a browser request the network refused, an API fetch that failed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-writes-unanswered-"));
+  const prevDir = process.env.QA_FAILURE_CAPTURE_DIR;
+  const prevFlag = process.env.PW_COUNT_DEV_WRITES;
+  try {
+    const captureDir = join(dir, "dumps");
+    mkdirSync(captureDir);
+    const mod = await loadCaptureModule(dir, "unanswered");
+    const handlers: Record<string, Array<(r: unknown) => void>> = {};
+    const emit = (event: string, method: string) => { for (const cb of handlers[event] ?? []) cb({ method: () => method }); };
+    const request = { fetch: async (target: unknown, _options?: { method?: string }) => { if (target === "/refused") throw new Error("net::ERR_NAME_NOT_RESOLVED"); return { ok: () => true }; } };
+    const context = { on: (event: string, cb: (r: unknown) => void) => { (handlers[event] ??= []).push(cb); }, request: { fetch: async () => ({}) } };
+    const page = { on() {}, url: () => "http://localhost/", context: () => context, locator: () => ({ ariaSnapshot: async () => "" }) };
+    process.env.QA_FAILURE_CAPTURE_DIR = captureDir;
+    process.env.PW_COUNT_DEV_WRITES = "1";
+    await mod.beforeEachFn({ page, request });
+    emit("request", "POST");
+    emit("requestfailed", "POST");
+    emit("request", "PUT");
+    emit("requestfinished", "PUT");
+    await request.fetch("/refused", { method: "POST" }).catch(() => {});
+    await request.fetch("/answered", { method: "DELETE" });
+    await mod.afterEachFn({ page, request }, passingInfo);
+    const [ledger] = readdirSync(captureDir);
+    assert.deepEqual(JSON.parse(readFileSync(join(captureDir, ledger!), "utf8")), { writes: 2 }, "the PUT DEV answered and the DELETE fetch that came back");
   } finally {
     if (prevDir === undefined) delete process.env.QA_FAILURE_CAPTURE_DIR; else process.env.QA_FAILURE_CAPTURE_DIR = prevDir;
     if (prevFlag === undefined) delete process.env.PW_COUNT_DEV_WRITES; else process.env.PW_COUNT_DEV_WRITES = prevFlag;
