@@ -13,6 +13,7 @@ import {
 } from "@contexts/qa-run-orchestration/application/coordination/lead-sidekicks.ts";
 import type { TimerPort } from "@contexts/qa-run-orchestration/application/coordination/fan-out-dispatcher.ts";
 import type { CoordinationTelemetryEvent } from "@contexts/qa-run-orchestration/application/coordination/coordination-telemetry.ts";
+import type { PlanSnapshot } from "@kernel/ports/plan-snapshot.port.ts";
 import type { DelegationResult } from "@contexts/qa-run-orchestration/application/coordination/delegation-result.ts";
 import type { SidekickExecuteOpts } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
 import type { DelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
@@ -64,6 +65,7 @@ interface Rig {
   staged: string[];
   swept: number;
   events: CoordinationTelemetryEvent[];
+  plans: PlanSnapshot[];
   logs: string[];
   flowLoops: Array<{ input: FlowLoopOpenInput; closed: number; ledger: FlowLedgerEntry[] }>;
   shares: Array<[string, number]>;
@@ -84,7 +86,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
   const timers = new FakeTimers();
   const clock = { now: 1_000_000 };
   const script: Script = { answers: {}, hasFile: new Set(["cart", "login"]), proposals: {}, ...scriptOver };
-  const r = { timers, executed: [], sessionsOpened: 0, sessionsDisposed: [], created: [], disposed: [], refreshed: [], collected: [], staged: [], swept: 0, events: [], logs: [], flowLoops: [], shares: [], script, clock } as unknown as Rig;
+  const r = { timers, executed: [], sessionsOpened: 0, sessionsDisposed: [], created: [], disposed: [], refreshed: [], collected: [], staged: [], swept: 0, events: [], plans: [], logs: [], flowLoops: [], shares: [], script, clock } as unknown as Rig;
   const flowOf = (delegationId: string): string => delegationId.replace(/^.*-flow-/, "");
   const workspaces: DelegationWorkspacePort = {
     create: async (request: DelegationWorkspaceRequest): Promise<DelegationWorkspace> => {
@@ -136,6 +138,7 @@ function rig(scriptOver: Partial<Script> = {}): Rig {
     workspaces,
     timers,
     telemetry: { record: (event) => void r.events.push(event) },
+    planSnapshots: { record: (snapshot) => void r.plans.push(snapshot) },
     now: () => clock.now,
     escalatedModel: "escalated/model",
     specFileFor: (id) => `flows/${id}.spec.ts`,
@@ -259,6 +262,34 @@ test("the planning turn is told the pages the change is linked to, and the pages
   assert.equal(reported.length, 1);
   assert.match(reported[0]!.reason, /1 of 3 .*\/orders/);
   assert.doesNotMatch(reported[0]!.reason, /\/shops/, "a template a flow visits a page of counts as visited");
+});
+
+test("the run keeps the plan it admitted, the change pages each flow visits and how each flow ended", async () => {
+  const r = rig({ hasFile: new Set(["cart"]) });
+  const plan = { kind: "fanout", flows: [{ id: "cart", objective: "the cart total", acceptance: ["the total adds the lines"], routes: ["/cart"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
+  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/cart", "/orders"], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  const last = r.plans.at(-1)!;
+  assert.equal(last.runId, "run-1");
+  assert.equal(last.kind, "fanout");
+  assert.deepEqual(last.changeRoutes, ["/cart", "/orders"]);
+  assert.deepEqual(last.unvisited, ["/orders"]);
+  const cart = last.flows.find((f) => f.id === "cart")!;
+  assert.deepEqual({ objective: cart.objective, acceptance: cart.acceptance, routes: cart.routes, specFile: cart.specFile, visits: cart.visits }, { objective: "the cart total", acceptance: ["the total adds the lines"], routes: ["/cart"], specFile: "flows/cart.spec.ts", visits: ["/cart"] });
+  assert.equal(cart.outcome?.kind, "delivered");
+  assert.deepEqual(cart.outcome?.specs, ["flows/cart.spec.ts"]);
+  const login = last.flows.find((f) => f.id === "login")!;
+  assert.deepEqual(login.visits, []);
+  assert.ok(login.outcome && login.outcome.kind !== "delivered", "a flow that wrote nothing did not deliver");
+});
+
+test("a plan that is a no-op or one piece of work is kept with why", async () => {
+  const noop = rig();
+  await noop.coordinator.coordinate(input(noop, { changeRoutes: ["/cart"], plan: async () => ({ parsed: true, timedOut: false, noopReason: "only a comment changed" }) }));
+  assert.deepEqual(noop.plans.map((p) => [p.kind, p.reason, p.flows.length, p.unvisited]), [["noop", "only a comment changed", 0, ["/cart"]]]);
+  const lead = rig();
+  await lead.coordinator.coordinate(input(lead, { plan: async () => ({ plan: { kind: "lead" }, parsed: true, timedOut: false }) }));
+  assert.deepEqual(lead.plans.map((p) => p.kind), ["lead"]);
 });
 
 test("a flow that names a change page by its template, whatever its parameters are called, visits it", async () => {

@@ -22,6 +22,7 @@ import type { DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import { admitLeadReview, MAX_REVIEW_TURNS, renderLeadReview, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
 import type { CoordinationTelemetryPort } from "./coordination-telemetry.ts";
+import { PLAN_SNAPSHOT_KIND, type PlanSnapshotFlow, type PlanSnapshotKind, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { evidenceFromEmptyRead } from "./evidence-from.ts";
@@ -55,6 +56,8 @@ export interface LeadSidekicksDeps {
   workspaces: DelegationWorkspacePort;
   timers: TimerPort;
   telemetry?: CoordinationTelemetryPort;
+  /* Where the run keeps the plan it admitted and how its flows ended, for grading after the fact; absent: nothing is kept. */
+  planSnapshots?: PlanSnapshotPort;
   now?: () => number;
   /* The model a fresh sidekick the lead's review starts on a flow runs with; absent: the same as the first. */
   escalatedModel?: string;
@@ -245,6 +248,7 @@ export class LeadSidekicks {
       if (planned.timedOut) return leadAlone("the planning turn ran out of its time", { authoring: authoringName });
       if (planned.noopReason !== undefined) {
         this.record(input, { kind: "proposal", action: "direct", reason: `plan: noop (${planned.noopReason})` });
+        this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], planned.noopReason);
         return { action: "noop", reason: planned.noopReason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
       }
 
@@ -269,11 +273,15 @@ export class LeadSidekicks {
         },
       );
       this.record(input, { kind: "proposal", action: admitted.kind === LEAD_PLAN_KIND.FANOUT ? "delegate" : "direct", reason: describePlan(admitted) });
-      if (admitted.kind === LEAD_PLAN_KIND.NOOP) return { action: "noop", reason: admitted.reason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
+      if (admitted.kind === LEAD_PLAN_KIND.NOOP) {
+        this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.NOOP, [], admitted.reason);
+        return { action: "noop", reason: admitted.reason, signal: { ...base, plan: LEAD_PLAN_KIND.NOOP, authoring: authoringName } };
+      }
       if (admitted.kind === LEAD_PLAN_KIND.LEAD) {
+        this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.LEAD, [], admitted.downgrade);
         return leadAlone(admitted.downgrade ?? "the plan is one piece of work", { plan: LEAD_PLAN_KIND.LEAD, authoring: authoringName });
       }
-      const unvisited = (input.changeRoutes ?? []).filter((route) => !admitted.flows.some((flow) => flow.routes.some((visited) => namesTemplatePage(route, visited))));
+      const unvisited = this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, admitted.flows);
       if (unvisited.length > 0) this.record(input, { kind: "router", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
       const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName });
       /* A pass kept open holds the lead's session from here on. */
@@ -303,6 +311,7 @@ export class LeadSidekicks {
         return p && p.total > 0 ? [p] : [];
       });
       const aggregated = aggregateFlowOutcomes(outcomes);
+      this.snapshotPlan(input, PLAN_SNAPSHOT_KIND.FANOUT, flows, undefined, outcomes);
       const signal: CoordinationGateSignal = {
         ...base,
         flows: flows.length,
@@ -742,6 +751,30 @@ export class LeadSidekicks {
     if (entry.loop) await entry.loop.close().catch((err: unknown) => console.error(`[qa] closing flow ${entry.flow.id}'s run_spec loop failed: ${err instanceof Error ? err.message : String(err)}`));
     entry.geolocation?.close();
     await this.deps.workspaces.dispose(entry.workspace);
+  }
+
+  /* Keeps what the run planned, and returns the change pages no flow visits. A flow visits a change page when one of its routes names it (`namesTemplatePage`). */
+  private snapshotPlan(input: CoordinateInput, kind: PlanSnapshotKind, flows: readonly AdmittedFlow[], reason?: string, outcomes?: readonly FlowOutcome[]): string[] {
+    const changeRoutes = [...(input.changeRoutes ?? [])];
+    const snapshotFlows: PlanSnapshotFlow[] = flows.map((flow) => {
+      const outcome = outcomes?.find((o) => o.id === flow.id);
+      return {
+        id: flow.id,
+        objective: flow.objective,
+        acceptance: [...flow.acceptance],
+        routes: [...flow.routes],
+        specFile: flow.specFile,
+        visits: changeRoutes.filter((route) => flow.routes.some((visited) => namesTemplatePage(route, visited))),
+        ...(outcome ? { outcome: { kind: outcome.kind, ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}), ...(outcome.specs ? { specs: [...outcome.specs] } : {}) } } : {}),
+      };
+    });
+    const unvisited = changeRoutes.filter((route) => !snapshotFlows.some((flow) => flow.visits.includes(route)));
+    try {
+      this.deps.planSnapshots?.record({ runId: input.runId, kind, ...(reason !== undefined ? { reason } : {}), changeRoutes, unvisited, flows: snapshotFlows, recordedAt: this.now() });
+    } catch (err) {
+      console.error(`[qa] the run's plan could not be kept (the run goes on): ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return unvisited;
   }
 
   private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "router"; action?: "direct" | "delegate" | "lead-takeover" | "escalate-sidekick" | "abort-human"; capability?: AgentCapability; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string }): void {

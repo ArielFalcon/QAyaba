@@ -370,6 +370,15 @@ function ensureDb(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_run_spec_snapshots_captured_at ON run_spec_snapshots(captured_at);
 
+    -- What the lead planned for a run (the admitted plan, the change pages each flow visits, how each flow ended), sanitized, so a run
+    -- can be graded against its change after the fact. One row per run: the last record wins. Same retention as run_spec_snapshots.
+    CREATE TABLE IF NOT EXISTS run_plans (
+      run_id TEXT PRIMARY KEY,
+      plan TEXT NOT NULL,
+      recorded_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_plans_recorded_at ON run_plans(recorded_at);
+
     -- LLM-judge bookkeeping (docs/observability-design.md section 11.3). One row per judge attempt: what was asked, how it ended and the
     -- tokens it spent (the day's budget is the sum of a day's rows). Never pruned, like run_scores: they are tiny.
     CREATE TABLE IF NOT EXISTS judge_attempts (
@@ -689,6 +698,7 @@ function ensureDb(): void {
   try {
     pruneRunSpans(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
     pruneSpecSnapshots(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
+    pruneRunPlans(spanRetentionDays(), Date.now(), RUN_SPAN_PRUNE_CHUNK, campaignDays);
   } catch (error) {
     console.error(`[telemetry] span ledger prune failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -1932,6 +1942,29 @@ export function pruneSpecSnapshots(days: number, nowMs: number, limit: number = 
   const keep = campaignKeepClause("run_id", nowMs, campaignDays);
   return db
     .prepare(`DELETE FROM run_spec_snapshots WHERE rowid IN (SELECT rowid FROM run_spec_snapshots WHERE captured_at < ? ${keep.sql} LIMIT ?)`)
+    .run(Math.floor(cutoffMs), ...keep.params, limit).changes;
+}
+
+/* Keeps a run's plan, replacing the one kept before: the plan recorded when its flows end carries their outcomes. `plan` is JSON. */
+export function commitRunPlan(runId: string, plan: string, recordedAt: number): void {
+  ensureDb();
+  db.prepare("INSERT OR REPLACE INTO run_plans (run_id, plan, recorded_at) VALUES (?, ?, ?)").run(runId, plan, Math.floor(recordedAt));
+}
+
+/* The plan a run kept, as the JSON it was kept as, or undefined. */
+export function getRunPlan(runId: string): string | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT plan FROM run_plans WHERE run_id = ?").get(runId) as { plan: string } | undefined;
+  return row?.plan;
+}
+
+/* Drops up to `limit` plans kept more than `days` before `nowMs`, and returns how many: the window of the spec snapshots. */
+export function pruneRunPlans(days: number, nowMs: number, limit: number = RUN_SPAN_PRUNE_CHUNK, campaignDays?: number): number {
+  const cutoffMs = nowMs - days * 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(cutoffMs)) return 0;
+  const keep = campaignKeepClause("run_id", nowMs, campaignDays);
+  return db
+    .prepare(`DELETE FROM run_plans WHERE rowid IN (SELECT rowid FROM run_plans WHERE recorded_at < ? ${keep.sql} LIMIT ?)`)
     .run(Math.floor(cutoffMs), ...keep.params, limit).changes;
 }
 

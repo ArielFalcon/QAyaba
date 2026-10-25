@@ -36,6 +36,7 @@ import { TracedSuiteStore } from "../infrastructure/bridges/suite-store-trace.ts
 import { TracedCoordinationTelemetry } from "../infrastructure/bridges/coordination-telemetry-trace.ts";
 import { TracedObjectiveSignalPort } from "../infrastructure/bridges/objective-signal-trace.ts";
 import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
+import { sanitizedPlanSnapshots, type PlanSnapshotPort } from "@kernel/ports/plan-snapshot.port.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/bridges/generation-port.adapter.ts";
@@ -184,6 +185,8 @@ export interface CompositionConfig {
   telemetry?: TelemetryPort;
   /* Where the text of the specs a run holds at validation is kept for after-the-fact grading (docs/observability-design.md §11.1). Absent: none is kept. Never blocks a run. */
   specSnapshots?: SpecSnapshotPort;
+  /* Where a run keeps the plan its lead admitted and how its flows ended (sanitized with `sanitize`); absent, or without `sanitize`: nothing is kept. */
+  planSnapshots?: PlanSnapshotPort;
   /* The one wall clock of the run's record: the phase cursor times phases on it and the phase spans start and end on its readings. Absent: the system clock. */
   clock?: TelemetryClock;
   /* Which attempt of an agent turn a run_spec or browser call hangs under (the registry the turn decorator fills). Absent: such a call hangs under the phase that is open. Needs `telemetry`. */
@@ -692,6 +695,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
                 workspaces: new FsDelegationWorkspaceAdapter({ root: cfg.delegation.workspaceRoot }),
                 timers: systemTimers,
                 telemetry: coordinationTelemetry,
+                ...(cfg.planSnapshots && cfg.sanitize ? { planSnapshots: sanitizedPlanSnapshots(cfg.planSnapshots, cfg.sanitize) } : {}),
                 specFileFor: specFileForFlow,
                 /* What a sidekick wrote is untrusted: the lead's review reads it through the confined reader, and an unreadable spec is shown as none. */
                 readSpec: async (root, specFile) => {

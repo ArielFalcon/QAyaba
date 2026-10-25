@@ -17,7 +17,7 @@ import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry";
 import type { TelemetryHealth } from "@kernel/telemetry/telemetry-health";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
 import { resolveCampaignFreeze } from "../server/campaign-freeze";
-import { commitRunSpans, pruneRunSpans, pruneSpecSnapshots } from "../server/history";
+import { commitRunSpans, pruneRunPlans, pruneRunSpans, pruneSpecSnapshots } from "../server/history";
 import { sanitizeText } from "../orchestrator/sanitizer";
 import { resolveTelemetryConfig, type TelemetryConfig } from "./config";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
@@ -126,13 +126,15 @@ function offHandle(freeze: boolean, clock: TelemetryClock): TelemetryHandle {
 export interface PruneFns {
   pruneRunSpans: typeof pruneRunSpans;
   pruneSpecSnapshots: typeof pruneSpecSnapshots;
+  pruneRunPlans: typeof pruneRunPlans;
 }
 
 /* The ledger's periodic prune: the ordinary window, with a campaign run's records kept for the campaign window (R4). */
-export function retentionPrune(config: Pick<TelemetryConfig, "retentionDays" | "campaignRetentionDays">, fns: PruneFns = { pruneRunSpans, pruneSpecSnapshots }): (nowMs: number) => void {
+export function retentionPrune(config: Pick<TelemetryConfig, "retentionDays" | "campaignRetentionDays">, fns: PruneFns = { pruneRunSpans, pruneSpecSnapshots, pruneRunPlans }): (nowMs: number) => void {
   return (nowMs) => {
     fns.pruneRunSpans(config.retentionDays, nowMs, undefined, config.campaignRetentionDays);
     fns.pruneSpecSnapshots(config.retentionDays, nowMs, undefined, config.campaignRetentionDays);
+    fns.pruneRunPlans(config.retentionDays, nowMs, undefined, config.campaignRetentionDays);
   };
 }
 

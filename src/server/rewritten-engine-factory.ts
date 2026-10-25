@@ -32,6 +32,7 @@ import { domCaptureObserver } from "@contexts/generation/infrastructure/dom-capt
 import { traceValidateDeps } from "@contexts/test-execution/infrastructure/static-gate.trace";
 import { synthesizeReportSpans } from "@contexts/test-execution/infrastructure/report-spans";
 import { SqliteSpecSnapshotAdapter } from "./spec-snapshot-sqlite.adapter";
+import { SqlitePlanSnapshotAdapter } from "./plan-snapshot-sqlite.adapter";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
 import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
@@ -1132,7 +1133,7 @@ export function buildRewrittenCompositionConfig(
     runDeadline,
     ...(deps.telemetry ? { telemetry: deps.telemetry, toolAttempts: agentTurnTraces } : {}),
     /* What a run's specs held at validation is kept for after-the-fact grading, as long as the run is traced. */
-    ...(deps.telemetry ? { specSnapshots: new SqliteSpecSnapshotAdapter() } : {}),
+    ...(deps.telemetry ? { specSnapshots: new SqliteSpecSnapshotAdapter(), planSnapshots: new SqlitePlanSnapshotAdapter() } : {}),
     ...(deps.clock ? { clock: deps.clock } : {}),
     reviewRuntime: {
       runtime: roundRuntime,
