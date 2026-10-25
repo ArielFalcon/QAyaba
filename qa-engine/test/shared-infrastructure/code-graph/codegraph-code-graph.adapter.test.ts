@@ -392,6 +392,52 @@ test("a touched module-level constant seeds the walk, and the code that referenc
   }
 });
 
+test("a reached value or class no code calls is reached through the code of the files that import it (dependency injection leaves no call edge)", async () => {
+  const h = harness();
+  try {
+    const store = join(h.root, "injected.db");
+    copyFileSync(STORE, store);
+    const db = new DatabaseSync(store);
+    const api = "web/src/app/orders/orders.api.ts";
+    db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES ('constant:token', 'constant', 'ORDERS_TOKEN', 'ORDERS_TOKEN', ?, 'typescript', 40, 40, 0, 0, 0)").run(api);
+    db.prepare("INSERT INTO edges (source, target, kind) VALUES ('file:web/src/app/orders/orders.page.ts', 'constant:token', 'imports')").run();
+    db.close();
+    h.engine.store = store;
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [api], new Map([[api, new Set([40])]])), BUDGET);
+
+    assert.ok(report.ok);
+    const reached = report.value.symbols.map((s) => `${s.depth} ${s.symbol}`);
+    assert.ok(reached.includes("0 ORDERS_TOKEN"));
+    assert.ok(reached.includes("1 OrdersPage"), reached.join(", "));
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a function passed by reference is reached from the function it is passed to", async () => {
+  const h = harness();
+  try {
+    const store = join(h.root, "fnref.db");
+    copyFileSync(STORE, store);
+    const db = new DatabaseSync(store);
+    db.prepare("INSERT INTO nodes (id, kind, name, qualified_name, file_path, language, start_line, end_line, start_column, end_column, updated_at) VALUES ('function:items', 'function', 'buildItems', 'buildItems', ?, 'typescript', 20, 22, 0, 0, 0)").run(FORMAT);
+    const roundCents = (db.prepare("SELECT id FROM nodes WHERE name = 'roundCents' AND kind = 'function'").get() as { id: string }).id;
+    db.prepare("INSERT INTO edges (source, target, kind) VALUES ('function:items', ?, 'references')").run(roundCents);
+    db.close();
+    h.engine.store = store;
+    await h.adapter.syncTo(h.mirror, h.sha);
+
+    const report = await h.adapter.impactedSymbols(h.mirror, BlastRadius.of(Sha.of(h.sha), [FORMAT], new Map([[FORMAT, new Set([6])]])), BUDGET);
+
+    assert.ok(report.ok);
+    assert.ok(report.value.symbols.some((s) => s.symbol === "buildItems" && s.depth === 1), report.value.symbols.map((s) => `${s.depth} ${s.symbol}`).join(", "));
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("a handler route the engine names for any verb (ANY, ALL) is a backend route, not a page named after its verb", async () => {
   const h = harness();
   try {

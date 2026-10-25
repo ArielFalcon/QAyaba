@@ -25,6 +25,12 @@ const EXTRACTION_VERSION = "27";
 const CALLABLE_KINDS = ["function", "method", "class", "component", "interface"];
 /* Module-level values: a change to one seeds the walk, and the code that references it is its caller. */
 const VALUE_KINDS = ["constant", "variable"];
+/* What code references by name to use it: a module-level value it reads, a function it passes on. */
+const REFERENCED_KINDS = [...VALUE_KINDS, "function", "method"];
+/* What a file hands to the code that imports it without a call: a value or a class (dependency injection, a token). */
+const INJECTABLE_KINDS = [...VALUE_KINDS, "class", "component"];
+/* The code a file declares at its top level. */
+const TOP_LEVEL_CODE_KINDS = ["function", "class", "component"];
 /* Where a method's behaviour lives for whoever references the type: its class (a route references the component, not its method). */
 const CONTAINER_KINDS = ["class", "component", "interface"];
 const MAX_FILES = 2000;
@@ -113,15 +119,19 @@ function find(db, symbols) {
 }
 
 /*
- * Breadth-first, inbound: who calls or instantiates a reached symbol, and which route references it. A reached method also
- * stands for its class at the same depth, so a route that references a component is reached from a changed method of it.
+ * Breadth-first, inbound: who calls or instantiates a reached symbol, which route references it, which code references a
+ * module-level value it reads or a function it passes on. A reached method also stands for its class at the same depth, so a
+ * route that references a component is reached from a changed method of it. A reached value or class no code calls (what
+ * dependency injection hands over leaves no call edge) is reached through the top-level code of the files that import it.
  * Other references (a field's type, a constructor parameter) are not followed: they name a dependency, not a caller.
  */
 function walk(db, seeds, cutSeeds, depth, maxNodes) {
   const node = db.prepare("SELECT id, name, kind, file_path, start_line FROM nodes WHERE id = ?");
   /* Ordered by position, so that when the budget cuts a walk it keeps the same nodes on every run. */
-  /* A caller calls or instantiates the node; a route references its page; code that runs references a module-level value it reads. */
-  const callers = db.prepare(`SELECT DISTINCT e.source AS id, s.file_path, s.start_line, s.name FROM edges e JOIN nodes s ON s.id = e.source JOIN nodes t ON t.id = e.target WHERE e.target = ? AND (e.kind IN ('calls', 'instantiates') OR (e.kind = 'references' AND (s.kind = 'route' OR (t.kind IN (${VALUE_KINDS.map(() => "?").join(",")}) AND s.kind IN (${CALLABLE_KINDS.map(() => "?").join(",")}))))) ORDER BY s.file_path, s.start_line, s.name, s.id`);
+  /* A caller calls or instantiates the node; a route references its page; code that runs references a value it reads or a function it passes on. */
+  const callers = db.prepare(`SELECT DISTINCT e.source AS id, s.file_path, s.start_line, s.name FROM edges e JOIN nodes s ON s.id = e.source JOIN nodes t ON t.id = e.target WHERE e.target = ? AND (e.kind IN ('calls', 'instantiates') OR (e.kind = 'references' AND (s.kind = 'route' OR (t.kind IN (${REFERENCED_KINDS.map(() => "?").join(",")}) AND s.kind IN (${CALLABLE_KINDS.map(() => "?").join(",")}))))) ORDER BY s.file_path, s.start_line, s.name, s.id`);
+  /* The top-level code of the files that import the node. */
+  const importers = db.prepare(`SELECT DISTINCT c.id AS id, c.file_path, c.start_line, c.name FROM edges e JOIN nodes f ON f.id = e.source AND f.kind = 'file' JOIN edges ce ON ce.source = f.id AND ce.kind = 'contains' JOIN nodes c ON c.id = ce.target WHERE e.target = ? AND e.kind = 'imports' AND c.kind IN (${TOP_LEVEL_CODE_KINDS.map(() => "?").join(",")}) ORDER BY c.file_path, c.start_line, c.name, c.id`);
   const containers = db.prepare(`SELECT e.source AS id, s.file_path, s.start_line, s.name FROM edges e JOIN nodes s ON s.id = e.source WHERE e.target = ? AND e.kind = 'contains' AND s.kind IN (${CONTAINER_KINDS.map(() => "?").join(",")}) ORDER BY s.file_path, s.start_line, s.name, s.id`);
   const reached = new Map();
   let truncated = false;
@@ -155,7 +165,11 @@ function walk(db, seeds, cutSeeds, depth, maxNodes) {
   let frontier = withContainer(seedRows.sort(byPosition).map((r) => r.id).filter((id) => add(id, 0)), 0);
   for (let d = 1; d <= depth && frontier.length > 0 && !truncated; d++) {
     const next = [];
-    for (const id of [...frontier].sort((a, b) => byPosition(reached.get(a), reached.get(b)))) for (const { id: caller } of callers.all(id, ...VALUE_KINDS, ...CALLABLE_KINDS)) if (add(caller, d, refOf(id))) next.push(caller);
+    for (const id of [...frontier].sort((a, b) => byPosition(reached.get(a), reached.get(b)))) {
+      let found = callers.all(id, ...REFERENCED_KINDS, ...CALLABLE_KINDS);
+      if (found.length === 0 && INJECTABLE_KINDS.includes(reached.get(id).kind)) found = importers.all(id, ...TOP_LEVEL_CODE_KINDS);
+      for (const { id: caller } of found) if (add(caller, d, refOf(id))) next.push(caller);
+    }
     frontier = withContainer(next, d);
   }
   const nodes = [...reached.values()].sort((a, b) => a.depth - b.depth || byPosition(a, b));
