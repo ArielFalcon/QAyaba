@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasSymbolBlocks, renderBlastRadiusSignal, type BlastRadiusSignalInput } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
+import { DOSSIER_HEADING, MAX_DOSSIER_BYTES, hasSymbolBlocks, renderBlastRadiusSignal, type BlastRadiusSignalInput } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { countDirectives } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { LocalSymbolRef, CoupledFile } from "@kernel/code/index.ts";
@@ -251,4 +251,13 @@ test("a block of co-change files alone that outgrows the byte budget is cut with
   assert.match(out, /truncated/, "setup: the block really was cut");
   assert.doesNotMatch(out, /blast radius/i);
   assert.ok(out.split("\n").at(-1)!.includes("co-change"), "the marker names what was cut");
+});
+
+test("a dossier of exactly the largest size the renderer declares is shown, and one byte more is left out", () => {
+  const symbols = { impacted: [{ file: "a.ts", symbol: "run" }], callers: [], coupled: [] };
+  /* Two-byte characters, so a size counted in characters would disagree with the bytes. */
+  const sized = (bytes: number) => `${"é".repeat(Math.floor(bytes / 2))}${bytes % 2 === 1 ? "a" : ""}`;
+  assert.equal(Buffer.byteLength(sized(MAX_DOSSIER_BYTES), "utf8"), MAX_DOSSIER_BYTES);
+  assert.ok(renderBlastRadiusSignal({ ...symbols, dossier: sized(MAX_DOSSIER_BYTES) }).includes(DOSSIER_HEADING));
+  assert.equal(renderBlastRadiusSignal({ ...symbols, dossier: sized(MAX_DOSSIER_BYTES + 1) }).includes(DOSSIER_HEADING), false);
 });

@@ -6,14 +6,16 @@ import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 import type { CoupledFile, ImpactBudget, ImpactedSymbol } from "@kernel/code/index.ts";
 import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import type { StructuralSignalPort, StructuralSignalResult } from "../../application/ports/index.ts";
-import { DOSSIER_HEADING, hasSymbolBlocks, renderBlastRadiusSignal } from "./blast-radius-signal.ts";
+import { DOSSIER_HEADING, MAX_DOSSIER_BYTES, hasSymbolBlocks, renderBlastRadiusSignal } from "./blast-radius-signal.ts";
 import { shapeExploreAnswer } from "./code-graph-tools-port.adapter.ts";
 import { isExploreTerm } from "../../domain/code-graph-query.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
+import { activeExecScope } from "../../../../shared-infrastructure/process-sandbox/exec-scope.ts";
 
 export const ADVISORY_BUDGET: ImpactBudget = { depth: 3, maxSymbols: 300 };
 
-/* The change dossier's bounds: how many of the change's symbols it explores, how many files the engine may show, and how much of the block it may take. */
+/* The change dossier's bounds: how many of the change's symbols it explores, how many files the engine may show, and how much of the block it may take (in bytes, and never more than the block can carry). */
 export const DOSSIER_LIMITS = { maxSymbols: 4, maxFiles: 4, maxChars: 8_000 } as const;
 
 export interface StructuralDossier {
@@ -45,12 +47,32 @@ function filesShown(text: string): string[] {
   return [...new Set(files)];
 }
 
+/* Says what became of a part of the signal on the open phase's span; the signal is advisory, so a fault here is dropped. */
+function note(attrs: Attrs): void {
+  try {
+    activeExecScope()?.telemetry?.annotate?.(attrs);
+  } catch (cause) {
+    console.error(`[qa] structural signal telemetry failed and was dropped: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+}
+
+const reasonOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause)).replace(/\s+/g, " ").trim().slice(0, 200);
+
+/* The impact walk, or nothing when it fails; a failed or truncated walk is logged and recorded, never silent. */
 async function safeImpacted(codeGraph: CodeGraphPort, repoDir: string, changed: BlastRadius): Promise<{ symbols: ImpactedSymbol[]; indexedSha?: string }> {
+  const failed = (reason: string) => {
+    console.warn(`[qa] structural signal: the impact walk failed, so the block lists no symbols: ${reason}`);
+    note({ "qayaba.structural.walk": "failed", "qayaba.code_graph.reason": reason });
+    return { symbols: [] };
+  };
   try {
     const result = await codeGraph.impactedSymbols(repoDir, changed, ADVISORY_BUDGET);
-    return result.ok ? { symbols: result.value.symbols, indexedSha: result.value.indexedSha } : { symbols: [] };
-  } catch {
-    return { symbols: [] };
+    if (!result.ok) return failed(reasonOf(result.error.reason));
+    if (result.value.truncated) console.warn(`[qa] structural signal: the impact walk stopped at its budget (${ADVISORY_BUDGET.maxSymbols} symbols, depth ${ADVISORY_BUDGET.depth}); the block lists only part of what the change reaches`);
+    note({ "qayaba.structural.walk": result.value.truncated ? "truncated" : "complete" });
+    return { symbols: result.value.symbols, indexedSha: result.value.indexedSha };
+  } catch (cause) {
+    return failed(reasonOf(cause));
   }
 }
 
@@ -73,20 +95,26 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
     private readonly dossier?: StructuralDossier,
   ) {}
 
-  /* The dossier text and the files it shows, or nothing: an index that cannot answer leaves the block as it was. */
+  /* The dossier text and the files it shows, or nothing: an index that cannot answer leaves the block as it was, and says so. */
   private async dossierOf(symbols: readonly ImpactedSymbol[]): Promise<{ text: string; files: string[] } | undefined> {
     if (!this.dossier) return undefined;
     const limits = this.dossier.limits ?? DOSSIER_LIMITS;
     const terms = topChangedSymbols(symbols, limits.maxSymbols);
     if (terms.length === 0) return undefined;
+    const withheld = (outcome: "unavailable" | "empty", why: string): undefined => {
+      console.warn(`[qa] structural signal: the change dossier is not in the block (${outcome}): ${why}`);
+      note({ "qayaba.structural.dossier": outcome });
+      return undefined;
+    };
     try {
       const answer = await this.dossier.explore.explore(this.repoDir, terms, limits.maxFiles);
-      if (!answer.ok) return undefined;
-      const { result } = shapeExploreAnswer(answer.value.text, limits.maxChars, (text) => sanitizeText(text, "model").text);
+      if (!answer.ok) return withheld("unavailable", reasonOf(answer.error.reason));
+      const bytes = (text: string) => Buffer.byteLength(text, "utf8");
+      const { result } = shapeExploreAnswer(answer.value.text, Math.min(limits.maxChars, MAX_DOSSIER_BYTES), (text) => sanitizeText(text, "model").text, bytes);
       const files = filesShown(result);
-      return files.length > 0 ? { text: result, files } : undefined;
-    } catch {
-      return undefined;
+      return files.length > 0 ? { text: result, files } : withheld("empty", "none of the engine's source fit the dossier's budget, or it showed no file");
+    } catch (cause) {
+      return withheld("unavailable", reasonOf(cause));
     }
   }
 
@@ -102,6 +130,10 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
     const text = renderBlastRadiusSignal({ impacted, callers, coupled, ...(dossier ? { dossier: dossier.text } : {}) });
     /* The renderer leaves out a dossier the block's byte budget cannot hold: its files are provided only when the text shows them. */
     const shown = dossier !== undefined && text.includes(DOSSIER_HEADING);
+    if (dossier !== undefined) {
+      if (!shown) console.warn("[qa] structural signal: the renderer left the change dossier out of the block (over its byte budget)");
+      note({ "qayaba.structural.dossier": shown ? "shown" : "over-budget" });
+    }
     return {
       text,
       hasSymbols: hasSymbolBlocks({ impacted, callers }),

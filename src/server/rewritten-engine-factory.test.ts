@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appSuiteStoreDir, createRewrittenEngineFactory, engineAgentDeps, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, type ContextHealRunRequest } from "./rewritten-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
+import { CodeGraphToolRegistry } from "@contexts/qa-run-orchestration/infrastructure/code-graph-tool-registry";
+import { createRunSecretScope, withRunSecretScope } from "../../qa-engine/src/shared-infrastructure/run-secret-redaction";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
 import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap, upsertLearningRule, recordRuleOutcome, quarantineLearningRules } from "./history";
@@ -1089,6 +1091,32 @@ test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the SERVICE mirro
   );
   assert.equal(config.codeGraphRepoDir, "/tmp/mirrors/org__orders-svc", "cross-repo indexing must pin the classify-source SERVICE mirror, never the primary suite dir");
   assert.equal(config.codeGraphPrimary?.repoDir, "/tmp/mirrors/org__demo", "the primary repo the frontend signals read is indexed too");
+});
+
+test("the lead's code-graph tool redacts real secrets and the run's own secret values, and leaves the source it shows as it is", () => {
+  const config = buildRewrittenCompositionConfig(cfg("factory-code-graph-redact"), { getAgentDeps: stubAgentDeps, codeGraphRegistry: new CodeGraphToolRegistry() }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const redact = config.codeGraphTools?.redact;
+  assert.equal(typeof redact, "function", "the tool is granted a redaction");
+  const source = ["const token = this.auth.getToken();", "const password: string = form.password;", "const secret = process.env.SECRET_VALUE;"].join("\n");
+  assert.equal(redact!(source), source, "code shapes that only name a secret reach the lead untouched");
+
+  const awsKey = "AKIA" + "ABCDEFGHIJKLMNOP";
+  const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234567890abcdef\n-----END RSA PRIVATE KEY-----";
+  const leaky = [`const key = "${awsKey}";`, `const apiKey = "sk-live-abcdefghijklmnopqrstuvwxyz";`, `const t = "ghp_${"a1B2".repeat(10)}";`, pem].join("\n");
+  const out = redact!(leaky);
+  for (const literal of [awsKey, "sk-live-abcdefghijklmnopqrstuvwxyz", `ghp_${"a1B2".repeat(10)}`, "MIIEowIBAAKCAQEA1234567890abcdef"]) assert.equal(out.includes(literal), false, `${literal.slice(0, 8)}... is redacted`);
+
+  const scope = createRunSecretScope();
+  scope.addAccountSecrets(["hunter2-run-pass"]);
+  const byValue = withRunSecretScope(scope, () => redact!("login(user, 'hunter2-run-pass')"));
+  assert.equal(byValue.includes("hunter2-run-pass"), false, "a secret the run holds is redacted by value");
+
+  process.env.QAYABA_TEST_SERVICE_TOKEN = "orchestrator-env-secret-value";
+  try {
+    assert.equal(redact!("fetch('orchestrator-env-secret-value')").includes("orchestrator-env-secret-value"), false, "an orchestrator secret in the environment is redacted by value");
+  } finally {
+    delete process.env.QAYABA_TEST_SERVICE_TOKEN;
+  }
 });
 
 test("qa.structuralSignals mode 'off' supplies no code graph, so nothing is indexed", () => {

@@ -12,6 +12,8 @@ import { ok, err } from "@kernel/result.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 import type { ImpactedSymbol } from "@kernel/code/index.ts";
+import type { Attrs } from "@kernel/telemetry/attribute-registry.ts";
+import { newSandboxReport, withExecScope } from "../../../../../src/shared-infrastructure/process-sandbox/exec-scope.ts";
 
 const SHA = "abc1234";
 const report = (symbols: ImpactedSymbol[], truncated = false) => ok({ indexedSha: SHA, symbols, truncated });
@@ -224,7 +226,7 @@ test("a block of co-change files alone carries no dossier", () => {
   assert.equal(text.includes(DOSSIER_HEADING), false);
 });
 
-test("a dossier the block's byte budget cannot hold is left out, and so are the files it would have shown", async () => {
+test("a dossier none of whose source fits the block's bytes is left out, and so are the files it would have shown", async () => {
   const wide = ["**`src/Foo.java`** — 1 symbol", "```java", `3\tString s = "${"é".repeat(7_800)}";`, "```"].join("\n");
   const adapter = new StructuralSignalPortAdapter(
     fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol, caller]) }),
@@ -237,4 +239,67 @@ test("a dossier the block's byte budget cannot hold is left out, and so are the 
 
   assert.equal(result.text.includes(DOSSIER_HEADING), false);
   assert.equal("providedFiles" in result, false, "a file the prompt does not show is not counted as provided");
+});
+
+/* What the operator can see of a render: the attributes put on the open phase's span and the warnings logged. */
+async function observed<T>(fn: () => Promise<T>): Promise<{ value: T; notes: Attrs; logs: string[] }> {
+  const notes: Attrs = {};
+  const logs: string[] = [];
+  const originalWarn = console.warn;
+  const originalError = console.error;
+  console.warn = (...args: unknown[]) => void logs.push(args.join(" "));
+  console.error = (...args: unknown[]) => void logs.push(args.join(" "));
+  try {
+    const value = await withExecScope(
+      { runId: "r1", workDir: "/tmp/qa-exec/r1", egress: { dev: [], install: [] }, report: newSandboxReport(), telemetry: { parent: () => undefined, annotate: (attrs) => void Object.assign(notes, attrs) } },
+      fn,
+    );
+    return { value, notes, logs };
+  } finally {
+    console.warn = originalWarn;
+    console.error = originalError;
+  }
+}
+
+const reaching = fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol, caller]) });
+
+test("a dossier whose characters fit the cap but whose bytes would not fit the block is cut to the block's bytes and shown", async () => {
+  const lines = Array.from({ length: 150 }, (_, i) => `${i + 3}\tconst s${i} = "${"é".repeat(45)}";`);
+  const wide = ["**`src/Foo.java`** — 1 symbol", "```java", ...lines, "```"].join("\n");
+  const { value: result, notes } = await observed(() => new StructuralSignalPortAdapter(reaching, fakeCoChange(), "/repo", { explore: fakeExplore(wide) }).render("/repo", changed));
+
+  assert.ok(result.text.includes(DOSSIER_HEADING), "the dossier is shown, cut, not dropped");
+  assert.ok(Buffer.byteLength(result.text, "utf8") <= 20_000);
+  assert.deepEqual(result.providedFiles, ["src/Foo.java"]);
+  assert.equal(notes["qayaba.structural.dossier"], "shown");
+});
+
+test("a dossier that cannot be shown leaves a log and a span attribute saying why: the engine could not answer, threw, or showed no file", async () => {
+  const cases: Array<{ explore: CodeExplorePort; outcome: string }> = [
+    { explore: fakeExplore(undefined), outcome: "unavailable" },
+    { explore: { explore: async () => { throw new Error("engine crashed"); } }, outcome: "unavailable" },
+    { explore: fakeExplore("**Exploration: run**\n\nNothing found."), outcome: "empty" },
+  ];
+  for (const { explore, outcome } of cases) {
+    const { value: result, notes, logs } = await observed(() => new StructuralSignalPortAdapter(reaching, fakeCoChange(), "/repo", { explore }).render("/repo", changed));
+    assert.equal(result.text.includes(DOSSIER_HEADING), false);
+    assert.equal(notes["qayaba.structural.dossier"], outcome);
+    assert.ok(logs.some((l) => l.includes("dossier")), `a log says the dossier was not shown (${outcome})`);
+  }
+});
+
+test("a failed, thrown or truncated impact walk is logged and recorded, and render still returns", async () => {
+  const cases: Array<{ graph: CodeGraphPort; walk: string }> = [
+    { graph: fakeCodeGraph({ impactedSymbols: async () => err({ reason: "not indexed" }) }), walk: "failed" },
+    { graph: fakeCodeGraph({ impactedSymbols: async () => { throw new Error("boom"); } }), walk: "failed" },
+    { graph: fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol, caller], true) }), walk: "truncated" },
+  ];
+  for (const { graph, walk } of cases) {
+    const { notes, logs } = await observed(() => new StructuralSignalPortAdapter(graph, fakeCoChange(), "/repo").render("/repo", changed));
+    assert.equal(notes["qayaba.structural.walk"], walk);
+    assert.ok(logs.some((l) => l.includes("impact walk")), `a log says the walk was ${walk}`);
+  }
+  const ok = await observed(() => new StructuralSignalPortAdapter(reaching, fakeCoChange(), "/repo").render("/repo", changed));
+  assert.equal(ok.notes["qayaba.structural.walk"], "complete");
+  assert.deepEqual(ok.logs, [], "a complete walk logs nothing");
 });

@@ -281,6 +281,16 @@ function stripEnvValues(text: string, env: Record<string, string | undefined>): 
 }
 
 
+/*
+ * Source code as the lead's code-graph tool shows it: the orchestrator's environment secrets by value, the run's own secrets by
+ * value and real secret literals by pattern, with the same model-mode policy as the change dossier (source shown to a model).
+ * The Issue-bound policy would also rewrite code that only names a secret (`const token = this.auth.getToken()`), deforming the
+ * very source the tool exists to show.
+ */
+export function redactSourceForModel(text: string, env: Record<string, string | undefined> = process.env): string {
+  return sanitizeText(stripEnvValues(text, env), "model").text;
+}
+
 export class RedactionPortAdapter implements RedactionPort {
   constructor(private readonly env: Record<string, string | undefined> = process.env) {}
 

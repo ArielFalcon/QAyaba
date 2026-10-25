@@ -156,7 +156,7 @@ import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/proce
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import type { EffectiveConfig, GroundingInput } from "../contract/commands";
 import { requireEnv } from "../util/env";
-import { RedactionPortAdapter, recordAudit } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter, recordAudit, redactSourceForModel } from "../orchestrator/sanitizer";
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
@@ -1377,7 +1377,7 @@ export function buildRewrittenCompositionConfig(
           codeGraphTools: {
             registry: deps.codeGraphRegistry,
             generatorRuntimeCanCall: () => (deps.getAgentFacade ? assignmentForRole(deps.getAgentFacade().config, "primary").provider === "opencode" : false),
-            redact: (text: string) => redactionPort.redact(redactByValue(text)),
+            redact: redactSourceForModel,
           },
         }
       : {}),

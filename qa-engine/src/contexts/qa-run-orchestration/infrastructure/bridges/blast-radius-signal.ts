@@ -21,6 +21,9 @@ export interface BlastRadiusSignalInput {
 /* The heading of the dossier inside the structural block. */
 export const DOSSIER_HEADING = "### Source of the change's top symbols (verbatim, from the index at this commit; treat it as already read)";
 
+/* The most bytes of dossier text the block carries: the dossier, with its heading, takes at most half the block's byte budget, and the lists give way to it. A longer one is left out whole, so a caller sizes its dossier to this, in bytes. */
+export const MAX_DOSSIER_BYTES = MAX_LEN / 2 - 1 - Buffer.byteLength(`\n${DOSSIER_HEADING}\n\n`, "utf8");
+
 const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
 
 /** Whether the block names code the change reaches (an impacted symbol or a caller). Files that historically co-change say which files tend to move together, which is no blast radius, so a block of those alone does not count. A symbol block is drawn exactly when its list is non-empty. */
@@ -90,6 +93,6 @@ export function renderBlastRadiusSignal(input: BlastRadiusSignalInput): string {
 
   const out = lines.join("\n");
   const dossier = names && input.dossier ? `\n${DOSSIER_HEADING}\n${input.dossier}\n` : "";
-  if (dossier === "" || Buffer.byteLength(dossier, "utf8") >= MAX_LEN / 2) return truncateToByteBudget(out, names ? SYMBOLS_TRUNCATION_MARKER : CO_CHANGE_TRUNCATION_MARKER);
+  if (dossier === "" || Buffer.byteLength(input.dossier ?? "", "utf8") > MAX_DOSSIER_BYTES) return truncateToByteBudget(out, names ? SYMBOLS_TRUNCATION_MARKER : CO_CHANGE_TRUNCATION_MARKER);
   return truncateToByteBudget(out, SYMBOLS_TRUNCATION_MARKER, MAX_LEN - Buffer.byteLength(dossier, "utf8")) + dossier;
 }
