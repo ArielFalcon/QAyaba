@@ -450,3 +450,9 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
       - When seeds exceed the reader's bound, it keeps the first ids by lexicographic order. This is deterministic.
     - **Recheck** (limited to the blocker): met. **Final suite after the fixes:** typecheck green; 10 552 tests, 5 failures, all known at the base.
   - **Next:** T9, once the owner confirms the L33 labelled set.
+- **L36 (2026-10-25) — owner, verbatim:** "Pero eso lo puedes revisar tú, tienes acceso a los repositorios de ñame en joomeco y tienes acceso al entorno de dev con las credenciales que están en .env tienes mi permiso para leerlas"
+  - **Decision:** the owner delegates confirming the L33 labelled set (S16: "confirmed by the owner") to the agent, with read access to the joomeco repos, the DEV environment and the `.env` credentials.
+  - **Labelling method:**
+    - **Independence:** the labels never use the code graph or qayaba's `changeRoutes`, since those are what T9 measures.
+    - **Code:** a TS import graph of each commit (tsconfig aliases resolved), walked back from the changed files to the route pages. Each diff is then read to keep only the pages whose behaviour changes.
+    - **DEV:** read-only browsing, used only where the code cannot settle where a component renders.
