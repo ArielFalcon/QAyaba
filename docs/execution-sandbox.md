@@ -7,8 +7,6 @@ from an agent-editable `package.json`), the login scripts, the DOM capture (it l
 the saved sessions and the provider keys in reach, so this code must not run as the orchestrator, with its
 environment, or with open network. This document is how that is enforced and how to check it.
 
-It replaces `docs/code-mode-sandbox.md`, which covered only the code target and only the privilege drop.
-
 ## The three boundaries
 
 | Boundary | What it stops | Where it lives |

@@ -1,10 +1,10 @@
 # ADR-0002: the code graph engine is codegraph, run as an untrusted-source parser, and the graph serves the engine before the agent
 
-- **Status:** Proposed — gated by the spike in `odd/tasks/codegraph-migration.md` (S1/T0)
+- **Status:** Accepted (2026-10-26) — the spike in `odd/tasks/codegraph-migration.md` (S1/T0) recorded GO and T1 to T15 are done
 - **Date:** 2026-10-25 (revised the same day after an architecture review; plan Log L16-L19)
 - **Deciders:** qayaba maintainers
-- **Supersedes:** the earlier engine choice for `service-links` and the structural signal (codebase-memory), which git history keeps. It keeps the grounding-telemetry measurement model of `docs/observability-design.md` and uses it for acceptance.
-- **Related:** `odd/tasks/codegraph-migration.md` (the executable plan), `qa-engine/src/shared-kernel/ports/code-graph.port.ts`, `qa-engine/src/shared-infrastructure/code-graph/`, `qa-engine/src/contexts/service-topology/`, `qa-engine/src/contexts/generation/domain/route-ranking.ts`, `qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/code-graph-tools-port.adapter.ts`, `docs/agent-reference.md`, `docs/execution-sandbox.md`
+- **Supersedes:** the engine chosen before this ADR for `service-links` and the structural signal (codebase-memory), which git history keeps. It keeps the grounding-telemetry measurement model of `docs/observability-design.md` and uses it for acceptance.
+- **Related:** `odd/tasks/codegraph-migration.md` (the executable plan), `qa-engine/src/shared-kernel/ports/code-graph.port.ts`, `qa-engine/src/shared-infrastructure/code-graph/`, `qa-engine/src/contexts/service-topology/`, `qa-engine/src/contexts/generation/domain/route-ranking.ts`, `qa-engine/src/contexts/qa-run-orchestration/infrastructure/adapters/code-graph-tools-port.adapter.ts`, `docs/execution-sandbox.md`
 
 ## 1. Context
 
@@ -277,7 +277,7 @@ A throwaway spike under the real constraints answers six questions before any pr
 **Risks**
 - **Unverified engine facts** (§3.6 (b)-(d)) decide feasibility. The gate exists for them.
 - **Resolution accuracy is untested** against the current engine on real apps.
-  - Mitigation: a side-by-side parity check on known commits of a Java and a JS/TS app before the old engine is removed.
+  - Mitigation: a side-by-side parity check on known commits of a Java and a JS/TS app before the engine it replaces is removed.
   - Mitigation: precision/recall of `changeRoutes` against labelled commits.
 - **Widening `changeRoutes` moves grader baselines.** The basis per page is recorded and the baseline is re-recorded with its reason.
 - **The multi-repo path is unproven, not working:** 3 runs, 0 verdicts. Its acceptance follows a green cross-repo run; it does not block the single-repo acceptance.

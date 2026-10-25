@@ -404,7 +404,7 @@ func (m dashboardModel) handleFleetKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 }
 
 /* handleModelsKey drives the MODELS panel: pick a role (↑↓), then ↵ opens the full agent
-   switcher (provider, model, dual mode, restart) — the existing screen, not a duplicate. */
+   switcher (provider, model, restart) — the existing screen, not a duplicate. */
 func (m dashboardModel) handleModelsKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	if k.String() != "enter" {
 		return m, nil

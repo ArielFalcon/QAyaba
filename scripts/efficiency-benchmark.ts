@@ -1,7 +1,6 @@
 /*
  * Reproducible agent-efficiency benchmark. A case names a real
- * commit of a real watched app — USER DATA (CLAUDE.md: "App-specificity
- * lives only in config/"), never engine code — so cases load from
+ * commit of a real watched app — USER DATA (AGENTS.md, "Golden rule"), never engine code — so cases load from
  * config/benchmarks/efficiency-cases.json (gitignored), mirroring
  * coordination-benchmark.ts's own convention.
  * config/benchmarks/efficiency-cases.example.json ships tracked.

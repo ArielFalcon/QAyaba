@@ -38,7 +38,7 @@ baseBranch: "main"             # target branch for the QA pull requests
 # `services:` above (which lists the participating repos); `boundaries:` declares the CALL
 # CONVENTION between them so the qa-engine resolver can stitch frontend call-sites to backend
 # operationIds with zero app-specific literal in the engine itself. Consumed only by the
-# qa-engine resolver (service-topology context) — the legacy loader (src/orchestrator) strips
+# qa-engine resolver (service-topology context) — the app config loader (src/orchestrator) strips
 # unknown keys and ignores this block entirely.
 # boundaries:
 #   - transport: http

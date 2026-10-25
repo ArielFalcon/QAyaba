@@ -1,8 +1,7 @@
 # qayaba (Go / Bubble Tea client)
 
 The installable terminal client for the Qayaba control plane — an **independent
-channel** of the orchestrator's Channel Gateway, alongside (eventually replacing)
-the Ink TUI. See [docs/tui-vnext.md](../docs/tui-vnext.md) for the full design.
+channel** of the orchestrator's Channel Gateway.
 
 Its own Go module inside the monorepo: Go cannot import the TS orchestrator, so the
 language boundary enforces the contract. The wire types are **generated** from the
@@ -37,8 +36,7 @@ orchestrator's published `contract/openapi.json` (no hand-written drift).
   failed cases as a new run). Opened from the live screen with `a` / `c`.
 - ✅ OS token storage (`internal/store`, go-keyring): a working token is saved to
   the Keychain/Secret-Service/Credential-Manager on connect and prefilled next time.
-- ⏳ parity screens (onboarding, run history) before the Phase F cutover that
-  retires the Ink TUI.
+- ⏳ onboarding and run-history screens.
 
 ## Run
 

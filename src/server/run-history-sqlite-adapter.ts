@@ -5,7 +5,7 @@ import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
 import type { RunOutcome as StoredRunOutcome } from "../types";
 
 /*
- * Dependency injection is the testing strategy (CLAUDE.md): a test supplies a fake saveOutcome so
+ * Dependency injection is the testing strategy (AGENTS.md): a test supplies a fake saveOutcome so
  * the mapping is verifiable without touching the real (lazily-initialized, module-singleton)
  * SQLite database history.ts owns.
  */

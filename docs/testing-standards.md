@@ -49,7 +49,7 @@ testing (`npm run mutate`) is the objective check that they would catch a bug.
   name the bug, then fix.
 - **A test gap starts by showing the mutant survives** — run the module's preset, read the survivor,
   write the behavior test that kills it, re-run.
-- A characterization test pins current behavior before a refactor; replace it with a real spec test
+- A test that pins current behavior before a refactor is temporary; replace it with a real spec test
   once the behavior is intended.
 
 ## The test-write guard
@@ -1202,7 +1202,7 @@ The re-run: 307 killed, no timeout, none survived, 100%.
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
 | rule-learning | rule-governance.service, rule-fold | 117 / 4 / 7 — 94.53% (91.41%) | 114 / 0 / 0 — 100% (100%) | — |
 | fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 197 / 2 / 8 — 96.14% (95.17%) | — |
-| coordination | acceptance-report, pushback, delegation-failure-class (scores measured while the preset also held the since-removed orchestration-router) | 199 / 20 / 11 — 95.22% (86.52%) | 252 / 1 / 3 — 98.83% (98.44%) | — |
+| coordination | acceptance-report, pushback, delegation-failure-class (scores measured while the preset also held the since-removed routing role) | 199 / 20 / 11 — 95.22% (86.52%) | 252 / 1 / 3 — 98.83% (98.44%) | — |
 | merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 314 / 2 / 5 — 98.44% (97.82%) | — |
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
@@ -1234,7 +1234,7 @@ letting a later caller in while the holder was still running (the aborted waiter
 literal is not asserted, by the rules above), the bookkeeping that removes an idle account's entry from the lock's map (it only bounds memory, nothing observes it), the anchors of two regular expressions whose
 `.*` makes the end anchor a no-op, the second of two checks that give the same refusal (an empty pattern is also not an absolute path), and the `trim` before `new URL`, which trims on its own.
 
-Slice 13e (2026-10-09) did not finish its mutation records. v8-coverage-decode, code-run-reads and
+Change 13e (2026-10-09) did not finish its mutation records. v8-coverage-decode, code-run-reads and
 e2e-run-reads were run to the end on the code of its commit and their rows are those runs. spec-path-confinement,
 run-output-readers and repo-reads were **not re-run** on it (a run was started and stopped, and the first run of
 the widened spec-path-confinement preset was cut at 84% with 19 survivors seen and not looked at), so their
@@ -1242,7 +1242,7 @@ After cells are what each had before the slice, or say so, and the survivors of 
 preset are open work. The hand mutants of the slice were run on earlier states of the code, each survivor got a
 test and died when its own mutant was run again, and the whole sets were not run again on the final code.
 
-Slice 13f (2026-10-09), the follow-up that bounds what the size caps of 13e left open, **ran no mutation at all**:
+Change 13f (2026-10-09), the follow-up that bounds what the size caps of 13e left open, **ran no mutation at all**:
 no Stryker preset and no hand mutant was run on its code, so the rows above say nothing of it. What it changes in
 the code the presets cover, and what holds it, is only its tests (strict test first, each shown red for its own
 reason before the change): the caps and budgets (the Playwright report and the oracle's report 16 MiB, the V8

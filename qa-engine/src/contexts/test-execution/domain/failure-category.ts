@@ -4,7 +4,7 @@
  *
  * It is pinned to the wording of Playwright's messages, which is not a stable interface: the fixtures in
  * qa-engine/test/contexts/test-execution/domain/failure-category.test.ts are the messages of the version the image pins, and moving Playwright
- * means re-checking them (CLAUDE.md, "When Playwright moves"). A message none of the rules know is left unclassified, never guessed.
+ * means re-checking them (AGENTS.md, "When Playwright moves"). A message none of the rules know is left unclassified, never guessed.
  */
 
 import { stripAnsi } from "@kernel/ansi.ts";

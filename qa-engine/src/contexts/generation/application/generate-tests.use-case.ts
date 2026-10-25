@@ -359,7 +359,7 @@ export class GenerateTestsUseCase {
       };
     }
 
-    /* ── 6. Independent reviewer session ────────────────────────────────────── The reviewer is the AUTHORITATIVE publish gate. Opens a SEPARATE session to guarantee independence — the generator cannot influence the reviewer. (mirrors reviewIndependently in opencode-client.ts:952-1009) */
+    /* ── 6. Independent reviewer session ────────────────────────────────────── The reviewer is the AUTHORITATIVE publish gate. Opens a SEPARATE session to guarantee independence — the generator cannot influence the reviewer. */
     const reviewerRole: AgentRole = "reviewer";
     /* Ground this FIRST reviewer pass the same way review-port.adapter.ts grounds every regen
        pass (domSnapshot, learned rules, guidance, baseUrl, target), plus the full CommitIntent this

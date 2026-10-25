@@ -308,7 +308,7 @@ html, body { height: 100%; }
 body { margin: 0; background: var(--surface-page); color: var(--text-body); overflow: hidden; }
 #app { height: 100vh; }
 
-/* ── motion + drafting marks (ported from the console kit) ───────────────── */
+/* ── motion + drafting marks (from the console kit) ───────────────── */
 :root { --ease-brand: cubic-bezier(0.22, 1, 0.36, 1); }
 @keyframes pa-pulse { 0% { transform: scale(1); opacity: .5; } 70% { transform: scale(2.4); opacity: 0; } 100% { opacity: 0; } }
 @keyframes pa-spin { to { transform: rotate(360deg); } }

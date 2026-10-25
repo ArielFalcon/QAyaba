@@ -1398,7 +1398,7 @@ func wrapJoin(parts []string, sep string, width int) string {
 }
 
 /* ── Live activity: the FocusCard ("now") + the plan/wrote/ran feed ──────────────
-   Ported from the Ink dashboard (FocusCard + LiveActivity): a bordered card with the
+   A bordered card with the
    current unit of work, then the agent's plan checklist, files written and commands
    run. Derived from the folded state, never invented. */
 

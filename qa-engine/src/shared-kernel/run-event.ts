@@ -1,4 +1,4 @@
-/* Closed RunEvent vocabulary. Adding a variant means adding it to contract/events.ts first, then mirroring here so the schemas stay identical. */
+/* Closed RunEvent vocabulary. Adding a variant means adding it to src/contract/events.ts first, then mirroring here so the schemas stay identical. */
 
 import { z } from "zod";
 export type { AgentRole, RoleAssignment, AgentProvider } from "./agent-role.ts";

@@ -355,7 +355,7 @@ The **referenced** ids are extracted later by a pure function (§11.1), never se
 So:
 - `shared-kernel/telemetry/genai-semconv.ts` is the **only** module that spells a `gen_ai.*` key.
   It records the repo commit it follows in `qayaba.semconv.genai_rev`.
-- We emit the current names only. We do not double-emit legacy names.
+- We emit the current names only. We do not double-emit superseded names.
 - `gen_ai.conversation.id` is set **only** to OpenCode's real session id. Per the spec, it is never
   synthesized from a run id.
 
@@ -443,7 +443,7 @@ The join is **in-process**:
 5. When the SSE tool part for that call completes, the synthesized `execute_tool run_spec` span
    gets a **link** to the server span. They are matched by session id, `messageID` and time overlap.
    `messageID` is in `ToolContext`; adding it to the POST body is a two-line change in
-   `agents/lib/*-client.mjs` and the parsers. The smokes are re-run per the CLAUDE.md rule.
+   `agents/lib/*-client.mjs` and the parsers. The smokes are re-run per the AGENTS.md rule.
 
 Why not a `traceparent` header? The tool would need the span context of its own call, and OpenCode
 does not give it one. The session-id join is exact, and it does not change the tool's trust surface.
@@ -677,7 +677,7 @@ Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or t
   - So each span handle carries the run's `RunSecretScope`, given at creation (root, phases,
     server spans). `setAttrs` and `addEvent` redact through **that** scope, not through `activeRunSecretScope()`.
 - **Policy:** the outbound one (`src/orchestrator/sanitizer.ts`, `"issue"` mode, which includes
-  by-value redaction). CLAUDE.md requires it for data leaving the system. It is applied **only to keys
+  by-value redaction). AGENTS.md requires it for data leaving the system. It is applied **only to keys
   whose registry class is `redacted-text` or `content`**. Ids, hosts and enums are not run through
   PII and private-IP patterns, which would corrupt them.
 - Span status descriptions and exception events are text too, so they get the same treatment.
@@ -713,7 +713,7 @@ Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or t
   export on by itself, because that would be an exfiltration lever. Within a campaign, all arms are
   forced to the same mode (a run that would apply a different one is refused with a 409, section 14).
 - **No SaaS.** No exporter points outside the compose network.
-- **Governance (own commits, per CLAUDE.md and the owner's one-branch rule):**
+- **Governance (own commits, per AGENTS.md and the owner's one-branch rule):**
   - the compose networks and receiver split;
   - the `tools-endpoint` parser change (`messageID`);
   - the agent runtime env allowlist;
@@ -729,7 +729,6 @@ Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or t
   - a one-line meaning
   - the `cardinality` (`low|high`; metrics may use only low)
   - its `content` class: `none`, `redacted-text` or `content` (dropped below `full`)
-- `docs/telemetry-attributes.md` is generated from it, and contract-checked like `openapi.json`.
 
 ---
 
@@ -1180,7 +1179,7 @@ reliable, deterministic; trust over features; local operability on a Mac.
 |---|---|---|---|
 | R1 | Is the local ledger on by default? | **Yes.** `QA_TELEMETRY=local` is the default. `off` is the opt-out and the overhead baseline. | Retroactive graders and the public API must work when no collector ran. That matches the brief's own principle 8, which outranks the "zero overhead" wording of principle 2. Network stays at zero without an endpoint. The ledger write is one synchronous SQLite insert per span, on a sequential queue. |
 | R2 | Which viewer is the default? | **`telemetry` profile = collector + LGTM.** `langfuse` is a second profile that adds Langfuse to the same collector. | LGTM is one container and answers the diagnostic questions (C1–C12) with traces and metrics. Langfuse carries the eval workflow (scores UI, annotation queues, datasets), but needs about 6 containers and 16 GiB. Scores never depend on it (D12), so turning it on later loses nothing. |
-| R3 | Does `empty_output_guard` gate? | **Grader only.** It becomes a gate only if it ever fails on real data, and then as a governance-sensitive change in its own commit. | The invariant already exists (no-op → `skipped`, zero specs → `E-NO-DECISION`, "approved is never a no-op"). A second gate on the same condition adds a path that can disagree with the first, and CLAUDE.md rules out piling up LLM-free gates without evidence. |
+| R3 | Does `empty_output_guard` gate? | **Grader only.** It becomes a gate only if it ever fails on real data, and then as a governance-sensitive change in its own commit. | The invariant already exists (no-op → `skipped`, zero specs → `E-NO-DECISION`, "approved is never a no-op"). A second gate on the same condition adds a path that can disagree with the first, and AGENTS.md rules out piling up LLM-free gates without evidence. |
 | R5 | Do we upgrade OpenCode (1.17.7 → 1.19.3) for better telemetry? | **No.** The telemetry components (OTel JS 2.12 / 0.223, Collector 0.163.0, otel-lgtm 0.37.0, Langfuse 4.63.0) are adopted at their latest versions. | A source diff of both tags found no telemetry gain in OpenCode: the same `ai` 6.0.168, the same `experimental.openTelemetry`, no step timestamps, the same tool-list API, no trace context in `ToolContext`. Moving a pin costs a re-recorded agent-list fixture, re-run smokes and new behaviour risk on the execution path, for no telemetry gain. Revisit when the runtime ships GenAI semconv or step timestamps. |
 | R4 | How long are records kept? | **`run_spans` 30 days, like `agent_turns`. Campaign-tagged runs keep both for 180 days.** `QA_TELEMETRY_RETENTION_DAYS` and `QA_TELEMETRY_CAMPAIGN_RETENTION_DAYS` override them. `run_scores` are never pruned (they are tiny). | Campaign runs are the eval baselines that later graders and judges re-score (principle 8). Ordinary runs are diagnostic and lose value fast. |
 | R6 | Where do logs live, and for how long? | **OpenCode's own logs and the orchestrator's console lines go to Loki through the two existing collectors; OpenCode's spans are dropped.** Logs are kept 180 days (`config/otel/loki-config.yaml`), the campaign window. | OpenCode's spans cannot be joined to a run: 1.17.7 ignores `traceparent` and puts every span in one rootless process trace (verified live). Its logs are the useful part; the collector strips and stamps them like spans. A log cannot carry the campaign tag, so the only window that never cuts a campaign's logs early is the longest one, and a log line is cheap. The tap exports only while a span is active and under the run's capture mode, so `runs.logs`/`run_events` stay the API's record. |

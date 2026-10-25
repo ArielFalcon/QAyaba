@@ -1,4 +1,4 @@
-/* The one module that spells a `gen_ai.*` key or metric name. The OpenTelemetry GenAI conventions are in "Development", have no release and moved to their own repository, so every name the engine emits goes through this mapping and a rename is a change to this file alone. Current names only: legacy names are never emitted alongside them. */
+/* The one module that spells a `gen_ai.*` key or metric name. The OpenTelemetry GenAI conventions are in "Development", have no release and moved to their own repository, so every name the engine emits goes through this mapping and a rename is a change to this file alone. Current names only: superseded names are never emitted alongside them. */
 
 /* The revision of open-telemetry/semantic-conventions-genai this mapping follows; recorded on the run as `qayaba.semconv.genai_rev`. */
 export const GENAI_SEMCONV_REV = "main@2026-10-14";

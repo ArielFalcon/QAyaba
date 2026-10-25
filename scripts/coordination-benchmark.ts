@@ -1,6 +1,6 @@
 /*
  * Reproducible coordination benchmark. A case names a real commit of a real watched repo — that
- * is USER DATA (CLAUDE.md: "App-specificity lives only in config/"), never engine code, so cases
+ * is USER DATA (AGENTS.md, "Golden rule"), never engine code, so cases
  * are loaded from config/benchmarks/coordination-cases.json (gitignored) rather than hardcoded
  * here. config/benchmarks/coordination-cases.example.json ships tracked, with neutral placeholder
  * values, as the onboarding template (same pattern as config/apps/example.yaml).

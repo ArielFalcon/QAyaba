@@ -276,7 +276,7 @@ throwaway copy is removed, so the specs outlive the copy; a copy that cannot be 
 
 A pipeline run no longer starts cold in shadow mode: an accepted run keeps its suite in the **suite store**
 (`data/suites/<app>/` in the qa-data volume, not mounted into the agents container) and the next run restores it
-after its checkout, before the project setup (CLAUDE.md, "Persistence & onboarding"). So a restored mirror does
+after its checkout, before the project setup (AGENTS.md, "Persistence & onboarding"). So a restored mirror does
 nothing for a pipeline case: the checkout's `git clean -fd` removes the untracked suite, and the store brings
 back whatever it holds. `seed-store` is how the experiment gives the pipeline arm the same warm start as the
 plain agent's copy: it replaces the app's store with the snapshot (every file of the snapshot, the app's own

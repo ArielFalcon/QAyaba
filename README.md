@@ -488,4 +488,4 @@ curl -X POST localhost:458 \
 
 ---
 
-**Need more detail?** Read [`CLAUDE.md`](CLAUDE.md) for the full operational reference, [`AGENTS.md`](AGENTS.md) for project instructions.
+**Need more detail?** Read [`AGENTS.md`](AGENTS.md) for the project instructions and the operational reference.

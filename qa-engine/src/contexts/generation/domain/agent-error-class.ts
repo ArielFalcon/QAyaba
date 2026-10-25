@@ -96,8 +96,8 @@ function classifyFault(err: unknown, visited: Set<object>, depth: number): Agent
   visited.add(err);
   const kept = carriedAgentErrorType(err);
   if (kept !== undefined) return kept;
-  const legacy = (err as { agentErrorType?: unknown }).agentErrorType;
-  if (isAgentErrorType(legacy)) return legacy;
+  const declared = (err as { agentErrorType?: unknown }).agentErrorType;
+  if (isAgentErrorType(declared)) return declared;
   if (err instanceof AgentTimeoutError || err instanceof StalledAgentError) return "timeout";
   const named = err as { name?: unknown; code?: unknown; message?: unknown };
   if (named.name === "AgentTimeoutError" || named.name === "StalledAgentError") return "timeout";

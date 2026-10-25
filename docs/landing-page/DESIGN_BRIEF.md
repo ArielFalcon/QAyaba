@@ -11,7 +11,7 @@ Read the whole brief before generating. When in doubt, prefer the choice that ma
 
 - **One self-contained `index.html`** with embedded CSS and vanilla JavaScript. It must run by opening the file — **no build step, no framework runtime, no external JS deps** (one exception: you may load **Motion One** from a CDN for imperative animation; if unavailable, fall back to CSS/WAAPI).
 - Fonts may load from Google Fonts (or be swapped for system fallbacks).
-- The markup must be **clean and componentized in structure** (clear sections, BEM-ish or data-attribute hooks) because it will later be ported to **Astro + Svelte islands**. Think of this as the high-fidelity reference implementation.
+- The markup must be **clean and componentized in structure** (clear sections, BEM-ish or data-attribute hooks) because it will later be moved to **Astro + Svelte islands**. Think of this as the high-fidelity reference implementation.
 - It must be **responsive** (mobile-first works up to large desktop), **accessible** (semantic HTML, keyboard-operable, ARIA where needed), and honor **`prefers-reduced-motion`** (render the final state of every animation instantly, no motion).
 - Performance budget: lightweight. No video, no WebGL, no canvas-heavy renderers, no large image assets. All "visuals" are **styled DOM + SVG + CSS/JS animation**.
 
