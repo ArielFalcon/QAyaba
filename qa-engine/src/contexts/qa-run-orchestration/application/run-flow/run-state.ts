@@ -18,6 +18,7 @@ import type {
 } from "../ports/index.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import type { GraphPage } from "@kernel/change-pages.ts";
 import type { ClosedLoopGateSignal } from "@kernel/closed-loop.ts";
 import type { RunDecision } from "../../domain/run-decision.ts";
 import type { RunEvidence } from "../../domain/run-decision.service.ts";
@@ -63,6 +64,8 @@ export interface Grounding {
   moreNodes: readonly string[];
   /** The pages of the app's map the change is linked to, in rank order: a coordinated run's planning turn is told them. */
   changeRoutes: readonly string[];
+  /** The proof the call graph found for each change page it added: a sidekick's brief carries those of its flow's pages. */
+  changeProofs: readonly GraphPage[];
   /** The pages the pack read with results under the declared data state: the witness a failure that reads them empty contradicts. */
   confirmedDataRoutes: readonly { path: string; resultCount: number }[] | undefined;
   blastRadiusSignal: string;
@@ -208,6 +211,7 @@ export function initialRunState(): RunState {
       harnessFacts: undefined,
       moreNodes: [],
       changeRoutes: [],
+      changeProofs: [],
       confirmedDataRoutes: undefined,
       blastRadiusSignal: "",
       blastRadiusSignalHasSymbols: false,

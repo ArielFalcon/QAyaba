@@ -18,6 +18,8 @@ import { isRunDeadlineError } from "../../../../shared-kernel/run-deadline.ts";
 import type { AgentBrowserHandle, ClosedLoopHandle, FlowFailureFact, FlowGeolocationHandle, FlowLedgerEntry, FlowLoopHandle, GeolocationHandle, LeadSessionHandle, PlanOutput } from "../ports/index.ts";
 import type { DelegationWorkspace, DelegationWorkspacePort, DelegationWorkspaceRequest, WorkspaceChange } from "../ports/delegation-workspace.port.ts";
 import { createDelegationBrief } from "./delegation-brief.ts";
+import { proofsFor } from "./change-proofs.ts";
+import type { GraphPage } from "@kernel/change-pages.ts";
 import type { DelegationResult } from "./delegation-result.ts";
 import { classifyDelegationFailure } from "./delegation-failure-class.ts";
 import { admitLeadReview, changePagesOf, MAX_REVIEW_TURNS, renderLeadReview, unvisitedBy, REVIEW_ACTION, type FlowUnderReview, type ReviewOrder } from "./lead-review.ts";
@@ -43,6 +45,11 @@ import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadC
 const pagesOf = (pack: string | undefined, routes: readonly string[]): { pages: string } | undefined => {
   const pages = packPagesFor(pack, routes);
   return pages === undefined ? undefined : { pages };
+};
+
+const proofsOf = (proofs: readonly GraphPage[] | undefined, routes: readonly string[]): { proofs: string[] } | undefined => {
+  const lines = proofsFor(proofs, routes);
+  return lines === undefined ? undefined : { proofs: lines };
 };
 
 /* Less than this of a flow's time left and a second attempt is not started; less than this of the run and a plan is not asked for. */
@@ -90,6 +97,8 @@ export interface CoordinateInput {
   contextPack?: string;
   /* The pages of the app's map the change is linked to: the planning turn is told them, and those no admitted flow visits are reported. */
   changeRoutes?: readonly string[];
+  /* The proof the call graph found for each change page it added: each flow's brief carries those of the pages it visits. */
+  changeProofs?: readonly GraphPage[];
   /* The run's deadline, when one is armed. */
   deadline?: { remainingMs(): number | undefined };
   /* The planning turn, asked for with the limits the plan will be held to. Absent: this run's generation cannot plan. */
@@ -438,6 +447,7 @@ export class LeadSidekicks {
       scope: { readablePaths: ["."], writablePaths: flow.writablePaths, allowedCommands: [] },
       knownFacts: input.knownFacts ?? [],
       ...(pagesOf(input.contextPack, flow.routes) ?? {}),
+      ...(proofsOf(input.changeProofs, flow.routes) ?? {}),
       ...(input.devBaseUrl ? { artifactRefs: [{ id: "dev-base-url", path: input.devBaseUrl }] } : {}),
     });
   }

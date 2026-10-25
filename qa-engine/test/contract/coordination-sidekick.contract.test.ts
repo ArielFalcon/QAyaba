@@ -53,6 +53,14 @@ test("renderSidekickBrief includes authority, scope, validation and escalation â
 /* Model-bound egress: sidekick prompt must scrub free-form brief fields the same way lead/worker
    prompts do via sanitizeText â€” secrets in guidance/commit message must not reach the provider.
  */
+test("renderSidekickBrief states how the change reaches the flow's pages only when the brief carries proofs", () => {
+  const withProofs = createDelegationBrief({ delegationId: "d1", runId: "r1", objective: "o", task: "t", scope, proofs: ["/orders: a.ts::f > b.ts::Page > page /orders"] });
+  const { text, sectionSizes } = renderSidekickBrief(withProofs);
+  assert.match(text, /## How the change reaches this flow's pages[^\n]*\n- \/orders: a\.ts::f > b\.ts::Page > page \/orders/);
+  assert.ok(sectionSizes.proofs! > 0);
+  assert.equal("proofs" in renderSidekickBrief(brief()).sectionSizes, false);
+});
+
 test("renderSidekickBrief redacts secrets in objective, task, knownFacts, and acceptance criteria", () => {
   const secret = "token: ghs_supersecretvalue";
   const { text } = renderSidekickBrief(

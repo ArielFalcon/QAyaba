@@ -903,6 +903,19 @@ test("each sidekick's brief carries the Live DOM of its own flow's pages from th
   assert.equal(brief("login").pages, undefined, "a flow whose pages the pack did not read gets no slice");
 });
 
+test("each sidekick's brief carries the call graph's proof for the change pages its flow visits, and none of another flow's", async () => {
+  const r = rig();
+  const changeProofs = [
+    { route: "/shops/:city", proof: ["src/util/format.ts::formatMoney", "src/shops/list.page.ts::ShopList", "page /shops/:city"] },
+    { route: "/orders", proof: ["src/util/format.ts::formatMoney", "src/orders/orders.page.ts::Orders", "page /orders"] },
+  ];
+  const plan = { kind: "fanout", flows: [{ id: "shops", objective: "the shop list", routes: ["/shops/madrid"] }, { id: "login", objective: "sign in works", routes: ["/login"] }] };
+  await r.coordinator.coordinate(input(r, { changeProofs, plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  const brief = (flow: string) => r.executed.find((e) => e.brief.delegationId === `run-1-flow-${flow}`)!.brief;
+  assert.deepEqual(brief("shops").proofs, ["/shops/:city: src/util/format.ts::formatMoney > src/shops/list.page.ts::ShopList > page /shops/:city"]);
+  assert.equal(brief("login").proofs, undefined, "a flow that visits no proven page carries no proof");
+});
+
 /* A lead whose planning session answers each turn with these raw outputs in order (the last repeats). */
 function leadAnswering(outputs: string[]): { plan: CoordinateInput["plan"]; asked: string[]; disposed: () => number } {
   const asked: string[] = [];

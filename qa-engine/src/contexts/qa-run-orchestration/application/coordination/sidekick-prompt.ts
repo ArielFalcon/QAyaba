@@ -79,6 +79,7 @@ export function renderSidekickBrief(brief: DelegationBrief): {
     authority,
     facts,
     ...(brief.pages ? { pages: ["## Pages of this flow (from the run's Context Pack)", brief.pages].join("\n") } : {}),
+    ...(brief.proofs?.length ? { proofs: ["## How the change reaches this flow's pages (from the run's call graph)", ...brief.proofs.map((proof) => `- ${scrub(proof)}`)].join("\n") } : {}),
     artifacts,
     validation,
     escalation,

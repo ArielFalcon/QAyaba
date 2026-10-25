@@ -59,6 +59,7 @@ async function coordinateFirstPass(state: Readonly<RunState>, ctx: WorkspaceRunC
       ...(state.grounding.confirmedDataRoutes?.length ? { knownFacts: evidenceFromPackDataRoutes(state.grounding.confirmedDataRoutes) } : {}),
       ...(state.grounding.contextPack ? { contextPack: state.grounding.contextPack } : {}),
       ...(state.grounding.changeRoutes.length > 0 ? { changeRoutes: state.grounding.changeRoutes } : {}),
+      ...(state.grounding.changeProofs.length > 0 ? { changeProofs: state.grounding.changeProofs } : {}),
       ...(deps.generation.plan
         ? { plan: (planning) => deps.generation.plan!(workspace.specDir, signal, classificationDiff, { ...baseEnrichment, ...geolocationEnrichment(ctx), planning }) }
         : {}),

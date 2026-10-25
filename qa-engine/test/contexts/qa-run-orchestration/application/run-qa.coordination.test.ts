@@ -141,6 +141,17 @@ test("the pages the grounding linked to the change reach the coordinator, and a 
   assert.equal(plain.coordinated[0]!.changeRoutes, undefined);
 });
 
+test("the proofs of the pages the call graph added reach the coordinator, and a run whose graph added none passes none", async () => {
+  const proven = rig();
+  const pages = [{ route: "/upload-menu", proof: ["src/menu.ts::upload", "page /upload-menu"] }];
+  const preGenerationGrounding = { ground: async () => ({ changeRoutes: ["/order", "/upload-menu"], changePages: { pages, hubs: [], disagreements: [], omitted: 0 } }) };
+  await new RunQaUseCase(proven.deps({ preGenerationGrounding })).run(INPUT);
+  assert.deepEqual(proven.coordinated[0]!.changeProofs, pages);
+  const plain = rig();
+  await new RunQaUseCase(plain.deps({ preGenerationGrounding: { ground: async () => ({ changeRoutes: ["/order"] }) } })).run(INPUT);
+  assert.equal(plain.coordinated[0]!.changeProofs, undefined);
+});
+
 test("a generation that cannot plan is told to the coordinator as no planning turn", async () => {
   const r = rig();
   await new RunQaUseCase(r.deps({ generation: { generate: async () => scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true }) } })).run(INPUT);

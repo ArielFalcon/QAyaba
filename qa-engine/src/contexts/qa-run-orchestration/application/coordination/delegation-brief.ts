@@ -45,6 +45,8 @@ export interface DelegationBrief {
   readonly escalationPolicy: EscalationPolicy;
   /* The Live DOM of the flow's pages, cut from the run's Context Pack. */
   readonly pages?: string;
+  /* How the change reaches the flow's pages, as the call graph proved it (`route: step > step`). */
+  readonly proofs?: readonly string[];
 }
 
 export function createDelegationBrief(input: {
@@ -58,6 +60,7 @@ export function createDelegationBrief(input: {
   artifactRefs?: readonly ArtifactReference[];
   validationPlan?: readonly ValidationStep[];
   pages?: string;
+  proofs?: readonly string[];
 }): DelegationBrief {
   if (!input.delegationId) throw new Error("DelegationBrief requires delegationId");
   if (!input.runId) throw new Error("DelegationBrief requires runId");
@@ -74,5 +77,6 @@ export function createDelegationBrief(input: {
     authority: SIDEKICK_AUTHORITY,
     escalationPolicy: DEFAULT_ESCALATION_POLICY,
     ...(input.pages ? { pages: scrub(input.pages) } : {}),
+    ...(input.proofs?.length ? { proofs: input.proofs.map(scrub) } : {}),
   };
 }
