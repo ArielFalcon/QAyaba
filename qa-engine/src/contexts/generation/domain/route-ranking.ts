@@ -1,4 +1,4 @@
-/* Which of the map's routes the run's changed files point at, so the pack offers those to the capture first. Only declared paths count: the files that implement a route, the file that declares it, and the spec of an operation it joins; after them, the pages the run's call graph proved the change reaches (`graphPages`, computed outside and passed in). Nothing is inferred from a name, a substring or a service label, and a map that declares none of them, or none that changed, leaves the order as the file has it. The map is data read from a file: every field is checked where it is read, and one that is not what it should be is skipped, never thrown on. */
+/* Which of the map's routes the run's changed files point at, so the pack offers those to the capture first. Only declared paths count: the files that implement a route, the file that declares it, and the spec of an operation it joins; after them, the pages the run's call graph proved the change reaches (`graphPages`, computed outside and passed in), and last before the rest the pages a hub of the change reaches (`hubPages`), which are never change pages. Nothing is inferred from a name, a substring or a service label, and a map that declares none of them, or none that changed, leaves the order as the file has it. The map is data read from a file: every field is checked where it is read, and one that is not what it should be is skipped, never thrown on. */
 
 import type { ChangePageBasis } from "@kernel/change-pages.ts";
 
@@ -19,6 +19,8 @@ export interface RankingChange {
   stagedRoots?: readonly string[];
   /* Pages of the map the call graph proved the change reaches. They rank after every page the map links, and a page the map links keeps the map's basis. */
   graphPages?: readonly string[];
+  /* Pages a hub of the change reaches: too many for the graph to name any as a change page, so none is relevant, but they rank after every change page and before the rest, so the capture shows pages the change does reach. */
+  hubPages?: readonly string[];
 }
 
 /* A suffix links two paths only when it spans this many segments, so a bare file name never does; across repos an equal path needs as many, while in a single repo a file at the root names itself. */
@@ -27,7 +29,7 @@ const MIN_SEGMENTS_ACROSS_REPOS = 2;
 const MIN_SEGMENTS_IN_A_SINGLE_REPO = 1;
 
 /* The smaller the rank, the earlier the route. */
-const RANK = { implementation: 0, source: 1, spec: 2, graph: 3, rest: 4 } as const;
+const RANK = { implementation: 0, source: 1, spec: 2, graph: 3, hub: 4, rest: 5 } as const;
 const BASIS_OF_RANK: Record<number, ChangePageBasis> = { [RANK.implementation]: "implementation", [RANK.source]: "source", [RANK.spec]: "spec", [RANK.graph]: "graph" };
 
 const isText = (value: unknown): value is string => typeof value === "string";
@@ -103,17 +105,20 @@ export function rankRoutesWithRelevance(routes: readonly string[], map: Rankable
   };
   const routeEntries = entriesOf(map?.routes);
   const proven = new Set(change.graphPages ?? []);
+  const reachedByHub = new Set(change.hubPages ?? []);
   const rankOf = (route: string): number =>
     Math.min(
       routesJoiningThem.has(route) ? RANK.spec : RANK.rest,
       proven.has(route) ? RANK.graph : RANK.rest,
+      reachedByHub.has(route) ? RANK.hub : RANK.rest,
       ...routeEntries.filter((entry) => !crossRepo && entry.path === route).map(ownRank),
     );
   const all = [...new Set([...routes, ...proven])];
   return all
     .map((route) => {
       const rank = rankOf(route);
-      return { route, rank, relevant: rank < RANK.rest, ...(rank < RANK.rest ? { basis: BASIS_OF_RANK[rank]! } : {}) };
+      const relevant = rank < RANK.hub;
+      return { route, rank, relevant, ...(relevant ? { basis: BASIS_OF_RANK[rank]! } : {}) };
     })
     .sort((a, b) => a.rank - b.rank);
 }

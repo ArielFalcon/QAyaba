@@ -65,6 +65,9 @@ export interface ContextPackInput {
   /* Pages of the map the run's call graph proved the change reaches; they rank after the pages the map links (route ranking). Absent → the map's links alone. */
   graphPages?: string[];
 
+  /* Pages a hub of the change reaches; they rank after every change page and before the rest, and are never change pages (route ranking). */
+  hubPages?: string[];
+
   /* false → no live-DOM capture, no route ranking, no redirect advisory, no "not capturable" list (an A/B arm; default true). Contracts and the pack header stay. */
   domPack?: boolean;
 }
@@ -368,7 +371,7 @@ export async function buildContextPack(
   /* The derived routes are ranked by the change. With no changed file there is nothing to rank by. */
   const derivedRoutes = [...new Set(input.routes ?? [])];
   const ranked: RankedRoute[] = input.prChangedFiles
-    ? rankRoutesWithRelevance(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}), ...(input.graphPages?.length ? { graphPages: input.graphPages } : {}) })
+    ? rankRoutesWithRelevance(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}), ...(input.graphPages?.length ? { graphPages: input.graphPages } : {}), ...(input.hubPages?.length ? { hubPages: input.hubPages } : {}) })
     : derivedRoutes.map((route) => ({ route, rank: 0, relevant: false }));
   const deterministicRoutes = ranked.map((entry) => entry.route);
   const relevantRanked = ranked.flatMap((entry) => (entry.relevant && entry.basis !== undefined ? [{ route: entry.route, basis: entry.basis }] : []));

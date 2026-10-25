@@ -245,9 +245,10 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
 
   /*
    * The pages the call graph proves the change reaches, beside the ones the map links (which keep the map's basis and take no
-   * slot of the join's cap). Recorded on the result and told to the trace; nothing when no index answered.
+   * slot of the join's cap), and the pages its hubs reach, which only order the DOM capture. Recorded on the result and told to
+   * the trace; nothing when no index answered.
    */
-  private async graphPagesOf(result: GroundingResult, map: ArchitectureContext, changedFiles: string[], diff: string | undefined, change: GroundingChange): Promise<string[] | undefined> {
+  private async graphPagesOf(result: GroundingResult, map: ArchitectureContext, changedFiles: string[], diff: string | undefined, change: GroundingChange): Promise<{ pages: string[]; hubPages: string[] } | undefined> {
     const join = this.collaborators.changePages;
     if (!join) return undefined;
     const linked = new Set(
@@ -259,7 +260,10 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     if (!found) return undefined;
     result.changePages = found;
     this.tell(() => this.collaborators.trace?.changePages?.(found));
-    return found.pages.map((page) => page.route);
+    /* The pages each hub reached, the most specific hub (fewest pages) first, each page once; a page the map links or the graph proves keeps that place. */
+    const placed = new Set([...linked, ...found.pages.map((page) => page.route)]);
+    const hubPages = [...new Set([...found.hubs].sort((a, b) => a.pages - b.pages).flatMap((hub) => hub.routes ?? []))].filter((route) => !placed.has(route));
+    return { pages: found.pages.map((page) => page.route), hubPages };
   }
 
   /* The observer is told in passing: its fault never changes what grounding returns. */
@@ -341,7 +345,8 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
         ? withChangedElementScopes(parsed, this.ctx.mirrorDir, this.ctx.testIdAttribute)
         : parsed;
       const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
-      const graphPages = domPack && contextMap && prChangedFiles?.length && change ? await this.graphPagesOf(result, contextMap, prChangedFiles, diff, change) : undefined;
+      const graph = domPack && contextMap && prChangedFiles?.length && change ? await this.graphPagesOf(result, contextMap, prChangedFiles, diff, change) : undefined;
+      const graphPages = graph?.pages;
       const buildPromise = build(
         {
           baseUrl: this.ctx.baseUrl,
@@ -353,6 +358,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(deterministicRoutes?.length ? { routes: deterministicRoutes } : {}),
           ...(this.ctx.stagedRoots ? { stagedRoots: this.ctx.stagedRoots } : {}),
           ...(graphPages?.length ? { graphPages } : {}),
+          ...(graph?.hubPages.length ? { hubPages: graph.hubPages } : {}),
           ...(changedElements?.length ? { changedElements } : {}),
           ...(labels?.literals.length ? { changedLiterals: labels.literals } : {}),
         },

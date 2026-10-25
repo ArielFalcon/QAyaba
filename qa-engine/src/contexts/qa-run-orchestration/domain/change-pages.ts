@@ -165,7 +165,7 @@ export function joinChangePages(input: ChangePagesInput): ChangePagesJoin {
 
   const pagesOfSeed = new Map<string, Set<string>>();
   for (const p of proofs) pagesOfSeed.set(p.seed, (pagesOfSeed.get(p.seed) ?? new Set()).add(p.route));
-  const hubs = [...pagesOfSeed].filter(([symbol, pages]) => pages.size > limits.hubPages || cutSeeds.has(symbol)).map(([symbol, pages]) => ({ symbol, pages: pages.size, ...(cutSeeds.has(symbol) ? { truncated: true } : {}) })).sort((a, b) => b.pages - a.pages || a.symbol.localeCompare(b.symbol));
+  const hubs = [...pagesOfSeed].filter(([symbol, pages]) => pages.size > limits.hubPages || cutSeeds.has(symbol)).map(([symbol, pages]) => ({ symbol, pages: pages.size, routes: [...pages].sort(), ...(cutSeeds.has(symbol) ? { truncated: true } : {}) })).sort((a, b) => b.pages - a.pages || a.symbol.localeCompare(b.symbol));
   const hubSet = new Set(hubs.map((h) => h.symbol));
 
   const best = new Map<string, string[]>();

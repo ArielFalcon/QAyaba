@@ -257,7 +257,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:188-188`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:131-131`,
       /* The grounding's one line that folds the manifest into the suite's entries. */
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:270-270`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:321-321`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
       `${ORCH}/domain/helpers/selector-check.ts:401-405`,
       `${ORCH}/domain/pre-exec-grounding.service.ts:73-73`,

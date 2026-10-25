@@ -91,7 +91,7 @@ test("a changed symbol that reaches more pages than the hub bound adds none and 
 
   const join = joinChangePages(input({ map: { routes }, walks: [walk(reached)] }));
 
-  assert.deepEqual(join.hubs, [{ symbol: "web/src/app/shared/http.ts::request", pages: 5 }]);
+  assert.deepEqual(join.hubs, [{ symbol: "web/src/app/shared/http.ts::request", pages: 5, routes: ["/a", "/b", "/c", "/d", "/e"] }]);
   assert.deepEqual(join.pages.map((p) => p.route), ["/a"]);
   assert.equal(GRAPH_PAGE_LIMITS.hubPages < 5, true, "the fixture exceeds the declared bound");
 });
@@ -170,7 +170,7 @@ test("a walk the budget cut cannot prove a seed is no hub: its pages are not add
   const join = joinChangePages(input({ walks: [walk(reached, { truncated: true })] }));
 
   assert.deepEqual(join.pages, []);
-  assert.deepEqual(join.hubs, [{ symbol: `${FORMAT}::formatMoney`, pages: 1, truncated: true }]);
+  assert.deepEqual(join.hubs, [{ symbol: `${FORMAT}::formatMoney`, pages: 1, routes: ["/orders"], truncated: true }]);
 
   const complete = joinChangePages(input({ walks: [walk(reached, { truncated: false })] }));
   assert.deepEqual(complete.pages.map((p) => p.route), ["/orders"]);

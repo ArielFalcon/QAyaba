@@ -11,7 +11,7 @@ export interface GraphPage {
 /* What the change-page join found: the pages it adds, the changed symbols that reached too many pages to add any (hubs), the pages the engine and the map name different files for, and how many proven pages the cap left out. */
 export interface ChangePagesJoin {
   pages: GraphPage[];
-  hubs: Array<{ symbol: string; pages: number; /* The count is a lower bound: the walk it was counted in was cut by the budget. */ truncated?: boolean }>;
+  hubs: Array<{ symbol: string; pages: number; /* The pages it reached, sorted: too many to name as change pages, they only order the DOM capture. */ routes?: string[]; /* The count is a lower bound: the walk it was counted in was cut by the budget. */ truncated?: boolean }>;
   disagreements: Array<{ route: string; mapFiles: string[]; engineFile: string }>;
   omitted: number;
 }

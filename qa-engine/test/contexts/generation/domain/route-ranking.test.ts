@@ -385,3 +385,14 @@ test("a proven page the derived routes did not list is still offered, once", () 
   const ranked = rankRoutesByChange(["/a"], mapOf([route("/a"), route("/b")]), { changedFiles: ["x.ts"], graphPages: ["/b", "/b"] });
   assert.deepEqual(ranked, ["/b", "/a"]);
 });
+
+test("the pages a hub of the change reaches rank after every change page and before the rest, and are never change pages", () => {
+  const map = mapOf([route("/plain"), route("/hub-a"), route("/linked", { [IMPLEMENTATION]: ["src/pages/linked.ts"] }), route("/hub-b"), route("/proven")]);
+
+  const ranked = rankRoutesWithRelevance(["/plain", "/hub-a", "/linked", "/hub-b", "/proven"], map, { changedFiles: ["src/pages/linked.ts"], graphPages: ["/proven"], hubPages: ["/hub-a", "/hub-b", "/linked"] });
+
+  assert.deepEqual(
+    ranked.map((r) => [r.route, r.relevant, r.basis]),
+    [["/linked", true, "implementation"], ["/proven", true, "graph"], ["/hub-a", false, undefined], ["/hub-b", false, undefined], ["/plain", false, undefined]],
+  );
+});

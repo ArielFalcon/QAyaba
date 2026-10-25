@@ -75,3 +75,14 @@ test("no index, or no change handed in, leaves the pack's input and the change p
   assert.deepEqual(noChange.asked, []);
   assert.equal("graphPages" in noChange.inputs[0]!, false);
 });
+
+test("the pages a hub reaches reach the pack's ranking apart from the proven pages, and never become change pages", async () => {
+  const hubOnly: ChangePagesJoin = { pages: [], hubs: [{ symbol: "web/src/limits.ts::CHEAP", pages: 6, routes: ["/profile", "/orders", "/map"] }, { symbol: "web/src/http.ts::request", pages: 9, routes: ["/profile"] }], disagreements: [], omitted: 0 };
+  const { adapter, inputs } = setup(hubOnly, { routes: ["/orders"], basis: ["implementation"] });
+
+  const result = await adapter.ground("/nonexistent/e2e", undefined, DIFF, { sha: SHA });
+
+  assert.equal("graphPages" in inputs[0]!, false, "a hub proves no page");
+  assert.deepEqual(inputs[0]!.hubPages, ["/profile", "/map"], "each page once, the map's own link left to the map");
+  assert.deepEqual(result.changeRoutes, ["/orders"]);
+});
