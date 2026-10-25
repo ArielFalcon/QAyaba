@@ -937,16 +937,20 @@ export function buildRewrittenCompositionConfig(
   /*
    * Whether a map built at `capturedSha` describes this run's commit (context-map-validity.ts: the files the map names are the
    * same in both commits). A map that does not fit is not used; the run grounds without it and a rebuild is requested.
+   * A page whose implementation files were only modified keeps its route, and the front-to-back links of that page are
+   * dropped from the map the run receives, since what the page calls may have changed.
    * A service-triggered run's sha belongs to the service repo, so the primary repo's map cannot be compared with it: that
    * case, and a run with no sha, keep the plain sha comparison and still use the map.
    */
   const changesBetween = deps.contextMapChanges ?? gitChangedFiles;
-  const mapFitsRun = (map: ArchitectureContext, capturedSha: string): { fits: boolean; usable: boolean; reason: string } => {
-    if (capturedSha === run.sha) return { fits: true, usable: true, reason: "none" };
-    if (triggerService || !run.sha) return { fits: false, usable: true, reason: "sha-mismatch" };
+  const mapFitsRun = (map: ArchitectureContext, capturedSha: string): { fits: boolean; map: ArchitectureContext | undefined; reason: string } => {
+    if (capturedSha === run.sha) return { fits: true, map, reason: "none" };
+    if (triggerService || !run.sha) return { fits: false, map, reason: "sha-mismatch" };
     const validity = contextMapValidity(map, capturedSha, run.sha, changesBetween(mirrorDir, capturedSha, run.sha));
-    if (validity.valid) return { fits: true, usable: true, reason: "none" };
-    return { fits: false, usable: false, reason: validity.reason === "inputs-changed" ? "inputs-changed" : "sha-mismatch" };
+    if (!validity.valid) return { fits: false, map: undefined, reason: validity.reason === "inputs-changed" ? "inputs-changed" : "sha-mismatch" };
+    if (validity.reason !== "pages-modified") return { fits: true, map, reason: "none" };
+    const unverified = new Set(validity.unverifiedRoutes);
+    return { fits: true, map: { ...map, feBe: map.feBe.filter((link) => !unverified.has(link.route)) }, reason: "none" };
   };
 
   /*
@@ -1265,7 +1269,7 @@ export function buildRewrittenCompositionConfig(
             recapture: "not-needed",
           };
           if (stale) requestMapHealIfDue();
-          return fit.usable ? stored.data : undefined;
+          return fit.map;
         }
         const disk = loadContextMapFromDisk(specDir);
         if (disk) {
@@ -1279,7 +1283,7 @@ export function buildRewrittenCompositionConfig(
             recapture: "not-needed",
           };
           if (!fit.fits) requestMapHealIfDue();
-          return fit.usable ? disk : undefined;
+          return fit.map;
         }
         return disk;
       },

@@ -16,11 +16,17 @@ test("a map is valid at another sha when no file it names changed", () => {
   assert.deepEqual(v, { valid: true, reason: "inputs-unchanged" });
 });
 
-test("a modified or deleted named file invalidates the map", () => {
-  for (const status of ["M", "D"]) {
-    assert.deepEqual(contextMapValidity(map, "a", "b", [{ status, path: "src/app/shops/shops.page.html" }]), { valid: false, reason: "inputs-changed" });
+test("a page whose implementation files were only modified keeps the map, with that route named unverified", () => {
+  for (const status of ["M", "T"]) {
+    assert.deepEqual(contextMapValidity({ ...map, routes: [{ path: "/shops", ...map.routes[0]! }] }, "a", "b", [{ status, path: "src/app/shops/shops.page.html" }]), { valid: true, reason: "pages-modified", unverifiedRoutes: ["/shops"] });
   }
+});
+
+test("a deleted implementation file, a changed route declaration or a changed API spec invalidates the map", () => {
+  assert.deepEqual(contextMapValidity(map, "a", "b", [{ status: "D", path: "src/app/shops/shops.page.html" }]), { valid: false, reason: "inputs-changed" });
+  assert.deepEqual(contextMapValidity(map, "a", "b", [{ status: "M", path: "src/app/shops.routes.ts" }]), { valid: false, reason: "inputs-changed" });
   assert.deepEqual(contextMapValidity(map, "a", "b", [{ status: "M", path: "./contracts/api.yaml" }]), { valid: false, reason: "inputs-changed" });
+  assert.deepEqual(contextMapValidity(map, "a", "b", [{ status: "M", path: "src/app/shops/shops.page.html" }, { status: "D", path: "src/app/shops/shops.page.html" }]).valid, false);
 });
 
 test("a new file of the same kind as a route source invalidates the map, a new file of another kind does not", () => {

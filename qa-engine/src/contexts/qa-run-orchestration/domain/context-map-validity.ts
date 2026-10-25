@@ -2,9 +2,11 @@
  * Whether a stored context map still describes the commit a run tests, decided from git alone (no agent turn).
  *
  * A map is built by an agent from a commit and is stored under that commit's sha. A run at another sha may still
- * reuse it when nothing the map was derived from differs between the two commits: the files the map itself names
- * (each route's `source` and `implementationFiles`, each operation's `spec`) are the same bytes, and no file of the
- * same kind as a route source (same name suffix, e.g. `.routes.ts`) was added. Whichever commit is the newer one, the
+ * reuse it when what the map was derived from still holds between the two commits: each route's `source` and each
+ * operation's `spec` are the same bytes, no implementation file it names is gone, and no file of the same kind as a
+ * route source (same name suffix, e.g. `.routes.ts`) was added. A page whose implementation files were only modified
+ * keeps its route and its files; what the page calls may have changed, so the route is named unverified and its
+ * front-to-back links are not to be trusted. Whichever commit is the newer one, the
  * rule is the same: it compares two trees and makes no ancestry claim. When the two trees cannot be compared
  * (a missing commit, a git failure), the map is not known to fit and is not reused.
  *
@@ -20,10 +22,11 @@ export interface ChangedFile {
 
 export type ContextMapValidity =
   | { valid: true; reason: "same-sha" | "inputs-unchanged" }
+  | { valid: true; reason: "pages-modified"; unverifiedRoutes: string[] }
   | { valid: false; reason: "inputs-changed" | "unverifiable" };
 
 interface MapFiles {
-  routes?: ReadonlyArray<{ source?: unknown; implementationFiles?: unknown }>;
+  routes?: ReadonlyArray<{ path?: unknown; source?: unknown; implementationFiles?: unknown }>;
   api?: ReadonlyArray<{ spec?: unknown }>;
 }
 
@@ -36,23 +39,29 @@ function kindOf(path: string): string | undefined {
   return dot > 0 ? base.slice(dot) : undefined;
 }
 
-function namedFiles(map: MapFiles): { named: Set<string>; sourceKinds: Set<string> } {
-  const named = new Set<string>();
+/* The files the map was derived from: declarations (route sources, API specs) and each implementation file with the routes it implements. */
+function namedFiles(map: MapFiles): { declarations: Set<string>; implementations: Map<string, Set<string>>; sourceKinds: Set<string> } {
+  const declarations = new Set<string>();
+  const implementations = new Map<string, Set<string>>();
   const sourceKinds = new Set<string>();
   for (const route of map.routes ?? []) {
     if (typeof route.source === "string" && route.source.trim() !== "") {
-      named.add(normalized(route.source));
+      declarations.add(normalized(route.source));
       const kind = kindOf(route.source);
       if (kind) sourceKinds.add(kind);
     }
     if (Array.isArray(route.implementationFiles)) {
-      for (const file of route.implementationFiles) if (typeof file === "string") named.add(normalized(file));
+      for (const file of route.implementationFiles) {
+        if (typeof file !== "string") continue;
+        const routes = implementations.get(normalized(file)) ?? implementations.set(normalized(file), new Set()).get(normalized(file))!;
+        if (typeof route.path === "string") routes.add(route.path);
+      }
     }
   }
   for (const operation of map.api ?? []) {
-    if (typeof operation.spec === "string" && operation.spec.trim() !== "") named.add(normalized(operation.spec));
+    if (typeof operation.spec === "string" && operation.spec.trim() !== "") declarations.add(normalized(operation.spec));
   }
-  return { named, sourceKinds };
+  return { declarations, implementations, sourceKinds };
 }
 
 /* `changes` is the difference between the map's commit and the run's commit; undefined when it could not be read. */
@@ -64,16 +73,24 @@ export function contextMapValidity(
 ): ContextMapValidity {
   if (capturedSha === runSha) return { valid: true, reason: "same-sha" };
   if (changes === undefined) return { valid: false, reason: "unverifiable" };
-  const { named, sourceKinds } = namedFiles(map);
+  const { declarations, implementations, sourceKinds } = namedFiles(map);
+  const unverified = new Set<string>();
   for (const change of changes) {
     const path = normalized(change.path);
-    if (named.has(path)) return { valid: false, reason: "inputs-changed" };
+    if (declarations.has(path)) return { valid: false, reason: "inputs-changed" };
+    const routes = implementations.get(path);
+    if (routes !== undefined) {
+      if (change.status !== "M" && change.status !== "T") return { valid: false, reason: "inputs-changed" };
+      for (const route of routes) unverified.add(route);
+    }
     if (change.status === "A") {
       const kind = kindOf(path);
       if (kind && sourceKinds.has(kind)) return { valid: false, reason: "inputs-changed" };
     }
   }
-  return { valid: true, reason: "inputs-unchanged" };
+  return unverified.size > 0 || [...changes].some((c) => implementations.has(normalized(c.path)))
+    ? { valid: true, reason: "pages-modified", unverifiedRoutes: [...unverified].sort() }
+    : { valid: true, reason: "inputs-unchanged" };
 }
 
 /* Parses `git diff --name-status --no-renames -z` output: status, NUL, path, NUL, ... */

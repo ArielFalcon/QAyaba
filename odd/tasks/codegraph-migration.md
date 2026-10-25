@@ -475,3 +475,8 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
     - The code graph is part of the grounding by default, the dossier included. The structural signal was already on by default; the dossier default becomes on.
     - T9 becomes 3 full runs against DEV with every resource on: closed loop, agent browser, DOM pack, structural signal and dossier. Then 3 runs against the local frontend at `localhost:4200`, which serves source maps, uses the DEV backend APIs, and makes change-coverage measurable; that second batch is planned with the owner.
     - The deterministic `changeRoutes` precision and recall against the L37 labels is still computed, cheaply.
+- **L39 (2026-10-25)** Owner decision on a stale context map, found in the DEV runs (a map from another commit was dropped because an implementation file it names was modified, so the run had no map, no change pages and no DOM pack). The owner chose "Relajar la regla (Recomendado)":
+  - A map stays valid when an implementation file it names was only modified.
+  - It is invalidated when a route declaration changes, a named file is deleted, or an API spec changes.
+  - The front-to-back links of a modified page are treated as unverified and dropped from the map the run receives.
+  - Implemented in `context-map-validity.ts` (`pages-modified` with `unverifiedRoutes`) and in the factory's `mapFitsRun`. Per the owner's rule, the DEV pair restarts from zero on the rebuilt image.

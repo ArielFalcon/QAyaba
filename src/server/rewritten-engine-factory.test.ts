@@ -3672,12 +3672,12 @@ test("a stored map from another sha is reused when none of the files it names ch
   assert.deepEqual(requested, []);
 });
 
-test("a stored map from another sha is not used when a file it names changed, and a rebuild at the run's sha is requested", async () => {
+test("a stored map from another sha is not used when a route declaration it names changed, and a rebuild at the run's sha is requested", async () => {
   const app = storedMapApp("changed");
   const requested: string[] = [];
   const config = buildRewrittenCompositionConfig(
     app,
-    { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops/shops.page.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
+    { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
     "qa-bot-run1",
     { mode: "diff", sha: "sha-run" },
   );
@@ -3690,6 +3690,28 @@ test("a stored map from another sha is not used when a file it names changed, an
   assert.equal(provenance?.capturedSha, "sha-built");
   assert.equal(provenance?.recapture, "requested");
   assert.deepEqual(requested, ["sha-run"]);
+});
+
+test("a stored map is reused when a page's implementation files were only modified, without that page's front-to-back links", async () => {
+  const app = cfg(`factory-map-validity-pages-${Math.random().toString(36).slice(2)}`);
+  saveContextMap(app.name, "sha-built", {
+    ...mapNamingFiles,
+    routes: [...mapNamingFiles.routes, { path: "/cart", implementationFiles: ["src/cart/cart.page.ts"] }],
+    feBe: [{ route: "/shops", operationId: "listShops" }, { route: "/cart", operationId: "getCart" }],
+  });
+  const requested: string[] = [];
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops/shops.page.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
+    "qa-bot-run1",
+    { mode: "diff", sha: "sha-run" },
+  );
+  const map = config.groundingCollaborators!.loadContextMap!("/nowhere");
+  await flushMicrotasks();
+  assert.deepEqual(map?.routes.map((r) => r.path), ["/shops", "/cart"]);
+  assert.deepEqual(map?.feBe, [{ route: "/cart", operationId: "getCart" }], "what the modified page calls is no longer known");
+  assert.equal(config.contextMapProvenance!()?.stale, false);
+  assert.deepEqual(requested, []);
 });
 
 test("a stored map whose two commits cannot be compared is not used", () => {
