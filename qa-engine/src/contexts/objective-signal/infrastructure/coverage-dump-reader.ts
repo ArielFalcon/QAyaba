@@ -45,8 +45,9 @@ export async function readV8Coverage(e2eDir: string, namespace: string, changedF
     { mirrorDir: e2eDir, specDir: e2eDir },
     rel,
     (name) => name.endsWith(".json"),
-    (_name, bytes) => {
+    (name, bytes) => {
       if (spent()) throw new RangeError();
+      branches?.beginDump(name);
       const parsed: unknown = JSON.parse(bytes.toString("utf8"));
       return parse(Array.isArray(parsed) ? parsed : [], changedFiles, spent, scripts, branches);
     },

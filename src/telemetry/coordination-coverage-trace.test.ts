@@ -69,3 +69,16 @@ test("the change-coverage span carries the branches on the changed lines when a 
   assert.equal("qayaba.coverage.changed_branches" in without, false);
   assert.equal("qayaba.coverage.taken_branches" in without, false);
 });
+
+test("the change-coverage span says how many mutants were judged and how many a test noticed, and nothing of them when none was judged", async () => {
+  const spanOf = async (result: Awaited<ReturnType<ObjectiveSignalPort["measure"]>>) => {
+    const h = traceHarness();
+    const inner: ObjectiveSignalPort = { measure: async () => result, blocks: () => false };
+    await inPhase(h, "qayaba.phase.coverage", () => new TracedObjectiveSignalPort(inner, h.telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e", "diff"));
+    return h.only("qayaba.coverage.measure").attributes;
+  };
+  const judged = await spanOf({ status: "pass", ratio: 1, bundleMutation: { applied: 3, killed: 2, survived: [{ file: "src/a.ts", line: 1, operator: "negate condition" }] } });
+  assert.equal(judged["qayaba.mutation.applied"], 3);
+  assert.equal(judged["qayaba.mutation.killed"], 2);
+  assert.equal("qayaba.mutation.applied" in (await spanOf({ status: "pass", ratio: 1 })), false);
+});

@@ -37,6 +37,7 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
       ...(outcome.gateSignals.mutantCount !== undefined ? { mutantCount: outcome.gateSignals.mutantCount } : {}),
       ...(outcome.gateSignals.killedCount !== undefined ? { killedCount: outcome.gateSignals.killedCount } : {}),
       ...(outcome.gateSignals.branchCoverage !== undefined ? { branchCoverage: outcome.gateSignals.branchCoverage } : {}),
+      ...(outcome.gateSignals.bundleMutation !== undefined ? { bundleMutation: outcome.gateSignals.bundleMutation } : {}),
       reviewerCorrections: outcome.gateSignals.reviewerCorrections,
       ...(outcome.gateSignals.reviewerRationale !== undefined ? { reviewerRationale: outcome.gateSignals.reviewerRationale } : {}),
       ...(outcome.gateSignals.reviewerApproved !== undefined ? { reviewerApproved: outcome.gateSignals.reviewerApproved } : {}),

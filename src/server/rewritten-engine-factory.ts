@@ -87,6 +87,7 @@ import { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/
 import { StrykerMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter";
 import { FaultInjectionOracleAdapter } from "@contexts/objective-signal/infrastructure/fault-injection-oracle.adapter";
 import { countInjectedResponses } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
+import { BundleMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/bundle-mutation-oracle.adapter";
 import { NullValueOracleAdapter } from "@contexts/objective-signal/infrastructure/null-value-oracle.adapter";
 import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastructure/github-pr.adapter";
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter";
@@ -1118,6 +1119,18 @@ export function buildRewrittenCompositionConfig(
     : isCode
       ? new StrykerMutationOracleAdapter(mutationOracleDeps)
       : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, countInjectedResponses, app.dev?.baseUrl ?? "");
+  /*
+   * The mutation pass: an e2e app whose value oracle is on re-runs, for each of a few mutants of the changed code in the served
+   * script, the spec files that reached it, once (no retry: a mutant that fails a test once was noticed). Its counters sit beside
+   * the response oracle's.
+   */
+  const mutation = valueOraclePolicy === "off" || isCode
+    ? undefined
+    : new BundleMutationOracleAdapter(
+        ({ dir, baseUrl, namespace, mutant, specFiles }) => runE2E(dir, { baseUrl, namespace, mutant, specFiles, retries: 0 }, e2eExecuteDeps),
+        countInjectedResponses,
+        app.dev?.baseUrl ?? "",
+      );
 
   /*
    * checkout(sha) resolves the real per-run mirrorDir and stages every declared sibling service's
@@ -1492,7 +1505,7 @@ export function buildRewrittenCompositionConfig(
       : {}),
 
     ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
-    objectiveSignal: { collector, oracle },
+    objectiveSignal: { collector, oracle, ...(mutation ? { mutation } : {}) },
     coveragePolicy,
     /* Change-coverage: unknown never blocks publish. */
     assembleChangeCoverage,

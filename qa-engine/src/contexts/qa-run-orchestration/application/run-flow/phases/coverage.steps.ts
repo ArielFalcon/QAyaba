@@ -47,14 +47,17 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
     console.log(`[qa] change-coverage: skipped — the changed lines live in ${input.triggerRepo}; browser coverage maps only the frontend (status=unknown).`);
   }
   /* This pass's own passing case names — the green baseline the fault-injection oracle needs. */
-  const baselineCases = run.cases.filter((c) => c.status === "pass").map((c) => c.name);
+  const passed = run.cases.filter((c) => c.status === "pass");
+  const baselineCases = passed.map((c) => c.name);
+  /* The spec files of those cases: a mutant re-runs the ones whose tests reached it. */
+  const caseFiles = [...new Set(passed.flatMap((c) => (c.file ? [c.file] : [])))];
   const { coverageNamespace } = state.fixLoop;
   const signal = await deps.objectiveSignal.measure(
     runBlastRadius,
     workspace.specDir,
     input.triggerRepo ? undefined : diff,
     baselineCases,
-    ...(coverageNamespace ? [{ namespace: coverageNamespace }] : []),
+    { ...(coverageNamespace ? { namespace: coverageNamespace } : {}), caseFiles },
   );
   trail.coverageStatus = signal.status;
   return {
@@ -70,6 +73,7 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         uncovered: signal.uncovered ?? [],
         branchCoverage: branchCoverageOf(signal.measurement),
         untakenArms: signal.untakenArms ?? [],
+        bundleMutation: signal.bundleMutation,
         /*
          * Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not
          * re-implement the mode check here.

@@ -50,7 +50,8 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
     }
     /* Branches only beside a measurement: with no dump used there is nothing they could be a part of. */
     const decisions = dumps.length > 0 ? branches.result() : undefined;
-    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), scripts, ...(decisions ? { branches: decisions } : {}) };
+    const sites = dumps.length > 0 ? branches.mutationSites() : undefined;
+    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), scripts, ...(decisions ? { branches: decisions } : {}), ...(sites ? { mutationSites: sites } : {}) };
   }
 }
 

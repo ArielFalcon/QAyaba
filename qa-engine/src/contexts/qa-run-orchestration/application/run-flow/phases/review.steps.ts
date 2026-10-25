@@ -479,13 +479,15 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
     const measuredRun = await deps.execution.execute(workspace.specDir, { ...liveExecutionOptions(ctx), namespace: finalNamespace });
     const finalRun = { verdict: measuredRun.verdict, cases: measuredRun.cases, logs: run.logs };
     if (measuredRun.verdict !== "pass") return { update: { execution: { ...state.execution, run: finalRun } } };
-    const baselineCases = measuredRun.cases.filter((c) => c.status === "pass").map((c) => c.name);
+    const passed = measuredRun.cases.filter((c) => c.status === "pass");
+    const baselineCases = passed.map((c) => c.name);
+    const caseFiles = [...new Set(passed.flatMap((c) => (c.file ? [c.file] : [])))];
     const finalSignal = await deps.objectiveSignal.measure(
       BlastRadius.of(input.sha, state.classification.intent?.changedFiles ?? []),
       workspace.specDir,
       state.classification.diff,
       baselineCases,
-      { namespace: finalNamespace },
+      { namespace: finalNamespace, caseFiles },
     );
     trail.coverageStatus = finalSignal.status;
     const { valueScore, mutantCount, killedCount } = state.coverage;
@@ -497,6 +499,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           coverageRatio: finalSignal.ratio,
           coverageStatus: finalSignal.status,
           branchCoverage: branchCoverageOf(finalSignal.measurement),
+          bundleMutation: finalSignal.bundleMutation ?? state.coverage.bundleMutation,
           blocksPublish: deps.objectiveSignal.blocks(finalSignal.status),
           /* The oracle measured again on the delivered bytes: its score describes what is on disk now. */
           valueScore: finalSignal.valueScore ?? valueScore,

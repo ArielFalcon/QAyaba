@@ -27,6 +27,8 @@ export interface RunOutcome {
     killedCount?: number;
     /* The arms of the decisions on changed lines and how many ran: a signal beside coverageRatio, never a gate. Absent when no decision was seen on a changed line. */
     branchCoverage?: { changed: number; taken: number };
+    /* What the mutants of the changed code in the served script did: judged, noticed by a test, and where the others are. A signal, never a gate; absent when no mutant was judged. */
+    bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string }[] };
     /* The value score describes bytes an accepted regeneration rewrote. Signal-only: recorded, never a gate. */
     value?: { stale: boolean };
     /*

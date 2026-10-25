@@ -3,14 +3,17 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CoverageMeasurement, ObjectiveSignalPort } from "../../application/ports/index.ts";
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
-import type { CoverageCollectorPort, CoverageReport, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
+import type { BundleMutationPort, BundleMutationResult, CoverageCollectorPort, CoverageReport, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
 import { parseDiffHunks } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
+import { selectMutants } from "@contexts/objective-signal/domain/select-mutants.ts";
 import { diffWithoutTestFiles } from "@contexts/generation/domain/diff-without-test-files.ts";
 
 export interface ObjectiveSignalPortCollaborators {
   collector: CoverageCollectorPort;
   decide: DecideCoverageService;
   oracle: ValueOraclePort;
+  /* The mutation pass over the served script; absent when the value oracle is off or the target has no browser. */
+  mutation?: BundleMutationPort;
 }
 
 export interface ObjectiveSignalPortStaticContext {
@@ -46,7 +49,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     private readonly ctx: ObjectiveSignalPortStaticContext,
   ) {}
 
-  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): ReturnType<ObjectiveSignalPort["measure"]> {
+  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string; caseFiles?: string[] }): ReturnType<ObjectiveSignalPort["measure"]> {
     const namespace = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
     /* coverage.mode "off" skips collector IO and the value oracle. decide() sees null → "unknown" (never blocks). */
     if (this.ctx.policy.mode === "off") {
@@ -66,6 +69,13 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
 
     const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases);
 
+    /* Mutants only of a measured change, on its changed lines, where a test reached. */
+    let bundleMutation: BundleMutationResult | null = null;
+    if (this.deps.mutation && report?.mutationSites && cc?.measured && changeDiff !== undefined) {
+      const mutants = selectMutants(report.mutationSites, parseDiffHunks(changeDiff), opts?.caseFiles ?? []);
+      if (mutants.length > 0) bundleMutation = await this.deps.mutation.measure(mutants, specDir, namespace, baselineCases ?? this.ctx.baselineCases ?? []);
+    }
+
     return {
       status,
       ratio,
@@ -74,6 +84,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       killedCount: oracleResult.killedCount,
       ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
       ...(cc?.untakenArms ? { untakenArms: cc.untakenArms } : {}),
+      ...(bundleMutation ? { bundleMutation } : {}),
       measurement,
     };
   }

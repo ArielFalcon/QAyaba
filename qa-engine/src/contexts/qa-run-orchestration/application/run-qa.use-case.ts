@@ -515,6 +515,7 @@ export interface OutcomeExtras {
   mutantCount?: number;
   killedCount?: number;
   branchCoverage?: RunOutcome["gateSignals"]["branchCoverage"];
+  bundleMutation?: RunOutcome["gateSignals"]["bundleMutation"];
   note?: string;
   rulesRetrieved?: string[];
   diffArchetypes?: string[];
@@ -1015,6 +1016,7 @@ export class RunQaUseCase {
         ...(extra?.mutantCount !== undefined ? { mutantCount: extra.mutantCount } : {}),
         ...(extra?.killedCount !== undefined ? { killedCount: extra.killedCount } : {}),
         ...(extra?.branchCoverage ? { branchCoverage: extra.branchCoverage } : {}),
+        ...(extra?.bundleMutation ? { bundleMutation: extra.bundleMutation } : {}),
         reviewerCorrections: extra?.reviewerCorrections ?? [],
         /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */
         ...(extra?.reviewerRationale !== undefined ? { reviewerRationale: extra.reviewerRationale } : {}),

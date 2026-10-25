@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Session } from "node:inspector/promises";
 import vm from "node:vm";
+import { createHash } from "node:crypto";
 import { V8BrowserCoverageAdapter, defaultParseV8Coverage, type V8Entry } from "@contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts";
 import { BranchSink, MAX_BRANCH_DECISIONS } from "@contexts/objective-signal/infrastructure/v8-branch-coverage.ts";
 
@@ -157,4 +158,47 @@ test("the browser collector reports the decisions beside the covered lines, and 
   assert.ok(report.covered.some((c) => c.file === "src/store.ts"));
 
   assert.equal("branches" in (await read([]).collect("/e2e", "ns")), false);
+});
+
+/* ── mutation sites: the edits of the served script that invert a decision or a comparison of the changed code ─────── */
+
+test("the mutation sites of a changed file are its conditions and comparison or logical operators that ran, each an exact edit of the served script with the dumps that ran it", async () => {
+  const source = `function gate(status, ok) {
+  if (status === 404) return "missing";
+  return ok && status < 500 ? "ready" : "failed";
+}
+function never(x) { return x > 1; }
+gate(404, true);
+`;
+  const functions = await ranUnderCoverage(source);
+  const sink = new BranchSink();
+  sink.beginDump("flows-detail-spec-ts-missing-0-0.json");
+  defaultParseV8Coverage([{ url: "https://dev.example/src/gate.ts", source, functions }], ["src/gate.ts"], undefined, undefined, sink);
+
+  const sites = sink.mutationSites()!;
+  assert.deepEqual(sites.map((s) => [s.line, s.operator]), [[2, "=== → !=="], [2, "negate condition"]], "line 3 never ran past the early return, and `never` never ran");
+  const negate = sites.find((s) => s.operator === "negate condition")!;
+  assert.equal(source.slice(0, negate.edit.start) + negate.edit.replacement + source.slice(negate.edit.end), source.replace("if (status === 404)", "if (!(status === 404))"));
+  assert.deepEqual(negate.script, { url: "https://dev.example/src/gate.ts", sha256: createHash("sha256").update(source).digest("hex") });
+  assert.deepEqual(negate.ranIn, ["flows-detail-spec-ts-missing-0-0.json"]);
+});
+
+test("a site that ran in several dumps names each of them once", async () => {
+  const source = `function f(a) { return a === 1 ? 2 : 3; }\nf(1);\n`;
+  const functions = await ranUnderCoverage(source);
+  const sink = new BranchSink();
+  for (const dump of ["a-0-0.json", "b-0-0.json", "a-0-0.json"]) {
+    sink.beginDump(dump);
+    defaultParseV8Coverage([{ url: "https://dev.example/src/f.ts", source, functions }], ["src/f.ts"], undefined, undefined, sink);
+  }
+  assert.deepEqual(sink.mutationSites()!.map((s) => s.ranIn), [["a-0-0.json", "b-0-0.json"], ["a-0-0.json", "b-0-0.json"]]);
+});
+
+test("a logical operator is a site when its expression ran, even when its right side never did (V8 opens the right side's range at the operator)", async () => {
+  const source = `function pick(param) {\n  return param || "fallback";\n}\npick("given");\n`;
+  const functions = await ranUnderCoverage(source);
+  const sink = new BranchSink();
+  sink.beginDump("d-0-0.json");
+  defaultParseV8Coverage([{ url: "https://dev.example/src/pick.ts", source, functions }], ["src/pick.ts"], undefined, undefined, sink);
+  assert.deepEqual(sink.mutationSites()!.map((s) => [s.line, s.operator]), [[2, "|| → &&"]]);
 });

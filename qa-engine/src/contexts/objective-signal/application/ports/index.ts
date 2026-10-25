@@ -9,8 +9,18 @@ export type BranchKind = "if" | "conditional" | "logical" | "switch";
 export interface BranchArm { label: string; taken: boolean; }
 /* One decision of a changed file the executed code holds: where its condition is (1-based line, 0-based column), its kind, and whether each arm ran in at least one test. */
 export interface BranchHit { file: string; line: number; column: number; kind: BranchKind; arms: BranchArm[]; }
-/* `branches` is absent when the collector does not see decisions, or could not read them within its bounds. */
-export interface CoverageReport { covered: CoveredLines[]; scripts?: CoverageScripts; branches?: BranchHit[]; }
+/* A place of a changed file where the served script can be mutated: the exact edit of the script (identified by its URL and the sha256 of its text), what it does, and the dumps (one per test) that ran it. */
+export interface MutationSite {
+  file: string;
+  line: number;
+  column: number;
+  operator: string;
+  script: { url: string; sha256: string };
+  edit: { start: number; end: number; replacement: string };
+  ranIn: string[];
+}
+/* `branches` and `mutationSites` are absent when the collector does not see decisions, or could not read them within its bounds. */
+export interface CoverageReport { covered: CoveredLines[]; scripts?: CoverageScripts; branches?: BranchHit[]; mutationSites?: MutationSite[]; }
 export interface CoverageCollectorPort {
   collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport>;
 }
@@ -21,6 +31,14 @@ export interface ValueOracleResult {
   mutantCount: number | null;
   killedCount: number | null;
   details: string;
+}
+/* A mutant of the served script to re-run, with the spec files whose tests reached it. */
+export interface MutantRun { site: MutationSite; specFiles: string[]; }
+/* What the mutants did: how many reached a page and were judged, how many a test noticed, and where the others are. */
+export interface BundleMutationResult { applied: number; killed: number; survived: { file: string; line: number; operator: string }[]; }
+/** Signal-only, never a gate: re-runs the tests that reached each mutant of the changed code in the served script. Null when no mutant reached a page and was judged — never a fabricated zero. */
+export interface BundleMutationPort {
+  measure(mutants: MutantRun[], specDir: string, namespace: string, baselineCases: string[]): Promise<BundleMutationResult | null>;
 }
 /** Signal-only: a null valueScore never gates publish. Mutation (code) vs fault-injection (e2e). */
 export interface ValueOraclePort {

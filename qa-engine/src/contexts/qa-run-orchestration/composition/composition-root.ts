@@ -78,7 +78,7 @@ import type { E2eExecutionStrategy } from "@contexts/test-execution/infrastructu
 import type { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy.ts";
 import type { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy.ts";
 import { DecideCoverageService, type CoveragePolicy, type ChangeCoverage } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
-import type { CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
+import type { BundleMutationPort, CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
 import { PublishDecisionService } from "@contexts/workspace-and-publication/domain/publish-decision.service.ts";
 import { ShadowLogAdapter } from "@contexts/workspace-and-publication/infrastructure/shadow-log.adapter.ts";
 import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication.ts";
@@ -293,6 +293,8 @@ export interface CompositionConfig {
   objectiveSignal: {
     collector: Pick<CoverageCollectorPort, "collect">;
     oracle: Pick<ValueOraclePort, "measure">;
+    /* The mutation pass over the served script; absent when the value oracle is off or the target has no browser. */
+    mutation?: BundleMutationPort;
   };
   coveragePolicy: CoveragePolicy;
   assembleChangeCoverage?: (diff: string, report: Awaited<ReturnType<CoverageCollectorPort["collect"]>>) => ChangeCoverage;
@@ -572,6 +574,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       collector: cfg.objectiveSignal.collector as CoverageCollectorPort,
       decide: new DecideCoverageService(),
       oracle: cfg.objectiveSignal.oracle as ValueOraclePort,
+      ...(cfg.objectiveSignal.mutation ? { mutation: cfg.objectiveSignal.mutation } : {}),
     },
     {
       policy: cfg.coveragePolicy,

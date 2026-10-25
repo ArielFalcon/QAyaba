@@ -374,6 +374,20 @@ test("runE2E passes testIdAttribute through to the runner deps", async () => {
   assert.equal(seen.testIdAttribute, "data-cy");
 });
 
+test("runE2E hands the mutation pass's mutant to the runner, and none to a run that has none", async () => {
+  const seen: Array<string | undefined> = [];
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => {
+      seen.push(args.mutant);
+      return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
+    },
+  };
+  const mutant = JSON.stringify({ url: "https://dev/main.js", sha256: "h", start: 1, end: 2, replacement: "!" });
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns-mut0", mutant }, deps);
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "ns" }, deps);
+  assert.deepEqual(seen, [mutant, undefined]);
+});
+
 test("runE2E rejects a project name outside the allowlist (arg-injection surface)", async () => {
   let started = false;
   const deps: E2eExecuteDeps = {

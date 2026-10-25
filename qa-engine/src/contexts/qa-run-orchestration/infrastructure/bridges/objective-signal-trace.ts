@@ -20,6 +20,7 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
       const m = result.measurement;
       span.setAttrs({
         "qayaba.coverage.status": result.status,
+        ...(result.bundleMutation ? { "qayaba.mutation.applied": result.bundleMutation.applied, "qayaba.mutation.killed": result.bundleMutation.killed } : {}),
         ...(result.ratio !== null ? { "qayaba.coverage.ratio": result.ratio } : {}),
         ...(m
           ? {

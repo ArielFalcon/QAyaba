@@ -2959,6 +2959,28 @@ test("the branches a measurement counted on the changed lines are persisted besi
   assert.equal("branchCoverage" in (await persisted({})), false);
 });
 
+test("the coverage measurement is told the spec files of the passing cases, and what the mutants did is persisted, absent when none was judged", async () => {
+  const persisted = async (bundleMutation?: { applied: number; killed: number; survived: { file: string; line: number; operator: string }[] }) => {
+    let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
+    let told: string[] | undefined;
+    const { ports } = stubPorts({
+      execute: async () => ({ verdict: "pass", cases: [{ name: "pays", status: "pass", file: "flows/pay.spec.ts" }, { name: "lists", status: "pass", file: "flows/pay.spec.ts" }, { name: "no-file", status: "pass" }], logs: "" }),
+      measure: async (_br, _dir, _diff, _cases, opts) => {
+        told = opts?.caseFiles;
+        return { status: "pass", ratio: 1, ...(bundleMutation ? { bundleMutation } : {}) };
+      },
+    });
+    ports.runHistory.save = async (outcome) => { saved = outcome; };
+    await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "bundle-mutation-persisted" });
+    return { gate: saved!.gateSignals, told };
+  };
+  const judged = { applied: 2, killed: 1, survived: [{ file: "src/store.ts", line: 57, operator: "negate condition" }] };
+  const withMutation = await persisted(judged);
+  assert.deepEqual(withMutation.gate.bundleMutation, judged);
+  assert.deepEqual(withMutation.told, ["flows/pay.spec.ts"]);
+  assert.equal("bundleMutation" in (await persisted()).gate, false);
+});
+
 test("an absent mutantCount/killedCount from ObjectiveSignalPort.measure() persists as absent, never a fabricated 0", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({

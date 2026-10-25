@@ -1482,6 +1482,17 @@ test("e2e + valueOracle signal wires FaultInjectionOracleAdapter even in shadow"
   assert.equal(config.objectiveSignal.oracle.constructor.name, "FaultInjectionOracleAdapter");
 });
 
+test("the mutation pass is wired for an e2e app whose value oracle is on, and not when it is off or the target is code", () => {
+  const mutationOf = (app: AppConfig, target?: "e2e" | "code") =>
+    buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(target ? { target } : {}) }).objectiveSignal.mutation?.constructor.name;
+  const on: AppConfig = { ...cfg("factory-mutation-on"), qa: { ...cfg("factory-mutation-on").qa, shadow: true, valueOracle: "signal" } };
+  const off: AppConfig = { ...cfg("factory-mutation-off"), qa: { ...cfg("factory-mutation-off").qa, valueOracle: "off" } };
+  assert.equal(mutationOf(on), "BundleMutationOracleAdapter");
+  assert.equal(mutationOf(off), undefined);
+  assert.equal(mutationOf(cfg("factory-mutation-shadow-default")), undefined, "the shadow-aware default keeps it off");
+  assert.equal(mutationOf(on, "code"), undefined);
+});
+
 test("code + valueOracle off wires NullValueOracleAdapter (no Stryker)", () => {
   const app: AppConfig = { ...cfg("factory-oracle-code-off"), code: true, dev: undefined, qa: { ...cfg("factory-oracle-code-off").qa, valueOracle: "off" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
