@@ -1,6 +1,7 @@
 /* src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts CoverageCollectorPort over V8/Chromium browser coverage dumps (.json files in .qa/coverage/<ns>/). The missing DI seam: the read of the dumps is injected (no hard-coded readdirSync/readFileSync), so this is unit-testable without disk and fail-open by contract (no dumps → empty report, never a throw). The injected read hands back what each dump covers (the lines of the changed files), not the dump: a dump holds every script a page loaded with its source map, megabytes of it, and the dumps of a suite are many, so each is reduced as it is read and none is kept.
    A dump is written by code the agent wrote, so what decoding it costs is bounded by its size and never by how its numbers are chosen: ranges that each cover the whole script, a script of nothing but line breaks or a source map of a million segments cost the script's length or the dump's size, once, and a dump past a bound is not decoded at all. How fast the segments of a source map decode still varies with their shape (a fifth of the usual speed on a map made to be slow), so the decoding is also asked, as it goes, whether the time it was given is spent (`TimeSpent`), and stops when it is. */
 import type { CoverageCollectorPort, CoverageReport, CoverageScripts } from "../application/ports/index.ts";
+import { BranchSink } from "./v8-branch-coverage.ts";
 
 interface RawSourceMap {
   version?: number;
@@ -26,8 +27,8 @@ export interface V8Entry {
 /* What one dump covers: the lines (1-based) of each changed file that a script of the dump ran. */
 export type CoveredLines = Map<string, Set<number>>;
 
-/* Reads the dumps of a namespace and reduces each to the lines of `changedFiles` it covers, one dump at a time. */
-export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts) => Promise<CoveredLines[]>;
+/* Reads the dumps of a namespace and reduces each to the lines of `changedFiles` it covers, one dump at a time; `branches`, when given, is added the decisions of the changed files each dump ran. */
+export type ReadV8Coverage = (specDir: string, namespace: string, changedFiles: string[], scripts?: CoverageScripts, branches?: BranchSink) => Promise<CoveredLines[]>;
 
 export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   constructor(
@@ -37,7 +38,8 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
 
   async collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport> {
     const scripts: CoverageScripts = { total: 0, withSourceMap: 0 };
-    const dumps = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts);
+    const branches = new BranchSink();
+    const dumps = await this.readCoverage(specDir, namespace, changedFiles ?? this.changedFiles, scripts, branches);
     const merged = new Map<string, Set<number>>();
     for (const covered of dumps) {
       for (const [file, lines] of covered) {
@@ -46,7 +48,9 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
         merged.set(file, set);
       }
     }
-    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), scripts };
+    /* Branches only beside a measurement: with no dump used there is nothing they could be a part of. */
+    const decisions = dumps.length > 0 ? branches.result() : undefined;
+    return { covered: [...merged].map(([file, lines]) => ({ file, lines: [...lines] })), scripts, ...(decisions ? { branches: decisions } : {}) };
   }
 }
 
@@ -79,21 +83,23 @@ function decodeVlq(segment: string): number[] {
   return result;
 }
 
-/* Where a segment of a source map starts in the generated script, and the line of the source it comes from. */
-interface MappingSegment {
+/* Where a segment of a source map starts in the generated script, and the line and column (both 0-based) of the source it comes from. */
+export interface MappingSegment {
   genLine: number;
   genCol: number;
   sourceIndex: number;
   origLine: number;
+  origCol: number;
 }
 
 const SEMICOLON = 59;
 const COMMA = 44;
 
-/* The segments of a source map's `mappings`, one at a time and in one pass over the string: none is kept, and no list of lines or of segments is made, however many there are. A segment of four fields or five (the fifth is the index of a name) maps; one of fewer only moves the column. The column of the source is not kept: nothing here asks for it. */
-function* decodeMappings(mappings: string): Generator<MappingSegment> {
+/* The segments of a source map's `mappings`, in the order of the generated script, one at a time and in one pass over the string: none is kept, and no list of lines or of segments is made, however many there are. A segment of four fields or five (the fifth is the index of a name) maps; one of fewer only moves the column. */
+export function* decodeMappings(mappings: string): Generator<MappingSegment> {
   let sourceIndex = 0;
   let origLine = 0;
+  let origCol = 0;
   let genLine = 0;
   let genCol = 0;
   let segmentStart = 0;
@@ -106,7 +112,8 @@ function* decodeMappings(mappings: string): Generator<MappingSegment> {
       if (fields.length >= 4) {
         sourceIndex += fields[1]!;
         origLine += fields[2]!;
-        yield { genLine, genCol, sourceIndex, origLine };
+        origCol += fields[3]!;
+        yield { genLine, genCol, sourceIndex, origLine, origCol };
       }
     }
     segmentStart = at + 1;
@@ -118,11 +125,11 @@ function* decodeMappings(mappings: string): Generator<MappingSegment> {
 }
 
 /* A source of a map as a path to match against the changed files: the map's source root put before it, with one separator between. What is before the repository's own path (a scheme, `../`, `./`, a separator) needs no taking off, since a path is matched to a changed file by its end. */
-function sourcePathOf(source: string, sourceRoot?: string): string {
+export function sourcePathOf(source: string, sourceRoot?: string): string {
   return sourceRoot ? sourceRoot.replace(/\/$/, "") + "/" + source.replace(/^\//, "") : source;
 }
 
-function resolveUrlToRepoFile(url: string, changedFiles: string[]): string | null {
+export function resolveUrlToRepoFile(url: string, changedFiles: string[]): string | null {
   let path: string;
   try { path = new URL(url).pathname; } catch { path = url; }
   path = path.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -139,7 +146,7 @@ function resolveUrlToRepoFile(url: string, changedFiles: string[]): string | nul
 }
 
 /* Where each line of a script starts. The count is bounded before the list is made: a script of nothing but line breaks would otherwise make a list of its own length. */
-function lineStartOffsets(source: string): Int32Array {
+export function lineStartOffsets(source: string): Int32Array {
   let count = 1;
   for (let at = source.indexOf("\n"); at !== -1; at = source.indexOf("\n", at + 1)) {
     count += 1;
@@ -213,8 +220,8 @@ function coverOriginalLines(map: RawSourceMap, files: ReadonlyArray<string | nul
   }
 }
 
-/* What the entries of one dump cover of the changed files; `scripts`, when given, is added the scripts the dump held and the ones that carried a source map. A script is reduced only when it is a changed file or maps to one. Throws on a dump that cannot be decoded within the bounds above, or before the time `spent` speaks of is. */
-export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[], spent?: TimeSpent, scripts?: CoverageScripts): Map<string, Set<number>> {
+/* What the entries of one dump cover of the changed files; `scripts`, when given, is added the scripts the dump held and the ones that carried a source map, and `branches` the decisions of the changed files they hold with what of them ran. A script is reduced only when it is a changed file or maps to one. Throws on a dump that cannot be decoded within the bounds above, or before the time `spent` speaks of is. */
+export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[], spent?: TimeSpent, scripts?: CoverageScripts, branches?: BranchSink): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>();
   /* The one place a covered line is kept: the lines of a file are bounded however many scripts and segments claim them. */
   const cover = (file: string, line: number): void => {
@@ -245,6 +252,7 @@ export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[
     const starts = lineStartOffsets(source);
     if (directFile) for (const line of linesThatRan(ran, starts)) cover(directFile, line);
     else coverOriginalLines(map!, files, starts, ran, cover, spent);
+    branches?.add(entry, directFile, files, spent);
   }
   return out;
 }

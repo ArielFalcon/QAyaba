@@ -27,6 +27,7 @@ export class TracedObjectiveSignalPort implements ObjectiveSignalPort {
               "qayaba.coverage.covered_lines": m.coveredChanged,
               "qayaba.coverage.changed_files": m.changedFiles,
               "qayaba.coverage.mapped_files": m.mappedFiles,
+              ...(m.changedBranches !== undefined ? { "qayaba.coverage.changed_branches": m.changedBranches, "qayaba.coverage.taken_branches": m.takenBranches ?? 0 } : {}),
               ...(m.unmeasured ? { "qayaba.coverage.unmeasured": m.unmeasured } : {}),
             }
           : {}),

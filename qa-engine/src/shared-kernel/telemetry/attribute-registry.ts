@@ -62,6 +62,8 @@ export const ATTRIBUTES = {
   "qayaba.coverage.covered_lines": int("Changed lines the green run executed."),
   "qayaba.coverage.changed_files": int("Files the change adds or modifies."),
   "qayaba.coverage.mapped_files": int("Changed files the executed code was mapped to."),
+  "qayaba.coverage.changed_branches": int("Arms of the decisions on changed lines (then/else, both sides of a conditional, a short circuit, each switch clause); absent when no decision was seen on a changed line."),
+  "qayaba.coverage.taken_branches": int("Arms of the decisions on changed lines that ran in at least one test."),
   "qayaba.coverage.unmeasured": str("Why the measurement decides nothing: no-diff, not-assembled, no-changed-lines, no-changed-file-mapped or no-source-maps (the scripts the page ran carried no source map)."),
   "qayaba.coordination.kind": str("What a coordination event is: proposal, delegation, router or another kind of the coordination ledger."),
   "qayaba.coordination.action": str("The coordination action of the event: direct, delegate or a router action."),

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { renderBranchGap, renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 
 /* Enforce-mode regen's coverage-gap renderer. Expected outputs are hand-written against
    ObjectiveSignalPort.measure()'s return shape — `uncovered?: {file; lines: number[]}[]`, no
@@ -59,4 +59,20 @@ test("renderCoverageGap: exactly at the max — no truncation trailer", () => {
   ];
   const out = renderCoverageGap(uncovered, 2);
   assert.equal(out, "changed lines NOT exercised by any test:\n- src/a.ts: lines 1\n- src/b.ts: lines 2");
+});
+
+test("renderBranchGap: the arms on changed lines no test ran, one line each with where and which arm; nothing when every arm ran", () => {
+  assert.equal(renderBranchGap([]), "");
+  assert.equal(
+    renderBranchGap([
+      { file: "src/store.ts", line: 57, kind: "if", arm: "else" },
+      { file: "src/store.html", line: 12, kind: "conditional", arm: "false" },
+    ]),
+    "decision arms on changed lines that NO test ran (a test must reach the state that takes each):\n- src/store.ts:57 if: else\n- src/store.html:12 conditional: false",
+  );
+});
+
+test("renderBranchGap: over the max truncates and reports the remainder count", () => {
+  const arms = Array.from({ length: 4 }, (_, i) => ({ file: "src/a.ts", line: i + 1, kind: "if", arm: "else" }));
+  assert.equal(renderBranchGap(arms, 2).split("\n").at(-1), "…and 2 more arm(s)");
 });

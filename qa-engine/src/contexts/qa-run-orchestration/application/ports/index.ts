@@ -629,6 +629,13 @@ export interface ExecutionPort {
   /** Bare AbortSignal or richer opts bag; absent is specDir only. */
   execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string; devWrites?: number }>;
 }
+/** An arm of a decision on a changed line that no test ran. */
+export interface UntakenArm {
+  file: string;
+  line: number;
+  kind: string;
+  arm: string;
+}
 /** What a change-coverage measurement counted, and why a measurement that decides nothing did not. */
 export interface CoverageMeasurement {
   changedLines: number;
@@ -636,6 +643,9 @@ export interface CoverageMeasurement {
   changedFiles: number;
   /** Changed files the executed code was mapped to. */
   mappedFiles: number;
+  /** Arms of the decisions on changed lines, and how many of them ran. Absent when no decision was seen on a changed line. */
+  changedBranches?: number;
+  takenBranches?: number;
   /** Why the measurement decides nothing: no diff, no assembler, no changed line, or no executed source mapped to a changed file, or the scripts the page ran carried no source map at all (the app serves bundles that cannot be translated back to the repository's files). Absent when it measured. */
   unmeasured?: "no-diff" | "not-assembled" | "no-changed-lines" | "no-changed-file-mapped" | "no-source-maps";
 }
@@ -654,7 +664,7 @@ export interface ObjectiveSignalPort {
    * `opts.namespace` overrides the dump namespace for the regen's second
    * measure(); the first measurement is untouched.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; untakenArms?: UntakenArm[]; measurement?: CoverageMeasurement }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.

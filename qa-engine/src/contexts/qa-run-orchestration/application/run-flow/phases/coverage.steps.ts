@@ -2,12 +2,13 @@
 
 import { CORRECTION_ORIGIN } from "../../coordination/lead-correction.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
-import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
+import { renderBranchGap, renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 import { isRunDeadlineError } from "../../../../../shared-kernel/run-deadline.ts";
 import type { RunQaResult } from "../../run-qa.use-case.ts";
 import type { StepResult } from "../run-flow.ts";
 import type { WorkspaceRunContext } from "../run-context.ts";
-import type { RunState } from "../run-state.ts";
+import type { CoverageOutcome, RunState } from "../run-state.ts";
+import type { CoverageMeasurement } from "../../ports/index.ts";
 import { executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { regenerate } from "./generation-services.ts";
 
@@ -15,6 +16,10 @@ type Result = Promise<StepResult<RunState, RunQaResult>>;
 
 /* A context run executes nothing (its pass is synthetic), so it has no coverage or value to measure. */
 export const measuresCoverage = (state: Readonly<RunState>, ctx: WorkspaceRunContext): boolean => state.execution.run.verdict === "pass" && ctx.input.mode !== "context";
+
+/* The arms of the decisions on changed lines a measurement counted, and how many ran; undefined when it saw none. */
+export const branchCoverageOf = (m: CoverageMeasurement | undefined): CoverageOutcome["branchCoverage"] =>
+  m?.changedBranches !== undefined ? { changed: m.changedBranches, taken: m.takenBranches ?? 0 } : undefined;
 
 /* Only a diff run on one repo measures a real per-commit coverage signal. */
 const measuresPerCommit = (ctx: WorkspaceRunContext): boolean => ctx.input.mode === "diff" && !ctx.input.triggerRepo;
@@ -63,6 +68,8 @@ export async function measureCoverage(state: Readonly<RunState>, ctx: WorkspaceR
         mutantCount: signal.mutantCount ?? undefined,
         killedCount: signal.killedCount ?? undefined,
         uncovered: signal.uncovered ?? [],
+        branchCoverage: branchCoverageOf(signal.measurement),
+        untakenArms: signal.untakenArms ?? [],
         /*
          * Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not
          * re-implement the mode check here.
@@ -89,7 +96,7 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   let { acceptanceCalls, acceptedRegenAfterMeasure } = state.coverage;
   let { run } = state.execution;
   try {
-    const gap = renderCoverageGap(state.coverage.uncovered);
+    const gap = [renderCoverageGap(state.coverage.uncovered), renderBranchGap(state.coverage.untakenArms)].filter(Boolean).join("\n\n");
     const snapshot = await snapshotSuite();
     const deliveredBefore = generation.delivered;
     const regen = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);

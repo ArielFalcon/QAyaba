@@ -25,6 +25,8 @@ export interface RunOutcome {
     /* Absent means the value-oracle never measured this run — never a fabricated 0 (indistinguishable from a genuine measured zero). */
     mutantCount?: number;
     killedCount?: number;
+    /* The arms of the decisions on changed lines and how many ran: a signal beside coverageRatio, never a gate. Absent when no decision was seen on a changed line. */
+    branchCoverage?: { changed: number; taken: number };
     /* The value score describes bytes an accepted regeneration rewrote. Signal-only: recorded, never a gate. */
     value?: { stale: boolean };
     /*

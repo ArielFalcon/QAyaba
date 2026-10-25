@@ -54,3 +54,18 @@ test("the change-coverage measurement is a span with its decision, what it count
   assert.equal(span.attributes["qayaba.coverage.mapped_files"], 0);
   assert.equal(span.attributes["qayaba.coverage.unmeasured"], "no-changed-file-mapped");
 });
+
+test("the change-coverage span carries the branches on the changed lines when a decision was seen there, and nothing of them when none was", async () => {
+  const measured = (measurement: NonNullable<Awaited<ReturnType<ObjectiveSignalPort["measure"]>>["measurement"]>) => async () => {
+    const h = traceHarness();
+    const inner: ObjectiveSignalPort = { measure: async () => ({ status: "pass", ratio: 1, measurement }), blocks: () => false };
+    await inPhase(h, "qayaba.phase.coverage", () => new TracedObjectiveSignalPort(inner, h.telemetry).measure(BlastRadius.of(Sha.of("abc1234"), []), "/e2e", "diff"));
+    return h.only("qayaba.coverage.measure").attributes;
+  };
+  const withBranches = await measured({ changedLines: 3, coveredChanged: 3, changedFiles: 1, mappedFiles: 1, changedBranches: 4, takenBranches: 3 })();
+  assert.equal(withBranches["qayaba.coverage.changed_branches"], 4);
+  assert.equal(withBranches["qayaba.coverage.taken_branches"], 3);
+  const without = await measured({ changedLines: 3, coveredChanged: 3, changedFiles: 1, mappedFiles: 1 })();
+  assert.equal("qayaba.coverage.changed_branches" in without, false);
+  assert.equal("qayaba.coverage.taken_branches" in without, false);
+});

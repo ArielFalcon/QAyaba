@@ -1,4 +1,4 @@
-import type { CoverageReport } from "../application/ports/index.ts";
+import type { BranchHit, CoverageReport } from "../application/ports/index.ts";
 import type { ChangeCoverage } from "./decide-coverage.service.ts";
 
 type CoveredLines = Map<string, Set<number>>;
@@ -56,7 +56,25 @@ export function parseDiffHunks(diff: string): CoveredLines {
   return changed;
 }
 
-export function computeChangeCoverage(changed: CoveredLines, covered: CoveredLines): ChangeCoverage {
+/* The arms of the decisions on changed lines: how many, how many ran, and which never did. Null counts when no decision is on a changed line. */
+function changedBranches(changed: CoveredLines, hits: readonly BranchHit[]): Pick<ChangeCoverage, "branches" | "untakenArms"> {
+  let total = 0;
+  let taken = 0;
+  const untakenArms: NonNullable<ChangeCoverage["untakenArms"]> = [];
+  for (const hit of hits) {
+    if (!changed.get(hit.file)?.has(hit.line)) continue;
+    for (const arm of hit.arms) {
+      total++;
+      if (arm.taken) taken++;
+      else untakenArms.push({ file: hit.file, line: hit.line, kind: hit.kind, arm: arm.label });
+    }
+  }
+  if (total === 0) return { branches: null };
+  untakenArms.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+  return { branches: { changedBranches: total, takenBranches: taken, ratio: taken / total }, untakenArms };
+}
+
+export function computeChangeCoverage(changed: CoveredLines, covered: CoveredLines, branchHits: readonly BranchHit[] = []): ChangeCoverage {
   const perFile: ChangeCoverage["perFile"] = [];
   const uncovered: ChangeCoverage["uncovered"] = [];
   let totalChanged = 0;
@@ -83,7 +101,7 @@ export function computeChangeCoverage(changed: CoveredLines, covered: CoveredLin
     overall: { changedLines: totalChanged, coveredChanged: totalCovered, ratio: totalChanged ? totalCovered / totalChanged : 1 },
     perFile,
     uncovered,
-    branches: null,
+    ...changedBranches(changed, branchHits),
   };
 }
 
@@ -98,5 +116,5 @@ function toCoveredLines(report: CoverageReport): CoveredLines {
 export function assembleChangeCoverage(diff: string, report: CoverageReport): ChangeCoverage {
   const changed = parseDiffHunks(diff);
   const covered = toCoveredLines(report);
-  return computeChangeCoverage(changed, covered);
+  return computeChangeCoverage(changed, covered, report.branches);
 }

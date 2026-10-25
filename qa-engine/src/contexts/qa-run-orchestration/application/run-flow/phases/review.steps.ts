@@ -19,6 +19,7 @@ import type { RunState } from "../run-state.ts";
 import { liveExecutionOptions, executeAccepted, validateAccepted } from "./execute.steps.ts";
 import { closedLoopSignal, contractFindingText, correctThroughLead, regenerateByLead } from "./generation-services.ts";
 import { resolveTested } from "./fix-loop.steps.ts";
+import { branchCoverageOf } from "./coverage.steps.ts";
 import { addReviewStats, annotateReviewPhase, newReviewTally, readReviewedSpecs, rebuttalEvidence, recordReviewDecision } from "./review-services.ts";
 
 type Result = Promise<StepResult<RunState, RunQaResult>>;
@@ -495,6 +496,7 @@ export async function remeasureStaleCoverage(state: Readonly<RunState>, ctx: Wor
           ...state.coverage,
           coverageRatio: finalSignal.ratio,
           coverageStatus: finalSignal.status,
+          branchCoverage: branchCoverageOf(finalSignal.measurement),
           blocksPublish: deps.objectiveSignal.blocks(finalSignal.status),
           /* The oracle measured again on the delivered bytes: its score describes what is on disk now. */
           valueScore: finalSignal.valueScore ?? valueScore,

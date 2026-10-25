@@ -15,6 +15,7 @@ import type {
   RetrievedRule,
   SelectedExemplar,
   ServiceLink,
+  UntakenArm,
 } from "../ports/index.ts";
 import type { AdjudicatorVerdict } from "../../domain/adjudicate.service.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -138,6 +139,10 @@ export interface CoverageOutcome {
   killedCount: number | undefined;
   /** The changed lines the first measurement left uncovered, for the enforce-mode regeneration. */
   uncovered: { file: string; lines: number[] }[];
+  /** The arms of the decisions on changed lines and how many ran; undefined when none was seen. A signal, never a gate. */
+  branchCoverage: { changed: number; taken: number } | undefined;
+  /** The arms on changed lines no test ran, for the enforce-mode regeneration beside the uncovered lines. */
+  untakenArms: UntakenArm[];
   /** Acceptances spent so far; each names its namespace by it. */
   acceptanceCalls: number;
   /** An accepted regeneration rewrote specs after the last measurement: the coverage ratio is then stale. */
@@ -249,6 +254,8 @@ export function initialRunState(): RunState {
       mutantCount: undefined,
       killedCount: undefined,
       uncovered: [],
+      branchCoverage: undefined,
+      untakenArms: [],
       acceptanceCalls: 0,
       acceptedRegenAfterMeasure: false,
       coverageStale: false,

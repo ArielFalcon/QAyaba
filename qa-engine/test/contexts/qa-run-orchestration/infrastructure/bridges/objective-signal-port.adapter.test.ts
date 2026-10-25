@@ -482,3 +482,21 @@ test("measure() of a commit that only changes the repo's tests has no changed li
   assert.equal(result.measurement?.unmeasured, "no-changed-lines");
   assert.equal(adapter.blocks(result.status), false);
 });
+
+test("measure() reports the branches on the changed lines and the arms that never ran beside the line ratio, which alone decides", async () => {
+  const report: CoverageReport = {
+    covered: [{ file: "src/checkout.ts", lines: [1, 2] }],
+    branches: [{ file: "src/checkout.ts", line: 1, column: 0, kind: "if", arms: [{ label: "then", taken: true }, { label: "else", taken: false }] }],
+  };
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector(report), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/mirrors/org/app/e2e", SAMPLE_DIFF);
+
+  assert.equal(result.status, "pass");
+  assert.equal(result.measurement?.changedBranches, 2);
+  assert.equal(result.measurement?.takenBranches, 1);
+  assert.deepEqual(result.untakenArms, [{ file: "src/checkout.ts", line: 1, kind: "if", arm: "else" }]);
+});

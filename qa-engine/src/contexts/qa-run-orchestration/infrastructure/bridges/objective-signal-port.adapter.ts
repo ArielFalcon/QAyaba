@@ -31,6 +31,7 @@ function measurementOf(cc: ChangeCoverage | null, skipped: CoverageMeasurement["
     coveredChanged: cc.overall.coveredChanged,
     changedFiles: cc.perFile.length,
     mappedFiles: cc.perFile.filter((file) => file.covered > 0).length,
+    ...(cc.branches ? { changedBranches: cc.branches.changedBranches, takenBranches: cc.branches.takenBranches } : {}),
   };
   if (cc.overall.changedLines === 0) return { ...counts, unmeasured: "no-changed-lines" };
   if (cc.measured) return counts;
@@ -45,7 +46,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     private readonly ctx: ObjectiveSignalPortStaticContext,
   ) {}
 
-  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[]; measurement?: CoverageMeasurement }> {
+  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): ReturnType<ObjectiveSignalPort["measure"]> {
     const namespace = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
     /* coverage.mode "off" skips collector IO and the value oracle. decide() sees null → "unknown" (never blocks). */
     if (this.ctx.policy.mode === "off") {
@@ -72,6 +73,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
       mutantCount: oracleResult.mutantCount,
       killedCount: oracleResult.killedCount,
       ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
+      ...(cc?.untakenArms ? { untakenArms: cc.untakenArms } : {}),
       measurement,
     };
   }

@@ -2944,6 +2944,21 @@ test("mutantCount/killedCount flow from ObjectiveSignalPort.measure() into the p
   assert.equal(saved!.gateSignals.killedCount, 17, "the oracle's real killedCount must be threaded into the persisted gateSignals");
 });
 
+test("the branches a measurement counted on the changed lines are persisted beside the line ratio, and absent when it saw none", async () => {
+  const persisted = async (measurement: { changedBranches?: number; takenBranches?: number }) => {
+    let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
+    const { ports } = stubPorts({
+      execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+      measure: async () => ({ status: "pass", ratio: 1, measurement: { changedLines: 3, coveredChanged: 3, changedFiles: 1, mappedFiles: 1, ...measurement } }),
+    });
+    ports.runHistory.save = async (outcome) => { saved = outcome; };
+    await new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } }).run({ ...baseInput, runId: "branch-coverage-persisted" });
+    return saved!.gateSignals;
+  };
+  assert.deepEqual((await persisted({ changedBranches: 4, takenBranches: 1 })).branchCoverage, { changed: 4, taken: 1 });
+  assert.equal("branchCoverage" in (await persisted({})), false);
+});
+
 test("an absent mutantCount/killedCount from ObjectiveSignalPort.measure() persists as absent, never a fabricated 0", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({

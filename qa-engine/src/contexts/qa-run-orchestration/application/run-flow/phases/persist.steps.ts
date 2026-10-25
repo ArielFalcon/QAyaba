@@ -45,7 +45,7 @@ export async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRu
   const { deps, ends, services } = ctx;
   const { decision, isContextCleanPass } = decidedOf(state);
   const { run, retries, validation } = state.execution;
-  const { coverageRatio, valueScore, mutantCount, killedCount } = state.coverage;
+  const { coverageRatio, valueScore, mutantCount, killedCount, branchCoverage } = state.coverage;
   const { finalReviewerCorrections, reviewerSignal } = state.review;
   const { retrievedRuleIds, diffArchetypes, blastRadiusSignal, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const { preExecAmbiguityCatches, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed } = state.generation;
@@ -63,6 +63,7 @@ export async function persistOutcome(state: Readonly<RunState>, ctx: WorkspaceRu
     /* Real oracle counts when threaded; absent (never a fabricated 0) when the oracle never measured. */
     mutantCount,
     killedCount,
+    ...(branchCoverage ? { branchCoverage } : {}),
     reviewerCorrections: finalReviewerCorrections,
     ...(reviewerSignal !== undefined ? { reviewer: reviewerSignal } : {}),
     /* Publish outcome string — never fabricated when publish() was not called. */

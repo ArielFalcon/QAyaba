@@ -269,6 +269,8 @@ export interface RunOutcome {
      * fabricated 0 (indistinguishable from a genuine measured zero). */
     mutantCount?: number;
     killedCount?: number;
+    /* The arms of the decisions on changed lines and how many ran; absent when none was seen. A signal, never a gate. */
+    branchCoverage?: { changed: number; taken: number };
     reviewerCorrections: string[];
     /*
      * The reviewer's one/two-sentence reasoning for its verdict — on APPROVAL too, not only
