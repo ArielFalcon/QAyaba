@@ -1,4 +1,4 @@
-/* The store is injected (no SQLite binary in tests); ranking is delegated to RuleGovernanceService (the SELECT is UNORDERED — the duplicate SQL ORDER BY is gone). The read path coerces 'pending' → 'candidate' BEFORE typing so no row violates the port type and no rule is silently dropped. */
+/* The store is injected (no SQLite binary in tests); ranking is delegated to RuleGovernanceService (the SELECT is UNORDERED — the duplicate SQL ORDER BY is gone). */
 import type { LearningRepositoryPort, LearningRule, RuleStatus, ErrorClass, RelevanceBias } from "../application/ports/index.ts";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -32,11 +32,6 @@ export interface LearningStore {
   quarantine?(app: string, ids: readonly string[], at: string): number;
 }
 
-function coerceStatus(raw: string): RuleStatus {
-  if (raw === "active" || raw === "deprecated" || raw === "superseded") return raw;
-  return "candidate";
-}
-
 function rowToRule(row: LearningRow): LearningRule {
   return {
     id: row.id,
@@ -44,7 +39,7 @@ function rowToRule(row: LearningRow): LearningRule {
     action: row.action_text,
     errorClass: row.error_class as ErrorClass,
     archetype: row.archetype ?? null,
-    status: coerceStatus(row.status),
+    status: row.status as RuleStatus,
     confidence: row.confidence === "low" ? "low" : row.confidence === "high" ? "high" : "medium",
     usageCount: row.usage_count,
     outcomeCount: row.outcome_count ?? 0,

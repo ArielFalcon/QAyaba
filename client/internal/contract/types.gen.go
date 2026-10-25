@@ -626,25 +626,22 @@ func (e LearningRuleViewConfidence) Valid() bool {
 
 // Defines values for LearningRuleViewStatus.
 const (
-	LearningRuleViewStatusActive     LearningRuleViewStatus = "active"
-	LearningRuleViewStatusCandidate  LearningRuleViewStatus = "candidate"
-	LearningRuleViewStatusDeprecated LearningRuleViewStatus = "deprecated"
-	LearningRuleViewStatusPending    LearningRuleViewStatus = "pending"
-	LearningRuleViewStatusSuperseded LearningRuleViewStatus = "superseded"
+	Active     LearningRuleViewStatus = "active"
+	Candidate  LearningRuleViewStatus = "candidate"
+	Deprecated LearningRuleViewStatus = "deprecated"
+	Superseded LearningRuleViewStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the LearningRuleViewStatus enum.
 func (e LearningRuleViewStatus) Valid() bool {
 	switch e {
-	case LearningRuleViewStatusActive:
+	case Active:
 		return true
-	case LearningRuleViewStatusCandidate:
+	case Candidate:
 		return true
-	case LearningRuleViewStatusDeprecated:
+	case Deprecated:
 		return true
-	case LearningRuleViewStatusPending:
-		return true
-	case LearningRuleViewStatusSuperseded:
+	case Superseded:
 		return true
 	default:
 		return false
@@ -1286,25 +1283,25 @@ func (e RunRecordEngineStatus) Valid() bool {
 
 // Defines values for RunRecordMode.
 const (
-	Complete   RunRecordMode = "complete"
-	Context    RunRecordMode = "context"
-	Diff       RunRecordMode = "diff"
-	Exhaustive RunRecordMode = "exhaustive"
-	Manual     RunRecordMode = "manual"
+	RunRecordModeComplete   RunRecordMode = "complete"
+	RunRecordModeContext    RunRecordMode = "context"
+	RunRecordModeDiff       RunRecordMode = "diff"
+	RunRecordModeExhaustive RunRecordMode = "exhaustive"
+	RunRecordModeManual     RunRecordMode = "manual"
 )
 
 // Valid indicates whether the value is a known member of the RunRecordMode enum.
 func (e RunRecordMode) Valid() bool {
 	switch e {
-	case Complete:
+	case RunRecordModeComplete:
 		return true
-	case Context:
+	case RunRecordModeContext:
 		return true
-	case Diff:
+	case RunRecordModeDiff:
 		return true
-	case Exhaustive:
+	case RunRecordModeExhaustive:
 		return true
-	case Manual:
+	case RunRecordModeManual:
 		return true
 	default:
 		return false

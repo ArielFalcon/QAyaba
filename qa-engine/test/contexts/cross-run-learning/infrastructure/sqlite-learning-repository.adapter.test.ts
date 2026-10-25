@@ -4,22 +4,21 @@ import assert from "node:assert/strict";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
 
-/* A stored row with status 'pending' (an older build wrote it). The read path MUST coerce it.
+/* Stored rows as the learning_rules table holds them.
    Column names mirror the real `learning_rules` schema: trigger_text, action_text, error_class,
    plus the full set of fields rowToRule maps (id, archetype, usage_count, outcome_count,
    last_verified, source, at).
  */
 const rows = [
-  { id: "r1", trigger_text: "t1", action_text: "a1", error_class: "E-X", archetype: null, status: "pending", confidence: "low", usage_count: 0, outcome_count: 0, success_rate: 0.9, last_verified: null, source: "oracle", at: "2026-01-01T00:00:00.000Z" },
+  { id: "r1", trigger_text: "t1", action_text: "a1", error_class: "E-X", archetype: null, status: "candidate", confidence: "low", usage_count: 0, outcome_count: 0, success_rate: 0.9, last_verified: null, source: "oracle", at: "2026-01-01T00:00:00.000Z" },
   { id: "r2", trigger_text: "t2", action_text: "a2", error_class: "E-Y", archetype: null, status: "active", confidence: "high", usage_count: 2, outcome_count: 5, success_rate: 0.5, last_verified: null, source: "oracle", at: "2026-01-02T00:00:00.000Z" },
 ];
 
-test("maps a legacy 'pending' row to 'candidate' before typing (back-compat)", async () => {
-  const repo = new SqliteLearningRepository({ selectRules: () => rows, upsert: () => {}, recordOutcome: () => {} });
+test("a stored row's status reaches the rule as stored", async () => {
+  const stored = ["candidate", "active", "deprecated", "superseded"].map((status, n) => ({ ...rows[0]!, id: `s${n}`, trigger_text: `trigger-${status}`, status }));
+  const repo = new SqliteLearningRepository({ selectRules: () => stored, upsert: () => {}, recordOutcome: () => {} });
   const top = await repo.topRules("test-app", Sha.of("abcdef1"), 10);
-  const t1 = top.find((r) => r.trigger === "t1");
-  assert.ok(t1, "the pending row must survive as a candidate, not be dropped");
-  assert.equal(t1!.status, "candidate");
+  for (const status of ["candidate", "active"]) assert.equal(top.find((r) => r.trigger === `trigger-${status}`)?.status, status);
 });
 
 test("topRules ranks via RuleGovernanceService — active before the coerced candidate", async () => {

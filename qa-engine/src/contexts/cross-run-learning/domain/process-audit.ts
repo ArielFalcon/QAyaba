@@ -36,7 +36,7 @@ const REVIEWER_UNAVAILABLE_CLASS: ErrorClass = "E-REVIEWER-UNAVAILABLE";
 export interface RuleView {
   id: string;
   errorClass: ErrorClass;
-  status: "pending" | "candidate" | "active" | "deprecated" | "superseded";
+  status: "candidate" | "active" | "deprecated" | "superseded";
   usageCount: number;
   successRate: number | null;
 }

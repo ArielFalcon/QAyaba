@@ -576,13 +576,6 @@ function ensureDb(): void {
       db.exec(`ALTER TABLE agent_turns ADD COLUMN ${name} ${type}`);
     }
   }
-  /*
-   * "pending" is a retired rule status an older build could have written. Every retrieval and
-   * ledger read filters on status IN ('active', 'candidate'), so a stored 'pending' row would never
-   * be retrieved, never earn an outcome and stay stuck forever. Rewrite it once, at open, to the
-   * status it always meant. Idempotent: a no-op once no such row remains.
-   */
-  db.exec("UPDATE learning_rules SET status = 'candidate' WHERE status = 'pending'");
 
   insertRun = db.prepare(`
     INSERT INTO runs (id, app, sha, ref, target, mode, status, step, step_detail, verdict, passed, failed, note, retrying, parent_run_id, trigger_repo, at, logs, campaign_id, campaign_variant, campaign_replicate, capture_mode)
@@ -1278,16 +1271,6 @@ export function upsertLearningRule(rule: RuleUpsert & { app: string; id: string;
   });
 }
 
-/*
- * "pending" is a retired status an older build could have written; no path inserts it anymore
- * and RuleStatus no longer carries it. Normalize at this persistence boundary — the one place a
- * raw DB value becomes a typed LearningRule — so every consumer (including the fold) only ever
- * sees the current, narrower RuleStatus union.
- */
-function normalizeRuleStatus(raw: unknown): RuleStatus {
-  return raw === "pending" ? "candidate" : (raw as RuleStatus);
-}
-
 function rowToRule(row: Record<string, unknown>): LearningRule {
   return {
     id: row.id as string,
@@ -1302,7 +1285,7 @@ function rowToRule(row: Record<string, unknown>): LearningRule {
     successRate: row.success_rate as number | null,
     lastVerified: row.last_verified as string | null,
     source: row.source as string,
-    status: normalizeRuleStatus(row.status),
+    status: row.status as RuleStatus,
     at: row.at as string,
     quarantinedAt: (row.quarantined_at as string | null | undefined) ?? null,
   };
@@ -1391,8 +1374,7 @@ export function recordRuleOutcome(ruleId: string, score: number, coverageCreditC
   /* A rule an operator set aside accrues nothing, even for a run that retrieved it before the quarantine. */
   if (current.quarantinedAt) return;
   /*
-   * rowToRule already normalized a retired "pending" status to "candidate" (RuleStatus no longer
-   * carries it), so the shell LearningRule is structurally assignable to the fold's own
+   * The shell LearningRule is structurally assignable to the fold's own
    * LearningRule with no cast on the way in. The cast on the way OUT is real, not incidental: the
    * fold's errorClass is the wider `string` (@contexts/cross-run-learning stays kernel-decoupled),
    * narrower than this shell's own ErrorClass literal union.

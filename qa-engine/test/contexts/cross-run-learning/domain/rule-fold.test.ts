@@ -115,8 +115,7 @@ test("an empty-errorClass rule also earns no debit when its own (nonexistent) cl
    rule-fold.ts is a byte-identical successor of the shell's learning-rule.ts core (the deleted
    rule-fold-parity.test.ts proved exactly that up to a4827f5), so these assertions exercise
    real, already-implemented behavior — not new behavior. Only cases whose subject genuinely
-   still exists here are kept; "pending"-status cases are dropped because RuleStatus
-   (application/ports/index.ts) no longer has a "pending" member at all.
+   still exists here are kept.
  */
 
 describe("preventionOutcome — direct semantics matrix (recovered)", () => {

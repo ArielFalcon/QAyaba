@@ -1104,7 +1104,7 @@ export interface components {
             outcomeCount: number;
             successRate: number | null;
             /** @enum {string} */
-            status: "pending" | "candidate" | "active" | "deprecated" | "superseded";
+            status: "candidate" | "active" | "deprecated" | "superseded";
         };
         ScorecardView: {
             updatedAt: string;
