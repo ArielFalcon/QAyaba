@@ -69,6 +69,8 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
       structuralSignal: requestedGrounding.structuralSignal === false ? "off" : structuralMode,
       curriculum: env.campaignFrozen ? "frozen" : requestedGrounding.curriculum === false ? "off" : "learning",
       domPack: requestedGrounding.domPack ?? app.qa.domPack ?? true,
+      /* The dossier rides on the structural signal: with the signal off there is none to have. */
+      dossier: requestedGrounding.structuralSignal === false || structuralMode === "off" ? null : (requestedGrounding.dossier ?? app.qa.structuralSignals?.dossier ?? false),
     },
     coverage: { mode: app.qa.changeCoverage?.mode ?? DEFAULT_COVERAGE_MODE, minRatio: app.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO },
     reflector: env.reflectorEnabled && !env.campaignFrozen,
@@ -94,7 +96,7 @@ const NOT_RECORDED: StoredRunConfig = {
   campaignFreeze: null,
   runtime: null,
   prompt: { staticHash: null },
-  grounding: { stitcher: null, structuralSignal: null, curriculum: null, domPack: null },
+  grounding: { stitcher: null, structuralSignal: null, curriculum: null, domPack: null, dossier: null },
   coverage: { mode: null, minRatio: null },
   reflector: null,
 };
@@ -114,6 +116,7 @@ export function parseStoredRunConfig(json: string | null | undefined): StoredRun
         structuralSignal: parsed.grounding?.structuralSignal ?? null,
         curriculum: parsed.grounding?.curriculum ?? null,
         domPack: parsed.grounding?.domPack ?? null,
+        dossier: parsed.grounding?.dossier ?? null,
       },
       coverage: { ...NOT_RECORDED.coverage, ...(parsed.coverage ?? {}) },
       reflector: parsed.reflector ?? null,

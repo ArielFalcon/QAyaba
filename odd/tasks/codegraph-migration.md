@@ -150,9 +150,9 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 | T3 | S3, S4, S5, S6 | inline | item 2 (file boundary) + item 5 (new cache) | done — workspace export, store cache (lock, validate, publish through the confined reader, cursor in `meta.json`), sidecar retired, primary repo indexed on service runs, onboarding through the same path, provenance as the `qayaba.code_graph.index` span (L26) | `604efe78` |
 | T4 | S7, S8 | inline | item 3 (`CodeGraphPort` consumers) + item 6 | done — port re-backed on the store reader, one walk per change, co-change from git, dead methods and the old adapters removed, `seam-parity` updated; parity (S8) run offline from the base commit (L28) | `604efe78` |
 | T5 | S9 | inline | item 6 (only a live run proves a blast radius) | done — both keys (operationId reached; a reached handler whose route serves the link's operation, verb + path, parameters matching and a one-sided prefix tolerated), a changed handler counts (depth 0), the S8 budget; `MATCH_TIER` unchanged; HTTP links carry their contract operation (optional `operation`) | (L27) |
-| T6 | S10, S11, S12 | inline | item 3 (`changeRoutes` consumers: graders, lead review, DOM capture) + item 6 | done — the join (three proofs, hubs, cap, disagreements) in `qa-run-orchestration/domain/change-pages.ts`; graph pages rank after the map's links in the pack (so DOM capture, the plan, the lead review and the graders see them); basis per page on the route-ranking span; the join on `qayaba.code_graph.change_pages`; graph pages scored apart (L30) | (L30) |
+| T6 | S10, S11, S12 | inline | item 3 (`changeRoutes` consumers: graders, lead review, DOM capture) + item 6 | done — the join (three proofs, hubs, cap, disagreements) in `qa-run-orchestration/domain/change-pages.ts`; graph pages rank after the map's links in the pack (so DOM capture, the plan, the lead review and the graders see them); basis per page on the route-ranking span; the join on `qayaba.code_graph.change_pages`; graph pages scored apart; independent verifier: one blocker (operationId key needed a route node), fixed (L30, L31) | `e516984a`, `ab164e67` |
 | T7 | S13 | delegated (writer reason: parallel unit with T5/T6, disjoint surface; worktree) | item 2 (agent tool surface invariant) — own commit | done — `explore` replaces the three actions (admission, endpoint, adapter, tool file, client); answer redacted then cut at file boundaries; agent-list fixture re-recorded in the agents container; codegraph smoke 14/14 in the image; independent verifier: no blockers (L29) | `56c2ae43` |
-| T8 | S14, S15 | inline | item 3 (prompt contract) | pending — the dossier in `static-signal` and the sidekick proof path; prompt-contract lint and `scripts/prompt-contract-baseline.json` re-recorded with `--allow-increase` and its reason | |
+| T8 | S14, S15 | inline | item 3 (prompt contract) | done — sidekick proof path (S15) and the change dossier in `static-signal` behind `grounding.dossier` / `qa.structuralSignals.dossier` (off by default, the T9 lever); prompt-contract matrix: 0 findings, no baseline re-record needed (L31) | `03af259f`, S14 commit (L31) |
 | T9 | S16 | per-action workers (long runs) | item 6 | pending — the ablation rounds; the verdict per default in the Log | |
 | T10 | S17 | inline | item 5 | pending — the removal commit | |
 
@@ -304,4 +304,25 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
   - **Mutation preset ranges** (`scripts/mutate.ts`) in `context-pack.ts` and the grounding adapter were shifted to the lines they covered before.
   - **Checks:** the full CI gate is green. Full suite: 10 504 tests, 5 failures, all known at the base (the reviewer-differs-from-generator tests and the runtime-manager test).
   - **Domain-join tests:** I wrote the code before these tests. I then checked them against 7 mutants (hub, linked, disagreement, engine fallback, handler gate, operationId key, cap), and every mutant was killed.
-
+- **L31 (2026-10-25) — T6 verification, T8 (S15, S14).**
+  - **T6 verifier:**
+    - **Blocker:** the operationId key only proved a page after a route node served it. A generated contract interface implemented by a class has no route node, so it proved nothing. Fixed in `ab164e67`: a reached symbol named for an operationId proves the pages `feBe` joins to it. Disagreements are also de-duplicated per (route, engine file).
+    - **Advisories, out of domain or minor, kept as follow-ups:**
+      - The proof-chain rebuild is quadratic. This is bounded by the S8 budget of 300 symbols.
+      - Graph pages follow the order of the derived routes.
+      - The hub count includes linked pages.
+      - An untrusted-git-dir throw now comes before an abort.
+      - Two-segment suffix matching can collide across monorepo packages.
+  - **S15 (`03af259f`):**
+    - A sidekick's brief carries up to 3 proofs for its flow's pages under "How the change reaches this flow's pages (from the run's call graph)". A proof longer than 8 steps elides its middle.
+    - The proofs come from `grounding.changePages`, which is set in `groundRepository`.
+  - **S14 (the dossier):**
+    - **What it is:** the engine's read-equivalent source for the change's top changed symbols, appended to the structural block under its own heading. Symbols are ranked by direct callers.
+    - **Limits:** 4 symbols, 4 files and 8 000 characters. The text is redacted and cut at file boundaries, then passes `sanitizeText` in model mode.
+    - **Space and paths:** the lists give way so the block keeps its 20 000-byte budget. The files the dossier shows go to the prompt's provided paths, so `graph_provided_read_count` can see re-reads.
+    - **Degradation:** a change with no changed symbol, or an index that cannot answer, gets no dossier.
+  - **Lever:**
+    - `qa.structuralSignals.dossier` in the app YAML, overridden per run by `grounding.dossier`, which is part of the contract and of the effective config.
+    - The value is null when the structural signal is off. The default is off until T9 decides it.
+  - **Prompt contract:** `scripts/prompt-contract-matrix.ts` reports 0 findings with the dossier off in the fixtures, so the baseline is not re-recorded.
+  - **Checks:** full CI gate green. Full suite: 10 523 tests, 5 failures, all known at the base. Go tests green.

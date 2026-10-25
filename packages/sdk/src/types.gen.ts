@@ -830,6 +830,7 @@ export interface components {
                 structuralSignal?: boolean;
                 curriculum?: boolean;
                 domPack?: boolean;
+                dossier?: boolean;
             };
         };
         CreateRunResult: {
@@ -1636,6 +1637,7 @@ export interface components {
                     structuralSignal: string | null;
                     curriculum: string | null;
                     domPack: boolean | null;
+                    dossier: boolean | null;
                 };
                 coverage: {
                     mode: string | null;

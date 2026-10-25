@@ -5489,6 +5489,23 @@ test("a signal the port reports as naming symbols carries that flag on the first
   }
 });
 
+test("the files a signal's dossier shows travel with the signal to the generation, and none when it shows none", async () => {
+  const run = async (providedFiles?: string[]) => {
+    const captured: Array<Record<string, unknown> | undefined> = [];
+    const { ports } = stubPorts({
+      generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+        captured.push(enrichment as Record<string, unknown> | undefined);
+        return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+      },
+    });
+    const structuralSignal: StructuralSignalPort = { render: async () => ({ text: "## Structural blast radius\n- `save` (src/Foo.java)", hasSymbols: true, ...(providedFiles ? { providedFiles } : {}) }) };
+    await new RunQaUseCase({ ...ports, structuralSignal, config: baseConfig }).run({ ...baseInput, runId: `dossier-files-${providedFiles?.length ?? 0}` });
+    return captured[0];
+  };
+  assert.deepEqual((await run(["src/Foo.java"]))?.staticSignalFiles, ["src/Foo.java"]);
+  assert.equal("staticSignalFiles" in ((await run()) ?? {}), false);
+});
+
 test("a co-change-only signal reaches every generation with no symbol flag at all: absent, never false", async () => {
   const capturedEnrichments: Array<Record<string, unknown> | undefined> = [];
   const { ports } = stubPorts({

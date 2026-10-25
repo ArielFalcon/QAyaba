@@ -146,6 +146,8 @@ export const GroundingInputSchema = z.object({
   structuralSignal: z.boolean().optional(),
   curriculum: z.boolean().optional(),
   domPack: z.boolean().optional(),
+  /* The change dossier inside the structural block; meaningful only while the structural signal is on. */
+  dossier: z.boolean().optional(),
 });
 export type GroundingInput = z.infer<typeof GroundingInputSchema>;
 
@@ -645,6 +647,7 @@ export const EffectiveConfigSchema = z.object({
     structuralSignal: z.string().nullable(),
     curriculum: z.string().nullable(),
     domPack: z.boolean().nullable(),
+    dossier: z.boolean().nullable(),
   }),
   coverage: z.object({ mode: z.string().nullable(), minRatio: z.number().nullable() }),
   reflector: z.boolean().nullable(),

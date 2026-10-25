@@ -132,6 +132,8 @@ export interface OpencodeRunInput {
   staticSignal?: string;
   /* True when the static signal names symbols (impacted or callers): only then does it stand for an explored blast radius. Absent = a signal of co-change files alone (or no signal), which names no blast radius. */
   staticSignalHasSymbols?: boolean;
+  /* The files the static signal's dossier shows verbatim (repo-relative): listed as prompt-provided while the section survives. */
+  staticSignalFiles?: readonly string[];
   skillExemplars?: readonly {
     id: string; name: string; template: string; archetype: string; proven: boolean; promotionCount: number;
   }[];

@@ -2436,6 +2436,9 @@
               },
               "domPack": {
                 "type": "boolean"
+              },
+              "dossier": {
+                "type": "boolean"
               }
             },
             "additionalProperties": false
@@ -5999,13 +6002,18 @@
                   "domPack": {
                     "nullable": true,
                     "type": "boolean"
+                  },
+                  "dossier": {
+                    "nullable": true,
+                    "type": "boolean"
                   }
                 },
                 "required": [
                   "stitcher",
                   "structuralSignal",
                   "curriculum",
-                  "domPack"
+                  "domPack",
+                  "dossier"
                 ],
                 "additionalProperties": false
               },

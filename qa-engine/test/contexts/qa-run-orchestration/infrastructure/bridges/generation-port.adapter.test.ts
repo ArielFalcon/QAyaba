@@ -780,8 +780,12 @@ test("generate() maps the structural signal and its symbol flag onto OpencodeRun
     assert.equal(capturedInput?.staticSignal, coChangeOnly);
     assert.equal("staticSignalHasSymbols" in (capturedInput ?? {}), false, "a signal without the flag leaves it absent, never false");
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignalHasSymbols: true });
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
+    assert.deepEqual(capturedInput?.staticSignalFiles, ["src/Foo.java"], "the dossier's files travel with their signal");
+
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
     assert.equal("staticSignalHasSymbols" in (capturedInput ?? {}), false, "a flag without a signal is dropped");
+    assert.equal("staticSignalFiles" in (capturedInput ?? {}), false, "files without a signal are dropped");
     assert.equal("staticSignal" in (capturedInput ?? {}), false);
   } finally {
     GenerateTestsUseCase.prototype.generate = originalGenerate;

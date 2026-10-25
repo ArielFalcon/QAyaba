@@ -155,16 +155,18 @@ export async function resolveBlastRadius(state: Readonly<RunState>, ctx: Workspa
   const runBlastRadius = BlastRadius.of(input.sha, classificationIntent?.changedFiles ?? [], diff ? new DiffParserService().touchedLines(diff) : undefined);
   let blastRadiusSignal = "";
   let blastRadiusSignalHasSymbols = false;
+  let blastRadiusSignalFiles: readonly string[] = [];
   if (deps.structuralSignal) {
     try {
       const rendered = await deps.structuralSignal.render(workspace.specDir, runBlastRadius);
       blastRadiusSignal = rendered.text;
       blastRadiusSignalHasSymbols = rendered.hasSymbols;
+      blastRadiusSignalFiles = rendered.providedFiles ?? [];
     } catch (err) {
       console.error("[qa] WARNING: structural blast-radius signal failed (non-fatal, generation continues without it):", err);
     }
   }
-  return { update: { grounding: { ...state.grounding, blastRadiusSignal, blastRadiusSignalHasSymbols } } };
+  return { update: { grounding: { ...state.grounding, blastRadiusSignal, blastRadiusSignalHasSymbols, blastRadiusSignalFiles } } };
 }
 
 /* Not gated on diff mode. Advisory; throw degrades to empty links/drift. */
@@ -214,7 +216,7 @@ export async function assembleEnrichment(state: Readonly<RunState>, ctx: Workspa
   const { input, trail } = ctx;
   const { intent: classificationIntent, reason: classificationReason, contradiction: classificationContradiction } = state.classification;
   const { closedLoop, agentBrowser } = trail;
-  const { retrievedRules, contextPack, contextPackItemIds, contextPackOmissions, existingSpecFiles, contextMap, harnessFacts, blastRadiusSignal, blastRadiusSignalHasSymbols, selectedExemplars, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
+  const { retrievedRules, contextPack, contextPackItemIds, contextPackOmissions, existingSpecFiles, contextMap, harnessFacts, blastRadiusSignal, blastRadiusSignalHasSymbols, blastRadiusSignalFiles, selectedExemplars, serviceLinks, contractDrift, crossRepoImpact } = state.grounding;
   const baseEnrichment = {
     sha: input.sha.toString(),
     runId: input.runId,
@@ -228,7 +230,7 @@ export async function assembleEnrichment(state: Readonly<RunState>, ctx: Workspa
     ...(harnessFacts ? { harnessFacts } : {}),
     /* The flag travels with its signal and only when true: a co-change-only signal carries none, never a fabricated false. */
     ...(blastRadiusSignal
-      ? { staticSignal: blastRadiusSignal, ...(blastRadiusSignalHasSymbols ? { staticSignalHasSymbols: true } : {}) }
+      ? { staticSignal: blastRadiusSignal, ...(blastRadiusSignalHasSymbols ? { staticSignalHasSymbols: true } : {}), ...(blastRadiusSignalFiles.length ? { staticSignalFiles: blastRadiusSignalFiles } : {}) }
       : {}),
     ...(selectedExemplars.length ? { skillExemplars: selectedExemplars } : {}),
     ...(closedLoop ? { closedLoop: closedLoop.limits } : {}),

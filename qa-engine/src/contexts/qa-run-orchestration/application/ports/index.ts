@@ -219,6 +219,8 @@ export interface GenerationEnrichment {
    * alongside `staticSignal`, and only when true — absent is never a fabricated false.
    */
   staticSignalHasSymbols?: boolean;
+  /** The files the static signal's dossier shows verbatim (repo-relative). Present only alongside `staticSignal`. */
+  staticSignalFiles?: readonly string[];
   /**
    * Curriculum-ranked authoring templates. Absent lets the prompt builder fall
    * back to its local derivation.
@@ -898,6 +900,8 @@ export interface ReviewDomGroundingPort {
 export interface StructuralSignalResult {
   text: string;
   hasSymbols: boolean;
+  /** The files the block's dossier shows verbatim: a read of one re-fetches what the prompt already carries. */
+  providedFiles?: string[];
   /** The commit of the code-graph index the block was read from; absent when the graph gave no answer. */
   indexedSha?: string;
 }

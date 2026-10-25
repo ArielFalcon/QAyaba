@@ -70,6 +70,8 @@ export interface Grounding {
   confirmedDataRoutes: readonly { path: string; resultCount: number }[] | undefined;
   blastRadiusSignal: string;
   blastRadiusSignalHasSymbols: boolean;
+  /** The files the signal's dossier shows verbatim. */
+  blastRadiusSignalFiles: readonly string[];
   serviceLinks: readonly ServiceLink[];
   contractDrift: readonly ContractDrift[];
   crossRepoImpact: CrossRepoImpact | null;
@@ -215,6 +217,7 @@ export function initialRunState(): RunState {
       confirmedDataRoutes: undefined,
       blastRadiusSignal: "",
       blastRadiusSignalHasSymbols: false,
+      blastRadiusSignalFiles: [],
       serviceLinks: [],
       contractDrift: [],
       crossRepoImpact: null,

@@ -17,6 +17,11 @@ export const MAX_TERM_CHARS = 200;
 /* Identifier and path characters (word characters, `$`, `.`, `/`, `:`, `@`, `#`, `~`, `-`); no space, quote, shell or glob character. */
 const TERM = /^[A-Za-z0-9_$.\/:@#~-]+$/;
 
+/* A single identifier or path the engine reads as a name, never as an option. */
+export function isExploreTerm(term: string): boolean {
+  return term.length > 0 && term.length <= MAX_TERM_CHARS && !term.startsWith("-") && TERM.test(term);
+}
+
 export interface CodeGraphQuery {
   action: typeof CODE_GRAPH_ACTION.EXPLORE;
   terms: string[];
@@ -26,7 +31,7 @@ function termsOf(value: unknown): string[] | undefined {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_EXPLORE_TERMS) return undefined;
   const terms: string[] = [];
   for (const item of value) {
-    if (typeof item !== "string" || item.length > MAX_TERM_CHARS || item.startsWith("-") || !TERM.test(item)) return undefined;
+    if (typeof item !== "string" || !isExploreTerm(item)) return undefined;
     terms.push(item);
   }
   return terms;

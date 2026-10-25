@@ -1229,6 +1229,18 @@ test("qa.structuralSignals mode 'off' omits BOTH the code graph (with its explor
   assert.equal(config.crossRepoImpact, undefined, "mode:off must omit crossRepoImpact too — all three structural collaborators share the one gate");
 });
 
+test("the change dossier is on only when the run or the app asks for it and the code graph is wired", () => {
+  const plain = cfg("factory-dossier");
+  const withDossier = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "signal", dossier: true } } } as AppConfig;
+  const build = (app: AppConfig, grounding?: { dossier?: boolean; structuralSignal?: boolean }) =>
+    buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
+  assert.equal(build(plain).structuralDossier, undefined, "off by default");
+  assert.equal(build(withDossier).structuralDossier, true);
+  assert.equal(build(plain, { dossier: true }).structuralDossier, true);
+  assert.equal(build(withDossier, { dossier: false }).structuralDossier, undefined);
+  assert.equal(build(withDossier, { structuralSignal: false }).structuralDossier, undefined, "no code graph, no dossier");
+});
+
 test("buildRewrittenCompositionConfig supplies crossRepoImpact under the SAME gate as serviceTopology (signal + services[] + boundaries[])", () => {
   const app: AppConfig = {
     ...cfg("factory-cross-repo-impact-active"),

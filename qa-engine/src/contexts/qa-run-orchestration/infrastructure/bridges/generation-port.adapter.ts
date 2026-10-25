@@ -205,7 +205,11 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(enrichment?.geolocation ? { geolocation: enrichment.geolocation } : {}),
       /* Structural-blast-radius advisory, with the flag that says it names symbols. Absent → omitted; the flag never travels without its signal. */
       ...(enrichment?.staticSignal
-        ? { staticSignal: enrichment.staticSignal, ...(enrichment.staticSignalHasSymbols ? { staticSignalHasSymbols: true } : {}) }
+        ? {
+            staticSignal: enrichment.staticSignal,
+            ...(enrichment.staticSignalHasSymbols ? { staticSignalHasSymbols: true } : {}),
+            ...(enrichment.staticSignalFiles?.length ? { staticSignalFiles: [...enrichment.staticSignalFiles] } : {}),
+          }
         : {}),
       /* Curriculum-ranked exemplars. Absent/empty → omitted, never []. */
       ...(enrichment?.skillExemplars?.length ? { skillExemplars: enrichment.skillExemplars.map((e) => ({ ...e })) } : {}),

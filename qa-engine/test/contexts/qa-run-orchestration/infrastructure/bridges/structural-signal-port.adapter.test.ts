@@ -4,7 +4,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ADVISORY_BUDGET, StructuralSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/structural-signal-port.adapter.ts";
-import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
+import { DOSSIER_HEADING, renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
+import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { ok, err } from "@kernel/result.ts";
@@ -155,4 +156,70 @@ test("co-change files alone render a block but leave the symbol flag false", asy
 
   assert.ok(text.includes("src/Coupled.java"));
   assert.equal(hasSymbols, false);
+});
+
+/* The change dossier: the engine's read-equivalent source of the change's top symbols, inside the same block. */
+
+const EXPLORED = ["**`src/Foo.java`** — 1 symbol", "```java", "3\tpublic void run() {", "4\t  const key = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';", "5\t}", "```"].join("\n");
+
+function fakeExplore(answer: string | undefined, asked: Array<{ terms: readonly string[]; maxFiles: number }> = []): CodeExplorePort {
+  return {
+    explore: async (_repo, terms, maxFiles) => {
+      asked.push({ terms, maxFiles });
+      return answer === undefined ? err({ reason: "not indexed" }) : ok({ text: answer, indexedSha: SHA });
+    },
+  };
+}
+
+test("with the dossier on, the block carries the engine's source of the change's top symbols, sanitized, and names the files it shows", async () => {
+  const asked: Array<{ terms: readonly string[]; maxFiles: number }> = [];
+  const other: ImpactedSymbol = { file: "src/Bar.java", symbol: "idle", kind: "method", depth: 0 };
+  const adapter = new StructuralSignalPortAdapter(
+    fakeCodeGraph({ impactedSymbols: async () => report([other, changedSymbol, caller]) }),
+    fakeCoChange(),
+    "/repo",
+    { explore: fakeExplore(EXPLORED, asked), limits: { maxSymbols: 4, maxFiles: 3, maxChars: 8_000 } },
+  );
+
+  const result = await adapter.render("/repo", changed);
+
+  assert.deepEqual(asked, [{ terms: ["run", "idle"], maxFiles: 3 }], "the changed symbol the most code reaches comes first");
+  assert.ok(result.text.includes(DOSSIER_HEADING));
+  assert.ok(result.text.includes("3\tpublic void run() {"));
+  assert.equal(result.text.includes("ghp_abcdefghijklmnopqrstuvwxyz0123456789"), false, "the engine's text is sanitized before it reaches the prompt");
+  assert.deepEqual(result.providedFiles, ["src/Foo.java"]);
+});
+
+test("with the dossier off, or when the index cannot answer, the block is the lists alone", async () => {
+  const asked: Array<{ terms: readonly string[]; maxFiles: number }> = [];
+  const graph = fakeCodeGraph({ impactedSymbols: async () => report([changedSymbol, caller]) });
+  const off = await new StructuralSignalPortAdapter(graph, fakeCoChange(), "/repo").render("/repo", changed);
+  const unanswered = await new StructuralSignalPortAdapter(graph, fakeCoChange(), "/repo", { explore: fakeExplore(undefined, asked) }).render("/repo", changed);
+
+  for (const result of [off, unanswered]) {
+    assert.equal(result.text.includes(DOSSIER_HEADING), false);
+    assert.equal("providedFiles" in result, false);
+  }
+  assert.equal(asked.length, 1);
+});
+
+test("a dossier is never asked for a change with no changed symbol", async () => {
+  const asked: Array<{ terms: readonly string[]; maxFiles: number }> = [];
+  const adapter = new StructuralSignalPortAdapter(fakeCodeGraph(), fakeCoChange(async () => ok([{ file: "src/Coupled.java", couplingScore: 0.8, coChanges: 5 }])), "/repo", { explore: fakeExplore(EXPLORED, asked) });
+  const result = await adapter.render("/repo", changed);
+  assert.deepEqual(asked, []);
+  assert.equal(result.text.includes(DOSSIER_HEADING), false);
+});
+
+test("the lists give way to the dossier within the block's budget, and the dossier is shown whole", () => {
+  const many = Array.from({ length: 200 }, (_, i) => ({ file: `src/very/long/path/to/a/module/number/${i}/File${i}.java`, symbol: `symbolWithALongName${i}` }));
+  const text = renderBlastRadiusSignal({ impacted: many, callers: many, coupled: [], dossier: EXPLORED });
+  assert.ok(Buffer.byteLength(text, "utf8") <= 20_000);
+  assert.ok(text.endsWith(`${DOSSIER_HEADING}\n${EXPLORED}\n`));
+  assert.match(text, /structural blast radius truncated/);
+});
+
+test("a block of co-change files alone carries no dossier", () => {
+  const text = renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "a.ts", couplingScore: 0.5, coChanges: 3 }], dossier: EXPLORED });
+  assert.equal(text.includes(DOSSIER_HEADING), false);
 });

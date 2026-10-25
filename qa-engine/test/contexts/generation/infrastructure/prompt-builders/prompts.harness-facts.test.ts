@@ -94,6 +94,16 @@ test("the architecture map's context.json and the fixtures file are listed as pr
   assert.deepEqual([...(a.providedPaths ?? [])].sort(), ["tests/e2e/.qa/context.json", "tests/e2e/fixtures.ts"]);
 });
 
+test("the files the structural block's dossier shows are provided paths while the block survives", () => {
+  const signal = { staticSignal: "## Structural blast radius\n\n- `run` (src/Foo.java)\n", staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] };
+  const a = buildPromptAssembled(mkInput(signal));
+  assert.deepEqual(a.providedPaths, ["src/Foo.java"]);
+  const total = Buffer.byteLength(a.text, "utf8");
+  const shed = buildPromptAssembled(mkInput(signal), { budgetBytes: total - (a.sectionSizes["static-signal"] ?? 0) });
+  assert.equal(shed.sectionSizes["static-signal"], undefined, "the block was shed");
+  assert.deepEqual(shed.providedPaths, []);
+});
+
 test("a prompt that renders neither file lists no provided path", () => {
   assert.deepEqual(buildPromptAssembled(mkInput()).providedPaths, []);
   assert.deepEqual(buildPromptAssembled(mkInput({ harnessFacts: { testIdAttribute: "data-cy" } })).providedPaths, []);

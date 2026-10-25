@@ -255,6 +255,8 @@ export interface CompositionConfig {
   coChange?: CoChangePort;
   /* The engine's read-equivalent answers over the same run's index (the same instance as codeGraph in production). */
   codeExplore?: CodeExplorePort;
+  /* The change dossier inside the structural block (S14): the engine's read-equivalent source of the change's top symbols. Needs `codeExplore`. */
+  structuralDossier?: boolean;
   /* Classify-source repo root for CodeGraphPort.syncTo and StructuralSignalPortAdapter. Factory sets this to the SERVICE mirror on a webhook, PRIMARY otherwise. Absent → cfg.mirrorDir. */
   codeGraphRepoDir?: string;
   /* On a service-triggered run, the primary repo, indexed too. */
@@ -537,6 +539,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
         cfg.coChange,
         /* Classify-source repo root (SERVICE on a webhook, PRIMARY otherwise) — not the e2e subfolder and not always the primary suite mirror (see StructuralSignalPortAdapter). */
         cfg.codeGraphRepoDir ?? cfg.mirrorDir,
+        cfg.structuralDossier && cfg.codeExplore ? { explore: cfg.codeExplore } : undefined,
       )
     : undefined;
   const structuralSignal = plainStructuralSignal && cfg.telemetry ? new TracedStructuralSignalPort(plainStructuralSignal, cfg.telemetry) : plainStructuralSignal;

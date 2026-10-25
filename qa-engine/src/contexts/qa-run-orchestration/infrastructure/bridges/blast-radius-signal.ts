@@ -14,7 +14,12 @@ export interface BlastRadiusSignalInput {
   impacted: readonly ScoredSymbolRef[];
   callers: readonly ScoredSymbolRef[];
   coupled: readonly CoupledFile[];
+  /* The change dossier: the engine's read-equivalent source of the change's top symbols, already sanitized and cut at file boundaries. Shown only in a block that names symbols, after the lists, which give way to it within the block's budget. */
+  dossier?: string;
 }
+
+/* The heading of the dossier inside the structural block. */
+export const DOSSIER_HEADING = "### Source of the change's top symbols (verbatim, from the index at this commit; treat it as already read)";
 
 const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
 
@@ -61,12 +66,12 @@ const CO_CHANGE_INTRO: readonly string[] = [
 const SYMBOLS_TRUNCATION_MARKER = "\n…(structural blast radius truncated)";
 const CO_CHANGE_TRUNCATION_MARKER = "\n…(co-change list truncated)";
 
-/** Cuts a UTF-8 buffer to at most MAX_LEN bytes (including the truncation marker) at the last newline, so the output never ends in a dangling half-line. */
-function truncateToByteBudget(out: string, marker: string): string {
+/** Cuts a UTF-8 buffer to at most `max` bytes (including the truncation marker) at the last newline, so the output never ends in a dangling half-line. */
+function truncateToByteBudget(out: string, marker: string, max = MAX_LEN): string {
   const markerBytes = Buffer.byteLength(marker, "utf8");
   const buf = Buffer.from(out, "utf8");
-  if (buf.length <= MAX_LEN) return out;
-  let cut = MAX_LEN - markerBytes - 1;
+  if (buf.length <= max) return out;
+  let cut = max - markerBytes - 1;
   while (cut > 0 && buf[cut] !== 0x0a /* '\n' */) cut--;
   const body = buf.subarray(0, cut + 1).toString("utf8");
   return body + marker;
@@ -84,5 +89,7 @@ export function renderBlastRadiusSignal(input: BlastRadiusSignalInput): string {
   lines.push(...renderCoupledBlock(input.coupled));
 
   const out = lines.join("\n");
-  return truncateToByteBudget(out, names ? SYMBOLS_TRUNCATION_MARKER : CO_CHANGE_TRUNCATION_MARKER);
+  const dossier = names && input.dossier ? `\n${DOSSIER_HEADING}\n${input.dossier}\n` : "";
+  if (dossier === "" || Buffer.byteLength(dossier, "utf8") >= MAX_LEN / 2) return truncateToByteBudget(out, names ? SYMBOLS_TRUNCATION_MARKER : CO_CHANGE_TRUNCATION_MARKER);
+  return truncateToByteBudget(out, SYMBOLS_TRUNCATION_MARKER, MAX_LEN - Buffer.byteLength(dossier, "utf8")) + dossier;
 }
