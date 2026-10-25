@@ -1,5 +1,5 @@
 # Grafana dashboard provider for the local telemetry stack (docs/telemetry-local.md). The LGTM image reads its
-# provisioning tree from /otel-lgtm/grafana/conf/provisioning; docker-compose.telemetry.yml mounts this file under
+# provisioning tree from /otel-lgtm/grafana/conf/provisioning; docker-compose.yml mounts this file under
 # dashboards/ and the JSON it points at under /otel-lgtm/qayaba-dashboards.
 apiVersion: 1
 

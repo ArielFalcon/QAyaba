@@ -1,28 +1,26 @@
 # Local telemetry stack
 
-An opt-in pair of collectors plus Grafana, Tempo, Prometheus and Loki (`grafana/otel-lgtm`) for looking at the
-orchestrator's traces, metrics and logs. Plain `docker compose up` does not include it. Design:
-`docs/observability-design.md` (§9.2, §10, R6).
+A pair of collectors plus Grafana, Tempo, Prometheus and Loki (`grafana/otel-lgtm`) for looking at the
+orchestrator's traces, metrics and logs. It is part of `docker-compose.yml` and starts with the app: the command that
+brings the app up brings the telemetry up. Design: `docs/observability-design.md` (§9.2, §10, R6).
 
 ## Start and stop
 
 ```bash
 export GRAFANA_ADMIN_PASSWORD=<choose one>   # or Doppler / .env
-F="-f docker-compose.yml -f docker-compose.override.yml -f docker-compose.telemetry.yml"
 
-docker compose $F --profile telemetry up --build      # start
-docker compose $F --profile telemetry ps              # status
-docker compose $F --profile telemetry down            # stop (keeps the volumes)
+doppler run -- docker compose up --build   # the app and its telemetry
+docker compose ps                          # status
+docker compose down                        # stop (keeps the volumes)
 ```
 
-**The telemetry file is only ever used with `--profile telemetry`, and every command that loads it needs
-`GRAFANA_ADMIN_PASSWORD`**, including `down`, `ps`, `logs` and `config`: compose interpolates the whole file, so a
-missing password fails the command before anything runs (that is intended; there is no default password in the repo).
-Loading the file without the profile is a mistake: the orchestrator would be pointed at a collector that is never
-started. Its exporter then fails open (runs are unaffected; the loss shows in `/api/health` as `otlp.dropped` and
-`otlp.lastError`, reported after the exporter's retries, about 8 seconds per batch), but nothing is recorded.
+**Every compose command needs `GRAFANA_ADMIN_PASSWORD`**, including `down`, `ps`, `logs` and `config`: compose
+interpolates the whole file, so a missing password fails the command before anything runs (that is intended; there is no
+default password in the repo). If the collector cannot be reached, the orchestrator's exporter fails open (runs are
+unaffected; the loss shows in `/api/health` as `otlp.dropped` and `otlp.lastError`, reported after the exporter's
+retries, about 8 seconds per batch), but nothing is recorded.
 
-For production drop `docker-compose.override.yml`, as for the base stack.
+For production drop `docker-compose.override.yml` (`docker compose -f docker-compose.yml up --build`): the telemetry stays.
 
 ## Health: the stack is verified end to end
 
@@ -211,11 +209,11 @@ The collector image is pinned to `0.163.1`: the `0.163.0` tag was never publishe
 ## Langfuse (optional second profile)
 
 Langfuse v4 (self-hosted) adds the evaluation workflow (scores, annotation queues, datasets) to the same traces. It is
-`docker-compose.langfuse.yml`, loaded **in addition to** the telemetry file and with **both** profiles:
+`docker-compose.langfuse.yml`, loaded **in addition to** the base files and with its profile:
 
 ```bash
-F="-f docker-compose.yml -f docker-compose.override.yml -f docker-compose.telemetry.yml -f docker-compose.langfuse.yml"
-docker compose $F --profile telemetry --profile langfuse up --build
+F="-f docker-compose.yml -f docker-compose.override.yml -f docker-compose.langfuse.yml"
+docker compose $F --profile langfuse up --build
 ```
 
 UI: <http://127.0.0.1:3002> (user `LANGFUSE_INIT_USER_EMAIL`, password `LANGFUSE_INIT_USER_PASSWORD`; signup is closed).

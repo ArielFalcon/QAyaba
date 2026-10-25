@@ -14,7 +14,7 @@ type Collector = { extensions?: Record<string, unknown>; exporters: Record<strin
 
 const langfuseText = read("docker-compose.langfuse.yml");
 const langfuse = parse(langfuseText, { merge: true }) as Compose;
-const telemetry = parse(read("docker-compose.telemetry.yml"), { merge: true }) as Compose;
+const telemetry = parse(read("docker-compose.yml"), { merge: true }) as Compose;
 const NEW_SERVICES = ["langfuse-web", "langfuse-worker", "clickhouse", "postgres", "redis", "minio", "langfuse-proxy"];
 const STORES = ["clickhouse", "postgres", "redis", "minio"];
 const svc = (name: string): Service => {
@@ -22,7 +22,7 @@ const svc = (name: string): Service => {
   if (!found) throw new Error(`missing service ${name}`);
   return found;
 };
-/* The networks of a service as compose merges the two files: the telemetry file's list, then the Langfuse file's. */
+/* The networks of a service as compose merges the two files: the base file's list, then the Langfuse file's. */
 const mergedNetworks = (name: string): string[] => [...new Set([...(telemetry.services[name]?.networks ?? []), ...(langfuse.services[name]?.networks ?? [])])];
 const allNames = [...new Set([...Object.keys(telemetry.services), ...Object.keys(langfuse.services)])];
 const internal = (network: string): boolean => (langfuse.networks?.[network] ?? telemetry.networks?.[network])?.internal === true;
@@ -154,7 +154,7 @@ test("the Langfuse exporter targets the OTLP path over HTTP with ingestion versi
   assert.match(text, /password: \$\{env:LANGFUSE_SECRET_KEY\}/);
 });
 
-test("plain compose, the override and the telemetry file carry no Langfuse service, network or variable", () => {
-  for (const file of ["docker-compose.yml", "docker-compose.override.yml", "docker-compose.telemetry.yml"]) assert.doesNotMatch(read(file), /langfuse/i, file);
+test("plain compose and the override carry no Langfuse service, network or variable", () => {
+  for (const file of ["docker-compose.yml", "docker-compose.override.yml"]) assert.doesNotMatch(read(file), /langfuse/i, file);
   assert.doesNotMatch(read("config/otel/collector.yaml"), /langfuse/i);
 });

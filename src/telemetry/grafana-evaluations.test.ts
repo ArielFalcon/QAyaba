@@ -22,7 +22,7 @@ const DASHBOARD_MOUNT = "/otel-lgtm/qayaba-dashboards";
 /* The provisioning tree the pinned grafana/otel-lgtm image reads (verified on the running container). */
 const PROVISIONING_DIR = "/otel-lgtm/grafana/conf/provisioning/dashboards";
 
-const compose = parse(read("docker-compose.telemetry.yml"), { merge: true }) as Compose;
+const compose = parse(read("docker-compose.yml"), { merge: true }) as Compose;
 const lgtmVolumes = compose.services.lgtm?.volumes ?? [];
 const provider = parse(read(PROVIDER_FILE)) as Provider;
 const dashboard = JSON.parse(read(DASHBOARD_FILE)) as Dashboard;

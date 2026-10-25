@@ -15,6 +15,42 @@
 # `docker compose up` for local dev — bind-mounts the host source READ-ONLY for live editing; the
 # swap canNOT rewrite a read-only src/ or package file (EROFS), so hot-swap is intentionally a no-op in dev. For production run WITHOUT the override:
 #   docker compose -f docker-compose.yml up --build
+#
+# The local telemetry stack starts with the app, from this file: two OpenTelemetry collectors (one per trust level),
+# grafana/otel-lgtm (Grafana, Loki, Tempo, Prometheus) and a loopback proxy in front of Grafana (127.0.0.1:3001). It needs
+# GRAFANA_ADMIN_PASSWORD (Doppler or .env) for every compose command. See docs/telemetry-local.md.
+#
+# Telemetry trust model (docs/observability-design.md §9.2). Network isolation is per container, so each receiver is its
+# own service and no container holds a receiver on a network its clients should not reach:
+#   collector         telemetry-internal ONLY. The trusted receiver (:4318) the orchestrator writes to.
+#   collector-agents  agent-otlp + telemetry-internal (the latter only to export to lgtm). The untrusted receiver (:4319);
+#                     its pipeline strips orchestrator-owned and content keys from spans and logs and stamps
+#                     qayaba.trust=agent. OpenCode's logs are kept; its process-wide, rootless traces are dropped.
+# The agents container is on agent-otlp, never on telemetry-internal, so it can reach only collector-agents.
+# lgtm is on telemetry-internal ONLY (no route out). grafana-proxy is the one process on telemetry-ui, the network that
+# carries the loopback-published port. The sandbox uid runs inside the orchestrator's network namespace behind its own
+# iptables chain (bin/egress-init.sh), which the telemetry services do not touch.
+
+x-collector: &collector
+  image: otel/opentelemetry-collector-contrib:0.163.1
+  restart: unless-stopped
+  # Non-root. The rotating debug file lives in a named volume that otel-debug-init hands to this uid.
+  user: "10001:10001"
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  depends_on:
+    otel-debug-init:
+      condition: service_completed_successfully
+    lgtm:
+      condition: service_started
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "20m"
+      max-file: "3"
 
 services:
   orchestrator:
@@ -54,6 +90,10 @@ services:
     depends_on:
       agents:
         condition: service_healthy
+    # An explicit networks list drops `default` unless it is named, and the orchestrator needs it (agents, DEV, GitHub).
+    networks:
+      - default
+      - telemetry-internal
     ports:
       # Host and container share PORT. The process listens on PORT (env_file + the
       # environment entry below); a fixed :8080 on the right would publish a port
@@ -68,6 +108,12 @@ services:
       # listen on every interface for the published port (and the other services) to reach it;
       # BIND_ADDR above decides whether that port is exposed beyond the host.
       LISTEN_HOST: 0.0.0.0
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+      OTEL_SERVICE_NAME: qayaba-orchestrator
+      # Telemetry health verifies the stores end to end over telemetry-internal (src/telemetry/backend-health.ts).
+      QA_TELEMETRY_LOKI_URL: http://lgtm:3100
+      QA_TELEMETRY_TEMPO_URL: http://lgtm:3200
+      QA_TELEMETRY_COLLECTOR_METRICS_URLS: http://collector:8888/metrics
       OPENCODE_SERVE_URL: http://agents:4096
       # Basic-auth password of `opencode serve` on the agents service: the SAME value on both services (the
       # supervisor generates a random one when it is unset, and the orchestrator then fails loudly on every call).
@@ -135,7 +181,18 @@ services:
     # session) nor GITHUB_TOKEN / WEBHOOK_SECRET / QA_API_TOKEN. Git writes are the orchestrator's
     # job, so the agent has no push credential to exfiltrate. (docker compose reads
     # ./.env for ${VAR} interpolation, so this works locally and under Doppler.)
+    # The agents container is deliberately NOT on telemetry-internal: it can reach only collector-agents, over agent-otlp.
+    networks:
+      - default
+      - agent-otlp
     environment:
+      # QA_AGENT_OTLP_ENDPOINT makes the supervisor give Codex a trace exporter pointed at collector-agents (traces only; the
+      # supervisor writes the [otel] table of Codex's config.toml). OTEL_EXPORTER_OTLP_ENDPOINT is OpenCode's own switch: it
+      # exports logs and traces to the same receiver, where the trace pipeline drops its spans and the log pipeline keeps
+      # its logs. Codex never receives this variable (its exec env is an exact-name allowlist), and OpenCode's
+      # experimental.openTelemetry (content-bearing ai.* spans) stays off.
+      QA_AGENT_OTLP_ENDPOINT: http://collector-agents:4319
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector-agents:4319
       MIRROR_DIR: /app/.mirrors
       AGENT_PROMPT_DIR: /root/.config/agent
       AGENT_SUPERVISOR_PORT: 4097
@@ -187,9 +244,136 @@ services:
           memory: 6G
           cpus: "4.0"
 
+  otel-debug-init:
+    image: busybox:1.37.0
+    restart: "no"
+    # One-shot: the only root process of the stack. It chowns the debug volume for the collectors' uid and exits.
+    user: "0:0"
+    command: ["chown", "-R", "10001:10001", "/var/lib/otel-debug"]
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    volumes:
+      - otel-debug:/var/lib/otel-debug
+
+  collector:
+    <<: *collector
+    command: ["--config=/etc/otelcol/collector.yaml"]
+    # No host ports on purpose, and no agent-facing network: only the orchestrator can reach this receiver.
+    networks:
+      - telemetry-internal
+    volumes:
+      - ./config/otel/collector.yaml:/etc/otelcol/collector.yaml:ro
+      - otel-debug:/var/lib/otel-debug
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  collector-agents:
+    <<: *collector
+    command: ["--config=/etc/otelcol/collector-agents.yaml"]
+    # No host ports. agent-otlp is where the agents container reaches it; telemetry-internal is only for exporting to lgtm.
+    networks:
+      - agent-otlp
+      - telemetry-internal
+    volumes:
+      - ./config/otel/collector-agents.yaml:/etc/otelcol/collector-agents.yaml:ro
+      - otel-debug:/var/lib/otel-debug
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  lgtm:
+    image: grafana/otel-lgtm:0.37.0
+    restart: unless-stopped
+    # Internal network only: Tempo, Prometheus and Grafana have no route out and no published port.
+    networks:
+      - telemetry-internal
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_USER: admin
+      # Required, never defaulted: compose refuses to start without it. Set it in Doppler or .env.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD to start the telemetry stack}
+      # R4: spans are kept 30 days. The image's Tempo config has no retention key (its default is 14 days); its start
+      # script appends this variable to the Tempo command line (Tempo 3.x flag).
+      TEMPO_EXTRA_ARGS: "-backend-worker.compaction.block-retention=720h"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_ANALYTICS_FEEDBACK_LINKS_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - lgtm-data:/data
+      # The image's Loki config has no retention key; Loki's retention is YAML-only, so this copy adds it. Read-only: the
+      # image starts Loki with -config.file=./loki-config.yaml and never writes it.
+      - ./config/otel/loki-config.yaml:/otel-lgtm/loki-config.yaml:ro
+      # Provisioned by the LGTM image itself from /otel-lgtm/grafana/conf/provisioning (verified on the pinned image).
+      - ./config/grafana/qayaba-evaluations.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/qayaba-evaluations.yaml:ro
+      - ./config/grafana/dashboards:/otel-lgtm/qayaba-dashboards:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  grafana-proxy:
+    image: nginxinc/nginx-unprivileged:1.27.5-alpine
+    restart: unless-stopped
+    depends_on:
+      lgtm:
+        condition: service_started
+    # telemetry-internal reaches lgtm; telemetry-ui (not internal) carries the loopback-published port, because a
+    # container attached only to an internal network cannot publish one. This process is the only member of telemetry-ui.
+    networks:
+      - telemetry-internal
+      - telemetry-ui
+    ports:
+      # Grafana only, loopback only. Tempo, Prometheus and the OTLP ports are never published.
+      - "127.0.0.1:3001:8080"
+    volumes:
+      - ./config/otel/grafana-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  telemetry-internal:
+    internal: true
+  agent-otlp:
+    internal: true
+  telemetry-ui:
+
 volumes:
   mirrors:
   qa-data:
   serena-cache:
   opencode-data:
   codex-data:
+  lgtm-data:
+  otel-debug:

@@ -1,4 +1,4 @@
-/* Security properties of the opt-in local telemetry stack (docs/observability-design.md §9.2, §10): which networks exist, which ports are published, which receiver the agents reach and what its pipeline strips. Parsed from the real files, so a later edit that weakens one fails here. */
+/* Security properties of the local telemetry stack, which starts with the app from docker-compose.yml (docs/observability-design.md §9.2, §10): which networks exist, which ports are published, which receiver the agents reach and what its pipeline strips. Parsed from the real files, so a later edit that weakens one fails here. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -31,7 +31,7 @@ function must<T>(value: T | undefined, what: string): T {
   return value;
 }
 
-const telemetryText = read("docker-compose.telemetry.yml");
+const telemetryText = read("docker-compose.yml");
 const telemetry = parse(telemetryText, { merge: true }) as Compose;
 const base = parse(read("docker-compose.yml")) as Compose;
 const svc = (name: string): Service => must(telemetry.services[name], `service ${name}`);
@@ -52,14 +52,16 @@ const collectorFiles = Object.entries(telemetry.services).flatMap(([name, servic
 const trusted = must(collectorFiles.find((entry) => entry.name === "collector"), "collector config");
 const untrusted = must(collectorFiles.find((entry) => entry.name === "collector-agents"), "collector-agents config");
 
-const PUBLISHED = Object.entries(telemetry.services).flatMap(([name, service]) => (service.ports ?? []).map((port) => ({ name, port })));
+/* The telemetry stack's own services; the app's services share the file. */
+const TELEMETRY_SERVICES = new Set(["otel-debug-init", "collector", "collector-agents", "lgtm", "grafana-proxy"]);
+const PUBLISHED = Object.entries(telemetry.services).filter(([name]) => TELEMETRY_SERVICES.has(name)).flatMap(([name, service]) => (service.ports ?? []).map((port) => ({ name, port })));
 
 test("neither collector publishes a host port", () => {
   assert.equal(svc("collector").ports, undefined);
   assert.equal(svc("collector-agents").ports, undefined);
 });
 
-test("every published port of the telemetry file binds loopback", () => {
+test("every published port of the telemetry services binds loopback", () => {
   assert.ok(PUBLISHED.length > 0);
   for (const { port } of PUBLISHED) assert.match(port, /^127\.0\.0\.1:/, `${port} is not loopback`);
 });
@@ -151,8 +153,8 @@ test("the trusted collector hosts only the orchestrator receiver, on its own por
   assert.equal(untrusted.config.service.pipelines["metrics/agents"], undefined);
 });
 
-test("the telemetry services run only under the telemetry profile", () => {
-  for (const name of ["otel-debug-init", "collector", "collector-agents", "lgtm", "grafana-proxy"]) assert.deepEqual(svc(name).profiles, ["telemetry"], name);
+test("the telemetry services start with the app: no profile gates them", () => {
+  for (const name of TELEMETRY_SERVICES) assert.equal(svc(name).profiles, undefined, name);
 });
 
 test("Grafana has anonymous access off and a required admin password with no default", () => {
@@ -188,7 +190,6 @@ test("no literal secret or default password appears in the telemetry files", () 
 test("the orchestrator is pointed at the trusted receiver and the agents' exporters at the untrusted one", () => {
   assert.equal(svc("orchestrator").environment?.OTEL_EXPORTER_OTLP_ENDPOINT, "http://collector:4318");
   assert.equal(svc("orchestrator").environment?.OTEL_SERVICE_NAME, "qayaba-orchestrator");
-  assert.deepEqual(Object.keys(svc("agents").environment ?? {}).sort(), ["OTEL_EXPORTER_OTLP_ENDPOINT", "QA_AGENT_OTLP_ENDPOINT"]);
   assert.equal(svc("agents").environment?.QA_AGENT_OTLP_ENDPOINT, "http://collector-agents:4319");
   assert.equal(svc("agents").environment?.OTEL_EXPORTER_OTLP_ENDPOINT, "http://collector-agents:4319");
 });
@@ -198,10 +199,7 @@ test("each collector config is mounted read-only", () => {
   assert.ok((svc("collector-agents").volumes ?? []).includes("./config/otel/collector-agents.yaml:/etc/otelcol/collector-agents.yaml:ro"));
 });
 
-test("the base compose file carries no telemetry service, network or variable", () => {
-  for (const name of ["collector", "collector-agents", "lgtm", "grafana-proxy"]) assert.equal(base.services[name], undefined);
-  assert.equal(base.networks, undefined);
-  assert.doesNotMatch(read("docker-compose.yml"), /telemetry|OTEL_|GRAFANA|QA_AGENT_OTLP/i);
+test("the local override changes nothing about telemetry", () => {
   assert.doesNotMatch(read("docker-compose.override.yml"), /telemetry|OTEL_|GRAFANA|QA_AGENT_OTLP/i);
 });
 

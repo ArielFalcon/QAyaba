@@ -768,13 +768,13 @@ Q3 and Q4 need no content at all; F3's "62k reasoning" replay needs `full`, or t
 ## 10. Infrastructure (D10)
 
 ```yaml
-# docker-compose.telemetry.yml  (opt-in: docker compose --profile telemetry up)
+# docker-compose.yml  (the telemetry services start with the app)
 services:
-  collector:   otel/opentelemetry-collector-contrib:0.163.0   # profile: telemetry — traces, metrics and logs
+  collector:   otel/opentelemetry-collector-contrib:0.163.0   # traces, metrics and logs
                receivers: otlp(http :4318)
                processors: memory_limiter, redaction, attributes, batch
                exporters: otlphttp/lgtm, otlphttp/langfuse (only with profile langfuse), file (rotating, debug)
-  lgtm:        grafana/otel-lgtm:0.37.0     # profile: telemetry — Tempo + Prometheus + Loki + Grafana 127.0.0.1:3001, /data volume, anonymous off, Tempo retention = R4, Loki = R6
+  lgtm:        grafana/otel-lgtm:0.37.0     # Tempo + Prometheus + Loki + Grafana 127.0.0.1:3001, /data volume, anonymous off, Tempo retention = R4, Loki = R6
   langfuse-*:  langfuse 4.x web + worker, postgres 17, clickhouse 25.12, redis 7, minio
                # profile: langfuse — follows Langfuse's own compose; ports bound to 127.0.0.1
 ```
@@ -1215,7 +1215,7 @@ reads the same signals as `codexErrorToInfra` from the exec's own text.
 **Codex native spans (S0.3 status).** Wired, not yet proven live: the orchestrator sends the attempt's `traceparent` as a header on
 `POST /codex/exec` (only when the attempt span is real), the supervisor validates it and gives the child `TRACEPARENT`/`TRACESTATE`
 (both names are in the exact-name allowlist of the supervisor and of the orchestrator's builder, pinned equal by a test; an ambient value
-in either process is dropped), and `QA_AGENT_OTLP_ENDPOINT` (set only in `docker-compose.telemetry.yml`) makes the supervisor write
+in either process is dropped), and `QA_AGENT_OTLP_ENDPOINT` (set only on the agents service in `docker-compose.yml`) makes the supervisor write
 an `[otel]` table with `trace_exporter = otlp-http`, `exporter = "none"`, `metrics_exporter = "none"` and `log_user_prompt = false`.
 Whether Codex 0.139.0 parents its spans on the environment's `TRACEPARENT` and exports them to the untrusted receiver is the
 S0.3 smoke; until it runs, Codex spans are neither connected nor correlated by anything but the trace id the header carries.

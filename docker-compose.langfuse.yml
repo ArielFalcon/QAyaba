@@ -1,12 +1,12 @@
-# OPT-IN Langfuse v4 (self-hosted) on top of the telemetry stack: a second compose profile, `langfuse`. Plain
-# `docker compose up` and the telemetry file alone behave exactly as before. Start it with:
+# OPT-IN Langfuse v4 (self-hosted) on top of the telemetry stack: the compose profile `langfuse`. Plain
+# `docker compose up` behaves exactly as before. Start it with:
 #
 #   docker compose \
-#     -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.telemetry.yml -f docker-compose.langfuse.yml \
-#     --profile telemetry --profile langfuse up --build
+#     -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.langfuse.yml \
+#     --profile langfuse up --build
 #
-# This file is ONLY ever loaded together with docker-compose.telemetry.yml (it reuses `telemetry-internal` and the
-# `collector`, `orchestrator` services defined there) and with BOTH profiles, and every compose command that loads it needs
+# This file is ONLY ever loaded on top of docker-compose.yml (it reuses `telemetry-internal` and the `collector`,
+# `orchestrator` services defined there) and with its profile, and every compose command that loads it needs
 # the variables listed in docs/telemetry-local.md (compose interpolates the whole file; there is no default for any secret).
 #
 # What it adds (docs/observability-design.md §9.2, §10):
