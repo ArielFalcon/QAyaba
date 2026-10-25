@@ -5331,7 +5331,7 @@ test("4b.4: an empty render() result (no signal to report) leaves baseEnrichment
 
 test("4b.4: a throwing structuralSignal port degrades to NO staticSignal, never aborts the run (best-effort, mirrors preGenerationGrounding's own posture)", async () => {
   const { ports } = stubPorts({});
-  const structuralSignal: StructuralSignalPort = { render: async () => { throw new Error("codebase-memory MCP wedged"); } };
+  const structuralSignal: StructuralSignalPort = { render: async () => { throw new Error("code graph wedged"); } };
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   ports.generation.generate = async (_objectives, _specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);

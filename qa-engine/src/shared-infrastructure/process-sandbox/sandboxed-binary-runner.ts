@@ -27,7 +27,7 @@ export interface SandboxedBinaryRunner {
 
 export interface SandboxedBinaryRunnerDeps {
   processKill: ProcessKillPort;
-  /* Starts the child. Absent: a plain detached spawn, for the trusted binaries this runner serves (git, the code graph). A runner for agent-influenced code passes the execution launcher here, so that the child is sandboxed (exec-binary-runner.ts). */
+  /* Starts the child. Absent: a plain detached spawn, for the trusted binaries this runner serves (git). A runner for agent-influenced code passes the execution launcher here, so that the child is sandboxed (exec-binary-runner.ts). */
   launch?(req: SandboxedRunRequest): ChildProcess;
   /* Chars of each stream a run without `outputKeepChars` may produce before it is killed and rejected. Defaults to DEFAULT_MAX_OUTPUT_CHARS. */
   maxOutputChars?: number;

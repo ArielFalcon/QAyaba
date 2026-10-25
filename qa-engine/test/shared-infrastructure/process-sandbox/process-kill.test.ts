@@ -33,7 +33,7 @@ test("killTree kills directly when there is no pid", () => {
 });
 
 /* code-execution.runner.ts, e2e-execution.runner.ts, static-gate.checks.ts, code-setup.ts,
-   stryker-mutation-oracle.adapter.ts, dom-snapshot.ts, codebase-memory-client.ts) instantiates
+   stryker-mutation-oracle.adapter.ts, dom-snapshot.ts) instantiates
    `new ProcessKillAdapter()` with NO args — i.e. every real timeout/abort kill path in the codebase
    runs through the DEFAULT `kill` param. The 3 tests above only ever inject a fake kill fn, so a
    neutered default ((pid, sig) => {}) passed `npm test` while silently disabling every real kill.

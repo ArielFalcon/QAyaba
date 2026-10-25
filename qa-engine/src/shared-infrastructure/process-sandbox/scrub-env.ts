@@ -1,4 +1,4 @@
-/* Scrubbed environment for an untrusted spawn. Drops orchestrator secrets; keeps OS + language vars. Callers widen the base only for their own spawns (`extraExact` / `extraAllowed`); CBM_CACHE_DIR is not in the base allowlist. */
+/* Scrubbed environment for an untrusted spawn. Drops orchestrator secrets; keeps OS + language vars. Callers widen the base only for their own spawns (`extraAllowed`). */
 
 /* Secret FAMILIES that must never reach untrusted code (prefix match). Defense-in-depth: the allowlist is the real gate, but blocking secrets explicitly guards against an allowlist entry widening to one. */
 const BLOCKED_ENV_PREFIX = /^(?:GITHUB_TOKEN|GH_TOKEN|OPENCODE_API_KEY|OPENCODE_SERVER_PASSWORD|WEBHOOK_SECRET|QA_API_TOKEN|DOPPLER_|LANGFUSE_|AWS_|AZURE_|GCP_|GOOGLE_APPLICATION_CREDENTIALS|NPM_TOKEN|NODE_AUTH_TOKEN)/;
@@ -21,7 +21,6 @@ const ALLOWED_ENV_EXACT = new Set([
 export const ALLOWED_ENV_PREFIX = /^(?:LC_|npm_config_|PIP_|CGO_|CARGO_|RUSTUP_|RUST_|GRADLE_|MAVEN_|PNPM_|YARN_|COREPACK_)/;
 
 export interface ScrubEnvOptions {
-  extraExact?: Set<string>;
   extraAllowed?: RegExp;
   /* Skip the warning that names the variables left out; for a caller that scrubs on every spawn. */
   quiet?: boolean;
@@ -44,7 +43,6 @@ export function scrubEnvFrom(source: NodeJS.ProcessEnv, opts?: ScrubEnvOptions):
     if (
       ALLOWED_ENV_EXACT.has(key) ||
       ALLOWED_ENV_PREFIX.test(key) ||
-      (opts?.extraExact?.has(key) ?? false) ||
       (opts?.extraAllowed?.test(key) ?? false)
     ) {
       env[key] = value;

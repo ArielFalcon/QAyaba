@@ -86,8 +86,7 @@ current user and the launcher warns, loudly, once per process; use it only on a 
 
 | Path | Mode | Why |
 |---|---|---|
-| `/app/data` | `0700` | run history, the API token (`data/.api_token`, `0600`), `auth/<app>/` (session, client certificate), the suite store, learning state |
-| `/app/.codebase-memory` (`CBM_CACHE_DIR`) | `0700` | the code graph of every indexed repo: the structure of repos the sandbox uid must not read |
+| `/app/data` | `0700` | run history, the API token (`data/.api_token`, `0600`), `auth/<app>/` (session, client certificate), the suite store, learning state, the code-graph stores (`code-graph/<app>/`: the structure of repos the sandbox uid must not read) |
 | `/app/.host` | `0700` | the parent of the host's config folder (below) |
 | `/app/config` → `.host/config` | `0750` | app configs. A rw bind mount: **only the mode changes, never the owner**, so a Linux host's own user keeps its access |
 | mirrors volume | `0711` | traversable, not listable |
@@ -114,7 +113,7 @@ app config (and so widen `dev.allowedOrigins` for the next run) or rewrite the o
   host's `src/` before failing).
 - **The boundary is proven at every boot.** After setting the modes the entrypoint runs `src/server/file-boundary-check.ts`, which
   makes, in a child started as the sandbox uid the way the launcher starts agent code, every attempt that uid must see refused:
-  read `/proc/1/environ` and the API token (new and old place), list `data/`, `data/auth`, `config/`, `config/apps`, the code graph
+  read `/proc/1/environ` and the API token (new and old place), list `data/`, `data/auth`, `config/`, `config/apps`
   and the mirrors volume, and write the app root, **every mount under it found in `/proc/self/mountinfo`** (so a bind added later is
   checked without anyone listing it), the orchestrator's code and config, the status files the service trusts and the directory they sit in (`/run`: a status file is
   absent when the probe runs, so who may create it is who may write there). A write is tried

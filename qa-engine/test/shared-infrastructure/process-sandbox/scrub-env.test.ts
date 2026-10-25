@@ -59,32 +59,6 @@ test("scrubEnv honors an extra allow prefix for non-secret vars (e2e DEV_*)", ()
   }
 });
 
-/* CBM_CACHE_DIR is NOT in the narrow base allowlist
-   any more — it must be requested explicitly via extraExact, per-consumer. A bare scrubEnv() call
-   (what every migrated code-execution/validate consumer uses) must NOT see it; only a caller that
-   opts in (codebase-memory-client.ts, for its own spawn) gets it. See codebase-memory-client.test.ts
-   for the regression pin proving that ONE real consumer still receives it after the migration.
- */
-test("CBM_CACHE_DIR is dropped by the narrow base — a bare scrubEnv() call does not widen for it", () => {
-  process.env.CBM_CACHE_DIR = "/app/.codebase-memory";
-  try {
-    const env = scrubEnv();
-    assert.equal("CBM_CACHE_DIR" in env, false, "the narrow base must not carry CBM_CACHE_DIR");
-  } finally {
-    delete process.env.CBM_CACHE_DIR;
-  }
-});
-
-test("CBM_CACHE_DIR survives the scrub ONLY when a caller opts in via extraExact (cache path, not a secret)", () => {
-  process.env.CBM_CACHE_DIR = "/app/.codebase-memory";
-  try {
-    const env = scrubEnv({ extraExact: new Set(["CBM_CACHE_DIR"]) });
-    assert.equal(env.CBM_CACHE_DIR, "/app/.codebase-memory");
-  } finally {
-    delete process.env.CBM_CACHE_DIR;
-  }
-});
-
 /* the allowlist must keep whole FAMILIES of package-manager/locale vars (npm_config_*, CARGO_*,
    LC_*, GRADLE_*), not just the bare prefix string — otherwise `npm ci` loses its registry/cache/
    proxy config and Cargo/Gradle lose their home dirs. This test did not previously exist in this

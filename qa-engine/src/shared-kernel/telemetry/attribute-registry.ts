@@ -223,7 +223,7 @@ export const ATTRIBUTES = {
   "qayaba.context.reason": str("Why a produced source came to that status, from a closed set (no-map, capture-failed, disabled, ...)."),
   "qayaba.context.cut_class": str("The kind of loss a cut was: selection or truncation."),
   "qayaba.context.cut_reason": str("The closed reason a cut happened: route-cut, node-cap, section-shed, map-cap, ..."),
-  "qayaba.context.location": str("The effective location a source was read from: db:context_maps, file:e2e/.qa/context.json, live:dev, mirror:stitcher, graph:codebase-memory, db:learning_rules, or db:curriculum."),
+  "qayaba.context.location": str("The effective location a source was read from: db:context_maps, file:e2e/.qa/context.json, live:dev, mirror:stitcher, graph:codegraph, db:learning_rules, or db:curriculum."),
   "qayaba.context.effective_location": text("The effective location the DOM capture read, the first non-empty across routes."),
   "qayaba.context.captured_at": str("When a source was captured, ISO-8601.", "high"),
   "qayaba.context.captured_sha": str("The SHA a source was built from, when it has one.", "high"),

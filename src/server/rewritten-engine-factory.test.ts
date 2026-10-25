@@ -1100,7 +1100,7 @@ test("qa.structuralSignals mode 'off' supplies no code graph, so nothing is inde
   assert.equal(config.codeGraph, undefined);
   assert.equal(config.coChange, undefined);
   assert.equal(config.codeExplore, undefined);
-  assert.equal("codebaseMemory" in config, false, "the lead's code-graph tool no longer needs the codebase-memory client");
+  assert.equal("codebaseMemory" in config, false, "the lead's code-graph tool is served from the code-graph store, not a separate client");
 });
 
 test("buildRewrittenCompositionConfig sets mode from the passed run param, not a hardcoded 'diff'", () => {

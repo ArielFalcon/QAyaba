@@ -2,7 +2,7 @@
  * Boot check of the execution sandbox's file boundary, run by bin/container-entrypoint.sh as root before the service starts.
  *
  * It plans every attempt the sandbox uid must see refused (qa-engine/src/shared-infrastructure/process-sandbox/file-boundary.ts:
- * reading the API token and the service's environment, listing the data, auth, config, code-graph and mirror directories,
+ * reading the API token and the service's environment, listing the data (code-graph stores included), auth, config and mirror directories,
  * writing the app root, every mount under it found in /proc/self/mountinfo, the orchestrator's code and config and the status
  * files), makes them in a child started as that uid exactly the way the launcher starts agent code (spawn with uid and gid, no
  * supplementary groups, an empty environment), judges the child's report here, and leaves `ok` or `breach: <what>` in

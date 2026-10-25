@@ -477,7 +477,7 @@ function headTail(s: string, maxChars: number): string {
   return `${s.slice(0, half)}\n…[${s.length - maxChars} chars omitted]…\n${s.slice(-half)}`;
 }
 
-/** The REAL, spawning CodeExecuteDeps — a FACTORY (not a plain constant) because the execution launcher (which owns the privilege drop) is injected rather than resolved internally (see this file's header, difference #2). `processKill` defaults to a fresh ProcessKillAdapter — mirrors CodebaseMemoryClient's own constructor-default convention for the same shared-infrastructure primitive. */
+/** The REAL, spawning CodeExecuteDeps — a FACTORY (not a plain constant) because the execution launcher (which owns the privilege drop) is injected rather than resolved internally (see this file's header, difference #2). `processKill` defaults to a fresh ProcessKillAdapter. */
 export function createDefaultCodeExecuteDeps(
   exec: ExecSandboxPort,
   processKill: ProcessKillPort = new ProcessKillAdapter(),

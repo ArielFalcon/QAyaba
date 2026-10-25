@@ -1,5 +1,8 @@
 # Codebase-Memory Integration — design (qa-engine, hexagonal/DDD)
 
+> **Superseded.** codebase-memory-mcp was replaced by codegraph and removed; see
+> [ADR-0002](../adr/0002-code-graph-engine-codegraph.md). Kept as a historical record.
+
 From a hands-on evaluation (2026-06-27) of `DeusData/codebase-memory-mcp` run against the real
 indexed `nname` system (Angular `name-webapp` + 4 Spring microservices) and the `qayaba` repo
 itself. This document specifies how the tool plugs into the NEW `qa-engine/` architecture, what it

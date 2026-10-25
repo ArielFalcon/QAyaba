@@ -152,9 +152,9 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 | T5 | S9 | inline | item 6 (only a live run proves a blast radius) | done — both keys (operationId reached; a reached handler whose route serves the link's operation, verb + path, parameters matching and a one-sided prefix tolerated), a changed handler counts (depth 0), the S8 budget; `MATCH_TIER` unchanged; HTTP links carry their contract operation (optional `operation`) | (L27) |
 | T6 | S10, S11, S12 | inline | item 3 (`changeRoutes` consumers: graders, lead review, DOM capture) + item 6 | done — the join (three proofs, hubs, cap, disagreements) in `qa-run-orchestration/domain/change-pages.ts`; graph pages rank after the map's links in the pack (so DOM capture, the plan, the lead review and the graders see them); basis per page on the route-ranking span; the join on `qayaba.code_graph.change_pages`; graph pages scored apart; independent verifier: one blocker (operationId key needed a route node), fixed (L30, L31) | `e516984a`, `ab164e67` |
 | T7 | S13 | delegated (writer reason: parallel unit with T5/T6, disjoint surface; worktree) | item 2 (agent tool surface invariant) — own commit | done — `explore` replaces the three actions (admission, endpoint, adapter, tool file, client); answer redacted then cut at file boundaries; agent-list fixture re-recorded in the agents container; codegraph smoke 14/14 in the image; independent verifier: no blockers (L29) | `56c2ae43` |
-| T8 | S14, S15 | inline | item 3 (prompt contract) | done — sidekick proof path (S15) and the change dossier in `static-signal` behind `grounding.dossier` / `qa.structuralSignals.dossier` (off by default, the T9 lever); prompt-contract matrix: 0 findings, no baseline re-record needed (L31) | `03af259f`, S14 commit (L31) |
+| T8 | S14, S15 | inline | item 3 (prompt contract) | done — sidekick proof path (S15) and the change dossier in `static-signal` behind `grounding.dossier` / `qa.structuralSignals.dossier` (off by default, the T9 lever); prompt-contract matrix: 0 findings, no baseline re-record needed (L31) | `03af259f`, `98b031a2` |
 | T9 | S16 | per-action workers (long runs) | item 6 | pending — the ablation rounds; the verdict per default in the Log | |
-| T10 | S17 | inline | item 5 | pending — the removal commit | |
+| T10 | S17 | inline | item 5 | done — codebase-memory-mcp removed from the image, compose, entrypoint, file boundary, engine and tests; CI gate green, live `sandbox:smoke` 22+5 green (L32) | T10 commit (L32) |
 
 Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10.
 - Every task is inline. No unit has a writer reason: each depends on the one before it (T6's backend path uses T5's operation keys).
@@ -326,3 +326,21 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
     - The value is null when the structural signal is off. The default is off until T9 decides it.
   - **Prompt contract:** `scripts/prompt-contract-matrix.ts` reports 0 findings with the dossier off in the fixtures, so the baseline is not re-recorded.
   - **Checks:** full CI gate green. Full suite: 10 523 tests, 5 failures, all known at the base. Go tests green.
+- **L32 (2026-10-25) — T10 (S17): codebase-memory-mcp removed.**
+  - **Removed:**
+    - The image's codebase-memory-mcp block.
+    - Compose's `CBM_CACHE_DIR`, the `codebase-memory` volume and its mount.
+    - The entrypoint's `/app/.codebase-memory` hardening.
+    - The file boundary's `graph` directory.
+    - `codebase-memory-client.ts`, `resolve-project-name.ts` and their tests and fixtures.
+    - `scrubEnv`'s `extraExact` option, which had no caller left.
+  - **Store location:** the code-graph stores now live under `/app/data/code-graph/<app>/`, inside the 0700 data directory. The boot check and `sandbox:smoke` prove it: "the code-graph stores of the indexed repos cannot be listed".
+  - **Telemetry:** the provenance value is now `graph:codegraph`, matching what `context-trace.ts` emits.
+  - **Checks:**
+    - CI gate green. Full suite: 10 497 tests, 5 failures, all known at the base.
+    - The rebuilt orchestrator image ran live `sandbox:smoke`: 22 isolation and 5 harness checks green. `/app/.codebase-memory` is absent and codegraph is 1.6.2.
+  - **Advisories from the T8 verifier:**
+    - **A1:** `providedFiles` is returned even when the renderer drops the dossier, because the cap counts characters while the drop counts bytes.
+    - **A2:** the Go client types lack `dossier`.
+    - Both are fixed in the next commit. A3-A5 are minor and need no change.
+  - **Remaining:** `.env.example` (user-owned, uncommitted) may still name `CBM_CACHE_DIR`.

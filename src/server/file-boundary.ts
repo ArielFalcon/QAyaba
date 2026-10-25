@@ -37,11 +37,10 @@ export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBo
   const data = join(root, "data");
   const config = join(root, "config");
   const mirrors = env.MIRROR_DIR && env.MIRROR_DIR !== "" ? env.MIRROR_DIR : join(root, ".mirrors");
-  const graph = env.CBM_CACHE_DIR && env.CBM_CACHE_DIR !== "" ? env.CBM_CACHE_DIR : join(root, ".codebase-memory");
   return {
     appRoot: root,
     secretFiles: ["/proc/1/environ", apiTokenPath(root), legacyApiTokenPath(root)],
-    closedDirs: [data, join(data, "auth"), config, join(config, "apps"), graph, mirrors],
+    closedDirs: [data, join(data, "auth"), config, join(config, "apps"), mirrors],
     unwritable: [
       data,
       config,
@@ -49,7 +48,6 @@ export function fileBoundaryLayout(env: NodeJS.ProcessEnv, root: string): FileBo
       join(config, "e2e"),
       join(config, "egress"),
       mirrors,
-      graph,
       join(root, "src"),
       join(root, "qa-engine"),
       join(root, "bin"),

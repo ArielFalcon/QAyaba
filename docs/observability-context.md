@@ -99,7 +99,7 @@ The single engine is `RunQaUseCase` (`qa-engine/src/contexts/qa-run-orchestratio
      - per run: capture duration, which ranges from 13 s to 9 min.
    - **Context pack** assembly: sections and bytes, the new "Changed values" facts.
    - **Stitcher** service links and contract drift.
-   - **Structural signal** from the codebase-memory graph (orchestrator-only).
+   - **Structural signal** from the code graph (codegraph, orchestrator-only).
 6. **`generate`**. Agent spans for:
    - the first pass;
    - the contract **repair** turn (tools disabled, ≤ 2 min);
