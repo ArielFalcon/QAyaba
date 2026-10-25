@@ -140,3 +140,40 @@ test("touchedLines marks every added line, and a deletion at the new-side line t
   assert.deepEqual([...touched.keys()], ["src/a.ts"], "a deleted file touches nothing on the new side");
   assert.deepEqual([...touched.get("src/a.ts")!].sort((a, b) => a - b), [11, 12]);
 });
+
+/* git writes a path with a control character, a quote, a backslash or (core.quotepath on) a non-ASCII byte as a C-quoted string with octal escapes. */
+test("a path with spaces is a changed file, and its lines are numbered under it", () => {
+  const d = diff("src/my dir/a b.ts", ["@@ -1,1 +1,2 @@", " ctx", "+added"]);
+  assert.deepEqual(svc.changedFiles(d), ["src/my dir/a b.ts"]);
+  assert.deepEqual(svc.modifiedFiles(d), ["src/my dir/a b.ts"]);
+  assert.deepEqual([...(svc.changedLines(d).get("src/my dir/a b.ts") ?? [])], [2]);
+});
+
+test("git's quoted path, octal escapes included, is the file's real name", () => {
+  const d = [
+    'diff --git "a/src/caf\\303\\251/\\"x\\".ts" "b/src/caf\\303\\251/\\"x\\".ts"',
+    '--- "a/src/caf\\303\\251/\\"x\\".ts"',
+    '+++ "b/src/caf\\303\\251/\\"x\\".ts"',
+    "@@ -1,1 +1,2 @@",
+    " ctx",
+    "+added",
+  ].join("\n");
+  const name = 'src/café/"x".ts';
+  assert.deepEqual(svc.changedFiles(d), [name]);
+  assert.deepEqual(svc.modifiedFiles(d), [name]);
+  assert.deepEqual([...(svc.changedLines(d).get(name) ?? [])], [2]);
+});
+
+test("an added, a deleted and a renamed file with spaces are all changed files; the head path wins", () => {
+  const d = [
+    "diff --git a/old dir/f.ts b/new dir/f.ts", "similarity index 90%", "rename from old dir/f.ts", "rename to new dir/f.ts",
+    "diff --git a/gone one.ts b/gone one.ts", "deleted file mode 100644", "--- a/gone one.ts", "+++ /dev/null", "@@ -1 +0,0 @@", "-x",
+  ].join("\n");
+  assert.deepEqual(svc.changedFiles(d), ["new dir/f.ts", "gone one.ts"]);
+});
+
+test("unquoted paths without spaces parse as before", () => {
+  const d = [diff("src/a.ts", ["@@ -1,1 +1,2 @@", " c", "+x"]), diff("b/b.ts", ["@@ -1,1 +1,2 @@", " c", "+y"])].join("\n");
+  assert.deepEqual(svc.changedFiles(d), ["src/a.ts", "b/b.ts"]);
+  assert.deepEqual(svc.modifiedFiles(d), ["src/a.ts", "b/b.ts"]);
+});

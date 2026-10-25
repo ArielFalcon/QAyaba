@@ -40,9 +40,10 @@ export class ChangePagesPortAdapter implements ChangePagesPort {
     const { codeGraph, repoDir, budget } = this.deps;
     const changed = BlastRadius.of(Sha.of(request.sha), [...request.changedFiles], request.touchedLines);
     const impact = await codeGraph.impactedSymbols(repoDir, changed, budget);
-    if (!impact.ok) return undefined;
+    if (!impact.ok) return this.unanswered("the change's walk", impact.error.reason);
+    this.noteTruncated("the change's walk", impact.value.truncated);
     const routes = await this.routesOf(repoDir);
-    return joinChangePages({ map: request.map as PageMap, walks: [{ reached: impact.value.symbols, handlers: true }], pageRoutes: routes, handlerRoutes: routes, linked: request.linked });
+    return joinChangePages({ map: request.map as PageMap, walks: [{ reached: impact.value.symbols, handlers: true, truncated: impact.value.truncated }], pageRoutes: routes, handlerRoutes: routes, linked: request.linked });
   }
 
   private async acrossRepos(request: ChangePagesRequest, pagesRepoDir: string): Promise<ChangePagesJoin | undefined> {
@@ -58,14 +59,26 @@ export class ChangePagesPortAdapter implements ChangePagesPort {
     }
     if (seeds.length === 0) return { pages: [], hubs: [], disagreements: [], omitted: 0 };
     const walk = await this.deps.codeGraph.callersOf(pagesRepoDir, seeds, this.deps.budget);
-    if (!walk.ok) return undefined;
+    if (!walk.ok) return this.unanswered("the walk from the frontend call sites", walk.error.reason);
+    this.noteTruncated("the walk from the frontend call sites", walk.value.truncated);
     const routes = await this.routesOf(pagesRepoDir);
-    return joinChangePages({ map: request.map as PageMap, walks: [{ reached: walk.value.symbols, prefixOf, handlers: false }], pageRoutes: routes, handlerRoutes: [], linked: request.linked });
+    return joinChangePages({ map: request.map as PageMap, walks: [{ reached: walk.value.symbols, prefixOf, handlers: false, truncated: walk.value.truncated }], pageRoutes: routes, handlerRoutes: [], linked: request.linked });
   }
 
   /* The engine's routes; none when it cannot answer (the map's own files still decide). */
   private async routesOf(repoDir: string): Promise<GraphRoute[]> {
     const routes = await this.deps.codeGraph.routes(repoDir);
-    return routes.ok ? routes.value : [];
+    if (routes.ok) return routes.value;
+    console.warn(`[qa] WARNING: the engine's routes could not be listed, so the map's files alone decide the change's pages (non-blocking): ${routes.error.reason}`);
+    return [];
+  }
+
+  private unanswered(what: string, reason: string): undefined {
+    console.warn(`[qa] WARNING: the index did not answer ${what}, so the change's pages are not joined over the call graph (non-blocking): ${reason}`);
+    return undefined;
+  }
+
+  private noteTruncated(what: string, truncated: boolean): void {
+    if (truncated) console.warn(`[qa] WARNING: ${what} was cut by its budget; a symbol of it is never taken for a non-hub and the pages it reaches are not added (non-blocking).`);
   }
 }

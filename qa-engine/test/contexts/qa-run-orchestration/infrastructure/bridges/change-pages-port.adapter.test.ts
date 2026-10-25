@@ -102,3 +102,42 @@ test("across repos a link without a call-site symbol claims no page, and no reac
   assert.deepEqual(await adapter.resolve(request({ crossRepoImpact: null })), { pages: [], hubs: [], disagreements: [], omitted: 0 });
   assert.deepEqual(graph.asked, []);
 });
+
+function captureWarnings(): { warnings: string[]; restore: () => void } {
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+  return { warnings, restore: () => { console.warn = original; } };
+}
+
+test("an index that cannot answer a walk or list routes says so in the log, with the engine's reason", async () => {
+  const log = captureWarnings();
+  try {
+    const walkFails = new ChangePagesPortAdapter({ codeGraph: fakeGraph({ impactedSymbols: async () => err({ reason: "query timed out" }) }), repoDir: "/m/web", budget: BUDGET });
+    assert.equal(await walkFails.resolve(request()), undefined);
+    const routesFail = new ChangePagesPortAdapter({ codeGraph: fakeGraph({ impactedSymbols: async () => report([]), routes: async () => err({ reason: "reader rejected the index version" }) }), repoDir: "/m/web", budget: BUDGET });
+    await routesFail.resolve(request());
+  } finally { log.restore(); }
+  assert.equal(log.warnings.some((w) => w.includes("query timed out")), true);
+  assert.equal(log.warnings.some((w) => w.includes("reader rejected the index version")), true);
+});
+
+test("a walk the budget cut is logged and its seeds are no proven non-hubs; a complete walk logs nothing", async () => {
+  const reached = [{ file: ORDERS, symbol: "total", kind: "method", depth: 0 }];
+  const log = captureWarnings();
+  let join;
+  try {
+    const cut = new ChangePagesPortAdapter({ codeGraph: fakeGraph({ impactedSymbols: async () => ok({ indexedSha: SHA, symbols: reached, truncated: true }) }), repoDir: "/m/web", budget: BUDGET });
+    join = await cut.resolve(request());
+  } finally { log.restore(); }
+  assert.deepEqual(join?.pages, []);
+  assert.equal(join?.hubs[0]?.truncated, true);
+  assert.equal(log.warnings.length, 1);
+
+  const quiet = captureWarnings();
+  try {
+    const whole = new ChangePagesPortAdapter({ codeGraph: fakeGraph({ impactedSymbols: async () => report(reached) }), repoDir: "/m/web", budget: BUDGET });
+    assert.deepEqual((await whole.resolve(request()))?.pages.map((p) => p.route), ["/orders"]);
+  } finally { quiet.restore(); }
+  assert.deepEqual(quiet.warnings, []);
+});

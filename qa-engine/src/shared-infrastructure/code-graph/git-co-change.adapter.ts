@@ -1,7 +1,7 @@
 /*
  * CoChangePort over git history, read through the trusted git runner with hardened arguments. The window is the run's
- * commit's ancestors (the commit itself excluded, merges excluded), the last HISTORY_COMMITS of them. A commit that touched
- * more than BULK_COMMIT_FILES files (a rename sweep, a formatter run, a vendored drop) couples everything with everything and
+ * commit's ancestors, reached through its parents so the commit itself is left out whether or not it is a merge (merges
+ * excluded), the last HISTORY_COMMITS of them. A commit that touched more than BULK_COMMIT_FILES files (a rename sweep, a formatter run, a vendored drop) couples everything with everything and
  * is ignored. A file is coupled to a changed file when they changed together at least MIN_CO_CHANGES times and in at least
  * MIN_COUPLING of the changed file's commits; its score is the strongest such fraction over the changed files.
  */
@@ -81,7 +81,7 @@ export class GitCoChangeAdapter implements CoChangePort {
 
   async coChangeCoupling(repoDir: string, changed: BlastRadius): Promise<Result<CoupledFile[], CodeGraphUnavailable>> {
     if (changed.isEmpty) return ok([]);
-    const args = ["log", "--no-merges", "--no-renames", `--max-count=${HISTORY_COMMITS}`, "--skip=1", "--format=%x1e%cI", "--name-only", changed.sha.value, "--"];
+    const args = ["log", "--no-merges", "--no-renames", `--max-count=${HISTORY_COMMITS}`, "--format=%x1e%cI", "--name-only", `${changed.sha.value}^@`, "--"];
     try {
       const r = await this.git.run({ command: "git", args: hardenGitArgs(args, repoDir), cwd: repoDir, env: scrubEnv(), timeoutMs: GIT_TIMEOUT_MS });
       if (r.timedOut) return err({ reason: "git log timed out" });

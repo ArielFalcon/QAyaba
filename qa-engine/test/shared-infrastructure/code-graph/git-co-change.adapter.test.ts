@@ -95,3 +95,63 @@ test("an empty change asks git nothing, and a git failure is unavailable, never 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("when the run's commit is a merge, only the merge itself is left out: every real commit of both parents still counts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cg-cochange-merge-"));
+  try {
+    const repo = join(root, "repo");
+    mkdirSync(repo);
+    git(repo, "init", "-q");
+    /* a.ts is changed on both sides of the merge, on lines far apart, so the merge is clean. */
+    const base = Array.from({ length: 40 }, (_, n) => `line ${n}`);
+    const touch = (msg: string, line: number, ...others: string[]) => {
+      const next = [...base];
+      next[line] = msg;
+      writeFileSync(join(repo, "a.ts"), `${next.join("\n")}\n`);
+      for (const f of others) writeFileSync(join(repo, f), `${msg}\n`);
+      git(repo, "add", "-A");
+      git(repo, "commit", "-qm", msg);
+    };
+    touch("one", 1, "b.ts");
+    touch("two", 2, "b.ts");
+    const main = git(repo, "rev-parse", "--abbrev-ref", "HEAD");
+    git(repo, "checkout", "-qb", "feature");
+    touch("f1", 35, "d.ts");
+    touch("f2", 36, "d.ts");
+    git(repo, "checkout", "-q", main);
+    touch("m1", 3, "e.ts");
+    touch("m2", 4, "e.ts");
+    git(repo, "merge", "-q", "--no-ff", "feature", "-m", "merge feature");
+    closeGitDir(repo);
+    const head = git(repo, "rev-parse", "HEAD");
+
+    const result = await new GitCoChangeAdapter(new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() })).coChangeCoupling(repo, BlastRadius.of(Sha.of(head), ["a.ts"]));
+
+    assert.ok(result.ok, result.ok ? "" : result.error.reason);
+    assert.deepEqual(result.value.map((c) => [c.file, c.coChanges]).sort(), [["b.ts", 2], ["d.ts", 2], ["e.ts", 2]]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a run on the repository's first commit has no history, never the checked-out branch's", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cg-cochange-root-"));
+  try {
+    const repo = join(root, "repo");
+    mkdirSync(repo);
+    git(repo, "init", "-q");
+    writeFileSync(join(repo, "a.ts"), "1\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "first");
+    const first = git(repo, "rev-parse", "HEAD");
+    for (const n of ["2", "3"]) { writeFileSync(join(repo, "a.ts"), `${n}\n`); git(repo, "commit", "-qam", n); }
+    closeGitDir(repo);
+
+    const result = await new GitCoChangeAdapter(new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() })).coChangeCoupling(repo, BlastRadius.of(Sha.of(first), ["a.ts"]));
+
+    assert.ok(result.ok, result.ok ? "" : result.error.reason);
+    assert.deepEqual(result.value, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

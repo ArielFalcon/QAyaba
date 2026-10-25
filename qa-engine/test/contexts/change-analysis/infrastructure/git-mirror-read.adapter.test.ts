@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
@@ -220,6 +220,30 @@ test("a swapped git dir is refused by every read and its planted diff command ne
     assert.equal(existsSync(marker) && readFileSync(marker, "utf8").includes("ran"), false, "git never ran against the swapped git dir");
   } finally {
     rmSync(scratch, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("REAL repo: blastRadius() names a changed file whose path holds spaces and accents as it is on disk", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "qa-quotepath-"));
+  try {
+    const git = (...args: string[]): string =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8", env: { ...process.env, LC_ALL: "C", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" } }).trim();
+    git("init", "-q");
+    closeGitDir(repo);
+    writeFileSync(join(repo, "base.txt"), "base\n");
+    git("add", "base.txt");
+    git("commit", "-qm", "chore: base");
+    mkdirSync(join(repo, "src", "café dir"), { recursive: true });
+    writeFileSync(join(repo, "src", "café dir", "página uno.ts"), "export const a = 1;\n");
+    writeFileSync(join(repo, "plain.ts"), "export const b = 1;\n");
+    git("add", ".");
+    git("commit", "-qm", "feat: add files");
+
+    const br = await new GitMirrorReadAdapter(repo, realGitRunner).blastRadius(Sha.of(git("rev-parse", "HEAD")));
+
+    assert.deepEqual([...br.changedFiles].sort(), ["plain.ts", "src/café dir/página uno.ts"]);
+  } finally {
     rmSync(repo, { recursive: true, force: true });
   }
 });

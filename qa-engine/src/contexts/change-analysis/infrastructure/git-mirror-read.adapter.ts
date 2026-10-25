@@ -18,7 +18,7 @@ export class GitMirrorReadAdapter implements VcsReadPort {
       : `${sha.value}^`;
     const r = await this.runner.run({
       command: "git",
-      args: hardenGitArgs(["diff", "--no-color", baseRef, sha.value], this.repoDir),
+      args: hardenGitArgs(["-c", "core.quotepath=false", "diff", "--no-color", baseRef, sha.value], this.repoDir),
       cwd: this.repoDir,
       env: scrubEnv(),
     });

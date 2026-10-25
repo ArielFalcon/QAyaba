@@ -79,8 +79,9 @@ export class DiffParserService {
   changedFiles(diff: string): string[] {
     const files: string[] = [];
     for (const line of diff.split("\n")) {
-      const m = line.match(/^diff --git a\/(\S+) b\/(\S+)/);
-      if (m) files.push(m[2] ?? m[1]!);
+      if (!line.startsWith("diff --git ")) continue;
+      const paths = diffGitPaths(line.slice("diff --git ".length));
+      if (paths) files.push(paths.head ?? paths.base);
     }
     return files;
   }
@@ -98,8 +99,8 @@ export class DiffParserService {
         continue;
       }
       if (!afterDiffGit) continue;
-      if (line.startsWith("--- a/")) { basePath = line.slice(6).trim(); continue; }
-      if (line.startsWith("+++ b/")) { headPath = line.slice(6).trim(); continue; }
+      if (line.startsWith("--- ")) { basePath = headerPath(line); continue; }
+      if (line.startsWith("+++ ")) { headPath = headerPath(line); continue; }
       if (line.startsWith("@@")) afterDiffGit = false;
     }
     if (basePath !== null && headPath !== null) files.push(headPath);
@@ -303,7 +304,60 @@ const MAX_ELEMENTS = 200;
 /* The path a `--- ` or `+++ ` header line names: without the a/ or b/ prefix and the tab git puts after a name that holds a space, or null for /dev/null. */
 function headerPath(headerLine: string): string | null {
   const p = headerLine.slice(4).trim();
-  return p === "/dev/null" ? null : p.replace(/^[ab]\//, "").replace(/\t.*$/, "");
+  if (p === "/dev/null") return null;
+  if (p.startsWith('"')) return readQuoted(p)?.text.replace(/^[ab]\//, "") ?? null;
+  return p.replace(/^[ab]\//, "").replace(/\t.*$/, "");
+}
+
+/* git's C-quoted string at the start of `text` (`"..."` with \" \\ \t \n and octal byte escapes, the bytes read as UTF-8) and what follows it, or null when it is not closed. */
+function readQuoted(text: string): { text: string; rest: string } | null {
+  if (!text.startsWith('"')) return null;
+  const bytes: number[] = [];
+  const simple: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+  for (let i = 1; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === '"') return { text: Buffer.from(bytes).toString("utf8"), rest: text.slice(i + 1) };
+    if (c !== "\\") { bytes.push(...Buffer.from(c, "utf8")); continue; }
+    const octal = /^[0-7]{1,3}/.exec(text.slice(i + 1));
+    if (octal) { bytes.push(parseInt(octal[0], 8)); i += octal[0].length; continue; }
+    const code = simple[text[i + 1] ?? ""];
+    if (code === undefined) return null;
+    bytes.push(code);
+    i++;
+  }
+  return null;
+}
+
+/*
+ * The two paths of a `diff --git` header (what follows the keyword), without the a/ and b/ prefixes; `head` is null when only one
+ * path is told apart. A quoted path is unquoted. Unquoted paths may hold spaces, so the split is the " b/" that leaves the same
+ * path on both sides (no rename), else the first one (a rename names the sides in its own header lines).
+ */
+function diffGitPaths(rest: string): { base: string; head: string | null } | null {
+  let base: string;
+  let afterBase: string;
+  if (rest.startsWith('"')) {
+    const quoted = readQuoted(rest);
+    if (!quoted || !quoted.rest.startsWith(" ")) return null;
+    base = quoted.text.replace(/^a\//, "");
+    afterBase = quoted.rest.slice(1);
+  } else {
+    if (!rest.startsWith("a/")) return null;
+    const splits = [...rest.matchAll(/ (?="?b\/)/g)].map((m) => m.index!);
+    const equal = splits.find((at) => unquoteSide(rest.slice(at + 1)) === rest.slice(2, at));
+    const at = equal ?? splits[0];
+    if (at === undefined) return null;
+    base = rest.slice(2, at);
+    afterBase = rest.slice(at + 1);
+  }
+  const head = unquoteSide(afterBase);
+  return { base, head: head === "" ? null : head };
+}
+
+/* The b/ side of a header: quoted or not, without the prefix. */
+function unquoteSide(side: string): string {
+  const text = side.startsWith('"') ? (readQuoted(side)?.text ?? side) : side;
+  return text.replace(/^b\//, "");
 }
 
 /* The first `max` entries of the lists taken one from each in turn, a value taken once: every list keeps a share before any keeps more. */

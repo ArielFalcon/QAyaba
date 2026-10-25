@@ -137,3 +137,42 @@ test("a map that lists a route twice reports one disagreement per engine file, n
   const pageRoutes: GraphRoute[] = [{ file: "web/src/app/app.routes.ts", line: 3, path: "/orders", target: { file: "web/src/app/orders/legacy.page.ts", symbol: "Legacy", kind: "class" } }];
   assert.equal(joinChangePages(input({ map, pageRoutes })).disagreements.length, 1);
 });
+
+test("in a monorepo with two frontends, a route the map leaves without files takes the engine's file of its own frontend only", () => {
+  const shopPage = "apps/shop/src/orders/orders.page.ts";
+  const adminPage = "apps/admin/src/orders/orders.page.ts";
+  const pageRoutes: GraphRoute[] = [
+    { file: "apps/shop/src/app.routes.ts", line: 3, path: "/orders", target: { file: shopPage, symbol: "ShopOrders", kind: "class" } },
+    { file: "apps/admin/src/app.routes.ts", line: 3, path: "/orders", target: { file: adminPage, symbol: "AdminOrders", kind: "class" } },
+  ];
+  const map = { routes: [{ path: "/orders", source: "apps/admin/src/app.routes.ts" }] };
+
+  const adminChange = joinChangePages(input({ map, pageRoutes, walks: [walk([sym(adminPage, "AdminOrders", 0)])] }));
+  assert.deepEqual(adminChange.pages.map((p) => p.route), ["/orders"]);
+
+  const shopChange = joinChangePages(input({ map, pageRoutes, walks: [walk([sym(shopPage, "ShopOrders", 0)])] }));
+  assert.deepEqual(shopChange.pages, [], "another frontend's page of the same path is not this app's page");
+  assert.deepEqual(shopChange.disagreements, []);
+});
+
+test("a route that several frontends declare and a map that names no source claims no engine file", () => {
+  const pageRoutes: GraphRoute[] = [
+    { file: "apps/shop/src/app.routes.ts", line: 3, path: "/orders", target: { file: "apps/shop/o.ts", symbol: "A", kind: "class" } },
+    { file: "apps/admin/src/app.routes.ts", line: 3, path: "/orders", target: { file: "apps/admin/o.ts", symbol: "B", kind: "class" } },
+  ];
+  const join = joinChangePages(input({ map: { routes: [{ path: "/orders" }] }, pageRoutes, walks: [walk([sym("apps/shop/o.ts", "A", 0)])] }));
+  assert.deepEqual(join.pages, []);
+});
+
+test("a walk the budget cut cannot prove a seed is no hub: its pages are not added and it is reported", () => {
+  const reached = [sym(FORMAT, "formatMoney", 0), sym(ORDERS, "total", 1, { file: FORMAT, symbol: "formatMoney" })];
+
+  const join = joinChangePages(input({ walks: [walk(reached, { truncated: true })] }));
+
+  assert.deepEqual(join.pages, []);
+  assert.deepEqual(join.hubs, [{ symbol: `${FORMAT}::formatMoney`, pages: 1, truncated: true }]);
+
+  const complete = joinChangePages(input({ walks: [walk(reached, { truncated: false })] }));
+  assert.deepEqual(complete.pages.map((p) => p.route), ["/orders"]);
+  assert.deepEqual(complete.hubs, []);
+});

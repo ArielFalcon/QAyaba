@@ -10,7 +10,7 @@
  *     from there, the link's own description opening the proof).
  * Nothing here resolves a contract or creates a link: the stitcher's links and the map are taken as they are, and a symbol the
  * stitcher linked nothing to claims no page in another repo. A changed symbol that reaches more than `hubPages` pages is a hub:
- * it adds none and is reported with its count. At most `maxPages` pages are added, shortest proof first; the map's own pages
+ * it adds none and is reported with its count; so is a seed of a walk the budget cut, whose count is only a lower bound. At most `maxPages` pages are added, shortest proof first; the map's own pages
  * are never counted against that cap, nor removed. Where the engine and the map name different files for one page, the
  * disagreement is reported, never resolved. Pure.
  */
@@ -24,7 +24,7 @@ export const GRAPH_PAGE_LIMITS = { maxPages: 6, hubPages: 4 } as const;
 
 /* The map sections the join reads; every field is checked where it is read (the map is data from a file). */
 export interface PageMap {
-  routes?: ReadonlyArray<{ path?: unknown; implementationFiles?: unknown }>;
+  routes?: ReadonlyArray<{ path?: unknown; source?: unknown; implementationFiles?: unknown }>;
   api?: ReadonlyArray<{ operationId?: unknown; method?: unknown; path?: unknown }>;
   feBe?: ReadonlyArray<{ route?: unknown; operationId?: unknown }>;
 }
@@ -35,6 +35,8 @@ export interface PageWalk {
   /* The proof steps before a seed, by the seed's `file::symbol`. */
   prefixOf?: ReadonlyMap<string, readonly string[]>;
   handlers: boolean;
+  /* The budget cut the walk: the pages a seed reached are a lower bound, so no seed of it is proven a non-hub. */
+  truncated?: boolean;
 }
 
 export interface ChangePagesInput {
@@ -55,22 +57,45 @@ const normalizeRoute = (path: string): string => path.split("/").filter(Boolean)
 const sameFile = (a: string, b: string): boolean => a === b || (b.split("/").length >= 2 && a.endsWith(`/${b}`)) || (a.split("/").length >= 2 && b.endsWith(`/${a}`));
 const keyOf = (s: { file: string; symbol: string }): string => `${s.file}::${s.symbol}`;
 
+const dirSegments = (file: string): string[] => file.split("/").slice(0, -1);
+function sharedDirs(a: string, b: string): number {
+  const x = dirSegments(a);
+  const y = dirSegments(b);
+  let n = 0;
+  while (n < x.length && n < y.length && x[n] === y[n]) n++;
+  return n;
+}
+
+/*
+ * The engine's files for one map route. The engine lists a path once per frontend that declares it, so in a monorepo the nodes
+ * are scoped to the one declared nearest the map entry's own source (the most directories shared with the file that declares the
+ * route). When the declarations are not told apart (no source, or none shares a directory with it), no frontend is claimed.
+ */
+function scopeToSource(nodes: ReadonlyArray<{ declaredIn: string; file: string }>, source: string | undefined): string[] {
+  const declarations = new Set(nodes.map((n) => n.declaredIn));
+  if (declarations.size <= 1) return [...new Set(nodes.map((n) => n.file))];
+  if (source === undefined) return [];
+  const near = Math.max(...nodes.map((n) => sharedDirs(n.declaredIn, source)));
+  if (near === 0) return [];
+  return [...new Set(nodes.filter((n) => sharedDirs(n.declaredIn, source) === near).map((n) => n.file))];
+}
+
 /* The files that implement each page: the map's own, else the engine's route node for the same path. */
 function pageFiles(map: PageMap, pageRoutes: readonly GraphRoute[]): { files: Map<string, string[]>; disagreements: ChangePagesJoin["disagreements"] } {
-  const engineFilesOf = new Map<string, string[]>();
+  const engineFilesOf = new Map<string, Array<{ declaredIn: string; file: string }>>();
   for (const r of pageRoutes) {
     /* The node's own file declares the route (the map's `source`); the page is implemented by the symbol it points at. */
     if (r.method !== undefined || r.target === undefined) continue;
     const files = [normalizeFile(r.target.file)];
     const key = normalizeRoute(r.path);
-    engineFilesOf.set(key, [...new Set([...(engineFilesOf.get(key) ?? []), ...files])]);
+    engineFilesOf.set(key, [...(engineFilesOf.get(key) ?? []), { declaredIn: normalizeFile(r.file), file: files[0]! }]);
   }
   const files = new Map<string, string[]>();
   const disagreements: ChangePagesJoin["disagreements"] = [];
   for (const entry of map.routes ?? []) {
     if (!entry || !isText(entry.path)) continue;
     const declared = Array.isArray(entry.implementationFiles) ? entry.implementationFiles.filter(isText).map(normalizeFile) : [];
-    const engine = engineFilesOf.get(normalizeRoute(entry.path)) ?? [];
+    const engine = scopeToSource(engineFilesOf.get(normalizeRoute(entry.path)) ?? [], isText(entry.source) ? normalizeFile(entry.source) : undefined);
     if (declared.length > 0) {
       files.set(entry.path, [...new Set([...(files.get(entry.path) ?? []), ...declared])]);
       const unknown = engine.filter((e) => !declared.some((d) => sameFile(d, e)));
@@ -102,6 +127,7 @@ export function joinChangePages(input: ChangePagesInput): ChangePagesJoin {
 
   /* Every proof found, per page and per seed; the shortest per page wins. */
   const proofs: Array<{ route: string; seed: string; proof: string[] }> = [];
+  const cutSeeds = new Set<string>();
   for (const walk of input.walks) {
     const byKey = new Map(walk.reached.map((s) => [keyOf(s), s]));
     const chainOf = (s: ImpactedSymbol): ImpactedSymbol[] => {
@@ -120,6 +146,7 @@ export function joinChangePages(input: ChangePagesInput): ChangePagesJoin {
     for (const s of walk.reached) {
       const chain = chainOf(s);
       const seed = keyOf(chain[0]!);
+      if (walk.truncated) cutSeeds.add(seed);
       const steps = [...(walk.prefixOf?.get(seed) ?? []), ...chain.map(keyOf)];
       const file = normalizeFile(s.file);
       for (const [route, implementing] of files) {
@@ -138,7 +165,7 @@ export function joinChangePages(input: ChangePagesInput): ChangePagesJoin {
 
   const pagesOfSeed = new Map<string, Set<string>>();
   for (const p of proofs) pagesOfSeed.set(p.seed, (pagesOfSeed.get(p.seed) ?? new Set()).add(p.route));
-  const hubs = [...pagesOfSeed].filter(([, pages]) => pages.size > limits.hubPages).map(([symbol, pages]) => ({ symbol, pages: pages.size })).sort((a, b) => b.pages - a.pages || a.symbol.localeCompare(b.symbol));
+  const hubs = [...pagesOfSeed].filter(([symbol, pages]) => pages.size > limits.hubPages || cutSeeds.has(symbol)).map(([symbol, pages]) => ({ symbol, pages: pages.size, ...(cutSeeds.has(symbol) ? { truncated: true } : {}) })).sort((a, b) => b.pages - a.pages || a.symbol.localeCompare(b.symbol));
   const hubSet = new Set(hubs.map((h) => h.symbol));
 
   const best = new Map<string, string[]>();
