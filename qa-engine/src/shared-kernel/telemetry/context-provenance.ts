@@ -24,9 +24,6 @@ export interface ContextProvenance {
 /* The map's 14-day age bound: a map older than this is stale even when the SHA still matches. */
 export const CONTEXT_MAP_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
-/* The minimum interval between two off-path rebuild requests for the same app. */
-export const CONTEXT_HEAL_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
-
 /* The number of entries a map supplies, for the provenance record. Every section is read as a list; a malformed one counts zero. */
 export function contextMapResultCount(map: {
   routes?: readonly unknown[];

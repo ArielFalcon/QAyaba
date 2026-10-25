@@ -2041,3 +2041,66 @@ test("a phase record that cannot be stored never stops the failed run from being
   assert.equal(getIncidents().length, incidentsBefore + 1, "an unexpected internal error still opens its incident");
   assert.ok(errors.some((l) => /phase/i.test(l)), "the dropped phase record is said aloud");
 });
+
+/* A run whose app map does not describe its commit gets the map rebuilt first, in its own queue turn, so that run already grounds on it.
+   The question (does this app's map fit this commit?) is injected; the rebuild is an ordinary context run linked to the run that asked. */
+function mapRig(needs?: (app: string, sha: string) => Promise<boolean>) {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const asked: string[] = [];
+  const deps = {
+    loadApp: cfg,
+    engineFactory: () => port,
+    ...(needs ? { contextMapNeedsRebuild: async (app: string, sha: string) => { asked.push(`${app}@${sha}`); return needs(app, sha); } } : {}),
+  };
+  const run = (app: string, extra: Partial<Parameters<typeof enqueueTrackedRun>[1]> = {}): string =>
+    enqueueTrackedRun(queue, { app, sha: "abc1234", target: "e2e", mode: "diff", source: "webhook", ...extra }, deps);
+  return { queue, calls, asked, run };
+}
+
+test("a run whose map does not fit its commit runs a context run at its sha first, linked to it, before its own pipeline", async () => {
+  const r = mapRig(async () => true);
+  const id = r.run("runner-map-first");
+  await r.queue.drain();
+  assert.deepEqual(r.calls.map((c) => c.mode), ["context", "diff"]);
+  assert.equal(r.calls[0]?.sha.value, "abc1234");
+  assert.equal(r.calls[0]?.parentRunId, id);
+  assert.equal(getRecord(r.calls[0]!.runId)?.status, "done");
+  assert.equal(getRecord(id)?.status, "done");
+});
+
+test("the map is rebuilt once per app and commit: a later run at the same sha does not rebuild it again, whether or not the rebuild worked", async () => {
+  const r = mapRig(async () => true);
+  r.run("runner-map-once");
+  await r.queue.drain();
+  r.run("runner-map-once");
+  r.run("runner-map-once", { sha: "def5678" });
+  await r.queue.drain();
+  assert.deepEqual(r.calls.map((c) => `${c.mode}@${c.sha.value}`), ["context@abc1234", "diff@abc1234", "diff@abc1234", "context@def5678", "diff@def5678"]);
+});
+
+test("no rebuild runs when the map fits, for a run that cannot use a map, when the question fails, or when it is not wired", async () => {
+  const fits = mapRig(async () => false);
+  fits.run("runner-map-fits");
+  await fits.queue.drain();
+  assert.deepEqual(fits.calls.map((c) => c.mode), ["diff"]);
+
+  const others = mapRig(async () => true);
+  others.run("runner-map-others", { mode: "context" });
+  others.run("runner-map-others", { target: "code" });
+  others.run("runner-map-others", { triggerRepo: "org/svc" });
+  others.run("runner-map-others", { purpose: "login-bootstrap", mode: "manual" });
+  await others.queue.drain();
+  assert.equal(others.calls.filter((c) => c.mode === "context").length, 1, "only the context run that was asked for");
+  assert.deepEqual(others.asked, []);
+
+  const broken = mapRig(async () => { throw new Error("mirror unreachable"); });
+  broken.run("runner-map-broken");
+  await broken.queue.drain();
+  assert.deepEqual(broken.calls.map((c) => c.mode), ["diff"], "the run goes on without the rebuild");
+
+  const unwired = mapRig();
+  unwired.run("runner-map-unwired");
+  await unwired.queue.drain();
+  assert.deepEqual(unwired.calls.map((c) => c.mode), ["diff"]);
+});

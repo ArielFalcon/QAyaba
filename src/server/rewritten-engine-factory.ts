@@ -64,7 +64,7 @@ import { RunDeadline } from "@contexts/qa-run-orchestration/domain/run-deadline"
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import { contextMapValidity, parseNameStatusZ, type ChangedFile } from "@contexts/qa-run-orchestration/domain/context-map-validity";
 import type { TelemetryClock, TelemetryPort } from "@kernel/telemetry/telemetry.port";
-import { CONTEXT_HEAL_MIN_INTERVAL_MS, CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
+import { CONTEXT_MAP_MAX_AGE_MS, contextMapResultCount, type ContextProvenance } from "@kernel/telemetry/context-provenance";
 import { withTurnTelemetry } from "@contexts/generation/infrastructure/telemetry/with-turn-telemetry";
 import { agentTurnTraces } from "@contexts/generation/infrastructure/telemetry/turn-trace-registry";
 import type { StepIntentContext } from "@contexts/generation/domain/step-intent";
@@ -161,7 +161,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, lastContextHealRequestAt, recordContextHealRequest, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
+import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, quarantineLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, isContextStale, clearContextStale, recordContextHealRequest, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import { recordIncident } from "./maintainer";
 import { resolveCampaignFreeze } from "./campaign-freeze";
 import { serviceTopologyWired, structuralSignalsOn as structuralSignalsOnFor, toolsApply } from "./run-config-gates";
@@ -545,7 +545,7 @@ export interface RewrittenEngineFactoryDeps {
 }
 
 /* `git diff` between two commits of the mirror; a failure (a commit the mirror does not hold) is "cannot compare", never a guess. */
-function gitChangedFiles(repoDir: string, fromSha: string, toSha: string): ChangedFile[] | undefined {
+export function gitChangedFiles(repoDir: string, fromSha: string, toSha: string): ChangedFile[] | undefined {
   try {
     const out = execFileSync("git", hardenGitArgs(["diff", "--name-status", "--no-renames", "-z", fromSha, toSha, "--"], repoDir), {
       encoding: "utf8",
@@ -566,6 +566,9 @@ export interface ContextHealRunRequest {
   /* The run whose stale map asked for this rebuild. Optional: onboarding/tests may enqueue an unlinked heal. */
   parentRunId?: string;
 }
+
+/* The app commits a run has already asked a context-map rebuild for, in this process: the next run at the same commit does not ask again. */
+const contextHealRequested = new Set<string>();
 
 /* Persist a context run's validated map; a fresh map replaces the one the stale flag condemned. */
 const storeFreshContextMap: ContextMapSave = (app, sha, map) => {
@@ -916,19 +919,16 @@ export function buildRewrittenCompositionConfig(
 
   /* Where the map the run actually used came from, and how fresh it was (observe-only). */
   let mapProvenance: ContextProvenance | undefined;
-  /* An off-path rebuild for a map stale by SHA/age, deduped to one request per app per 6h. The
+  /* An off-path rebuild for a map stale by SHA/age, asked once per app and commit. The
    * process-audit flag keeps its own path above; this one never clears that flag. */
   const requestMapHealIfDue = (): void => {
     if (!mapProvenance?.stale) return;
-    if (campaignFrozen) {
+    const key = `${app.name}@${run.sha ?? ""}`;
+    if (campaignFrozen || contextHealRequested.has(key)) {
       mapProvenance = { ...mapProvenance, recapture: "skipped" };
       return;
     }
-    const last = lastContextHealRequestAt(app.name);
-    if (last !== undefined && Date.now() - Date.parse(last) < CONTEXT_HEAL_MIN_INTERVAL_MS) {
-      mapProvenance = { ...mapProvenance, recapture: "skipped" };
-      return;
-    }
+    contextHealRequested.add(key);
     recordContextHealRequest(app.name);
     mapProvenance = { ...mapProvenance, recapture: "requested" };
     requestContextHeal(app.name, run.sha, deps.enqueueContextRun, run.runId);

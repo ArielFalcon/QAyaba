@@ -82,6 +82,7 @@ import { buildScriptExec, execWorkRoot } from "./server/exec-sandbox-factory";
 import { resolveApiToken } from "./server/api-token";
 import { shouldLogApiRequest } from "./server/api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./server/login-bootstrap-wiring";
+import { contextMapNeedsRebuildFor } from "./server/context-map-wiring";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = qayabaRoot();
@@ -235,13 +236,16 @@ let runConfigEnvironment: RunConfigEnvironment;
 /* The question behind the automatic login bootstrap; absent under QA_CAMPAIGN_FREEZE (a mistyped value throws here, at boot, like the engine's own read of it). */
 const suiteHoldsVerifiedLogin = suiteHoldsVerifiedLoginFor(process.env, ROOT);
 
+/* The question behind the context-map rebuild before a run; absent under QA_CAMPAIGN_FREEZE. */
+const contextMapNeedsRebuild = contextMapNeedsRebuildFor(process.env);
+
 /*
  * The runner deps every enqueue path shares — the event store, the engine factory and the
  * onboarding mirror-race guard — so no path can skip parking while onboarding provisions mirrors.
  * Built at call time: engineFactory and onboardingJob are assigned later in this module.
  */
 function runnerDeps(): RunnerDeps {
-  return { runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}) };
+  return { runConfig: runConfigEnvironment, runEvents, engineFactory, telemetry: telemetry.telemetry, clock: telemetry.clock, afterRun, isOnboardingActive: () => onboardingJob.isActive(), ...(suiteHoldsVerifiedLogin ? { suiteHoldsVerifiedLogin } : {}), ...(contextMapNeedsRebuild ? { contextMapNeedsRebuild } : {}) };
 }
 
 /*

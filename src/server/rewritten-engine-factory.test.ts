@@ -3692,6 +3692,26 @@ test("a stored map from another sha is not used when a route declaration it name
   assert.deepEqual(requested, ["sha-run"]);
 });
 
+test("a map that does not fit asks for its rebuild once per commit, however soon the next run comes", async () => {
+  const app = storedMapApp("once-per-commit");
+  const requested: string[] = [];
+  const runAt = (sha: string) => {
+    const config = buildRewrittenCompositionConfig(
+      app,
+      { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
+      "qa-bot-run1",
+      { mode: "diff", sha },
+    );
+    config.groundingCollaborators!.loadContextMap!("/nowhere");
+    return config.contextMapProvenance!()?.recapture;
+  };
+  assert.equal(runAt("sha-one"), "requested");
+  assert.equal(runAt("sha-one"), "skipped", "the same commit asked already");
+  assert.equal(runAt("sha-two"), "requested", "a new commit asks again at once");
+  await flushMicrotasks();
+  assert.deepEqual(requested, ["sha-one", "sha-two"]);
+});
+
 test("a stored map is reused when a page's implementation files were only modified, without that page's front-to-back links", async () => {
   const app = cfg(`factory-map-validity-pages-${Math.random().toString(36).slice(2)}`);
   saveContextMap(app.name, "sha-built", {

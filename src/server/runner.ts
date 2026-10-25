@@ -113,6 +113,12 @@ export interface RunnerDeps {
    */
   suiteHoldsVerifiedLogin?: (app: string) => boolean;
   /*
+   * Whether the app's context map fails to describe the commit a run is at. Present: such a run executes a context run at its sha
+   * first, in its own queue turn (once per app and commit, see rebuildContextMapFirst). Absent: no run rebuilds the map on its own,
+   * which is how a campaign (QA_CAMPAIGN_FREEZE) keeps its map fixed. May reject: the run then goes on with the stored map.
+   */
+  contextMapNeedsRebuild?: (app: string, sha: string) => Promise<boolean>;
+  /*
    * Test/ops seam: override the poll granularity and defensive upper bound (module defaults
    * ONBOARDING_POLL_MS / ONBOARDING_WAIT_MAX_MS above). Production never overrides these.
    */
@@ -334,7 +340,6 @@ export function enqueueLoginBootstrapRun(queue: JobQueue, app: string, sha: stri
  * Returns the record id immediately (the run executes asynchronously, one at a time).
  */
 export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: RunnerDeps = {}): string {
-  const loadApp = deps.loadApp ?? loadAppConfig;
   /* The capture a run gets is decided here, for every door: what it asked for, never above the server's ceiling. */
   const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
   const captureMode = capCaptureMode(req.captureMode, runConfigEnv.maxCapture);
@@ -342,6 +347,18 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
   if (req.campaign) assertUniformCapture(req.campaign.id, captureMode, getCampaignCaptureMode(req.campaign.id));
   /* After every refusal: a refused request must leave nothing behind, a queued bootstrap or a marked app included. */
   enqueueLoginBootstrapFirst(queue, req, deps);
+  const run = trackRun(req, deps, captureMode, `queue: ${queue.size + 1}`);
+  queue.enqueue(run.execute, run.id);
+  return run.id;
+}
+
+/*
+ * Creates the tracked RunRecord and returns how to execute it. The queue executes a run in its turn; a context-map rebuild
+ * executes inside the turn of the run that needed it (rebuildContextMapFirst).
+ */
+function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, where: string): { id: string; execute: (signal: AbortSignal) => Promise<void> } {
+  const loadApp = deps.loadApp ?? loadAppConfig;
+  const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
 
   /*
    * Orphan-data cleanup runs through the SINGLE funnel so EVERY trigger (webhook, CLI,
@@ -366,7 +383,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
     ...(req.campaign ? { campaign: req.campaign } : {}),
     captureMode,
   });
-  console.log(`[qa] enqueued ${req.app}@${req.sha} mode=${req.mode}${req.parentRunId ? ` (continue of ${req.parentRunId})` : ""} (queue: ${queue.size + 1})`);
+  console.log(`[qa] enqueued ${req.app}@${req.sha} mode=${req.mode}${req.parentRunId ? ` (continue of ${req.parentRunId})` : ""} (${where})`);
 
   /* The trace of the run: a short span here, in the caller's context, and a root of its own when the queue hands the run its turn (run-trace.ts). */
   const telemetry = guardTelemetry(deps.telemetry ?? new NoopTelemetry());
@@ -441,6 +458,13 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
          * moment it aborted this signal — this is a NO-OP guard, not a second finalize.
          */
         console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled while waiting for onboarding to clear`);
+        cancelledTrace(record.id, trace);
+        return;
+      }
+
+      await rebuildContextMapFirst(req, record.id, deps, signal);
+      if (signal.aborted) {
+        console.log(`[qa] skipping ${req.app}@${req.sha} — cancelled while its context map was rebuilt`);
         cancelledTrace(record.id, trace);
         return;
       }
@@ -606,7 +630,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
     }
   };
 
-  queue.enqueue(async (signal) => {
+  const execute = async (signal: AbortSignal): Promise<void> => {
     /* Opened at dequeue, on a context of its own (see run-trace.ts), and ended on every path out of the job. */
     const trace = new RunTrace(telemetry, clock, identity, enqueued);
     try {
@@ -615,9 +639,35 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       trace.end();
       notifyRunFinished(deps, record.id);
     }
-  }, record.id);
+  };
+  return { id: record.id, execute };
+}
 
-  return record.id;
+/* The app commits whose context map this process has rebuilt (or tried to): a rebuild that failed is not repeated by every run at that commit. */
+const contextMapRebuilt = new Set<string>();
+
+/*
+ * The context map a run grounds on must describe its commit. When the injected question says the app's map does not (missing,
+ * marked stale, or a file it names changed since it was built), a context run at the run's sha executes first, in this run's queue
+ * turn and linked to it, so this run already reads the fresh map. Once per app and commit. Not for a run that cannot use a map: a
+ * code run, a context run, a run with a purpose, a cross-repo run (its sha belongs to the service repo) or a continuation. A question
+ * that cannot be answered says so and the run goes on with what the map has.
+ */
+async function rebuildContextMapFirst(req: RunRequest, runId: string, deps: RunnerDeps, signal: AbortSignal): Promise<void> {
+  const needs = deps.contextMapNeedsRebuild;
+  if (!needs || req.target !== "e2e" || req.mode === "context" || req.purpose !== undefined || req.triggerRepo !== undefined || req.parentRunId !== undefined) return;
+  const key = `${req.app}@${req.sha}`;
+  if (contextMapRebuilt.has(key)) return;
+  try {
+    if (!(await needs(req.app, req.sha))) return;
+  } catch (err) {
+    console.warn(`[qa] context map for ${req.app} not checked against ${req.sha.slice(0, 7)} (the run goes on with the stored map): ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+  contextMapRebuilt.add(key);
+  const rebuild = trackRun({ app: req.app, sha: req.sha, target: "e2e", mode: "context", source: "manual", trigger: "context", parentRunId: runId }, deps, capCaptureMode(req.captureMode, (deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV).maxCapture), `before ${runId}`);
+  console.log(`[qa] context map for ${req.app} does not describe ${req.sha.slice(0, 7)}: rebuilding it in ${rebuild.id} before ${runId}`);
+  await rebuild.execute(signal);
 }
 
 /*
