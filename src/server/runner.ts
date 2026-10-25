@@ -665,7 +665,8 @@ async function rebuildContextMapFirst(req: RunRequest, runId: string, deps: Runn
     return;
   }
   contextMapRebuilt.add(key);
-  const rebuild = trackRun({ app: req.app, sha: req.sha, target: "e2e", mode: "context", source: "manual", trigger: "context", parentRunId: runId }, deps, capCaptureMode(req.captureMode, (deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV).maxCapture), `before ${runId}`);
+  /* The run it serves holds the queue and has made no data yet: it is not an interrupted run to clean up after (previousNamespace ""). */
+  const rebuild = trackRun({ app: req.app, sha: req.sha, target: "e2e", mode: "context", source: "manual", trigger: "context", parentRunId: runId, previousNamespace: "" }, deps, capCaptureMode(req.captureMode, (deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV).maxCapture), `before ${runId}`);
   console.log(`[qa] context map for ${req.app} does not describe ${req.sha.slice(0, 7)}: rebuilding it in ${rebuild.id} before ${runId}`);
   await rebuild.execute(signal);
 }

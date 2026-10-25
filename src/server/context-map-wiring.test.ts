@@ -41,6 +41,9 @@ test("a missing map, a map marked stale, a changed route declaration or commits 
   assert.equal(await rig({ isStale: () => true }).ask("demo", RUN), true);
   assert.equal(await rig({ changes: [{ status: "M", path: "src/shops.routes.ts" }] }).ask("demo", RUN), true);
   assert.equal(await rig({ changes: undefined }).ask("demo", RUN), true);
+  const unsafe = rig({ loadStoredMap: () => ({ builtAtSha: "--output=/tmp/x", data: MAP, updatedAt: "" }) });
+  assert.equal(await unsafe.ask("demo", RUN), true, "a recorded commit that is not a sha is never handed to git");
+  assert.deepEqual(unsafe.synced, []);
 });
 
 test("a code app never needs a map, and the campaign freeze wires no question", async () => {

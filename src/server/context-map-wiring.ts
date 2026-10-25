@@ -16,6 +16,8 @@ export interface ContextMapQuestionDeps {
   changesBetween: (repoDir: string, fromSha: string, toSha: string) => ChangedFile[] | undefined;
 }
 
+const HEX_SHA = /^[0-9a-f]{7,40}$/i;
+
 const defaultDeps: ContextMapQuestionDeps = {
   loadApp: loadAppConfig,
   loadStoredMap: loadContextMap,
@@ -37,6 +39,8 @@ export function contextMapNeedsRebuildFor(env: Record<string, string | undefined
     const stored = deps.loadStoredMap(appName);
     if (!stored || deps.isStale(appName)) return true;
     if (stored.builtAtSha === sha) return false;
+    /* A recorded commit that is not a sha is never handed to git; the map is rebuilt instead. */
+    if (!HEX_SHA.test(stored.builtAtSha)) return true;
     const mirrorDir = await deps.syncMirror(app.repo, sha);
     return !contextMapValidity(stored.data, stored.builtAtSha, sha, deps.changesBetween(mirrorDir, stored.builtAtSha, sha)).valid;
   };

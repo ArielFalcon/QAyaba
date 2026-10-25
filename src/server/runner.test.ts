@@ -2065,6 +2065,7 @@ test("a run whose map does not fit its commit runs a context run at its sha firs
   assert.deepEqual(r.calls.map((c) => c.mode), ["context", "diff"]);
   assert.equal(r.calls[0]?.sha.value, "abc1234");
   assert.equal(r.calls[0]?.parentRunId, id);
+  assert.equal(r.calls[0]?.previousNamespace || undefined, undefined, "the run it serves is not an interrupted run to clean up after");
   assert.equal(getRecord(r.calls[0]!.runId)?.status, "done");
   assert.equal(getRecord(id)?.status, "done");
 });
