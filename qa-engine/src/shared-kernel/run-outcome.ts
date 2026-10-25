@@ -83,6 +83,8 @@ export interface RunOutcome {
     catalogGateFailClosed?: number;
     /* What the execution sandbox did for the run: whether the egress filter held ("unenforced" is the operator-allowed warn mode) and the hosts a child tried to reach that the run does not declare. Absent when no child was started. Persist-only. */
     sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
+    /* Whether the reviewer judged with the generator's own model. Absent when the runtime assignment is unknown. Persist-only: it reads nothing back into a verdict. */
+    reviewerIndependence?: "shared-model" | "distinct-model";
     /* How the generator used run_spec this run, and whether the loop ended closed. Absent when the run did not grant the tool. Persist-only: it reads nothing back into a verdict. */
     closedLoop?: ClosedLoopGateSignal;
     /* How the authoring agents used the authenticated browser this run: calls, requests the guard refused, sessions lost and renewed. Absent when the run did not grant it. Persist-only: it reads nothing back into a verdict. */

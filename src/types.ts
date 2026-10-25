@@ -338,6 +338,8 @@ export interface RunOutcome {
     catalogGateFailClosed?: number;
     /* What the execution sandbox did for the run (egress filter state, hosts denied); absent when no child was started. */
     sandbox?: { egress: "enforced" | "unenforced" | "not-applicable"; denied: string[] };
+    /* Whether the reviewer judged with the generator's own model; absent when the runtime assignment is unknown. */
+    reviewerIndependence?: "shared-model" | "distinct-model";
     /* How the generator used run_spec this run and whether the loop ended closed; absent when the tool was not granted. */
     closedLoop?: { calls: number; devWrites: number; closed: boolean };
     /* How the authoring agents used the authenticated browser this run; absent when it was not granted. */

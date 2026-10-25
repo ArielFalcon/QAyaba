@@ -1,9 +1,9 @@
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createAgentRuntimeManager } from "./agent-runtime";
 import type { EnvStoreFs } from "./env-store";
 import type { AgentProvider, AgentRuntimeStrategy } from "../agent-runtime/types";
-import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
+import { configFromEnv, runtimeRoleModelsFromConfig, singleProviderConfig } from "../agent-runtime/config";
 import {
   modelWindowBytes,
   roleWindowBytes,
@@ -24,8 +24,11 @@ function strategy(
   restartOpts?: Partial<Record<AgentProvider, unknown[]>>,
   disposed?: AgentProvider[],
 ): AgentRuntimeStrategy {
+  /* The runtime offers the roster's default assignments next to the fixed ids the tests reassign to. */
+  const defaults = Object.values(singleProviderConfig(provider, {}).assignments).map((a) => ({ id: a.model }));
   const models = provider === "opencode"
     ? [
+        ...defaults,
         { id: "opencode-go/minimax-m3.1-flash-free" },
         { id: "opencode/deepseek-v4.1-flash-free" },
         { id: "opencode-go/glm-5.3-flash" },
@@ -265,5 +268,45 @@ test("agent runtime manager re-injects runtime role models on applyConfig so rol
     );
   } finally {
     setRuntimeRoleModels(undefined);
+  }
+});
+
+test("applyConfig accepts a shared reviewer model and logs the warning once", async () => {
+  const shared = "fixture-provider/shared-model";
+  const restarts: AgentProvider[] = [];
+  const base = strategy("opencode", restarts);
+  const manager = createAgentRuntimeManager({
+    env: { OPENCODE_API_KEY: "open-key", AGENT_PRIMARY_MODEL: shared, AGENT_REVIEWER_MODEL: shared, AGENT_CHAT_MODEL: shared },
+    fs: memoryFs(),
+    strategies: { opencode: { ...base, listModels: async () => [{ id: shared }] }, codex: strategy("codex", restarts) },
+  });
+  const warn = mock.method(console, "warn", () => {});
+  try {
+    const result = await manager.applyConfig({ mode: "single", singleProvider: "opencode" });
+    assert.equal(result.config.validation.ok, true);
+    assert.equal(result.config.validation.warnings?.length, 1);
+    const lines = warn.mock.calls.map((c) => String(c.arguments[0])).filter((l) => l.includes("independent judgment"));
+    assert.equal(lines.length, 1);
+    assert.match(lines[0]!, /^\[qa\] /);
+  } finally {
+    warn.mock.restore();
+  }
+});
+
+test("applyConfig logs no warning when the reviewer runs another model", async () => {
+  const restarts: AgentProvider[] = [];
+  const base = strategy("opencode", restarts);
+  const manager = createAgentRuntimeManager({
+    env: { OPENCODE_API_KEY: "open-key", AGENT_PRIMARY_MODEL: "fixture-provider/model-a", AGENT_REVIEWER_MODEL: "fixture-provider/model-b", AGENT_CHAT_MODEL: "fixture-provider/model-a" },
+    fs: memoryFs(),
+    strategies: { opencode: { ...base, listModels: async () => [{ id: "fixture-provider/model-a" }, { id: "fixture-provider/model-b" }] }, codex: strategy("codex", restarts) },
+  });
+  const warn = mock.method(console, "warn", () => {});
+  try {
+    const result = await manager.applyConfig({ mode: "single", singleProvider: "opencode" });
+    assert.deepEqual(result.config.validation.warnings, []);
+    assert.equal(warn.mock.calls.length, 0);
+  } finally {
+    warn.mock.restore();
   }
 });

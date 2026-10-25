@@ -3303,6 +3303,12 @@
                   "type": "string"
                 }
               },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "requiresSingleDowngradeConfirmation": {
                 "type": "boolean"
               },

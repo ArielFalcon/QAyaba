@@ -283,9 +283,7 @@ test("isProtectedPath flags repo-mirror.ts, codex-strategy.ts and agent-runtime/
      already protected above.
    */
   assert.equal(isProtectedPath("src/agent-runtime/codex-strategy.ts"), true);
-  /* reviewerPrimaryCollisionErrors is the SOLE guard that reviewer/primary use different models —
-     deleting it silently collapses dual-mode review into a rubber stamp.
-   */
+  /* The runtime assignment validation and the reviewer-independence derivation the run record reads. */
   assert.equal(isProtectedPath("src/agent-runtime/config.ts"), true);
 });
 

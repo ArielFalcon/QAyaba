@@ -179,6 +179,8 @@ export interface CompositionConfig {
   agentTimeoutMs?: number;
   wallClockBudgetMs?: number;
   iterationBudget?: number;
+  /* Whether the reviewer runs the generator's own model: the shell's per-run read of the live runtime assignment, asked once when the run is wired. Absent, or throwing, records nothing. */
+  reviewerIndependence?: () => "shared-model" | "distinct-model" | undefined;
   /* The run-level wall-clock deadline the shell built (the same object its bounded agent runtime reads). Optional, no stub: absent omits RunQaUseCaseDeps.runDeadline and nothing arms. */
   runDeadline?: RunDeadlinePort;
   /* The telemetry port the shell built. Absent: nothing is traced. It never changes a verdict. */
@@ -741,8 +743,21 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       ...(cfg.agentTimeoutMs !== undefined ? { agentTimeoutMs: cfg.agentTimeoutMs } : {}),
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
       ...(cfg.iterationBudget !== undefined ? { iterationBudget: cfg.iterationBudget } : {}),
+      ...recordedReviewerIndependence(cfg),
     },
   };
+}
+
+/* The reviewer-independence fact of the run being wired; a runtime that cannot answer leaves the run without it, loudly. */
+function recordedReviewerIndependence(cfg: CompositionConfig): { reviewerIndependence?: "shared-model" | "distinct-model" } {
+  if (!cfg.reviewerIndependence) return {};
+  try {
+    const value = cfg.reviewerIndependence();
+    return value !== undefined ? { reviewerIndependence: value } : {};
+  } catch (err) {
+    console.warn(`[qa] the reviewer's model assignment could not be read, so the run records no reviewer independence: ${err instanceof Error ? err.message : String(err)}`);
+    return {};
+  }
 }
 
 export interface BuildProductionOptions {}

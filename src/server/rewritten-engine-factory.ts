@@ -13,6 +13,7 @@ import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { REVIEWER_TIMEOUT_MS, agentPromptCapMs, agentTimeout, agentConfigFacts, maxStepsFromConfig, setSessionToolDeny, withTimeout } from "../integrations/opencode-client";
 import { AGENT_NAME_FOR_ROLE, assignmentForRole, type AgentFacade, type StepLimits } from "../agent-runtime/types";
+import { reviewerIndependence } from "../agent-runtime/config";
 import { enforcedStepLimit } from "../agent-runtime/step-limit";
 
 import {
@@ -1196,6 +1197,8 @@ export function buildRewrittenCompositionConfig(
     agentTimeoutMs: agentTimeout(run.mode),
     ...(app.qa.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: app.qa.wallClockBudgetMs } : {}),
     ...(app.qa.iterationBudget !== undefined ? { iterationBudget: app.qa.iterationBudget } : {}),
+    /* Read when the run is wired, from the live runtime assignment: the runtime is switchable. */
+    ...(deps.getAgentFacade ? { reviewerIndependence: () => reviewerIndependence(deps.getAgentFacade!().config) } : {}),
 
     diff: "",
 

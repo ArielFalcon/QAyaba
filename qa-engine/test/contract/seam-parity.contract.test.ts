@@ -46,7 +46,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     usage: true, phaseTimings: true, furthestPhase: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
     structuralSignalBytes: true, serviceLinksCount: true, contractDriftCount: true,
-    crossRepoImpactedCount: true, sandbox: true, closedLoop: true, agentBrowser: true, coordination: true,
+    crossRepoImpactedCount: true, sandbox: true, reviewerIndependence: true, closedLoop: true, agentBrowser: true, coordination: true,
     coverage: true, integrity: true, intent: true, value: true, noop: true,
   } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
 
@@ -77,7 +77,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
       "reviewerApproved", "reviewer", "flaky", "retries", "confinement", "usage", "phaseTimings", "furthestPhase",
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
-      "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "closedLoop", "agentBrowser", "coordination",
+      "structuralSignalBytes", "serviceLinksCount", "contractDriftCount", "crossRepoImpactedCount", "sandbox", "reviewerIndependence", "closedLoop", "agentBrowser", "coordination",
       "coverage", "integrity", "intent", "value", "noop",
     ];
     assert.deepEqual(mapped.sort(), Object.keys(ALL_GATE_SIGNAL_FIELDS).sort(), "every gateSignals field must be mapped — toLegacyRunOutcome's own header claims 100% pass-through for this nested object");

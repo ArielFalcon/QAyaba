@@ -105,6 +105,7 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
         validation = validateAgentRuntimeConfig(next, keyPresence(nextEnv));
       }
       if (!validation.ok) throw new Error(validation.errors.join("; "));
+      logAgentConfigWarnings(validation.warnings);
       await validateAssignedModels(next, opts.strategies);
 
       const runtimeVars = configEnvVars(next);
@@ -158,6 +159,11 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       return opts.hasOpenSessions?.() ?? false;
     },
   };
+}
+
+/* Warnings leave the config usable: operators see them in the log and in the public config's validation. */
+export function logAgentConfigWarnings(warnings: readonly string[]): void {
+  for (const warning of warnings) console.warn(`[qa] agent runtime: ${warning}`);
 }
 
 async function validateAssignedModels(

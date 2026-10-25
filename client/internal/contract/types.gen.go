@@ -2475,6 +2475,7 @@ type PublicAgentConfig struct {
 		Errors                              []string                                      `json:"errors"`
 		Ok                                  bool                                          `json:"ok"`
 		RequiresSingleDowngradeConfirmation *bool                                         `json:"requiresSingleDowngradeConfirmation,omitempty"`
+		Warnings                            *[]string                                     `json:"warnings,omitempty"`
 	} `json:"validation"`
 }
 

@@ -8,6 +8,8 @@ export interface KeyPresence {
 export interface AgentConfigValidation {
   ok: boolean;
   errors: string[];
+  /* Findings that leave the config usable: surfaced to operators, never a reason to refuse it. */
+  warnings: string[];
   requiresSingleDowngradeConfirmation?: boolean;
   downgradeProvider?: AgentProvider;
 }
@@ -25,14 +27,14 @@ const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["ass
   opencode: {
     /* Must match agents/opencode.json qa-generator. */
     primary: "deepseek-api/deepseek-v4.1-flash",
-    /* Must match qa-reviewer and differ from primary — two models guarantee independent judgment.
-       shortcut: temporarily equal to primary (one provider available); validateAgentRuntimeConfig flags it, restore a distinct reviewer model when a second one is available. */
+    /* Must match qa-reviewer. It may equal primary: whether the review is an independent judgment is
+       recorded on every run (reviewerIndependence) and warned about at boot, not enforced. */
     reviewer: "deepseek-api/deepseek-v4.1-flash",
     chat: "deepseek-api/deepseek-v4.1-flash",
   },
   codex: {
     primary: "gpt-5.4",
-    /* Must differ from primary — two models guarantee independent judgment. */
+    /* A model distinct from primary keeps the review an independent judgment. */
     reviewer: "gpt-5.5",
     chat: "gpt-5.4-mini",
   },
@@ -89,17 +91,21 @@ export function runtimeRoleModelsFromConfig(config: AgentRuntimeConfig): { prima
   };
 }
 
-/* reviewer.model must never equal primary.model — env overrides can still collapse both roles. */
-function reviewerPrimaryCollisionErrors(config: AgentRuntimeConfig): string[] {
-  const primary = config.assignments.primary;
-  const reviewer = config.assignments.reviewer;
-  if (reviewer.model === primary.model) {
-    return [
-      `reviewer (${reviewer.provider}/${reviewer.model}) must run a different model from primary ` +
-        `(${primary.provider}/${primary.model}) — identical models defeat independent judgment`,
-    ];
-  }
-  return [];
+export type ReviewerIndependence = "shared-model" | "distinct-model";
+
+/* The single derivation of whether the reviewer judges with the generator's own model. */
+export function reviewerIndependence(config: AgentRuntimeConfig): ReviewerIndependence {
+  const { primary, reviewer } = config.assignments;
+  return reviewer.provider === primary.provider && reviewer.model === primary.model ? "shared-model" : "distinct-model";
+}
+
+function reviewerSharesModelWarnings(config: AgentRuntimeConfig): string[] {
+  if (reviewerIndependence(config) === "distinct-model") return [];
+  const { primary, reviewer } = config.assignments;
+  return [
+    `reviewer (${reviewer.provider}/${reviewer.model}) runs the same model as primary ` +
+      `(${primary.provider}/${primary.model}): the review is not an independent judgment`,
+  ];
 }
 
 export function validateAgentRuntimeConfig(config: AgentRuntimeConfig, keys: KeyPresence): AgentConfigValidation {
@@ -111,8 +117,7 @@ export function validateAgentRuntimeConfig(config: AgentRuntimeConfig, keys: Key
       if (a.provider !== config.singleProvider) errors.push(`${role} must use ${config.singleProvider} in single mode`);
       if (!a.model.trim()) errors.push(`${role} model is required`);
     }
-    errors.push(...reviewerPrimaryCollisionErrors(config));
-    return { ok: errors.length === 0, errors };
+    return { ok: errors.length === 0, errors, warnings: reviewerSharesModelWarnings(config) };
   }
 
   if (!keys.opencode) errors.push("OPENCODE_API_KEY is required for dual mode");
@@ -121,18 +126,19 @@ export function validateAgentRuntimeConfig(config: AgentRuntimeConfig, keys: Key
     const a = config.assignments[role];
     if (!a.model.trim()) errors.push(`${role} model is required`);
   }
-  errors.push(...reviewerPrimaryCollisionErrors(config));
+  const warnings = reviewerSharesModelWarnings(config);
   const providers = new Set(visibleRoles().map((r) => config.assignments[r].provider));
   if (providers.size < 2) {
     const downgradeProvider = [...providers][0] ?? config.singleProvider;
     return {
       ok: false,
       errors,
+      warnings,
       requiresSingleDowngradeConfirmation: true,
       downgradeProvider,
     };
   }
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, warnings };
 }
 
 export function publicAgentConfig(

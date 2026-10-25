@@ -1048,6 +1048,7 @@ export interface components {
             validation: {
                 ok: boolean;
                 errors: string[];
+                warnings?: string[];
                 requiresSingleDowngradeConfirmation?: boolean;
                 /** @enum {string} */
                 downgradeProvider?: "opencode" | "codex";

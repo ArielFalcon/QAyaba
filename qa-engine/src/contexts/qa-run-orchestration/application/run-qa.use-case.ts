@@ -179,6 +179,8 @@ export interface RunQaConfig {
   /** When set, WallClockBudget uses this instead of cycleBudget.ceiling * agentTimeoutMs. */
   wallClockBudgetMs?: number;
   iterationBudget?: number;
+  /** Whether the reviewer runs the generator's own model; computed by the shell from the runtime assignment and only recorded on the run. */
+  reviewerIndependence?: "shared-model" | "distinct-model";
 }
 
 export interface RunQaUseCaseDeps {
@@ -1027,6 +1029,7 @@ export class RunQaUseCase {
         catalogGateFailClosed: extra?.catalogGateFailClosed ?? 0,
         /* What the sandbox did for this run; absent when no child was started or refused. */
         ...(sandboxSignal() ? { sandbox: sandboxSignal()! } : {}),
+        ...(this.deps.config?.reviewerIndependence !== undefined ? { reviewerIndependence: this.deps.config.reviewerIndependence } : {}),
         /*
          * Conditional-spread, not `?? 0`: "never ran" stays distinguishable from
          * "ran and found zero".

@@ -430,6 +430,7 @@ export const KeyPresenceSchema = z.object({
 export const AgentConfigValidationSchema = z.object({
   ok: z.boolean(),
   errors: z.array(z.string()),
+  warnings: z.array(z.string()).optional(),
   requiresSingleDowngradeConfirmation: z.boolean().optional(),
   downgradeProvider: AgentProviderSchema.optional(),
 });

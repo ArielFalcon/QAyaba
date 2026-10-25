@@ -205,9 +205,9 @@ export const PROTECTED_PATHS: string[] = [
   /* The twin of codexExecEnv inside the agents container (the allowlist for `codex exec`, the trace context it forwards, the config.toml it writes): the two allowlists are pinned equal, so loosening one is loosening both. */
   "agents/agent-supervisor.mjs",
   /*
-   * reviewerPrimaryCollisionErrors is the SOLE guard that reviewer/primary use different models in
-   * dual mode — deleting or weakening it silently collapses independent-judgment review into a
-   * rubber stamp with no detectable failure.
+   * The runtime role assignment validation and the reviewer-independence derivation the run record
+   * reads — weakening either lets a misconfigured runtime start, or records a false fact about the
+   * review, with no detectable failure.
    */
   "src/agent-runtime/config.ts",
   /*

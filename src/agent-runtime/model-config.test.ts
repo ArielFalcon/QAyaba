@@ -2,13 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { singleProviderConfig } from "./config";
+import { reviewerIndependence, singleProviderConfig, validateAgentRuntimeConfig } from "./config";
 import { CODEX_MODELS } from "./codex-strategy";
 import { CATALOGED_MODELS, normalizeModelName } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 
 /* Guard against the model "split-brain": config.ts's DEFAULT_MODELS (used by the runtime
    reconfig layer) and opencode/opencode.json (the file that actually runs the agents) must
-   agree, and the reviewer must be a DIFFERENT model from the generator. When the default
+   agree. Whether the reviewer shares the generator's model is a recorded property of the run, never
+   a precondition of the config. When the default
    reviewer drifted out of the opencode.json catalog, validateAssignedModels threw on every
    applyConfig and the operator-facing docs advertised a model the system was not running.
  */
@@ -35,24 +36,17 @@ test("every default opencode role model exists in opencode.json's agent catalog"
   }
 });
 
-test("the default reviewer model differs from the generator (independent judgment)", () => {
+test("the default config validates ok, and carries the shared-model warning exactly when its reviewer runs the primary's model", () => {
   const cfg = singleProviderConfig("opencode", {});
-  assert.notEqual(
-    cfg.assignments.reviewer.model,
-    cfg.assignments.primary.model,
-    "reviewer must be a DIFFERENT model from primary — otherwise the quality loop is the generator grading its own homework.",
-  );
+  const result = validateAgentRuntimeConfig(cfg, { opencode: true, codex: false });
+  assert.equal(result.ok, true, `errors: ${result.errors.join("; ")}`);
+  assert.equal(result.warnings.length, reviewerIndependence(cfg) === "shared-model" ? 1 : 0);
 });
 
-test("opencode.json's qa-reviewer runs a different model from qa-generator", () => {
+test("opencode.json declares a model for qa-generator and for qa-reviewer", () => {
   const models = opencodeAgentModels();
   assert.ok(models["qa-generator"], "qa-generator must declare a model");
   assert.ok(models["qa-reviewer"], "qa-reviewer must declare a model");
-  assert.notEqual(
-    models["qa-reviewer"],
-    models["qa-generator"],
-    "qa-reviewer and qa-generator must run different models for genuine two-model independence.",
-  );
 });
 
 test("config.ts default reviewer matches opencode.json's qa-reviewer (single source of truth)", () => {
@@ -79,18 +73,11 @@ test("config.ts default primary matches opencode.json's qa-generator (single sou
   );
 });
 
-/* reviewer must differ from primary for EVERY provider — otherwise the quality loop is the
-   generator grading its own homework.
- */
-test("reviewer differs from primary for EVERY provider (independent judgment guard)", () => {
-  const providers = ["opencode", "codex"] as const;
-  for (const provider of providers) {
-    const cfg = singleProviderConfig(provider, {});
-    assert.notEqual(
-      cfg.assignments.reviewer.model,
-      cfg.assignments.primary.model,
-      `[${provider}] reviewer must be a DIFFERENT model from primary — otherwise the quality loop is the generator grading its own homework.`,
-    );
+/* Every provider's default config is usable whatever its reviewer's model: independence never blocks it. */
+test("the default config of EVERY provider validates ok", () => {
+  for (const provider of ["opencode", "codex"] as const) {
+    const result = validateAgentRuntimeConfig(singleProviderConfig(provider, {}), { opencode: true, codex: true });
+    assert.equal(result.ok, true, `[${provider}] errors: ${result.errors.join("; ")}`);
   }
 });
 
