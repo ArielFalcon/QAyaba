@@ -157,11 +157,11 @@ Branch: the current working branch (single-branch rule, owner 2026-10-12); gover
 | T8 | S14, S15 | inline | item 3 (prompt contract) | done — sidekick proof path (S15) and the change dossier in `static-signal` behind `grounding.dossier` / `qa.structuralSignals.dossier` (off by default, the T9 lever); prompt-contract matrix: 0 findings, no baseline re-record needed (L31) | `03af259f`, `98b031a2` |
 | T9 | S16 | per-action workers (long runs) | item 6 | pending — the ablation rounds; the verdict per default in the Log | |
 | T10 | S17 | inline | item 5 | done — codebase-memory-mcp removed from the image, compose, entrypoint, file boundary, engine and tests; CI gate green, live `sandbox:smoke` 22+5 green (L32) | `dcff6a7c` |
-| T11 | S18 | delegated (parallel unit A) | item 2 (redaction) | pending — bridges: explore/dossier shaping keeps code, keeps "Not shown above", honest omission marker; dossier drop and explore/dossier failures leave telemetry; the tool redacts in model mode; safeImpacted logs failures and truncation | |
-| T12 | S18 | delegated (parallel unit B) | items 1, 4 (store, lock) | pending — engine: reader trims instead of failing; deterministic walk order; syncTo checks the reader accepts the index version; reuse always syncs; crash-safe publish without loading the store in memory; lock race; abort reaches the engine; repeated sync timeout; seeds for deleted, permission-only and renamed files | |
-| T13 | S18 | delegated (parallel unit C) | item 3 (shared diff parser) | pending — change and topology: per-frontend route files in monorepos; hub bound under a truncated walk; routesOf and cross-repo failures logged; Tier 2 ANY/ALL verbs; one-segment suffix false positive; quoted diff paths; co-change history under a merge trigger | |
-| T14 | S18 | inline | item 2 (merge guard, own commit) | pending — the dossier lever from the CLI and run-delegate; the merge guard covers codegraph-code-graph.adapter.ts | |
-| T15 | S18 | inline, after T11-T13 | none | pending — one impact walk per run instead of two | |
+| T11 | S18 | delegated (parallel unit A) | item 2 (redaction) | done — all 5 findings confirmed and fixed test-first; the tool redacts through `redactSourceForModel` in the sanitizer (L35) | `5fe3bdf7` |
+| T12 | S18 | delegated (parallel unit B) | items 1, 4 (store, lock) | done — 7 findings confirmed; the abort signal wired through `syncTo` (L35); a deleted file still seeds nothing (design limit, L35) | `bd52e90b`, `66cd1e33`, `559bd609` |
+| T13 | S18 | delegated (parallel unit C) | item 3 (shared diff parser) | done — 7 findings confirmed; the adapter reads ANY/ALL routes, and the lead diff reads quoted test-file paths (L35) | `46149616`, `66cd1e33`, `bcf7d4ea` |
+| T14 | S18 | inline | item 2 (merge guard, own commit) | done — `--structural-signal` / `--dossier` on the CLI and run-delegate; merge guard entry in its own commit | `a40ccef9`, `47d67789` |
+| T15 | S18 | inline, after T11-T13 | none | done — the adapter answers a repeated identical walk of a run from its first one | `9e87be31` |
 
 Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10.
 - Every task is inline. No unit has a writer reason: each depends on the one before it (T6's backend path uses T5's operation keys).
@@ -412,3 +412,41 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
   > el Dockerfile sigue instalando lizard, difftastic y ast-grep, que ya no se usan. Esto el plan lo deja fuera de alcance.
   - **Parent spot check, confirmed:** reader `strings()` fails over its max (`codegraph-store-reader.mjs:48`); `shapeExploreAnswer` breaks at the first file that does not fit and never keeps the closing sections (`code-graph-tools-port.adapter.ts:111-126`); `publish` renames the store before `meta.json` (`codegraph-store-cache.ts:136-137`); the tool's `redact` is the Issue redactor (`rewritten-engine-factory.ts:1380`).
   - **Routing:** S18, tasks T11-T15. T9 waits for them, and the L33 labelled set still awaits the owner's confirmation.
+- **L35 (2026-10-25) — S18 corrections (T11-T15).**
+  - **Routing:** three parallel writers in this tree with disjoint surfaces (T11 bridges, T12 engine, T13 change and topology); the parent did T14, T15 and the loose ends. Every surface was checked against the writer's diff.
+  - **Confirmed and fixed** (every L34 finding reproduced):
+    - explore and the dossier keep the source: an oversized file is cut at a line boundary, the closing notes are kept, and the marker names only files not shown. The dossier is sized in bytes against the renderer's budget, and a missing dossier is logged.
+    - Failed or truncated walks, explore failures, route listings and cross-repo walks now log, and set `qayaba.structural.walk`, `qayaba.structural.dossier` and `qayaba.code_graph.reason`.
+    - The tool redacts with `redactSourceForModel` (`src/orchestrator/sanitizer.ts`): environment and run secrets by value, real literals by pattern, model mode.
+    - The reader trims its bound deterministically and reports truncated. Queries and frontier are ordered. `syncTo` pings the reader for the version. Reuse always syncs. Publish removes the cursor before swapping the db and copies the store in chunks through a no-follow fd. The lock takeover goes through an exclusive claim. A sync timeout discards the cache. A change with no touched line seeds nothing.
+    - Change pages:
+      - each route takes the engine file of its own frontend;
+      - a seed of a truncated walk is a hub;
+      - the stitcher matches ANY/ALL routes, which the adapter now reads (the engine emits `ANY` for Java, Go, Rust, Python and Ruby and `ALL` for `app.all`);
+      - the suffix match needs literal leading segments;
+      - quoted diff paths are read, also in the lead's diff;
+      - the co-change history starts at `<sha>^@`.
+    - Levers: `--structural-signal` and `--dossier` on the CLI and in `run-delegate`. The merge guard protects `codegraph-code-graph.adapter.ts`.
+    - Abort: `CodeGraphPort.syncTo(repoDir, sha, signal?)` receives the run's signal from the opening step, and the adapter keeps it for that run's queries.
+    - One walk: the adapter answers an identical walk (same index, files, lines and budget) from the run's first walk. The structural block and the change pages ask the same question.
+  - **Not fixed (design limit):** a deleted file seeds nothing. The index is built at the run's commit, so the file's symbols and the edges into them are absent; seeding them would need a second index of the parent commit.
+  - **Out of scope:** the dead Dockerfile installs.
+  - **Checks:**
+    - CI gate green.
+    - Full suite: 10 547 tests, 5 failures, all known at the base.
+    - Go vet and tests green.
+    - The orchestrator image was rebuilt and live `sandbox:smoke` passed: 22 isolation and 5 harness checks, the harness including the engine under the graph profile.
+  - **Independent verifier** (focus on redaction, the store and lock, and the shared diff parser):
+    - Every L34 finding is met. The tests the T13 writer had not watched fail on the baseline, as they should. A differential over 40 real diffs shows the diff parser unchanged on ordinary paths.
+    - **One blocker:** aborting a run during the sync of a reused store discarded the cache, because the runner reports an aborted child as `timedOut`. Fixed in `559bd609`: the adapter checks the abort before the timeout discard. The test fails on the earlier code.
+    - **Advisories fixed:**
+      - The stale-lock takeover had a three-party window. The stale lock is now moved aside atomically and removed only if it still belongs to the stale holder, otherwise it is put back (`559bd609`; the test fails with the old removal).
+      - `--structural-signal on` was a silent no-op where the app has the signal off. An explicit `on` now wins and is recorded as such (`bcf7d4ea`).
+      - `prompt-cap.ts` named spaced or quoted paths wrongly. It now uses `diffGitHeaderPath` (`bcf7d4ea`).
+    - **Advisories accepted:**
+      - Every seed of a truncated walk is a hub. This is coarse, and the result falls back to the map's pages alone.
+      - A literal path prefix such as `/orders/items` versus `/items` still matches. This is the gateway-prefix tolerance and is ambiguous by design.
+      - The dossier's `sanitizeText` does not strip environment values, as at the baseline. It already redacts real literals by pattern and run secrets by value.
+      - When seeds exceed the reader's bound, it keeps the first ids by lexicographic order. This is deterministic.
+    - **Recheck** (limited to the blocker): met. **Final suite after the fixes:** typecheck green; 10 552 tests, 5 failures, all known at the base.
+  - **Next:** T9, once the owner confirms the L33 labelled set.
