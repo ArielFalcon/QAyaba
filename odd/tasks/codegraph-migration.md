@@ -456,3 +456,16 @@ Order: T0 → T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9 → T10
     - **Independence:** the labels never use the code graph or qayaba's `changeRoutes`, since those are what T9 measures.
     - **Code:** a TS import graph of each commit (tsconfig aliases resolved), walked back from the changed files to the route pages. Each diff is then read to keep only the pages whose behaviour changes.
     - **DEV:** read-only browsing, used only where the code cannot settle where a component renders.
+- **L37 (2026-10-25) — T9 labelled set, final (agent-confirmed per L36).**
+  - **Method:** an independent TS import walk at each commit (aliases, barrels and dynamic route imports resolved; no codegraph or qayaba code). Each diff was then read to keep only the pages whose behaviour changes. DEV was browsed read-only where the code could not settle a label. Mechanically reachable pages, 5 to 19 per commit, shrank to 1 to 6. Parent spot check: `nm-search-bar` is in `map.page.html` at `f303da2c`, and `6d0e1106` touches only `restaurant.model.ts`.
+  - **Scoring rule:** the four `/restaurantes` list patterns (`/restaurantes`, `/:province`, `/:province/:city`, `/:province/:city/cocina/:cocina`) are one page (`RestaurantListPage`) and are scored as one page class.
+  - **Labels:**
+    - `75f53907` (multi-page store/API): `/restaurantes/:province/:city/:slug`, `…/:slug/menu-del-dia`, `…/:slug/order`. The last two are a request-only effect, lower confidence.
+    - `dbff9456` (shared schema, two hops): `/restaurantes/:province/:city/:slug`, `/upload-menu/confirm`. `/menu-del-dia` is dropped because nothing there reads `menuDate`.
+    - `efb1eab6` (single page): the restaurant list.
+    - `c0130100` (single page, with distractor edges): `/home`. The avatar change is a doc comment plus an equivalent SCSS refactor.
+    - `c428f2dc` (pure helper, two hops): `/home`, `/map`, the restaurant list.
+    - `f303da2c` (shared component): `/home`, `/map`, `/search`. The draft had missed `/map`.
+    - `67bc6f20` (service hub, replacing `6d0e1106` as the hub case): `/home`, `/map`, `/search`.
+    - `6d0e1106` (negative control): `[]`. A type-only `Pick<>` change; any page the run proposes is a false positive.
+  - **DEV limits:** DEV holds one restaurant and its list queries return empty, so the list FAQ and cheap-price chips cannot be observed there. Those labels rest on the code.
