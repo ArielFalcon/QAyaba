@@ -118,8 +118,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "50m"
-        max-file: "5"
+        max-size: "10m"
+        max-file: "3"
     deploy:
       resources:
         limits:
@@ -181,8 +181,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "50m"
-        max-file: "5"
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4097/health"]
       interval: 10s

@@ -77,6 +77,7 @@ import { workdirRoot } from "./integrations/repo-mirror";
 import { sweepOrphanAgentBrowsers } from "../qa-engine/src/shared-infrastructure/process-sandbox/orphan-browser-sweep";
 import { execWorkRoot } from "./server/exec-sandbox-factory";
 import { resolveApiToken } from "./server/api-token";
+import { shouldLogApiRequest } from "./server/api-request-log";
 import { suiteHoldsVerifiedLoginFor } from "./server/login-bootstrap-wiring";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
@@ -877,7 +878,7 @@ const server = createServer(guardRequestHandler(async (req, res) => {
       return;
     }
     if (await handleApi(req, res, apiDeps)) {
-      logJson("info", `API request`, { traceId, path, duration: Date.now() - startTime });
+      if (shouldLogApiRequest(req.method, res.statusCode)) logJson("info", `API request`, { traceId, path, duration: Date.now() - startTime });
       return;
     }
     res.writeHead(404, { "Content-Type": "application/json" });

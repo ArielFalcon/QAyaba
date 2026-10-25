@@ -147,6 +147,26 @@ trusted port to the agents. Each receiver is therefore its own service with its 
   `agent_turns.session_id` stores it, so a log line with `session_id` joins to its turn. That is correlation, not a
   connected trace: OpenCode 1.17.7 exports one process-wide trace with no root and ignores an inbound `traceparent`.
 
+## Footprint and log filtering
+
+Measured on a stack after several days of probing (`docker exec ai-pipeline-lgtm-1 du -sh ...`, `docker system df -v`):
+Loki `/data/loki` 1.7 MB on disk (9 MB of raw bytes over 7 days, 30.6k entries), Tempo 21 MB, Prometheus 113 MB, the
+`otel-debug` volume 14.6 MB (rotating traces dumps), `lgtm-data` 238 MB in total. The telemetry stack is not what fills a
+disk: the large consumers on a dev machine are Docker's build cache and images.
+
+What Loki held: 94% of its bytes were OpenCode's own INFO chatter (`evaluated`, `tracking`, `loop`, `stream`, `touching
+file`, `llm runtime selected`, ... 22.9k lines against 18 errors). The orchestrator's lines were 1.7k (962 info, 364 warn,
+10 error). Filtering, by layer:
+
+| Layer | Rule |
+|---|---|
+| `collector-agents` (`filter/drop_opencode_info_logs`) | Drops OpenCode log records with a severity above 0 and below WARN. WARN, ERROR, FATAL and records with no severity are kept. |
+| Orchestrator container log | A successful GET/HEAD control-plane request (`/api/health`, run polling) is not logged (`src/server/api-request-log.ts`); POSTs and every status >= 400 are. The `scrubEnv dropped N env var(s)` warning prints once per distinct dropped set instead of on every spawn. |
+| Docker `json-file` | `orchestrator` and `agents`: `max-size: 10m`, `max-file: 3` (was 50m x 5), so at most 30 MB each. |
+
+The debug dumps stay 100 MB x 3 per collector as a ceiling; they were 14.6 MB in practice. Errors, warnings, run
+lifecycle lines and everything the orchestrator exports under a span are untouched.
+
 ## Retention
 
 Spans are kept 30 days (R4). The `grafana/otel-lgtm` image has no retention key in its Tempo config (Tempo's default is

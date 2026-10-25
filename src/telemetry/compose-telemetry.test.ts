@@ -298,6 +298,18 @@ test("the agents' logs pass the strip and the stamp, and their rootless process 
   assert.ok(logs.processors.indexOf("transform/agents") < logs.processors.indexOf("redaction"));
 });
 
+test("the agents' pipeline drops OpenCode's sub-WARN logs before Loki and keeps WARN and above", () => {
+  const config = untrusted.config;
+  const logs = must(config.service.pipelines["logs/agents"], "logs/agents");
+  assert.ok(logs.processors.includes("filter/drop_opencode_info_logs"));
+  assert.ok(logs.processors.indexOf("filter/drop_opencode_info_logs") < logs.processors.indexOf("transform/agents"));
+  const filter = must(config.processors["filter/drop_opencode_info_logs"], "filter/drop_opencode_info_logs") as unknown as { error_mode?: string; logs?: { log_record?: string[] } };
+  assert.equal(filter.error_mode, "ignore");
+  const [condition] = filter.logs?.log_record ?? [];
+  assert.ok(condition?.includes('"opencode"') && condition.includes("< SEVERITY_NUMBER_WARN"), "drops only opencode records below WARN");
+  assert.ok(!/SEVERITY_NUMBER_(ERROR|FATAL)/.test(condition ?? ""), "never reaches WARN or above");
+});
+
 test("Loki keeps logs for the campaign window and truncates an oversized line", () => {
   const loki = parse(read("config/otel/loki-config.yaml")) as {
     limits_config: { retention_period: string; max_line_size: string; max_line_size_truncate: boolean };

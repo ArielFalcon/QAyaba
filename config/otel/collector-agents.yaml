@@ -107,6 +107,16 @@ processors:
       span:
         - 'resource.attributes["service.name"] == "opencode"'
 
+  # OpenCode logs every internal step at INFO (a prompt loop, a model selection, a file touch, a snapshot hash): ~99% of
+  # what Loki stored, none of it evidence a run is diagnosed from. WARN and above (and a record with no severity) are
+  # kept: that is where a tool refusal, a provider failure or a crash shows. The orchestrator's own turn/attempt spans
+  # and `run_events` carry the phase and agent events.
+  filter/drop_opencode_info_logs:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["service.name"] == "opencode" and log.severity_number > 0 and log.severity_number < SEVERITY_NUMBER_WARN'
+
 exporters:
   otlphttp/lgtm:
     endpoint: http://lgtm:4318
@@ -133,5 +143,5 @@ service:
       exporters: [otlphttp/lgtm, file/debug]
     logs/agents:
       receivers: [otlp/agents]
-      processors: [memory_limiter, transform/agents, redaction, batch]
+      processors: [memory_limiter, filter/drop_opencode_info_logs, transform/agents, redaction, batch]
       exporters: [otlphttp/lgtm]
