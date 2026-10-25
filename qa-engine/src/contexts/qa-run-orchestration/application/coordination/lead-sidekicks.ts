@@ -34,7 +34,7 @@ import { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 import { SIDEKICK_AUTHORING, sidekickAuthoring, sidekickDeniedTools, type SidekickAuthoringMode } from "./sidekick-authoring.ts";
 import type { SidekickExecutor, SidekickSession } from "./sidekick-executor.ts";
 import { packPagesFor } from "@contexts/generation/domain/pack-pages.ts";
-import { isPageOfTemplate } from "@contexts/generation/domain/route-instantiation.ts";
+import { namesTemplatePage } from "@contexts/generation/domain/route-instantiation.ts";
 import { scrub } from "./scrub.ts";
 import { CORRECTION_ORIGIN, admitLeadCorrection, correctionPreamble, renderLeadCorrection, type CorrectionOrigin, type CorrectionOrder, type CorrectionRebuttal, type FlowUnderCorrection, type CorrectionFinding } from "./lead-correction.ts";
 
@@ -273,7 +273,7 @@ export class LeadSidekicks {
       if (admitted.kind === LEAD_PLAN_KIND.LEAD) {
         return leadAlone(admitted.downgrade ?? "the plan is one piece of work", { plan: LEAD_PLAN_KIND.LEAD, authoring: authoringName });
       }
-      const unvisited = (input.changeRoutes ?? []).filter((route) => !admitted.flows.some((flow) => flow.routes.some((visited) => visited === route || isPageOfTemplate(route, visited))));
+      const unvisited = (input.changeRoutes ?? []).filter((route) => !admitted.flows.some((flow) => flow.routes.some((visited) => namesTemplatePage(route, visited))));
       if (unvisited.length > 0) this.record(input, { kind: "router", reason: `plan: ${unvisited.length} of ${input.changeRoutes!.length} change page(s) no flow visits: ${unvisited.join(", ")}` });
       const result = await this.fanOut(input, admitted.flows, admitted.parallel, { mode: authoring.mode, ...(planned.lead ? { lead: planned.lead } : {}) }, { ...base, plan: LEAD_PLAN_KIND.FANOUT, authoring: authoringName });
       /* A pass kept open holds the lead's session from here on. */

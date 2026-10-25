@@ -79,6 +79,18 @@ export function isPageOfTemplate(template: string, path: string): boolean {
   return instantiateRoute(template, [path]) === path;
 }
 
+/** Whether `route` names the page `template` names: the same text, a page of the template, or the same template with its parameters called or spelled otherwise (`/shops/:province/:shopSlug` for `/shops/:province/:slug`). */
+export function namesTemplatePage(template: string, route: string): boolean {
+  if (route === template || isPageOfTemplate(template, route)) return true;
+  const wanted = templateSegments(template);
+  const given = templateSegments(route);
+  if (wanted === undefined || given === undefined || wanted.length !== given.length) return false;
+  return wanted.every((segment, index) => {
+    const other = given[index]!;
+    return segment.parameter ? other.parameter : !other.parameter && other.text === segment.text;
+  });
+}
+
 /* A segment value no page of any site is named by. */
 export const MISSING_PAGE_SEGMENT = "qayaba-no-such-page";
 

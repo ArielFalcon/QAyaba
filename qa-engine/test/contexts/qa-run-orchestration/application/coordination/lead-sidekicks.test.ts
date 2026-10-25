@@ -261,6 +261,16 @@ test("the planning turn is told the pages the change is linked to, and the pages
   assert.doesNotMatch(reported[0]!.reason, /\/shops/, "a template a flow visits a page of counts as visited");
 });
 
+test("a flow that names a change page by its template, whatever its parameters are called, visits it", async () => {
+  const r = rig();
+  const plan = { kind: "fanout", flows: [{ id: "detail", objective: "the detail page", routes: ["/shops/:province/:shopSlug"] }, { id: "menu", objective: "the menu page", routes: ["/shops/[province]/[slug]/menu"] }] };
+  const outcome = await r.coordinator.coordinate(input(r, { changeRoutes: ["/shops/:province/:slug", "/shops/:province/:slug/menu", "/shops/:province"], plan: async () => ({ plan, parsed: true, timedOut: false }) }));
+  if (outcome.action === "fanout") await outcome.pass?.release();
+  const reported = r.events.filter((e) => /change page/.test(e.reason ?? ""));
+  assert.equal(reported.length, 1);
+  assert.match(reported[0]!.reason, /1 of 3 change page\(s\) no flow visits: \/shops\/:province$/);
+});
+
 test("the planning turn is given the limits the plan is held to, and one that ran out of time or gave neither plan nor reason is one piece of work", async () => {
   const r = rig();
   const seen: PlanningLimits[] = [];
