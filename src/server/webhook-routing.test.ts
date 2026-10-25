@@ -1,5 +1,4 @@
-/* pins resolveWebhookDispatch's output as BYTE-IDENTICAL to the loadAppConfigsByRepo-driven
-   dispatch at src/index.ts — single-app, multi-app A-primary/B-service, unwatched-repo, and
+/* pins resolveWebhookDispatch's output — single-app, multi-app A-primary/B-service, unwatched-repo, and
    malformed-config-skip scenarios. Exercises the REAL production adapter (YamlAppConfigAdapter)
    wired with the REAL shell loaders (loadAppConfig/listAppConfigs) over a temp config root, so this
    is a genuine integration pin, not a hand-rolled fake standing in for the adapter.
@@ -9,7 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadAppConfig, loadAppConfigsByRepo, listAppConfigs, type RepoMatch } from "../orchestrator/config-loader";
+import { loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
 import { YamlAppConfigAdapter } from "../../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./webhook-routing";
 
@@ -47,58 +46,30 @@ report:
   onFailure: "github-issue"
 `;
 
-/* src/index.ts's dispatch derivation — the acceptance bar resolveWebhookDispatch must clear.
- */
-function referenceDispatch(matches: RepoMatch[], repo: string, opts: { mode: string; guidance?: string; baseSha?: string }): WebhookDispatch[] {
-  return matches
-    .map((m): WebhookDispatch =>
-      m.role === "primary"
-        ? {
-            app: m.app.name,
-            target: m.app.code ? "code" : "e2e",
-            mode: opts.mode as WebhookDispatch["mode"],
-            ...(opts.guidance !== undefined ? { guidance: opts.guidance } : {}),
-            ...(opts.baseSha !== undefined ? { baseSha: opts.baseSha } : {}),
-          }
-        : {
-            app: m.app.name,
-            target: "e2e",
-            mode: "diff",
-            ...(opts.guidance !== undefined ? { guidance: opts.guidance } : {}),
-            triggerRepo: repo,
-          },
-    )
-    .sort((a, b) => a.app.localeCompare(b.app));
-}
-
 function sorted(dispatch: WebhookDispatch[]): WebhookDispatch[] {
   return [...dispatch].sort((a, b) => a.app.localeCompare(b.app));
 }
 
-test("resolveWebhookDispatch: single-app primary-repo webhook — identical to the legacy dispatch", async () => {
+test("resolveWebhookDispatch: single-app primary-repo webhook", async () => {
   const root = makeRoot({ "shop.yaml": SHOP });
   try {
     const adapter = new YamlAppConfigAdapter({ load: (name) => loadAppConfig(name, root), list: () => listAppConfigs(root) });
     const opts = { mode: "diff" as const, guidance: "test the checkout flow", baseSha: "base123" };
 
     const actual = await resolveWebhookDispatch(adapter, "org/shop-front", opts);
-    const expected = referenceDispatch(loadAppConfigsByRepo("org/shop-front", root), "org/shop-front", opts);
 
-    assert.deepEqual(sorted(actual), expected);
     assert.deepEqual(sorted(actual), [{ app: "shop", target: "e2e", mode: "diff", guidance: "test the checkout flow", baseSha: "base123" }]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("resolveWebhookDispatch: multi-app repo (primary of A, service of B) — identical fan-out to the legacy dispatch", async () => {
+test("resolveWebhookDispatch: multi-app repo (primary of A, service of B)", async () => {
   const root = makeRoot({ "shop.yaml": SHOP, "orders.yaml": ORDERS_CODE });
   try {
     const adapter = new YamlAppConfigAdapter({ load: (name) => loadAppConfig(name, root), list: () => listAppConfigs(root) });
     const opts = { mode: "diff" as const };
 
     const actual = await resolveWebhookDispatch(adapter, "org/orders-svc", opts);
-    const expected = referenceDispatch(loadAppConfigsByRepo("org/orders-svc", root), "org/orders-svc", opts);
 
-    assert.deepEqual(sorted(actual), expected);
     assert.deepEqual(sorted(actual), [
       { app: "orders", target: "code", mode: "diff" },
       { app: "shop", target: "e2e", mode: "diff", triggerRepo: "org/orders-svc" },
@@ -124,9 +95,7 @@ test("resolveWebhookDispatch: a malformed config is skipped — the healthy app 
     const opts = { mode: "diff" as const };
 
     const actual = await resolveWebhookDispatch(adapter, "org/shop-front", opts);
-    const expected = referenceDispatch(loadAppConfigsByRepo("org/shop-front", root), "org/shop-front", opts);
 
-    assert.deepEqual(sorted(actual), expected);
-    assert.equal(actual.length, 1, "the malformed file must be skipped, never hiding the healthy app");
+    assert.deepEqual(sorted(actual), [{ app: "shop", target: "e2e", mode: "diff" }], "the malformed file must be skipped, never hiding the healthy app");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -1,7 +1,7 @@
 /* The reference set of use cases: what a file must hold, how a run's commit finds its change, and which use cases a run could cover. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseUseCaseReference, reachableUseCases, referenceFor } from "@contexts/evaluation/domain/use-case-reference.ts";
+import { parseUseCaseReference, referenceFor } from "@contexts/evaluation/domain/use-case-reference.ts";
 
 const SET = {
   app: "shop",
@@ -43,9 +43,4 @@ test("a run finds its change by app and commit, a short sha matching a full one,
   assert.equal(referenceFor(sets, "shop", "E20A5D0A0000000000000000000000000000000")?.summary, "unit tests only");
   assert.equal(referenceFor(sets, "shop", "ab922a"), undefined, "a sha shorter than seven characters names nothing");
   assert.equal(referenceFor(sets, "nobody", "ab922ad4"), undefined);
-});
-
-test("only the use cases reachable on dev are ones a run could cover", () => {
-  const change = parseUseCaseReference(SET, "shop.json").changes[0]!;
-  assert.deepEqual(reachableUseCases(change).map((u) => u.id), ["missing"]);
 });

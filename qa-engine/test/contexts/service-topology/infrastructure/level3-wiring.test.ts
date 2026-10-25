@@ -1,36 +1,14 @@
 /* test/contexts/service-topology/infrastructure/level3-wiring.test.ts
-   1. MirrorRegistryPort + StubMirrorRegistryAdapter
-   2. OpencodeRunInput.serviceLinks field presence and renderMain prompt section
-   3. GenerateTestsUseCase with optional ServiceBoundaryResolverPort
+   1. OpencodeRunInput.serviceLinks field presence and renderMain prompt section
+   2. GenerateTestsUseCase with optional ServiceBoundaryResolverPort
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { StubMirrorRegistryAdapter } from "@contexts/service-topology/infrastructure/stub-mirror-registry.adapter.ts";
-import type { MirrorRegistryPort } from "@kernel/ports/mirror-registry.port.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
-
-/* ---- MirrorRegistryPort + StubMirrorRegistryAdapter ----
-   The stub must implement the port contract:
-   mirrorDir(repo: string): Promise<string>
-   The stub must return a path (not throw) for any repo.
- */
-
-test("StubMirrorRegistryAdapter implements MirrorRegistryPort and resolves any repo", async () => {
-  const stub: MirrorRegistryPort = new StubMirrorRegistryAdapter();
-  const path = await stub.mirrorDir("ArielFalcon/ms-name-orders");
-  assert.ok(typeof path === "string" && path.length > 0, `expected a non-empty string, got "${path}"`);
-});
-
-test("StubMirrorRegistryAdapter returns a consistent path for the same repo", async () => {
-  const stub: MirrorRegistryPort = new StubMirrorRegistryAdapter();
-  const a = await stub.mirrorDir("org/repo");
-  const b = await stub.mirrorDir("org/repo");
-  assert.equal(a, b, "same repo should return the same path on each call");
-});
 
 /* ---- OpencodeRunInput.serviceLinks field ----
    The field must be optional (no existing tests break) and accept ServiceLink[].

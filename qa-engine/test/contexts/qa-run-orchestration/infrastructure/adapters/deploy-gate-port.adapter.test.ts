@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DeployGatePortAdapter, NullDeployGateAdapter } from "@contexts/qa-run-orchestration/infrastructure/adapters/deploy-gate-port.adapter.ts";
 import { Sha } from "@kernel/sha.ts";
-import { isOk, isErr } from "@kernel/result.ts";
+import { isOk } from "@kernel/result.ts";
 
 test("waitUntilServing() resolves ok(true) once the injected poll reports the sha is serving", async () => {
   let calls = 0;
@@ -29,7 +29,7 @@ test("waitUntilServing() resolves an InfraError when the timeout elapses before 
 
   const result = await adapter.waitUntilServing(Sha.of("abc1234"));
 
-  assert.ok(isErr(result));
+  assert.ok(!isOk(result));
 });
 
 test("NullDeployGateAdapter.waitUntilServing() resolves ok(true) IMMEDIATELY — no versionUrl / static / code target", async () => {

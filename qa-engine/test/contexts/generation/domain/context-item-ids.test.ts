@@ -3,7 +3,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ID_KIND,
-  ID_KIND_EXTRACTABLE,
   MAX_ITEM_IDS,
   MAX_ITEM_ID_CHARS,
   advisoryLineIds,
@@ -123,8 +122,3 @@ test("a budget shared among many pages still leaves each a few ids, and the over
   assert.deepEqual(few.overflow, [0, 0]);
 });
 
-test("every kind states whether a spec can be checked against it, and rules and facts cannot", () => {
-  for (const kind of ID_KIND) assert.equal(typeof ID_KIND_EXTRACTABLE[kind], "boolean");
-  for (const kind of ["rule", "fact", "exemplar"] as const) assert.equal(ID_KIND_EXTRACTABLE[kind], false);
-  for (const kind of ["route", "dom", "op"] as const) assert.equal(ID_KIND_EXTRACTABLE[kind], true);
-});

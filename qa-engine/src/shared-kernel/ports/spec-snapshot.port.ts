@@ -32,5 +32,3 @@ export interface SpecSnapshot {
 export interface SpecSnapshotPort {
   record(snapshots: readonly SpecSnapshot[]): void;
 }
-
-export const NO_SPEC_SNAPSHOTS: SpecSnapshotPort = { record: () => {} };

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import { SpanStatusCode, ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { LedgerSpanProcessor, type RunSpanStore } from "./ledger";
-import { commitRunSpans, listRunSpans, pruneRunSpans, countRunSpans, createRecord, type RunSpanRow } from "../server/history";
+import { commitRunSpans, listRunSpans, pruneRunSpans, createRecord, type RunSpanRow } from "../server/history";
 
 function fakeStore(): RunSpanStore & { commits: RunSpanRow[][]; failNext: boolean } {
   const store = {
@@ -142,7 +142,6 @@ test("rows reach the history database, keyed by span, and update in place", () =
   const rows = listRunSpans("db-run-1");
   assert.equal(rows.length, 1);
   assert.equal(rows[0]!.endNs, BigInt(T0 + 7) * 1_000_000n);
-  assert.equal(countRunSpans() >= 1, true);
 });
 
 test("pruning removes spans older than the retention window and keeps newer ones", () => {

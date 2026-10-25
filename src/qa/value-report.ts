@@ -56,12 +56,6 @@ function verdictStyle(v: RunVerdict): { glyph: string; color: (s: string, on: bo
 }
 
 
-export function renderValueTag(s: ValueSignals): string {
-  const parts: string[] = [];
-  if (s.coverageMeasured && s.coverageRatio !== null) parts.push(`change-coverage ${pct(s.coverageRatio)}`);
-  if (s.valueScore !== null) parts.push(`value ${pct(s.valueScore)}`);
-  return parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
-}
 
 
 export function deriveAction(verdict: RunVerdict, reviewerApproved: boolean | null): string {

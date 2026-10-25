@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderValueTag, deriveAction, renderRunReport, type ValueSignals, type RunReportInput } from "./value-report";
+import { deriveAction, renderRunReport, type ValueSignals, type RunReportInput } from "./value-report";
 import { infraErrorGloss } from "./learning/taxonomy";
 
 const baseSignals: ValueSignals = {
@@ -9,30 +9,6 @@ const baseSignals: ValueSignals = {
   valueScore: null,
   reviewerApproved: null,
 };
-
-/* ── renderValueTag (always plain — embedded in an event payload) ───────────────── */
-
-test("value tag: measured coverage + oracle score are appended as numeric signals", () => {
-  const tag = renderValueTag({ ...baseSignals, coverageMeasured: true, coverageRatio: 0.82, valueScore: 0.75 });
-  assert.equal(tag, " · change-coverage 82% · value 75%");
-});
-
-test("value tag: only coverage when the oracle did not run (the shadow-mode default)", () => {
-  const tag = renderValueTag({ ...baseSignals, coverageMeasured: true, coverageRatio: 0.5 });
-  assert.equal(tag, " · change-coverage 50%");
-});
-
-test("value tag: empty when nothing was measured (never pollutes a clean outcome)", () => {
-  assert.equal(renderValueTag(baseSignals), "");
-  /* unmeasured coverage must NOT surface a misleading 0% */
-  assert.equal(renderValueTag({ ...baseSignals, coverageMeasured: false, coverageRatio: 0 }), "");
-});
-
-test("value tag: reviewer verdict is NOT duplicated in the tag", () => {
-  const tag = renderValueTag({ ...baseSignals, reviewerApproved: false, coverageMeasured: true, coverageRatio: 0.9 });
-  assert.equal(tag, " · change-coverage 90%");
-  assert.ok(!tag.includes("reviewer"));
-});
 
 test("deriveAction: a green reviewer-approved run opens an auto-merge PR", () => {
   assert.match(deriveAction("pass", true), /auto-merge suite PR/);

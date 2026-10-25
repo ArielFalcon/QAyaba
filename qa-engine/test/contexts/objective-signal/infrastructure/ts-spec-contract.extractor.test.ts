@@ -4,7 +4,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   extractSpecContract,
-  opacityIsHigh,
 } from "@contexts/objective-signal/infrastructure/ts-spec-contract.extractor.ts";
 
 const SPEC = `test("checkout", async ({ page }) => {
@@ -47,18 +46,6 @@ test("a locator built in a helper loop is opaque", () => {
   const { specs } = extractSpecContract("e2e/a.spec.ts", source);
   const locator = specs[0]!.clauses.find((clause) => clause.kind === "locator");
   assert.equal(locator?.opaque, true);
-});
-
-test("an opacity ratio above the configured threshold is flagged, and one below is not", () => {
-  const source = `test("mixed", async ({ page }) => {
-    await expect(page.getByText("Total")).toBeVisible();
-    await page.getByText(dynamicLabel).click();
-  });`;
-  const extraction = extractSpecContract("e2e/a.spec.ts", source);
-  assert.equal(extraction.clauseCount, 3);
-  assert.equal(extraction.opaqueCount, 1);
-  assert.equal(opacityIsHigh(extraction, 0.3), true);
-  assert.equal(opacityIsHigh(extraction, 0.4), false);
 });
 
 test("positional steps and negation are read from the chain", () => {

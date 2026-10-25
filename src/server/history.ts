@@ -1471,12 +1471,6 @@ export function clearContextStale(app: string): void {
   db.prepare("DELETE FROM context_stale WHERE app = ?").run(app);
 }
 
-/* When an off-path context-map rebuild was last requested for the app, ISO-8601; undefined when never. */
-export function lastContextHealRequestAt(app: string): string | undefined {
-  ensureDb();
-  const row = db.prepare("SELECT at FROM context_heal_requests WHERE app = ?").get(app) as { at: string } | undefined;
-  return row?.at;
-}
 
 /* Record that an off-path rebuild was requested now. Idempotent: the latest request wins. */
 export function recordContextHealRequest(app: string): void {
@@ -1874,10 +1868,6 @@ export function failInterruptedRegradeJobs(at: string): number {
     .run(at).changes;
 }
 
-export function countRunSpans(): number {
-  ensureDb();
-  return (db.prepare("SELECT COUNT(*) AS n FROM run_spans").get() as { n: number }).n;
-}
 
 /* Rows one prune pass may delete, so a large backlog never holds the write lock for long. */
 export const RUN_SPAN_PRUNE_CHUNK = 5000;

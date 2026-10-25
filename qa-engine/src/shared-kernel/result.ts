@@ -14,14 +14,7 @@ export function isOk<T, E>(r: Result<T, E>): r is { ok: true; value: T } {
   return r.ok;
 }
 
-export function isErr<T, E>(r: Result<T, E>): r is { ok: false; error: E } {
-  return !r.ok;
-}
 
 export function map<T, U, E>(r: Result<T, E>, fn: (value: T) => U): Result<U, E> {
   return r.ok ? ok(fn(r.value)) : r;
-}
-
-export function unwrapOr<T, E>(r: Result<T, E>, fallback: T): T {
-  return r.ok ? r.value : fallback;
 }

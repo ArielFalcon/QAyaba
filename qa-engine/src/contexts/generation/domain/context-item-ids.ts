@@ -35,21 +35,6 @@ export const MAX_ITEM_ID_CHARS = 200;
 export const ID_KIND = ["route", "dom", "op", "link", "flow", "rule", "exemplar", "fact", "signal", "svc-link", "impact"] as const;
 export type IdKind = (typeof ID_KIND)[number];
 
-/* Whether a spec's text can be checked against ids of this kind. Exemplar tags in a manifest are the agent's own report. */
-export const ID_KIND_EXTRACTABLE: Readonly<Record<IdKind, boolean>> = {
-  route: true,
-  dom: true,
-  op: true,
-  link: false,
-  flow: false,
-  rule: false,
-  exemplar: false,
-  fact: false,
-  signal: false,
-  "svc-link": false,
-  impact: false,
-};
-
 /* The first eight hex digits of the sha256 of the text with its whitespace collapsed and its case folded. */
 export function hash8(text: string): string {
   const normalized = text.trim().replace(/\s+/g, " ").toLowerCase();

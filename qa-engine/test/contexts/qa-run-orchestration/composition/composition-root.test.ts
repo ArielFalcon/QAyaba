@@ -26,7 +26,7 @@ import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { resolveCoordinationSettings } from "@kernel/coordination.ts";
 import { NoopTelemetry } from "@kernel/telemetry/noop-telemetry.ts";
-import { NO_SPEC_SNAPSHOTS } from "@kernel/ports/spec-snapshot.port.ts";
+import type { SpecSnapshotPort } from "@kernel/ports/spec-snapshot.port.ts";
 import { TracedCurriculumPort, TracedLearningPort } from "@contexts/qa-run-orchestration/infrastructure/adapters/context-trace.ts";
 import { SpecSnapshotValidationPort } from "@contexts/qa-run-orchestration/infrastructure/adapters/spec-snapshot-validation.adapter.ts";
 import { TracedSuiteStore } from "@contexts/qa-run-orchestration/infrastructure/adapters/suite-store-trace.ts";
@@ -1579,8 +1579,10 @@ test("with a telemetry port the learning, curriculum and suite store ports are t
   assert.equal(plain.suiteStore, suiteStore);
 });
 
+const noSpecSnapshots: SpecSnapshotPort = { record: () => {} };
+
 test("spec snapshots wrap the validation of an e2e run only, and only when a snapshot port is supplied", () => {
-  assert.ok(wireAdapters(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS })).validation instanceof SpecSnapshotValidationPort);
+  assert.ok(wireAdapters(fakeConfig({ specSnapshots: noSpecSnapshots })).validation instanceof SpecSnapshotValidationPort);
   assert.equal(wireAdapters(fakeConfig()).validation instanceof SpecSnapshotValidationPort, false);
-  assert.equal(wireAdapters(fakeConfig({ specSnapshots: NO_SPEC_SNAPSHOTS, isCode: true, target: "code" })).validation instanceof SpecSnapshotValidationPort, false);
+  assert.equal(wireAdapters(fakeConfig({ specSnapshots: noSpecSnapshots, isCode: true, target: "code" })).validation instanceof SpecSnapshotValidationPort, false);
 });

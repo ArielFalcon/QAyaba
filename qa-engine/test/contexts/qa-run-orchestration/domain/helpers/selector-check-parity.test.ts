@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import {
   checkSpecSelectors,
   unscopedMultipleContradictions,
-  extractCatalogSelectors,
   confidentWindowEnd,
   extractTestIdSelectorsWithIndex,
   firstGotoRoute,
@@ -177,34 +176,6 @@ test("PARITY: checkSpecSelectors matches legacy — multiple spec sources aggreg
 test("PARITY: ProposedSelector shape round-trips through both copies identically (structural sanity)", () => {
   const sel: ProposedSelector = { kind: "role", role: "button", name: "Submit", exact: true };
   assert.deepEqual(sel, { kind: "role", role: "button", name: "Submit", exact: true });
-});
-
-/* pre-exec-grounding.service.ts needs extractCatalogSelectors/
-   confidentWindowEnd/extractTestIdSelectorsWithIndex/firstGotoRoute + unscopedMultipleContradictions
-   living in the SAME canonical module as checkSpecSelectors (composing route-catalog/catalog-gate
-   would otherwise force a second, parallel port of these four functions).
- */
-
-test("PARITY: extractCatalogSelectors matches legacy — testIds/placeholders/altTexts/titles/idsNames", () => {
-  const src = `await page.getByTestId("save-btn").click(); await page.getByPlaceholder("Search").fill("x"); await page.getByAltText("Logo").click(); await page.getByTitle("Close").click(); await page.locator("#main-nav").click(); await page.locator('[name="email"]').fill("x");`;
-  assert.deepEqual(extractCatalogSelectors(src), {
-    testIds: ["save-btn"],
-    placeholders: ["Search"],
-    altTexts: ["Logo"],
-    titles: ["Close"],
-    idsNames: ["main-nav", "email"],
-  });
-});
-
-test("PARITY: extractCatalogSelectors matches legacy — interpolated values are dropped (un-groundable)", () => {
-  const src = "await page.getByTestId(`row-${id}`).click();";
-  assert.deepEqual(extractCatalogSelectors(src), {
-    testIds: [],
-    placeholders: [],
-    altTexts: [],
-    titles: [],
-    idsNames: [],
-  });
 });
 
 test("PARITY: confidentWindowEnd matches legacy — closes at the first click", () => {

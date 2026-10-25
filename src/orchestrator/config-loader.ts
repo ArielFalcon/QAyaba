@@ -68,25 +68,6 @@ export interface RepoMatch {
   role: RepoRole;
 }
 
-/* One repo can be primary of one app and a service of another; enqueue one run per match. */
-export function loadAppConfigsByRepo(repo: string, root = ROOT): RepoMatch[] {
-  const dir = join(root, "config", "apps");
-  if (!existsSync(dir)) return [];
-  const out: RepoMatch[] = [];
-  for (const file of readdirSync(dir)) {
-    if (!file.endsWith(".yaml") || file.startsWith("example")) continue;
-    let cfg: AppConfig;
-    try {
-      cfg = loadAppConfig(file.replace(/\.yaml$/, ""), root);
-    } catch (err) {
-      logConfigSkip(file, err);
-      continue;
-    }
-    if (cfg.repo === repo) out.push({ app: cfg, role: "primary" });
-    else if (cfg.services?.some((s) => s.repo === repo)) out.push({ app: cfg, role: "service" });
-  }
-  return out;
-}
 
 export function listAppConfigs(root = ROOT): AppConfig[] {
   const dir = join(root, "config", "apps");

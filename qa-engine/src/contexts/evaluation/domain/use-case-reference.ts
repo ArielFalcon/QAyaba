@@ -89,8 +89,3 @@ export function referenceFor(sets: readonly UseCaseReference[], app: string, sha
   const same = (a: string, b: string): boolean => Math.min(a.length, b.length) >= MIN_SHA_CHARS && (a.startsWith(b) || b.startsWith(a));
   return sets.filter((s) => s.app === app).flatMap((s) => s.changes).find((c) => same(c.sha.toLowerCase(), sha.toLowerCase()));
 }
-
-/** The use cases a run could cover: those reachable on dev. */
-export function reachableUseCases(change: ReferenceChange): ReferenceUseCase[] {
-  return change.useCases.filter((u) => u.reachability === "dev");
-}

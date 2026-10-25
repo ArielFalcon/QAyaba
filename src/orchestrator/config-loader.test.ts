@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AppConfigInvalidError, AppNotFoundError, describeAppLoadFailure, expandEnv, loadAppConfig, loadAppConfigsByRepo } from "./config-loader";
+import { AppConfigInvalidError, AppNotFoundError, describeAppLoadFailure, expandEnv, loadAppConfig } from "./config-loader";
 
 test("expandEnv resolves mixed-case ${Var} names, not just UPPERCASE", () => {
   const out = expandEnv("a: ${myToken}\nb: ${UPPER}", { myToken: "x", UPPER: "y" });
@@ -47,43 +47,6 @@ qa:
 report:
   onFailure: "github-issue"
 `;
-
-test("primary repo matches with role primary", () => {
-  const root = makeRoot({ "shop.yaml": FRONT });
-  try {
-    const matches = loadAppConfigsByRepo("org/shop-front", root);
-    assert.equal(matches.length, 1);
-    assert.equal(matches[0]?.role, "primary");
-    assert.equal(matches[0]?.app.name, "shop");
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("service repo matches the owning app with role service", () => {
-  const root = makeRoot({ "shop.yaml": FRONT });
-  try {
-    const matches = loadAppConfigsByRepo("org/orders-svc", root);
-    assert.equal(matches.length, 1);
-    assert.equal(matches[0]?.role, "service");
-    assert.equal(matches[0]?.app.name, "shop");
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("a repo that is both its own app and a service of another fans out to BOTH", () => {
-  const root = makeRoot({ "shop.yaml": FRONT, "orders.yaml": ORDERS_CODE });
-  try {
-    const matches = loadAppConfigsByRepo("org/orders-svc", root);
-    const roles = matches.map((m) => `${m.app.name}:${m.role}`).sort();
-    assert.deepEqual(roles, ["orders:primary", "shop:service"]);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("unknown repo returns no matches; a malformed yaml is skipped, not fatal", () => {
-  const root = makeRoot({ "shop.yaml": FRONT, "broken.yaml": "name: [unclosed" });
-  try {
-    assert.deepEqual(loadAppConfigsByRepo("org/nobody", root), []);
-    assert.equal(loadAppConfigsByRepo("org/shop-front", root).length, 1);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
 
 describe_loadAppConfig();
 

@@ -81,10 +81,6 @@ export function parseDataset(raw: unknown, expected?: { name: string; version: s
   return { name, version, ...(description !== undefined ? { description } : {}), items };
 }
 
-/* What a run of this item is asked for: the app, the commit, the mode and the explicit guidance. The description is not in it. */
-export function runRequestOf(item: DatasetItem): { app: string; sha: string; mode: RunMode; guidance?: string } {
-  return { app: item.app, sha: item.sha, mode: item.mode, ...(item.guidance !== undefined ? { guidance: item.guidance } : {}) };
-}
 
 export function datasetFileName(name: string, version: string): string {
   return `${name}@${version}.json`;

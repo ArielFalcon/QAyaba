@@ -111,10 +111,6 @@ export function extractSpecContract(file: string, source: string): SpecContractE
   return { specs, clauseCount, opaqueCount, opacityRatio: clauseCount === 0 ? 0 : opaqueCount / clauseCount };
 }
 
-/** Whether a contract's opacity crosses the configured ratio, which flags the run (never rejects). */
-export function opacityIsHigh(extraction: SpecContractExtraction, threshold: number): boolean {
-  return extraction.clauseCount > 0 && extraction.opacityRatio > threshold;
-}
 
 function isTestCall(call: ts.CallExpression): boolean {
   return ts.isIdentifier(call.expression) && TEST_CALLS.has(call.expression.text);

@@ -1,8 +1,7 @@
 /*
- * Per-run token/cost usage accumulator — observation-only; never influences verdict or publish.
- * Captures OpenCode SDK info.tokens + info.cost from every session.prompt response within a run,
- * sums them into a RunUsage blob, and persists it on gateSignals.usage.
- * A run with no usage snapshot yields undefined (never zero).
+ * Per-run token/cost usage shapes — observation-only; never influences verdict or publish.
+ * A snapshot is OpenCode SDK info.tokens + info.cost from one session.prompt response; the sum over a run is a
+ * RunUsage, persisted on gateSignals.usage. A run with no usage snapshot has none (never zero).
  */
 
 /* A single SDK response's normalized token counts + optional cost. */
@@ -18,7 +17,7 @@ export interface UsageSnapshot {
 /*
  * The persisted shape on RunOutcome.gateSignals.usage.
  * total = input + output + reasoning (reasoning is the semantic spend, not cache).
- * cost is absent when no snapshot fired (the accumulator never invents a zero cost).
+ * cost is absent when no snapshot fired (a zero cost is never invented).
  * complete: true iff both primary and reviewer are OpenCode in this run config.
  * primaryProvider / reviewerProvider: the provider names from the role assignment at run time,
  * persisted for attribution (e.g. "opencode"). Absent when no runtime config is known.
@@ -36,71 +35,4 @@ export interface RunUsage {
   complete: boolean;  /* true = full picture; false = partial */
   primaryProvider?: string;  /* provider for the primary/generator role (e.g. "opencode") */
   reviewerProvider?: string;  /* provider for the reviewer role (e.g. "opencode") */
-}
-
-/* Provider attribution context passed to result() from the pipeline's runtime config. */
-export interface UsageProviderAttribution {
-  primaryProvider?: string;
-  reviewerProvider?: string;
-}
-
-/* The mutable accumulator for one run — created by the runner, discarded after persist. */
-export interface UsageAccumulator {
-  add(s: UsageSnapshot): void;
-  /*
-   * undefined when nothing was ever added (a run with no snapshots).
-   * attribution: optional provider names from the role assignment (for persisted attribution).
-   */
-  result(complete: boolean, attribution?: UsageProviderAttribution): RunUsage | undefined;
-}
-
-/* Factory: pure, no I/O. */
-export function createUsageAccumulator(): UsageAccumulator {
-  let count = 0;
-  let input = 0;
-  let output = 0;
-  let reasoning = 0;
-  let cacheRead = 0;
-  let cacheWrite = 0;
-  let costSum = 0;
-
-  return {
-    add(s: UsageSnapshot): void {
-      count++;
-      input += s.input;
-      output += s.output;
-      reasoning += s.reasoning;
-      cacheRead += s.cacheRead;
-      cacheWrite += s.cacheWrite;
-      costSum += s.cost;
-    },
-    result(complete: boolean, attribution?: UsageProviderAttribution): RunUsage | undefined {
-      /*
-       * When no snapshots were fired AND no attribution is provided, return undefined to signal
-       * "no usage data available" (e.g. a run before the usage hook is activated).
-       * When attribution IS provided (provider names from the runtime config), always return a
-       * record — with zero tokens when none were accumulated — so the run is attributable even
-       * when the provider emits no token counts. This keeps the record honest: complete=false,
-       * tokens are genuinely zero (not fabricated), and the provider fields name the runtime.
-       */
-      if (count === 0 && !attribution?.primaryProvider && !attribution?.reviewerProvider) {
-        return undefined;
-      }
-      const record: RunUsage = {
-        tokens: {
-          input,
-          output,
-          reasoning,
-          cacheRead,
-          cacheWrite,
-          total: input + output + reasoning,
-        },
-        ...(count > 0 ? { cost: costSum } : {}),
-        complete,
-      };
-      if (attribution?.primaryProvider !== undefined) record.primaryProvider = attribution.primaryProvider;
-      if (attribution?.reviewerProvider !== undefined) record.reviewerProvider = attribution.reviewerProvider;
-      return record;
-    },
-  };
 }

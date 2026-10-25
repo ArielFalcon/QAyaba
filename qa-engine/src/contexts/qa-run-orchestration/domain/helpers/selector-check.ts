@@ -184,31 +184,6 @@ export interface CatalogSelectors {
   idsNames: string[]; /* locator('#id') and locator('[name=x]') — simple groundable forms only */
 }
 
-/* Catalog families for the pre-exec catalog gate. Additive to extractProposedSelectors — does not change aria-path semantics. Only string-literal first args; complex CSS/XPath, `${…}`, and non-name attributes are un-groundable → advisory, never a false block. */
-export function extractCatalogSelectors(specSrc: string): CatalogSelectors {
-  const joined = stripCommentsAndJoin(specSrc);
-  const collect = (re: RegExp): string[] => {
-    const out: string[] = [];
-    re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(joined)) !== null) {
-      const v = m[1]!.trim();
-      if (v && !v.includes("${")) out.push(v);
-    }
-    return out;
-  };
-  return {
-    testIds: collect(/\.getByTestId\(\s*["'`]([^"'`]+)["'`]/g),
-    placeholders: collect(/\.getByPlaceholder\(\s*["'`]([^"'`]+)["'`]/g),
-    altTexts: collect(/\.getByAltText\(\s*["'`]([^"'`]+)["'`]/g),
-    titles: collect(/\.getByTitle\(\s*["'`]([^"'`]+)["'`]/g),
-    idsNames: [
-      ...collect(/\.locator\(\s*["'`]#([\w-]+)["'`]\s*\)/g),
-      ...collect(/\.locator\(\s*["'`]\[name=["']?([^"'\]\s]+)["']?(?:\s+[isIS])?\s*\]["'`]\s*\)/g),
-    ],
-  };
-}
-
 /* Index of the first action that makes the initial-route catalog stale: first `.click()`/`.tap()` or the second `.goto()`. Selectors after this may live on a later page — must not fail-close. fill/type/press/hover/check/selectOption do not close the window. Closing on any second goto only narrows the window (safe direction). Infinity when nothing closes it. */
 export function confidentWindowEnd(specSrc: string): number {
   const joined = stripCommentsAndJoin(specSrc);

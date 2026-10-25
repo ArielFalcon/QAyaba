@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DatasetError, datasetFileName, parseDataset, parseDatasetFileName, runRequestOf } from "@contexts/evaluation/domain/benchmark-dataset.ts";
+import { DatasetError, datasetFileName, parseDataset, parseDatasetFileName } from "@contexts/evaluation/domain/benchmark-dataset.ts";
 
 const item = { app: "shop", sha: "0123456789abcdef0123456789abcdef01234567", description: "the coupon field was added" };
 const dataset = (items: unknown[] = [item], over: Record<string, unknown> = {}) => ({ name: "real-failures", version: "1", items, ...over });
@@ -10,11 +10,9 @@ test("a valid dataset parses, defaulting an item without guidance to a diff run 
   assert.deepEqual(parsed.items.map((i) => i.mode), ["diff", "manual"]);
 });
 
-test("the description is metadata: it is in the item but never in what a run is asked", () => {
+test("the description is metadata kept in the parsed item", () => {
   const [parsed] = parseDataset(dataset([{ ...item, guidance: "g", mode: "manual" }])).items;
   assert.equal(parsed!.description, item.description);
-  assert.deepEqual(runRequestOf(parsed!), { app: "shop", sha: item.sha, mode: "manual", guidance: "g" });
-  assert.equal(JSON.stringify(runRequestOf(parsed!)).includes("coupon"), false);
 });
 
 test("guidance is only for a manual run", () => {

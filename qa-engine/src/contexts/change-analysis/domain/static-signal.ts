@@ -22,10 +22,3 @@ export interface StaticSignal {
   patterns: ChangePattern[];
   skipped: ExtractorSkipped[];
 }
-
-export function emptyStaticSignal(sha: Sha): StaticSignal {
-  return {
-    builtForSha: sha.value, languages: [], symbols: [], relations: [],
-    complexity: [], fileChangeKinds: [], patterns: [], skipped: [],
-  };
-}

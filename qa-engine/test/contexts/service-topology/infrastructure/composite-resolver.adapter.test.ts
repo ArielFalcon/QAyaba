@@ -2,7 +2,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CompositeServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/composite-resolver.adapter.ts";
-import { StubServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/stub-resolver.adapter.ts";
 import type { ServiceBoundaryResolverPort, ResolveLinksResult } from "@contexts/service-topology/application/ports/index.ts";
 import type { RepoRef, ServiceLink, ServiceSymbolRef, ContractDrift } from "@contexts/service-topology/domain/index.ts";
 
@@ -18,13 +17,6 @@ function makeLink(contractRef: string, confidence = 1.0): ServiceLink {
 function makeResolver(result: ResolveLinksResult): ServiceBoundaryResolverPort {
   return { resolveLinks: async () => result };
 }
-
-test("StubServiceBoundaryResolver.resolveLinks returns empty result without throwing", async () => {
-  const stub = new StubServiceBoundaryResolver();
-  const result = await stub.resolveLinks([BACK], FRONT);
-  assert.deepEqual(result.links, []);
-  assert.deepEqual(result.drift, []);
-});
 
 test("CompositeServiceBoundaryResolver merges links from multiple resolvers", async () => {
   const r1 = makeResolver({ links: [makeLink("opA")], drift: [], external: [], unresolved: [] });
