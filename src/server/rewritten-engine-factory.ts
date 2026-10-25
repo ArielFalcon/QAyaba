@@ -1293,7 +1293,7 @@ export function buildRewrittenCompositionConfig(
      */
     codeGraphRepoDir: vcsDir,
 
-    ...(codeGraph ? { codeGraph, coChange: new GitCoChangeAdapter(runner) } : {}),
+    ...(codeGraph ? { codeGraph, codeExplore: codeGraph, coChange: new GitCoChangeAdapter(runner) } : {}),
     /* A service-triggered run indexes the primary repo too, at the commit it is checked out at. */
     ...(codeGraph && triggerService ? { codeGraphPrimary: { repoDir: mirrorDir, headSha: () => new GitMirrorReadAdapter(mirrorDir, runner).headSha() } } : {}),
     /* The lead's code-graph tools' client. */

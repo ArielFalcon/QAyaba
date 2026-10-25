@@ -260,6 +260,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     curriculumPort: "IS supplied (CurriculumPortAdapter over history.ts's loadCurriculum/saveCurriculum) — asserted below as a present case.",
     codebaseMemory: "IS supplied when qa.structuralSignals.mode is not 'off' (factory default 'signal') — the raw CLI client of the lead's code-graph tools. Asserted below as a present-when-default case.",
     codeGraph: "IS supplied when qa.structuralSignals.mode is not 'off' (factory default 'signal') — the run's one CodegraphCodeGraphAdapter, indexed by the index phase and read by the structural signal and the cross-repo impact. Asserted below as a present-when-default case.",
+    codeExplore: "IS supplied with codeGraph (the same CodegraphCodeGraphAdapter instance, so it reads the index the run built). Asserted below as a present-when-default case.",
     coChange: "IS supplied with codeGraph (GitCoChangeAdapter over the trusted git runner). Asserted below as a present-when-default case.",
     codeGraphPrimary: "Supplied only on a service-triggered run (the primary repo, indexed too); this fixture is a same-repo run, so it is absent.",
     codeGraphRepoDir: "IS supplied (classify-source mirror: SERVICE on a webhook, PRIMARY otherwise) — pins CodeGraphPort.syncTo and StructuralSignalPortAdapter off workspace.mirrorDir on cross-repo runs. Asserted below as a present case.",
@@ -350,6 +351,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     assert.notEqual(cfg.curriculumPort, undefined, `curriculumPort (curriculum wiring) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codebaseMemory, undefined, `codebaseMemory (code-graph tools CLI client, default mode signal) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codeGraph, undefined, `codeGraph (the run's code graph, default mode signal) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.codeExplore, undefined, `codeExplore (the engine's explore over the run's index, default mode signal) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.coChange, undefined, `coChange (git co-change history, default mode signal) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codeGraphRepoDir, undefined, `codeGraphRepoDir (classify-source mirror) dropped at ${dyingLayer}`);
     /* The shell supplies no spec reader: a bare readFile of an agent-reported path would follow a symlink the

@@ -59,6 +59,7 @@ import { ProjectNameResolver, type ProjectNameCliClient } from "../../../shared-
 import type { CodebaseMemoryCliClient } from "../../../shared-infrastructure/code-graph/codebase-memory-client.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { CoChangePort } from "@kernel/ports/co-change.port.ts";
+import type { CodeExplorePort } from "@kernel/ports/code-explore.port.ts";
 import { ServiceLinksPortAdapter } from "../infrastructure/bridges/service-links-port.adapter.ts";
 import { MirrorRegistryAdapter } from "@contexts/service-topology/infrastructure/mirror-registry.adapter.ts";
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/ports/index.ts";
@@ -255,6 +256,8 @@ export interface CompositionConfig {
   codeGraph?: CodeGraphPort;
   /* Git co-change history for the structural signal. */
   coChange?: CoChangePort;
+  /* The engine's read-equivalent answers over the same run's index (the same instance as codeGraph in production). */
+  codeExplore?: CodeExplorePort;
   /* Classify-source repo root for CodeGraphPort.syncTo and StructuralSignalPortAdapter. Factory sets this to the SERVICE mirror on a webhook, PRIMARY otherwise. Absent → cfg.mirrorDir. */
   codeGraphRepoDir?: string;
   /* On a service-triggered run, the primary repo, indexed too. */

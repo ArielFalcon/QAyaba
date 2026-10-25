@@ -22,6 +22,7 @@ import { closeGitDir, git } from "../process-sandbox/git-fixtures.ts";
 const FIXTURES = join(import.meta.dirname, "__fixtures__", "codegraph");
 const STORE = join(FIXTURES, "store.db");
 const STATUS = readFileSync(join(FIXTURES, "status.json"), "utf8");
+const EXPLORE = readFileSync(join(FIXTURES, "explore.txt"), "utf8");
 const REPO = (JSON.parse(readFileSync(join(FIXTURES, "repo.json"), "utf8")) as { files: Record<string, string> }).files;
 
 const ok = (stdout = ""): SandboxedRunResult => ({ exitCode: 0, stdout, stderr: "", timedOut: false });
@@ -41,6 +42,7 @@ class FakeEngineRunner implements SandboxedBinaryRunner {
     this.calls.push(verb);
     if (this.fail[verb]) return this.fail[verb]!;
     if (verb === "init") copyFileSync(STORE, join(req.cwd, ".codegraph", "codegraph.db"));
+    if ((verb as string) === "explore") return ok(EXPLORE);
     return verb === "status" ? ok(this.status) : ok();
   }
 }
@@ -281,6 +283,18 @@ test("routes name a backend handler's verb and path and a frontend page's path, 
   }
 });
 
+test("explore answers the engine's text for the terms, from the run's index, with its commit", async () => {
+  const h = harness();
+  try {
+    await h.adapter.syncTo(h.mirror, h.sha);
+    const answer = await h.adapter.explore(h.mirror, ["formatMoney", "OrdersPage"], 12);
+    assert.deepEqual(answer, { ok: true, value: { text: EXPLORE, indexedSha: h.sha } });
+    assert.equal((await h.adapter.explore(h.mirror, [], 12)).ok, false, "no term, no question");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test("a repo the run did not index answers unavailable, never an empty graph", async () => {
   const h = harness();
   try {
@@ -288,6 +302,7 @@ test("a repo the run did not index answers unavailable, never an empty graph", a
     assert.equal((await h.adapter.impactedSymbols(h.mirror, changed, BUDGET)).ok, false);
     assert.equal((await h.adapter.callersOf(h.mirror, [{ file: FORMAT, symbol: "formatMoney" }], BUDGET)).ok, false);
     assert.equal((await h.adapter.routes(h.mirror)).ok, false);
+    assert.equal((await h.adapter.explore(h.mirror, ["formatMoney"], 12)).ok, false);
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }

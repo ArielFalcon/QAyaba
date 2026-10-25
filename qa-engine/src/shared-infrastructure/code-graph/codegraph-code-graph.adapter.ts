@@ -16,6 +16,7 @@ import { existsSync, rmSync } from "node:fs";
 import { err, ok, type Result } from "../../shared-kernel/result.ts";
 import type { BlastRadius, TouchedLines } from "../../shared-kernel/blast-radius.ts";
 import type { CodeGraphPort } from "../../shared-kernel/ports/code-graph.port.ts";
+import type { CodeExplorePort, ExploreAnswer } from "../../shared-kernel/ports/code-explore.port.ts";
 import type { CodeGraphIndexRecord, CodeGraphUnavailable, GraphRoute, ImpactBudget, ImpactReport, ImpactedSymbol, IndexOutcome, LocalSymbolRef } from "../../shared-kernel/code/index.ts";
 import type { Sandbox } from "../process-sandbox/sandbox.ts";
 import type { SandboxedBinaryRunner } from "../process-sandbox/sandboxed-binary-runner.ts";
@@ -102,7 +103,7 @@ interface Indexed {
   sha: string;
 }
 
-export class CodegraphCodeGraphAdapter implements CodeGraphPort {
+export class CodegraphCodeGraphAdapter implements CodeGraphPort, CodeExplorePort {
   private readonly indexed = new Map<string, Indexed>();
   private readonly now: () => number;
 
@@ -228,6 +229,15 @@ export class CodegraphCodeGraphAdapter implements CodeGraphPort {
     const found = await this.read<{ symbols: StoreSymbol[] }>(repoDir, { op: "find", symbols: symbols.map((s) => ({ file: s.file, symbol: s.symbol })) });
     if (!found.ok) return found;
     return this.walkFrom(repoDir, found.value.value.symbols, budget, found.value.sha);
+  }
+
+  async explore(repoDir: string, terms: readonly string[], maxFiles: number): Promise<Result<ExploreAnswer, CodeGraphUnavailable>> {
+    const entry = this.indexOf(repoDir);
+    if (!entry) return err({ reason: "the repo is not indexed in this run" });
+    if (terms.length === 0) return err({ reason: "no term to explore" });
+    const answer = await this.deps.engine.explore(entry.workspace, terms, maxFiles);
+    if (!answer.ok) return err({ reason: answer.error.reason });
+    return ok({ text: answer.value, indexedSha: entry.sha });
   }
 
   async routes(repoDir: string): Promise<Result<GraphRoute[], CodeGraphUnavailable>> {
