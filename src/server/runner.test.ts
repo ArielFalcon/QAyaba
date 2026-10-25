@@ -20,6 +20,7 @@ import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/a
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
 import { getIncidents } from "./maintainer";
+import { traceHarness } from "../telemetry/trace-harness";
 
 const cfg = (name: string): AppConfig => ({
   name,
@@ -2104,4 +2105,19 @@ test("no rebuild runs when the map fits, for a run that cannot use a map, when t
   unwired.run("runner-map-unwired");
   await unwired.queue.drain();
   assert.deepEqual(unwired.calls.map((c) => c.mode), ["diff"]);
+});
+
+test("a context run rebuilt inside a run's turn opens its own trace: no span of the run's trace names the rebuild as its run", async () => {
+  const h = traceHarness();
+  const queue = new JobQueue();
+  const port: RunPipelinePort = { run: async (input) => { h.telemetry.startSpan(`phase of ${input.mode}`).end(); return (await fakePort().port.run(input)); } };
+  const id = enqueueTrackedRun(queue, { app: "runner-map-trace", sha: "abc1234", target: "e2e", mode: "diff", source: "webhook" }, { loadApp: cfg, engineFactory: () => port, telemetry: h.telemetry, contextMapNeedsRebuild: async () => true });
+  await queue.drain();
+  const runRootOf = (runId: string) => h.named("qayaba.run").find((s) => s.attributes["qayaba.run.id"] === runId)!;
+  const parentTrace = runRootOf(id).spanContext().traceId;
+  const inParentTrace = h.spans().filter((s) => s.spanContext().traceId === parentTrace);
+  assert.ok(inParentTrace.some((s) => s.name === "phase of diff"));
+  assert.deepEqual(inParentTrace.flatMap((s) => (s.attributes["qayaba.run.id"] !== undefined && s.attributes["qayaba.run.id"] !== id ? [s.name] : [])), []);
+  assert.equal(inParentTrace.some((s) => s.name === "phase of context"), false);
+  await h.dispose();
 });

@@ -356,7 +356,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
  * Creates the tracked RunRecord and returns how to execute it. The queue executes a run in its turn; a context-map rebuild
  * executes inside the turn of the run that needed it (rebuildContextMapFirst).
  */
-function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, where: string): { id: string; execute: (signal: AbortSignal) => Promise<void> } {
+function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, where: string, insideRun = false): { id: string; execute: (signal: AbortSignal) => Promise<void> } {
   const loadApp = deps.loadApp ?? loadAppConfig;
   const runConfigEnv = deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV;
 
@@ -402,7 +402,7 @@ function trackRun(req: RunRequest, deps: RunnerDeps, captureMode: CaptureMode, w
     campaign: req.campaign,
     captureMode: req.captureMode === undefined ? undefined : captureMode,
   };
-  const enqueued = markEnqueued(telemetry, clock, identity);
+  const enqueued = markEnqueued(telemetry, clock, identity, { root: insideRun });
 
   const job = async (signal: AbortSignal, trace: RunTrace): Promise<void> => {
     try {
@@ -666,7 +666,7 @@ async function rebuildContextMapFirst(req: RunRequest, runId: string, deps: Runn
   }
   contextMapRebuilt.add(key);
   /* The run it serves holds the queue and has made no data yet: it is not an interrupted run to clean up after (previousNamespace ""). */
-  const rebuild = trackRun({ app: req.app, sha: req.sha, target: "e2e", mode: "context", source: "manual", trigger: "context", parentRunId: runId, previousNamespace: "" }, deps, capCaptureMode(req.captureMode, (deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV).maxCapture), `before ${runId}`);
+  const rebuild = trackRun({ app: req.app, sha: req.sha, target: "e2e", mode: "context", source: "manual", trigger: "context", parentRunId: runId, previousNamespace: "" }, deps, capCaptureMode(req.captureMode, (deps.runConfig ?? UNKNOWN_RUN_CONFIG_ENV).maxCapture), `before ${runId}`, true);
   console.log(`[qa] context map for ${req.app} does not describe ${req.sha.slice(0, 7)}: rebuilding it in ${rebuild.id} before ${runId}`);
   await rebuild.execute(signal);
 }

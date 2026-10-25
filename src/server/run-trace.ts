@@ -102,11 +102,14 @@ function identityAttrs(identity: RunIdentity) {
   };
 }
 
-/* Opens and ends the enqueue span in the caller's context (it is a child of an active request span, when there is one). */
-export function markEnqueued(telemetry: TelemetryPort, clock: TelemetryClock, identity: RunIdentity): EnqueueMark {
+/*
+ * Opens and ends the enqueue span in the caller's context (it is a child of an active request span, when there is one). `root`
+ * opens it in a trace of its own: a run tracked from inside another run's turn must not mark that run's trace as its own.
+ */
+export function markEnqueued(telemetry: TelemetryPort, clock: TelemetryClock, identity: RunIdentity, opts: { root?: boolean } = {}): EnqueueMark {
   const guarded = guardTelemetry(telemetry);
   const at = clock.now();
-  const span = guarded.startSpan("qayaba.run.enqueue", { kind: "internal", startTime: at, attrs: identityAttrs(identity) });
+  const span = guarded.startSpan("qayaba.run.enqueue", { kind: "internal", startTime: at, attrs: identityAttrs(identity), ...(opts.root ? { root: true } : {}) });
   span.end(clock.now());
   const context = span.context();
   return { context: isDead(context) ? undefined : context, at };
