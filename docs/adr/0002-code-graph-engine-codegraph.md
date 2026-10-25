@@ -238,7 +238,7 @@ The adoption failure is an interface failure, and a tool description is a weak i
 
 - The orchestrator puts the engine's read-equivalent answer for the change's top symbols into `static-signal`, inside its existing budget. This works for any model, and for Codex, which has no custom tools.
 - `explore` remains for follow-up questions, with the steering as a linted prompt layer.
-- Whether the dossier is on by default is decided by the ablation, not assumed.
+- The dossier is on by default: the owner made the code graph part of the grounding (`odd/tasks/codegraph-migration.md`, L38); an app or a run can still turn it off.
 
 ### 3.6 The gate
 

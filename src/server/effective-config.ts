@@ -71,7 +71,7 @@ export function resolveRunConfig(app: AppConfig, target: TestTarget, request: Ru
       curriculum: env.campaignFrozen ? "frozen" : requestedGrounding.curriculum === false ? "off" : "learning",
       domPack: requestedGrounding.domPack ?? app.qa.domPack ?? true,
       /* The dossier rides on the structural signal: with the signal off there is none to have. */
-      dossier: requestedGrounding.structuralSignal === false || structuralMode === "off" ? null : (requestedGrounding.dossier ?? app.qa.structuralSignals?.dossier ?? false),
+      dossier: requestedGrounding.structuralSignal === false || structuralMode === "off" ? null : (requestedGrounding.dossier ?? app.qa.structuralSignals?.dossier ?? true),
     },
     coverage: { mode: app.qa.changeCoverage?.mode ?? DEFAULT_COVERAGE_MODE, minRatio: app.qa.changeCoverage?.minRatio ?? DEFAULT_COVERAGE_MIN_RATIO },
     reflector: env.reflectorEnabled && !env.campaignFrozen,

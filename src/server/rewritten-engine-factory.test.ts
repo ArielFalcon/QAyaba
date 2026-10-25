@@ -1257,12 +1257,15 @@ test("qa.structuralSignals mode 'off' omits BOTH the code graph (with its explor
   assert.equal(config.crossRepoImpact, undefined, "mode:off must omit crossRepoImpact too — all three structural collaborators share the one gate");
 });
 
-test("the change dossier is on only when the run or the app asks for it and the code graph is wired", () => {
+test("the change dossier is on by default wherever the code graph is wired, and off only when the run or the app turns it off", () => {
   const plain = cfg("factory-dossier");
   const withDossier = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "signal", dossier: true } } } as AppConfig;
+  const appOff = { ...plain, qa: { ...plain.qa, structuralSignals: { mode: "signal", dossier: false } } } as AppConfig;
   const build = (app: AppConfig, grounding?: { dossier?: boolean; structuralSignal?: boolean }) =>
     buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", ...(grounding ? { grounding } : {}) });
-  assert.equal(build(plain).structuralDossier, undefined, "off by default");
+  assert.equal(build(plain).structuralDossier, true, "on by default");
+  assert.equal(build(appOff).structuralDossier, undefined, "the app turns it off");
+  assert.equal(build(appOff, { dossier: true }).structuralDossier, true, "the run turns it back on");
   assert.equal(build(withDossier).structuralDossier, true);
   assert.equal(build(plain, { dossier: true }).structuralDossier, true);
   assert.equal(build(withDossier, { dossier: false }).structuralDossier, undefined);

@@ -25,7 +25,7 @@ test("a lever that cannot take effect is not reported as applied", () => {
 
 test("grounding and policy are what the run's app declares, with the engine's defaults where it declares nothing", () => {
   const plain = resolveRunConfig(app(), "e2e", {}, "metadata", env);
-  assert.deepEqual(plain.grounding, { stitcher: null, structuralSignal: "signal", curriculum: "learning", domPack: true, dossier: false });
+  assert.deepEqual(plain.grounding, { stitcher: null, structuralSignal: "signal", curriculum: "learning", domPack: true, dossier: true });
   assert.deepEqual(plain.coverage, { mode: "signal", minRatio: 0.7 });
   assert.equal(plain.reflector, true);
   const stitched = resolveRunConfig(app({ services: [{ repo: "o/s" }], boundaries: [{}] }, { structuralSignals: { mode: "off" }, changeCoverage: { mode: "enforce", minRatio: 0.9 } }), "e2e", {}, "metadata", env);
@@ -43,7 +43,9 @@ test("a run's grounding lever wins over the app's setting and the freeze still w
   assert.equal(frozen.grounding.curriculum, "frozen");
 });
 
-test("the change dossier is the run's lever, else the app's, off by default, and none while the structural signal is off", () => {
+test("the change dossier is the run's lever, else the app's, on by default, and none while the structural signal is off", () => {
+  assert.equal(resolveRunConfig(app(), "e2e", {}, "metadata", env).grounding.dossier, true);
+  assert.equal(resolveRunConfig(app({}, { structuralSignals: { mode: "signal", dossier: false } }), "e2e", {}, "metadata", env).grounding.dossier, false);
   assert.equal(resolveRunConfig(app({}, { structuralSignals: { mode: "signal", dossier: true } }), "e2e", {}, "metadata", env).grounding.dossier, true);
   assert.equal(resolveRunConfig(app({}, { structuralSignals: { mode: "signal", dossier: true } }), "e2e", { grounding: { dossier: false } }, "metadata", env).grounding.dossier, false);
   assert.equal(resolveRunConfig(app(), "e2e", { grounding: { dossier: true } }, "metadata", env).grounding.dossier, true);

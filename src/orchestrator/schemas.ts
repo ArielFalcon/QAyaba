@@ -263,7 +263,7 @@ export const AppConfigSchema = z
           mode: z.enum(["off", "signal"]),
           /* Repo-relative globs kept out of the code-graph index (generated or vendored source the app commits). */
           exclude: z.array(z.string().min(1)).optional(),
-          /* The change dossier: the engine's read-equivalent source of the change's top symbols inside the structural block. Off unless set: its default is decided by measurement (ADR-0002). */
+          /* The change dossier: the engine's read-equivalent source of the change's top symbols inside the structural block. On unless set to false: the code graph is part of the grounding (ADR-0002). */
           dossier: z.boolean().optional(),
         })
         .optional(),
