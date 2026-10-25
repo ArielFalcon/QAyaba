@@ -265,6 +265,8 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/code-graph/codegraph-store-cache.ts",
   "qa-engine/src/shared-infrastructure/code-graph/codegraph-engine.ts",
   "qa-engine/src/shared-infrastructure/code-graph/codegraph-store-reader.mjs",
+  /* The adapter that sequences them: it decides when a synced store is validated and published back to the cache, and which workspace a query reads. A fix that skipped the validation or published before it would hand the next run a planted store. */
+  "qa-engine/src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts",
   /* The egress filter: the policy compiler, the transparent proxy that decides on the name a connection asks for, the DNS filter, the iptables rules and their applier, the controller that holds the leases, and the wiring that reads the declared origins; plus the registries file, which is the list of package registries every install may reach. Widening any of them hands agent code a network. */
   "qa-engine/src/shared-infrastructure/egress/",
   "src/server/egress-wiring.ts",

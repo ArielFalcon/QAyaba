@@ -328,13 +328,14 @@ test("isProtectedPath flags the file boundary's probing child: the plain script 
   assert.equal(isProtectedPath(file), true, file);
 });
 
-test("isProtectedPath flags the code-graph engine's edge: the workspace export, the store cache, the engine's commands and the store reader", () => {
+test("isProtectedPath flags the code-graph engine's edge: the workspace export, the store cache, the engine's commands, the store reader and the adapter that sequences them", () => {
   /* The workspace decides what of a watched repo the sandbox uid reads, and the cache publishes a store the sandbox wrote; loosening either crosses the file boundary without touching the launcher. */
   const files = [
     "qa-engine/src/shared-infrastructure/code-graph/codegraph-workspace.ts",
     "qa-engine/src/shared-infrastructure/code-graph/codegraph-store-cache.ts",
     "qa-engine/src/shared-infrastructure/code-graph/codegraph-engine.ts",
     "qa-engine/src/shared-infrastructure/code-graph/codegraph-store-reader.mjs",
+    "qa-engine/src/shared-infrastructure/code-graph/codegraph-code-graph.adapter.ts",
   ];
   for (const file of files) {
     assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
