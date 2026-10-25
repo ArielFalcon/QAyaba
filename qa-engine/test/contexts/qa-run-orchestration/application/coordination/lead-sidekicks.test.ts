@@ -518,6 +518,21 @@ test("an accept of a spec that has not passed run_spec on its current bytes is s
   assert.equal(outcome.signal.review?.accepted, 1);
 });
 
+test("each turn of a flow records what the sidekick reported beside how its flow's last run_spec call ended", async () => {
+  const r = rig({ answers: { cart: [{ status: "failed" as const, summary: "gave up", filesChanged: [], writes: true }] }, hasFile: new Set(["login"]) });
+  r.closedLoop.openFlow = ((original) => (flowInput: FlowLoopOpenInput) => {
+    const handle = original(flowInput)!;
+    if (flowInput.flowId === "cart") r.flowLoops.at(-1)!.ledger.push({ path: flowInput.specFile, sha256: "b", status: "passed", devWrites: 0 });
+    return handle;
+  })(r.closedLoop.openFlow);
+  await r.coordinator.coordinate(input(r));
+  const turn = (flow: string) => r.events.find((e) => e.kind === "delegation" && e.delegationId === `run-1-flow-${flow}`);
+  assert.equal(turn("cart")?.sidekickStatus, "failed");
+  assert.equal(turn("cart")?.lastRunSpec, "passed");
+  assert.ok(turn("login")?.sidekickStatus);
+  assert.equal(turn("login")?.lastRunSpec, undefined, "a flow that never called run_spec has no last call");
+});
+
 test("a flow that delivered nothing may be dropped by the lead with its reason, which settles it", async () => {
   const lead = leadWith([[{ flow: "cart", action: "drop", reason: "the change does not touch the cart" }, { flow: "login", action: "accept" }]]);
   const failing = { answers: { cart: [{ status: "failed" as const, summary: "x", filesChanged: [] }] }, hasFile: new Set(["login"]) };

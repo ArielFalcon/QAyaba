@@ -33,6 +33,10 @@ export interface CoordinationTelemetryEvent {
   readonly attempt?: number;
   readonly failureClass?: string;
   readonly progressFingerprint?: string;
+  /** What the sidekick reported its turn came to (its DelegationStatus), when kind is delegation. */
+  readonly sidekickStatus?: string;
+  /** How the flow's last run_spec call ended when the sidekick reported, when kind is delegation and the flow called it. */
+  readonly lastRunSpec?: string;
   /** Pipeline verdict when kind is outcome. */
   readonly finalOutcome?: string;
   /** Reviewer approved/rejected/skipped when kind is outcome. */

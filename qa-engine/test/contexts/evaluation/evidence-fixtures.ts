@@ -20,6 +20,9 @@ export function evidence(over: Partial<RunEvaluationEvidence> = {}): RunEvaluati
     stepIntents: undefined,
     context: undefined,
     plan: undefined,
+    runSpecCalls: [],
+    deliveredSpecs: [],
+    sidekickReports: [],
     finishedAt: "2026-10-17T10:00:00.000Z",
     ...over,
   };

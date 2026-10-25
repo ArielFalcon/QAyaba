@@ -330,6 +330,73 @@ const flowDeliveryRate: Grader = {
   }),
 };
 
+/* A path two records name alike: the same, or one the other's tail on a directory boundary (one is relative to the test directory). */
+const samePath = (a: string, b: string): boolean => a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
+
+const ROUTE_PREFIX = "route:";
+
+/*
+ * The share of the change's pages the Context Pack delivered a live tree of. A page is grounded when the pack the agent received
+ * holds an element of it (`dom:<page>#…`); a change page that was cut, not capturable or never rendered is not. Silent without
+ * change pages or a delivered pack, and when a page is missing from a pack whose id list overflowed its cap.
+ */
+const changePagesGrounded: Grader = {
+  names: ["change_pages_grounded"],
+  grade: finishedOnly((e) => {
+    const pages = (e.context?.relevantIds ?? []).filter((id) => id.startsWith(ROUTE_PREFIX)).map((id) => id.slice(ROUTE_PREFIX.length));
+    const pack = e.context?.delivered.find((s) => s.source === "context-pack");
+    if (pages.length === 0 || !pack) return [];
+    const missing = pages.filter((page) => !pack.ids.some((id) => id.startsWith(`dom:${page}#`)));
+    if (missing.length > 0 && (pack.idsOverflow ?? 0) > 0) return [];
+    return [{ name: "change_pages_grounded", value: ratio(pages.length - missing.length, pages.length), ...(missing.length > 0 ? { comment: `not grounded: ${missing.join(", ")}` } : {}) }];
+  }),
+};
+
+/*
+ * Of the delivered specs whose final bytes passed a run_spec call, the share that also passed the final execution. A spec green
+ * through run_spec and red in the run, on the same bytes, depends on something the bytes do not hold (timing, data, the order of
+ * the suite): unstable. Silent when no delivered spec's final bytes passed run_spec, or the run did not execute them.
+ */
+const runSpecFinalAgreement: Grader = {
+  names: ["run_spec_final_agreement"],
+  grade: finishedOnly((e) => {
+    const proven = e.deliveredSpecs.filter((spec) => spec.passed !== undefined && spec.sha256 !== undefined && e.runSpecCalls.some((c) => c.outcome === "passed" && c.sha256 === spec.sha256 && samePath(c.path, spec.path)));
+    if (proven.length === 0) return [];
+    const disagreed = proven.filter((spec) => spec.passed !== true).map((spec) => spec.path);
+    return [{ name: "run_spec_final_agreement", value: ratio(proven.length - disagreed.length, proven.length), ...(disagreed.length > 0 ? { comment: `passed run_spec, failed the final execution on the same bytes: ${disagreed.join(", ")}` } : {}) }];
+  }),
+};
+
+/* The share of the run's run_spec calls the orchestrator refused, with the count of each refusal code. Silent for a run that made none. */
+const closedLoopRefusals: Grader = {
+  names: ["closed_loop_refusals"],
+  grade: finishedOnly((e) => {
+    if (e.runSpecCalls.length === 0) return [];
+    const byCode = new Map<string, number>();
+    for (const call of e.runSpecCalls) if (call.outcome === "refused") byCode.set(call.refusal ?? "unknown", (byCode.get(call.refusal ?? "unknown") ?? 0) + 1);
+    const refused = [...byCode.values()].reduce((sum, n) => sum + n, 0);
+    const codes = [...byCode].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([code, n]) => `${code} ×${n}`);
+    return [{ name: "closed_loop_refusals", value: ratio(refused, e.runSpecCalls.length), ...(refused > 0 ? { comment: `${refused} of ${e.runSpecCalls.length} refused: ${codes.join(", ")}` } : {}) }];
+  }),
+};
+
+/* A sidekick's word that contradicts its flow's last run_spec call: it gave up on a spec that had just passed, or claimed it done on one that had not. */
+const contradicts = (status: string, last: string): boolean => ((status === "failed" || status === "blocked") && last === "passed") || (status === "completed" && last !== "passed");
+
+/*
+ * Whether every sidekick report agrees with what its flow's last run_spec call showed. A report the orchestrator cannot check (no
+ * call yet, or a needs-lead hand-off or a completion with concerns, which claim neither way) is not graded; silent when none is left.
+ */
+const sidekickReportConsistent: Grader = {
+  names: ["sidekick_report_consistent"],
+  grade: finishedOnly((e) => {
+    const checked = e.sidekickReports.filter((r) => r.lastRunSpec !== undefined && ["failed", "blocked", "completed"].includes(r.status));
+    if (checked.length === 0) return [];
+    const wrong = checked.filter((r) => contradicts(r.status, r.lastRunSpec!)).map((r) => `${r.delegationId.startsWith(`${e.runId}-`) ? r.delegationId.slice(e.runId.length + 1) : r.delegationId}${r.attempt !== undefined ? ` turn ${r.attempt}` : ""}: reported ${r.status}, last run_spec ${r.lastRunSpec}`);
+    return [{ name: "sidekick_report_consistent", value: wrong.length === 0, ...(wrong.length > 0 ? { comment: wrong.join("; ") } : {}) }];
+  }),
+};
+
 export const GRADERS: readonly Grader[] = [
   emptyOutputGuard,
   furthestPhase,
@@ -348,6 +415,10 @@ export const GRADERS: readonly Grader[] = [
   noopConsistent,
   planReach,
   flowDeliveryRate,
+  changePagesGrounded,
+  runSpecFinalAgreement,
+  closedLoopRefusals,
+  sidekickReportConsistent,
 ];
 
 /* Runs the graders that emit one of `only` (all of them when absent) and returns the catalog-typed scores. A throwing grader is not caught here. */

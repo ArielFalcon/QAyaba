@@ -23,7 +23,7 @@ function inPhase<T>(h: ReturnType<typeof traceHarness>, name: string, fn: () => 
 test("every coordination decision is recorded in the ledger and is a span of the open phase that says why", () => {
   const h = traceHarness();
   const ledger: CoordinationTelemetryEvent[] = [];
-  const event: CoordinationTelemetryEvent = { runId: "r", kind: "delegation", action: "delegate", reason: "flow cart turn 2: sidekick status=needs-lead, file taken back", delegationId: "r-flow-cart", attempt: 2, failureClass: "failed", at: 1 };
+  const event: CoordinationTelemetryEvent = { runId: "r", kind: "delegation", action: "delegate", reason: "flow cart turn 2: sidekick status=needs-lead, file taken back", delegationId: "r-flow-cart", attempt: 2, failureClass: "failed", sidekickStatus: "needs-lead", lastRunSpec: "passed", at: 1 };
   inPhase(h, "qayaba.phase.generate", () => new TracedCoordinationTelemetry({ record: (e) => void ledger.push(e) }, h.telemetry).record(event));
   assert.deepEqual(ledger, [event]);
   const span = h.only("qayaba.coordination.event");
@@ -34,6 +34,8 @@ test("every coordination decision is recorded in the ledger and is a span of the
   assert.equal(span.attributes["qayaba.delegation.id"], "r-flow-cart");
   assert.equal(span.attributes["qayaba.coordination.attempt"], 2);
   assert.equal(span.attributes["qayaba.coordination.failure_class"], "failed");
+  assert.equal(span.attributes["qayaba.delegation.status"], "needs-lead");
+  assert.equal(span.attributes["qayaba.delegation.last_run_spec"], "passed");
 });
 
 test("the change-coverage measurement is a span with its decision, what it counted and why it decided nothing", async () => {

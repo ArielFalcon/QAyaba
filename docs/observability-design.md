@@ -872,6 +872,10 @@ qa-engine/src/contexts/evaluation/
 | `plan_route_coverage` | NUMERIC 0..1 | Change pages (the map pages the change is linked to) an admitted flow of the lead's plan visits / change pages; comment lists the unvisited | Read from `run_plans`; only a plan of flows with change pages. A flow visits a page when one of its routes names it, the same template under other parameter names included |
 | `delivered_route_coverage` | NUMERIC 0..1 | Change pages visited by a flow whose delivered spec passed every case of the final execution / change pages; comment lists the unproven | Absent while a flow's result cannot be tied to its cases |
 | `flow_delivery_rate` | NUMERIC 0..1 | Flows that delivered a spec passing every case of the final execution / admitted flows; comment lists the others | Same condition |
+| `change_pages_grounded` | NUMERIC 0..1 | Change pages (the route ranking's `relevant_ids`) the delivered Context Pack holds a live element of (`dom:<page>#…`) / change pages; comment lists the others | Only with change pages and a delivered pack; silent when a page is missing and the pack's id list overflowed its cap. A page cut, not capturable or never rendered is not grounded |
+| `run_spec_final_agreement` | NUMERIC 0..1 | Delivered specs whose final bytes passed a `run_spec` call (same path and sha256) and passed the final execution / delivered specs whose final bytes passed `run_spec`; comment lists the unstable ones | Only when a delivered spec's final bytes passed `run_spec` and its cases can be tied to it in an executed run |
+| `closed_loop_refusals` | NUMERIC 0..1, lower is better | `run_spec` calls the orchestrator refused / calls; comment counts each refusal code | Read from the `qayaba.tool.run_spec` spans; only a run that made a call |
+| `sidekick_report_consistent` | BOOLEAN | No sidekick turn reported `failed`/`blocked` while its flow's last `run_spec` call had passed, or `completed` while it had not; comment lists the contradictions | Read from the delegation events' `qayaba.delegation.status` and `qayaba.delegation.last_run_spec`; `needs-lead`, `completed-with-concerns` and a turn with no call yet are not graded. Runs recorded before the events carried the status are silent |
 | `cost_per_useful_spec` | NUMERIC USD | cost / useful specs. **Useful** = valid ∧ passed on the run ∧ passed on the campaign's no-retry re-run ∧ (killed ≥ 1 mutant when the oracle ran) | Absent outside campaigns that do the re-run |
 
 ### 11.3 LLM-as-judge and human labels (last)
@@ -1111,9 +1115,9 @@ the contract above is unaffected:
 
 | Score | Polarity |
 |---|---|
-| `spec_validity_rate`, `spec_pass_rate`, `selector_stability`, `context_utilization[.<source>]`, `mutation_value`, `plan_route_coverage`, `delivered_route_coverage`, `flow_delivery_rate` | higher_better |
-| `empty_output_guard`, `approval_consistent`, `context_complete`, `noop_consistent` (BOOLEAN, `true` = pass) | higher_better |
-| `auth_overhead`, `cost_per_useful_spec` | lower_better |
+| `spec_validity_rate`, `spec_pass_rate`, `selector_stability`, `context_utilization[.<source>]`, `mutation_value`, `plan_route_coverage`, `delivered_route_coverage`, `flow_delivery_rate`, `change_pages_grounded`, `run_spec_final_agreement` | higher_better |
+| `empty_output_guard`, `approval_consistent`, `context_complete`, `noop_consistent`, `sidekick_report_consistent` (BOOLEAN, `true` = pass) | higher_better |
+| `auth_overhead`, `closed_loop_refusals`, `cost_per_useful_spec` | lower_better |
 | `furthest_phase` (ordinal by `phases`), `budget_exhaustion` (`none` is the clean value), `change_coverage` (`unknown` is its own class), `infra_error`, `step_intent_mix.<intent>` | none |
 
 - **Dataset items.** `description` is metadata only and is never sent to a run. An item that needs

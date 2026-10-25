@@ -8,7 +8,7 @@
 
 import { RUN_PHASES } from "@contexts/qa-run-orchestration/domain/run-phase-cursor";
 import type { EvidencePort } from "@contexts/evaluation/application/ports/index";
-import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, PlanEvidence, RunEvaluationEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence";
+import type { ContextEvidence, ContextFreshness, DeliveredContextSource, DeliveredOmission, DeliveredSpecEvidence, PlanEvidence, RunEvaluationEvidence, RunSpecCallEvidence, SidekickReportEvidence } from "@contexts/evaluation/domain/run-evaluation-evidence";
 import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
 import { getRecord, getRunFacts, getRunOutcome, getRunPhases, getAgentTurns, getRunPlan, listRunSpans, listSpecSnapshots, type AgentTurnRecord, type RunFactsPatch, type RunPhases, type SpecSnapshotRow } from "./history";
 import type { RunOutcome, RunRecord } from "../types";
@@ -127,6 +127,43 @@ export function planEvidenceOf(raw: string | undefined, record: Pick<RunRecord, 
   return { kind: plan.kind, changeRoutes: asStringArray(plan.changeRoutes), flows };
 }
 
+const optStr = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
+
+/* The closed loop's calls, in the order the ledger holds them (by start). */
+export function runSpecCallsOf(spans: readonly LedgerSpan[]): RunSpecCallEvidence[] {
+  return spans.flatMap((s) => {
+    if (s.name !== "qayaba.tool.run_spec") return [];
+    const a = attrsOf(s);
+    const path = optStr(a["qayaba.spec.path"]);
+    const outcome = optStr(a["qayaba.tool.outcome"]);
+    if (!path || !outcome) return [];
+    return [{ path, sha256: optStr(a["qayaba.spec.sha256"]), outcome, refusal: optStr(a["qayaba.tool.refusal"]) }];
+  });
+}
+
+/* Each delivered spec's newest delivered bytes and whether every case tied to it passed the final execution. */
+export function deliveredSpecsOf(specNames: readonly string[], snapshots: readonly SpecSnapshotRow[], record: Pick<RunRecord, "cases" | "verdict">): DeliveredSpecEvidence[] {
+  const executed = record.verdict !== undefined && EXECUTED_VERDICTS.has(record.verdict);
+  return specNames.map((path) => {
+    const newest = snapshots.filter((s) => s.delivered === 1 && specOfCase(s.path, [path]) !== undefined).sort((a, b) => b.capturedAt - a.capturedAt)[0];
+    const statuses = record.cases.filter((c) => specOfCase(c.file, specNames) === path).map((c) => c.status);
+    return { path, sha256: newest?.sha256, passed: !executed || statuses.length === 0 ? undefined : statuses.every((st) => st === "pass") };
+  });
+}
+
+/* The delegation events that recorded the sidekick's status. */
+export function sidekickReportsOf(spans: readonly LedgerSpan[]): SidekickReportEvidence[] {
+  return spans.flatMap((s) => {
+    if (s.name !== "qayaba.coordination.event") return [];
+    const a = attrsOf(s);
+    const delegationId = optStr(a["qayaba.delegation.id"]);
+    const status = optStr(a["qayaba.delegation.status"]);
+    if (a["qayaba.coordination.kind"] !== "delegation" || !delegationId || !status) return [];
+    const attempt = a["qayaba.coordination.attempt"];
+    return [{ delegationId, attempt: typeof attempt === "number" ? attempt : undefined, status, lastRunSpec: optStr(a["qayaba.delegation.last_run_spec"]) }];
+  });
+}
+
 export interface SpecCounts {
   generated: number;
   valid: number | null;
@@ -190,11 +227,13 @@ function deliveredSourcesOf(spans: readonly LedgerSpan[]): DeliveredContextSourc
       }
       return result;
     })();
+    const overflow = attrs["qayaba.context.item_ids.overflow"];
     const entry = bySource.get(source) ?? { source, ids: [], bytes: 0, omitted: 0, omissions: [] };
     entry.ids.push(...ids);
     entry.bytes += bytes;
     entry.omitted += omitted;
     entry.omissions.push(...omissions);
+    if (typeof overflow === "number" && overflow > 0) entry.idsOverflow = (entry.idsOverflow ?? 0) + overflow;
     bySource.set(source, entry);
   }
   return [...bySource.values()];
@@ -368,7 +407,8 @@ export class HistoryEvidenceAdapter implements EvidencePort {
     const spans = d.runSpans(runId);
     const turns = d.getAgentTurns(runId);
 
-    const specs = specCountsOf(record, d.listSpecSnapshots(runId), furthestPhase);
+    const snapshots = d.listSpecSnapshots(runId);
+    const specs = specCountsOf(record, snapshots, furthestPhase);
     const g = outcome?.gateSignals;
     const coverageStatus = COVERAGE_STATUSES.find((c) => c === facts?.coverageStatus);
 
@@ -399,8 +439,11 @@ export class HistoryEvidenceAdapter implements EvidencePort {
         : undefined,
       limit: facts?.limitFired ? { fired: facts.limitFired, role: facts.limitRole ?? undefined, intent: limitIntentOf(spans, facts.limitRole ?? undefined) } : undefined,
       stepIntents: stepIntentsOf(spans),
-      context: contextOf(spans, turns, d.listSpecSnapshots(runId)),
+      context: contextOf(spans, turns, snapshots),
       plan: planEvidenceOf(d.getRunPlan(runId), record),
+      runSpecCalls: runSpecCallsOf(spans),
+      deliveredSpecs: deliveredSpecsOf(deliveredSpecNames(record, snapshots), snapshots, record),
+      sidekickReports: sidekickReportsOf(spans),
       finishedAt: outcome?.at ?? record.at,
     };
   }

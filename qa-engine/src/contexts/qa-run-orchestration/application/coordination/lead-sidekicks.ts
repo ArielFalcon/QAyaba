@@ -462,6 +462,9 @@ export class LeadSidekicks {
       if (collected.proposalsTotal > 0) proposals = { flowId: flow.id, changes: collected.proposals, total: collected.proposalsTotal };
     }
     const failureClass = classifyDelegationFailure(result.status, result.filesChanged.length, copied ? 1 : 0);
+    const { loop } = entry;
+    const ledger = loop?.ledger() ?? [];
+    const lastCall = ledger.at(-1);
     this.record(input, {
       kind: "delegation",
       action: "delegate",
@@ -470,12 +473,11 @@ export class LeadSidekicks {
       delegationId,
       attempt,
       ...(failureClass ? { failureClass } : {}),
+      sidekickStatus: result.status,
+      ...(lastCall ? { lastRunSpec: lastCall.status } : {}),
     });
 
     entry.taken = copied;
-    const { loop } = entry;
-    const ledger = loop?.ledger() ?? [];
-    const lastCall = ledger.at(-1);
     /* What the flow's last run_spec call met, from the facts the orchestrator kept of it. */
     const failure = lastCall?.status === "failed" ? classifyAuthoringFailure(lastCall.failures) : undefined;
     entry.failure = failure;
@@ -777,7 +779,7 @@ export class LeadSidekicks {
     return unvisited;
   }
 
-  private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "router"; action?: "direct" | "delegate" | "lead-takeover" | "escalate-sidekick" | "abort-human"; capability?: AgentCapability; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string }): void {
+  private record(input: CoordinateInput, event: { kind: "proposal" | "delegation" | "escalation" | "router"; action?: "direct" | "delegate" | "lead-takeover" | "escalate-sidekick" | "abort-human"; capability?: AgentCapability; reason: string; delegationId?: string; attempt?: number; durationMs?: number; failureClass?: string; progressFingerprint?: string; sidekickStatus?: string; lastRunSpec?: string }): void {
     this.deps.telemetry?.record({ runId: input.runId, app: input.app, at: this.now(), ...event });
   }
 }

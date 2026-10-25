@@ -226,3 +226,72 @@ test("the plan the run kept carries each flow's result in the final execution, t
   const unreadable = (await new HistoryEvidenceAdapter(deps({ getRunPlan: () => "{not json" })).load("run-1"))!;
   assert.equal(unreadable.plan, undefined);
 });
+
+const span = (name: string, attrs: Record<string, unknown>, id = name) => ({ name, spanId: id, parentSpanId: null, attrs: JSON.stringify(attrs) });
+
+test("the run_spec calls are read back in order with their bytes, outcome and refusal code", async () => {
+  const evidence = (await new HistoryEvidenceAdapter(
+    deps({
+      runSpans: () => [
+        span("qayaba.tool.run_spec", { "qayaba.spec.path": "flows/cart.spec.ts", "qayaba.spec.sha256": "aaa", "qayaba.tool.outcome": "failed" }, "a"),
+        span("qayaba.tool.run_spec", { "qayaba.spec.path": ".qa-probe/x.spec.ts", "qayaba.tool.outcome": "refused", "qayaba.tool.refusal": "invalid-request" }, "b"),
+        span("qayaba.tool.run_spec", { "qayaba.tool.outcome": "refused" }, "c"),
+      ],
+    }),
+  ).load("run-1"))!;
+  assert.deepEqual(evidence.runSpecCalls, [
+    { path: "flows/cart.spec.ts", sha256: "aaa", outcome: "failed", refusal: undefined },
+    { path: ".qa-probe/x.spec.ts", sha256: undefined, outcome: "refused", refusal: "invalid-request" },
+  ]);
+});
+
+test("each delivered spec carries its newest delivered bytes and whether its cases passed the final execution", async () => {
+  const row = (path: string, sha256: string, capturedAt: number, delivered = 1): SpecSnapshotRow => ({ runId: "run-1", path, sha256, text: "t", bytes: 1, capturedAt, delivered });
+  const evidence = (await new HistoryEvidenceAdapter(
+    deps({
+      getRecord: () =>
+        record({
+          verdict: "fail",
+          specs: [{ name: "e2e/flows/cart.spec.ts" }, { name: "e2e/flows/menu.spec.ts" }, { name: "e2e/flows/untied.spec.ts" }] as RunRecord["specs"],
+          cases: [
+            { name: "cart › a", status: "pass", file: "flows/cart.spec.ts" },
+            { name: "menu › a", status: "pass", file: "flows/menu.spec.ts" },
+            { name: "menu › b", status: "fail", file: "flows/menu.spec.ts" },
+          ] as RunRecord["cases"],
+        }),
+      listSpecSnapshots: () => [row("flows/cart.spec.ts", "old", 1), row("flows/cart.spec.ts", "new", 2), row("flows/cart.spec.ts", "draft", 3, 0), row("flows/menu.spec.ts", "m", 1)],
+    }),
+  ).load("run-1"))!;
+  assert.deepEqual(evidence.deliveredSpecs, [
+    { path: "e2e/flows/cart.spec.ts", sha256: "new", passed: true },
+    { path: "e2e/flows/menu.spec.ts", sha256: "m", passed: false },
+    { path: "e2e/flows/untied.spec.ts", sha256: undefined, passed: undefined },
+  ]);
+  const unexecuted = (await new HistoryEvidenceAdapter(deps({ getRecord: () => record({ verdict: "invalid", cases: [{ name: "x", status: "fail", file: "flows/restaurant-list-change-filters.spec.ts" }] as RunRecord["cases"] }) })).load("run-1"))!;
+  assert.equal(unexecuted.deliveredSpecs[0]!.passed, undefined, "a run that did not execute has no final result");
+});
+
+test("a delegation event that recorded the sidekick's status is read back with its flow's last run_spec outcome", async () => {
+  const evidence = (await new HistoryEvidenceAdapter(
+    deps({
+      runSpans: () => [
+        span("qayaba.coordination.event", { "qayaba.coordination.kind": "delegation", "qayaba.delegation.id": "run-1-flow-cart", "qayaba.coordination.attempt": 1, "qayaba.delegation.status": "failed", "qayaba.delegation.last_run_spec": "passed" }, "a"),
+        span("qayaba.coordination.event", { "qayaba.coordination.kind": "delegation", "qayaba.delegation.id": "run-1-flow-menu", "qayaba.delegation.status": "completed" }, "b"),
+        span("qayaba.coordination.event", { "qayaba.coordination.kind": "delegation", "qayaba.delegation.id": "run-1-flow-old" }, "c"),
+        span("qayaba.coordination.event", { "qayaba.coordination.kind": "router", "qayaba.delegation.status": "failed" }, "d"),
+      ],
+    }),
+  ).load("run-1"))!;
+  assert.deepEqual(evidence.sidekickReports, [
+    { delegationId: "run-1-flow-cart", attempt: 1, status: "failed", lastRunSpec: "passed" },
+    { delegationId: "run-1-flow-menu", attempt: undefined, status: "completed", lastRunSpec: undefined },
+  ]);
+});
+
+test("a delivered source counts the ids its span could not list past the cap", async () => {
+  const capped = span("qayaba.delivered.context-pack", { "qayaba.context.source": "context-pack", "qayaba.context.item_ids": ["dom:/a#x"], "qayaba.context.bytes": 1, "qayaba.context.item_ids.overflow": 4 });
+  const evidence = (await new HistoryEvidenceAdapter(deps({ runSpans: () => [capped] })).load("run-1"))!;
+  assert.equal(evidence.context?.delivered[0]?.idsOverflow, 4);
+  const uncapped = (await new HistoryEvidenceAdapter(deps({ runSpans: () => [deliveredSpan("context-pack", ["dom:/a#x"])] })).load("run-1"))!;
+  assert.equal(uncapped.context?.delivered[0]?.idsOverflow, undefined);
+});
