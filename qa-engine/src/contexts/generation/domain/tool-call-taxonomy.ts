@@ -18,6 +18,7 @@ export type AgentActivityKind = "analyzing" | "writing" | "command" | "subagent"
 
 export type CallBucket =
   | "code_read"
+  | "code_graph"
   | "browser"
   | "write"
   | "validate_run"
@@ -28,6 +29,7 @@ export type CallBucket =
 
 export const CALL_BUCKETS = {
   CODE_READ: "code_read",
+  CODE_GRAPH: "code_graph",
   BROWSER: "browser",
   WRITE: "write",
   VALIDATE_RUN: "validate_run",
@@ -106,6 +108,13 @@ const MEMORY_TOOLS = /(^|_)mem_|_memor(y|ies)$/i;
 const CODE_READ_TOOLS =
   /(^|_)(read|grep|glob|activate_project|find_referencing_symbols|find_symbol|get_symbols_overview|read_file|search_for_pattern|find_file|list_dir)$/i;
 
+/* The code-graph tools (agents/tool/codegraph.ts names each export `codegraph_<action>`): a structural read of the graph the orchestrator built, kept apart from code_read so its use and the reads it saves are measured on their own. */
+const CODE_GRAPH_TOOLS = /(^|_)codegraph_[a-z_]+$/i;
+
+export function isCodeGraphTool(tool: string): boolean {
+  return CODE_GRAPH_TOOLS.test(tool);
+}
+
 /* The input keys a shell tool carries its command line under: the native bash tool's `command`, Serena's `command`, and `cmd`. */
 const SHELL_COMMAND_KEYS = ["command", "cmd"] as const;
 
@@ -132,7 +141,7 @@ function bucketForShellCall(input: unknown): CallBucket {
 }
 
 /**
- * Refines the coarse `analyzing` kind into `code_read` / `browser` / `memory` / `other`, and the
+ * Refines the coarse `analyzing` kind into `code_read` / `code_graph` / `browser` / `memory` / `other`, and the
  * `command` kind by the command line the call carries (`bucketForShellCall`); `writing` and
  * `subagent` map one-to-one onto `write` and `subagent`. The coarse classifier cannot see a
  * command line, so it buckets none of its `command` events: what both sides share is that a shell
@@ -144,6 +153,7 @@ export function bucketForTool(tool: string, input?: unknown): CallBucket {
   if (kind === "command") return bucketForShellCall(input);
   if (kind === "subagent") return CALL_BUCKETS.SUBAGENT;
 
+  if (CODE_GRAPH_TOOLS.test(tool)) return CALL_BUCKETS.CODE_GRAPH;
   if (BROWSER_TOOLS.test(tool)) return CALL_BUCKETS.BROWSER;
   if (MEMORY_TOOLS.test(tool)) return CALL_BUCKETS.MEMORY;
   if (CODE_READ_TOOLS.test(tool)) return CALL_BUCKETS.CODE_READ;

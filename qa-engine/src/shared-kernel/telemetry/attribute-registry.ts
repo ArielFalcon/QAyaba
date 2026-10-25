@@ -178,7 +178,7 @@ export const ATTRIBUTES = {
   "qayaba.prompt.sections.dropped": int("Prompt sections dropped to fit the budget."),
   "qayaba.prompt.budget_bytes": int("The byte budget the prompt was assembled to."),
   "qayaba.tool.target": text("The sanitized, capped target of a tool call."),
-  "qayaba.tool.bucket": str("The call bucket: code_read, browser, write, validate_run, script_run, memory, subagent or other."),
+  "qayaba.tool.bucket": str("The call bucket: code_read, code_graph, browser, write, validate_run, script_run, memory, subagent or other."),
   "qayaba.tool.status": str("How the call ended: completed, error or running (never finished)."),
   "qayaba.nav.outcome": str("What a browser navigation came to: ok, auth_challenge, http_error, blocked or unknown."),
   "qayaba.step.intent": str("What a step was for: write_spec, auth, run_spec, explore, review or other."),

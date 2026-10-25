@@ -82,6 +82,18 @@ test("bucketForTool recognizes MCP tools whose names carry the server prefix", (
   assert.equal(bucketForTool("serena_read_file"), CALL_BUCKETS.CODE_READ);
 });
 
+test("bucketForTool puts the code-graph tools in code_graph, bare or with a server prefix", () => {
+  assert.equal(bucketForTool("codegraph_explore"), CALL_BUCKETS.CODE_GRAPH);
+  assert.equal(bucketForTool("codegraph_search_graph"), CALL_BUCKETS.CODE_GRAPH);
+  assert.equal(bucketForTool("mcp__codegraph__codegraph_explore"), CALL_BUCKETS.CODE_GRAPH);
+  assert.equal(kindForTool("codegraph_explore"), "analyzing");
+});
+
+test("a tool that merely contains the code-graph word is not a code_graph tool", () => {
+  assert.equal(bucketForTool("mycodegraph"), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("codegraphs_explore"), CALL_BUCKETS.OTHER);
+});
+
 test("bucketForTool does not treat an unrelated tool that merely ends in a read-like word as code_read", () => {
   assert.equal(bucketForTool("spread"), CALL_BUCKETS.OTHER);
   assert.equal(bucketForTool("thread"), CALL_BUCKETS.OTHER);

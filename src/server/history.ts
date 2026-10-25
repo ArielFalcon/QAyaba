@@ -68,6 +68,8 @@ export interface AgentTurnRecord {
   promptProvidedReadCount?: number | null;
   /* Content reads of a file the prompt listed by path as rendered; apart from the content-based promptProvidedReadCount. */
   pathProvidedReadCount?: number | null;
+  /* Content reads whose lines a code-graph answer earlier in the session had already shown; apart from the prompt's two counts. */
+  graphProvidedReadCount?: number | null;
   exhausted?: boolean | null;
   callBuckets?: Record<string, number> | null;
   /* How the turn ended; null when the row predates the column or the runtime does not say. A turn that ended by timeout or abort has empty output_text and only the calls measured up to its end. */
@@ -142,6 +144,7 @@ export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: 
   { name: "limit_applied", type: "TEXT" },
   { name: "limit_fired", type: "TEXT" },
   { name: "same_file_read_count", type: "INTEGER" },
+  { name: "graph_provided_read_count", type: "INTEGER" },
 ];
 
 const DELETE_MAX_AGE_DAYS = 30;
@@ -660,7 +663,7 @@ function ensureDb(): void {
        path_provided_read_count, ended,
        duration_ms, time_to_first_call_ms, time_to_first_write_ms, denied_call_count, tool_sequence, usage_total,
        model_requested, model_answered, provider, attempt, fallback_used, error_type,
-       section_sizes, section_hashes, prompt_hash, limit_applied, limit_fired, same_file_read_count)
+       section_sizes, section_hashes, prompt_hash, limit_applied, limit_fired, same_file_read_count, graph_provided_read_count)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
@@ -670,7 +673,7 @@ function ensureDb(): void {
        @pathProvidedReadCount, @ended,
        @durationMs, @timeToFirstCallMs, @timeToFirstWriteMs, @deniedCallCount, @toolSequence, @usageTotal,
        @modelRequested, @modelAnswered, @provider, @attempt, @fallbackUsed, @errorType,
-       @sectionSizes, @sectionHashes, @promptHash, @limitApplied, @limitFired, @sameFileReadCount)
+       @sectionSizes, @sectionHashes, @promptHash, @limitApplied, @limitFired, @sameFileReadCount, @graphProvidedReadCount)
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
@@ -2009,6 +2012,7 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
     duplicateCallCount: turn.duplicateCallCount ?? null,
     promptProvidedReadCount: turn.promptProvidedReadCount ?? null,
     pathProvidedReadCount: turn.pathProvidedReadCount ?? null,
+    graphProvidedReadCount: turn.graphProvidedReadCount ?? null,
     /* exhausted is tri-state: NULL = unknown, 0 = known not exhausted, 1 = exhausted. */
     exhausted: turn.exhausted == null ? null : turn.exhausted ? 1 : 0,
     callBuckets: turn.callBuckets ? JSON.stringify(turn.callBuckets) : null,
@@ -2068,6 +2072,7 @@ export function saveAgentTurnEvent(t: AgentTurnEvent): void {
     duplicateCallCount: t.callMetrics?.duplicateCallCount ?? null,
     promptProvidedReadCount: t.callMetrics?.promptProvidedReadCount ?? null,
     pathProvidedReadCount: t.callMetrics?.pathProvidedReadCount ?? null,
+    graphProvidedReadCount: t.callMetrics?.graphProvidedReadCount ?? null,
     callBuckets: t.callMetrics?.buckets ?? null,
     ended: t.ended ?? null,
     durationMs: t.durationMs ?? null,
@@ -2121,6 +2126,7 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
     duplicateCallCount: (r.duplicate_call_count as number | null) ?? null,
     promptProvidedReadCount: (r.prompt_provided_read_count as number | null) ?? null,
     pathProvidedReadCount: (r.path_provided_read_count as number | null) ?? null,
+    graphProvidedReadCount: (r.graph_provided_read_count as number | null) ?? null,
     exhausted: r.exhausted == null ? null : Boolean(r.exhausted),
     callBuckets: typeof r.call_buckets === "string" ? safeJsonParse<Record<string, number> | null>(r.call_buckets, null) : null,
     ended: (r.ended as TurnEnd | null) ?? null,

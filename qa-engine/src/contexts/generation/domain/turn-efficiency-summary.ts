@@ -48,6 +48,8 @@ export interface TurnCallMetrics {
   promptProvidedReadCount: number;
   /** Content reads of a file the prompt listed by path as already rendered (even compactly). Counted by path, apart from the content-based `promptProvidedReadCount`. */
   pathProvidedReadCount: number;
+  /** Content reads whose lines a code-graph answer earlier in the session had already shown. Counted by content, apart from the prompt's two counts. */
+  graphProvidedReadCount: number;
   buckets: Record<CallBucket, number>;
   /** Milliseconds from the turn's start to its first call; null when the turn made none or its start was not observed. */
   timeToFirstCallMs: number | null;
@@ -65,6 +67,7 @@ export interface TurnCallMetrics {
 
 const ZERO_BUCKETS: Record<CallBucket, number> = {
   [CALL_BUCKETS.CODE_READ]: 0,
+  [CALL_BUCKETS.CODE_GRAPH]: 0,
   [CALL_BUCKETS.BROWSER]: 0,
   [CALL_BUCKETS.WRITE]: 0,
   [CALL_BUCKETS.VALIDATE_RUN]: 0,
@@ -89,6 +92,7 @@ export interface BuildTurnCallMetricsInput {
   sameFileReadCount: number;
   promptProvidedReadCount: number;
   pathProvidedReadCount: number;
+  graphProvidedReadCount: number;
   stepsUsed: number | null;
   observationComplete: boolean;
   timeToFirstCallMs: number | null;
@@ -115,6 +119,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     duplicateCallCount: input.sequence.repeatedCallCount,
     promptProvidedReadCount: input.promptProvidedReadCount,
     pathProvidedReadCount: input.pathProvidedReadCount,
+    graphProvidedReadCount: input.graphProvidedReadCount,
     buckets: tallyBuckets(input.buckets),
     timeToFirstCallMs: input.timeToFirstCallMs,
     timeToFirstWriteMs: input.timeToFirstWriteMs,

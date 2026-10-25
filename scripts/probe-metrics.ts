@@ -167,6 +167,8 @@ export interface ProbeTurn {
   promptProvidedReads: number | null;
   /** Reads of a file the prompt listed by path. */
   pathProvidedReads: number | null;
+  /** Reads of source a code-graph answer had already shown. */
+  graphProvidedReads: number | null;
   tools: ToolSummary | null;
   /** The full ordered sequence, kept in the JSON only. */
   toolSequence: ToolSequenceEntry[] | null;
@@ -211,6 +213,7 @@ export function toProbeTurn(t: AgentTurnRecord, ctx: ReadingContext): ProbeTurn 
     sameFileReads: t.sameFileReadCount ?? null,
     promptProvidedReads: t.promptProvidedReadCount ?? null,
     pathProvidedReads: t.pathProvidedReadCount ?? null,
+    graphProvidedReads: t.graphProvidedReadCount ?? null,
     tools: summarizeTools(toolSequence, ctx),
     toolSequence,
   };
@@ -253,6 +256,7 @@ export function turnFromCallMetrics(t: MeasuredTurnInput, ctx: ReadingContext): 
     sameFileReads: m?.sameFileReadCount ?? null,
     promptProvidedReads: m?.promptProvidedReadCount ?? null,
     pathProvidedReads: m?.pathProvidedReadCount ?? null,
+    graphProvidedReads: m?.graphProvidedReadCount ?? null,
     tools: summarizeTools(m?.toolSequence ?? null, ctx),
     toolSequence: m?.toolSequence ?? null,
   };

@@ -24,7 +24,7 @@
  */
 import { isAbsolute, relative, resolve } from "node:path";
 import type { RawOpencodeEvent } from "./activity-mapper.ts";
-import { CALL_BUCKETS, bucketForTool, isShellTool, toolInputPath, type CallBucket } from "../../domain/tool-call-taxonomy.ts";
+import { CALL_BUCKETS, bucketForTool, isCodeGraphTool, isShellTool, toolInputPath, type CallBucket } from "../../domain/tool-call-taxonomy.ts";
 import {
   detectRedundantReads,
   detectSameFileRereads,
@@ -102,7 +102,12 @@ interface TrackedCall {
   denied: boolean;
   /** Up to PROVIDED_CONTEXT_SAMPLE_LINES normalized lines of a completed content read. */
   sample?: string[];
+  /** The first GRAPH_ANSWER_KEPT_CHARS of a completed code-graph answer, the source it showed the agent. */
+  graphAnswer?: string;
 }
+
+/* A code-graph answer is capped by the orchestrator well below this; the bound only keeps a runaway answer from growing the session's memory. */
+const GRAPH_ANSWER_KEPT_CHARS = 64 * 1024;
 
 /** How long an attempt waits for its directory's stream to connect before it is observed incompletely. */
 export const OBSERVATION_READY_TIMEOUT_MS = 5_000;
@@ -487,6 +492,9 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     if (status === "completed" && isContentReadTool(part.tool) && typeof part.state?.output === "string") {
       call.sample = sampleReadOutput(part.state.output);
     }
+    if (status === "completed" && isCodeGraphTool(part.tool) && typeof part.state?.output === "string") {
+      call.graphAnswer = part.state.output.slice(0, GRAPH_ANSWER_KEPT_CHARS);
+    }
   }
 
   /* Closes the step that is open (or records one whose start was not seen); a finish seen again updates its step, never adds one. */
@@ -591,6 +599,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       sameFileReadCount: turnCalls.filter((call) => rereads.has(call.callId)).length,
       promptProvidedReadCount: turnCalls.filter((call) => call.sample && isProvidedByPrompt(call.sample, promptIndex)).length,
       pathProvidedReadCount: turnCalls.filter((call) => isContentReadTool(call.tool) && call.path !== undefined && provided.has(call.path)).length,
+      graphProvidedReadCount: countGraphProvidedReads(calls, session.flushedCalls),
       stepsUsed: session.stepsComplete && newSteps > 0 ? newSteps : null,
       observationComplete: session.stepsComplete,
       timeToFirstCallMs: sinceStart(turnCalls[0]),
@@ -610,6 +619,17 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
     session.sawEventSinceFlush = false;
     return metrics;
   }
+}
+
+/* The content reads at or after `from` whose lines a code-graph answer made earlier in the session had already shown. A read is compared only with the answers before it, so a read the agent made first and the graph repeated later is not counted. */
+function countGraphProvidedReads(calls: readonly TrackedCall[], from: number): number {
+  let shown: ReadonlySet<string> = new Set();
+  let count = 0;
+  calls.forEach((call, index) => {
+    if (call.graphAnswer !== undefined) shown = new Set([...shown, ...indexPromptLines(call.graphAnswer)]);
+    else if (index >= from && call.sample && isProvidedByPrompt(call.sample, shown)) count += 1;
+  });
+  return count;
 }
 
 export const callEfficiencyTracker = new CallEfficiencyTracker();

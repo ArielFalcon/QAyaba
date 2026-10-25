@@ -4706,6 +4706,12 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "graphProvidedReadCount": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
           "exhausted": {
             "nullable": true,
             "type": "boolean"
@@ -4857,6 +4863,7 @@
           "duplicateCallCount",
           "promptProvidedReadCount",
           "pathProvidedReadCount",
+          "graphProvidedReadCount",
           "exhausted",
           "callBuckets",
           "ended",

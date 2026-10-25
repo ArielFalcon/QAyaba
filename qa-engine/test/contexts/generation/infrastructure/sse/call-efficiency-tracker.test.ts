@@ -366,6 +366,46 @@ test("a read whose output the turn's prompt already contained counts as prompt-p
   assert.equal(metrics?.promptProvidedReadCount, 1);
 });
 
+/* A code-graph answer shows source the same way a read does (`<n>\t<line>`): a later read of those lines fetches what the lead was already shown. */
+const GRAPH_SOURCE = [
+  "export function calculateInvoiceTotal(items) {",
+  "  const subtotal = items.reduce((sum, item) => sum + item.price, 0);",
+  "  const tax = subtotal * TAX_RATE_FOR_REGION;",
+  "  return subtotal + tax + SHIPPING_FLAT_FEE;",
+  "}",
+];
+const GRAPH_ANSWER = `**Exploration: calculateInvoiceTotal**\n\n\`\`\`typescript\n${GRAPH_SOURCE.map((line, i) => `${i + 10}\t${line}`).join("\n")}\n\`\`\``;
+const GRAPH_READ = GRAPH_SOURCE.map((line, i) => `${String(i + 10).padStart(5)}\t${line}`).join("\n");
+
+test("a read of source a code-graph answer already showed counts as graph-provided, apart from the prompt's counts", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "codegraph_explore", { query: "calculateInvoiceTotal" }, GRAPH_ANSWER);
+  runCall(tracker, "s1", "c2", "read", { filePath: `${CWD}/invoice.ts` }, GRAPH_READ);
+  runCall(tracker, "s1", "c3", "read", { filePath: `${CWD}/other.ts` }, "1\tsomething entirely different here\n2\tanother distinct line of code\n3\tyet another distinct line of code");
+
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.graphProvidedReadCount, 1);
+  assert.equal(metrics?.promptProvidedReadCount, 0, "the prompt did not carry the lines");
+  assert.equal(metrics?.buckets.code_graph, 1);
+});
+
+test("a read made before the code-graph answer that later showed its lines is not graph-provided", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/invoice.ts` }, GRAPH_READ);
+  runCall(tracker, "s1", "c2", "codegraph_explore", { query: "calculateInvoiceTotal" }, GRAPH_ANSWER);
+
+  assert.equal(tracker.take("s1", "")?.graphProvidedReadCount, 0);
+});
+
+test("a code-graph answer from an earlier turn of the session still makes a later read graph-provided", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "codegraph_explore", { query: "calculateInvoiceTotal" }, GRAPH_ANSWER);
+  assert.equal(tracker.take("s1", "")?.graphProvidedReadCount, 0);
+
+  runCall(tracker, "s1", "c2", "read", { filePath: `${CWD}/invoice.ts` }, GRAPH_READ);
+  assert.equal(tracker.take("s1", "")?.graphProvidedReadCount, 1);
+});
+
 /* A prompt can render a file compactly (a facts list, a summary): the lines of the file are then not in the prompt, but a read of that file re-fetches what the prompt already carries. The prompt lists such files by path. */
 const COMPACT_OUTPUT = "1\texport const test = base.extend({ authenticate: async ({ page }, use) => { await use(async () => {}); } });\n2\texport { expect } from '@playwright/test';\n3\texport function ns(prefix: string) { return prefix + Date.now(); }";
 

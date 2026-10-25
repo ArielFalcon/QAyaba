@@ -12,6 +12,7 @@ test("tallyBuckets zero-fills every CallBucket key, not just the ones seen", () 
   const tally = tallyBuckets([CALL_BUCKETS.WRITE, CALL_BUCKETS.WRITE, CALL_BUCKETS.CODE_READ, CALL_BUCKETS.SCRIPT_RUN]);
   assert.deepEqual(tally, {
     code_read: 1,
+    code_graph: 0,
     browser: 0,
     write: 2,
     validate_run: 0,
@@ -35,6 +36,7 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
     redundantReadCount: 1, sameFileReadCount: 1,
     promptProvidedReadCount: 1,
     pathProvidedReadCount: 2,
+    graphProvidedReadCount: 3,
     stepsUsed: 4,
     observationComplete: true,
     timeToFirstCallMs: 1500,
@@ -52,6 +54,7 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
   assert.equal(metrics.redundantReadCount, 1);
   assert.equal(metrics.promptProvidedReadCount, 1);
   assert.equal(metrics.pathProvidedReadCount, 2, "the path-provided count is carried apart from the content-provided one");
+  assert.equal(metrics.graphProvidedReadCount, 3, "the graph-provided count is carried apart from the prompt's two");
   assert.equal(metrics.buckets.code_read, 1);
   assert.equal(metrics.buckets.write, 1);
   assert.equal(metrics.timeToFirstCallMs, 1500);
@@ -73,6 +76,7 @@ test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence
     redundantReadCount: 0, sameFileReadCount: 0,
     promptProvidedReadCount: 0,
     pathProvidedReadCount: 0,
+    graphProvidedReadCount: 0,
     stepsUsed: null,
     observationComplete: false,
     timeToFirstCallMs: null,

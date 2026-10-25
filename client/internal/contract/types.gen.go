@@ -1076,19 +1076,19 @@ func (e ReportInsightChart) Valid() bool {
 
 // Defines values for ReportInsightDirection.
 const (
-	Down ReportInsightDirection = "down"
-	Flat ReportInsightDirection = "flat"
-	Up   ReportInsightDirection = "up"
+	ReportInsightDirectionDown ReportInsightDirection = "down"
+	ReportInsightDirectionFlat ReportInsightDirection = "flat"
+	ReportInsightDirectionUp   ReportInsightDirection = "up"
 )
 
 // Valid indicates whether the value is a known member of the ReportInsightDirection enum.
 func (e ReportInsightDirection) Valid() bool {
 	switch e {
-	case Down:
+	case ReportInsightDirectionDown:
 		return true
-	case Flat:
+	case ReportInsightDirectionFlat:
 		return true
-	case Up:
+	case ReportInsightDirectionUp:
 		return true
 	default:
 		return false
@@ -1551,6 +1551,78 @@ func (e ScoreSource) Valid() bool {
 	}
 }
 
+// Defines values for TelemetryHealthBackendsCollectorStatus.
+const (
+	TelemetryHealthBackendsCollectorStatusDegraded     TelemetryHealthBackendsCollectorStatus = "degraded"
+	TelemetryHealthBackendsCollectorStatusDown         TelemetryHealthBackendsCollectorStatus = "down"
+	TelemetryHealthBackendsCollectorStatusOk           TelemetryHealthBackendsCollectorStatus = "ok"
+	TelemetryHealthBackendsCollectorStatusUnconfigured TelemetryHealthBackendsCollectorStatus = "unconfigured"
+)
+
+// Valid indicates whether the value is a known member of the TelemetryHealthBackendsCollectorStatus enum.
+func (e TelemetryHealthBackendsCollectorStatus) Valid() bool {
+	switch e {
+	case TelemetryHealthBackendsCollectorStatusDegraded:
+		return true
+	case TelemetryHealthBackendsCollectorStatusDown:
+		return true
+	case TelemetryHealthBackendsCollectorStatusOk:
+		return true
+	case TelemetryHealthBackendsCollectorStatusUnconfigured:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TelemetryHealthBackendsLokiStatus.
+const (
+	TelemetryHealthBackendsLokiStatusDegraded     TelemetryHealthBackendsLokiStatus = "degraded"
+	TelemetryHealthBackendsLokiStatusDown         TelemetryHealthBackendsLokiStatus = "down"
+	TelemetryHealthBackendsLokiStatusOk           TelemetryHealthBackendsLokiStatus = "ok"
+	TelemetryHealthBackendsLokiStatusUnconfigured TelemetryHealthBackendsLokiStatus = "unconfigured"
+)
+
+// Valid indicates whether the value is a known member of the TelemetryHealthBackendsLokiStatus enum.
+func (e TelemetryHealthBackendsLokiStatus) Valid() bool {
+	switch e {
+	case TelemetryHealthBackendsLokiStatusDegraded:
+		return true
+	case TelemetryHealthBackendsLokiStatusDown:
+		return true
+	case TelemetryHealthBackendsLokiStatusOk:
+		return true
+	case TelemetryHealthBackendsLokiStatusUnconfigured:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TelemetryHealthBackendsTempoStatus.
+const (
+	TelemetryHealthBackendsTempoStatusDegraded     TelemetryHealthBackendsTempoStatus = "degraded"
+	TelemetryHealthBackendsTempoStatusDown         TelemetryHealthBackendsTempoStatus = "down"
+	TelemetryHealthBackendsTempoStatusOk           TelemetryHealthBackendsTempoStatus = "ok"
+	TelemetryHealthBackendsTempoStatusUnconfigured TelemetryHealthBackendsTempoStatus = "unconfigured"
+)
+
+// Valid indicates whether the value is a known member of the TelemetryHealthBackendsTempoStatus enum.
+func (e TelemetryHealthBackendsTempoStatus) Valid() bool {
+	switch e {
+	case TelemetryHealthBackendsTempoStatusDegraded:
+		return true
+	case TelemetryHealthBackendsTempoStatusDown:
+		return true
+	case TelemetryHealthBackendsTempoStatusOk:
+		return true
+	case TelemetryHealthBackendsTempoStatusUnconfigured:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TelemetryHealthMode.
 const (
 	Local TelemetryHealthMode = "local"
@@ -1791,6 +1863,7 @@ type AgentTurnView struct {
 	DurationMs              *int                `json:"durationMs"`
 	Ended                   *AgentTurnViewEnded `json:"ended"`
 	Exhausted               *bool               `json:"exhausted"`
+	GraphProvidedReadCount  *int                `json:"graphProvidedReadCount"`
 	IsRepair                bool                `json:"isRepair"`
 	MaxSteps                *int                `json:"maxSteps"`
 	Objective               *string             `json:"objective"`
@@ -2829,6 +2902,30 @@ type SpecRecord struct {
 
 // TelemetryHealth defines model for TelemetryHealth.
 type TelemetryHealth struct {
+	Backends *struct {
+		Collector struct {
+			CheckedAt     string                                 `json:"checkedAt"`
+			DiskUsedRatio *float32                               `json:"diskUsedRatio,omitempty"`
+			LastDataAt    *string                                `json:"lastDataAt,omitempty"`
+			Reason        *string                                `json:"reason,omitempty"`
+			Status        TelemetryHealthBackendsCollectorStatus `json:"status"`
+		} `json:"collector"`
+		Loki struct {
+			CheckedAt     string                            `json:"checkedAt"`
+			DiskUsedRatio *float32                          `json:"diskUsedRatio,omitempty"`
+			LastDataAt    *string                           `json:"lastDataAt,omitempty"`
+			Reason        *string                           `json:"reason,omitempty"`
+			Status        TelemetryHealthBackendsLokiStatus `json:"status"`
+		} `json:"loki"`
+		Ok    bool `json:"ok"`
+		Tempo struct {
+			CheckedAt     string                             `json:"checkedAt"`
+			DiskUsedRatio *float32                           `json:"diskUsedRatio,omitempty"`
+			LastDataAt    *string                            `json:"lastDataAt,omitempty"`
+			Reason        *string                            `json:"reason,omitempty"`
+			Status        TelemetryHealthBackendsTempoStatus `json:"status"`
+		} `json:"tempo"`
+	} `json:"backends,omitempty"`
 	CampaignFreeze    bool `json:"campaignFreeze"`
 	DroppedAttributes int  `json:"droppedAttributes"`
 	Host              *struct {
@@ -2859,6 +2956,15 @@ type TelemetryHealth struct {
 		LastExportAt *string `json:"lastExportAt,omitempty"`
 	} `json:"scoreSink"`
 }
+
+// TelemetryHealthBackendsCollectorStatus defines model for TelemetryHealth.Backends.Collector.Status.
+type TelemetryHealthBackendsCollectorStatus string
+
+// TelemetryHealthBackendsLokiStatus defines model for TelemetryHealth.Backends.Loki.Status.
+type TelemetryHealthBackendsLokiStatus string
+
+// TelemetryHealthBackendsTempoStatus defines model for TelemetryHealth.Backends.Tempo.Status.
+type TelemetryHealthBackendsTempoStatus string
 
 // TelemetryHealthMode defines model for TelemetryHealth.Mode.
 type TelemetryHealthMode string

@@ -141,7 +141,7 @@ test("a turn measured live carries the same figures as a recorded one, and one n
       role: "qa-baseline", round: 0, isRepair: false, ended: "completed", durationMs: 90_000, maxSteps: 50, promptBytes: 4_000,
       metrics: {
         totalCalls: 12, stepsUsed: 9, observationComplete: true, callsBeforeFirstWrite: 8, writeCount: 1, commandCount: 2, redundantReadCount: 1, sameFileReadCount: 1, duplicateCallCount: 0,
-        promptProvidedReadCount: 0, pathProvidedReadCount: 0, buckets: { code_read: 8, browser: 2, write: 1, validate_run: 1, script_run: 0, memory: 0, subagent: 0, other: 0 },
+        promptProvidedReadCount: 0, pathProvidedReadCount: 0, graphProvidedReadCount: 0, buckets: { code_read: 8, code_graph: 0, browser: 2, write: 1, validate_run: 1, script_run: 0, memory: 0, subagent: 0, other: 0 },
         timeToFirstCallMs: 2_000, timeToFirstWriteMs: 40_000, deniedCallCount: 3, toolSequence: [read("src/orders/checkout.ts"), read("src/other/x.ts")],
         usage: { input: 900, output: 80, reasoning: 0, cacheRead: 4_000, cacheWrite: 0, cost: 0.02, steps: 9 },
       },
