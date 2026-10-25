@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runOutcomeEquivalent, type ComparableOutcome } from "./equivalence.ts";
+import { runOutcomeEquivalent, type ComparableOutcome } from "./run-outcome-equivalence.ts";
 
 const base: ComparableOutcome = {
   runId: "r1",

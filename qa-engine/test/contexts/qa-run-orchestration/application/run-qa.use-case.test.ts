@@ -4225,8 +4225,8 @@ test("the FixLoop's regenerate() call forwards fixCases into generate()'s enrich
 
 test("the FixLoop's regenerate() call forwards selectorContradictions when Lever-2 finds any", async () => {
   /* Lever-2 only produces contradictions when a failed case carries a failureDom (buildFailureDomLines)
-     AND the prior round's spec source references a selector absent from that tree. Wiring a full
-     Lever-2 scenario is fix-loop-characterization.test.ts's own job; this test's scope is narrower:
+     AND the prior round's spec source references a selector absent from that tree. The retry
+     loop itself is fix-loop-retry.test.ts's job; this test's scope is narrower:
      prove the closure threads whatever selectorContradictions the FixLoop computes, when non-empty.
    */
   const capturedEnrichments: Array<{ selectorContradictions?: readonly string[] }> = [];

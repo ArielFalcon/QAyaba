@@ -108,7 +108,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [`${ORCH}/domain/fix-loop.aggregate.ts`],
     tests: [
       `${ORCH_TEST}/domain/fix-loop.aggregate.test.ts`,
-      `${ORCH_TEST}/domain/fix-loop-characterization.test.ts`,
+      `${ORCH_TEST}/domain/fix-loop-retry.test.ts`,
       `${ORCH_TEST}/application/run-qa.use-case.test.ts`,
       `${ORCH_TEST}/infrastructure/adapters/generation-port.adapter.test.ts`,
       "qa-engine/test/contract/coordination-seam.contract.test.ts",

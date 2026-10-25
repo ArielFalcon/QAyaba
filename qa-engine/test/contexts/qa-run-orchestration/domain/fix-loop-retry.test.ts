@@ -4,20 +4,14 @@ import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort } from "
 import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
 import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
 
-/* Drives the FixLoop through the fail-issue golden's stub semantics
-   (test/characterization/goldens/fail-issue.json) and asserts retries:1 + final verdict=fail.
-   invalid-issue.json's retries:2 comes from the static-gate repair loop, which this aggregate does
-   not contain (`run.verdict === "fail"` never evaluates for invalid). This file characterizes
-   fail-issue plus a synthetic scenario proving the aggregate's own retries counter reaches 2 under
-   maxRetries=2 with a progress-preserving stub.
+/* The retry loop of the FixLoop aggregate: a run that fails the same way on every execution is retried once and ends
+   as a fail, and the aggregate's own retries counter reaches 2 under maxRetries=2 while progress is preserved. The
+   static-gate repair loop is not part of this aggregate.
  */
 
-test("fail-issue golden — FixLoop reproduces retries:1, verdict=fail (test/characterization/goldens/fail-issue.json)", async () => {
-  /* Mirrors makeDeps({ run: { sha:"s", verdict:"fail", passed:false, cases:[{name:"login",
-     status:"fail"}], logs:"x" } }) from scenarios.ts exactly: execute() ALWAYS returns the SAME fail
-     result (no state change across retries — no .detail, no .failureDom, no .file on the case), and
-     generate() ALWAYS returns the same {specs:["a.spec.ts"], approved:true} on every regen call
-     (scenarioApp never overrides opts.agent for this scenario). scenarioApp.qa.fixLoop is unset ->
+test("a run that fails identically on every execution is retried once and ends as a fail", async () => {
+  /* execute() always returns the same fail result (no state change across retries), and generate() always returns the same
+     spec on every regeneration call; no fix-loop override is set, so maxRetries defaults to 2.
    */
   const FAIL_RUN = { verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const }] };
 
@@ -32,7 +26,7 @@ test("fail-issue golden — FixLoop reproduces retries:1, verdict=fail (test/cha
   const generation: FixLoopGenerationPort = {
     generate: async () => {
       generateCallCount++;
-      return { specs: ["a.spec.ts"], approved: true }; /* mirrors scenarios.ts's `generated` fixture */
+      return { specs: ["a.spec.ts"], approved: true };
     },
   };
   const cycleBudget = CycleBudget.derive({ maxRetries: 2 });
@@ -40,9 +34,7 @@ test("fail-issue golden — FixLoop reproduces retries:1, verdict=fail (test/cha
   const loop = new FixLoop({
     execution,
     generation,
-    /* No specSources/failureTrees supplied — mirrors the golden's case having no failureDom (empty
-       trees, empty findings) and the scenario supplying no e2e spec-file reads.
-     */
+    /* No specSources/failureTrees supplied: the failing case has no failureDom (empty trees, empty findings) and no e2e spec-file reads. */
     selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false }) },
   });
 
@@ -51,12 +43,12 @@ test("fail-issue golden — FixLoop reproduces retries:1, verdict=fail (test/cha
     isCode: false,
     generating: true,
     mode: "diff",
-    objectiveSource: ["src/x.ts"], /* scenarioApp's fixture diff touches src/x.ts */
-    maxRetries: 2, /* app.qa.fixLoop?.maxRetries ?? 2 — unset in scenarioApp, defaults to 2 */
+    objectiveSource: ["src/x.ts"],
+    maxRetries: 2, /* the default when the app sets no fix-loop override */
     cycleBudget,
     wallClockBudget,
-    devHealthy: async () => true, /* makeDeps default opts.healthy ?? true */
-    namespace: "golden-fail-issue",
+    devHealthy: async () => true,
+    namespace: "fail-identically",
     coverageWillMeasure: false, /* no change-coverage wiring in this scenario */
   });
 
@@ -118,7 +110,7 @@ test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress
     cycleBudget,
     wallClockBudget,
     devHealthy: async () => true,
-    namespace: "golden-progress",
+    namespace: "progress-preserved",
     coverageWillMeasure: true, /* never-filter, keeps merge logic out of this test's scope */
   });
 
@@ -194,7 +186,7 @@ test("failureTrees are re-derived per-round from the CURRENT run's failing cases
     cycleBudget,
     wallClockBudget,
     devHealthy: async () => true,
-    namespace: "golden-f3-trees",
+    namespace: "failure-trees",
     coverageWillMeasure: true,
   });
 

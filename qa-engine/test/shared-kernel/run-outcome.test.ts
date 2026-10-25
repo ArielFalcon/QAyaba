@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
 import type { RunOutcome as StoredRunOutcome } from "../../../src/types.ts";
-import { runOutcomeEquivalent, type ComparableOutcome } from "../characterization/equivalence.ts";
+import { runOutcomeEquivalent, type ComparableOutcome } from "./run-outcome-equivalence.ts";
 
 /* Structural-compatibility pin (shell RunOutcome → kernel only): a shell RunOutcome must be
    assignable TO the kernel shape. The kernel fields are intentionally WIDE (errorClass: string | null,

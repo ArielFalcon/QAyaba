@@ -19,7 +19,7 @@ import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-cloc
 import type { QaCase } from "@kernel/qa-case.ts";
 
 /* ExecutionPort/GenerationPort/SelectorCheck (this file); each loop decision tested in isolation.
-   Characterization against the fail-issue/invalid-issue goldens lives in a separate file.
+   The retry loop under a run that fails identically every time lives in fix-loop-retry.test.ts.
  */
 
 function makeCase(overrides: Partial<QaCase> = {}): QaCase {

@@ -747,8 +747,7 @@ test("isProtectedPath protects every TypeScript and dependency-cruiser config a 
    weakens the test without changing a protected file. */
 test("isProtectedPath protects everything the protected tests read beside their own files", () => {
   const testInputs = [
-    "qa-engine/test/characterization/equivalence.ts",
-    "qa-engine/test/characterization/goldens/context.json",
+    "qa-engine/test/shared-kernel/run-outcome-equivalence.ts",
     "qa-engine/test/contexts/workspace-and-publication/infrastructure/__fixtures__/seed-revisions/auth.setup.rev1.txt",
     "qa-engine/test/contexts/service-topology/fixtures/backend-literal/src/main/resources/openapi/api-definition.yaml",
   ];
