@@ -87,7 +87,7 @@ export function generationOnDisk(port: GenerationPort): GenerationPort {
     ...port,
     generate: async (...args) => {
       const output = await port.generate(...args);
-      writeDelivered(args[1], output.specs);
+      writeDelivered(args[0], output.specs);
       return output;
     },
   };
@@ -101,7 +101,7 @@ export function reassignableGeneration(initial: GenerationPort["generate"]): Gen
   /* The getter hands out the concrete function, so a test that captures it and wraps it keeps a direct call, never a cycle. */
   const onDisk = (generate: GenerationPort["generate"]): GenerationPort["generate"] => async (...args) => {
     const output = await generate(...args);
-    writeDelivered(args[1], output.specs);
+    writeDelivered(args[0], output.specs);
     return output;
   };
   let current = onDisk(initial);

@@ -78,7 +78,7 @@ export async function closedLoopSignal(ctx: WorkspaceRunContext): Promise<Closed
 /* One regeneration by the lead alone over what the run has delivered so far; what it delivers joins that. */
 export async function regenerateByLead(state: Readonly<RunState>, ctx: WorkspaceRunContext, regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> {
   const { deps, workspace, generation } = ctx;
-  const regenerated = await afterGeneration(ctx, await deps.generation.generate([], workspace.specDir, regenerationSignal, state.classification.diff, {
+  const regenerated = await afterGeneration(ctx, await deps.generation.generate(workspace.specDir, regenerationSignal, state.classification.diff, {
     ...state.grounding.baseEnrichment,
     ...geolocationEnrichment(ctx),
     ...enrichment,

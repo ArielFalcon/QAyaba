@@ -134,7 +134,7 @@ test("a spec the reviewer's correction round rewrote is executed by its acceptan
   let executions = 0;
   const out = await new RunQaUseCase(r.deps({
     generation: {
-      generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      generate: async (_specDir, _signal, _diff, enrichment) => {
         if (enrichment?.reviewCorrections !== undefined) r.write("flows/a.spec.ts", "a v2, executed by acceptance");
         return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });
       },

@@ -96,7 +96,7 @@ async function run(scenario: Scenario): Promise<GenerationEnrichment[]> {
         }),
       },
       generation: generationOnDisk({
-        generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+        generate: async (_specDir, _signal, _diff, enrichment) => {
           calls.push(enrichment ?? {});
           const output = scenario.generations[Math.min(calls.length - 1, scenario.generations.length - 1)]!;
           if (calls.length > 1) scenario.rewrite?.(calls.length, output.specs, (file, text) => ws.write(file, text));

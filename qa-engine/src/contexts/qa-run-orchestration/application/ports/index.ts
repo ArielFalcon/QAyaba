@@ -15,7 +15,6 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { ChangePageBasis, ChangePagesJoin } from "@kernel/change-pages.ts";
-import type { Objective } from "@kernel/objective.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunEventBody } from "@kernel/run-event.ts";
 import type { GenerationEndKind } from "@kernel/generation-end.ts";
@@ -438,7 +437,7 @@ export interface GenerationPort {
    * per-run commit diff (diff mode only); absent falls back to the adapter's
    * static per-run value. `enrichment` is independently absent-safe.
    */
-  generate(objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput>;
+  generate(specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput>;
   /**
    * The one turn a coordinated run asks the lead for a plan instead of specs. `enrichment.planning` carries the limits the plan
    * will be held to and is required. Absent: this port cannot plan, and a coordinated run authors the change as one piece of work.

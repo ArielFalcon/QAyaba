@@ -119,7 +119,7 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
     const coordinatedFirstPass = coordinated.generated;
     if (signal?.aborted) return { end: await ctx.ends.aborted(workspace.mirrorDir) };
     generated = coordinatedFirstPass
-      ?? (await afterGeneration(ctx, await deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
+      ?? (await afterGeneration(ctx, await deps.generation.generate(workspace.specDir, signal, classificationDiff, {
         ...baseEnrichment,
         ...geolocationEnrichment(ctx),
         ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),

@@ -16,7 +16,6 @@ import { join } from "node:path";
 import { GenerationPortAdapter, renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/qa-run-orchestration/infrastructure/adapters/generation-port.adapter.ts";
 import { ConfinedPathError, readConfinedSpecFile, type SpecRoot } from "../../../../../src/shared-infrastructure/spec-path-confinement.ts";
 import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/adapters/blast-radius-signal.ts";
-import { Objective } from "@kernel/objective.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
@@ -79,8 +78,7 @@ test("generate() delegates to GenerateTestsUseCase and maps GenerationResult ont
     namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
   });
 
-  const objectives = [Objective.of({ flow: "checkout", objective: "user can checkout", targets: [] })];
-  const result = await adapter.generate(objectives, "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
 
   assert.deepEqual(result.specs, ["flows/checkout.spec.ts"]);
   assert.equal(result.approved, true);
@@ -91,11 +89,10 @@ const STATIC_CONTEXT = {
   repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
   namespace: "qa-bot-abc1234", target: "e2e" as TestTarget, mode: "diff" as const, diff: "",
 };
-const CHECKOUT = [Objective.of({ flow: "checkout", objective: "user can checkout", targets: [] })];
 
 test("generate() forwards how the generation ended and that no reviewer ran when generation is not reviewed", async () => {
   const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT, needsReview: false });
-  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
   assert.equal(result.end, GENERATION_END.DELIVERED);
   assert.equal(result.reviewed, false);
   assert.equal(result.approved, true, "the flag stays, but reviewed says it is not a reviewer's approval");
@@ -103,7 +100,7 @@ test("generate() forwards how the generation ended and that no reviewer ran when
 
 test("generate() forwards that a reviewer ran when generation is reviewed", async () => {
   const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT, needsReview: true });
-  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
   assert.equal(result.reviewed, true);
   assert.equal(result.approved, true);
 });
@@ -124,7 +121,7 @@ test("generate() forwards an exhausted generation's end, its note and the main t
     verdicts: { ...ports.verdicts, parseGenerator: () => ({ specs: [], parsed: true, outputTail: "cut off" }) },
   };
   const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(exhausting), { ...STATIC_CONTEXT, needsReview: false });
-  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
   assert.equal(result.end, GENERATION_END.EXHAUSTED);
   assert.equal(result.turn?.stepsUsed, 30);
   assert.equal(result.turn?.writeCount, 0);
@@ -142,7 +139,7 @@ test("generate() surfaces approved:false with a note when the reviewer rejects (
     namespace: "qa-bot-abc1234", needsReview: true, target: "e2e", mode: "diff", diff: "",
   });
 
-  const result = await adapter.generate([], "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
 
   assert.equal(result.approved, false);
   assert.equal(result.note, "missing assertion");
@@ -163,7 +160,7 @@ test("generate() populates specSources from an injected file-read collaborator (
     { readSpecSource },
   );
 
-  const result = await adapter.generate([], "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
 
   assert.deepEqual(result.specSources, ["// source of flows/checkout.spec.ts", "// source of login.spec.ts"]);
   const root = { mirrorDir: "/mirrors/org/app", specDir: "/mirrors/org/app/e2e" };
@@ -181,7 +178,7 @@ test("generate() roots the spec reads at the spec directory of the call, which f
     { readSpecSource: (root) => { roots.push(root); return ""; } },
   );
 
-  await adapter.generate(CHECKOUT, "/mirrors/org/app");
+  await adapter.generate("/mirrors/org/app");
 
   assert.deepEqual(roots, [{ mirrorDir: "/mirrors/org/app", specDir: "/mirrors/org/app" }]);
 });
@@ -205,7 +202,7 @@ test("generate() reads the delivered specs through the confined reader: a file i
       { readSpecSource: readConfinedSpecFile },
     );
 
-    const result = await adapter.generate(CHECKOUT, specDir);
+    const result = await adapter.generate(specDir);
 
     assert.deepEqual(result.specSources, ["// the real spec\n"]);
   }));
@@ -219,7 +216,7 @@ test("generate() fails with the typed error, naming the reported path, when a de
       { readSpecSource: readConfinedSpecFile },
     );
 
-    await assert.rejects(adapter.generate(CHECKOUT, specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/checkout.spec.ts");
+    await assert.rejects(adapter.generate(specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/checkout.spec.ts");
   }));
 
 test("generate() fails with the typed error when a delivered spec climbs out of the spec directory", () =>
@@ -232,7 +229,7 @@ test("generate() fails with the typed error when a delivered spec climbs out of 
       { readSpecSource: readConfinedSpecFile },
     );
 
-    await assert.rejects(adapter.generate(CHECKOUT, specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "../../secret.txt");
+    await assert.rejects(adapter.generate(specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "../../secret.txt");
   }));
 
 test("generate() omits specSources when no readSpecSource collaborator is injected", async () => {
@@ -243,7 +240,7 @@ test("generate() omits specSources when no readSpecSource collaborator is inject
     namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
   });
 
-  const result = await adapter.generate([], "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
 
   assert.equal(result.specSources, undefined);
 });
@@ -280,7 +277,7 @@ test("generate() never reports re-exploration counts, however much navigation th
     namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
   });
 
-  const result = await adapter.generate([], "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
 
   assert.equal("reexploreNavigations" in result, false, "measuring calls must not activate the progress gate's re-exploration signal");
   assert.equal(callEfficiencyTracker.take(sessionId, "")?.totalCalls, 25, "the tracker really held the navigation the signal could have been fed with");
@@ -308,7 +305,7 @@ test("generate() forwards an AbortSignal into GenerateTestsUseCase.generate()'s 
     namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
   });
 
-  await adapter.generate([], "/mirrors/org/app/e2e", controller.signal);
+  await adapter.generate("/mirrors/org/app/e2e", controller.signal);
 
   assert.ok(capturedSignals.length > 0, "openSession must have been called at least once");
   for (const captured of capturedSignals) {
@@ -324,7 +321,7 @@ test("generate() with no signal at all behaves exactly as before (no third-arg r
     namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
   });
 
-  const result = await adapter.generate([], "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
 
   assert.deepEqual(result.specs, ["flows/checkout.spec.ts"]);
   assert.equal(result.approved, true);
@@ -352,7 +349,7 @@ test("generate() PREFERS a dynamic diff argument over the static ctx.diff suppli
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "STALE-STATIC-DIFF",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "REAL-DYNAMIC-DIFF");
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "REAL-DYNAMIC-DIFF");
 
     assert.equal(capturedInput?.diff, "REAL-DYNAMIC-DIFF", "a diff argument passed to generate() must win over the static ctx.diff, matching the run's actual commit diff");
   } finally {
@@ -375,7 +372,7 @@ test("generate() FALLS BACK to the static ctx.diff when no dynamic diff argument
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "OPERATOR-PRECOMPUTED-DIFF",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e");
+    await adapter.generate("/mirrors/org/app/e2e");
 
     assert.equal(capturedInput?.diff, "OPERATOR-PRECOMPUTED-DIFF", "omitting the diff argument must fall back to ctx.diff unchanged — the operator's own pre-computed-diff composition must keep working");
   } finally {
@@ -402,7 +399,7 @@ test("generate() maps enrichment.reviewCorrections/fixCases/selectorContradictio
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {
       reviewCorrections: ["fix the assertion"],
       fixCases: [{ name: "login", status: "fail", detail: "timed out" }],
       selectorContradictions: ["role:button is NOT in the tree"],
@@ -442,7 +439,7 @@ test("generate() maps enrichment.contextPack/existingSpecFiles onto OpencodeRunI
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {
       contextPack: "## Context Pack\n\nblast radius...",
       existingSpecFiles: ["flows/checkout.spec.ts", "home.spec.ts"],
     });
@@ -469,7 +466,7 @@ test("generate() with absent enrichment.contextPack/existingSpecFiles omits both
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {});
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {});
 
     assert.equal(capturedInput?.contextPack, undefined);
     assert.equal(capturedInput?.existingSpecFiles, undefined);
@@ -503,7 +500,7 @@ test("generate() maps enrichment.contextMap onto OpencodeRunInput", async () => 
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {
       contextMap: T4_CONTEXT_MAP,
     });
 
@@ -531,8 +528,8 @@ test("generate() maps enrichment.harnessFacts onto OpencodeRunInput and omits th
     });
     const harnessFacts = { testIdAttribute: "data-cy", fixtures: { file: "fixtures.ts", exports: ["test", "expect"] } };
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { harnessFacts });
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {});
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { harnessFacts });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {});
 
     assert.deepEqual(captured[0]?.harnessFacts, harnessFacts);
     assert.equal("harnessFacts" in (captured[1] ?? {}), false);
@@ -556,7 +553,7 @@ test("generate() with absent enrichment.contextMap omits it from OpencodeRunInpu
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {
       contextPack: "## Context Pack\n\nblast radius...",
     });
 
@@ -587,7 +584,7 @@ test("generate() maps enrichment.sha onto OpencodeRunInput.sha", async () => {
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { sha: "abc1234def" });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { sha: "abc1234def" });
 
     assert.equal(capturedInput?.sha, "abc1234def");
   } finally {
@@ -610,7 +607,7 @@ test("generate() with no enrichment.sha falls back to empty string (today's beha
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e");
+    await adapter.generate("/mirrors/org/app/e2e");
 
     assert.equal(capturedInput?.sha, "");
   } finally {
@@ -633,7 +630,7 @@ test("generate() with no enrichment argument omits every enrichment field from O
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e");
+    await adapter.generate("/mirrors/org/app/e2e");
 
     assert.equal(capturedInput?.reviewCorrections, undefined);
     assert.equal(capturedInput?.fixCases, undefined);
@@ -675,7 +672,7 @@ test("generate() maps a non-empty enrichment.serviceLinks onto OpencodeRunInput.
       },
     ];
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { serviceLinks: links });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { serviceLinks: links });
 
     assert.deepEqual(capturedInput?.serviceLinks, links);
   } finally {
@@ -698,10 +695,10 @@ test("generate() with absent/empty enrichment.serviceLinks OMITS the key entirel
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { serviceLinks: [] });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { serviceLinks: [] });
     assert.equal("serviceLinks" in (capturedInput ?? {}), false, "empty serviceLinks must be OMITTED, not set to []");
 
-    await adapter.generate([], "/mirrors/org/app/e2e");
+    await adapter.generate("/mirrors/org/app/e2e");
     assert.equal("serviceLinks" in (capturedInput ?? {}), false, "absent enrichment must OMIT serviceLinks entirely");
   } finally {
     GenerateTestsUseCase.prototype.generate = originalGenerate;
@@ -726,7 +723,7 @@ test("generate() maps a non-empty enrichment.contractDrift onto OpencodeRunInput
       { from: { repo: "org/front", file: "src/api.ts", symbol: "getOrder" }, verb: "DELETE", path: "/orders/{id}" },
     ];
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { contractDrift: drift });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { contractDrift: drift });
 
     assert.deepEqual(capturedInput?.contractDrift, drift);
   } finally {
@@ -749,10 +746,10 @@ test("generate() with absent/empty enrichment.contractDrift OMITS the key entire
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { contractDrift: [] });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { contractDrift: [] });
     assert.equal("contractDrift" in (capturedInput ?? {}), false, "empty contractDrift must be OMITTED, not set to []");
 
-    await adapter.generate([], "/mirrors/org/app/e2e");
+    await adapter.generate("/mirrors/org/app/e2e");
     assert.equal("contractDrift" in (capturedInput ?? {}), false, "absent enrichment must OMIT contractDrift entirely");
   } finally {
     GenerateTestsUseCase.prototype.generate = originalGenerate;
@@ -776,19 +773,19 @@ test("generate() maps the structural signal and its symbol flag onto OpencodeRun
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true });
     assert.equal(capturedInput?.staticSignal, "## Structural blast radius\n- `save`");
     assert.equal(capturedInput?.staticSignalHasSymbols, true);
 
     const coChangeOnly = renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "src/Other.java", couplingScore: 0.82, coChanges: 14 }] });
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: coChangeOnly });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: coChangeOnly });
     assert.equal(capturedInput?.staticSignal, coChangeOnly);
     assert.equal("staticSignalHasSymbols" in (capturedInput ?? {}), false, "a signal without the flag leaves it absent, never false");
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
     assert.deepEqual(capturedInput?.staticSignalFiles, ["src/Foo.java"], "the dossier's files travel with their signal");
 
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { staticSignalHasSymbols: true, staticSignalFiles: ["src/Foo.java"] });
     assert.equal("staticSignalHasSymbols" in (capturedInput ?? {}), false, "a flag without a signal is dropped");
     assert.equal("staticSignalFiles" in (capturedInput ?? {}), false, "files without a signal are dropped");
     assert.equal("staticSignal" in (capturedInput ?? {}), false);
@@ -821,7 +818,7 @@ test("generate() maps ctx.service onto OpencodeRunInput.service when the run is 
       service: { repo: "org/orders-svc", mirrorDir: "/mirrors/org/orders-svc", openapi: "openapi.yaml" },
     });
 
-    await adapter.generate([], "/mirrors/org/front/e2e");
+    await adapter.generate("/mirrors/org/front/e2e");
 
     assert.deepEqual(capturedInput?.service, { repo: "org/orders-svc", mirrorDir: "/mirrors/org/orders-svc", openapi: "openapi.yaml" });
     assert.equal(capturedInput?.mirrorDir, "/mirrors/org/front", "the PRIMARY mirrorDir must stay the agent's cwd — service.mirrorDir is a read-only sibling, never a substitute");
@@ -845,7 +842,7 @@ test("generate() with no ctx.service (same-repo run) OMITS the service key entir
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e");
+    await adapter.generate("/mirrors/org/app/e2e");
 
     assert.equal("service" in (capturedInput ?? {}), false, "no ctx.service (the common same-repo case) must OMIT the key, not set it to undefined");
   } finally {
@@ -880,7 +877,7 @@ test("generate() maps ctx.services onto OpencodeRunInput.services (context mode,
       ],
     });
 
-    await adapter.generate([], "/mirrors/org/front/e2e");
+    await adapter.generate("/mirrors/org/front/e2e");
 
     assert.deepEqual(capturedInput?.services, [
       { repo: "org/orders-svc", mirrorDir: "/mirrors/org/orders-svc", openapi: "openapi.yaml" },
@@ -907,7 +904,7 @@ test("generate() with no ctx.services OMITS the services key entirely from Openc
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
 
-    await adapter.generate([], "/mirrors/org/app/e2e");
+    await adapter.generate("/mirrors/org/app/e2e");
 
     assert.equal("services" in (capturedInput ?? {}), false, "no ctx.services (the common case) must OMIT the key, not set it to undefined or an empty array");
   } finally {
@@ -1042,7 +1039,7 @@ async function runFirstReviewPass(rules: readonly RetrievedRule[]): Promise<{ ge
     namespace: "qa-bot-abc1234", needsReview: true, target: "e2e", mode: "diff",
     diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
   });
-  await adapter.generate([], "/nonexistent/mirror/e2e", undefined, undefined, rules.length ? { learnedRules: rules } : undefined);
+  await adapter.generate("/nonexistent/mirror/e2e", undefined, undefined, rules.length ? { learnedRules: rules } : undefined);
   return { generatorPrompt: prompts.primary ?? "", reviewerPrompt: prompts.reviewer ?? "" };
 }
 
@@ -1102,7 +1099,7 @@ async function generatorPromptFor(
     namespace: "qa-bot-abc1234", needsReview: false, target: run.target, mode: "diff", baseUrl: "https://dev",
     diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
   });
-  await adapter.generate([], run.specDir ?? `/nonexistent/mirror/${run.e2eRelDir}`, undefined, undefined, enrichment);
+  await adapter.generate(run.specDir ?? `/nonexistent/mirror/${run.e2eRelDir}`, undefined, undefined, enrichment);
   return generatorPrompt;
 }
 
@@ -1155,8 +1152,8 @@ test("generate() puts the generator's limit from the resolver on every input it 
   const asked: StepLimitRole[] = [];
   const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: false }, { stepLimitFor: resolverAsking(asked) });
 
-  await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
-  await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e", undefined, undefined, { reviewCorrections: ["fix the assertion"] });
+  await adapter.generate("/mirrors/org/app/e2e");
+  await adapter.generate("/mirrors/org/app/e2e", undefined, undefined, { reviewCorrections: ["fix the assertion"] });
 
   assert.deepEqual(inputs.map((input) => input.stepLimit), [41, 41]);
   assert.deepEqual(asked, ["generator", "generator"], "a generation that runs no reviewer never asks for the reviewer's limit");
@@ -1168,7 +1165,7 @@ test("generate() carries the in-generate reviewer's own limit when that reviewer
   const asked: StepLimitRole[] = [];
   const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true }, { stepLimitFor: resolverAsking(asked) });
 
-  await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  await adapter.generate("/mirrors/org/app/e2e");
 
   assert.equal(inputs[0]?.stepLimit, 41);
   assert.equal(inputs[0]?.reviewerStepLimit, 17);
@@ -1180,7 +1177,7 @@ test("generate() never asks for the reviewer's limit in a context run, whose gen
   const asked: StepLimitRole[] = [];
   const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true, mode: "context" }, { stepLimitFor: resolverAsking(asked) });
 
-  await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  await adapter.generate("/mirrors/org/app/e2e");
 
   assert.deepEqual(asked, ["generator"]);
   assert.equal("reviewerStepLimit" in (inputs[0] ?? {}), false);
@@ -1191,8 +1188,8 @@ test("generate() carries no limit key when there is no resolver, or when the res
   const noResolver = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true });
   const noLimit = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true }, { stepLimitFor: async () => undefined });
 
-  await noResolver.generate(CHECKOUT, "/mirrors/org/app/e2e");
-  await noLimit.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  await noResolver.generate("/mirrors/org/app/e2e");
+  await noLimit.generate("/mirrors/org/app/e2e");
 
   assert.equal(inputs.length, 2);
   for (const input of inputs) {
@@ -1209,9 +1206,9 @@ test("generate() hands on what the verdict declared for each delivered spec, and
   const nothing = { generate: async () => ({ specs: [], approved: true, reviewed: false, end: GENERATION_END.DECLARED_NOOP }) } as unknown as GenerateTestsUseCase;
   const emptyHanded = { generate: async () => ({ specs: [], declaredSpecs: [], approved: true, reviewed: false, end: GENERATION_END.DECLARED_NOOP }) } as unknown as GenerateTestsUseCase;
 
-  const delivered = await new GenerationPortAdapter(delivering, { ...STATIC_CONTEXT, needsReview: false }).generate(CHECKOUT, "/mirrors/org/app/e2e");
-  const none = await new GenerationPortAdapter(nothing, { ...STATIC_CONTEXT, needsReview: false }).generate(CHECKOUT, "/mirrors/org/app/e2e");
-  const empty = await new GenerationPortAdapter(emptyHanded, { ...STATIC_CONTEXT, needsReview: false }).generate(CHECKOUT, "/mirrors/org/app/e2e");
+  const delivered = await new GenerationPortAdapter(delivering, { ...STATIC_CONTEXT, needsReview: false }).generate("/mirrors/org/app/e2e");
+  const none = await new GenerationPortAdapter(nothing, { ...STATIC_CONTEXT, needsReview: false }).generate("/mirrors/org/app/e2e");
+  const empty = await new GenerationPortAdapter(emptyHanded, { ...STATIC_CONTEXT, needsReview: false }).generate("/mirrors/org/app/e2e");
 
   assert.deepEqual(delivered.declaredSpecs, declaredSpecs);
   assert.equal("declaredSpecs" in none, false);
@@ -1220,7 +1217,7 @@ test("generate() hands on what the verdict declared for each delivered spec, and
 
 test("generate() declares the specs of a real generation, by path when the verdict declared nothing else for them", async () => {
   const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT, needsReview: false });
-  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  const result = await adapter.generate("/mirrors/org/app/e2e");
   assert.deepEqual(result.declaredSpecs, [{ file: "flows/checkout.spec.ts" }]);
 });
 
@@ -1236,7 +1233,7 @@ const REGENERATION_SIGNALS: ReadonlyArray<readonly [string, GenerationEnrichment
 async function inputFor(enrichment: GenerationEnrichment, mirror: string, specDir: string): Promise<OpencodeRunInput> {
   const inputs: OpencodeRunInput[] = [];
   const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, mirrorDir: mirror, needsReview: false });
-  await adapter.generate(CHECKOUT, specDir, undefined, undefined, enrichment);
+  await adapter.generate(specDir, undefined, undefined, enrichment);
   assert.equal(inputs.length, 1);
   return inputs[0]!;
 }
@@ -1445,8 +1442,8 @@ test("generate() hands the authenticated browser's limits to the prompt input wh
       namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
     });
     const limits = { maxCalls: 12, perCallMs: 20_000, leaseWaitMs: 5_000 };
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { agentBrowser: limits });
-    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {});
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", { agentBrowser: limits });
+    await adapter.generate("/mirrors/org/app/e2e", undefined, "the-diff", {});
     assert.deepEqual(captured[0]?.agentBrowser, limits);
     assert.equal("agentBrowser" in (captured[1] ?? {}), false);
   } finally {

@@ -49,7 +49,7 @@ function rig(result: () => Promise<CoordinateResult> | CoordinateResult = () => 
     return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "the diff" }) },
     generation: generationOnDisk(generationOver ?? {
-      generate: async (_o, _d, _s, _diff, enrichment) => {
+      generate: async (_d, _s, _diff, enrichment) => {
         calls.push("generate");
         r.enrichments.push(enrichment ?? {});
         return scriptedGeneration({ specs: ["flows/a.spec.ts"], approved: true });

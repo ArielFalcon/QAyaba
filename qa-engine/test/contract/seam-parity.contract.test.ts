@@ -398,11 +398,11 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
         generationUseCase: { generate: async () => ({ specs, approved: true, reviewed: false, end: GENERATION_END.DELIVERED }) },
       });
 
-      const inside = await wireAdapters(delivering(["flows/inside.spec.ts"])).generation.generate([], specDir);
+      const inside = await wireAdapters(delivering(["flows/inside.spec.ts"])).generation.generate(specDir);
       assert.deepEqual(inside.specSources, ["// inside the spec directory\n"]);
 
       await assert.rejects(
-        wireAdapters(delivering(["flows/leak.spec.ts"])).generation.generate([], specDir),
+        wireAdapters(delivering(["flows/leak.spec.ts"])).generation.generate(specDir),
         (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/leak.spec.ts",
       );
     } finally {
@@ -448,7 +448,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildCompositionConfig)
       },
     });
     const specDir = join(cfg.mirrorDir, cfg.e2eRelDir);
-    await adapters.generation.generate([], specDir);
+    await adapters.generation.generate(specDir);
     await adapters.review.review(specDir, []);
     assert.ok(generated[0] && reviewed[0], "both prompts were built");
     return { cfg, generation: generated[0], review: reviewed[0] };

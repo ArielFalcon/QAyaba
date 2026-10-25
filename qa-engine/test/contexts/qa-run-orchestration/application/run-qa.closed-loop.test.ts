@@ -52,7 +52,7 @@ function rig(opts: { closed?: boolean; openThrows?: boolean; grant?: boolean } =
     return {
       changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
       generation: generationOnDisk(generationOver ?? {
-        generate: async (_o, _d, _s, _diff, enrichment) => {
+        generate: async (_d, _s, _diff, enrichment) => {
           r.generations++;
           events.push("generate");
           r.enrichments.push(enrichment ?? {});

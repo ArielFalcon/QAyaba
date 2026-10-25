@@ -33,7 +33,7 @@ function rig(opts: { openThrows?: boolean; grant?: boolean; executeThrows?: bool
     return {
     changeAnalysis: { classify: async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" }) },
     generation: generationOnDisk(generationOver ?? {
-      generate: async (_o, _d, _s, _diff, enrichment) => {
+      generate: async (_d, _s, _diff, enrichment) => {
         events.push("generate");
         enrichments.push(enrichment ?? {});
         if (opts.generateThrows) throw new Error("agent down");
