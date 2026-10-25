@@ -5,6 +5,7 @@ import type { CoverageMeasurement, ObjectiveSignalPort } from "../../application
 import { DecideCoverageService, type ChangeCoverage, type CoveragePolicy } from "@contexts/objective-signal/domain/decide-coverage.service.ts";
 import type { CoverageCollectorPort, CoverageReport, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
 import { parseDiffHunks } from "@contexts/objective-signal/domain/assemble-change-coverage.ts";
+import { diffWithoutTestFiles } from "@contexts/generation/domain/diff-without-test-files.ts";
 
 export interface ObjectiveSignalPortCollaborators {
   collector: CoverageCollectorPort;
@@ -50,11 +51,13 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     if (this.ctx.policy.mode === "off") {
       return { status: this.deps.decide.decide(null, this.ctx.policy), ratio: null };
     }
+    /* The change is its own code: the repo's test files a commit carries are neither collected nor counted, or a suite would be measured against the unit tests it never runs (or, on the code target, credited with the lines those tests run of themselves). */
+    const changeDiff = diff ? diffWithoutTestFiles(diff).diff : undefined;
     /* Per-call changed files from the live diff. Composition-time collectors often hold a static empty list; absent diff → collector constructor value. */
-    const changedFiles = diff ? [...parseDiffHunks(diff).keys()] : undefined;
+    const changedFiles = changeDiff !== undefined ? [...parseDiffHunks(changeDiff).keys()] : undefined;
     const willAssemble = this.ctx.assembleChangeCoverage !== undefined && !!diff;
     const report = willAssemble ? await this.deps.collector.collect(specDir, namespace, changedFiles) : null;
-    const cc: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(diff!, report) : null;
+    const cc: ChangeCoverage | null = report ? this.ctx.assembleChangeCoverage!(changeDiff!, report) : null;
 
     const status = this.deps.decide.decide(cc, this.ctx.policy);
     const ratio = cc?.measured ? cc.overall.ratio : null;

@@ -441,3 +441,44 @@ test("measure() says the scripts carried no source map when the dumps held scrip
   const none = await make({ covered: [], scripts: { total: 0, withSourceMap: 0 } }).measure(br, "/r/e2e", SAMPLE_DIFF);
   assert.equal(none.measurement?.unmeasured, "no-changed-file-mapped", "no script at all is not a statement about maps");
 });
+
+test("measure() counts only the change's own code: the repo's test files a commit carries are neither collected nor counted", async () => {
+  const diff = [
+    SAMPLE_DIFF,
+    "diff --git a/src/checkout.spec.ts b/src/checkout.spec.ts",
+    "+++ b/src/checkout.spec.ts",
+    "@@ -1,0 +1,3 @@",
+    "+it('a', () => {});",
+    "+it('b', () => {});",
+    "+it('c', () => {});",
+  ].join("\n");
+  let collected: string[] | undefined;
+  const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, (_dir, _ns, files) => { collected = files; });
+  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" });
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector, decide: new DecideCoverageService(), oracle },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]), "/mirrors/org/app/e2e", diff);
+
+  assert.deepEqual(collected, ["src/checkout.ts"]);
+  assert.equal(result.ratio, 1);
+  assert.equal(result.status, "pass");
+  assert.equal(result.measurement?.changedLines, 2);
+  assert.equal(result.uncovered?.length, 0);
+});
+
+test("measure() of a commit that only changes the repo's tests has no changed lines to cover, which never blocks", async () => {
+  const diff = ["diff --git a/src/checkout.spec.ts b/src/checkout.spec.ts", "+++ b/src/checkout.spec.ts", "@@ -1,0 +1,1 @@", "+it('a', () => {});"].join("\n");
+  const adapter = new ObjectiveSignalPortAdapter(
+    { collector: fakeCollector({ covered: [] }), decide: new DecideCoverageService(), oracle: fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "" }) },
+    { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
+  );
+
+  const result = await adapter.measure(BlastRadius.of(Sha.of("abc1234"), ["src/checkout.spec.ts"]), "/mirrors/org/app/e2e", diff);
+
+  assert.equal(result.status, "unknown");
+  assert.equal(result.measurement?.unmeasured, "no-changed-lines");
+  assert.equal(adapter.blocks(result.status), false);
+});
