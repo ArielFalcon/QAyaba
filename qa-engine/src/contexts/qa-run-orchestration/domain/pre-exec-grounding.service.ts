@@ -70,13 +70,19 @@ function catalogCorrections(
   routes: readonly RouteTree[],
 ): { origins: ContradictionOrigin[]; inWindow: number; advisory: number } {
   if (!specSources.some((s) => extractTestIdSelectorsWithIndex(s).length > 0)) {
+    /* mutation-scope:begin no-catalog-result */
     return { origins: [], inWindow: 0, advisory: 0 };
+    /* mutation-scope:end no-catalog-result */
   }
   const byRoute = new Map(routes.map((r) => [r.route, r]));
+  /* mutation-scope:begin origins-accumulators */
   const origins: ContradictionOrigin[] = [];
+  /* mutation-scope:end origins-accumulators */
   let inWindow = 0;
   let advisory = 0;
+  /* mutation-scope:begin per-spec-first-route */
   for (const [specIndex, specSrc] of specSources.entries()) {
+  /* mutation-scope:end per-spec-first-route */
     const firstRoute = firstGotoRoute(specSrc); /* the FIRST LITERAL goto — consistent with confidentWindowEnd */
     if (firstRoute === undefined) continue; /* un-navigable / no first goto → no window route → advisory */
     const windowRoute = byRoute.get(firstRoute);
@@ -89,17 +95,21 @@ function catalogCorrections(
       if (trusted && index < windowEnd) {
         inWindow++;
         if (!testIds.has(value)) {
+          /* mutation-scope:begin contradiction-origin-push */
           origins.push({
             contradiction: `getByTestId('${value}') is NOT in the captured DOM of route '${firstRoute}' — this test-id does not exist on the page. Use only a test-id present in the grounded DOM snapshot, or a role/label selector; never invent a test-id.`,
             specIndex,
           });
+          /* mutation-scope:end contradiction-origin-push */
         }
       } else {
         advisory++;
       }
     }
   }
+  /* mutation-scope:begin catalog-result */
   return { origins, inWindow, advisory };
+  /* mutation-scope:end catalog-result */
 }
 
 /* One-shot pre-execution grounding: the catalog corrections for one corrective regen, and the ambiguities as an advisory. This function never blocks — the caller captures routes and feeds the corrections into one regen. */
@@ -108,12 +118,16 @@ export function checkPreExecGrounding(input: PreExecGroundingInput): PreExecGrou
   const ambiguities = ambiguityContradictions(specSources, routes);
   const catalog = catalogCorrections(specSources, routes);
   return {
+    /* mutation-scope:begin corrections-and-origins */
     corrections: catalog.origins.map((origin) => origin.contradiction),
     origins: catalog.origins,
+    /* mutation-scope:end corrections-and-origins */
     ambiguities,
     preExecAmbiguityCatches: ambiguities.length,
     catalogGateInWindow: catalog.inWindow,
     catalogGateAdvisory: catalog.advisory,
+    /* mutation-scope:begin fail-closed-count */
     catalogGateFailClosed: catalog.origins.length,
+    /* mutation-scope:end fail-closed-count */
   };
 }

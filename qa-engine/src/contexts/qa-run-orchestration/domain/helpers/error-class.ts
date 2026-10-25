@@ -15,7 +15,9 @@ export const ERROR_CLASSES = [
   "E-INFRA",
   "E-STEP-BUDGET",
   "E-NO-DECISION",
+  /* mutation-scope:begin error-classes-precondition */
   "E-PRECONDITION",
+  /* mutation-scope:end error-classes-precondition */
   "E-TIME-BUDGET",
   "E-REVIEWER-UNAVAILABLE",
   "E-REVIEW-DISPUTED",
@@ -29,7 +31,9 @@ export const ERROR_CLASSES = [
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
 
 /* Named handles for the classes other modules decide on, so none of them re-types the literal. */
+/* mutation-scope:begin error-class-table */
 export const ERROR_CLASS = {
+/* mutation-scope:end error-class-table */
   INFRA: "E-INFRA",
   FLAKY: "E-FLAKY",
   STEP_BUDGET: "E-STEP-BUDGET",
@@ -119,7 +123,9 @@ export interface ResolveErrorClassInput {
   /** The run ended on a finding the reviewer verified and the generator disputed without evidence the orchestrator could check: a judgment it could not settle. */
   reviewDisputed?: boolean;
   /** The run ended because agent-influenced code could not be run safely (no sandbox uid, or the egress filter is down under enforce): nothing about the app or the tests. */
+  /* mutation-scope:begin resolve-input-sandbox-flag */
   sandboxUnavailable?: boolean;
+  /* mutation-scope:end resolve-input-sandbox-flag */
 }
 
 /* A generation end that ended the run names its class before anything the verdict implies, and a failed precondition follows it; then verdict-derived structural classes short-circuit, then reviewer corrections, then E-COVERAGE-GAP, then E-VALUE-SURVIVED (green + good coverage but mutants survive). */

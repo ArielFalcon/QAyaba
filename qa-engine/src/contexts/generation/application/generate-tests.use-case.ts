@@ -306,8 +306,10 @@ export class GenerateTestsUseCase {
     const deliverable = verdicts.parseGenerator(generatorOutput, input.target === "code" ? undefined : specDir);
 
     /* A spec in specs[] with no specMetas[] entry gets no manifest row — silent, because the spec file is what execution needs. */
+    /* mutation-scope:begin intent-change-type */
     const changeType = input.intent?.type ?? "unknown";
     const rawEntries: ManifestEntry[] = (deliverable.specMetas ?? []).map((m) => ({
+    /* mutation-scope:end intent-change-type */
       id: m.flow,
       file: m.file,
       flow: m.flow,

@@ -85,7 +85,9 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
     },
   };
   /* Pre-exec corrections, and the files they were attributed to, still feed later FixLoop regens until the first of them consumes them. */
+  /* mutation-scope:begin pending-contradictions */
   let pendingSelectorContradictions: string[] = state.generation.groundingCorrections;
+  /* mutation-scope:end pending-contradictions */
   let pendingAttributedSpecFiles: string[] = state.generation.groundingAttribution;
   /*
    * The specs of the latest lead generation: the FixLoop's next Lever-2 check reads their sources,
@@ -103,24 +105,30 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
        * Merge leftover pre-exec selector contradictions with FixLoop's post-failure
        * check — independent evidence; neither suppresses the other.
        */
+      /* mutation-scope:begin lever2-contradictions */
       const lever2Contradictions = fixLoopInput.selectorContradictions ?? [];
       const mergedSelectorContradictions = [...pendingSelectorContradictions, ...lever2Contradictions];
       /* The pre-exec ones come with the files they were attributed to when found; Lever-2's are attributed now, to the specs the check says raised them. */
       const attributedSpecFiles = [
         ...new Set([...pendingAttributedSpecFiles, ...attributeContradictions(lever2Contradictions, fixLoopInput.selectorContradictionOrigins, latestSpecs)]),
+      /* mutation-scope:end lever2-contradictions */
       ];
+      /* mutation-scope:begin regenerate-round */
 
       const r = await regenerate(state, ctx, signal, {
         fixCases: fixLoopInput.fixCases,
         ...(mergedSelectorContradictions.length ? { selectorContradictions: mergedSelectorContradictions } : {}),
+      /* mutation-scope:end regenerate-round */
         ...(attributedSpecFiles.length ? { attributedSpecFiles } : {}),
         ...(fixLoopInput.domSnapshot ? { domSnapshot: fixLoopInput.domSnapshot } : {}),
         /* The intent lock's deltas on the round it refused: the next round repairs the weakening it introduced. */
         ...(fixLoopInput.contractFeedback?.length ? { contractFeedback: fixLoopInput.contractFeedback } : {}),
       }, CORRECTION_ORIGIN.EXECUTION);
+      /* mutation-scope:begin confinement-and-clear-corrections */
       await services.confinement.enforce();
       /* Pre-exec corrections are one-shot — clear after the first FixLoop regen. */
       pendingSelectorContradictions = [];
+      /* mutation-scope:end confinement-and-clear-corrections */
       pendingAttributedSpecFiles = [];
       /* The next Lever-2 check reads this generation's sources: its contradictions will be raised by these specs. */
       latestSpecs = r.specs;
@@ -133,7 +141,9 @@ export async function runFixLoop(state: Readonly<RunState>, ctx: WorkspaceRunCon
         ...(r.specMetas ? { specMetas: r.specMetas } : {}),
         ...(r.testCorrect ? { testCorrect: r.testCorrect } : {}),
       };
+    /* mutation-scope:begin round-result-tail */
     },
+    /* mutation-scope:end round-result-tail */
   };
   const fixLoopSelectorCheck: FixLoopSelectorCheckPort = {
     check: (specSources, trees) => ({ ...checkSpecSelectors(specSources, trees), origins: contradictionOrigins(specSources, trees) }),

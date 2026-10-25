@@ -32,6 +32,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { availableParallelism, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const REPORT_DIR = "reports/mutation";
@@ -45,7 +46,7 @@ export interface MutationThresholds {
 
 export interface MutationPreset {
   description: string;
-  /* Repo-relative source files, optionally `path.ts:start-end` to mutate only a line range. */
+  /* Repo-relative source files. A file is mutated whole, or narrowed to one declaration (`path.ts#Name` or `path.ts#Class.method`) or to the lines between two marker comments (`path.ts@scope`). */
   mutate: readonly string[];
   /* Repo-relative test files that run against every mutant: the module's own tests plus the seam
      tests of its direct consumers — never the whole suite. */
@@ -191,11 +192,11 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH}/domain/auth-precondition.ts`,
       `${ORCH}/domain/helpers/precondition-terminal.ts`,
       /* Only the lines that name and resolve the class: the rest of these modules belongs to other classes. */
-      `${ORCH}/domain/helpers/error-class.ts:18-18`,
-      `${ORCH}/domain/helpers/error-class.ts:32-32`,
-      `${ORCH}/domain/helpers/error-class.ts:122-122`,
-      `${LEARN}/process-audit.ts:27-27`,
-      `${LEARN}/process-audit.ts:102-109`,
+      `${ORCH}/domain/helpers/error-class.ts@error-classes-precondition`,
+      `${ORCH}/domain/helpers/error-class.ts@error-class-table`,
+      `${ORCH}/domain/helpers/error-class.ts@resolve-input-sandbox-flag`,
+      `${LEARN}/process-audit.ts#PRECONDITION_CLASS`,
+      `${LEARN}/process-audit.ts@recurring-class-summary`,
     ],
     tests: [
       `${ORCH_TEST}/domain/auth-precondition.test.ts`,
@@ -251,7 +252,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-listing.ts`,
       `${GEN}/domain/suite-listing-render.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
-      `${GEN}/application/generate-tests.use-case.ts:309-310`,
+      `${GEN}/application/generate-tests.use-case.ts@intent-change-type`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:147-153`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:179-180`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:188-188`,
@@ -259,31 +260,29 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       /* The grounding's one line that folds the manifest into the suite's entries. */
       `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:321-321`,
       /* The checks' own lines that say which spec raised a contradiction, and the FixLoop's hand-over of them. */
-      `${ORCH}/domain/helpers/selector-check.ts:401-405`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:73-73`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:76-76`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:79-79`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:92-95`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:102-102`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:111-112`,
-      `${ORCH}/domain/pre-exec-grounding.service.ts:117-117`,
-      `${ORCH}/domain/fix-loop.aggregate.ts:197-197`,
+      `${ORCH}/domain/helpers/selector-check.ts#contradictionOrigins`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts@no-catalog-result`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts@origins-accumulators`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts@per-spec-first-route`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts@contradiction-origin-push`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts@catalog-result`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts@corrections-and-origins`,
+      `${ORCH}/domain/pre-exec-grounding.service.ts@fail-closed-count`,
+      `${ORCH}/domain/fix-loop.aggregate.ts@accepted-round-changed-set`,
       /* The run's own lines, now in the phases that moved them out of the use case: the regeneration that is handed what the run delivered and merges what it delivers, the first pass's merge, the pre-exec grounding's attribution and corrective regeneration, and the FixLoop's hand-over and attribution of each contradiction. */
-      `${ORCH}/application/run-flow/phases/generation-services.ts:75-84`,
-      `${ORCH}/application/run-flow/phases/generate.steps.ts:104-111`,
-      `${ORCH}/application/run-flow/phases/generate.steps.ts:214-215`,
-      `${ORCH}/application/run-flow/phases/generate.steps.ts:227-227`,
-      `${ORCH}/application/run-flow/phases/generate.steps.ts:230-230`,
-      `${ORCH}/application/run-flow/phases/generate.steps.ts:238-241`,
-      `${ORCH}/application/run-flow/phases/execute.steps.ts:136-138`,
-      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts:88-88`,
-      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts:93-93`,
-      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts:105-110`,
-      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts:112-115`,
-      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts:121-123`,
-      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts:136-136`,
-      `${ORCH}/application/run-flow/phases/coverage.steps.ts:94-94`,
-      `${ORCH}/application/run-flow/phases/review.steps.ts:320-323`,
+      `${ORCH}/application/run-flow/phases/generation-services.ts@lead-regeneration-routing`,
+      `${ORCH}/application/run-flow/phases/generate.steps.ts@regression-run-stand-in`,
+      `${ORCH}/application/run-flow/phases/generate.steps.ts@fail-closed-counter`,
+      `${ORCH}/application/run-flow/phases/generate.steps.ts@pre-exec-capture-and-check`,
+      `${ORCH}/application/run-flow/phases/generate.steps.ts@catalog-gate-counters`,
+      `${ORCH}/application/run-flow/phases/execute.steps.ts@static-fix-round`,
+      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts@pending-contradictions`,
+      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts@lever2-contradictions`,
+      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts@regenerate-round`,
+      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts@confinement-and-clear-corrections`,
+      `${ORCH}/application/run-flow/phases/fix-loop.steps.ts@round-result-tail`,
+      `${ORCH}/application/run-flow/phases/coverage.steps.ts@delivered-before-coverage-regen`,
+      `${ORCH}/application/run-flow/phases/review.steps.ts@contract-feedback-round`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/spec-path.test.ts",
@@ -383,10 +382,10 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     mutate: [
       "src/agent-runtime/step-limit.ts",
       /* Only the lines that read, judge and route a limit: the rest of these modules is other code. */
-      "src/agent-runtime/opencode-strategy.ts:85-102",
-      "src/agent-runtime/opencode-strategy.ts:158-166",
-      "src/agent-runtime/facades.ts:49-51",
-      "src/agent-runtime/facades.ts:103-115",
+      "src/agent-runtime/opencode-strategy.ts@step-limit-read",
+      "src/agent-runtime/opencode-strategy.ts@dispose-without-limit",
+      "src/agent-runtime/facades.ts@single-facade-step-limits",
+      "src/agent-runtime/facades.ts@dual-facade-step-limits",
       "src/integrations/opencode-client.ts:217-218",
       "src/integrations/opencode-client.ts:330-332",
       "src/integrations/opencode-client.ts:340-350",
@@ -408,7 +407,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     description: "the join of a tool call to the orchestrator's span of it (a tie excludes both sides, a worse rank never claims what a better one left), Codex's usage put in the shape every row holds, and the reading of what an exec reported it spent (a usage with no valid count is none, not zero)",
     mutate: [
       `${GEN}/domain/tool-link.ts`,
-      "qa-engine/src/shared-kernel/telemetry/genai-semconv.ts:99-107",
+      "qa-engine/src/shared-kernel/telemetry/genai-semconv.ts@codex-usage-normalization",
       "src/agent-runtime/codex-strategy.ts:667-707",
     ],
     tests: [
@@ -509,7 +508,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_INFRA}/target-coverage-collector.ts`,
       `${OS_INFRA}/fault-injection-counter-reader.ts`,
       /* The oracle's reading of the count of corrupted responses: unknown, none, or some. */
-      `${OS_INFRA}/fault-injection-oracle.adapter.ts:38-49`,
+      `${OS_INFRA}/fault-injection-oracle.adapter.ts@injected-count-read`,
     ],
     tests: [
       /* The reader's own cases: what a directory that is cut at the entry cap is, to a set used whole and to one scanned. */
@@ -565,19 +564,19 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/src/shared-infrastructure/repo-reader.ts",
       `${TOPO}/repo-walk.ts`,
       /* The loops that list and read each repository's sources, and the OpenAPI documents. */
-      `${TOPO}/event-resolver.adapter.ts:49-59`,
-      `${TOPO}/http-backend-resolver.adapter.ts:65-76`,
-      `${TOPO}/http-backend-resolver.adapter.ts:83-88`,
-      `${TOPO}/http-backend-resolver.adapter.ts:130-130`,
-      `${TOPO}/openapi-http-resolver.adapter.ts:269-289`,
+      `${TOPO}/event-resolver.adapter.ts@pool-read`,
+      `${TOPO}/http-backend-resolver.adapter.ts@readers-and-ingress`,
+      `${TOPO}/http-backend-resolver.adapter.ts@pool-scan`,
+      `${TOPO}/http-backend-resolver.adapter.ts@reader-warning`,
+      `${TOPO}/openapi-http-resolver.adapter.ts@system-scan`,
       /* The staging: the reset of the directory, what is staged and what is read, the listing, the manifest and the default strict calls. */
-      "src/server/service-context.ts:137-138",
-      "src/server/service-context.ts:150-152",
-      "src/server/service-context.ts:159-167",
-      "src/server/service-context.ts:174-174",
-      "src/server/service-context.ts:193-204",
-      "src/server/service-context.ts:232-233",
-      "src/server/service-context.ts:245-282",
+      "src/server/service-context.ts@reset-staging-dir",
+      "src/server/service-context.ts@destination-path",
+      "src/server/service-context.ts@source-read",
+      "src/server/service-context.ts@list-candidate-contracts",
+      "src/server/service-context.ts@patch-read",
+      "src/server/service-context.ts@manifest-write",
+      "src/server/service-context.ts@sweep-skip-dirs",
     ],
     tests: [
       "qa-engine/test/shared-infrastructure/repo-reader.test.ts",
@@ -686,7 +685,7 @@ export function clearPreviousReport(root: string, name: string): void {
 }
 
 export function sourcePathOf(entry: string): string {
-  return entry.replace(/:\d+(-\d+)?$/, "");
+  return entry.replace(/(:\d+(-\d+)?|#[\w$.]+|@[\w-]+)$/, "");
 }
 
 /* Why a `path.ts:start-end` entry cannot narrow a file of `lineCount` lines, or undefined when it can; an entry with no range names the whole file. */
@@ -700,6 +699,200 @@ export function rangeProblemOf(entry: string, lineCount: number): string | undef
   if (end < start) return "the range ends before it starts";
   if (end > lineCount) return `the range ends at line ${end} but the file has ${lineCount} lines`;
   return undefined;
+}
+
+// A scope is the lines strictly between a begin and an end marker comment of the same name, each alone on its line:
+//   /* mutation-scope:begin <name> */
+//   /* mutation-scope:end <name> */
+// Stryker takes the region as a `file:start-end` range. A scope names a behavior and moves with the code it brackets.
+const MARKER_LINE = /^\s*\/\*\s*mutation-scope:(begin|end)\s+([\w-]+)\s*\*\/\s*$/;
+const MARKER_MENTION = /mutation-scope:/;
+const MARKER_OPENER = /\/\*\s*mutation-scope:/;
+
+export type MutateReader = (file: string) => string | undefined;
+export type ResolvedMutateEntry = { file: string; range?: [number, number] } | { problem: string };
+
+interface MarkerPair {
+  begin: number;
+  end: number;
+}
+
+/* The marker pairs of one source by name (1-based line numbers), and what is wrong with the markers as a whole. */
+export function markersOf(source: string): { pairs: Map<string, MarkerPair>; problems: string[] } {
+  const pairs = new Map<string, MarkerPair>();
+  const problems: string[] = [];
+  const open: Array<{ name: string; line: number }> = [];
+  const seen = new Set<string>();
+  source.split("\n").forEach((text, index) => {
+    const line = index + 1;
+    const m = MARKER_LINE.exec(text);
+    if (m === null) {
+      if (MARKER_OPENER.test(text)) problems.push(`line ${line}: a mutation-scope marker must be alone on its line, as \`/* mutation-scope:begin|end <name> */\``);
+      return;
+    }
+    const [, kind, name] = m as unknown as [string, "begin" | "end", string];
+    if (kind === "begin") {
+      if (seen.has(name)) problems.push(`the scope "${name}" is opened twice (line ${line})`);
+      seen.add(name);
+      if (open.length > 0) problems.push(`the scope "${name}" (line ${line}) opens inside the scope "${open[open.length - 1]!.name}": scopes do not nest`);
+      open.push({ name, line });
+      return;
+    }
+    const top = open[open.length - 1];
+    if (top === undefined || top.name !== name) {
+      problems.push(`the end of the scope "${name}" (line ${line}) closes no open scope of that name`);
+      return;
+    }
+    open.pop();
+    pairs.set(name, { begin: top.line, end: line });
+  });
+  for (const unclosed of open) problems.push(`the scope "${unclosed.name}" opened at line ${unclosed.line} is never closed`);
+  return { pairs, problems };
+}
+
+interface Declaration {
+  start: number;
+  end: number;
+}
+
+/* The declarations of a source by name, 1-based inclusive lines from the declaration's first token (its doc comment excluded) to its end: top-level functions, classes, interfaces, type aliases, enums and variables, and `Class.member` for the members of a class. Overloads of one function or method are one declaration. */
+function declarationsOf(source: string): Map<string, Declaration[]> {
+  const sf = ts.createSourceFile("source.ts", source, ts.ScriptTarget.Latest, true);
+  const lineOf = (pos: number): number => sf.getLineAndCharacterOfPosition(pos).line + 1;
+  const found = new Map<string, Declaration[]>();
+  const add = (name: string, node: ts.Node, overload: boolean): void => {
+    const span = { start: lineOf(node.getStart(sf)), end: lineOf(node.end) };
+    const list = found.get(name) ?? [];
+    const last = list[list.length - 1];
+    if (overload && last !== undefined) {
+      last.end = Math.max(last.end, span.end);
+    } else {
+      list.push(span);
+    }
+    found.set(name, list);
+  };
+  const memberName = (m: ts.ClassElement): string | undefined => (m.name !== undefined ? m.name.getText(sf) : ts.isConstructorDeclaration(m) ? "constructor" : undefined);
+  /* A signature without a body is an overload: the next declaration of the same name continues it. */
+  const open = new Set<string>();
+  const addCallable = (name: string, node: ts.FunctionDeclaration | ts.MethodDeclaration | ts.ConstructorDeclaration): void => {
+    add(name, node, open.has(name));
+    if (node.body === undefined) open.add(name);
+    else open.delete(name);
+  };
+  for (const st of sf.statements) {
+    if (ts.isFunctionDeclaration(st) && st.name !== undefined) {
+      addCallable(st.name.text, st);
+    } else if (ts.isClassDeclaration(st) && st.name !== undefined) {
+      add(st.name.text, st, false);
+      for (const member of st.members) {
+        const name = memberName(member);
+        if (name === undefined) continue;
+        const qualified = `${st.name.text}.${name}`;
+        if (ts.isMethodDeclaration(member) || ts.isConstructorDeclaration(member)) addCallable(qualified, member);
+        else add(qualified, member, false);
+      }
+    } else if (ts.isInterfaceDeclaration(st) || ts.isTypeAliasDeclaration(st) || ts.isEnumDeclaration(st)) {
+      add(st.name.text, st, false);
+    } else if (ts.isVariableStatement(st)) {
+      for (const d of st.declarationList.declarations) if (ts.isIdentifier(d.name)) add(d.name.text, st, false);
+    }
+  }
+  return found;
+}
+
+function importLinesOf(source: string): number {
+  const sf = ts.createSourceFile("source.ts", source, ts.ScriptTarget.Latest, true);
+  let last = 0;
+  for (const st of sf.statements) if (ts.isImportDeclaration(st)) last = Math.max(last, sf.getLineAndCharacterOfPosition(st.end).line + 1);
+  return last;
+}
+
+const ENTRY_FORM = /^(.*?\.ts)(?:#([\w$.]+)|@([\w-]+)|:(\d+)-(\d+))?$/;
+
+/* The `file:start-end` range Stryker takes for one `mutate` entry, or why the entry names nothing usable. A whole file has no range. */
+export function resolveMutateEntry(entry: string, readSource: MutateReader): ResolvedMutateEntry {
+  const m = ENTRY_FORM.exec(entry);
+  if (m === null) return { problem: `${entry}: not a path.ts, path.ts#Symbol, path.ts@scope or path.ts:start-end entry` };
+  const [, file, symbol, scope, from, to] = m as unknown as [string, string, string | undefined, string | undefined, string | undefined, string | undefined];
+  if (symbol === undefined && scope === undefined && from === undefined) return { file };
+  const source = readSource(file);
+  if (source === undefined) return { problem: `${entry}: ${file} cannot be read` };
+  const lineCount = source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
+
+  let range: [number, number];
+  if (from !== undefined && to !== undefined) {
+    const problem = rangeProblemOf(entry, lineCount);
+    if (problem !== undefined) return { problem: `${entry}: ${problem}` };
+    range = [Number(from), Number(to)];
+  } else if (symbol !== undefined) {
+    const matches = declarationsOf(source).get(symbol) ?? [];
+    if (matches.length === 0) return { problem: `${entry}: ${file} declares no ${symbol}` };
+    if (matches.length > 1) return { problem: `${entry}: ${file} declares ${symbol} ${matches.length} times, so the anchor is ambiguous` };
+    range = [matches[0]!.start, matches[0]!.end];
+  } else {
+    const { pairs, problems } = markersOf(source);
+    if (problems.length > 0) return { problem: `${entry}: ${problems[0]}` };
+    const pair = pairs.get(scope!);
+    if (pair === undefined) return { problem: `${entry}: ${file} has no mutation-scope markers named ${scope}` };
+    if (pair.end - pair.begin < 2) return { problem: `${entry}: the scope ${scope} brackets no lines` };
+    range = [pair.begin + 1, pair.end - 1];
+  }
+  if (range[1] < range[0]) return { problem: `${entry}: resolves to an empty range` };
+  if (range[0] <= importLinesOf(source)) return { problem: `${entry}: resolves to lines inside the imports of ${file}` };
+  return { file, range };
+}
+
+/* Every problem of one preset's entries, each naming the preset: unresolved or ambiguous anchors. */
+export function mutateProblemsOf(name: string, preset: MutationPreset, readSource: MutateReader): string[] {
+  const problems: string[] = [];
+  for (const entry of preset.mutate) {
+    const resolved = resolveMutateEntry(entry, readSource);
+    if ("problem" in resolved) problems.push(`${name}: ${resolved.problem}`);
+  }
+  return problems;
+}
+
+/* The marker pairs in `files` that no entry of `presets` names, and malformed markers: a scope nobody mutates is dead text. */
+export function markerProblemsOf(presets: Readonly<Record<string, MutationPreset>>, files: readonly string[], readSource: MutateReader): string[] {
+  const referenced = new Set<string>();
+  for (const preset of Object.values(presets)) {
+    for (const entry of preset.mutate) {
+      const m = ENTRY_FORM.exec(entry);
+      if (m !== null && m[3] !== undefined) referenced.add(`${m[1]}@${m[3]}`);
+    }
+  }
+  const problems: string[] = [];
+  for (const file of files) {
+    const source = readSource(file);
+    if (source === undefined || !MARKER_MENTION.test(source)) continue;
+    const { pairs, problems: malformed } = markersOf(source);
+    problems.push(...malformed.map((p) => `${file}: ${p}`));
+    for (const scope of pairs.keys()) if (!referenced.has(`${file}@${scope}`)) problems.push(`${file}: the scope ${scope} is named by no preset`);
+  }
+  return problems;
+}
+
+/* The `file:start-end` strings Stryker takes (a whole file is its path), or an error naming every unresolved entry. */
+export function resolvedMutateEntries(preset: MutationPreset, readSource: MutateReader): string[] {
+  const out: string[] = [];
+  const problems: string[] = [];
+  for (const entry of preset.mutate) {
+    const resolved = resolveMutateEntry(entry, readSource);
+    if ("problem" in resolved) problems.push(resolved.problem);
+    else out.push(resolved.range === undefined ? resolved.file : `${resolved.file}:${resolved.range[0]}-${resolved.range[1]}`);
+  }
+  if (problems.length > 0) throw new Error(`unresolved mutate entries:\n${problems.join("\n")}`);
+  return out;
+}
+
+function readFromRoot(root: string): MutateReader {
+  return (file) => {
+    try {
+      return readFileSync(join(root, file), "utf8");
+    } catch {
+      return undefined;
+    }
+  };
 }
 
 /* The preset's tests, run in their own process group (scripts/run-in-group.mjs) so a timed-out run's
@@ -734,7 +927,7 @@ export function checkerTsconfigFor(preset: MutationPreset, root: string): object
 export function strykerConfigFor(
   name: string,
   preset: MutationPreset,
-  opts: { tsconfigFile: string; concurrency: number; incremental: boolean },
+  opts: { tsconfigFile: string; concurrency: number; incremental: boolean; readSource?: MutateReader },
 ): object {
   return {
     packageManager: "npm",
@@ -745,7 +938,7 @@ export function strykerConfigFor(
     tsconfigFile: opts.tsconfigFile,
     /* Stryker's default inserts `// @ts-nocheck` into every JS and TS file of the sandbox, which changes the bytes a test may hash (the stock check of a shipped seed). The tests run through tsx, which does not type-check, and the checker reads the project's own files, so nothing needs the comment. */
     disableTypeChecks: false,
-    mutate: [...preset.mutate],
+    mutate: resolvedMutateEntries(preset, opts.readSource ?? readFromRoot(ROOT)),
     incremental: opts.incremental,
     incrementalFile: `${REPORT_DIR}/${name}.incremental.json`,
     reporters: ["clear-text", "progress", "json"],
@@ -849,6 +1042,12 @@ function main(argv: string[]): number {
   const preset = name === undefined ? undefined : PRESETS[name];
   if (name === undefined || preset === undefined) {
     console.error(name === undefined ? usage() : `unknown preset "${name}"\n\n${usage()}`);
+    return 2;
+  }
+
+  const unresolved = mutateProblemsOf(name, preset, readFromRoot(ROOT));
+  if (unresolved.length > 0) {
+    console.error(`mutate ${name}: ${unresolved.length} entr${unresolved.length === 1 ? "y" : "ies"} cannot be resolved\n${unresolved.map((p) => `  ${p}`).join("\n")}`);
     return 2;
   }
 

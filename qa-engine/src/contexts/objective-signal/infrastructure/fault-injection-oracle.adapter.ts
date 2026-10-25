@@ -35,6 +35,7 @@ export class FaultInjectionOracleAdapter implements ValueOraclePort {
     if (run.verdict === "infra-error") {
       return { valueScore: null, mutantCount: null, killedCount: null, details: "fault-injection re-run inconclusive (infra)" };
     }
+    /* mutation-scope:begin injected-count-read */
     const injected = this.countInjected(repoDir, fiNamespace);
     if (injected === undefined) {
       return { valueScore: null, mutantCount: null, killedCount: null, details: "the corrupted re-run's counters could not all be read — fault-injection is inconclusive (no score)" };
@@ -47,6 +48,7 @@ export class FaultInjectionOracleAdapter implements ValueOraclePort {
         details: "no JSON responses were intercepted — fault-injection is not applicable to this app's flows (no score)",
       };
     }
+    /* mutation-scope:end injected-count-read */
     const ranCorrupted = new Set(run.cases.map((c) => c.name));
     const scoreable = baselineCases.filter((n) => ranCorrupted.has(n));
     if (scoreable.length === 0) {

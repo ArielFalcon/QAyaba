@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +12,11 @@ import {
   concurrencyFor,
   FREE_CPUS,
   MAX_WORKERS,
+  markerProblemsOf,
+  mutateProblemsOf,
   rangeProblemOf,
+  resolveMutateEntry,
+  resolvedMutateEntries,
   runOptionsFrom,
   sourcePathOf,
   strykerConfigFor,
@@ -48,12 +52,144 @@ test("a line range names real lines of its file: it starts at line 1 or later, n
 
 test("every preset's line ranges lie inside their files (a range left past the end of an edited file would mutate nothing)", () => {
   for (const [name, preset] of Object.entries(PRESETS)) {
-    for (const entry of preset.mutate) {
+    for (const entry of preset.mutate.filter((e) => /:\d+-\d+$/.test(e))) {
       const text = readFileSync(join(ROOT, sourcePathOf(entry)), "utf8");
       const lineCount = text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
       assert.equal(rangeProblemOf(entry, lineCount), undefined, `${name}: ${entry}`);
     }
   }
+});
+
+/* ── anchors: a symbol or a scope names the lines, and Stryker is handed the range they resolve to ── */
+
+const BEGIN = (name: string): string => `/* mutation-scope:begin ${name} */`;
+const END = (name: string): string => `/* mutation-scope:end ${name} */`;
+const readerOf = (files: Record<string, string>) => (file: string): string | undefined => files[file];
+const presetOf = (...mutate: string[]): MutationPreset => ({ description: "x", mutate, tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } });
+
+const SOURCE = [
+  'import { a } from "./a";', //                  1
+  "", //                                           2
+  "/** Doc comment, not part of the declaration. */", // 3
+  "export function alpha(x: number): number {", // 4
+  "  return x + 1;", //                            5
+  "}", //                                          6
+  "", //                                           7
+  "export class Box {", //                         8
+  "  open(): void {", //                           9
+  "    run();", //                                 10
+  "  }", //                                        11
+  "}", //                                          12
+  "", //                                           13
+  "export function beta(x: string): string;", //   14
+  "export function beta(x: number): number;", //   15
+  "export function beta(x: unknown): unknown {", // 16
+  "  return x;", //                                17
+  "}", //                                          18
+  "export const LIMIT = 3;", //                    19
+].join("\n");
+
+test("a symbol anchor resolves to its declaration's lines, doc comment excluded, and a method to its own lines", () => {
+  const read = readerOf({ "src/m.ts": SOURCE });
+  assert.deepEqual(resolveMutateEntry("src/m.ts#alpha", read), { file: "src/m.ts", range: [4, 6] });
+  assert.deepEqual(resolveMutateEntry("src/m.ts#Box", read), { file: "src/m.ts", range: [8, 12] });
+  assert.deepEqual(resolveMutateEntry("src/m.ts#Box.open", read), { file: "src/m.ts", range: [9, 11] });
+  assert.deepEqual(resolveMutateEntry("src/m.ts#LIMIT", read), { file: "src/m.ts", range: [19, 19] });
+});
+
+test("the overloads of one function are one declaration", () => {
+  assert.deepEqual(resolveMutateEntry("src/m.ts#beta", readerOf({ "src/m.ts": SOURCE })), { file: "src/m.ts", range: [14, 18] });
+});
+
+test("a scope anchor resolves to the lines strictly between its markers", () => {
+  const source = ['import { a } from "./a";', "function f() {", BEGIN("inner"), "  one();", "  two();", END("inner"), "}"].join("\n");
+  assert.deepEqual(resolveMutateEntry("src/m.ts@inner", readerOf({ "src/m.ts": source })), { file: "src/m.ts", range: [4, 5] });
+});
+
+test("a whole-file entry resolves to the file, and a numeric range to itself while the numeric form is accepted", () => {
+  assert.deepEqual(resolveMutateEntry("src/m.ts", () => undefined), { file: "src/m.ts" });
+  assert.deepEqual(resolveMutateEntry("src/m.ts:4-6", readerOf({ "src/m.ts": SOURCE })), { file: "src/m.ts", range: [4, 6] });
+});
+
+test("an entry whose symbol does not exist is reported with its preset", () => {
+  const problems = mutateProblemsOf("my-preset", presetOf("src/m.ts#missing"), readerOf({ "src/m.ts": SOURCE }));
+  assert.equal(problems.length, 1);
+  assert.match(problems[0]!, /^my-preset: src\/m\.ts#missing: .*declares no missing/);
+});
+
+test("a symbol declared more than once is ambiguous", () => {
+  const source = ["function twice() {}", "function other() {}", "const twice = 1;"].join("\n");
+  const problems = mutateProblemsOf("p", presetOf("src/m.ts#twice"), readerOf({ "src/m.ts": source }));
+  assert.match(problems[0]!, /ambiguous/);
+});
+
+test("an entry whose scope marker is missing, duplicated, nested or unbalanced is reported", () => {
+  const read = readerOf({
+    "missing.ts": "const a = 1;\n",
+    "twice.ts": [BEGIN("s"), "a();", END("s"), BEGIN("s"), "b();", END("s")].join("\n"),
+    "nested.ts": [BEGIN("outer"), BEGIN("inner"), "a();", END("inner"), END("outer")].join("\n"),
+    "unclosed.ts": [BEGIN("s"), "a();"].join("\n"),
+    "stray-end.ts": ["a();", END("s")].join("\n"),
+    "inline.ts": `a(); ${BEGIN("s")}`,
+  });
+  assert.match(mutateProblemsOf("p", presetOf("missing.ts@s"), read)[0]!, /no mutation-scope markers named s/);
+  assert.match(mutateProblemsOf("p", presetOf("twice.ts@s"), read)[0]!, /opened twice/);
+  assert.match(mutateProblemsOf("p", presetOf("nested.ts@inner"), read)[0]!, /do not nest/);
+  assert.match(mutateProblemsOf("p", presetOf("unclosed.ts@s"), read)[0]!, /never closed/);
+  assert.match(mutateProblemsOf("p", presetOf("stray-end.ts@s"), read)[0]!, /closes no open scope/);
+  assert.match(mutateProblemsOf("p", presetOf("inline.ts@s"), read)[0]!, /alone on its line/);
+});
+
+test("a scope that brackets no lines, and a range inside the imports, are reported", () => {
+  const read = readerOf({
+    "empty.ts": ["const a = 1;", BEGIN("s"), END("s")].join("\n"),
+    "imports.ts": ['import { a } from "./a";', 'import { b } from "./b";', "export const c = 1;"].join("\n"),
+  });
+  assert.match(mutateProblemsOf("p", presetOf("empty.ts@s"), read)[0]!, /brackets no lines/);
+  assert.match(mutateProblemsOf("p", presetOf("imports.ts:1-2"), read)[0]!, /inside the imports/);
+});
+
+test("a marker pair that no preset references is reported", () => {
+  const read = readerOf({ "src/m.ts": ["const a = 1;", BEGIN("used"), "b();", END("used"), BEGIN("orphan"), "c();", END("orphan")].join("\n") });
+  const problems = markerProblemsOf({ p: presetOf("src/m.ts@used") }, ["src/m.ts"], read);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0]!, /orphan is named by no preset/);
+});
+
+test("strykerConfigFor puts file:start-end strings in mutate, never an anchor", () => {
+  const read = readerOf({ "src/m.ts": SOURCE });
+  const config = strykerConfigFor("x", presetOf("src/m.ts#alpha", "src/m.ts:14-18", "src/whole.ts"), { tsconfigFile: "/tmp/tsconfig.json", concurrency: 1, incremental: false, readSource: read }) as { mutate: string[] };
+  assert.deepEqual(config.mutate, ["src/m.ts:4-6", "src/m.ts:14-18", "src/whole.ts"]);
+  assert.throws(() => resolvedMutateEntries(presetOf("src/m.ts#missing"), read), /declares no missing/);
+});
+
+test("sourcePathOf strips every anchor form and keeps a whole-file entry", () => {
+  for (const entry of ["a/b.ts#Name", "a/b.ts#Class.method", "a/b.ts@scope-name", "a/b.ts:3-9"]) assert.equal(sourcePathOf(entry), "a/b.ts");
+  assert.equal(sourcePathOf("a/b.ts"), "a/b.ts");
+});
+
+function sourcesUnder(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${name.name}`;
+    if (name.isDirectory()) {
+      if (name.name !== "node_modules") out.push(...sourcesUnder(rel));
+    } else if (name.name.endsWith(".ts")) {
+      out.push(rel);
+    }
+  }
+  return out;
+}
+
+const readFromRepo = (file: string): string | undefined => (existsSync(join(ROOT, file)) ? readFileSync(join(ROOT, file), "utf8") : undefined);
+
+test("every preset resolves against the real sources", () => {
+  for (const [name, preset] of Object.entries(PRESETS)) assert.deepEqual(mutateProblemsOf(name, preset, readFromRepo), []);
+});
+
+test("every mutation-scope marker pair in the sources is named by a preset", () => {
+  const files = ["qa-engine/src", "src"].flatMap(sourcesUnder);
+  assert.deepEqual(markerProblemsOf(PRESETS, files, readFromRepo), []);
 });
 
 test("the keystone preset mutates the change-coverage decision and assembly modules", () => {
@@ -184,7 +320,7 @@ test("the e2e-run-reads preset mutates only the lines of the e2e runner that rea
   const preset = PRESETS["e2e-run-reads"];
   assert.ok(preset, "the e2e-run-reads preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], ["qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts"]);
-  assert.ok(preset.mutate.every((entry) => /:\d+-\d+$/.test(entry)), "the rest of the runner is other code, so every entry is a line range");
+  assert.ok(preset.mutate.every((entry) => sourcePathOf(entry) !== entry), "the rest of the runner is other code, so every entry is narrowed");
   for (const tests of ["infrastructure/e2e-execution.runner.confinement.test.ts", "infrastructure/e2e-execution.runner.test.ts"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
   }
@@ -213,8 +349,8 @@ test("the repo-reads preset mutates the reader of a repository's files, the line
     "src/server/service-context.ts",
   ]);
   assert.ok(
-    preset.mutate.filter((entry) => !entry.endsWith("repo-reader.ts") && !entry.endsWith("repo-walk.ts")).every((entry) => /:\d+-\d+$/.test(entry)),
-    "the rest of each resolver and of the staging is other code, so every entry of them is a line range",
+    preset.mutate.filter((entry) => !entry.endsWith("repo-reader.ts") && !entry.endsWith("repo-walk.ts")).every((entry) => sourcePathOf(entry) !== entry),
+    "the rest of each resolver and of the staging is other code, so every entry of them is narrowed",
   );
   for (const tests of [
     "shared-infrastructure/repo-reader.test.ts",
@@ -238,7 +374,7 @@ test("the code-run-reads preset mutates only the lines of a code run's manifest 
     "qa-engine/src/contexts/test-execution/infrastructure/code-setup.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter.ts",
   ]);
-  assert.ok(preset.mutate.every((entry) => /:\d+-\d+$/.test(entry)), "the rest of these files is other code, so every entry is a line range");
+  assert.ok(preset.mutate.every((entry) => sourcePathOf(entry) !== entry), "the rest of these files is other code, so every entry is narrowed");
   for (const tests of [
     "infrastructure/code-execution.detect.confinement.test.ts",
     "infrastructure/code-execution.runner.test.ts",

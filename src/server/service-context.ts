@@ -134,8 +134,10 @@ export async function stageServiceContext(
    * Idempotent re-stage: wipe any prior run's content first so a stale file from a previous sha
    * (or a hint that has since changed) never survives into this run's snapshot.
    */
+  /* mutation-scope:begin reset-staging-dir */
   if (deps.exists(dir)) deps.rm(dir, workingCopyDir);
   deps.mkdir(dir, workingCopyDir);
+  /* mutation-scope:end reset-staging-dir */
 
   const contracts: string[] = [];
   const changed: string[] = [];
@@ -147,15 +149,18 @@ export async function stageServiceContext(
     if (fileCount >= MAX_FILES) return "max-files cap (200) exceeded";
     if (buf.byteLength > MAX_FILE_BYTES) return "file too large (> 512KB)";
     if (totalBytes + buf.byteLength > MAX_TOTAL_BYTES) return "total size cap (2MB) exceeded";
+    /* mutation-scope:begin destination-path */
     const destAbs = join(dir, destRelPath);
     deps.mkdir(dirname(destAbs), workingCopyDir);
     deps.writeFile(destAbs, buf, workingCopyDir);
+    /* mutation-scope:end destination-path */
     totalBytes += buf.byteLength;
     fileCount++;
     return true;
   };
 
   const tryStageFromMirror = (relSrcPath: string, destRelPath: string): true | string => {
+    /* mutation-scope:begin source-read */
     const srcAbs = join(service.mirrorDir, relSrcPath);
     if (!deps.exists(srcAbs)) return "not found in the service mirror (deleted/renamed)";
     let buf: Buffer;
@@ -165,13 +170,16 @@ export async function stageServiceContext(
       if (e instanceof ConfinedPathError) return `refused: ${e.reason}`;
       return `unreadable: ${e instanceof Error ? e.message : String(e)}`;
     }
+    /* mutation-scope:end source-read */
     if (isBinary(buf)) return "binary file (skipped)";
     return tryStageBuffer(destRelPath, buf);
   };
 
   /* 1. OpenAPI/contract files — hinted glob(s) when declared, otherwise the default sweep. */
   const hints = service.openapi ? (Array.isArray(service.openapi) ? service.openapi : [service.openapi]) : undefined;
+  /* mutation-scope:begin list-candidate-contracts */
   const allFiles = deps.listFiles(service.mirrorDir);
+  /* mutation-scope:end list-candidate-contracts */
   const candidateContracts =
     hints && hints.length > 0
       ? (() => {
@@ -190,6 +198,7 @@ export async function stageServiceContext(
    * (context-mode services carry no per-run commit; contracts-only staging applies then).
    */
   if (sha) {
+    /* mutation-scope:begin patch-read */
     let patch: string | undefined;
     try {
       patch = await deps.git(["show", "--stat", "--patch", sha], service.mirrorDir);
@@ -202,6 +211,7 @@ export async function stageServiceContext(
       const result = tryStageBuffer("CHANGE.patch", Buffer.from(patch, "utf8"));
       if (result !== true) omitted.push({ path: "CHANGE.patch", reason: result });
     }
+    /* mutation-scope:end patch-read */
 
     let changedPaths: string[] = [];
     try {
@@ -229,8 +239,10 @@ export async function stageServiceContext(
     changed,
     omitted,
   };
+  /* mutation-scope:begin manifest-write */
   const manifestPath = join(dir, "manifest.json");
   deps.writeFile(manifestPath, JSON.stringify(manifest, null, 2), workingCopyDir);
+  /* mutation-scope:end manifest-write */
 
   return { dir, manifestPath };
 }
@@ -242,6 +254,7 @@ export async function stageServiceContext(
  * looks at no more than a cap of entries and visits them in the order of their names; what it
  * could not walk is said once for the service, naming no file.
  */
+/* mutation-scope:begin sweep-skip-dirs */
 const SWEEP_SKIP_DIRS: ReadonlySet<string> = new Set(["node_modules", ".git"]);
 
 const strictRoot = (root: string): SpecRoot => ({ mirrorDir: root, specDir: root });
@@ -280,6 +293,7 @@ export const defaultStageDeps: StageDeps = {
     if ("bytes" in read) return read.bytes;
     throw new ConfinedPathError(rel, "reason" in read ? read.reason : "the file is not there");
   },
+/* mutation-scope:end sweep-skip-dirs */
   writeFile: (path, data, root) => writeOwnedSpecFile(strictRoot(root), below(root, path), data),
   now: () => Date.now(),
 };

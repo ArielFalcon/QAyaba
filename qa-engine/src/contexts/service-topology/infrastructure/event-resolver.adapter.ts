@@ -46,6 +46,7 @@ export class EventResolver implements ServiceBoundaryResolverPort {
     }
 
     const occurrences: RepoOccurrence[] = [];
+    /* mutation-scope:begin pool-read */
     for (const repo of pool) {
       const reader = new RepoReader(repo.mirrorDir);
       for (const relFile of reader.files((name) => this.isEventFile(name), SKIP_VENDOR_DIRS)) {
@@ -57,6 +58,7 @@ export class EventResolver implements ServiceBoundaryResolverPort {
       }
       reader.warn(repo.repo);
     }
+    /* mutation-scope:end pool-read */
 
     const modelOfBrokerInterface = new Map<string, string>();
     for (const o of occurrences) {

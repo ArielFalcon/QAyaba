@@ -266,6 +266,7 @@ export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
     const ingress: IngressOp[] = [];
     const knownServices = new Set<string>();
     const repoOfService = new Map<string, RepoRef>();
+    /* mutation-scope:begin system-scan */
     for (const repo of system) {
       const reader = new RepoReader(repo.mirrorDir);
       const content = reader.optionalText(this.profile.openApiPath, MAX_TOPOLOGY_OPENAPI_BYTES);
@@ -287,6 +288,7 @@ export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
     frontReader.warn(front.repo);
     const consts = buildConstMap(apiFiles);
     const egress = await extractEgress(apiFiles, consts, this.profile.frontCallSite);
+    /* mutation-scope:end system-scan */
 
     const links: ServiceLink[] = [];
     const drift: ContractDrift[] = [];

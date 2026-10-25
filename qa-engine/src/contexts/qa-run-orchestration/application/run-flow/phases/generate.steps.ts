@@ -101,12 +101,14 @@ export async function generateFirstPass(state: Readonly<RunState>, ctx: Workspac
   const { generating, diff: classificationDiff } = state.classification;
   const { authSeedUnauthored } = state.setup;
   const { baseEnrichment } = state.grounding;
+  /* mutation-scope:begin regression-run-stand-in */
   deps.observer?.onStep("generate", generating ? undefined : "regression: running the existing suite, not generating");
   /* A regression run generates nothing: a stand-in with no generation end, never one a generation could return. */
   let generated = state.generation.generated;
   if (!generating) {
     generated = { specs: [], approved: true, reviewed: false, end: null };
   } else {
+  /* mutation-scope:end regression-run-stand-in */
     /*
      * A stock seed that did not sign in reaches the generator as its own fact in every mode (the
      * prompt builders render the rewrite instruction); the Context Pack stays grounding-only.
@@ -224,10 +226,14 @@ export async function groundBeforeExecution(state: Readonly<RunState>, ctx: Work
   let preExecAmbiguityCatches = 0;
   let catalogGateInWindow = 0;
   let catalogGateAdvisory = 0;
+  /* mutation-scope:begin fail-closed-counter */
   let catalogGateFailClosed = 0;
+  /* mutation-scope:end fail-closed-counter */
   const runPreExecGrounding = async (): Promise<{ corrections: string[]; attributedSpecFiles: string[] }> => {
     if (!deps.preExecGrounding) return { corrections: [], attributedSpecFiles: [] };
+    /* mutation-scope:begin pre-exec-capture-and-check */
     const { specFiles, specSources, routes } = await deps.preExecGrounding.capture(workspace.specDir, signal);
+    /* mutation-scope:end pre-exec-capture-and-check */
     const result = checkPreExecGrounding({ specSources, routes });
     preExecAmbiguityCatches += result.preExecAmbiguityCatches;
     if (result.ambiguities.length > 0) {
@@ -235,10 +241,12 @@ export async function groundBeforeExecution(state: Readonly<RunState>, ctx: Work
       console.warn(text);
       deps.observer?.onEvent({ type: "log.line", level: "warn", text });
     }
+    /* mutation-scope:begin catalog-gate-counters */
     catalogGateInWindow += result.catalogGateInWindow;
     catalogGateAdvisory += result.catalogGateAdvisory;
     catalogGateFailClosed += result.catalogGateFailClosed;
     ctx.ends.noteGroundingGates(result);
+    /* mutation-scope:end catalog-gate-counters */
     return { corrections: result.corrections, attributedSpecFiles: attributeContradictions(result.corrections, result.origins, specFiles) };
   };
   let generated = state.generation.generated;

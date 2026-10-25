@@ -72,6 +72,7 @@ export async function loopClosedNow(ctx: WorkspaceRunContext): Promise<boolean> 
 export async function closedLoopSignal(ctx: WorkspaceRunContext): Promise<ClosedLoopGateSignal | undefined> {
   const { closedLoop } = ctx.trail;
   return closedLoop ? { ...closedLoop.signals(), closed: await loopClosedNow(ctx) } : undefined;
+/* mutation-scope:begin lead-regeneration-routing */
 }
 
 /* One regeneration by the lead alone over what the run has delivered so far; what it delivers joins that. */
@@ -82,6 +83,7 @@ export async function regenerateByLead(state: Readonly<RunState>, ctx: Workspace
     ...geolocationEnrichment(ctx),
     ...enrichment,
     ...(generation.delivered.length > 0 ? { deliveredSpecs: generation.delivered } : {}),
+/* mutation-scope:end lead-regeneration-routing */
   }));
   generation.delivered = mergeDeliveredSpecs(generation.delivered, regenerated, "lead");
   return regenerated;

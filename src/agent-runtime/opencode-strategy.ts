@@ -85,6 +85,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
    * one that is not a safe positive integer is absent, with a warning that names it; a read that fails answers no
    * limit for any role, with one warning. The caller reads once per run.
    */
+  /* mutation-scope:begin step-limit-read */
   async stepLimits(directory: string): Promise<StepLimits> {
     let listed: ReadonlyArray<AgentCap>;
     try {
@@ -100,6 +101,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
       const limit = enforcedStepLimit(capOf.get(agent));
       if (limit === undefined) console.warn(noLimitWarning(role, agent, capOf));
       else limits[role] = limit;
+  /* mutation-scope:end step-limit-read */
     }
     return limits;
   }
@@ -155,6 +157,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   private deps(): Promise<AgentDeps> {
     this.depsPromise ??= this.depsFactory();
     return this.depsPromise;
+  /* mutation-scope:begin dispose-without-limit */
   }
 }
 
@@ -164,6 +167,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
  * that cannot be a limit (the warning then carries it).
  */
 function noLimitWarning(role: AgentRole, agent: string, capOf: ReadonlyMap<string, unknown>): string {
+  /* mutation-scope:end dispose-without-limit */
   const cap = capOf.get(agent);
   const problem = !capOf.has(agent)
     ? `does not list its agent '${agent}' (it lists ${JSON.stringify([...capOf.keys()])})`

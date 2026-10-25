@@ -62,6 +62,7 @@ export class HttpBackendResolver implements ServiceBoundaryResolverPort {
       pool.push(repo);
     }
 
+    /* mutation-scope:begin readers-and-ingress */
     const readers = new Map<string, RepoReader>(pool.map((repo) => [repo.repo, new RepoReader(repo.mirrorDir)]));
     const ingress: IngressOp[] = [];
     const knownServices = new Set<string>();
@@ -74,18 +75,21 @@ export class HttpBackendResolver implements ServiceBoundaryResolverPort {
       repoOfService.set(service, repo);
       ingress.push(...parseOpenApiYaml(service, content));
     }
+    /* mutation-scope:end readers-and-ingress */
 
     const links: ServiceLink[] = [];
     const drift: ContractDrift[] = [];
     const external: ExternalCall[] = [];
     const unresolved: UnresolvedCall[] = [];
 
+    /* mutation-scope:begin pool-scan */
     for (const repo of pool) {
       const reader = readers.get(repo.repo)!;
       for (const relFile of reader.files((name) => this.isSourceFile(name), SKIP_VENDOR_DIRS)) {
         const text = reader.listedText(relFile, MAX_TOPOLOGY_SOURCE_BYTES);
         if (text === undefined) continue;
         for (const occ of extractor(text, this.profile.callPattern)) {
+    /* mutation-scope:end pool-scan */
           const path = resolveLiteralPath(occ.rawArg);
           const fromSymbol = occ.enclosingMethod ?? occ.enclosingClass ?? occ.rawArg;
           const fromRef: ServiceSymbolRef = { repo: repo.repo, file: relFile, symbol: fromSymbol };
@@ -127,7 +131,9 @@ export class HttpBackendResolver implements ServiceBoundaryResolverPort {
             drift.push({ from: fromRef, verb, path });
           }
         }
+      /* mutation-scope:begin reader-warning */
       }
+      /* mutation-scope:end reader-warning */
       reader.warn(repo.repo);
     }
 

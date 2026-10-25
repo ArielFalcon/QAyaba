@@ -96,6 +96,7 @@ export interface CodexTokenUsage {
  * turn's tokens in the shape OpenCode reports (input WITHOUT the cache, see normalizeOpenCodeUsage), so Codex's are put in that
  * shape here, once, and one normalization serves both runtimes. Codex does not report cache writes: none are claimed.
  */
+/* mutation-scope:begin codex-usage-normalization */
 export function codexUsageAsRuntime(usage: CodexTokenUsage): RuntimeTokenUsage {
   const cached = Math.min(usage.cachedInputTokens, usage.inputTokens);
   return { input: usage.inputTokens - cached, output: usage.outputTokens, reasoning: usage.reasoningOutputTokens, cacheRead: cached, cacheWrite: 0 };
@@ -105,3 +106,4 @@ export function codexUsageAsRuntime(usage: CodexTokenUsage): RuntimeTokenUsage {
 export function normalizeCodexUsage(usage: CodexTokenUsage): ConventionTokenUsage {
   return normalizeOpenCodeUsage(codexUsageAsRuntime(usage));
 }
+/* mutation-scope:end codex-usage-normalization */

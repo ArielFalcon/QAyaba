@@ -133,9 +133,11 @@ export async function validateStatically(state: Readonly<RunState>, ctx: Workspa
       return { end: await ctx.ends.aborted(workspace.mirrorDir) };
     }
     staticFixRounds++;
+    /* mutation-scope:begin static-fix-round */
     retries++;
     deps.observer?.onStep("retry", `static-fix round ${staticFixRounds}/${MAX_STATIC_FIX_ROUNDS}`);
     /* Repair regen reuses the same classificationDiff/intent as the initial generate(). */
+    /* mutation-scope:end static-fix-round */
     const staticGateErrorDetail = stripAnsi(validation.errors.join("\n\n")).slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
     lastGenerated = await regenerate(state, ctx, signal, {
       fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],

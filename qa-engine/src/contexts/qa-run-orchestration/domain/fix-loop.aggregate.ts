@@ -194,7 +194,9 @@ function normalizeSpecPath(path: string): string {
 }
 
 /* An accepted round's execution replaces its changed files' cases; every other file keeps its last result. The merged verdict is never greener than the execution that just ran. */
+/* mutation-scope:begin accepted-round-changed-set */
 function mergeAcceptedRound(current: FixLoopRun, outcome: Extract<FixLoopAcceptanceOutcome, { kind: "accepted" }>): FixLoopRun {
+/* mutation-scope:end accepted-round-changed-set */
   const changed = new Set(outcome.changedSpecFiles.map(normalizeSpecPath));
   const reported = new Set(
     (outcome.execution?.cases ?? [])

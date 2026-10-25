@@ -319,8 +319,10 @@ export async function reviewTests(state: Readonly<RunState>, ctx: WorkspaceRunCo
      * and the retry spends no DEV time because the contract is checked before validation and execution. The bound is
      * per round, so the review loop's own round budget still caps the whole phase.
      */
+    /* mutation-scope:begin contract-feedback-round */
     let contractFeedback: readonly ContractFeedback[] | undefined;
     for (let attempt = 0; ; attempt++) {
+    /* mutation-scope:end contract-feedback-round */
       /* A refused attempt's files were restored, so its delivery must not survive into the next one. */
       generation.delivered = deliveredBefore;
       const pass = ctx.trail.coordinatedPass;

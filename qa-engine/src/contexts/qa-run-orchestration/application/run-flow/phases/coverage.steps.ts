@@ -91,7 +91,9 @@ export async function regenerateForCoverage(state: Readonly<RunState>, ctx: Work
   try {
     const gap = renderCoverageGap(state.coverage.uncovered);
     const snapshot = await snapshotSuite();
+    /* mutation-scope:begin delivered-before-coverage-regen */
     const deliveredBefore = generation.delivered;
+    /* mutation-scope:end delivered-before-coverage-regen */
     const regen = await regenerate(state, ctx, undefined, { coverageGap: gap }, CORRECTION_ORIGIN.COVERAGE);
     await services.confinement.enforce();
     const changedFiles = await suiteChangedFiles(snapshot, regen.specs);

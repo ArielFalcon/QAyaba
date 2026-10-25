@@ -99,6 +99,7 @@ export function auditProcess(input: AuditInput): ProcessFinding[] {
         kind: "recurring-step-exhaustion",
         disposition: "observe",
         severity: "warn",
+        /* mutation-scope:begin recurring-class-summary */
         summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the agent keeps running out of steps without reporting any spec; visibility only, never an engine fix.`,
         evidence,
       });
@@ -107,6 +108,7 @@ export function auditProcess(input: AuditInput): ProcessFinding[] {
         kind: "recurring-time-exhaustion",
         disposition: "observe",
         severity: "warn",
+        /* mutation-scope:end recurring-class-summary */
         summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the runs keep ending on their time budget (a generator turn or the whole run's deadline); visibility only, never an engine fix or a learned rule.`,
         evidence,
       });
