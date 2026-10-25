@@ -3692,6 +3692,20 @@ test("a stored map from another sha is not used when a route declaration it name
   assert.deepEqual(requested, ["sha-run"]);
 });
 
+test("a context run, which is the rebuild, never asks for another one", async () => {
+  const app = storedMapApp("context-run");
+  const requested: string[] = [];
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, contextMapChanges: () => [{ status: "M", path: "src/shops.routes.ts" }], enqueueContextRun: (r) => { requested.push(r.sha); return "run-heal"; } },
+    "qa-bot-run1",
+    { mode: "context", sha: "sha-run" },
+  );
+  config.groundingCollaborators?.loadContextMap?.("/nowhere");
+  await flushMicrotasks();
+  assert.deepEqual(requested, []);
+});
+
 test("a map that does not fit asks for its rebuild once per commit, however soon the next run comes", async () => {
   const app = storedMapApp("once-per-commit");
   const requested: string[] = [];

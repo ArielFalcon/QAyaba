@@ -919,10 +919,10 @@ export function buildRewrittenCompositionConfig(
 
   /* Where the map the run actually used came from, and how fresh it was (observe-only). */
   let mapProvenance: ContextProvenance | undefined;
-  /* An off-path rebuild for a map stale by SHA/age, asked once per app and commit. The
-   * process-audit flag keeps its own path above; this one never clears that flag. */
+  /* An off-path rebuild for a map stale by SHA/age, asked once per app and commit, never by a context run (it is the rebuild).
+   * The process-audit flag keeps its own path above; this one never clears that flag. */
   const requestMapHealIfDue = (): void => {
-    if (!mapProvenance?.stale) return;
+    if (!mapProvenance?.stale || run.mode === "context") return;
     const key = `${app.name}@${run.sha ?? ""}`;
     if (campaignFrozen || contextHealRequested.has(key)) {
       mapProvenance = { ...mapProvenance, recapture: "skipped" };
