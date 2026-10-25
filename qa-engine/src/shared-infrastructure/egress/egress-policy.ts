@@ -95,9 +95,6 @@ export function compileEgressPolicy(origins: readonly string[]): EgressPolicy {
   return build(origins.map(compileOrigin));
 }
 
-export function mergeEgressPolicies(policies: readonly EgressPolicy[]): EgressPolicy {
-  return build(policies.flatMap((policy) => policy.rules));
-}
 
 /* `scheme://host[:port]` of a URL, or undefined when it is not an http(s) URL. */
 export function originOf(url: string): string | undefined {

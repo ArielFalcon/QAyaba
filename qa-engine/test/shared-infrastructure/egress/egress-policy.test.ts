@@ -1,7 +1,7 @@
 /* What a sandboxed child may reach is a list of declared origins, compiled once into rules the proxy and the DNS filter ask. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compileEgressPolicy, EgressPolicyError, mergeEgressPolicies, originOf } from "../../../src/shared-infrastructure/egress/egress-policy.ts";
+import { compileEgressPolicy, EgressPolicyError, originOf } from "../../../src/shared-infrastructure/egress/egress-policy.ts";
 
 test("an origin allows its host on its port, and the scheme's default port when none is written", () => {
   const policy = compileEgressPolicy(["https://dev.example.com", "http://plain.example.com", "https://alt.example.com:8443"]);
@@ -61,14 +61,6 @@ test("an IP literal is an origin of the plain-http kind only, since a TLS handsh
   const policy = compileEgressPolicy(["http://10.0.0.5:8080"]);
   assert.equal(policy.allows("10.0.0.5", 8080), true);
   assert.throws(() => compileEgressPolicy(["https://10.0.0.5"]), EgressPolicyError);
-});
-
-test("merging policies allows what any of them allows", () => {
-  const merged = mergeEgressPolicies([compileEgressPolicy(["https://a.example.com"]), compileEgressPolicy(["https://b.example.com"])]);
-  assert.equal(merged.allows("a.example.com", 443), true);
-  assert.equal(merged.allows("b.example.com", 443), true);
-  assert.equal(merged.allows("c.example.com", 443), false);
-  assert.equal(mergeEgressPolicies([]).allows("a.example.com", 443), false);
 });
 
 test("originOf reduces a URL to its origin and refuses what is not one", () => {
