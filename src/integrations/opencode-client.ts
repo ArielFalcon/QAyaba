@@ -112,7 +112,14 @@ interface AgentsConfigEntry {
   reported: Set<string>;
 }
 
-const DEFAULT_AGENTS_CONFIG_PATH = (): string => join(process.cwd(), "agents", "opencode.json");
+/* The agents config the readers below use when a caller names none; absent: agents/opencode.json under the working directory. A host or a test that keeps its roster elsewhere names it here. */
+let injectedAgentsConfigPath: string | undefined;
+
+export function setAgentsConfigPath(path: string | undefined): void {
+  injectedAgentsConfigPath = path;
+}
+
+const DEFAULT_AGENTS_CONFIG_PATH = (): string => injectedAgentsConfigPath ?? join(process.cwd(), "agents", "opencode.json");
 
 /* Parsed per file and per version of the file (modification time + size): the step limit is asked for on every turn, the fallback model on every prompt. */
 const agentsConfigCache = new Map<string, AgentsConfigEntry>();

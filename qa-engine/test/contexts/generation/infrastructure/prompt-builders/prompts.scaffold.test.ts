@@ -10,6 +10,11 @@ import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { FactId, PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
+
+/* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
+setAgentsConfigPath(rosterFixturePath());
 
 
 const SEEDED_DIFF = [

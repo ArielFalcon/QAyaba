@@ -387,9 +387,9 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/opencode-strategy.ts:158-166",
       "src/agent-runtime/facades.ts:49-51",
       "src/agent-runtime/facades.ts:103-115",
-      "src/integrations/opencode-client.ts:210-211",
-      "src/integrations/opencode-client.ts:323-325",
-      "src/integrations/opencode-client.ts:333-343",
+      "src/integrations/opencode-client.ts:217-218",
+      "src/integrations/opencode-client.ts:330-332",
+      "src/integrations/opencode-client.ts:340-350",
       /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
       "src/server/rewritten-engine-factory.ts:559-591",
     ],

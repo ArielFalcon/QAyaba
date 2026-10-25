@@ -19,6 +19,11 @@ import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { OpencodeRunInput, ReviewInput, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { BUILT_IN_EXEMPLARS } from "@kernel/scenario-catalog.ts";
+import { setAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { rosterFixturePath } from "../../../../support/roster-fixture.ts";
+
+/* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
+setAgentsConfigPath(rosterFixturePath());
 
 
 /* Regeneration prompts must NOT command the agent to re-navigate / re-snapshot / re-activate

@@ -14,6 +14,13 @@ import type { AppConfig } from "../orchestrator/config-loader";
 import type { CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root";
 import type { StepLimitRole } from "@contexts/generation/application/ports/generation-ports";
 import { BYTES_PER_TOKEN, INPUT_PROMPT_SAFETY_MARGIN, modelWindowBytes, roleWindowBytes, setLiveModelWindows, setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
+import { setAgentsConfigPath } from "../integrations/opencode-client";
+
+/* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
+setCatalogAgentsConfigPath(rosterFixturePath());
+setAgentsConfigPath(rosterFixturePath());
 
 const APP: AppConfig = {
   name: "step-limit-app",

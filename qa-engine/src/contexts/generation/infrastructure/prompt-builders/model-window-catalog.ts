@@ -100,6 +100,13 @@ export function setRuntimeRoleModels(models: RuntimeRoleModels | undefined): voi
   injectedRuntimeModels = models;
 }
 
+/* The agents config a role's window is resolved from when a caller names none; absent: agents/opencode.json under the working directory. A host or a test that keeps its roster elsewhere names it here. */
+let injectedAgentsConfigPath: string | undefined;
+
+export function setAgentsConfigPath(path: string | undefined): void {
+  injectedAgentsConfigPath = path;
+}
+
 /* Best-effort read of a role's model directly from agents/opencode.json — used both by the ordinary fallback path (non-visible roles, or no injected assignment) AND by the disagreement check below. Returns undefined on ANY failure (missing file, unparseable JSON, absent role/model) — never throws. */
 function readOpencodeJsonModel(role: string, configPath: string): string | undefined {
   try {
@@ -118,7 +125,7 @@ export function roleWindowBytes(
   role: string,
   agentsConfigPath?: string,
 ): number {
-  const configPath = agentsConfigPath ?? join(process.cwd(), "agents", "opencode.json");
+  const configPath = agentsConfigPath ?? injectedAgentsConfigPath ?? join(process.cwd(), "agents", "opencode.json");
 
   const runtimeRole = AGENT_TO_RUNTIME_ROLE[role];
   if (runtimeRole && injectedRuntimeModels) {

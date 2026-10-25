@@ -9,6 +9,11 @@ import {
   roleWindowBytes,
   setRuntimeRoleModels,
 } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { rosterFixturePath } from "../integrations/fixtures/opencode-roster";
+
+/* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
+setCatalogAgentsConfigPath(rosterFixturePath());
 
 function memoryFs(initial = ""): EnvStoreFs & { content: string } {
   return {

@@ -35,6 +35,11 @@ import type { ArchitectureContext, OpencodeRunInput, ReviewInput } from "@contex
 import { SERENA_WRITE_TOOL_NAMES } from "@contexts/generation/domain/tool-call-taxonomy";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import { ANTI_WEAKENING_RULE, OBJECTIVE_QUESTION } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { setAgentsConfigPath as setCatalogAgentsConfigPath } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
+import { rosterFixturePath } from "./fixtures/opencode-roster";
+
+/* The roster is an input here: window budgets resolve from the roster fixture, never the deployable agents/opencode.json. */
+setCatalogAgentsConfigPath(rosterFixturePath());
 
 /* context.json is read from the WATCHED repo and committed by this system's own PRs, so it
    is attacker-influenceable. It must be sanitized before reaching the test-writing agent.
