@@ -98,6 +98,7 @@ test("resolveLinks: RestTemplate.exchange(\"/api/orders\", GET) joins to OpenAPI
     assert.equal(link.source, "http-backend-resolver");
     assert.equal(link.confidence, 1.0);
     assert.equal(link.contractRef, "listOrders");
+    assert.deepEqual(link.operation, { verb: "GET", path: "/api/orders" }, "the link names the contract operation it calls");
     assert.equal(link.from.repo, payments.repo);
     assert.equal(link.from.file, "src/main/java/com/example/OrderGateway.java");
     assert.equal(link.from.symbol, "listOrders");

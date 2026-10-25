@@ -892,6 +892,7 @@ export interface ServiceLink {
   to: ServiceSymbolRef;
   transport: "http" | "event" | "rpc";
   contractRef?: string;
+  operation?: { verb: string; path: string };
   confidence: number;
   source: string;
 }

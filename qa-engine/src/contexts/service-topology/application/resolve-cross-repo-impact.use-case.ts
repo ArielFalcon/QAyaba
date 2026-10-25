@@ -8,7 +8,7 @@ import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/gi
 import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { ServiceLink } from "../domain/index.ts";
-import { MATCH_TIER, type CrossRepoImpact, type ImpactedLink } from "../domain/cross-repo-impact.ts";
+import { MATCH_TIER, routeServesOperation, type CrossRepoImpact, type ImpactedLink } from "../domain/cross-repo-impact.ts";
 
 /** Minimal read-side VCS surface — structural match to VcsReadPort.blastRadius without importing that context. */
 export interface CrossRepoVcsRead {
@@ -63,13 +63,24 @@ export class ResolveCrossRepoImpactUseCase {
         }
       }
 
+      /*
+       * Tier 2: a link is impacted when its operation is reached from a changed symbol (a changed handler counts: it is
+       * reached at depth 0), by either key. The operationId: a codegen interface, and the controller implementing it, name
+       * the method after it. The handler's verb and path: a hand-written controller's route node names them.
+       */
       const impactedRes = this.codeGraph ? await this.codeGraph.impactedSymbols(mirrorDir, blast, IMPACT_BUDGET) : undefined;
-      const impactedSyms = impactedRes?.ok ? impactedRes.value.symbols : [];
-      const symNames = new Set(impactedSyms.map((s) => s.symbol));
-      for (const link of candidateLinks) {
-        if (matchedKeys.has(this.linkKey(link))) continue;
-        const joinKey = link.contractRef ?? link.to.symbol;
-        if (symNames.has(joinKey)) {
+      const reached = impactedRes?.ok ? impactedRes.value.symbols : [];
+      const reachedNames = new Set(reached.map((s) => s.symbol));
+      const reachedRefs = new Set(reached.map((s) => `${s.file}::${s.symbol}`));
+      const pending = candidateLinks.filter((l) => !matchedKeys.has(this.linkKey(l)));
+      const reachedHandlers = this.codeGraph && reached.length > 0 && pending.some((l) => l.operation)
+        ? await this.reachedHandlerRoutes(this.codeGraph, mirrorDir, reachedRefs)
+        : [];
+      for (const link of pending) {
+        const byOperationId = reachedNames.has(link.contractRef ?? link.to.symbol);
+        const operation = link.operation;
+        const byRoute = operation !== undefined && reachedHandlers.some((route) => routeServesOperation(route, operation));
+        if (byOperationId || byRoute) {
           impactedLinks.push({ link, tier: MATCH_TIER.IMPACTED_SYMBOL });
           matchedKeys.add(this.linkKey(link));
         }
@@ -83,6 +94,13 @@ export class ResolveCrossRepoImpactUseCase {
       console.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, advisory-only):", err);
       return null;
     }
+  }
+
+  /* The backend routes whose handler the walk reached. An unavailable route list matches nothing. */
+  private async reachedHandlerRoutes(codeGraph: CodeGraphPort, mirrorDir: string, reachedRefs: ReadonlySet<string>): Promise<{ method: string; path: string }[]> {
+    const routes = await codeGraph.routes(mirrorDir);
+    if (!routes.ok) return [];
+    return routes.value.flatMap((r) => (r.method !== undefined && r.target && reachedRefs.has(`${r.target.file}::${r.target.symbol}`) ? [{ method: r.method, path: r.path }] : []));
   }
 
   private linkKey(link: ServiceLink): string {

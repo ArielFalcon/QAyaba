@@ -337,6 +337,7 @@ export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
           to: toRef,
           transport: "http",
           contractRef: op.operationId,
+          operation: { verb: op.verb, path: op.path },
           confidence,
           source: "openapi-http",
         });

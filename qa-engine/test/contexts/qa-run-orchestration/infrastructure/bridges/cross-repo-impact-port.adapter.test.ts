@@ -19,7 +19,7 @@ import type { VcsReadPort } from "@contexts/change-analysis/application/ports/in
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
-import { ok } from "@kernel/result.ts";
+import { ok, err } from "@kernel/result.ts";
 import { closeGitDir } from "../../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
 import { UntrustedGitTreeError } from "../../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 
@@ -97,7 +97,11 @@ class FakeVcs implements VcsReadPort {
 
 class FakeCodeGraph implements CodeGraphPort {
   calls = 0;
-  constructor(private readonly reached: { file: string; symbol: string }[] = []) {}
+  routesCalls = 0;
+  constructor(
+    private readonly reached: { file: string; symbol: string }[] = [],
+    private readonly graphRoutes: Awaited<ReturnType<CodeGraphPort["routes"]>> = ok([]),
+  ) {}
   async syncTo(repo: string, sha: string): ReturnType<CodeGraphPort["syncTo"]> {
     return { repo, engine: "fake", engineVersion: "1", sha, outcome: "built", durationMs: 0, nodeCount: 1, edgeCount: 0 };
   }
@@ -106,7 +110,7 @@ class FakeCodeGraph implements CodeGraphPort {
     return ok({ indexedSha: TRIGGER_SHA, symbols: this.reached.map((s) => ({ ...s, kind: "method", depth: 0 })), truncated: false });
   }
   async callersOf(): ReturnType<CodeGraphPort["callersOf"]> { return ok({ indexedSha: TRIGGER_SHA, symbols: [], truncated: false }); }
-  async routes(): ReturnType<CodeGraphPort["routes"]> { return ok([]); }
+  async routes(): ReturnType<CodeGraphPort["routes"]> { this.routesCalls++; return this.graphRoutes; }
 }
 
 function makeAdapter(opts: {
@@ -420,5 +424,51 @@ describe("CrossRepoImpactPortAdapter — cheap pre-filter", () => {
 
     assert.equal(result, null);
     assert.equal(mirrorDirCalls, 0, "an empty links array must short-circuit before any mirror lookup");
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   Tier 2 by the handler's verb and path: a hand-written controller names no operationId, so a link
+   is impacted when the walk reached the handler whose route serves the link's operation.
+   ════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("CrossRepoImpactPortAdapter — tier 2 by the handler's route", () => {
+  const CONTROLLER = "src/main/java/demo/web/RestaurantController.java";
+  const handwrittenLink: ServiceLink = {
+    ...matchingLink,
+    contractRef: "listRestaurants",
+    to: { ...matchingLink.to, symbol: "listRestaurants" },
+    operation: { verb: "GET", path: "/api/restaurants/{restaurantId}" },
+  };
+  const route = (method: string, path: string, symbol = "show") => ({ file: CONTROLLER, line: 10, method, path, target: { file: CONTROLLER, symbol, kind: "method" } });
+
+  async function resolveWith(codeGraph: FakeCodeGraph, links: ServiceLink[] = [handwrittenLink]) {
+    const adapter = makeAdapter({
+      mirrors: new FakeMirrorRegistry({ [TRIGGER_REPO]: MIRROR_DIR }),
+      vcs: new FakeVcs(BlastRadius.of(Sha.of(TRIGGER_SHA), ["src/main/java/demo/service/RestaurantService.java"])),
+      codeGraph,
+      runner: new RecordingRunner(),
+    });
+    return adapter.resolve(TRIGGER_REPO, TRIGGER_SHA, links);
+  }
+
+  test("a reached handler whose route serves the link's operation impacts the link, a prefix on one side tolerated", async () => {
+    const result = await resolveWith(new FakeCodeGraph([{ file: CONTROLLER, symbol: "show" }], ok([route("GET", "/restaurants/{id}")])));
+    assert.equal(result?.impactedLinks.length, 1);
+    assert.equal(result?.impactedLinks[0]?.tier, "impacted-symbol", "the tier vocabulary is unchanged");
+  });
+
+  test("a route of another verb, or whose handler the walk did not reach, impacts nothing", async () => {
+    assert.equal(await resolveWith(new FakeCodeGraph([{ file: CONTROLLER, symbol: "show" }], ok([route("DELETE", "/restaurants/{id}")]))), null);
+    assert.equal(await resolveWith(new FakeCodeGraph([{ file: CONTROLLER, symbol: "other" }], ok([route("GET", "/restaurants/{id}")]))), null);
+  });
+
+  test("an unavailable route list leaves the operationId key alone, and nothing is asked when no link names an operation", async () => {
+    const unavailable = new FakeCodeGraph([{ file: CONTROLLER, symbol: "listRestaurants" }], err({ reason: "x" }));
+    assert.equal((await resolveWith(unavailable))?.impactedLinks.length, 1, "the operationId still matches");
+
+    const noOperation = new FakeCodeGraph([{ file: CONTROLLER, symbol: "show" }], ok([route("GET", "/restaurants/{id}")]));
+    assert.equal(await resolveWith(noOperation, [{ ...handwrittenLink, operation: undefined }]), null);
+    assert.equal(noOperation.routesCalls, 0);
   });
 });

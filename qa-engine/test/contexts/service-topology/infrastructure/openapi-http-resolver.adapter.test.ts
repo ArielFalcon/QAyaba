@@ -53,6 +53,7 @@ test("resolveLinks: matched call produces a ServiceLink with correct operationId
   assert.equal(link.to.repo, backendRepo.repo);
   assert.equal(link.confidence, 1);
   assert.equal(link.source, "openapi-http");
+  assert.deepEqual(link.operation, { verb: "GET", path: "/orders" }, "the link names the contract operation it calls");
 });
 
 /* ---- walk() must SKIP vendor/build directories (node_modules, .git, dist, build,

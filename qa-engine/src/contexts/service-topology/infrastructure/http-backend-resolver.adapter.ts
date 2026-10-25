@@ -119,6 +119,7 @@ export class HttpBackendResolver implements ServiceBoundaryResolverPort {
               },
               transport: "http",
               contractRef: op.operationId,
+              operation: { verb: op.verb, path: op.path },
               confidence: 1.0,
               source: "http-backend-resolver",
             });

@@ -19,6 +19,8 @@ export interface ServiceLink {
   to: ServiceSymbolRef;
   transport: "http" | "event" | "rpc";
   contractRef?: string;
+  /** The contract operation an HTTP link calls: its verb (upper case) and its path as the contract declares it. */
+  operation?: { verb: string; path: string };
   confidence: number;
   source: string;
 }
